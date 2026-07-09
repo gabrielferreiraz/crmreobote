@@ -1,0 +1,365 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Multi-tenancy root ─────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  users           OrganizationUser[]
+  pipelines       Pipeline[]
+  contacts        Contact[]
+  deals           Deal[]
+  tasks           Task[]
+  activities      Activity[]
+  lossReasons     LossReason[]
+  teams           Team[]
+  automationRules AutomationRule[]
+}
+
+// ─── Usuários ────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  createdAt     DateTime  @default(now())
+
+  accounts   Account[]
+  sessions   Session[]
+  orgs       OrganizationUser[]
+  dealsOwned Deal[]
+  tasksOwned Task[]
+  activities Activity[]
+  teamsLed   Team[]
+}
+
+model OrganizationUser {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(MEMBER)
+  teamId         String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@index([teamId])
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// ─── Equipes ─────────────────────────────────────────────────────────
+
+model Team {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  leaderId       String?
+  createdAt      DateTime @default(now())
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leader       User?              @relation(fields: [leaderId], references: [id], onDelete: SetNull)
+  members      OrganizationUser[]
+
+  @@index([organizationId])
+}
+
+// ─── Auth.js (NextAuth v5) ───────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Pipeline (Funil) ────────────────────────────────────────────────
+
+model Pipeline {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  isDefault      Boolean  @default(false)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stages       PipelineStage[]
+  deals        Deal[]
+
+  @@index([organizationId])
+}
+
+model PipelineStage {
+  id         String   @id @default(cuid())
+  pipelineId String
+  name       String
+  order      Int
+  color      String?
+  createdAt  DateTime @default(now())
+
+  pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  deals    Deal[]
+
+  @@index([pipelineId, order])
+}
+
+// ─── Contatos ────────────────────────────────────────────────────────
+
+model Contact {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  name               String
+  email              String?
+  phone              String?
+  whatsapp           String?
+  phoneNormalized    String?
+  whatsappNormalized String?
+  source             String?
+  company            String?
+  jobTitle           String?
+  tags               String[] @default([])
+  createdAt          DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals        Deal[]
+  tasks        Task[]
+  activities   Activity[]
+
+  @@unique([organizationId, phoneNormalized])
+  @@unique([organizationId, whatsappNormalized])
+  @@index([organizationId])
+  @@index([organizationId, phone])
+}
+
+// ─── Motivos de perda ────────────────────────────────────────────────
+
+model LossReason {
+  id             String   @id @default(cuid())
+  organizationId String
+  label          String
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals        Deal[]
+
+  @@index([organizationId])
+}
+
+// ─── Negócio (Deal) ──────────────────────────────────────────────────
+
+model Deal {
+  id             String @id @default(cuid())
+  organizationId String
+  pipelineId     String
+  stageId        String
+  contactId      String
+  ownerId        String
+
+  name   String
+  status DealStatus @default(OPEN)
+
+  value Decimal? @db.Decimal(12, 2)
+
+  creditType   String?
+  creditTerm   Int?
+  groupNumber  String?
+  quota        String?
+  contemplated Boolean @default(false)
+
+  startedAt       DateTime  @default(now())
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  stageEnteredAt  DateTime  @default(now())
+
+  description  String?
+  lossReasonId String?
+  lostReason   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline     Pipeline      @relation(fields: [pipelineId], references: [id])
+  stage        PipelineStage @relation(fields: [stageId], references: [id])
+  contact      Contact       @relation(fields: [contactId], references: [id])
+  owner        User          @relation(fields: [ownerId], references: [id])
+  lossReason   LossReason?   @relation(fields: [lossReasonId], references: [id])
+  tasks        Task[]
+  activities   Activity[]
+
+  @@index([organizationId, pipelineId, stageId])
+  @@index([organizationId, status])
+  @@index([organizationId, ownerId])
+  @@index([organizationId, lossReasonId])
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+// ─── Tarefas ─────────────────────────────────────────────────────────
+
+model Task {
+  id             String    @id @default(cuid())
+  organizationId String
+  dealId         String?
+  contactId      String?
+  ownerId        String
+  type           TaskType
+  title          String
+  description    String?
+  dueAt          DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact      Contact?     @relation(fields: [contactId], references: [id])
+  owner        User         @relation(fields: [ownerId], references: [id])
+
+  @@index([organizationId, ownerId, dueAt])
+  @@index([organizationId, dealId])
+}
+
+enum TaskType {
+  CALL
+  WHATSAPP
+  EMAIL
+  MEETING
+  VISIT
+  PROPOSAL
+  NOTE
+  OTHER
+}
+
+// ─── Histórico de Atividades ─────────────────────────────────────────
+
+model Activity {
+  id             String       @id @default(cuid())
+  organizationId String
+  dealId         String?
+  contactId      String?
+  userId         String
+  type           ActivityType
+  body           String?
+  createdAt      DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact      Contact?     @relation(fields: [contactId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, dealId, createdAt])
+}
+
+enum ActivityType {
+  NOTE
+  EMAIL
+  CALL
+  WHATSAPP
+  PROPOSAL
+  MEETING
+  VISIT
+}
+
+// ─── Automações ──────────────────────────────────────────────────────
+
+model AutomationRule {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  trigger        AutomationTrigger
+  triggerConfig  Json?
+  action         AutomationAction
+  actionConfig   Json?
+  enabled        Boolean           @default(true)
+  runCount       Int               @default(0)
+  lastRunAt      DateTime?
+  createdAt      DateTime          @default(now())
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions   AutomationExecution[]
+
+  @@index([organizationId])
+}
+
+model AutomationExecution {
+  id        String   @id @default(cuid())
+  ruleId    String
+  entityId  String
+  createdAt DateTime @default(now())
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, entityId])
+}
+
+enum AutomationTrigger {
+  DEAL_STALE
+  DEAL_CREATED
+  DEAL_WON
+  DEAL_LOST
+  TASK_OVERDUE
+  DEAL_STAGE_ENTERED
+  DEAL_NO_OPEN_TASK
+  CONTACT_NO_DEAL
+}
+
+enum AutomationAction {
+  CREATE_TASK
+  ADD_NOTE
+  MARK_LOST
+}

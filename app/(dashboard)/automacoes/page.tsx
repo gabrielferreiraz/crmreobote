@@ -1,0 +1,52 @@
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { runWithTenant } from "@/lib/tenant-context";
+import { AutomationsTable } from "./automations-table";
+
+export default async function AutomacoesPage() {
+  const session = await auth();
+  const organizationId = session!.user.organizationId!;
+  const isManager = session!.user.role === "OWNER" || session!.user.role === "ADMIN";
+
+  return runWithTenant(organizationId, async () => {
+    const [rulesRaw, pipelines, lossReasons] = await Promise.all([
+      prisma.automationRule.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.pipeline.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        include: { stages: { orderBy: { order: "asc" }, select: { id: true, name: true } } },
+      }),
+      prisma.lossReason.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        select: { id: true, label: true },
+      }),
+    ]);
+
+    const rules = rulesRaw.map((r) => ({
+      ...r,
+      triggerConfig: r.triggerConfig as Record<string, unknown> | null,
+      actionConfig: r.actionConfig as Record<string, unknown> | null,
+      lastRunAt: r.lastRunAt ? r.lastRunAt.toISOString() : null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Automações</h1>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Regras simples que economizam horas do time</p>
+        </div>
+        <AutomationsTable
+          initialRules={rules}
+          canManage={isManager}
+          pipelines={pipelines.map((p) => ({ id: p.id, name: p.name, stages: p.stages }))}
+          lossReasons={lossReasons}
+        />
+      </div>
+    );
+  });
+}
