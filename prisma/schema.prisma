@@ -37,13 +37,29 @@ model User {
   password      String?
   createdAt     DateTime  @default(now())
 
-  accounts   Account[]
-  sessions   Session[]
-  orgs       OrganizationUser[]
-  dealsOwned Deal[]
-  tasksOwned Task[]
-  activities Activity[]
-  teamsLed   Team[]
+  accounts          Account[]
+  sessions          Session[]
+  orgs              OrganizationUser[]
+  dealsOwned        Deal[]
+  tasksOwned        Task[]
+  activities        Activity[]
+  teamsLed          Team[]
+  pushSubscriptions PushSubscription[]
+}
+
+// ─── Notificações push (Web Push) ───────────────────────────────────
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model OrganizationUser {
@@ -356,10 +372,12 @@ enum AutomationTrigger {
   DEAL_STAGE_ENTERED
   DEAL_NO_OPEN_TASK
   CONTACT_NO_DEAL
+  SCHEDULED
 }
 
 enum AutomationAction {
   CREATE_TASK
   ADD_NOTE
   MARK_LOST
+  SEND_PUSH
 }

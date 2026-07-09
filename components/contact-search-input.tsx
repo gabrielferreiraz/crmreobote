@@ -50,9 +50,16 @@ export function ContactSearchInput({
     let cancelled = false;
     setLoading(true);
     const timeout = setTimeout(async () => {
-      const res = await fetch(`/api/contacts?q=${encodeURIComponent(query)}`);
-      if (res.ok && !cancelled) setResults(await res.json());
-      if (!cancelled) setLoading(false);
+      try {
+        const res = await fetch(`/api/contacts?q=${encodeURIComponent(query)}`);
+        if (res.ok && !cancelled) setResults(await res.json());
+      } catch {
+        // Falha de rede: cai no estado "nenhum contato encontrado" em vez de
+        // travar em "Buscando..." pra sempre.
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }, 200);
     return () => {
       cancelled = true;
@@ -186,26 +193,31 @@ function QuickCreateContactModal({
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        email: email || undefined,
-        phone: phone || undefined,
-        whatsapp: whatsapp || undefined,
-      }),
-    });
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          email: email || undefined,
+          phone: phone || undefined,
+          whatsapp: whatsapp || undefined,
+        }),
+      });
 
-    const data = await res.json().catch(() => ({}));
-    setLoading(false);
+      const data = await res.json().catch(() => ({}));
 
-    if (!res.ok) {
-      setError(data.error ?? "Erro ao criar contato");
-      return;
+      if (!res.ok) {
+        setError(data.error ?? "Erro ao criar contato");
+        return;
+      }
+
+      onCreated({ id: data.id, name: data.name, email: data.email, phone: data.phone });
+    } catch {
+      setError("Falha de conexão ao criar contato. Tente novamente.");
+    } finally {
+      setLoading(false);
     }
-
-    onCreated({ id: data.id, name: data.name, email: data.email, phone: data.phone });
   }
 
   return (

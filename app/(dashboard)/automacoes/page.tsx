@@ -9,7 +9,7 @@ export default async function AutomacoesPage() {
   const isManager = session!.user.role === "OWNER" || session!.user.role === "ADMIN";
 
   return runWithTenant(organizationId, async () => {
-    const [rulesRaw, pipelines, lossReasons] = await Promise.all([
+    const [rulesRaw, pipelines, lossReasons, membersRaw] = await Promise.all([
       prisma.automationRule.findMany({
         where: { organizationId },
         orderBy: { createdAt: "desc" },
@@ -23,6 +23,11 @@ export default async function AutomacoesPage() {
         where: { organizationId },
         orderBy: { order: "asc" },
         select: { id: true, label: true },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true } } },
       }),
     ]);
 
@@ -45,6 +50,7 @@ export default async function AutomacoesPage() {
           canManage={isManager}
           pipelines={pipelines.map((p) => ({ id: p.id, name: p.name, stages: p.stages }))}
           lossReasons={lossReasons}
+          members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name }))}
         />
       </div>
     );

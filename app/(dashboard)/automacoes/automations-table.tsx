@@ -17,8 +17,11 @@ type Trigger =
   | "TASK_OVERDUE"
   | "DEAL_STAGE_ENTERED"
   | "DEAL_NO_OPEN_TASK"
-  | "CONTACT_NO_DEAL";
-type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST";
+  | "CONTACT_NO_DEAL"
+  | "SCHEDULED";
+type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH";
+
+const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 type Rule = {
   id: string;
@@ -35,6 +38,7 @@ type Rule = {
 type StageOption = { id: string; name: string };
 type PipelineOption = { id: string; name: string; stages: StageOption[] };
 type LossReasonOption = { id: string; label: string };
+type MemberOption = { id: string; name: string };
 
 const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STALE: "Negócio parado",
@@ -45,6 +49,7 @@ const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STAGE_ENTERED: "Negócio entra em uma etapa",
   DEAL_NO_OPEN_TASK: "Negócio sem tarefa pendente",
   CONTACT_NO_DEAL: "Contato sem negócio",
+  SCHEDULED: "Agendamento (horário fixo)",
 };
 
 const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
@@ -56,12 +61,14 @@ const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
   DEAL_STAGE_ENTERED: "Dispara toda vez que um negócio entra na etapa escolhida — ótimo para cobrar retorno após enviar uma proposta.",
   DEAL_NO_OPEN_TASK: "Rede de segurança: pega negócios abertos há mais de N horas que ninguém agendou nenhuma tarefa de acompanhamento.",
   CONTACT_NO_DEAL: "Pega contatos (ex.: importados via planilha) que continuam sem nenhum negócio depois de N dias.",
+  SCHEDULED: "Dispara num horário recorrente (ex.: toda segunda às 8h), sem depender de nenhuma mudança em negócio. A checagem roda de hora em hora, então o disparo acontece em algum momento dentro da hora escolhida.",
 };
 
 const ACTION_LABELS: Record<Action, string> = {
   CREATE_TASK: "Criar tarefa",
   ADD_NOTE: "Registrar nota",
   MARK_LOST: "Marcar como perdido",
+  SEND_PUSH: "Enviar notificação push",
 };
 
 export function AutomationsTable({
@@ -69,11 +76,13 @@ export function AutomationsTable({
   canManage,
   pipelines,
   lossReasons,
+  members,
 }: {
   initialRules: Rule[];
   canManage: boolean;
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
+  members: MemberOption[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -82,6 +91,7 @@ export function AutomationsTable({
 
   const stageById = new Map(pipelines.flatMap((p) => p.stages.map((s) => [s.id, `${s.name} (${p.name})`])));
   const lossReasonById = new Map(lossReasons.map((r) => [r.id, r.label]));
+  const memberById = new Map(members.map((m) => [m.id, m.name]));
 
   function describeTrigger(rule: Rule): string | null {
     const config = rule.triggerConfig ?? {};
@@ -92,6 +102,18 @@ export function AutomationsTable({
     }
     if (rule.trigger === "DEAL_NO_OPEN_TASK") return `após ${config.minHours ?? 24}h`;
     if (rule.trigger === "CONTACT_NO_DEAL") return `após ${config.days ?? 2} dias`;
+    if (rule.trigger === "SCHEDULED") {
+      const frequency = config.frequency as string | undefined;
+      const time = (config.time as string | undefined) ?? "";
+      const assigneeName = memberById.get(config.assigneeId as string) ?? "responsável removido";
+      if (frequency === "daily") return `todo dia ${time} · ${assigneeName}`;
+      if (frequency === "weekly") {
+        const dayLabel = WEEKDAY_LABELS[(config.dayOfWeek as number) ?? 1];
+        return `toda ${dayLabel} ${time} · ${assigneeName}`;
+      }
+      if (frequency === "monthly") return `todo dia ${config.dayOfMonth ?? 1} às ${time} · ${assigneeName}`;
+      return null;
+    }
     return null;
   }
 
@@ -100,6 +122,9 @@ export function AutomationsTable({
     if (rule.action === "MARK_LOST") {
       const lossReasonId = config.lossReasonId as string | undefined;
       return lossReasonId ? (lossReasonById.get(lossReasonId) ?? "motivo removido") : null;
+    }
+    if (rule.action === "SEND_PUSH") {
+      return (config.pushTitle as string | undefined) || null;
     }
     return null;
   }
@@ -211,6 +236,7 @@ export function AutomationsTable({
         <NewAutomationDialog
           pipelines={pipelines}
           lossReasons={lossReasons}
+          members={members}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);
@@ -238,11 +264,13 @@ export function AutomationsTable({
 function NewAutomationDialog({
   pipelines,
   lossReasons,
+  members,
   onClose,
   onCreated,
 }: {
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
+  members: MemberOption[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -253,10 +281,17 @@ function NewAutomationDialog({
   const [stageId, setStageId] = useState(pipelines[0]?.stages[0]?.id ?? "");
   const [minHours, setMinHours] = useState("24");
   const [contactDays, setContactDays] = useState("2");
+  const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [scheduleTime, setScheduleTime] = useState("08:00");
+  const [dayOfWeek, setDayOfWeek] = useState("1");
+  const [dayOfMonth, setDayOfMonth] = useState("1");
+  const [assigneeId, setAssigneeId] = useState(members[0]?.id ?? "");
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDueInDays, setTaskDueInDays] = useState("1");
   const [note, setNote] = useState("");
   const [lossReasonId, setLossReasonId] = useState(lossReasons[0]?.id ?? "");
+  const [pushTitle, setPushTitle] = useState("");
+  const [pushBody, setPushBody] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -276,14 +311,24 @@ function NewAutomationDialog({
             ? { minHours: Number(minHours) || 24 }
             : trigger === "CONTACT_NO_DEAL"
               ? { days: Number(contactDays) || 2 }
-              : undefined;
+              : trigger === "SCHEDULED"
+                ? {
+                    frequency,
+                    time: scheduleTime,
+                    dayOfWeek: frequency === "weekly" ? Number(dayOfWeek) : undefined,
+                    dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
+                    assigneeId,
+                  }
+                : undefined;
 
     const actionConfig =
       action === "CREATE_TASK"
         ? { title: taskTitle || undefined, dueInDays: Number(taskDueInDays) || 1 }
         : action === "ADD_NOTE"
           ? { note: note || undefined }
-          : { lossReasonId };
+          : action === "MARK_LOST"
+            ? { lossReasonId }
+            : { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined };
 
     const res = await fetch("/api/automations", {
       method: "POST",
@@ -305,6 +350,7 @@ function NewAutomationDialog({
   const canSubmit =
     !!name.trim() &&
     (trigger !== "DEAL_STAGE_ENTERED" || !!stageId) &&
+    (trigger !== "SCHEDULED" || !!assigneeId) &&
     (action !== "MARK_LOST" || !!lossReasonId);
 
   return (
@@ -363,6 +409,79 @@ function NewAutomationDialog({
               />
             )}
           </div>
+        )}
+
+        {trigger === "SCHEDULED" && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Frequência</label>
+              <Select
+                value={frequency}
+                onChange={(v) => setFrequency(v as "daily" | "weekly" | "monthly")}
+                options={[
+                  { value: "daily", label: "Todo dia" },
+                  { value: "weekly", label: "Semanalmente" },
+                  { value: "monthly", label: "Mensalmente" },
+                ]}
+              />
+            </div>
+
+            {frequency === "weekly" && (
+              <div className="space-y-1">
+                <label className="field-label">Dia da semana</label>
+                <Select
+                  value={dayOfWeek}
+                  onChange={setDayOfWeek}
+                  options={WEEKDAY_LABELS.map((label, i) => ({ value: String(i), label }))}
+                />
+              </div>
+            )}
+
+            {frequency === "monthly" && (
+              <div className="space-y-1">
+                <label className="field-label">Dia do mês</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={28}
+                  value={dayOfMonth}
+                  onChange={(e) => setDayOfMonth(e.target.value)}
+                  className="field-input"
+                />
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Use até 28 para garantir que exista em todos os meses.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="field-label">Horário</label>
+              <input
+                type="time"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+                className="field-input"
+              />
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                A checagem roda de hora em hora — só a hora importa, os minutos são ignorados.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="field-label">Responsável</label>
+              {members.length === 0 ? (
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  Nenhum usuário ativo disponível.
+                </p>
+              ) : (
+                <Select
+                  value={assigneeId}
+                  onChange={setAssigneeId}
+                  options={members.map((m) => ({ value: m.id, label: m.name }))}
+                />
+              )}
+            </div>
+          </>
         )}
 
         {trigger === "DEAL_NO_OPEN_TASK" && (
@@ -451,6 +570,33 @@ function NewAutomationDialog({
               />
             )}
           </div>
+        )}
+
+        {action === "SEND_PUSH" && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Título da notificação</label>
+              <input
+                value={pushTitle}
+                onChange={(e) => setPushTitle(e.target.value)}
+                placeholder={`Automação: ${name || "..."}`}
+                className="field-input"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Texto</label>
+              <textarea
+                value={pushBody}
+                onChange={(e) => setPushBody(e.target.value)}
+                rows={2}
+                className="field-input"
+              />
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Só chega em quem ativou notificações push no navegador (Configurações → Perfil). Quem não ativou
+              simplesmente não recebe nada.
+            </p>
+          </>
         )}
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

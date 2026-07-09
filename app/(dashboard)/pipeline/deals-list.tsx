@@ -7,6 +7,7 @@ import { formatCurrency, daysSince } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
+import { DatePicker } from "@/components/date-picker";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -102,21 +103,11 @@ export function DealsList({
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <label className="field-label">Criado de</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="field-input py-1.5 text-sm"
-              />
+              <DatePicker value={dateFrom} onChange={setDateFrom} className="w-full py-1.5 text-sm" />
             </div>
             <div className="space-y-1">
               <label className="field-label">até</label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="field-input py-1.5 text-sm"
-              />
+              <DatePicker value={dateTo} onChange={setDateTo} className="w-full py-1.5 text-sm" />
             </div>
           </div>
         </FilterPopover>

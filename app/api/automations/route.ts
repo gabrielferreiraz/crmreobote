@@ -15,9 +15,10 @@ const VALID_TRIGGERS: $Enums.AutomationTrigger[] = [
   "DEAL_STAGE_ENTERED",
   "DEAL_NO_OPEN_TASK",
   "CONTACT_NO_DEAL",
+  "SCHEDULED",
 ];
 
-const VALID_ACTIONS: $Enums.AutomationAction[] = ["CREATE_TASK", "ADD_NOTE", "MARK_LOST"];
+const VALID_ACTIONS: $Enums.AutomationAction[] = ["CREATE_TASK", "ADD_NOTE", "MARK_LOST", "SEND_PUSH"];
 
 export async function GET() {
   const access = await requireRole(["OWNER", "ADMIN"]);
@@ -58,6 +59,15 @@ export async function POST(req: Request) {
   if (trigger === "DEAL_STAGE_ENTERED" && !(triggerConfig?.stageId as string | undefined)) {
     return NextResponse.json({ error: "Selecione a etapa que dispara a automação" }, { status: 400 });
   }
+  if (trigger === "SCHEDULED") {
+    const config = triggerConfig as { frequency?: string; time?: string; assigneeId?: string } | undefined;
+    if (!config?.frequency || !config?.time || !config?.assigneeId) {
+      return NextResponse.json(
+        { error: "Preencha a frequência, o horário e o responsável do agendamento" },
+        { status: 400 },
+      );
+    }
+  }
   if (action === "MARK_LOST" && !(actionConfig?.lossReasonId as string | undefined)) {
     return NextResponse.json({ error: "Selecione o motivo de perda" }, { status: 400 });
   }
@@ -69,6 +79,13 @@ export async function POST(req: Request) {
         where: { id: stageId, pipeline: { organizationId: access.organizationId } },
       });
       if (!stage) return NextResponse.json({ error: "Etapa inválida" }, { status: 400 });
+    }
+    if (trigger === "SCHEDULED") {
+      const assigneeId = (triggerConfig as { assigneeId: string }).assigneeId;
+      const member = await prisma.organizationUser.findFirst({
+        where: { organizationId: access.organizationId, userId: assigneeId, active: true },
+      });
+      if (!member) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
     }
     if (action === "MARK_LOST") {
       const lossReasonId = actionConfig!.lossReasonId as string;

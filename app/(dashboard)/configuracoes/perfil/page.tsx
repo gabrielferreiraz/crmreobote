@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { ProfileAvatarForm } from "./profile-avatar-form";
+import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
 
 export default async function PerfilPage() {
   const session = await auth();
@@ -19,6 +20,9 @@ export default async function PerfilPage() {
       </div>
       <div className="card p-4">
         <ProfileAvatarForm userId={user!.id} name={user!.name} email={user!.email} photoUrl={photoUrl} />
+      </div>
+      <div className="card p-4">
+        <PushNotificationsToggle />
       </div>
     </div>
   );

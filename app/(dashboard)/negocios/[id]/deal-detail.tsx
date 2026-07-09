@@ -11,6 +11,7 @@ import { Modal } from "@/components/modal";
 import { ContactPreviewModal } from "@/components/contact-preview-modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { DatePicker } from "@/components/date-picker";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -302,12 +303,7 @@ export function DealDetail({
                 <div className="flex gap-2">
                   <div className="space-y-1">
                     <label className="text-xs text-neutral-500 dark:text-neutral-400">Prazo</label>
-                    <input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                      className="field-input px-2 py-1 text-xs"
-                    />
+                    <DatePicker value={dueDate} onChange={setDueDate} className="px-2 py-1 text-xs" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-neutral-500 dark:text-neutral-400">Horário</label>

@@ -42,39 +42,44 @@ export function NewDealDialog({
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/deals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pipelineId,
-        stageId: firstStageId,
-        contactId,
-        value: value ? Number(value) : undefined,
-        creditType: creditType || undefined,
-        ownerId: ownerId || undefined,
-      }),
-    });
+    try {
+      const res = await fetch("/api/deals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pipelineId,
+          stageId: firstStageId,
+          contactId,
+          value: value ? Number(value) : undefined,
+          creditType: creditType || undefined,
+          ownerId: ownerId || undefined,
+        }),
+      });
 
-    const data = await res.json().catch(() => ({}));
-    setLoading(false);
+      const data = await res.json().catch(() => ({}));
 
-    if (!res.ok) {
-      setError(data.error ?? "Erro ao criar negócio");
-      return;
+      if (!res.ok) {
+        setError(data.error ?? "Erro ao criar negócio");
+        return;
+      }
+
+      setOpen(false);
+      setContactId("");
+      setValue("");
+      setCreditType("");
+      setOwnerId("");
+      onCreated({
+        ...data,
+        value: data.value != null ? Number(data.value) : null,
+        owner: { id: data.owner.id, name: data.owner.name, photoUrl: null },
+        nextActivity: null,
+        taskTypes: [],
+      });
+    } catch {
+      setError("Falha de conexão ao criar negócio. Tente novamente.");
+    } finally {
+      setLoading(false);
     }
-
-    setOpen(false);
-    setContactId("");
-    setValue("");
-    setCreditType("");
-    setOwnerId("");
-    onCreated({
-      ...data,
-      value: data.value != null ? Number(data.value) : null,
-      owner: { id: data.owner.id, name: data.owner.name, photoUrl: null },
-      nextActivity: null,
-      taskTypes: [],
-    });
   }
 
   return (

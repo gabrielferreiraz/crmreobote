@@ -3,9 +3,26 @@ import { Prisma } from "@/app/generated/prisma/client";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
+import { sendPushToUser } from "@/lib/push";
 
-type TriggerConfig = { days?: number; stageId?: string; minHours?: number };
-type ActionConfig = { title?: string; dueInDays?: number; note?: string; lossReasonId?: string };
+type TriggerConfig = {
+  days?: number;
+  stageId?: string;
+  minHours?: number;
+  frequency?: "daily" | "weekly" | "monthly";
+  time?: string;
+  dayOfWeek?: number;
+  dayOfMonth?: number;
+  assigneeId?: string;
+};
+type ActionConfig = {
+  title?: string;
+  dueInDays?: number;
+  note?: string;
+  lossReasonId?: string;
+  pushTitle?: string;
+  pushBody?: string;
+};
 
 type Entity = {
   entityId: string;
@@ -98,6 +115,20 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
         },
       });
     }
+    return;
+  }
+
+  if (rule.action === "SEND_PUSH") {
+    const url = entity.dealId
+      ? `/negocios/${entity.dealId}`
+      : entity.contactId
+        ? `/clientes/${entity.contactId}`
+        : "/";
+    await sendPushToUser(entity.ownerId, {
+      title: actionConfig.pushTitle?.trim() || `Automação: ${rule.name}`,
+      body: actionConfig.pushBody?.trim() || undefined,
+      url,
+    });
     return;
   }
 }
@@ -260,6 +291,39 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
       loadByUser.set(picked, (loadByUser.get(picked) ?? 0) + 1);
       return { entityId: c.id, organizationId: rule.organizationId, contactId: c.id, ownerId: picked };
     });
+  }
+
+  if (rule.trigger === "SCHEDULED") {
+    const { frequency, time, dayOfWeek, dayOfMonth, assigneeId } = triggerConfig;
+    if (!frequency || !time || !assigneeId) return [];
+
+    const hour = Number(time.split(":")[0]);
+    if (!Number.isFinite(hour)) return [];
+
+    // O cron roda de hora em hora, então a granularidade é "a hora certa",
+    // não o minuto exato — checa se estamos na janela configurada agora.
+    const now = new Date();
+    const isScheduledNow =
+      now.getHours() === hour &&
+      (frequency === "daily" ||
+        (frequency === "weekly" && now.getDay() === (dayOfWeek ?? 1)) ||
+        (frequency === "monthly" && now.getDate() === (dayOfMonth ?? 1)));
+
+    if (!isScheduledNow) return [];
+
+    // Uma ocorrência por dia+hora — impede disparo duplicado se o cron rodar
+    // mais de uma vez na mesma janela, mas libera a próxima ocorrência normal.
+    const occurrenceId = `${now.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
+    const pending = await filterUnexecuted(rule.id, [occurrenceId]);
+    if (!pending.has(occurrenceId)) return [];
+
+    const assignee = await prisma.organizationUser.findFirst({
+      where: { organizationId: rule.organizationId, userId: assigneeId, active: true },
+      select: { userId: true },
+    });
+    if (!assignee) return [];
+
+    return [{ entityId: occurrenceId, organizationId: rule.organizationId, ownerId: assignee.userId }];
   }
 
   return [];
