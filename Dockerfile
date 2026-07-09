@@ -35,4 +35,12 @@ USER nextjs
 ENV PORT=3000
 EXPOSE 3000
 
+# Só marca o container como "saudável" depois que o server realmente responde
+# — sem isso, o proxy pode trocar o tráfego pro container novo antes dele
+# terminar de subir (ex.: enquanto ainda abre a primeira conexão com o banco
+# remoto, que pode levar alguns segundos), resultando em "Not Found" logo
+# após o deploy até o próximo request "por sorte" já achar tudo pronto.
+HEALTHCHECK --interval=5s --timeout=3s --start-period=20s --retries=5 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
 CMD ["node", "server.js"]
