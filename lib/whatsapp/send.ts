@@ -11,11 +11,25 @@ import { prisma } from "@/lib/prisma";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 import { sendTextMessage, sendMediaMessage, sendAudioMessage, sendContactMessage } from "@/lib/evolution";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
-import { resolveChatMediaUrl } from "@/lib/r2";
 
 export class WhatsAppSendError extends Error {}
 
 type ContactMetadata = { name?: string; phone?: string };
+
+/**
+ * mediaUrl guarda a chave do R2 (upload nativo do composer) — o Evolution
+ * precisa de uma URL que ele mesmo consiga baixar. Não usa URL assinada do
+ * R2 aqui de propósito: o Evolution acrescenta um "?timestamp=" na URL antes
+ * de baixar (visto no código-fonte dele), o que invalida a assinatura de uma
+ * URL de query-string e o R2 responde 403 — por isso o proxy próprio em
+ * app/api/whatsapp/media-file, que ignora qualquer query string extra.
+ */
+function buildEvolutionMediaUrl(mediaKey: string): string {
+  if (!mediaKey.startsWith("whatsapp-media/")) return mediaKey; // já é uma URL externa
+  const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
+  if (!appUrl) throw new WhatsAppSendError("NEXTAUTH_URL não configurado");
+  return `${appUrl}/api/whatsapp/media-file/${mediaKey}`;
+}
 
 export type WhatsAppOutgoingMessage = {
   organizationId: string;
@@ -52,14 +66,9 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     switch (type) {
       case "IMAGE": {
         if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
-        // mediaUrl guarda a chave do R2 (upload nativo) — o Evolution precisa
-        // de uma URL que ele mesmo consiga baixar, então resolve uma URL
-        // assinada só na hora do envio; o que fica salvo no banco é a chave.
-        const downloadUrl = await resolveChatMediaUrl(mediaUrl);
-        if (!downloadUrl) throw new WhatsAppSendError("Não foi possível gerar a URL da imagem");
         const result = await sendMediaMessage(instance.instanceName, fullNumber, {
           mediatype: "image",
-          media: downloadUrl,
+          media: buildEvolutionMediaUrl(mediaUrl),
           caption: text,
         });
         externalId = result.externalId;
@@ -67,9 +76,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       }
       case "AUDIO": {
         if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
-        const downloadUrl = await resolveChatMediaUrl(mediaUrl);
-        if (!downloadUrl) throw new WhatsAppSendError("Não foi possível gerar a URL do áudio");
-        const result = await sendAudioMessage(instance.instanceName, fullNumber, downloadUrl);
+        const result = await sendAudioMessage(instance.instanceName, fullNumber, buildEvolutionMediaUrl(mediaUrl));
         externalId = result.externalId;
         break;
       }

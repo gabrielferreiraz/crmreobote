@@ -139,3 +139,22 @@ export async function resolveChatMediaUrl(mediaUrl: string | null | undefined): 
     expiresIn: SIGNED_URL_TTL_SECONDS,
   });
 }
+
+/**
+ * Baixa o objeto direto do R2 (sem URL assinada) — usado pelo proxy em
+ * app/api/whatsapp/media-file, que existe porque o Evolution acrescenta um
+ * "?timestamp=" na URL antes de baixar a mídia (visto no código-fonte dele,
+ * em mais de um lugar), o que invalida a assinatura de uma URL de
+ * query-string e o R2 responde 403. Um caminho sem autenticação por
+ * query-string não tem esse problema: o parâmetro extra é só ignorado.
+ */
+export async function getChatMediaObject(key: string): Promise<{ body: Uint8Array; contentType: string } | null> {
+  try {
+    const res = await client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    const body = await res.Body?.transformToByteArray();
+    if (!body) return null;
+    return { body, contentType: res.ContentType ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
