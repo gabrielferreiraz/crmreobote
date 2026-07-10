@@ -40,7 +40,14 @@ EXPOSE 3000
 # terminar de subir (ex.: enquanto ainda abre a primeira conexão com o banco
 # remoto, que pode levar alguns segundos), resultando em "Not Found" logo
 # após o deploy até o próximo request "por sorte" já achar tudo pronto.
+#
+# Usa `node` puro (módulo http embutido) em vez de wget/curl: a imagem
+# `node:24-alpine` não garante ter nenhum dos dois instalado, e se o comando
+# do healthcheck não existir, o container nunca fica "saudável" — o build
+# continua dando sucesso, mas o deploy nunca troca o tráfego pro container
+# novo (era exatamente o sintoma: build ok, site em produção continua com a
+# versão antiga). `node` já existe garantido, é a própria imagem.
 HEALTHCHECK --interval=5s --timeout=3s --start-period=20s --retries=5 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+  CMD node -e "require('http').get('http://localhost:3000/api/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["node", "server.js"]
