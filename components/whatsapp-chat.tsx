@@ -10,8 +10,6 @@ import {
   Square,
   User,
   QrCode,
-  MousePointerClick,
-  List,
   X,
   MessageCircle,
 } from "lucide-react";
@@ -44,15 +42,17 @@ type Message = {
   createdAt: string;
 };
 
-type AttachMode = "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST";
+// BUTTONS/LIST não entram mais aqui: confirmado em produção que o WhatsApp
+// não entrega/renderiza esse tipo de mensagem fora de conta Business API
+// oficial (é o truque não-oficial do Baileys). Mensagens antigas desses
+// tipos continuam sendo exibidas no histórico via MessageContent abaixo.
+type AttachMode = "IMAGE" | "AUDIO" | "CONTACT" | "PIX";
 
 const ATTACH_OPTIONS: { mode: AttachMode; label: string; icon: typeof ImageIcon }[] = [
   { mode: "IMAGE", label: "Imagem", icon: ImageIcon },
   { mode: "AUDIO", label: "Áudio", icon: Mic },
   { mode: "CONTACT", label: "Contato", icon: User },
   { mode: "PIX", label: "Pix", icon: QrCode },
-  { mode: "BUTTONS", label: "Botões", icon: MousePointerClick },
-  { mode: "LIST", label: "Lista", icon: List },
 ];
 
 /**
@@ -413,8 +413,6 @@ function StructuredComposer({
       {mode === "AUDIO" && <AudioForm sending={sending} onSend={onSend} />}
       {mode === "CONTACT" && <ContactForm sending={sending} onSend={onSend} />}
       {mode === "PIX" && <PixForm sending={sending} onSend={onSend} />}
-      {mode === "BUTTONS" && <ButtonsForm sending={sending} onSend={onSend} />}
-      {mode === "LIST" && <ListForm sending={sending} onSend={onSend} />}
     </div>
   );
 }
@@ -672,130 +670,3 @@ function PixForm({ sending, onSend }: { sending: boolean; onSend: (payload: Reco
   );
 }
 
-function ButtonsForm({ sending, onSend }: { sending: boolean; onSend: (payload: Record<string, unknown>) => void }) {
-  const [body, setBody] = useState("");
-  const [buttons, setButtons] = useState(["", "", ""]);
-
-  function updateButton(i: number, value: string) {
-    setButtons((prev) => prev.map((b, idx) => (idx === i ? value : b)));
-  }
-
-  const filledButtons = buttons.map((b) => b.trim()).filter(Boolean);
-
-  return (
-    <div className="space-y-2">
-      <textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        placeholder="Texto da mensagem"
-        rows={2}
-        className="field-input text-sm"
-      />
-      {buttons.map((b, i) => (
-        <input
-          key={i}
-          value={b}
-          onChange={(e) => updateButton(i, e.target.value)}
-          placeholder={`Botão ${i + 1}${i > 0 ? " (opcional)" : ""}`}
-          className="field-input text-sm"
-        />
-      ))}
-      <button
-        type="button"
-        disabled={sending || !body.trim() || filledButtons.length === 0}
-        onClick={() =>
-          onSend({
-            type: "BUTTONS",
-            text: body.trim(),
-            metadata: { buttons: filledButtons.map((label) => ({ label })) },
-          })
-        }
-        className="btn-primary btn-sm w-full justify-center"
-      >
-        Enviar com botões
-      </button>
-    </div>
-  );
-}
-
-function ListForm({ sending, onSend }: { sending: boolean; onSend: (payload: Record<string, unknown>) => void }) {
-  const [title, setTitle] = useState("");
-  const [items, setItems] = useState([{ title: "", description: "" }]);
-
-  function updateItem(i: number, field: "title" | "description", value: string) {
-    setItems((prev) => prev.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)));
-  }
-
-  function addItem() {
-    setItems((prev) => [...prev, { title: "", description: "" }]);
-  }
-
-  function removeItem(i: number) {
-    setItems((prev) => prev.filter((_, idx) => idx !== i));
-  }
-
-  const filledItems = items.filter((item) => item.title.trim());
-
-  return (
-    <div className="space-y-2">
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Título da lista"
-        className="field-input text-sm"
-      />
-      <div className="scrollbar-thin max-h-32 space-y-2 overflow-y-auto pr-1">
-        {items.map((item, i) => (
-          <div key={i} className="flex gap-1.5">
-            <div className="flex-1 space-y-1">
-              <input
-                value={item.title}
-                onChange={(e) => updateItem(i, "title", e.target.value)}
-                placeholder={`Item ${i + 1}`}
-                className="field-input text-sm"
-              />
-              <input
-                value={item.description}
-                onChange={(e) => updateItem(i, "description", e.target.value)}
-                placeholder="Descrição (opcional)"
-                className="field-input text-sm"
-              />
-            </div>
-            {items.length > 1 && (
-              <button
-                type="button"
-                onClick={() => removeItem(i)}
-                className="icon-btn mt-0.5 shrink-0"
-                aria-label="Remover item"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-      <button type="button" onClick={addItem} className="btn-ghost btn-sm w-full justify-center">
-        + Adicionar item
-      </button>
-      <button
-        type="button"
-        disabled={sending || !title.trim() || filledItems.length === 0}
-        onClick={() =>
-          onSend({
-            type: "LIST",
-            text: title.trim(),
-            metadata: {
-              items: filledItems.map((item) => ({
-                title: item.title.trim(),
-                description: item.description.trim() || undefined,
-              })),
-            },
-          })
-        }
-        className="btn-primary btn-sm w-full justify-center"
-      >
-        Enviar lista
-      </button>
-    </div>
-  );
-}

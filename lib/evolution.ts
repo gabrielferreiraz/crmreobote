@@ -225,6 +225,29 @@ export async function getWebhookConfig(
   }
 }
 
+/**
+ * Reconfigura o webhook de uma instância já existente. Necessário porque
+ * NEXTAUTH_URL errado (ex.: "localhost" em vez do domínio público) faz o
+ * Evolution gravar uma URL de webhook inalcançável na hora da criação — e
+ * corrigir a env var sozinha não conserta instâncias que já existem, porque
+ * o Evolution guarda a URL antiga no próprio banco dele até alguém chamar
+ * este endpoint de novo.
+ */
+export async function setWebhookConfig(instanceName: string, webhookUrl: string): Promise<void> {
+  await request(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        byEvents: false,
+        base64: false,
+        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+      },
+    }),
+  });
+}
+
 export async function sendContactMessage(
   instanceName: string,
   number: string,
@@ -243,63 +266,10 @@ export async function sendContactMessage(
   return { externalId: data.key?.id };
 }
 
-/**
- * Mensagem interativa com botões. Fora de uma conta WhatsApp Business API
- * oficial com template aprovado, alguns clientes de WhatsApp podem não
- * renderizar isso (restrição que a Meta vem aplicando de forma inconsistente
- * pra contas ligadas via QR Code/Baileys) — vale testar num aparelho real.
- */
-export async function sendButtonsMessage(
-  instanceName: string,
-  number: string,
-  params: { text: string; buttons: { label: string }[] },
-): Promise<{ externalId?: string }> {
-  const data = await request<{ key?: { id?: string } }>(
-    `/message/sendButtons/${encodeURIComponent(instanceName)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        number,
-        title: params.text,
-        description: params.text,
-        buttons: params.buttons.map((b, i) => ({
-          type: "reply",
-          displayText: b.label,
-          id: `btn_${i}`,
-        })),
-      }),
-    },
-  );
-  return { externalId: data.key?.id };
-}
-
-/** Mesma ressalva de suporte do sendButtonsMessage se aplica aqui. */
-export async function sendListMessage(
-  instanceName: string,
-  number: string,
-  params: { title: string; items: { title: string; description?: string }[] },
-): Promise<{ externalId?: string }> {
-  const data = await request<{ key?: { id?: string } }>(
-    `/message/sendList/${encodeURIComponent(instanceName)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        number,
-        title: params.title,
-        description: params.title,
-        buttonText: "Ver opções",
-        sections: [
-          {
-            title: params.title,
-            rows: params.items.map((item, i) => ({
-              rowId: `item_${i}`,
-              title: item.title,
-              description: item.description ?? "",
-            })),
-          },
-        ],
-      }),
-    },
-  );
-  return { externalId: data.key?.id };
-}
+// sendButtonsMessage/sendListMessage existiram e foram removidas: o payload
+// real (interactiveMessage/nativeFlowMessage dentro de viewOnceMessage, visto
+// em produção) confirma que é o truque não-oficial do Baileys pra simular
+// botões — a Meta não garante entrega/renderização disso fora de conta
+// WhatsApp Business API oficial, e na prática não chegou pro destinatário.
+// Mensagens do tipo BUTTONS/LIST já enviadas antes continuam existindo no
+// histórico (schema mantém o enum), só não é mais possível criar novas.

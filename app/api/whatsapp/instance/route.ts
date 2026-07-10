@@ -8,6 +8,7 @@ import {
   getQrCode,
   getConnectionState,
   getWebhookConfig,
+  setWebhookConfig,
   logoutInstance,
   deleteInstance,
 } from "@/lib/evolution";
@@ -50,14 +51,27 @@ export async function GET() {
       // o último status conhecido em vez de propagar o erro.
     }
 
-    // Diagnóstico: confirma no lado do Evolution (fonte da verdade real) se o
-    // webhook está de fato habilitado e com os eventos certos — não custa
-    // nada nessa checagem já periódica, e é a única forma de provar (em vez
-    // de supor) por que mensagens recebidas não estão chegando no CRM.
-    const webhookConfig = await getWebhookConfig(instance.instanceName);
-    console.log(
-      `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} url=${webhookConfig?.url} events=${JSON.stringify(webhookConfig?.events)}`,
-    );
+    // Diagnóstico + auto-cura: confirma no lado do Evolution (fonte da
+    // verdade real) se o webhook está habilitado e com a URL certa. Se a URL
+    // gravada não bate com a atual (ex.: instância criada quando
+    // NEXTAUTH_URL ainda apontava pra localhost), corrige na hora — sem isso
+    // a instância ficaria "conectada" pra sempre sem nunca receber mensagem
+    // nenhuma, e ninguém perceberia até reparar nos logs.
+    try {
+      const webhookConfig = await getWebhookConfig(instance.instanceName);
+      const expectedUrl = buildWebhookUrl();
+      console.log(
+        `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} url="${webhookConfig?.url}" esperado="${expectedUrl}" events=${JSON.stringify(webhookConfig?.events)}`,
+      );
+      if (webhookConfig && (!webhookConfig.enabled || webhookConfig.url !== expectedUrl)) {
+        console.warn(
+          `[wa:webhook-config] URL/config divergente para ${instance.instanceName} — reconfigurando para "${expectedUrl}"`,
+        );
+        await setWebhookConfig(instance.instanceName, expectedUrl);
+      }
+    } catch (err) {
+      console.error(`[wa:webhook-config] falha ao verificar/corrigir webhook de ${instance.instanceName}`, err);
+    }
 
     return NextResponse.json({
       connected: status === "CONNECTED",

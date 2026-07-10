@@ -9,22 +9,13 @@
 
 import { prisma } from "@/lib/prisma";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
-import {
-  sendTextMessage,
-  sendMediaMessage,
-  sendAudioMessage,
-  sendContactMessage,
-  sendButtonsMessage,
-  sendListMessage,
-} from "@/lib/evolution";
+import { sendTextMessage, sendMediaMessage, sendAudioMessage, sendContactMessage } from "@/lib/evolution";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { resolveChatMediaUrl } from "@/lib/r2";
 
 export class WhatsAppSendError extends Error {}
 
 type ContactMetadata = { name?: string; phone?: string };
-type ButtonsMetadata = { buttons?: { label: string }[] };
-type ListMetadata = { items?: { title: string; description?: string }[] };
 
 export type WhatsAppOutgoingMessage = {
   organizationId: string;
@@ -92,29 +83,14 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
         externalId = result.externalId;
         break;
       }
-      case "BUTTONS": {
-        const meta = metadata as ButtonsMetadata | undefined;
-        if (!meta?.buttons?.length) throw new WhatsAppSendError("Pelo menos um botão é obrigatório");
-        const result = await sendButtonsMessage(instance.instanceName, fullNumber, {
-          text,
-          buttons: meta.buttons,
-        });
-        externalId = result.externalId;
-        break;
-      }
-      case "LIST": {
-        const meta = metadata as ListMetadata | undefined;
-        if (!meta?.items?.length) throw new WhatsAppSendError("Pelo menos um item de lista é obrigatório");
-        const result = await sendListMessage(instance.instanceName, fullNumber, {
-          title: text,
-          items: meta.items,
-        });
-        externalId = result.externalId;
-        break;
-      }
       case "PIX":
       case "TEXT":
       default: {
+        // BUTTONS/LIST não são mais enviáveis (removido: o Baileys simula
+        // isso via truque não-oficial que a Meta não garante entregar/
+        // renderizar — confirmado em produção que não chegava ao
+        // destinatário). Se algum dado antigo ainda vier com esse type,
+        // cai aqui e manda como texto normal.
         // Pix não tem integração real com provedor de pagamento ainda (é
         // decisão de produto, não só técnica) — envia como texto formatado
         // mesmo; o cartão visual rico continua aparecendo no CRM via

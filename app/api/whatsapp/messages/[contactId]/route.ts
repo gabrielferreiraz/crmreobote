@@ -8,15 +8,10 @@ import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
-const VALID_TYPES: $Enums.WhatsAppMessageType[] = [
-  "TEXT",
-  "IMAGE",
-  "AUDIO",
-  "CONTACT",
-  "PIX",
-  "BUTTONS",
-  "LIST",
-];
+// BUTTONS/LIST removidos: não é mais possível criar mensagens novas desses
+// tipos (confirmado em produção que o WhatsApp não entrega/renderiza),
+// embora mensagens antigas com esse type continuem existindo no histórico.
+const VALID_TYPES: $Enums.WhatsAppMessageType[] = ["TEXT", "IMAGE", "AUDIO", "CONTACT", "PIX"];
 
 export async function GET(_req: Request, { params }: { params: Promise<{ contactId: string }> }) {
   const { contactId } = await params;
