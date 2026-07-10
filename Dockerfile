@@ -41,19 +41,11 @@ USER nextjs
 ENV PORT=3000
 EXPOSE 3000
 
-# Só marca o container como "saudável" depois que o server realmente responde
-# — sem isso, o proxy pode trocar o tráfego pro container novo antes dele
-# terminar de subir (ex.: enquanto ainda abre a primeira conexão com o banco
-# remoto, que pode levar alguns segundos), resultando em "Not Found" logo
-# após o deploy até o próximo request "por sorte" já achar tudo pronto.
-#
-# Usa `node` puro (módulo http embutido) em vez de wget/curl: a imagem
-# `node:24-alpine` não garante ter nenhum dos dois instalado, e se o comando
-# do healthcheck não existir, o container nunca fica "saudável" — o build
-# continua dando sucesso, mas o deploy nunca troca o tráfego pro container
-# novo (era exatamente o sintoma: build ok, site em produção continua com a
-# versão antiga). `node` já existe garantido, é a própria imagem.
-HEALTHCHECK --interval=5s --timeout=3s --start-period=20s --retries=5 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-
+# SEM HEALTHCHECK aqui de propósito — já tentamos duas vezes (wget, depois
+# node puro) e nas duas o container entrou num loop de reinício constante em
+# produção (o EasyPanel parece tratar "unhealthy" como motivo pra matar e
+# recriar o container, não só pra segurar o corte de tráfego). Isso é bem
+# pior do que o problema original ("Not Found" logo após o deploy, até o
+# próximo request achar tudo pronto). Se for reintroduzir isso no futuro,
+# testar com bastante cautela e acompanhar de perto os logs de runtime.
 CMD ["node", "server.js"]
