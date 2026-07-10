@@ -162,13 +162,13 @@ export async function sendTextMessage(
 }
 
 /**
- * Imagem/áudio via link direto (sem upload próprio) — o Evolution baixa a
- * mídia da URL informada e reenvia pro WhatsApp.
+ * Imagem via link direto (sem upload próprio) — o Evolution baixa a mídia da
+ * URL informada e reenvia pro WhatsApp.
  */
 export async function sendMediaMessage(
   instanceName: string,
   number: string,
-  params: { mediatype: "image" | "audio"; media: string; caption?: string },
+  params: { mediatype: "image"; media: string; caption?: string },
 ): Promise<{ externalId?: string }> {
   const data = await request<{ key?: { id?: string } }>(
     `/message/sendMedia/${encodeURIComponent(instanceName)}`,
@@ -183,6 +183,46 @@ export async function sendMediaMessage(
     },
   );
   return { externalId: data.key?.id };
+}
+
+/**
+ * Áudio como nota de voz (PTT) de verdade — usa o endpoint dedicado do
+ * Evolution (não o /message/sendMedia genérico). `encoding: true` manda o
+ * próprio Evolution converter o áudio pra ogg/opus via ffmpeg antes de
+ * enviar; sem isso, um áudio gravado no navegador (audio/webm) chega no
+ * WhatsApp como uma mensagem que o app não consegue tocar, mesmo a API
+ * respondendo 201 (o envio "funciona" do ponto de vista da API, só o
+ * conteúdo é incompatível com o player do WhatsApp).
+ */
+export async function sendAudioMessage(
+  instanceName: string,
+  number: string,
+  media: string,
+): Promise<{ externalId?: string }> {
+  const data = await request<{ key?: { id?: string } }>(
+    `/message/sendWhatsAppAudio/${encodeURIComponent(instanceName)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ number, audio: media, encoding: true }),
+    },
+  );
+  return { externalId: data.key?.id };
+}
+
+/**
+ * Só leitura — usada para diagnosticar se o webhook de fato está habilitado
+ * e com os eventos certos no lado do Evolution (fonte da verdade real,
+ * independente do que a gente pediu no /instance/create).
+ */
+export async function getWebhookConfig(
+  instanceName: string,
+): Promise<{ enabled?: boolean; url?: string; events?: string[] } | null> {
+  try {
+    return await request(`/webhook/find/${encodeURIComponent(instanceName)}`);
+  } catch (err) {
+    console.error(`[evolution] falha ao consultar config de webhook de ${instanceName}`, err);
+    return null;
+  }
 }
 
 export async function sendContactMessage(

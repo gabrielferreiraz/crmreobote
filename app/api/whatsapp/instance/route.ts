@@ -3,7 +3,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
-import { createInstance, getQrCode, getConnectionState, logoutInstance, deleteInstance } from "@/lib/evolution";
+import {
+  createInstance,
+  getQrCode,
+  getConnectionState,
+  getWebhookConfig,
+  logoutInstance,
+  deleteInstance,
+} from "@/lib/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +49,15 @@ export async function GET() {
       // Evolution fora do ar não deve quebrar a tela de configurações — mostra
       // o último status conhecido em vez de propagar o erro.
     }
+
+    // Diagnóstico: confirma no lado do Evolution (fonte da verdade real) se o
+    // webhook está de fato habilitado e com os eventos certos — não custa
+    // nada nessa checagem já periódica, e é a única forma de provar (em vez
+    // de supor) por que mensagens recebidas não estão chegando no CRM.
+    const webhookConfig = await getWebhookConfig(instance.instanceName);
+    console.log(
+      `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} url=${webhookConfig?.url} events=${JSON.stringify(webhookConfig?.events)}`,
+    );
 
     return NextResponse.json({
       connected: status === "CONNECTED",

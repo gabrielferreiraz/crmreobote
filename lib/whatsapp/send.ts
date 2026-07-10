@@ -12,6 +12,7 @@ import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 import {
   sendTextMessage,
   sendMediaMessage,
+  sendAudioMessage,
   sendContactMessage,
   sendButtonsMessage,
   sendListMessage,
@@ -77,10 +78,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
         if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
         const downloadUrl = await resolveChatMediaUrl(mediaUrl);
         if (!downloadUrl) throw new WhatsAppSendError("Não foi possível gerar a URL do áudio");
-        const result = await sendMediaMessage(instance.instanceName, fullNumber, {
-          mediatype: "audio",
-          media: downloadUrl,
-        });
+        const result = await sendAudioMessage(instance.instanceName, fullNumber, downloadUrl);
         externalId = result.externalId;
         break;
       }
