@@ -30,6 +30,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Carimbo de quando esta imagem foi montada — exposto em /api/health. Serve só
+# pra diagnosticar deploy: dá pra confirmar de fora (curl) se o container que
+# está respondendo em produção é mesmo o da build mais recente, ou se o
+# EasyPanel nunca trocou o tráfego pro container novo.
+RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > /app/BUILD_TIME.txt
+
 USER nextjs
 
 ENV PORT=3000
