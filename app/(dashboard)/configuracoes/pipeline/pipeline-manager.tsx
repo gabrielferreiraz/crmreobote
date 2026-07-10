@@ -13,6 +13,7 @@ type Stage = {
   name: string;
   color: string | null;
   order: number;
+  requiresValue: boolean;
   _count: { deals: number };
 };
 

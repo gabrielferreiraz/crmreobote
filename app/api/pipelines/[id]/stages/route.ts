@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { name, color } = body as { name?: string; color?: string };
+  const { name, color, requiresValue } = body as { name?: string; color?: string; requiresValue?: boolean };
 
   const access = await requireRole(["OWNER", "ADMIN"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -25,7 +25,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const maxOrder = Math.max(0, ...pipeline.stages.map((s) => s.order));
 
     const stage = await prisma.pipelineStage.create({
-      data: { pipelineId: id, name: name.trim(), color, order: maxOrder + 1 },
+      data: {
+        pipelineId: id,
+        name: name.trim(),
+        color,
+        order: maxOrder + 1,
+        requiresValue: requiresValue ?? true,
+      },
     });
 
     return NextResponse.json(stage, { status: 201 });

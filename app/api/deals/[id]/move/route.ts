@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { stageId } = body as { stageId?: string };
+  const { stageId, value } = body as { stageId?: string; value?: number | null };
 
   const { organizationId } = await requireSession();
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -23,9 +23,26 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
     if (!stage) return NextResponse.json({ error: "Etapa inválida" }, { status: 400 });
 
+    // Cada etapa define se exige valor do negócio (configurado pelo admin em
+    // Configurações → Pipeline) — etapas de nutrição/prospecção como
+    // Remarketing normalmente não exigem, já que o lead ainda está frio.
+    // Aceita o valor já vir junto no mesmo request (preencher e mover numa
+    // ação só).
+    const resolvedValue = value !== undefined ? value : existing.value;
+    if (stage.requiresValue && resolvedValue == null) {
+      return NextResponse.json(
+        { error: "Esta etapa exige valor do negócio antes de avançar" },
+        { status: 400 },
+      );
+    }
+
     const deal = await prisma.deal.update({
       where: { id },
-      data: { stageId, stageEnteredAt: new Date() },
+      data: {
+        stageId,
+        stageEnteredAt: new Date(),
+        ...(value !== undefined ? { value } : {}),
+      },
       include: { contact: true, owner: true, stage: true },
     });
 

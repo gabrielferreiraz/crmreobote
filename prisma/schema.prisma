@@ -243,6 +243,11 @@ model PipelineStage {
   color      String?
   createdAt  DateTime @default(now())
 
+  // Definido pelo admin por etapa (não pela posição): etapas de nutrição
+  // (ex.: Remarketing) recebem lead frio sem valor de negócio ainda — exigir
+  // valor aqui travaria esse fluxo. Etapas mais avançadas normalmente exigem.
+  requiresValue Boolean @default(true)
+
   pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   deals    Deal[]
 

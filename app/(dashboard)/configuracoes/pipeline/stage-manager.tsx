@@ -24,6 +24,7 @@ type Stage = {
   name: string;
   color: string | null;
   order: number;
+  requiresValue: boolean;
   _count: { deals: number };
 };
 
@@ -91,6 +92,16 @@ export function StageManager({
     router.refresh();
   }
 
+  async function toggleRequiresValue(stageId: string, requiresValue: boolean) {
+    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, requiresValue } : s)));
+    await fetch(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requiresValue }),
+    });
+    router.refresh();
+  }
+
   async function deleteStage(stageId: string) {
     setError(null);
     const res = await fetch(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
@@ -144,6 +155,7 @@ export function StageManager({
                 stage={stage}
                 onRename={renameStage}
                 onRecolor={recolorStage}
+                onToggleRequiresValue={toggleRequiresValue}
                 onDelete={() => setStageToDelete(stage)}
               />
             ))}
@@ -188,11 +200,13 @@ function StageRow({
   stage,
   onRename,
   onRecolor,
+  onToggleRequiresValue,
   onDelete,
 }: {
   stage: Stage;
   onRename: (id: string, name: string) => void;
   onRecolor: (id: string, color: string) => void;
+  onToggleRequiresValue: (id: string, requiresValue: boolean) => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -266,6 +280,19 @@ function StageRow({
         }}
         className="flex-1 rounded bg-transparent px-1 text-sm text-neutral-900 dark:text-neutral-100 outline-none focus:bg-neutral-50 dark:focus:bg-neutral-800"
       />
+
+      <label
+        className="flex shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
+        title="Se marcado, um negócio precisa ter valor definido antes de entrar nesta etapa"
+      >
+        <input
+          type="checkbox"
+          checked={stage.requiresValue}
+          onChange={(e) => onToggleRequiresValue(stage.id, e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
+        />
+        Exige valor
+      </label>
 
       <span className="text-xs text-neutral-400 dark:text-neutral-500">{stage._count.deals} negócios</span>
 

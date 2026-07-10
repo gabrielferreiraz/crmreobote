@@ -16,7 +16,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 type InstanceRef = { id: string; organizationId: string; instanceName: string };
@@ -61,16 +61,21 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
 
       const rawNumber = remoteJid.split("@")[0];
       const normalized = normalizePhoneNumber(rawNumber);
-      console.log(`[wa:webhook] remoteJid=${remoteJid} → número bruto=${rawNumber} → normalizado=${normalized}`);
       if (!normalized) {
         console.log("[wa:webhook] ignorada: número não normalizável");
         continue;
       }
+      // O JID às vezes vem sem o 9º dígito do celular, mesmo quando o
+      // contato está salvo com ele (ou vice-versa) — testa as duas formas.
+      const variants = brazilianMobileVariants(normalized);
+      console.log(
+        `[wa:webhook] remoteJid=${remoteJid} → número bruto=${rawNumber} → normalizado=${normalized} (variantes: ${variants.join(", ")})`,
+      );
 
       const contact = await prisma.contact.findFirst({
         where: {
           organizationId: instance.organizationId,
-          OR: [{ whatsappNormalized: normalized }, { phoneNormalized: normalized }],
+          OR: variants.flatMap((v) => [{ whatsappNormalized: v }, { phoneNormalized: v }]),
         },
         select: { id: true, name: true },
       });
@@ -78,7 +83,7 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
       // conversa em contatos que já existem no CRM.
       if (!contact) {
         console.log(
-          `[wa:webhook] ignorada: nenhum contato com número normalizado "${normalized}" nesta organização`,
+          `[wa:webhook] ignorada: nenhum contato com número normalizado "${normalized}" (ou variante) nesta organização`,
         );
         continue;
       }

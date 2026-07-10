@@ -11,7 +11,7 @@ export async function PATCH(
 ) {
   const { id, stageId } = await params;
   const body = await req.json();
-  const { name, color } = body as { name?: string; color?: string };
+  const { name, color, requiresValue } = body as { name?: string; color?: string; requiresValue?: boolean };
 
   const access = await requireRole(["OWNER", "ADMIN"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -24,7 +24,11 @@ export async function PATCH(
 
     const updated = await prisma.pipelineStage.update({
       where: { id: stageId },
-      data: { name: name?.trim() || undefined, color },
+      data: {
+        name: name?.trim() || undefined,
+        color,
+        requiresValue: requiresValue !== undefined ? requiresValue : undefined,
+      },
     });
 
     return NextResponse.json(updated);

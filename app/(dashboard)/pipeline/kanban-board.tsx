@@ -64,6 +64,7 @@ export function KanbanBoard({
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const [search, setSearch] = useState("");
@@ -117,6 +118,7 @@ export function KanbanBoard({
     if (!deal || deal.stageId === targetStageId) return;
 
     const previousStageId = deal.stageId;
+    setMoveError(null);
     onDealsChange((prev) =>
       prev.map((d) =>
         d.id === dealId ? { ...d, stageId: targetStageId, stageEnteredAt: new Date() } : d,
@@ -136,6 +138,8 @@ export function KanbanBoard({
       onDealsChange((prev) =>
         prev.map((d) => (d.id === dealId ? { ...d, stageId: previousStageId } : d)),
       );
+      const data = await res.json().catch(() => ({}));
+      setMoveError(data.error ?? "Não foi possível mover o negócio");
     }
   }
 
@@ -194,6 +198,10 @@ export function KanbanBoard({
           </button>
         </FilterPopover>
       </div>
+
+      {moveError && (
+        <p className="shrink-0 text-xs text-red-600 dark:text-red-400">{moveError}</p>
+      )}
 
       <DndContext
         id="kanban-board"

@@ -13,7 +13,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
-import { WhatsAppChat } from "@/components/whatsapp-chat";
+import { WhatsAppPanel, WhatsAppPanelTrigger } from "@/components/whatsapp-chat";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -79,12 +79,14 @@ export function DealDetail({
   const [body, setBody] = useState("");
   const [saving, setSaving] = useState(false);
   const [movingStage, setMovingStage] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     const taskId = searchParams.get("highlightTask");
@@ -148,12 +150,18 @@ export function DealDetail({
   async function moveToStage(stageId: string) {
     if (stageId === deal.stageId) return;
     setMovingStage(stageId);
-    await fetch(`/api/deals/${deal.id}/move`, {
+    setMoveError(null);
+    const res = await fetch(`/api/deals/${deal.id}/move`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stageId }),
     });
     setMovingStage(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setMoveError(data.error ?? "Não foi possível mover o negócio");
+      return;
+    }
     router.refresh();
   }
 
@@ -211,7 +219,8 @@ export function DealDetail({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1 space-y-6">
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
           <Avatar name={deal.contact.name} size="lg" />
@@ -287,6 +296,8 @@ export function DealDetail({
           );
         })}
       </div>
+
+      {moveError && <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>}
 
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-2 space-y-4">
@@ -468,11 +479,7 @@ export function DealDetail({
             <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
           </div>
 
-          <WhatsAppChat
-            contactId={deal.contact.id}
-            contactName={deal.contact.name}
-            contactPhone={deal.contact.whatsapp || deal.contact.phone}
-          />
+          {!chatOpen && <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} />}
         </div>
       </div>
 
@@ -488,6 +495,16 @@ export function DealDetail({
 
       {contactModalOpen && (
         <ContactPreviewModal contactId={deal.contact.id} onClose={() => setContactModalOpen(false)} />
+      )}
+      </div>
+
+      {chatOpen && (
+        <WhatsAppPanel
+          contactId={deal.contact.id}
+          contactName={deal.contact.name}
+          contactPhone={deal.contact.whatsapp || deal.contact.phone}
+          onClose={() => setChatOpen(false)}
+        />
       )}
     </div>
   );

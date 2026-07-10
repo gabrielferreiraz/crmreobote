@@ -27,3 +27,22 @@ export function normalizePhoneNumber(raw: string | null | undefined): string | n
 
   return digits || null;
 }
+
+/**
+ * O JID que o WhatsApp manda numa mensagem recebida às vezes vem sem o 9º
+ * dígito do celular (ex.: "6781783902", 10 dígitos), mesmo quando o número
+ * de verdade — e o que está salvo no contato — tem os 11 (o 9 que virou
+ * obrigatório em todos os DDDs do Brasil). Isso é um comportamento conhecido
+ * do WhatsApp/Baileys, não um erro de digitação. Sem considerar as duas
+ * formas na hora de casar com um contato, mensagem recebida de um número
+ * salvo com o 9 nunca encontra o contato.
+ */
+export function brazilianMobileVariants(normalized: string): string[] {
+  const variants = new Set([normalized]);
+  if (normalized.length === 11 && normalized[2] === "9") {
+    variants.add(normalized.slice(0, 2) + normalized.slice(3));
+  } else if (normalized.length === 10) {
+    variants.add(normalized.slice(0, 2) + "9" + normalized.slice(2));
+  }
+  return Array.from(variants);
+}

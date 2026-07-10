@@ -89,6 +89,19 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "Selecione um motivo de perda" }, { status: 400 });
     }
 
+    // Mesma regra do /move: se a etapa atual exige valor, não pode ficar sem
+    // — sem essa checagem aqui, dava pra contornar a exigência do /move
+    // simplesmente limpando o valor depois por aqui.
+    if (value === null) {
+      const currentStage = await prisma.pipelineStage.findUnique({ where: { id: existing.stageId } });
+      if (currentStage?.requiresValue) {
+        return NextResponse.json(
+          { error: "Esta etapa exige valor do negócio" },
+          { status: 400 },
+        );
+      }
+    }
+
     const closedAt =
       status && status !== "OPEN" && existing.status === "OPEN" ? new Date() : undefined;
 

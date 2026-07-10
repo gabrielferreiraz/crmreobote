@@ -102,6 +102,51 @@ export function WhatsAppChat({
   );
 }
 
+/**
+ * Botão que só abre o painel — mantido separado do painel em si porque o
+ * painel precisa ficar fora da coluna estreita da barra lateral (como irmão
+ * do conteúdo do negócio no layout flex), enquanto o gatilho continua no
+ * lugar de sempre. Quem controla o `open` é a página (ver deal-detail.tsx).
+ */
+export function WhatsAppPanelTrigger({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button type="button" onClick={onOpen} className="btn-secondary w-full justify-center">
+      <WhatsAppIcon className="h-4 w-4" strokeWidth={2} />
+      Abrir conversa
+    </button>
+  );
+}
+
+/**
+ * Versão "de lado" do chat — usada na página do negócio, onde faz sentido
+ * acompanhar o negócio e a conversa ao mesmo tempo em vez de cobrir a tela
+ * com um modal. Renderizar isso já assume que está "aberto"; o controle de
+ * quando montar/desmontar é de quem usa (deal-detail.tsx).
+ */
+export function WhatsAppPanel({
+  contactId,
+  contactName,
+  contactPhone,
+  onClose,
+}: {
+  contactId: string;
+  contactName?: string;
+  contactPhone?: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <div className="surface-glass sticky top-4 flex h-[calc(100vh-7rem)] w-[400px] shrink-0 flex-col overflow-hidden rounded-lg p-4 shadow-lg">
+      <ChatWindow
+        contactId={contactId}
+        contactName={contactName}
+        contactPhone={contactPhone}
+        onClose={onClose}
+        className="h-full"
+      />
+    </div>
+  );
+}
+
 function WhatsAppChatModal({
   contactId,
   contactName,
@@ -112,6 +157,32 @@ function WhatsAppChatModal({
   contactName?: string;
   contactPhone?: string | null;
   onClose: () => void;
+}) {
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-2xl">
+      <ChatWindow
+        contactId={contactId}
+        contactName={contactName}
+        contactPhone={contactPhone}
+        onClose={onClose}
+        className="h-[75vh] max-h-[42rem] min-h-[28rem]"
+      />
+    </Modal>
+  );
+}
+
+function ChatWindow({
+  contactId,
+  contactName,
+  contactPhone,
+  onClose,
+  className = "",
+}: {
+  contactId: string;
+  contactName?: string;
+  contactPhone?: string | null;
+  onClose: () => void;
+  className?: string;
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +204,7 @@ function WhatsAppChatModal({
     load();
     // Sem isso, uma mensagem que chega enquanto o chat está aberto (ou que o
     // webhook processa um instante depois de abrir) só apareceria se a pessoa
-    // fechasse e abrisse o modal de novo.
+    // fechasse e abrisse de novo.
     const interval = setInterval(load, 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,69 +239,67 @@ function WhatsAppChatModal({
   }
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-2xl">
-      <div className="flex h-[75vh] max-h-[42rem] min-h-[28rem] flex-col">
-        <div className="mb-3 flex shrink-0 items-center justify-between border-b border-neutral-200/60 pb-3 dark:border-neutral-800/60">
-          <div className="flex items-center gap-2.5">
-            <Avatar name={contactName ?? "?"} size="md" />
-            <div>
-              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                {contactName ?? "Conversa"}
-                <WhatsAppIcon className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              </h2>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>
-            </div>
+    <div className={`flex flex-col ${className}`}>
+      <div className="mb-3 flex shrink-0 items-center justify-between border-b border-neutral-200/60 pb-3 dark:border-neutral-800/60">
+        <div className="flex items-center gap-2.5">
+          <Avatar name={contactName ?? "?"} size="md" />
+          <div>
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              {contactName ?? "Conversa"}
+              <WhatsAppIcon className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+            </h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>
           </div>
-          <button type="button" onClick={onClose} className="icon-btn" aria-label="Fechar">
-            <X className="h-4 w-4" strokeWidth={2} />
-          </button>
         </div>
-
-        <div className="scrollbar-thin flex-1 space-y-2 overflow-y-auto rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950/50">
-          {!messages ? (
-            <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
-          ) : messages.length === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <EmptyState
-                icon={MessageCircle}
-                title="Nenhuma mensagem ainda"
-                description="Envie a primeira mensagem, uma imagem, um Pix ou outro tipo de conteúdo abaixo."
-              />
-            </div>
-          ) : (
-            messages.map((m) => <MessageBubble key={m.id} message={m} />)
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        {error && <p className="mt-1 shrink-0 text-xs text-red-600 dark:text-red-400">{error}</p>}
-
-        <div className="mt-3 shrink-0 border-t border-neutral-200/60 pt-3 dark:border-neutral-800/60">
-          {attachMode === null ? (
-            <TextComposer
-              sending={sending}
-              onSend={(text) => sendPayload({ type: "TEXT", text })}
-              menuOpen={attachMenuOpen}
-              onToggleMenu={() => setAttachMenuOpen((v) => !v)}
-              onPick={(mode) => {
-                setAttachMode(mode);
-                setAttachMenuOpen(false);
-              }}
-            />
-          ) : (
-            <StructuredComposer
-              mode={attachMode}
-              sending={sending}
-              onCancel={() => setAttachMode(null)}
-              onSend={async (payload) => {
-                const ok = await sendPayload(payload);
-                if (ok) setAttachMode(null);
-              }}
-            />
-          )}
-        </div>
+        <button type="button" onClick={onClose} className="icon-btn" aria-label="Fechar">
+          <X className="h-4 w-4" strokeWidth={2} />
+        </button>
       </div>
-    </Modal>
+
+      <div className="scrollbar-thin flex-1 space-y-2 overflow-y-auto rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950/50">
+        {!messages ? (
+          <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+        ) : messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <EmptyState
+              icon={MessageCircle}
+              title="Nenhuma mensagem ainda"
+              description="Envie a primeira mensagem, uma imagem, um Pix ou outro tipo de conteúdo abaixo."
+            />
+          </div>
+        ) : (
+          messages.map((m) => <MessageBubble key={m.id} message={m} />)
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {error && <p className="mt-1 shrink-0 text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      <div className="mt-3 shrink-0 border-t border-neutral-200/60 pt-3 dark:border-neutral-800/60">
+        {attachMode === null ? (
+          <TextComposer
+            sending={sending}
+            onSend={(text) => sendPayload({ type: "TEXT", text })}
+            menuOpen={attachMenuOpen}
+            onToggleMenu={() => setAttachMenuOpen((v) => !v)}
+            onPick={(mode) => {
+              setAttachMode(mode);
+              setAttachMenuOpen(false);
+            }}
+          />
+        ) : (
+          <StructuredComposer
+            mode={attachMode}
+            sending={sending}
+            onCancel={() => setAttachMode(null)}
+            onSend={async (payload) => {
+              const ok = await sendPayload(payload);
+              if (ok) setAttachMode(null);
+            }}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 

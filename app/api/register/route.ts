@@ -92,6 +92,7 @@ export async function POST(req: Request) {
         name: stage.name,
         order: stage.order,
         color: stage.color,
+        requiresValue: stage.requiresValue,
       })),
     });
 
