@@ -17,6 +17,7 @@ import {
   sendListMessage,
 } from "@/lib/evolution";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { resolveChatMediaUrl } from "@/lib/r2";
 
 export class WhatsAppSendError extends Error {}
 
@@ -58,20 +59,27 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
   try {
     switch (type) {
       case "IMAGE": {
-        if (!mediaUrl) throw new WhatsAppSendError("Link da imagem é obrigatório");
+        if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
+        // mediaUrl guarda a chave do R2 (upload nativo) — o Evolution precisa
+        // de uma URL que ele mesmo consiga baixar, então resolve uma URL
+        // assinada só na hora do envio; o que fica salvo no banco é a chave.
+        const downloadUrl = await resolveChatMediaUrl(mediaUrl);
+        if (!downloadUrl) throw new WhatsAppSendError("Não foi possível gerar a URL da imagem");
         const result = await sendMediaMessage(instance.instanceName, fullNumber, {
           mediatype: "image",
-          media: mediaUrl,
+          media: downloadUrl,
           caption: text,
         });
         externalId = result.externalId;
         break;
       }
       case "AUDIO": {
-        if (!mediaUrl) throw new WhatsAppSendError("Link do áudio é obrigatório");
+        if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
+        const downloadUrl = await resolveChatMediaUrl(mediaUrl);
+        if (!downloadUrl) throw new WhatsAppSendError("Não foi possível gerar a URL do áudio");
         const result = await sendMediaMessage(instance.instanceName, fullNumber, {
           mediatype: "audio",
-          media: mediaUrl,
+          media: downloadUrl,
         });
         externalId = result.externalId;
         break;

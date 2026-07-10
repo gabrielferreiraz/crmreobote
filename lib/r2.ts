@@ -79,3 +79,63 @@ export async function resolveAvatarUrlMap(
   });
   return map;
 }
+
+// ─── Mídia de chat do WhatsApp (imagem/áudio enviados pelo composer) ────────
+
+const CHAT_MEDIA_ALLOWED_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/wav": "wav",
+};
+const CHAT_MEDIA_MAX_SIZE = 16 * 1024 * 1024; // 16MB — mesmo teto que o próprio WhatsApp aplica
+
+export class ChatMediaUploadError extends Error {}
+
+export function assertValidChatMedia(contentType: string, size: number) {
+  if (!(contentType in CHAT_MEDIA_ALLOWED_TYPES)) {
+    throw new ChatMediaUploadError(`Formato "${contentType}" não suportado.`);
+  }
+  if (size > CHAT_MEDIA_MAX_SIZE) {
+    throw new ChatMediaUploadError("Arquivo maior que 16MB.");
+  }
+}
+
+/** Chave R2 imprevisível, namespaced por organização — nunca revela o contato/negócio a partir dela. */
+export function buildChatMediaKey(organizationId: string, contentType: string) {
+  const ext = CHAT_MEDIA_ALLOWED_TYPES[contentType] ?? "bin";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `whatsapp-media/${organizationId}/${random}.${ext}`;
+}
+
+export async function uploadChatMedia(key: string, body: Buffer, contentType: string) {
+  await client.send(
+    new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    }),
+  );
+}
+
+/**
+ * `mediaUrl` no banco guarda ou uma chave interna do R2 ("whatsapp-media/...")
+ * ou, por retrocompatibilidade, uma URL externa completa — mesma convenção do
+ * `resolveAvatarUrl`. A URL assinada tem TTL curto porque só precisa valer o
+ * suficiente pro Evolution baixar a mídia na hora do envio, ou pro navegador
+ * carregar a mensagem enquanto o chat está aberto.
+ */
+export async function resolveChatMediaUrl(mediaUrl: string | null | undefined): Promise<string | null> {
+  if (!mediaUrl) return null;
+  if (!mediaUrl.startsWith("whatsapp-media/")) return mediaUrl;
+
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: mediaUrl }), {
+    expiresIn: SIGNED_URL_TTL_SECONDS,
+  });
+}

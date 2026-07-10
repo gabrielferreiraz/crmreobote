@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
+import { resolveChatMediaUrl } from "@/lib/r2";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ contact
       orderBy: { createdAt: "asc" },
     });
 
-    return NextResponse.json(messages);
+    // mediaUrl no banco pode ser uma chave interna do R2 (mídia enviada pelo
+    // composer nativo) — o navegador precisa de uma URL de verdade pra exibir.
+    const resolved = await Promise.all(
+      messages.map(async (msg) => ({
+        ...msg,
+        mediaUrl: msg.mediaUrl ? await resolveChatMediaUrl(msg.mediaUrl) : msg.mediaUrl,
+      })),
+    );
+
+    return NextResponse.json(resolved);
   });
 }
 

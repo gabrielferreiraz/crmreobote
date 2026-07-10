@@ -16,24 +16,34 @@ function isAuthorized(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest) {
   if (!isAuthorized(req)) {
+    console.warn("[wa:webhook] requisição rejeitada: segredo ausente/incorreto na URL");
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => null);
+  const body = await req.json().catch((err) => {
+    console.error("[wa:webhook] corpo da requisição não é JSON válido", err);
+    return null;
+  });
   const instanceName = body?.instance as string | undefined;
   const event = (body?.event as string | undefined)?.toLowerCase();
   const data = body?.data;
 
+  console.log(`[wa:webhook] recebido: instance="${instanceName}" event="${event}"`);
+
   // Payload que não reconhecemos: responde 200 mesmo assim, senão o Evolution
   // fica reenviando o mesmo evento indefinidamente.
   if (!instanceName || !event) {
+    console.warn("[wa:webhook] ignorado: instance ou event ausente no payload", JSON.stringify(body));
     return NextResponse.json({ ok: true });
   }
 
   const instance = await runWithInstanceLookup(instanceName, () =>
     prisma.whatsAppInstance.findUnique({ where: { instanceName } }),
   );
-  if (!instance) return NextResponse.json({ ok: true });
+  if (!instance) {
+    console.warn(`[wa:webhook] ignorado: nenhuma WhatsAppInstance com instanceName="${instanceName}"`);
+    return NextResponse.json({ ok: true });
+  }
 
   return runWithTenant(instance.organizationId, async () => {
     if (event === "messages.upsert") {
@@ -42,6 +52,8 @@ export async function POST(req: NextRequest) {
       await handleStatusUpdate(instance, data);
     } else if (event === "connection.update") {
       await handleConnectionUpdate(instance, data);
+    } else {
+      console.log(`[wa:webhook] evento "${event}" recebido mas não tratado (nenhum handler pra ele ainda)`);
     }
     return NextResponse.json({ ok: true });
   });

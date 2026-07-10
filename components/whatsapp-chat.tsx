@@ -7,6 +7,7 @@ import {
   Paperclip,
   Image as ImageIcon,
   Mic,
+  Square,
   User,
   QrCode,
   MousePointerClick,
@@ -53,6 +54,19 @@ const ATTACH_OPTIONS: { mode: AttachMode; label: string; icon: typeof ImageIcon 
   { mode: "BUTTONS", label: "Botões", icon: MousePointerClick },
   { mode: "LIST", label: "Lista", icon: List },
 ];
+
+/**
+ * Sobe o arquivo pro R2 (via app/api/whatsapp/media) e devolve a chave
+ * interna — nunca uma URL pública direta, o bucket é privado por padrão.
+ */
+async function uploadMedia(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("/api/whatsapp/media", { method: "POST", body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? "Falha ao enviar arquivo");
+  return data.key as string;
+}
 
 /**
  * Aparece pra todo contato, com ou sem conversa iniciada. O botão só abre o
@@ -117,6 +131,11 @@ function WhatsAppChatModal({
 
   useEffect(() => {
     load();
+    // Sem isso, uma mensagem que chega enquanto o chat está aberto (ou que o
+    // webhook processa um instante depois de abrir) só apareceria se a pessoa
+    // fechasse e abrisse o modal de novo.
+    const interval = setInterval(load, 4000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contactId]);
 
@@ -401,48 +420,203 @@ function StructuredComposer({
 }
 
 function ImageForm({ sending, onSend }: { sending: boolean; onSend: (payload: Record<string, unknown>) => void }) {
-  const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function pickFile(f: File | null) {
+    setError(null);
+    setFile(f);
+    setPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return f ? URL.createObjectURL(f) : null;
+    });
+  }
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  async function handleSend() {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const key = await uploadMedia(file);
+      onSend({
+        type: "IMAGE",
+        mediaUrl: key,
+        body: caption.trim() || undefined,
+        text: caption.trim() || "📷 Imagem",
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao enviar imagem");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
-      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link da imagem" className="field-input text-sm" />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+      />
+      {preview ? (
+        <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="" className="max-h-40 w-full rounded-md object-cover" />
+          <button
+            type="button"
+            onClick={() => pickFile(null)}
+            className="icon-btn absolute top-1.5 right-1.5 bg-black/50 text-white hover:bg-black/70"
+            aria-label="Remover imagem"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="btn-secondary btn-sm w-full justify-center"
+        >
+          <ImageIcon className="h-4 w-4" strokeWidth={2} />
+          Escolher imagem
+        </button>
+      )}
       <input
         value={caption}
         onChange={(e) => setCaption(e.target.value)}
         placeholder="Legenda (opcional)"
         className="field-input text-sm"
       />
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       <button
         type="button"
-        disabled={sending || !url.trim()}
-        onClick={() =>
-          onSend({
-            type: "IMAGE",
-            mediaUrl: url.trim(),
-            body: caption.trim() || undefined,
-            text: caption.trim() || "📷 Imagem",
-          })
-        }
+        disabled={sending || uploading || !file}
+        onClick={handleSend}
         className="btn-primary btn-sm w-full justify-center"
       >
-        Enviar imagem
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : "Enviar imagem"}
       </button>
     </div>
   );
 }
 
+function pickAudioMimeType(): string {
+  const candidates = ["audio/webm", "audio/ogg", "audio/mp4"];
+  for (const type of candidates) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return "audio/webm";
+}
+
 function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Record<string, unknown>) => void }) {
-  const [url, setUrl] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [blob, setBlob] = useState<Blob | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  async function startRecording() {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickAudioMimeType();
+      const recorder = new MediaRecorder(stream, { mimeType });
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const recorded = new Blob(chunksRef.current, { type: mimeType });
+        setBlob(recorded);
+        setPreviewUrl(URL.createObjectURL(recorded));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      setRecording(true);
+    } catch {
+      setError("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
+    }
+  }
+
+  function stopRecording() {
+    recorderRef.current?.stop();
+    setRecording(false);
+  }
+
+  function discard() {
+    setBlob(null);
+    setPreviewUrl(null);
+  }
+
+  async function handleSend() {
+    if (!blob) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
+      const file = new File([blob], `audio.${ext}`, { type: blob.type });
+      const key = await uploadMedia(file);
+      onSend({ type: "AUDIO", mediaUrl: key, text: "🎵 Áudio" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao enviar áudio");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
-      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link do áudio" className="field-input text-sm" />
+      {!blob ? (
+        <button
+          type="button"
+          onClick={recording ? stopRecording : startRecording}
+          className={`btn-sm w-full justify-center ${
+            recording
+              ? "btn-primary bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+              : "btn-secondary"
+          }`}
+        >
+          {recording ? (
+            <>
+              <Square className="h-4 w-4" strokeWidth={2} />
+              Parar gravação
+            </>
+          ) : (
+            <>
+              <Mic className="h-4 w-4" strokeWidth={2} />
+              Gravar áudio
+            </>
+          )}
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">
+          <audio controls src={previewUrl ?? undefined} className="h-8 flex-1" />
+          <button type="button" onClick={discard} className="icon-btn shrink-0" aria-label="Descartar">
+            <X className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+        </div>
+      )}
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       <button
         type="button"
-        disabled={sending || !url.trim()}
-        onClick={() => onSend({ type: "AUDIO", mediaUrl: url.trim(), text: "🎵 Áudio" })}
+        disabled={sending || uploading || !blob}
+        onClick={handleSend}
         className="btn-primary btn-sm w-full justify-center"
       >
-        Enviar áudio
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : "Enviar áudio"}
       </button>
     </div>
   );

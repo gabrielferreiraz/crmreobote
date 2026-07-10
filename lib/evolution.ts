@@ -73,12 +73,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // "instance not connected" etc.), sem isso o erro genérico não ajuda a
     // diagnosticar por que uma mensagem "foi enviada" mas não chegou.
     const errorBody = await res.text().catch(() => "");
-    console.error(`[evolution] ${res.status} em ${path}:`, errorBody.slice(0, 500));
+    console.error(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, errorBody.slice(0, 500));
     throw new EvolutionApiError(`Evolution API respondeu ${res.status} em ${path}`, res.status);
   }
 
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  if (res.status === 204) {
+    console.log(`[evolution] ${init?.method ?? "GET"} ${path} → 204 (sem corpo)`);
+    return undefined as T;
+  }
+
+  const json = await res.json();
+  // Loga toda resposta bem-sucedida, não só erro — pra "sendButtons"/"sendList"
+  // em especial, o Evolution pode responder 200 e mesmo assim a mensagem não
+  // aparecer de fato no WhatsApp do destinatário (limitação da própria Meta
+  // fora de conta Business API oficial); só vendo o corpo da resposta real dá
+  // pra confirmar se o Evolution aceitou ou já avisou algo estranho aqui.
+  console.log(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, JSON.stringify(json).slice(0, 1000));
+  return json as T;
 }
 
 export type ConnectionState = "open" | "close" | "connecting";
