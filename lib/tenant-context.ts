@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Prisma } from "@/app/generated/prisma/client";
 
-type TenantStore = { organizationId?: string; userId?: string };
+type TenantStore = { organizationId?: string; userId?: string; instanceName?: string };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
 // o Next.js pode empacotar este módulo mais de uma vez em contextos diferentes
@@ -20,6 +20,10 @@ export function getCurrentOrganizationId(): string | undefined {
 
 export function getCurrentUserId(): string | undefined {
   return storage.getStore()?.userId;
+}
+
+export function getCurrentInstanceName(): string | undefined {
+  return storage.getStore()?.instanceName;
 }
 
 /**
@@ -48,6 +52,17 @@ export function runWithTenant<T>(organizationId: string, fn: () => Promise<T>): 
  */
 export function runWithTenantUser<T>(userId: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ userId }, async () => await fn());
+}
+
+/**
+ * Mesma ideia, mas pro webhook do Evolution API (lib/whatsapp/webhook.ts):
+ * a requisição só traz o `instanceName`, o organizationId ainda precisa ser
+ * descoberto a partir dele. A policy de RLS de WhatsAppInstance permite achar
+ * a própria linha por instanceName, mesmo sem organizationId definido — igual
+ * ao OrganizationUser permite achar a própria filiação por userId no login.
+ */
+export function runWithInstanceLookup<T>(instanceName: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ instanceName }, async () => await fn());
 }
 
 /**

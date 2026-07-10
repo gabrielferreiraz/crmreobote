@@ -4,6 +4,7 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendPushToUser } from "@/lib/push";
+import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 
 type TriggerConfig = {
   days?: number;
@@ -22,6 +23,7 @@ type ActionConfig = {
   lossReasonId?: string;
   pushTitle?: string;
   pushBody?: string;
+  whatsappMessage?: string;
 };
 
 type Entity = {
@@ -129,6 +131,23 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       body: actionConfig.pushBody?.trim() || undefined,
       url,
     });
+    return;
+  }
+
+  if (rule.action === "SEND_WHATSAPP") {
+    if (!entity.contactId || !actionConfig.whatsappMessage?.trim()) return;
+    try {
+      await sendWhatsAppMessage({
+        organizationId: entity.organizationId,
+        contactId: entity.contactId,
+        ownerId: entity.ownerId,
+        text: actionConfig.whatsappMessage.trim(),
+      });
+    } catch (err) {
+      // Falha de envio (ex.: responsável sem WhatsApp conectado) não deve
+      // travar o resto da automação — só fica registrado no log do servidor.
+      console.error(`[automations] falha ao enviar WhatsApp (regra "${rule.name}")`, err);
+    }
     return;
   }
 }

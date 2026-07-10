@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { ProfileAvatarForm } from "./profile-avatar-form";
 import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
+import { WhatsAppConnect } from "@/components/whatsapp-connect";
 
 export default async function PerfilPage() {
   const session = await auth();
@@ -23,6 +24,9 @@ export default async function PerfilPage() {
       </div>
       <div className="card p-4">
         <PushNotificationsToggle />
+      </div>
+      <div className="card p-4">
+        <WhatsAppConnect />
       </div>
     </div>
   );

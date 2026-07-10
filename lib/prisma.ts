@@ -1,6 +1,6 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { getCurrentOrganizationId, getCurrentUserId } from "@/lib/tenant-context";
+import { getCurrentOrganizationId, getCurrentUserId, getCurrentInstanceName } from "@/lib/tenant-context";
 
 function createBaseClient() {
   const adapter = new PrismaPg(
@@ -35,6 +35,11 @@ function createBaseClient() {
  * usuário antes de saber a qual organização ele pertence — a policy de RLS
  * dessa tabela permite ver a própria filiação por userId mesmo sem
  * organizationId definido ainda.
+ *
+ * `app.current_instance_name` é o mesmo tipo de bootstrap, só que pro webhook
+ * do Evolution API (lib/whatsapp/webhook.ts): a requisição só traz o
+ * instanceName, e a policy de WhatsAppInstance permite achar a própria linha
+ * por ele antes de conhecer o organizationId.
  */
 function withTenantRls(client: PrismaClient) {
   return client.$extends({
@@ -44,7 +49,8 @@ function withTenantRls(client: PrismaClient) {
         async $allOperations({ args, query }) {
           const organizationId = getCurrentOrganizationId();
           const userId = getCurrentUserId();
-          if (!organizationId && !userId) return query(args);
+          const instanceName = getCurrentInstanceName();
+          if (!organizationId && !userId && !instanceName) return query(args);
 
           // Importante: tem que ser a forma em array do $transaction, não
           // `$transaction(async (tx) => ...)`. Na forma de callback, `query(args)`
@@ -59,10 +65,11 @@ function withTenantRls(client: PrismaClient) {
           // folga, várias consultas em paralelo (ex.: a Home, que dispara ~9 de
           // uma vez) estouram o prazo padrão logo após o dev server reiniciar,
           // com o pool ainda frio.
-          const [, , result] = await client.$transaction(
+          const [, , , result] = await client.$transaction(
             [
               client.$executeRaw`SELECT set_config('app.current_organization_id', ${organizationId ?? ""}, true)`,
               client.$executeRaw`SELECT set_config('app.current_user_id', ${userId ?? ""}, true)`,
+              client.$executeRaw`SELECT set_config('app.current_instance_name', ${instanceName ?? ""}, true)`,
               query(args),
             ],
             { maxWait: 10_000, timeout: 15_000 },

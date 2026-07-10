@@ -8,6 +8,7 @@ import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
+import { WhatsAppChat } from "@/components/whatsapp-chat";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
@@ -100,6 +101,11 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
           )}
+          <WhatsAppChat
+            contactId={contact.id}
+            contactName={contact.name}
+            contactPhone={contact.whatsapp || contact.phone}
+          />
         </div>
       </div>
     </div>

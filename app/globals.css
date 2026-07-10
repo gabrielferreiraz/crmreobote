@@ -34,10 +34,31 @@ body {
   color: #f5f5f5;
 }
 
+@keyframes highlight-once {
+
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+
+  15% {
+    filter: brightness(0.88);
+  }
+
+  80% {
+    filter: brightness(2.3);
+  }
+}
+
+.animate-highlight-once {
+  animation: highlight-once 1.4s ease-out 1;
+}
+
 @keyframes modal-backdrop-in {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -48,6 +69,7 @@ body {
     opacity: 0;
     transform: scale(0.97) translateY(4px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -58,6 +80,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -71,26 +94,33 @@ body {
   scrollbar-width: thin;
   scrollbar-color: #d4d4d4 transparent;
 }
+
 .scrollbar-thin::-webkit-scrollbar {
   height: 8px;
   width: 8px;
 }
+
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background-color: #d4d4d4;
   border-radius: 9999px;
 }
+
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: #a3a3a3;
 }
+
 .dark .scrollbar-thin {
   scrollbar-color: #525252 transparent;
 }
+
 .dark .scrollbar-thin::-webkit-scrollbar-thumb {
   background-color: #525252;
 }
+
 .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: #737373;
 }
@@ -99,12 +129,15 @@ body {
   .btn-primary {
     @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-white dark:focus-visible:ring-offset-neutral-950;
   }
+
   .btn-secondary {
     @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800;
   }
+
   .btn-ghost {
     @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100;
   }
+
   .btn-sm {
     @apply px-3 py-1.5 text-xs;
   }
@@ -112,10 +145,12 @@ body {
   .field-input {
     @apply w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-all duration-200 ease-out placeholder:text-neutral-400 hover:border-neutral-400 focus:border-neutral-400 focus:ring-1 focus:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:hover:border-neutral-600 dark:focus:border-neutral-500 dark:focus:ring-neutral-500;
   }
+
   .field-select {
     @apply appearance-none bg-[right_0.6rem_center] bg-no-repeat pr-8;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   }
+
   .field-label {
     @apply block text-left text-sm font-medium text-neutral-700 dark:text-neutral-300;
   }

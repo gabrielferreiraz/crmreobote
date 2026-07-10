@@ -19,7 +19,7 @@ type Trigger =
   | "DEAL_NO_OPEN_TASK"
   | "CONTACT_NO_DEAL"
   | "SCHEDULED";
-type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH";
+type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP";
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -69,6 +69,7 @@ const ACTION_LABELS: Record<Action, string> = {
   ADD_NOTE: "Registrar nota",
   MARK_LOST: "Marcar como perdido",
   SEND_PUSH: "Enviar notificação push",
+  SEND_WHATSAPP: "Enviar mensagem de WhatsApp",
 };
 
 export function AutomationsTable({
@@ -125,6 +126,10 @@ export function AutomationsTable({
     }
     if (rule.action === "SEND_PUSH") {
       return (config.pushTitle as string | undefined) || null;
+    }
+    if (rule.action === "SEND_WHATSAPP") {
+      const text = config.whatsappMessage as string | undefined;
+      return text ? (text.length > 40 ? `${text.slice(0, 40)}…` : text) : null;
     }
     return null;
   }
@@ -292,6 +297,7 @@ function NewAutomationDialog({
   const [lossReasonId, setLossReasonId] = useState(lossReasons[0]?.id ?? "");
   const [pushTitle, setPushTitle] = useState("");
   const [pushBody, setPushBody] = useState("");
+  const [whatsappMessage, setWhatsappMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -328,7 +334,9 @@ function NewAutomationDialog({
           ? { note: note || undefined }
           : action === "MARK_LOST"
             ? { lossReasonId }
-            : { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined };
+            : action === "SEND_PUSH"
+              ? { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined }
+              : { whatsappMessage };
 
     const res = await fetch("/api/automations", {
       method: "POST",
@@ -351,7 +359,8 @@ function NewAutomationDialog({
     !!name.trim() &&
     (trigger !== "DEAL_STAGE_ENTERED" || !!stageId) &&
     (trigger !== "SCHEDULED" || !!assigneeId) &&
-    (action !== "MARK_LOST" || !!lossReasonId);
+    (action !== "MARK_LOST" || !!lossReasonId) &&
+    (action !== "SEND_WHATSAPP" || !!whatsappMessage.trim());
 
   return (
     <Modal onClose={onClose}>
@@ -595,6 +604,27 @@ function NewAutomationDialog({
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Só chega em quem ativou notificações push no navegador (Configurações → Perfil). Quem não ativou
               simplesmente não recebe nada.
+            </p>
+          </>
+        )}
+
+        {action === "SEND_WHATSAPP" && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Mensagem</label>
+              <textarea
+                required
+                value={whatsappMessage}
+                onChange={(e) => setWhatsappMessage(e.target.value)}
+                rows={3}
+                placeholder="Ex.: Olá! Vi que você se interessou pelo nosso consórcio, posso te ajudar com alguma dúvida?"
+                className="field-input"
+              />
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Enviada pelo número do WhatsApp do responsável pelo negócio/contato. Se ele não tiver conectado o
+              WhatsApp em Configurações → Perfil, a automação não consegue enviar (fica registrado no log, não
+              trava as outras ações).
             </p>
           </>
         )}

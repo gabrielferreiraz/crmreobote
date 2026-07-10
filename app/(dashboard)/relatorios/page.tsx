@@ -118,6 +118,57 @@ export default async function RelatoriosPage({
     .sort((a, b) => b.count - a.count);
   const maxLossCount = Math.max(1, ...lossBreakdown.map((l) => l.count));
 
+  // ─── WhatsApp: enviadas, responderam e conversão por vendedor ──────────
+  const [whatsappInstances, sentByInstance, inboundPairs, outboundPairs] = await Promise.all([
+    prisma.whatsAppInstance.findMany({
+      where: { organizationId, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
+      include: { user: { select: { id: true, name: true } } },
+    }),
+    prisma.whatsAppMessage.groupBy({
+      by: ["instanceId"],
+      where: { organizationId, direction: "OUTBOUND" },
+      _count: true,
+    }),
+    prisma.whatsAppMessage.groupBy({
+      by: ["instanceId", "contactId"],
+      where: { organizationId, direction: "INBOUND" },
+    }),
+    prisma.whatsAppMessage.groupBy({
+      by: ["instanceId", "contactId"],
+      where: { organizationId, direction: "OUTBOUND" },
+    }),
+  ]);
+
+  const contactedContactIds = Array.from(new Set(outboundPairs.map((p) => p.contactId)));
+  const wonContacts = contactedContactIds.length
+    ? await prisma.deal.findMany({
+        where: { organizationId, status: "WON", contactId: { in: contactedContactIds } },
+        select: { contactId: true },
+        distinct: ["contactId"],
+      })
+    : [];
+  const wonContactIdSet = new Set(wonContacts.map((d) => d.contactId));
+
+  const whatsappStats = whatsappInstances.map((inst) => {
+    const sent = sentByInstance.find((s) => s.instanceId === inst.id)?._count ?? 0;
+    const repliedContacts = new Set(
+      inboundPairs.filter((p) => p.instanceId === inst.id).map((p) => p.contactId),
+    ).size;
+    const contactedForInst = outboundPairs.filter((p) => p.instanceId === inst.id).map((p) => p.contactId);
+    const convertedForInst = contactedForInst.filter((cid) => wonContactIdSet.has(cid)).length;
+    const conversionRate =
+      contactedForInst.length > 0 ? Math.round((convertedForInst / contactedForInst.length) * 100) : 0;
+
+    return {
+      userId: inst.userId,
+      name: inst.user.name,
+      connected: inst.status === "CONNECTED",
+      sent,
+      replied: repliedContacts,
+      conversionRate,
+    };
+  });
+
   return (
     <div className="space-y-8">
       <div>
@@ -202,6 +253,43 @@ export default async function RelatoriosPage({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {whatsappStats.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">WhatsApp por vendedor</h2>
+          <div className="card overflow-x-auto p-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs text-neutral-400 dark:text-neutral-500">
+                  <th className="pb-2 font-medium">Vendedor</th>
+                  <th className="pb-2 font-medium">Status</th>
+                  <th className="pb-2 text-right font-medium">Enviadas</th>
+                  <th className="pb-2 text-right font-medium">Responderam</th>
+                  <th className="pb-2 text-right font-medium">Conversão</th>
+                </tr>
+              </thead>
+              <tbody>
+                {whatsappStats.map((w) => (
+                  <tr key={w.userId} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
+                    <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
+                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">
+                      {w.connected ? "Conectado" : "Desconectado"}
+                    </td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.replied}</td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {w.conversionRate}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
+              Conversão = % dos contatos que receberam WhatsApp e fecharam negócio (ganho).
+            </p>
           </div>
         </div>
       )}

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -58,6 +59,10 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       orderBy: { order: "asc" },
     });
 
-    return <DealDetail deal={deal} members={members} lossReasons={lossReasons} />;
+    return (
+      <Suspense fallback={null}>
+        <DealDetail deal={deal} members={members} lossReasons={lossReasons} />
+      </Suspense>
+    );
   });
 }

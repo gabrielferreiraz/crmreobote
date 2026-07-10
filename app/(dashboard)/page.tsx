@@ -144,8 +144,14 @@ export default async function HomePage() {
               {upcomingTasks.map((task) => (
                 <Link
                   key={task.id}
-                  href={task.deal ? `/negocios/${task.deal.id}` : task.contact ? `/clientes/${task.contact.id}` : "/agenda"}
-                  className="flex gap-3 text-sm"
+                  href={
+                    task.deal
+                      ? `/negocios/${task.deal.id}?highlightTask=${task.id}`
+                      : task.contact
+                        ? `/clientes/${task.contact.id}`
+                        : "/agenda"
+                  }
+                  className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
                   <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
                     {task.dueAt && (
@@ -206,7 +212,17 @@ export default async function HomePage() {
             {recentActivities.map((activity) => {
               const Icon = ACTIVITY_ICON[activity.type] ?? Inbox;
               return (
-                <div key={activity.id} className="card flex gap-3 p-3 text-sm">
+                <Link
+                  key={activity.id}
+                  href={
+                    activity.deal
+                      ? `/negocios/${activity.deal.id}?highlightActivity=${activity.id}`
+                      : activity.contact
+                        ? `/clientes/${activity.contact.id}`
+                        : "/pipeline"
+                  }
+                  className="card flex gap-3 p-3 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
                     <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
                   </div>
@@ -226,7 +242,7 @@ export default async function HomePage() {
                       {activity.user.name} · {activity.createdAt.toLocaleString("pt-BR")}
                     </p>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

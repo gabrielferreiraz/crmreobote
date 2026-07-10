@@ -15,15 +15,17 @@ model Organization {
   slug      String   @unique
   createdAt DateTime @default(now())
 
-  users           OrganizationUser[]
-  pipelines       Pipeline[]
-  contacts        Contact[]
-  deals           Deal[]
-  tasks           Task[]
-  activities      Activity[]
-  lossReasons     LossReason[]
-  teams           Team[]
-  automationRules AutomationRule[]
+  users             OrganizationUser[]
+  pipelines         Pipeline[]
+  contacts          Contact[]
+  deals             Deal[]
+  tasks             Task[]
+  activities        Activity[]
+  lossReasons       LossReason[]
+  teams             Team[]
+  automationRules   AutomationRule[]
+  whatsappInstances WhatsAppInstance[]
+  whatsappMessages  WhatsAppMessage[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -45,6 +47,7 @@ model User {
   activities        Activity[]
   teamsLed          Team[]
   pushSubscriptions PushSubscription[]
+  whatsappInstances WhatsAppInstance[]
 }
 
 // ─── Notificações push (Web Push) ───────────────────────────────────
@@ -60,6 +63,82 @@ model PushSubscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// ─── WhatsApp (Evolution API) ───────────────────────────────────────
+//
+// Uma instância (número de WhatsApp) por vendedor — nunca por organização
+// inteira, pra não depender de um único número compartilhado. `instanceName`
+// é o identificador que o Evolution API usa; nunca exposto ao frontend fora
+// do necessário pra exibir o QR Code de pareamento.
+
+model WhatsAppInstance {
+  id             String                 @id @default(cuid())
+  organizationId String
+  userId         String
+  instanceName   String                 @unique
+  phoneNumber    String?
+  status         WhatsAppInstanceStatus @default(DISCONNECTED)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     WhatsAppMessage[]
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+}
+
+enum WhatsAppInstanceStatus {
+  DISCONNECTED
+  CONNECTING
+  CONNECTED
+}
+
+model WhatsAppMessage {
+  id             String                   @id @default(cuid())
+  organizationId String
+  instanceId     String
+  contactId      String
+  direction      WhatsAppMessageDirection
+  type           WhatsAppMessageType      @default(TEXT)
+  body           String?
+  mediaUrl       String?
+  metadata       Json?
+  status         WhatsAppMessageStatus    @default(PENDING)
+  externalId     String?                  @unique
+  createdAt      DateTime                 @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance     WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact      Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, contactId, createdAt])
+  @@index([organizationId, instanceId])
+}
+
+enum WhatsAppMessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum WhatsAppMessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  CONTACT
+  PIX
+  BUTTONS
+  LIST
+}
+
+enum WhatsAppMessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
 
 model OrganizationUser {
@@ -187,10 +266,11 @@ model Contact {
   tags               String[] @default([])
   createdAt          DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  deals        Deal[]
-  tasks        Task[]
-  activities   Activity[]
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals            Deal[]
+  tasks            Task[]
+  activities       Activity[]
+  whatsappMessages WhatsAppMessage[]
 
   @@unique([organizationId, phoneNormalized])
   @@unique([organizationId, whatsappNormalized])
@@ -380,4 +460,5 @@ enum AutomationAction {
   ADD_NOTE
   MARK_LOST
   SEND_PUSH
+  SEND_WHATSAPP
 }

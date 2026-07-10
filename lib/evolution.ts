@@ -1,0 +1,223 @@
+/**
+ * Cliente do Evolution API (WhatsApp), isolado neste único arquivo de propósito:
+ * é a única peça do sistema que sabe o formato exato dos endpoints da v2.3.7.
+ * Se algum nome de campo estiver diferente na instância real, o ajuste é feito
+ * só aqui — nada fora deste arquivo conhece a forma das requisições/respostas
+ * do Evolution.
+ *
+ * NUNCA importar este módulo em código que roda no cliente (componentes com
+ * "use client") — ele lê EVOLUTION_API_KEY do ambiente do servidor.
+ */
+
+export class EvolutionApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "EvolutionApiError";
+  }
+}
+
+function getConfig(): { baseUrl: string; apiKey: string } {
+  const baseUrl = process.env.EVOLUTION_API_URL?.replace(/\/$/, "");
+  const apiKey = process.env.EVOLUTION_API_KEY;
+  if (!baseUrl || !apiKey) {
+    throw new EvolutionApiError("Evolution API não configurada (EVOLUTION_API_URL/EVOLUTION_API_KEY ausentes)", 500);
+  }
+  return { baseUrl, apiKey };
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { baseUrl, apiKey } = getConfig();
+
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: apiKey,
+      ...init?.headers,
+    },
+  });
+
+  if (!res.ok) {
+    // Nunca inclui o corpo bruto da resposta do Evolution no erro — pode conter
+    // detalhes internos. Só o status e uma mensagem genérica sobem pra quem chamou.
+    throw new EvolutionApiError(`Evolution API respondeu ${res.status} em ${path}`, res.status);
+  }
+
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+export type ConnectionState = "open" | "close" | "connecting";
+
+/**
+ * Cria a instância já com o webhook configurado (mensagem recebida, status de
+ * entrega/leitura e mudança de conexão tudo indo pro mesmo endpoint — o
+ * receptor differencia pelo campo `event` do payload).
+ */
+export async function createInstance(instanceName: string, webhookUrl: string): Promise<void> {
+  await request("/instance/create", {
+    method: "POST",
+    body: JSON.stringify({
+      instanceName,
+      qrcode: true,
+      integration: "WHATSAPP-BAILEYS",
+      webhook: {
+        url: webhookUrl,
+        byEvents: false,
+        base64: false,
+        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+      },
+    }),
+  });
+}
+
+/** Retorna o QR Code (base64 de imagem) pra parear o número no app do WhatsApp. */
+export async function getQrCode(instanceName: string): Promise<{ base64?: string; pairingCode?: string }> {
+  const data = await request<{ base64?: string; pairingCode?: string }>(
+    `/instance/connect/${encodeURIComponent(instanceName)}`,
+  );
+  return { base64: data.base64, pairingCode: data.pairingCode };
+}
+
+export async function getConnectionState(instanceName: string): Promise<ConnectionState> {
+  const data = await request<{ instance?: { state?: string } }>(
+    `/instance/connectionState/${encodeURIComponent(instanceName)}`,
+  );
+  const state = data.instance?.state;
+  if (state === "open" || state === "connecting") return state;
+  return "close";
+}
+
+export async function logoutInstance(instanceName: string): Promise<void> {
+  await request(`/instance/logout/${encodeURIComponent(instanceName)}`, { method: "DELETE" });
+}
+
+export async function deleteInstance(instanceName: string): Promise<void> {
+  await request(`/instance/delete/${encodeURIComponent(instanceName)}`, { method: "DELETE" });
+}
+
+/**
+ * `number` deve ser o número normalizado, só dígitos, com DDI
+ * (ex.: "5511999998888"). Retorna o id da mensagem no WhatsApp, usado depois
+ * pra correlacionar com o webhook de status (entregue/lido).
+ */
+export async function sendTextMessage(
+  instanceName: string,
+  number: string,
+  text: string,
+): Promise<{ externalId?: string }> {
+  const data = await request<{ key?: { id?: string } }>(
+    `/message/sendText/${encodeURIComponent(instanceName)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ number, text }),
+    },
+  );
+  return { externalId: data.key?.id };
+}
+
+/**
+ * Imagem/áudio via link direto (sem upload próprio) — o Evolution baixa a
+ * mídia da URL informada e reenvia pro WhatsApp.
+ */
+export async function sendMediaMessage(
+  instanceName: string,
+  number: string,
+  params: { mediatype: "image" | "audio"; media: string; caption?: string },
+): Promise<{ externalId?: string }> {
+  const data = await request<{ key?: { id?: string } }>(
+    `/message/sendMedia/${encodeURIComponent(instanceName)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        number,
+        mediatype: params.mediatype,
+        media: params.media,
+        caption: params.caption,
+      }),
+    },
+  );
+  return { externalId: data.key?.id };
+}
+
+export async function sendContactMessage(
+  instanceName: string,
+  number: string,
+  contact: { name: string; phone: string },
+): Promise<{ externalId?: string }> {
+  const data = await request<{ key?: { id?: string } }>(
+    `/message/sendContact/${encodeURIComponent(instanceName)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        number,
+        contact: [{ fullName: contact.name, wuid: contact.phone, phoneNumber: contact.phone }],
+      }),
+    },
+  );
+  return { externalId: data.key?.id };
+}
+
+/**
+ * Mensagem interativa com botões. Fora de uma conta WhatsApp Business API
+ * oficial com template aprovado, alguns clientes de WhatsApp podem não
+ * renderizar isso (restrição que a Meta vem aplicando de forma inconsistente
+ * pra contas ligadas via QR Code/Baileys) — vale testar num aparelho real.
+ */
+export async function sendButtonsMessage(
+  instanceName: string,
+  number: string,
+  params: { text: string; buttons: { label: string }[] },
+): Promise<{ externalId?: string }> {
+  const data = await request<{ key?: { id?: string } }>(
+    `/message/sendButtons/${encodeURIComponent(instanceName)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        number,
+        title: params.text,
+        description: params.text,
+        buttons: params.buttons.map((b, i) => ({
+          type: "reply",
+          displayText: b.label,
+          id: `btn_${i}`,
+        })),
+      }),
+    },
+  );
+  return { externalId: data.key?.id };
+}
+
+/** Mesma ressalva de suporte do sendButtonsMessage se aplica aqui. */
+export async function sendListMessage(
+  instanceName: string,
+  number: string,
+  params: { title: string; items: { title: string; description?: string }[] },
+): Promise<{ externalId?: string }> {
+  const data = await request<{ key?: { id?: string } }>(
+    `/message/sendList/${encodeURIComponent(instanceName)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        number,
+        title: params.title,
+        description: params.title,
+        buttonText: "Ver opções",
+        sections: [
+          {
+            title: params.title,
+            rows: params.items.map((item, i) => ({
+              rowId: `item_${i}`,
+              title: item.title,
+              description: item.description ?? "",
+            })),
+          },
+        ],
+      }),
+    },
+  );
+  return { externalId: data.key?.id };
+}

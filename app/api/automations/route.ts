@@ -18,7 +18,13 @@ const VALID_TRIGGERS: $Enums.AutomationTrigger[] = [
   "SCHEDULED",
 ];
 
-const VALID_ACTIONS: $Enums.AutomationAction[] = ["CREATE_TASK", "ADD_NOTE", "MARK_LOST", "SEND_PUSH"];
+const VALID_ACTIONS: $Enums.AutomationAction[] = [
+  "CREATE_TASK",
+  "ADD_NOTE",
+  "MARK_LOST",
+  "SEND_PUSH",
+  "SEND_WHATSAPP",
+];
 
 export async function GET() {
   const access = await requireRole(["OWNER", "ADMIN"]);
@@ -70,6 +76,9 @@ export async function POST(req: Request) {
   }
   if (action === "MARK_LOST" && !(actionConfig?.lossReasonId as string | undefined)) {
     return NextResponse.json({ error: "Selecione o motivo de perda" }, { status: 400 });
+  }
+  if (action === "SEND_WHATSAPP" && !(actionConfig?.whatsappMessage as string | undefined)?.trim()) {
+    return NextResponse.json({ error: "Escreva o texto da mensagem de WhatsApp" }, { status: 400 });
   }
 
   return runWithTenant(access.organizationId, async () => {

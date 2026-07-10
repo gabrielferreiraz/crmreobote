@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
@@ -12,6 +12,8 @@ import { ContactPreviewModal } from "@/components/contact-preview-modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
+import { TimePicker } from "@/components/time-picker";
+import { WhatsAppChat } from "@/components/whatsapp-chat";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -70,6 +72,7 @@ export function DealDetail({
   lossReasons: LossReasonOption[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("NOTE");
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
@@ -80,6 +83,26 @@ export function DealDetail({
   const [dueTime, setDueTime] = useState("");
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+  const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const taskId = searchParams.get("highlightTask");
+    const activityId = searchParams.get("highlightActivity");
+    if (!taskId && !activityId) return;
+    const el = document.getElementById(taskId ? `task-${taskId}` : `activity-${activityId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (taskId) setHighlightedTaskId(taskId);
+    if (activityId) setHighlightedActivityId(activityId);
+    router.replace(`/negocios/${deal.id}`);
+    const timeout = setTimeout(() => {
+      setHighlightedTaskId(null);
+      setHighlightedActivityId(null);
+    }, 1400);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function updateStatus(status: "OPEN" | "WON" | "LOST") {
     if (status === "LOST") {
@@ -307,13 +330,7 @@ export function DealDetail({
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-neutral-500 dark:text-neutral-400">Horário</label>
-                    <input
-                      type="time"
-                      value={dueTime}
-                      onChange={(e) => setDueTime(e.target.value)}
-                      disabled={!dueDate}
-                      className="field-input px-2 py-1 text-xs disabled:opacity-50"
-                    />
+                    <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="px-2 py-1 text-xs" />
                   </div>
                 </div>
                 <button type="submit" disabled={saving || !body.trim()} className="btn-primary btn-sm shrink-0">
@@ -338,7 +355,13 @@ export function DealDetail({
             {deal.activities.map((activity) => {
               const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
               return (
-                <div key={activity.id} className="card flex gap-3 p-3 text-sm">
+                <div
+                  key={activity.id}
+                  id={`activity-${activity.id}`}
+                  className={`card flex gap-3 p-3 text-sm ${
+                    highlightedActivityId === activity.id ? "animate-highlight-once" : ""
+                  }`}
+                >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
                     <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
                   </div>
@@ -370,7 +393,13 @@ export function DealDetail({
                 </p>
               )}
               {deal.tasks.map((task) => (
-                <label key={task.id} className="flex items-start gap-2 text-xs">
+                <label
+                  key={task.id}
+                  id={`task-${task.id}`}
+                  className={`-mx-1.5 flex items-start gap-2 rounded-md px-1.5 py-0.5 text-xs ${
+                    highlightedTaskId === task.id ? "animate-highlight-once" : ""
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={!!task.completedAt}
@@ -438,6 +467,12 @@ export function DealDetail({
             <Row label="Celular" value={deal.contact.phone ?? "—"} />
             <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
           </div>
+
+          <WhatsAppChat
+            contactId={deal.contact.id}
+            contactName={deal.contact.name}
+            contactPhone={deal.contact.whatsapp || deal.contact.phone}
+          />
         </div>
       </div>
 
