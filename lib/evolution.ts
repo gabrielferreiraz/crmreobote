@@ -28,21 +28,52 @@ function getConfig(): { baseUrl: string; apiKey: string } {
   return { baseUrl, apiKey };
 }
 
+// Se o Evolution travar/não responder, a chamada não pode ficar pendurada pra
+// sempre — isso já travou uma automação inteira (ou uma requisição de usuário)
+// esperando uma API de terceiro que nem sempre está no ar.
+const REQUEST_TIMEOUT_MS = 15_000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { baseUrl, apiKey } = getConfig();
 
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      apikey: apiKey,
-      ...init?.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: apiKey,
+        ...init?.headers,
+      },
+    });
+  } catch (err) {
+    // fetch() lança exceção crua (não uma resposta HTTP) em queda de rede,
+    // DNS, ou abort por timeout — padroniza tudo isso num EvolutionApiError,
+    // pra quem chama nunca precisar tratar dois formatos de erro diferentes.
+    const timedOut = err instanceof Error && err.name === "AbortError";
+    console.error(`[evolution] ${timedOut ? "timeout" : "falha de rede"} em ${path}`, err);
+    throw new EvolutionApiError(
+      timedOut
+        ? `Evolution API não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (${path})`
+        : `Falha de conexão com o Evolution API (${path})`,
+      0,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
-    // Nunca inclui o corpo bruto da resposta do Evolution no erro — pode conter
-    // detalhes internos. Só o status e uma mensagem genérica sobem pra quem chamou.
+    // O corpo do erro nunca sobe pro chamador (pode conter detalhes internos
+    // do Evolution) — mas fica logado no servidor, porque é exatamente onde
+    // costuma aparecer a causa real ("number is not a valid whatsapp number",
+    // "instance not connected" etc.), sem isso o erro genérico não ajuda a
+    // diagnosticar por que uma mensagem "foi enviada" mas não chegou.
+    const errorBody = await res.text().catch(() => "");
+    console.error(`[evolution] ${res.status} em ${path}:`, errorBody.slice(0, 500));
     throw new EvolutionApiError(`Evolution API respondeu ${res.status} em ${path}`, res.status);
   }
 
