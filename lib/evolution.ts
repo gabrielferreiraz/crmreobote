@@ -162,6 +162,32 @@ export async function sendTextMessage(
 }
 
 /**
+ * O payload de webhook de uma mensagem recebida com mídia (imagem, áudio…)
+ * só traz a URL criptografada do próprio WhatsApp — não dá pra baixar/exibir
+ * direto. Este endpoint devolve o conteúdo já decriptado em base64; `message`
+ * é o objeto bruto da mensagem (o mesmo `data` recebido no webhook).
+ */
+export async function getIncomingMediaBase64(
+  instanceName: string,
+  message: unknown,
+): Promise<{ base64: string; mimetype: string; caption?: string } | null> {
+  try {
+    const data = await request<{ base64?: string; mimetype?: string; caption?: string }>(
+      `/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      },
+    );
+    if (!data.base64) return null;
+    return { base64: data.base64, mimetype: data.mimetype ?? "application/octet-stream", caption: data.caption };
+  } catch (err) {
+    console.error(`[evolution] falha ao baixar mídia recebida de ${instanceName}`, err);
+    return null;
+  }
+}
+
+/**
  * Imagem via link direto (sem upload próprio) — o Evolution baixa a mídia da
  * URL informada e reenvia pro WhatsApp.
  */

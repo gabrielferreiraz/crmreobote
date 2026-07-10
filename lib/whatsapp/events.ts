@@ -17,13 +17,20 @@
 
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
+import { getIncomingMediaBase64 } from "@/lib/evolution";
+import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 type InstanceRef = { id: string; organizationId: string; instanceName: string };
 
 type BaileysMessage = {
   key?: { remoteJid?: string; fromMe?: boolean; id?: string };
-  message?: { conversation?: string; extendedTextMessage?: { text?: string } };
+  message?: {
+    conversation?: string;
+    extendedTextMessage?: { text?: string };
+    imageMessage?: { caption?: string };
+    audioMessage?: Record<string, unknown>;
+  };
 };
 
 function extractMessages(data: unknown): BaileysMessage[] {
@@ -39,6 +46,12 @@ function extractMessages(data: unknown): BaileysMessage[] {
 
 function extractText(msg: BaileysMessage): string | null {
   return msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? null;
+}
+
+function extractMediaKind(msg: BaileysMessage): "IMAGE" | "AUDIO" | null {
+  if (msg.message?.imageMessage) return "IMAGE";
+  if (msg.message?.audioMessage) return "AUDIO";
+  return null;
 }
 
 export async function handleIncomingMessage(instance: InstanceRef, data: unknown): Promise<void> {
@@ -98,7 +111,35 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         }
       }
 
-      const body = extractText(msg);
+      let body = extractText(msg);
+      let type: $Enums.WhatsAppMessageType = "TEXT";
+      let mediaUrl: string | undefined;
+
+      const mediaKind = extractMediaKind(msg);
+      if (mediaKind) {
+        console.log(`[wa:webhook] mensagem contém mídia (${mediaKind}) — baixando via Evolution...`);
+        const media = await getIncomingMediaBase64(instance.instanceName, msg);
+        if (!media) {
+          console.warn("[wa:webhook] Evolution não retornou a mídia (mensagem pode ter expirado ou já foi removida)");
+        } else {
+          try {
+            const buffer = Buffer.from(media.base64, "base64");
+            assertValidChatMedia(media.mimetype, buffer.length);
+            const key = buildChatMediaKey(instance.organizationId, media.mimetype);
+            await uploadChatMedia(key, buffer, media.mimetype);
+            type = mediaKind;
+            mediaUrl = key;
+            body = media.caption ?? body;
+            console.log(
+              `[wa:webhook] mídia baixada e salva no R2: key=${key} mimetype=${media.mimetype} tamanho=${buffer.length} bytes`,
+            );
+          } catch (err) {
+            const reason = err instanceof ChatMediaUploadError ? err.message : String(err);
+            console.error(`[wa:webhook] falha ao salvar mídia recebida no R2: ${reason}`);
+          }
+        }
+      }
+
       const direction = msg.key?.fromMe ? "OUTBOUND" : "INBOUND";
       const saved = await prisma.whatsAppMessage.create({
         data: {
@@ -106,12 +147,16 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
           instanceId: instance.id,
           contactId: contact.id,
           direction,
+          type,
           body,
+          mediaUrl,
           externalId: externalId ?? undefined,
           status: "DELIVERED",
         },
       });
-      console.log(`[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} body="${body}"`);
+      console.log(
+        `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
+      );
     } catch (err) {
       console.error("[wa:webhook] falha ao processar mensagem recebida", err);
     }

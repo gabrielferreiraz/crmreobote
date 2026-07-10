@@ -97,8 +97,15 @@ const CHAT_MEDIA_MAX_SIZE = 16 * 1024 * 1024; // 16MB — mesmo teto que o próp
 
 export class ChatMediaUploadError extends Error {}
 
+// Mídia recebida do WhatsApp vem com parâmetros no content-type (ex.:
+// "audio/ogg; codecs=opus") — a lista de permitidos é por tipo base, sem os
+// parâmetros, senão nunca bate com a chave exata do Record acima.
+function baseContentType(contentType: string): string {
+  return contentType.split(";")[0].trim();
+}
+
 export function assertValidChatMedia(contentType: string, size: number) {
-  if (!(contentType in CHAT_MEDIA_ALLOWED_TYPES)) {
+  if (!(baseContentType(contentType) in CHAT_MEDIA_ALLOWED_TYPES)) {
     throw new ChatMediaUploadError(`Formato "${contentType}" não suportado.`);
   }
   if (size > CHAT_MEDIA_MAX_SIZE) {
@@ -108,7 +115,7 @@ export function assertValidChatMedia(contentType: string, size: number) {
 
 /** Chave R2 imprevisível, namespaced por organização — nunca revela o contato/negócio a partir dela. */
 export function buildChatMediaKey(organizationId: string, contentType: string) {
-  const ext = CHAT_MEDIA_ALLOWED_TYPES[contentType] ?? "bin";
+  const ext = CHAT_MEDIA_ALLOWED_TYPES[baseContentType(contentType)] ?? "bin";
   const random = crypto.randomBytes(16).toString("hex");
   return `whatsapp-media/${organizationId}/${random}.${ext}`;
 }
