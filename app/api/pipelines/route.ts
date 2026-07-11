@@ -52,7 +52,7 @@ export async function POST(req: Request) {
           isDefault: false,
           order: (last?.order ?? 0) + 1,
           stages: {
-            create: [{ name: "Nova etapa", order: 1, color: "#6366f1", requiresValue: false }],
+            create: [{ name: "Nova etapa", order: 1, color: "#6366f1", requiredFields: [] }],
           },
         },
         include: { stages: { orderBy: { order: "asc" } } },

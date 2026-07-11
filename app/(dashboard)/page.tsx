@@ -76,7 +76,8 @@ export default async function HomePage() {
       : 0,
   }));
   const maxStageValue = Math.max(1, ...stageData.map((s) => s.value));
-  const activityAvatarMap = await resolveAvatarUrlMap(recentActivities.map((a) => a.user.image));
+  const avatarMap = await resolveAvatarUrlMap([...recentActivities.map((a) => a.user.image), session!.user.image]);
+  const ownPhotoUrl = session!.user.image ? (avatarMap.get(session!.user.image) ?? null) : null;
 
   return (
     <div className="space-y-8">
@@ -168,6 +169,7 @@ export default async function HomePage() {
                       {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
                     </p>
                   </div>
+                  <Avatar name={session!.user.name ?? "?"} src={ownPhotoUrl} size="xs" className="shrink-0" />
                 </Link>
               ))}
             </div>
@@ -236,7 +238,7 @@ export default async function HomePage() {
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
                       <Avatar
                         name={activity.user.name}
-                        src={activity.user.image ? activityAvatarMap.get(activity.user.image) : null}
+                        src={activity.user.image ? avatarMap.get(activity.user.image) : null}
                         size="xs"
                       />
                       {activity.user.name} · {activity.createdAt.toLocaleString("pt-BR")}

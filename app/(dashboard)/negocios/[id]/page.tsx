@@ -27,16 +27,26 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
     if (!dealRaw) notFound();
 
-    const activityAvatarMap = await resolveAvatarUrlMap(dealRaw.activities.map((a) => a.user.image));
+    const avatarMap = await resolveAvatarUrlMap([
+      ...dealRaw.activities.map((a) => a.user.image),
+      dealRaw.owner.image,
+      session!.user.image,
+    ]);
+    const currentUserPhotoUrl = session!.user.image ? (avatarMap.get(session!.user.image) ?? null) : null;
 
     const deal = {
       ...dealRaw,
       value: dealRaw.value ? Number(dealRaw.value) : null,
+      owner: {
+        id: dealRaw.owner.id,
+        name: dealRaw.owner.name,
+        photoUrl: dealRaw.owner.image ? (avatarMap.get(dealRaw.owner.image) ?? null) : null,
+      },
       activities: dealRaw.activities.map((a) => ({
         ...a,
         user: {
           name: a.user.name,
-          photoUrl: a.user.image ? (activityAvatarMap.get(a.user.image) ?? null) : null,
+          photoUrl: a.user.image ? (avatarMap.get(a.user.image) ?? null) : null,
         },
       })),
     };
@@ -61,7 +71,13 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
     return (
       <Suspense fallback={null}>
-        <DealDetail deal={deal} members={members} lossReasons={lossReasons} />
+        <DealDetail
+          deal={deal}
+          members={members}
+          lossReasons={lossReasons}
+          currentUserName={session!.user.name ?? undefined}
+          currentUserPhotoUrl={currentUserPhotoUrl}
+        />
       </Suspense>
     );
   });

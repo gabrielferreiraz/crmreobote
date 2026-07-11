@@ -49,7 +49,7 @@ type Deal = {
   stageId: string;
   stageEnteredAt: string | Date;
   contact: { id: string; name: string; email: string | null; phone: string | null; whatsapp: string | null };
-  owner: { id: string; name: string };
+  owner: { id: string; name: string; photoUrl: string | null };
   stage: Stage;
   pipeline: { stages: Stage[] };
   activities: Activity[];
@@ -66,10 +66,14 @@ export function DealDetail({
   deal,
   members,
   lossReasons,
+  currentUserName,
+  currentUserPhotoUrl,
 }: {
   deal: Deal;
   members: MemberOption[];
   lossReasons: LossReasonOption[];
+  currentUserName?: string;
+  currentUserPhotoUrl?: string | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -434,12 +438,15 @@ export function DealDetail({
             <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do negócio</h3>
             <div className="flex items-center justify-between gap-2">
               <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
-              <Select
-                value={deal.owner.id}
-                onChange={reassignOwner}
-                className="py-1 text-xs"
-                options={members.map((m) => ({ value: m.id, label: m.name }))}
-              />
+              <span className="flex items-center gap-1.5">
+                <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
+                <Select
+                  value={deal.owner.id}
+                  onChange={reassignOwner}
+                  className="py-1 text-xs"
+                  options={members.map((m) => ({ value: m.id, label: m.name }))}
+                />
+              </span>
             </div>
             <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
             <Row
@@ -503,6 +510,8 @@ export function DealDetail({
           contactId={deal.contact.id}
           contactName={deal.contact.name}
           contactPhone={deal.contact.whatsapp || deal.contact.phone}
+          currentUserName={currentUserName}
+          currentUserPhotoUrl={currentUserPhotoUrl}
           onClose={() => setChatOpen(false)}
         />
       )}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
+import { sanitizeRequiredFields } from "@/lib/deal-required-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export async function PATCH(
 ) {
   const { id, stageId } = await params;
   const body = await req.json();
-  const { name, color, requiresValue } = body as { name?: string; color?: string; requiresValue?: boolean };
+  const { name, color, requiredFields } = body as { name?: string; color?: string; requiredFields?: unknown };
 
   const access = await requireRole(["OWNER", "ADMIN"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -27,7 +28,7 @@ export async function PATCH(
       data: {
         name: name?.trim() || undefined,
         color,
-        requiresValue: requiresValue !== undefined ? requiresValue : undefined,
+        requiredFields: requiredFields !== undefined ? sanitizeRequiredFields(requiredFields) : undefined,
       },
     });
 

@@ -16,15 +16,16 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Plus, Trash2, Loader2 } from "lucide-react";
+import { GripVertical, Plus, Trash2, Loader2, Settings2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { REQUIRABLE_DEAL_FIELDS, type RequirableDealField } from "@/lib/deal-required-fields";
 
 type Stage = {
   id: string;
   name: string;
   color: string | null;
   order: number;
-  requiresValue: boolean;
+  requiredFields: string[];
   _count: { deals: number };
 };
 
@@ -92,12 +93,18 @@ export function StageManager({
     router.refresh();
   }
 
-  async function toggleRequiresValue(stageId: string, requiresValue: boolean) {
-    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, requiresValue } : s)));
+  async function toggleRequiredField(stageId: string, field: RequirableDealField, checked: boolean) {
+    const stage = stages.find((s) => s.id === stageId);
+    if (!stage) return;
+    const requiredFields = checked
+      ? [...stage.requiredFields, field]
+      : stage.requiredFields.filter((f) => f !== field);
+
+    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, requiredFields } : s)));
     await fetch(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requiresValue }),
+      body: JSON.stringify({ requiredFields }),
     });
     router.refresh();
   }
@@ -155,7 +162,7 @@ export function StageManager({
                 stage={stage}
                 onRename={renameStage}
                 onRecolor={recolorStage}
-                onToggleRequiresValue={toggleRequiresValue}
+                onToggleRequiredField={toggleRequiredField}
                 onDelete={() => setStageToDelete(stage)}
               />
             ))}
@@ -200,13 +207,13 @@ function StageRow({
   stage,
   onRename,
   onRecolor,
-  onToggleRequiresValue,
+  onToggleRequiredField,
   onDelete,
 }: {
   stage: Stage;
   onRename: (id: string, name: string) => void;
   onRecolor: (id: string, color: string) => void;
-  onToggleRequiresValue: (id: string, requiresValue: boolean) => void;
+  onToggleRequiredField: (id: string, field: RequirableDealField, checked: boolean) => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -214,7 +221,9 @@ function StageRow({
   });
   const [name, setName] = useState(stage.name);
   const [showColors, setShowColors] = useState(false);
+  const [showRequiredFields, setShowRequiredFields] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const requiredFieldsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showColors) return;
@@ -226,6 +235,17 @@ function StageRow({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showColors]);
+
+  useEffect(() => {
+    if (!showRequiredFields) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (requiredFieldsRef.current && !requiredFieldsRef.current.contains(e.target as Node)) {
+        setShowRequiredFields(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showRequiredFields]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -281,18 +301,40 @@ function StageRow({
         className="flex-1 rounded bg-transparent px-1 text-sm text-neutral-900 dark:text-neutral-100 outline-none focus:bg-neutral-50 dark:focus:bg-neutral-800"
       />
 
-      <label
-        className="flex shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
-        title="Se marcado, um negócio precisa ter valor definido antes de entrar nesta etapa"
-      >
-        <input
-          type="checkbox"
-          checked={stage.requiresValue}
-          onChange={(e) => onToggleRequiresValue(stage.id, e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
-        />
-        Exige valor
-      </label>
+      <div className="relative shrink-0" ref={requiredFieldsRef}>
+        <button
+          type="button"
+          onClick={() => setShowRequiredFields((v) => !v)}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          title="Campos obrigatórios pra um negócio entrar nesta etapa"
+        >
+          <Settings2 className="h-3.5 w-3.5" strokeWidth={2} />
+          {stage.requiredFields.length > 0 ? `${stage.requiredFields.length} obrigatório(s)` : "Nada obrigatório"}
+        </button>
+        {showRequiredFields && (
+          <div
+            className="surface-glass absolute top-7 right-0 z-10 w-56 space-y-0.5 rounded-md p-2 shadow-lg"
+          >
+            <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+              Exigir antes de entrar
+            </p>
+            {REQUIRABLE_DEAL_FIELDS.map((field) => (
+              <label
+                key={field.key}
+                className="flex items-center gap-2 rounded px-1 py-1 text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={stage.requiredFields.includes(field.key)}
+                  onChange={(e) => onToggleRequiredField(stage.id, field.key, e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
+                />
+                {field.label}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
 
       <span className="text-xs text-neutral-400 dark:text-neutral-500">{stage._count.deals} negócios</span>
 

@@ -131,6 +131,10 @@ export async function uploadChatMedia(key: string, body: Buffer, contentType: st
   );
 }
 
+export async function deleteChatMedia(key: string) {
+  await client.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+}
+
 /**
  * `mediaUrl` no banco guarda ou uma chave interna do R2 ("whatsapp-media/...")
  * ou, por retrocompatibilidade, uma URL externa completa — mesma convenção do

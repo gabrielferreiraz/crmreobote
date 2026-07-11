@@ -243,10 +243,12 @@ model PipelineStage {
   color      String?
   createdAt  DateTime @default(now())
 
-  // Definido pelo admin por etapa (não pela posição): etapas de nutrição
-  // (ex.: Remarketing) recebem lead frio sem valor de negócio ainda — exigir
-  // valor aqui travaria esse fluxo. Etapas mais avançadas normalmente exigem.
-  requiresValue Boolean @default(true)
+  // Definido pelo admin por etapa (não pela posição): quais campos do
+  // Deal precisam estar preenchidos pra um negócio poder entrar/permanecer
+  // nesta etapa (ver lib/deal-required-fields.ts pra lista de campos
+  // elegíveis). Etapas de nutrição (ex.: Remarketing) tipicamente ficam
+  // vazias aqui — lead ainda frio, nada comprometido ainda.
+  requiredFields String[] @default([])
 
   pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   deals    Deal[]

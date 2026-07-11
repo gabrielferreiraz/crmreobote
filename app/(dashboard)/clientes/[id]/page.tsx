@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { WhatsAppChat } from "@/components/whatsapp-chat";
+import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
@@ -31,6 +32,8 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
   });
 
   if (!contact) notFound();
+
+  const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
   return (
     <div className="space-y-6">
@@ -105,6 +108,8 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
             contactId={contact.id}
             contactName={contact.name}
             contactPhone={contact.whatsapp || contact.phone}
+            currentUserName={session!.user.name ?? undefined}
+            currentUserPhotoUrl={currentUserPhotoUrl}
           />
         </div>
       </div>

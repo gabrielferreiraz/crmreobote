@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Search, SearchX, Inbox } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
+import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
@@ -160,7 +161,12 @@ export function DealsList({
                     </span>
                   </td>
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">{STATUS_LABELS[deal.status]}</td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">{deal.owner.name}</td>
+                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                    <span className="flex items-center gap-1.5">
+                      <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
+                      {deal.owner.name}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">{deal.nextActivity ?? "—"}</td>
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
                     {new Date(deal.status === "OPEN" ? deal.createdAt : (deal.closedAt ?? deal.createdAt)).toLocaleDateString("pt-BR")}

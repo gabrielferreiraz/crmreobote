@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
+import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -23,15 +24,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
     if (!stage) return NextResponse.json({ error: "Etapa inválida" }, { status: 400 });
 
-    // Cada etapa define se exige valor do negócio (configurado pelo admin em
+    // Cada etapa define quais campos exige (configurado pelo admin em
     // Configurações → Pipeline) — etapas de nutrição/prospecção como
-    // Remarketing normalmente não exigem, já que o lead ainda está frio.
+    // Remarketing normalmente não exigem nada, já que o lead ainda está frio.
     // Aceita o valor já vir junto no mesmo request (preencher e mover numa
-    // ação só).
-    const resolvedValue = value !== undefined ? value : existing.value;
-    if (stage.requiresValue && resolvedValue == null) {
+    // ação só); os demais campos precisam já estar preenchidos no negócio.
+    const missing = findMissingRequiredFields(stage.requiredFields, {
+      value: value !== undefined ? value : existing.value,
+      creditType: existing.creditType,
+      creditTerm: existing.creditTerm,
+      groupNumber: existing.groupNumber,
+      quota: existing.quota,
+      expectedCloseAt: existing.expectedCloseAt,
+    });
+    if (missing.length > 0) {
       return NextResponse.json(
-        { error: "Esta etapa exige valor do negócio antes de avançar" },
+        { error: `Preencha antes de avançar: ${missing.map(labelForRequiredField).join(", ")}` },
         { status: 400 },
       );
     }

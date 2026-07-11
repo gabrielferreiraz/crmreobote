@@ -77,10 +77,14 @@ export function WhatsAppChat({
   contactId,
   contactName,
   contactPhone,
+  currentUserName,
+  currentUserPhotoUrl,
 }: {
   contactId: string;
   contactName?: string;
   contactPhone?: string | null;
+  currentUserName?: string;
+  currentUserPhotoUrl?: string | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -95,6 +99,8 @@ export function WhatsAppChat({
           contactId={contactId}
           contactName={contactName}
           contactPhone={contactPhone}
+          currentUserName={currentUserName}
+          currentUserPhotoUrl={currentUserPhotoUrl}
           onClose={() => setOpen(false)}
         />
       )}
@@ -127,11 +133,15 @@ export function WhatsAppPanel({
   contactId,
   contactName,
   contactPhone,
+  currentUserName,
+  currentUserPhotoUrl,
   onClose,
 }: {
   contactId: string;
   contactName?: string;
   contactPhone?: string | null;
+  currentUserName?: string;
+  currentUserPhotoUrl?: string | null;
   onClose: () => void;
 }) {
   return (
@@ -140,6 +150,8 @@ export function WhatsAppPanel({
         contactId={contactId}
         contactName={contactName}
         contactPhone={contactPhone}
+        currentUserName={currentUserName}
+        currentUserPhotoUrl={currentUserPhotoUrl}
         onClose={onClose}
         className="h-full"
       />
@@ -151,11 +163,15 @@ function WhatsAppChatModal({
   contactId,
   contactName,
   contactPhone,
+  currentUserName,
+  currentUserPhotoUrl,
   onClose,
 }: {
   contactId: string;
   contactName?: string;
   contactPhone?: string | null;
+  currentUserName?: string;
+  currentUserPhotoUrl?: string | null;
   onClose: () => void;
 }) {
   return (
@@ -164,6 +180,8 @@ function WhatsAppChatModal({
         contactId={contactId}
         contactName={contactName}
         contactPhone={contactPhone}
+        currentUserName={currentUserName}
+        currentUserPhotoUrl={currentUserPhotoUrl}
         onClose={onClose}
         className="h-[75vh] max-h-[42rem] min-h-[28rem]"
       />
@@ -175,12 +193,16 @@ function ChatWindow({
   contactId,
   contactName,
   contactPhone,
+  currentUserName,
+  currentUserPhotoUrl,
   onClose,
   className = "",
 }: {
   contactId: string;
   contactName?: string;
   contactPhone?: string | null;
+  currentUserName?: string;
+  currentUserPhotoUrl?: string | null;
   onClose: () => void;
   className?: string;
 }) {
@@ -268,7 +290,15 @@ function ChatWindow({
             />
           </div>
         ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} />)
+          messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              contactName={contactName}
+              currentUserName={currentUserName}
+              currentUserPhotoUrl={currentUserPhotoUrl}
+            />
+          ))
         )}
         <div ref={bottomRef} />
       </div>
@@ -303,20 +333,38 @@ function ChatWindow({
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  contactName,
+  currentUserName,
+  currentUserPhotoUrl,
+}: {
+  message: Message;
+  contactName?: string;
+  currentUserName?: string;
+  currentUserPhotoUrl?: string | null;
+}) {
   const isOut = message.direction === "OUTBOUND";
+  const avatar = isOut ? (
+    <Avatar name={currentUserName ?? "?"} src={currentUserPhotoUrl} size="xs" className="shrink-0" />
+  ) : (
+    <Avatar name={contactName ?? "?"} size="xs" className="shrink-0" />
+  );
+
   return (
-    <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+    <div className={`flex items-end gap-1.5 ${isOut ? "justify-end" : "justify-start"}`}>
+      {!isOut && avatar}
       <div
-        className={`max-w-[80%] rounded-lg px-3 py-1.5 text-sm ${
+        className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${
           isOut
-            ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-            : "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+            ? "rounded-br-sm bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+            : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
         }`}
       >
         <MessageContent message={message} />
         <p className="mt-0.5 text-[10px] opacity-60">{new Date(message.createdAt).toLocaleString("pt-BR")}</p>
       </div>
+      {isOut && avatar}
     </div>
   );
 }
@@ -326,15 +374,21 @@ function MessageContent({ message }: { message: Message }) {
     case "IMAGE":
       return (
         <div className="space-y-1">
-          {message.mediaUrl && (
+          {message.mediaUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={message.mediaUrl} alt="" className="max-h-48 w-full rounded-md object-cover" />
+          ) : (
+            <p className="text-xs italic opacity-60">Imagem expirada</p>
           )}
           {message.body && <p className="whitespace-pre-wrap">{message.body}</p>}
         </div>
       );
     case "AUDIO":
-      return <audio controls src={message.mediaUrl ?? undefined} className="h-8 w-56 max-w-full" />;
+      return message.mediaUrl ? (
+        <audio controls src={message.mediaUrl} className="h-8 w-56 max-w-full" />
+      ) : (
+        <p className="text-xs italic opacity-60">Áudio expirado</p>
+      );
     case "CONTACT":
       return (
         <div className="flex items-center gap-2 rounded-md bg-black/5 px-2 py-1.5 dark:bg-white/10">
@@ -583,19 +637,57 @@ function pickAudioMimeType(): string {
   return "audio/webm";
 }
 
+const WAVEFORM_BARS = 24;
+
+function formatDuration(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Record<string, unknown>) => void }) {
   const [recording, setRecording] = useState(false);
   const [blob, setBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [levels, setLevels] = useState<number[]>(Array(WAVEFORM_BARS).fill(3));
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
+  useEffect(() => {
+    if (!recording) return;
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [recording]);
+
+  // Se o formulário for fechado/trocado com a gravação ainda rolando, solta o
+  // microfone e o AudioContext em vez de deixá-los presos em segundo plano.
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
+      stopVisualizer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function stopVisualizer() {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
+  }
+
   async function startRecording() {
     setError(null);
+    setElapsed(0);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = pickAudioMimeType();
@@ -609,10 +701,32 @@ function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
         setBlob(recorded);
         setPreviewUrl(URL.createObjectURL(recorded));
         stream.getTracks().forEach((t) => t.stop());
+        stopVisualizer();
       };
       recorder.start();
       recorderRef.current = recorder;
       setRecording(true);
+
+      // Forma de onda real (não simulada): lê o volume por faixa de frequência
+      // direto do microfone via Web Audio API enquanto grava.
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      audioCtxRef.current = audioCtx;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+
+      const tick = () => {
+        analyser.getByteFrequencyData(data);
+        const bars = Array.from({ length: WAVEFORM_BARS }, (_, i) => {
+          const value = data[Math.floor((i * data.length) / WAVEFORM_BARS)];
+          return Math.max(3, Math.round((value / 255) * 28));
+        });
+        setLevels(bars);
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
     } catch {
       setError("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
     }
@@ -626,6 +740,7 @@ function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
   function discard() {
     setBlob(null);
     setPreviewUrl(null);
+    setElapsed(0);
   }
 
   async function handleSend() {
@@ -646,27 +761,40 @@ function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
 
   return (
     <div className="space-y-2">
-      {!blob ? (
-        <button
-          type="button"
-          onClick={recording ? stopRecording : startRecording}
-          className={`btn-sm w-full justify-center ${
-            recording
-              ? "btn-primary bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
-              : "btn-secondary"
-          }`}
-        >
-          {recording ? (
-            <>
-              <Square className="h-4 w-4" strokeWidth={2} />
-              Parar gravação
-            </>
-          ) : (
-            <>
-              <Mic className="h-4 w-4" strokeWidth={2} />
-              Gravar áudio
-            </>
-          )}
+      {recording ? (
+        <div className="flex flex-col items-center gap-3 rounded-lg bg-neutral-50 py-4 dark:bg-neutral-950/50">
+          <button
+            type="button"
+            onClick={stopRecording}
+            className="relative flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20"
+            aria-label="Parar gravação"
+          >
+            <span className="absolute inset-0 animate-ping rounded-full bg-red-600/40" />
+            <span
+              className="absolute inset-0 animate-ping rounded-full bg-red-600/25 [animation-delay:0.4s]"
+            />
+            <Square className="relative h-5 w-5" strokeWidth={2} fill="currentColor" />
+          </button>
+
+          <div className="flex h-8 items-end gap-0.5">
+            {levels.map((h, i) => (
+              <span
+                key={i}
+                className="w-1 rounded-full bg-red-500 transition-[height] duration-75 ease-out dark:bg-red-400"
+                style={{ height: `${h}px` }}
+              />
+            ))}
+          </div>
+
+          <div className="text-center">
+            <p className="text-xs font-medium text-red-600 dark:text-red-400">Gravando…</p>
+            <p className="font-mono text-xs text-neutral-400 dark:text-neutral-500">{formatDuration(elapsed)}</p>
+          </div>
+        </div>
+      ) : !blob ? (
+        <button type="button" onClick={startRecording} className="btn-secondary btn-sm w-full justify-center">
+          <Mic className="h-4 w-4" strokeWidth={2} />
+          Gravar áudio
         </button>
       ) : (
         <div className="flex items-center gap-2">

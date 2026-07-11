@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -89,14 +90,28 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "Selecione um motivo de perda" }, { status: 400 });
     }
 
-    // Mesma regra do /move: se a etapa atual exige valor, não pode ficar sem
-    // — sem essa checagem aqui, dava pra contornar a exigência do /move
-    // simplesmente limpando o valor depois por aqui.
-    if (value === null) {
+    // Mesma regra do /move: se a etapa atual exige algum desses campos, não
+    // pode limpá-lo por aqui — sem essa checagem dava pra contornar a
+    // exigência do /move simplesmente apagando o campo depois nesta rota.
+    const clearedFields = (
+      [
+        ["value", value],
+        ["creditType", creditType],
+        ["creditTerm", creditTerm],
+        ["groupNumber", groupNumber],
+        ["quota", quota],
+        ["expectedCloseAt", expectedCloseAt],
+      ] as const
+    )
+      .filter(([, v]) => v === null)
+      .map(([field]) => field as RequirableDealField);
+
+    if (clearedFields.length > 0) {
       const currentStage = await prisma.pipelineStage.findUnique({ where: { id: existing.stageId } });
-      if (currentStage?.requiresValue) {
+      const blocked = clearedFields.filter((field) => currentStage?.requiredFields.includes(field));
+      if (blocked.length > 0) {
         return NextResponse.json(
-          { error: "Esta etapa exige valor do negócio" },
+          { error: `Esta etapa exige: ${blocked.map(labelForRequiredField).join(", ")}` },
           { status: 400 },
         );
       }

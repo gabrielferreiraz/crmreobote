@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { Avatar } from "@/components/avatar";
 import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 
@@ -143,6 +144,9 @@ export function TaskCalendar({
                     >
                       <Icon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
                       <span className="truncate">{t.title}</span>
+                      {showOwner && (
+                        <Avatar name={t.owner.name} src={t.owner.photoUrl} size="2xs" className="ml-auto shrink-0" />
+                      )}
                     </button>
                   );
                 })}
