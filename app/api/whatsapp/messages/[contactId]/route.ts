@@ -23,9 +23,24 @@ export async function GET(_req: Request, { params }: { params: Promise<{ contact
     const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
     if (!contact) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+    // rawPayload nunca vai pro frontend — é o {key, message} bruto do
+    // WhatsApp, só serve pra montar o "quoted" na hora de responder,
+    // internamente (ver lib/whatsapp/send.ts).
     const messages = await prisma.whatsAppMessage.findMany({
       where: { organizationId, contactId },
       orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        direction: true,
+        type: true,
+        body: true,
+        mediaUrl: true,
+        metadata: true,
+        status: true,
+        createdAt: true,
+        replyToId: true,
+        replyTo: { select: { id: true, type: true, body: true, direction: true } },
+      },
     });
 
     // Abrir a conversa é o próprio ato de "ler" — some com o sinal de
@@ -51,11 +66,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ contact
 export async function POST(req: Request, { params }: { params: Promise<{ contactId: string }> }) {
   const { contactId } = await params;
   const requestBody = await req.json();
-  const { text, type, mediaUrl, metadata } = requestBody as {
+  const { text, type, mediaUrl, metadata, replyToId } = requestBody as {
     text?: string;
     type?: string;
     mediaUrl?: string;
     metadata?: Record<string, unknown>;
+    replyToId?: string;
   };
 
   const { organizationId, userId } = await requireSession();
@@ -75,6 +91,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ contact
         type: type as $Enums.WhatsAppMessageType | undefined,
         mediaUrl,
         metadata,
+        replyToId,
       });
       return NextResponse.json(message, { status: 201 });
     } catch (err) {

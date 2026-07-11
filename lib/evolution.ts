@@ -95,6 +95,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export type ConnectionState = "open" | "close" | "connecting";
 
 /**
+ * Referência "crua" de uma mensagem (key + message no formato do próprio
+ * WhatsApp/Baileys) — é exatamente o que o Evolution espera no campo
+ * `quoted` pra responder a uma mensagem específica, e também o que ele
+ * devolve em toda resposta de envio bem-sucedida. Guardamos isso em cada
+ * WhatsAppMessage (ver lib/whatsapp/send.ts e lib/whatsapp/events.ts)
+ * justamente pra poder citar essa mensagem depois.
+ */
+export type MessageRef = { key: unknown; message: unknown };
+
+type SendResult = { externalId?: string; ref?: MessageRef };
+
+function toSendResult(data: { key?: { id?: string }; message?: unknown }): SendResult {
+  if (!data.key) return {};
+  return { externalId: data.key.id, ref: { key: data.key, message: data.message } };
+}
+
+/**
  * Cria a instância já com o webhook configurado (mensagem recebida, status de
  * entrega/leitura e mudança de conexão tudo indo pro mesmo endpoint — o
  * receptor differencia pelo campo `event` do payload).
@@ -150,15 +167,16 @@ export async function sendTextMessage(
   instanceName: string,
   number: string,
   text: string,
-): Promise<{ externalId?: string }> {
-  const data = await request<{ key?: { id?: string } }>(
+  quoted?: MessageRef,
+): Promise<SendResult> {
+  const data = await request<{ key?: { id?: string }; message?: unknown }>(
     `/message/sendText/${encodeURIComponent(instanceName)}`,
     {
       method: "POST",
-      body: JSON.stringify({ number, text }),
+      body: JSON.stringify({ number, text, quoted }),
     },
   );
-  return { externalId: data.key?.id };
+  return toSendResult(data);
 }
 
 /**
@@ -195,8 +213,9 @@ export async function sendMediaMessage(
   instanceName: string,
   number: string,
   params: { mediatype: "image"; media: string; caption?: string },
-): Promise<{ externalId?: string }> {
-  const data = await request<{ key?: { id?: string } }>(
+  quoted?: MessageRef,
+): Promise<SendResult> {
+  const data = await request<{ key?: { id?: string }; message?: unknown }>(
     `/message/sendMedia/${encodeURIComponent(instanceName)}`,
     {
       method: "POST",
@@ -205,10 +224,11 @@ export async function sendMediaMessage(
         mediatype: params.mediatype,
         media: params.media,
         caption: params.caption,
+        quoted,
       }),
     },
   );
-  return { externalId: data.key?.id };
+  return toSendResult(data);
 }
 
 /**
@@ -224,15 +244,16 @@ export async function sendAudioMessage(
   instanceName: string,
   number: string,
   media: string,
-): Promise<{ externalId?: string }> {
-  const data = await request<{ key?: { id?: string } }>(
+  quoted?: MessageRef,
+): Promise<SendResult> {
+  const data = await request<{ key?: { id?: string }; message?: unknown }>(
     `/message/sendWhatsAppAudio/${encodeURIComponent(instanceName)}`,
     {
       method: "POST",
-      body: JSON.stringify({ number, audio: media, encoding: true }),
+      body: JSON.stringify({ number, audio: media, encoding: true, quoted }),
     },
   );
-  return { externalId: data.key?.id };
+  return toSendResult(data);
 }
 
 /**
@@ -278,18 +299,20 @@ export async function sendContactMessage(
   instanceName: string,
   number: string,
   contact: { name: string; phone: string },
-): Promise<{ externalId?: string }> {
-  const data = await request<{ key?: { id?: string } }>(
+  quoted?: MessageRef,
+): Promise<SendResult> {
+  const data = await request<{ key?: { id?: string }; message?: unknown }>(
     `/message/sendContact/${encodeURIComponent(instanceName)}`,
     {
       method: "POST",
       body: JSON.stringify({
         number,
         contact: [{ fullName: contact.name, wuid: contact.phone, phoneNumber: contact.phone }],
+        quoted,
       }),
     },
   );
-  return { externalId: data.key?.id };
+  return toSendResult(data);
 }
 
 // sendButtonsMessage/sendListMessage existiram e foram removidas: o payload

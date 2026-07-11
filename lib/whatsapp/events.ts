@@ -19,17 +19,19 @@ import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64 } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
-import type { $Enums } from "@/app/generated/prisma/client";
+import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = { id: string; organizationId: string; instanceName: string };
+
+type ContextInfo = { stanzaId?: string };
 
 type BaileysMessage = {
   key?: { remoteJid?: string; fromMe?: boolean; id?: string };
   message?: {
     conversation?: string;
-    extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string };
-    audioMessage?: Record<string, unknown>;
+    extendedTextMessage?: { text?: string; contextInfo?: ContextInfo };
+    imageMessage?: { caption?: string; contextInfo?: ContextInfo };
+    audioMessage?: Record<string, unknown> & { contextInfo?: ContextInfo };
   };
 };
 
@@ -52,6 +54,15 @@ function extractMediaKind(msg: BaileysMessage): "IMAGE" | "AUDIO" | null {
   if (msg.message?.imageMessage) return "IMAGE";
   if (msg.message?.audioMessage) return "AUDIO";
   return null;
+}
+
+/** externalId da mensagem citada, quando o lead responde a algo — "stanzaId" é o nome do WhatsApp/Baileys pra isso. */
+function extractQuotedExternalId(msg: BaileysMessage): string | undefined {
+  return (
+    msg.message?.extendedTextMessage?.contextInfo?.stanzaId ??
+    msg.message?.imageMessage?.contextInfo?.stanzaId ??
+    msg.message?.audioMessage?.contextInfo?.stanzaId
+  );
 }
 
 export async function handleIncomingMessage(instance: InstanceRef, data: unknown): Promise<void> {
@@ -140,6 +151,19 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         }
       }
 
+      let replyToId: string | undefined;
+      const quotedExternalId = extractQuotedExternalId(msg);
+      if (quotedExternalId) {
+        const quotedMessage = await prisma.whatsAppMessage.findUnique({
+          where: { externalId: quotedExternalId },
+          select: { id: true },
+        });
+        replyToId = quotedMessage?.id;
+        console.log(
+          `[wa:webhook] mensagem é resposta a externalId=${quotedExternalId} → ${replyToId ? `encontrada (${replyToId})` : "não encontrada no histórico"}`,
+        );
+      }
+
       const direction = msg.key?.fromMe ? "OUTBOUND" : "INBOUND";
       const saved = await prisma.whatsAppMessage.create({
         data: {
@@ -151,6 +175,8 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
           body,
           mediaUrl,
           externalId: externalId ?? undefined,
+          rawPayload: msg.key ? ({ key: msg.key, message: msg.message } as Prisma.InputJsonValue) : undefined,
+          replyToId,
           status: "DELIVERED",
         },
       });

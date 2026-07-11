@@ -112,11 +112,18 @@ model WhatsAppMessage {
   // contato é aberto (GET /api/whatsapp/messages/[contactId]). Alimenta o
   // sinal de "lead respondeu" no card do negócio.
   read           Boolean                  @default(false)
+  // { key, message } no formato bruto do WhatsApp/Baileys — é o que o
+  // Evolution exige no campo "quoted" pra responder a esta mensagem depois
+  // (tanto em mensagens recebidas quanto nas que a gente manda).
+  rawPayload     Json?
+  replyToId      String?
   createdAt      DateTime                 @default(now())
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance     WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  contact      Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance     WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact      Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  replyTo      WhatsAppMessage?  @relation("WhatsAppMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      WhatsAppMessage[] @relation("WhatsAppMessageReplies")
 
   @@index([organizationId, contactId, createdAt])
   @@index([organizationId, instanceId])

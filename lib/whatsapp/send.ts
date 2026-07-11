@@ -9,7 +9,13 @@
 
 import { prisma } from "@/lib/prisma";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
-import { sendTextMessage, sendMediaMessage, sendAudioMessage, sendContactMessage } from "@/lib/evolution";
+import {
+  sendTextMessage,
+  sendMediaMessage,
+  sendAudioMessage,
+  sendContactMessage,
+  type MessageRef,
+} from "@/lib/evolution";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 
 export class WhatsAppSendError extends Error {}
@@ -40,10 +46,12 @@ export type WhatsAppOutgoingMessage = {
   type?: $Enums.WhatsAppMessageType;
   mediaUrl?: string;
   metadata?: Record<string, unknown>;
+  /** Id de outra WhatsAppMessage desta mesma conversa — responde a ela, igual ao "responder" do WhatsApp. */
+  replyToId?: string;
 };
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
-  const { organizationId, contactId, ownerId, text, type = "TEXT", mediaUrl, metadata } = params;
+  const { organizationId, contactId, ownerId, text, type = "TEXT", mediaUrl, metadata, replyToId } = params;
 
   const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
   if (!contact) throw new WhatsAppSendError("Contato não encontrado");
@@ -59,35 +67,59 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     throw new WhatsAppSendError("O responsável por este contato não tem WhatsApp conectado no CRM");
   }
 
+  let quoted: MessageRef | undefined;
+  if (replyToId) {
+    // Só permite citar mensagem da mesma conversa — nunca aceita um id de
+    // outro contato/organização vindo do cliente.
+    const quotedMessage = await prisma.whatsAppMessage.findFirst({
+      where: { id: replyToId, organizationId, contactId },
+      select: { rawPayload: true },
+    });
+    if (!quotedMessage?.rawPayload) throw new WhatsAppSendError("Mensagem original não encontrada pra responder");
+    quoted = quotedMessage.rawPayload as MessageRef;
+  }
+
   const fullNumber = `55${number}`;
   let externalId: string | undefined;
+  let rawPayload: MessageRef | undefined;
 
   try {
     switch (type) {
       case "IMAGE": {
         if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
-        const result = await sendMediaMessage(instance.instanceName, fullNumber, {
-          mediatype: "image",
-          media: buildEvolutionMediaUrl(mediaUrl),
-          caption: text,
-        });
+        const result = await sendMediaMessage(
+          instance.instanceName,
+          fullNumber,
+          { mediatype: "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
+          quoted,
+        );
         externalId = result.externalId;
+        rawPayload = result.ref;
         break;
       }
       case "AUDIO": {
         if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
-        const result = await sendAudioMessage(instance.instanceName, fullNumber, buildEvolutionMediaUrl(mediaUrl));
+        const result = await sendAudioMessage(
+          instance.instanceName,
+          fullNumber,
+          buildEvolutionMediaUrl(mediaUrl),
+          quoted,
+        );
         externalId = result.externalId;
+        rawPayload = result.ref;
         break;
       }
       case "CONTACT": {
         const meta = metadata as ContactMetadata | undefined;
         if (!meta?.name || !meta?.phone) throw new WhatsAppSendError("Nome e telefone do contato são obrigatórios");
-        const result = await sendContactMessage(instance.instanceName, fullNumber, {
-          name: meta.name,
-          phone: meta.phone,
-        });
+        const result = await sendContactMessage(
+          instance.instanceName,
+          fullNumber,
+          { name: meta.name, phone: meta.phone },
+          quoted,
+        );
         externalId = result.externalId;
+        rawPayload = result.ref;
         break;
       }
       case "PIX":
@@ -102,8 +134,9 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
         // decisão de produto, não só técnica) — envia como texto formatado
         // mesmo; o cartão visual rico continua aparecendo no CRM via
         // type + metadata salvos abaixo.
-        const result = await sendTextMessage(instance.instanceName, fullNumber, text);
+        const result = await sendTextMessage(instance.instanceName, fullNumber, text, quoted);
         externalId = result.externalId;
+        rawPayload = result.ref;
         break;
       }
     }
@@ -123,6 +156,8 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       mediaUrl,
       metadata: metadata as Prisma.InputJsonValue | undefined,
       externalId,
+      rawPayload: rawPayload as Prisma.InputJsonValue | undefined,
+      replyToId,
       status: "SENT",
     },
   });

@@ -17,6 +17,7 @@ import {
   Bold,
   Italic,
   Strikethrough,
+  Reply,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -36,6 +37,8 @@ type MessageMetadata = {
   items?: { title: string; description?: string }[];
 };
 
+type QuotedMessage = { id: string; type?: MessageType; body: string | null; direction: "OUTBOUND" | "INBOUND" };
+
 type Message = {
   id: string;
   direction: "OUTBOUND" | "INBOUND";
@@ -45,7 +48,20 @@ type Message = {
   metadata?: MessageMetadata | null;
   status: string;
   createdAt: string;
+  replyToId?: string | null;
+  replyTo?: QuotedMessage | null;
 };
+
+const QUOTE_PREVIEW_FALLBACK: Record<string, string> = {
+  IMAGE: "📷 Imagem",
+  AUDIO: "🎵 Áudio",
+  CONTACT: "👤 Contato",
+  PIX: "💰 Pix",
+};
+
+function previewForQuote(msg: QuotedMessage): string {
+  return msg.body || QUOTE_PREVIEW_FALLBACK[msg.type ?? "TEXT"] || "Mensagem";
+}
 
 // BUTTONS/LIST não entram mais aqui: confirmado em produção que o WhatsApp
 // não entrega/renderiza esse tipo de mensagem fora de conta Business API
@@ -67,7 +83,7 @@ const ATTACH_OPTIONS: { mode: AttachMode; label: string; icon: typeof ImageIcon 
  * `position: fixed` (que não é animável via transition/keyframe comuns).
  * Em navegadores sem suporte, cai de volta pra troca instantânea normal.
  */
-function withViewTransition(update: () => void) {
+export function withViewTransition(update: () => void) {
   const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
   if (typeof doc.startViewTransition === "function") {
     doc.startViewTransition(update);
@@ -247,6 +263,7 @@ export function ChatWindow({
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -279,13 +296,14 @@ export function ChatWindow({
       const res = await fetch(`/api/whatsapp/messages/${contactId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, replyToId: replyingTo?.id }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Erro ao enviar mensagem");
         return false;
       }
+      setReplyingTo(null);
       await load();
       return true;
     } catch {
@@ -354,6 +372,7 @@ export function ChatWindow({
               contactName={contactName}
               currentUserName={currentUserName}
               currentUserPhotoUrl={currentUserPhotoUrl}
+              onReply={setReplyingTo}
             />
           ))
         )}
@@ -361,6 +380,27 @@ export function ChatWindow({
       </div>
 
       {error && <p className="mt-1 shrink-0 text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      {replyingTo && (
+        <div className="mt-2 flex shrink-0 items-start gap-2 rounded-md border-l-2 border-neutral-400 bg-neutral-100 px-2.5 py-1.5 dark:border-neutral-600 dark:bg-neutral-800">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+              {replyingTo.direction === "OUTBOUND" ? "Você" : (contactName ?? "Contato")}
+            </p>
+            <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+              {previewForQuote(replyingTo)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyingTo(null)}
+            className="icon-btn h-5 w-5 shrink-0"
+            aria-label="Cancelar resposta"
+          >
+            <X className="h-3 w-3" strokeWidth={2} />
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 shrink-0 border-t border-neutral-200/60 pt-3 dark:border-neutral-800/60">
         {attachMode === null ? (
@@ -395,11 +435,13 @@ function MessageBubble({
   contactName,
   currentUserName,
   currentUserPhotoUrl,
+  onReply,
 }: {
   message: Message;
   contactName?: string;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  onReply: (message: Message) => void;
 }) {
   const isOut = message.direction === "OUTBOUND";
   const avatar = isOut ? (
@@ -407,10 +449,22 @@ function MessageBubble({
   ) : (
     <Avatar name={contactName ?? "?"} size="xs" className="shrink-0" />
   );
+  const replyButton = (
+    <button
+      type="button"
+      onClick={() => onReply(message)}
+      className="icon-btn h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+      aria-label="Responder"
+      title="Responder"
+    >
+      <Reply className="h-3.5 w-3.5" strokeWidth={2} />
+    </button>
+  );
 
   return (
-    <div className={`flex items-end gap-1.5 ${isOut ? "justify-end" : "justify-start"}`}>
+    <div className={`group flex items-end gap-1.5 ${isOut ? "justify-end" : "justify-start"}`}>
       {!isOut && avatar}
+      {isOut && replyButton}
       <div
         className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${
           isOut
@@ -418,9 +472,21 @@ function MessageBubble({
             : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
         }`}
       >
+        {message.replyTo && (
+          <div
+            className={`mb-1 rounded-md border-l-2 px-2 py-1 text-xs ${
+              isOut
+                ? "border-white/40 bg-white/10 dark:border-neutral-900/30 dark:bg-neutral-900/10"
+                : "border-neutral-400 bg-black/5 dark:border-neutral-500 dark:bg-white/5"
+            }`}
+          >
+            <p className="truncate opacity-80">{previewForQuote(message.replyTo)}</p>
+          </div>
+        )}
         <MessageContent message={message} />
         <p className="mt-0.5 text-[10px] opacity-60">{new Date(message.createdAt).toLocaleString("pt-BR")}</p>
       </div>
+      {!isOut && replyButton}
       {isOut && avatar}
     </div>
   );
