@@ -108,6 +108,10 @@ model WhatsAppMessage {
   metadata       Json?
   status         WhatsAppMessageStatus    @default(PENDING)
   externalId     String?                  @unique
+  // Só é relevante pra mensagens INBOUND — vira true quando o chat daquele
+  // contato é aberto (GET /api/whatsapp/messages/[contactId]). Alimenta o
+  // sinal de "lead respondeu" no card do negócio.
+  read           Boolean                  @default(false)
   createdAt      DateTime                 @default(now())
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -116,6 +120,7 @@ model WhatsAppMessage {
 
   @@index([organizationId, contactId, createdAt])
   @@index([organizationId, instanceId])
+  @@index([organizationId, contactId, direction, read])
 }
 
 enum WhatsAppMessageDirection {

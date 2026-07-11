@@ -69,6 +69,10 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       orderBy: { order: "asc" },
     });
 
+    const unreadCount = await prisma.whatsAppMessage.count({
+      where: { organizationId, contactId: deal.contactId, direction: "INBOUND", read: false },
+    });
+
     return (
       <Suspense fallback={null}>
         <DealDetail
@@ -77,6 +81,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           lossReasons={lossReasons}
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
+          hasUnreadWhatsApp={unreadCount > 0}
         />
       </Suspense>
     );

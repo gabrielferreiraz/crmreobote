@@ -141,8 +141,17 @@ export function DealsList({
                   className="border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
                   <td className="px-4 py-3">
-                    <Link href={`/negocios/${deal.id}`} className="block font-medium text-neutral-900 dark:text-neutral-100 hover:underline">
-                      {deal.name}
+                    <Link
+                      href={`/negocios/${deal.id}`}
+                      className="flex items-center gap-1.5 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                    >
+                      {deal.hasUnreadWhatsApp && (
+                        <span className="relative flex h-2 w-2 shrink-0" title="O lead respondeu">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
+                        </span>
+                      )}
+                      <span className="truncate">{deal.name}</span>
                     </Link>
                     {deal.creditType && (
                       <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{deal.creditType}</p>

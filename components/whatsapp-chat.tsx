@@ -12,6 +12,11 @@ import {
   QrCode,
   X,
   MessageCircle,
+  Maximize2,
+  Minimize2,
+  Bold,
+  Italic,
+  Strikethrough,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -56,6 +61,22 @@ const ATTACH_OPTIONS: { mode: AttachMode; label: string; icon: typeof ImageIcon 
 ];
 
 /**
+ * Troca de estado (abrir/fechar conversa, entrar/sair do modo foco) usando a
+ * View Transitions API nativa do navegador quando disponível — dá um
+ * fade/morph suave de graça, sem framer-motion e sem precisar animar
+ * `position: fixed` (que não é animável via transition/keyframe comuns).
+ * Em navegadores sem suporte, cai de volta pra troca instantânea normal.
+ */
+function withViewTransition(update: () => void) {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
+  if (typeof doc.startViewTransition === "function") {
+    doc.startViewTransition(update);
+  } else {
+    update();
+  }
+}
+
+/**
  * Sobe o arquivo pro R2 (via app/api/whatsapp/media) e devolve a chave
  * interna — nunca uma URL pública direta, o bucket é privado por padrão.
  */
@@ -90,7 +111,11 @@ export function WhatsAppChat({
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="btn-secondary w-full justify-center">
+      <button
+        type="button"
+        onClick={() => withViewTransition(() => setOpen(true))}
+        className="btn-secondary w-full justify-center"
+      >
         <WhatsAppIcon className="h-4 w-4" strokeWidth={2} />
         Abrir conversa
       </button>
@@ -101,7 +126,7 @@ export function WhatsAppChat({
           contactPhone={contactPhone}
           currentUserName={currentUserName}
           currentUserPhotoUrl={currentUserPhotoUrl}
-          onClose={() => setOpen(false)}
+          onClose={() => withViewTransition(() => setOpen(false))}
         />
       )}
     </>
@@ -114,11 +139,21 @@ export function WhatsAppChat({
  * do conteúdo do negócio no layout flex), enquanto o gatilho continua no
  * lugar de sempre. Quem controla o `open` é a página (ver deal-detail.tsx).
  */
-export function WhatsAppPanelTrigger({ onOpen }: { onOpen: () => void }) {
+export function WhatsAppPanelTrigger({ onOpen, hasUnread }: { onOpen: () => void; hasUnread?: boolean }) {
   return (
-    <button type="button" onClick={onOpen} className="btn-secondary w-full justify-center">
+    <button
+      type="button"
+      onClick={() => withViewTransition(onOpen)}
+      className="btn-secondary relative w-full justify-center"
+    >
       <WhatsAppIcon className="h-4 w-4" strokeWidth={2} />
       Abrir conversa
+      {hasUnread && (
+        <span className="absolute -top-1 -right-1 flex h-3 w-3" title="O lead respondeu">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600" />
+        </span>
+      )}
     </button>
   );
 }
@@ -152,7 +187,7 @@ export function WhatsAppPanel({
         contactPhone={contactPhone}
         currentUserName={currentUserName}
         currentUserPhotoUrl={currentUserPhotoUrl}
-        onClose={onClose}
+        onClose={() => withViewTransition(onClose)}
         className="h-full"
       />
     </div>
@@ -189,7 +224,7 @@ function WhatsAppChatModal({
   );
 }
 
-function ChatWindow({
+export function ChatWindow({
   contactId,
   contactName,
   contactPhone,
@@ -211,6 +246,7 @@ function ChatWindow({
   const [sending, setSending] = useState(false);
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -261,7 +297,13 @@ function ChatWindow({
   }
 
   return (
-    <div className={`flex flex-col ${className}`}>
+    <div
+      className={
+        expanded
+          ? "fixed inset-0 z-[60] flex flex-col bg-white p-4 dark:bg-neutral-950"
+          : `flex flex-col ${className}`
+      }
+    >
       <div className="mb-3 flex shrink-0 items-center justify-between border-b border-neutral-200/60 pb-3 dark:border-neutral-800/60">
         <div className="flex items-center gap-2.5">
           <Avatar name={contactName ?? "?"} size="md" />
@@ -273,9 +315,24 @@ function ChatWindow({
             <p className="text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>
           </div>
         </div>
-        <button type="button" onClick={onClose} className="icon-btn" aria-label="Fechar">
-          <X className="h-4 w-4" strokeWidth={2} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => withViewTransition(() => setExpanded((v) => !v))}
+            className="icon-btn"
+            aria-label={expanded ? "Sair do modo foco" : "Modo foco"}
+            title={expanded ? "Sair do modo foco" : "Modo foco"}
+          >
+            {expanded ? (
+              <Minimize2 className="h-4 w-4" strokeWidth={2} />
+            ) : (
+              <Maximize2 className="h-4 w-4" strokeWidth={2} />
+            )}
+          </button>
+          <button type="button" onClick={onClose} className="icon-btn" aria-label="Fechar">
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
       <div className="scrollbar-thin flex-1 space-y-2 overflow-y-auto rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950/50">
@@ -447,6 +504,27 @@ function MessageContent({ message }: { message: Message }) {
   }
 }
 
+const FORMAT_OPTIONS: {
+  marker: string;
+  label: string;
+  icon: typeof Bold;
+  shortcutKey: string;
+  shortcutLabel: string;
+  needsShift?: boolean;
+}[] = [
+  { marker: "*", label: "Negrito", icon: Bold, shortcutKey: "b", shortcutLabel: "Ctrl+B" },
+  { marker: "_", label: "Itálico", icon: Italic, shortcutKey: "i", shortcutLabel: "Ctrl+I" },
+  // Ctrl+S sozinho aciona "Salvar página" do navegador — usa Shift pra não brigar com isso.
+  { marker: "~", label: "Tachado", icon: Strikethrough, shortcutKey: "s", shortcutLabel: "Ctrl+Shift+S", needsShift: true },
+];
+
+const MAX_TEXTAREA_HEIGHT = 120;
+
+function autoResizeTextarea(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+}
+
 function TextComposer({
   sending,
   onSend,
@@ -461,45 +539,108 @@ function TextComposer({
   onPick: (mode: AttachMode) => void;
 }) {
   const [text, setText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function submit() {
     if (!text.trim()) return;
     onSend(text.trim());
     setText("");
+    requestAnimationFrame(() => {
+      if (textareaRef.current) autoResizeTextarea(textareaRef.current);
+    });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submit();
+  }
+
+  function applyFormat(marker: string) {
+    const el = textareaRef.current;
+    if (!el) return;
+    const { selectionStart, selectionEnd, value } = el;
+    const selected = value.slice(selectionStart, selectionEnd);
+    const next = value.slice(0, selectionStart) + marker + selected + marker + value.slice(selectionEnd);
+    setText(next);
+    const cursorStart = selectionStart + marker.length;
+    const cursorEnd = cursorStart + selected.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(cursorStart, cursorEnd);
+    });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+      return;
+    }
+    const format = FORMAT_OPTIONS.find(
+      (f) =>
+        (e.metaKey || e.ctrlKey) &&
+        e.key.toLowerCase() === f.shortcutKey &&
+        e.shiftKey === !!f.needsShift,
+    );
+    if (format) {
+      e.preventDefault();
+      applyFormat(format.marker);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2">
-      <div className="relative">
-        <button type="button" onClick={onToggleMenu} className="icon-btn" aria-label="Anexar">
-          <Paperclip className="h-4 w-4" strokeWidth={2} />
-        </button>
-        {menuOpen && (
-          <div className="surface-glass absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
-            {ATTACH_OPTIONS.map((opt) => (
-              <button
-                key={opt.mode}
-                type="button"
-                onClick={() => onPick(opt.mode)}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              >
-                <opt.icon className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
+    <form onSubmit={handleSubmit} className="space-y-1.5">
+      <div className="flex items-center gap-0.5">
+        {FORMAT_OPTIONS.map((f) => (
+          <button
+            key={f.marker}
+            type="button"
+            onClick={() => applyFormat(f.marker)}
+            className="icon-btn h-6 w-6"
+            aria-label={f.label}
+            title={`${f.label} (${f.shortcutLabel})`}
+          >
+            <f.icon className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+        ))}
       </div>
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Digite uma mensagem…"
-        className="field-input flex-1 text-sm"
-      />
-      <button type="submit" disabled={sending || !text.trim()} className="btn-primary shrink-0">
-        {sending ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
-      </button>
+      <div className="flex items-end gap-2">
+        <div className="relative shrink-0">
+          <button type="button" onClick={onToggleMenu} className="icon-btn" aria-label="Anexar">
+            <Paperclip className="h-4 w-4" strokeWidth={2} />
+          </button>
+          {menuOpen && (
+            <div className="surface-glass absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
+              {ATTACH_OPTIONS.map((opt) => (
+                <button
+                  key={opt.mode}
+                  type="button"
+                  onClick={() => onPick(opt.mode)}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  <opt.icon className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            autoResizeTextarea(e.target);
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Digite uma mensagem… (Shift+Enter para quebrar linha)"
+          rows={1}
+          className="field-input scrollbar-thin max-h-[120px] flex-1 resize-none py-2 text-sm"
+        />
+        <button type="submit" disabled={sending || !text.trim()} className="btn-primary shrink-0">
+          {sending ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
+        </button>
+      </div>
     </form>
   );
 }

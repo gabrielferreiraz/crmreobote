@@ -68,12 +68,14 @@ export function DealDetail({
   lossReasons,
   currentUserName,
   currentUserPhotoUrl,
+  hasUnreadWhatsApp,
 }: {
   deal: Deal;
   members: MemberOption[];
   lossReasons: LossReasonOption[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  hasUnreadWhatsApp?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -486,7 +488,9 @@ export function DealDetail({
             <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
           </div>
 
-          {!chatOpen && <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} />}
+          {!chatOpen && (
+            <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
+          )}
         </div>
       </div>
 

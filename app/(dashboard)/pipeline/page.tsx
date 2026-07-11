@@ -61,6 +61,18 @@ export default async function PipelinePage({
 
   const avatarMap = await resolveAvatarUrlMap(dealsRaw.map((d) => d.owner.image));
 
+  const unreadMessages = await prisma.whatsAppMessage.findMany({
+    where: {
+      organizationId,
+      direction: "INBOUND",
+      read: false,
+      contactId: { in: dealsRaw.map((d) => d.contactId) },
+    },
+    select: { contactId: true },
+    distinct: ["contactId"],
+  });
+  const unreadContactIds = new Set(unreadMessages.map((m) => m.contactId));
+
   const deals = dealsRaw.map((deal) => ({
     id: deal.id,
     name: deal.name,
@@ -80,6 +92,7 @@ export default async function PipelinePage({
     },
     nextActivity: nextTaskByDeal.get(deal.id) ?? null,
     taskTypes: taskTypesByDeal.get(deal.id) ?? [],
+    hasUnreadWhatsApp: unreadContactIds.has(deal.contactId),
   }));
 
   const membersRaw = await prisma.organizationUser.findMany({

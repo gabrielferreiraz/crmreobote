@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Início" },
   { href: "/clientes", label: "Clientes" },
   { href: "/pipeline", label: "Pipeline", alsoActiveOn: ["/negocios"] },
+  { href: "/conversas", label: "Conversas" },
   { href: "/agenda", label: "Agenda" },
   { href: "/relatorios", label: "Relatórios" },
   { href: "/automacoes", label: "Automações" },

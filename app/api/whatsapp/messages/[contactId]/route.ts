@@ -28,6 +28,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ contact
       orderBy: { createdAt: "asc" },
     });
 
+    // Abrir a conversa é o próprio ato de "ler" — some com o sinal de
+    // "lead respondeu" no card do negócio.
+    await prisma.whatsAppMessage.updateMany({
+      where: { organizationId, contactId, direction: "INBOUND", read: false },
+      data: { read: true },
+    });
+
     // mediaUrl no banco pode ser uma chave interna do R2 (mídia enviada pelo
     // composer nativo) — o navegador precisa de uma URL de verdade pra exibir.
     const resolved = await Promise.all(

@@ -47,6 +47,7 @@ export type Deal = {
   owner: { id: string; name: string; photoUrl: string | null };
   nextActivity: string | null;
   taskTypes: string[];
+  hasUnreadWhatsApp: boolean;
 };
 
 type MemberOption = { id: string; name: string };
@@ -283,12 +284,18 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
 
   const content = (
     <div
-      className={`rounded-lg border bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-neutral-900 ${
+      className={`relative rounded-lg border bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-neutral-900 ${
         stale
           ? "border-neutral-200 border-l-2 border-l-amber-500/70 dark:border-neutral-800 dark:border-l-amber-500/50"
           : "border-neutral-200 dark:border-neutral-800"
       } ${isDragging ? "opacity-40" : ""}`}
     >
+      {deal.hasUnreadWhatsApp && (
+        <span className="absolute -top-1.5 -right-1.5 flex h-3 w-3" title="O lead respondeu">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600" />
+        </span>
+      )}
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{deal.name}</p>
         <Avatar

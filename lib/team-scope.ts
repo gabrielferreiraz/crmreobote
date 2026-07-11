@@ -35,3 +35,13 @@ export async function getDealScope(
 export function scopeWhere(scope: DealScope) {
   return scope.type === "owners" ? { ownerId: { in: scope.ownerIds } } : {};
 }
+
+/**
+ * Mesma ideia de scopeWhere, mas pra WhatsAppMessage — cada vendedor tem seu
+ * próprio número conectado (WhatsAppInstance.userId), então "minhas
+ * conversas" é filtrado pela instância que enviou/recebeu, não por
+ * Deal.ownerId (a conversa pode existir mesmo sem negócio nenhum ainda).
+ */
+export function whatsappScopeWhere(scope: DealScope) {
+  return scope.type === "owners" ? { instance: { userId: { in: scope.ownerIds } } } : {};
+}
