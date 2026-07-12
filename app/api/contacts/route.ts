@@ -41,7 +41,23 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { name, email, phone, whatsapp, source, company, jobTitle, tags } = body as {
+  const {
+    name,
+    email,
+    phone,
+    whatsapp,
+    source,
+    company,
+    jobTitle,
+    address,
+    addressNumber,
+    addressComplement,
+    neighborhood,
+    city,
+    state,
+    zipCode,
+    tags,
+  } = body as {
     name?: string;
     email?: string;
     phone?: string;
@@ -49,6 +65,13 @@ export async function POST(req: Request) {
     source?: string;
     company?: string;
     jobTitle?: string;
+    address?: string;
+    addressNumber?: string;
+    addressComplement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
     tags?: string[];
   };
 
@@ -82,6 +105,13 @@ export async function POST(req: Request) {
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),
+          address: sanitizeCell(address),
+          addressNumber: sanitizeCell(addressNumber),
+          addressComplement: sanitizeCell(addressComplement),
+          neighborhood: sanitizeCell(neighborhood),
+          city: sanitizeCell(city),
+          state: sanitizeCell(state),
+          zipCode: sanitizeCell(zipCode),
           tags: cleanTags,
           phoneNormalized,
           whatsappNormalized,

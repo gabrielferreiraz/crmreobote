@@ -31,7 +31,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { name, email, phone, whatsapp, source, company, jobTitle, tags } = body as {
+  const {
+    name,
+    email,
+    phone,
+    whatsapp,
+    source,
+    company,
+    jobTitle,
+    address,
+    addressNumber,
+    addressComplement,
+    neighborhood,
+    city,
+    state,
+    zipCode,
+    tags,
+  } = body as {
     name?: string;
     email?: string;
     phone?: string;
@@ -39,6 +55,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     source?: string;
     company?: string;
     jobTitle?: string;
+    address?: string;
+    addressNumber?: string;
+    addressComplement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
     tags?: string[];
   };
 
@@ -71,6 +94,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),
+          address: sanitizeCell(address),
+          addressNumber: sanitizeCell(addressNumber),
+          addressComplement: sanitizeCell(addressComplement),
+          neighborhood: sanitizeCell(neighborhood),
+          city: sanitizeCell(city),
+          state: sanitizeCell(state),
+          zipCode: sanitizeCell(zipCode),
           ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
           phoneNormalized,
           whatsappNormalized,

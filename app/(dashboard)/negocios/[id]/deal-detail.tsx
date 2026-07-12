@@ -13,7 +13,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
-import { WhatsAppPanel, WhatsAppPanelTrigger } from "@/components/whatsapp-chat";
+import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -93,22 +93,40 @@ export function DealDetail({
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
 
   useEffect(() => {
     const taskId = searchParams.get("highlightTask");
     const activityId = searchParams.get("highlightActivity");
     if (!taskId && !activityId) return;
-    const el = document.getElementById(taskId ? `task-${taskId}` : `activity-${activityId}`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (taskId) setHighlightedTaskId(taskId);
-    if (activityId) setHighlightedActivityId(activityId);
+    // No mobile a tarefa mora na aba "Detalhes" — troca antes de procurar o
+    // elemento, senão ele nem existe no DOM ainda (a outra aba não é montada).
+    if (taskId) setMobileTab("details");
+
+    // Espera o próximo tick pra garantir que a troca de aba acima (se houve)
+    // já renderizou antes de procurar o elemento. Desktop e mobile também
+    // renderizam a mesma tarefa/atividade em blocos diferentes (um deles
+    // sempre `display:none`) — busca todas as ocorrências do id e pega a
+    // que estiver realmente visível na tela.
+    const timeout1 = setTimeout(() => {
+      const matches = document.querySelectorAll(`[id="${taskId ? `task-${taskId}` : `activity-${activityId}`}"]`);
+      const el = Array.from(matches).find((node) => (node as HTMLElement).offsetParent !== null) as
+        | HTMLElement
+        | undefined;
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (taskId) setHighlightedTaskId(taskId);
+      if (activityId) setHighlightedActivityId(activityId);
+    }, 50);
     router.replace(`/negocios/${deal.id}`);
-    const timeout = setTimeout(() => {
+    const timeout2 = setTimeout(() => {
       setHighlightedTaskId(null);
       setHighlightedActivityId(null);
-    }, 1400);
-    return () => clearTimeout(timeout);
+    }, 1450);
+    return () => {
+      clearTimeout(timeout1);
+      clearTimeout(timeout2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -227,7 +245,7 @@ export function DealDetail({
   return (
     <div className="flex items-start gap-4">
       <div className="min-w-0 flex-1 space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col items-start justify-between gap-3 lg:flex-row">
         <div className="flex items-start gap-3">
           <Avatar name={deal.contact.name} size="lg" />
           <div>
@@ -244,7 +262,7 @@ export function DealDetail({
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(
             [
               { s: "LOST" as const, icon: XCircle },
@@ -305,7 +323,8 @@ export function DealDetail({
 
       {moveError && <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>}
 
-      <div className="grid grid-cols-3 gap-6">
+      {/* Desktop — inalterado, só passou a ficar atrás de lg: */}
+      <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
         <div className="col-span-2 space-y-4">
           <div className="card p-4">
             <div className="relative mb-3 flex gap-1 overflow-x-auto border-b border-neutral-200 dark:border-neutral-800">
@@ -401,6 +420,10 @@ export function DealDetail({
             <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(deal.value)}</p>
           </div>
 
+          {!chatOpen && (
+            <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
+          )}
+
           <div className="card space-y-2 p-4 text-sm">
             <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>
             <div className="space-y-1.5">
@@ -487,11 +510,212 @@ export function DealDetail({
             <Row label="Celular" value={deal.contact.phone ?? "—"} />
             <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
           </div>
-
-          {!chatOpen && (
-            <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
-          )}
         </div>
+      </div>
+
+      {/* Mobile — abas em vez de grade lado a lado; reaproveita os mesmos
+          handlers/estado de cima, só reorganiza a apresentação. */}
+      <div className="lg:hidden">
+        <div className="mb-3 inline-flex rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
+          <button
+            onClick={() => setMobileTab("activities")}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              mobileTab === "activities"
+                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            Atividades
+          </button>
+          <button
+            onClick={() => setMobileTab("details")}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              mobileTab === "details"
+                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            Detalhes
+          </button>
+        </div>
+
+        {mobileTab === "activities" ? (
+          <div className="space-y-4">
+            <div className="card p-4">
+              <div className="mb-3 flex gap-1 overflow-x-auto">
+                {ACTIVITY_TABS.map((tab) => (
+                  <button
+                    key={tab.type}
+                    onClick={() => selectTab(tab.type)}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      activeTab === tab.type
+                        ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                        : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                    }`}
+                  >
+                    <tab.icon className="h-3.5 w-3.5" strokeWidth={2} />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <form onSubmit={submitActivity} className="space-y-2">
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="O que foi feito e qual o próximo passo?"
+                  rows={3}
+                  className="field-input"
+                />
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Prazo</label>
+                    <DatePicker value={dueDate} onChange={setDueDate} className="px-2 py-1 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Horário</label>
+                    <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="px-2 py-1 text-xs" />
+                  </div>
+                  <button type="submit" disabled={saving || !body.trim()} className="btn-primary btn-sm ml-auto shrink-0">
+                    {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
+                    {saving ? (
+                      <span className="inline-flex items-center gap-1">
+                        Salvando
+                        <LoadingDots />
+                      </span>
+                    ) : (
+                      "Registrar"
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div className="space-y-2">
+              {deal.activities.length === 0 && (
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhuma atividade registrada.</p>
+              )}
+              {deal.activities.map((activity) => {
+                const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
+                return (
+                  <div
+                    key={activity.id}
+                    id={`activity-${activity.id}`}
+                    className={`card flex gap-3 p-3 text-sm ${
+                      highlightedActivityId === activity.id ? "animate-highlight-once" : ""
+                    }`}
+                  >
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
+                      <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                        <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
+                        {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="card p-4 text-sm">
+              <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
+              <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(deal.value)}</p>
+            </div>
+
+            {!chatOpen && <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />}
+
+            <div className="card space-y-2 p-4 text-sm">
+              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>
+              <div className="space-y-1.5">
+                {deal.tasks.length === 0 && (
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                    Nenhuma tarefa. Defina um prazo ao registrar uma atividade para criar uma.
+                  </p>
+                )}
+                {deal.tasks.map((task) => (
+                  <label
+                    key={task.id}
+                    id={`task-${task.id}`}
+                    className={`-mx-1.5 flex items-start gap-2 rounded-md px-1.5 py-0.5 text-xs ${
+                      highlightedTaskId === task.id ? "animate-highlight-once" : ""
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!task.completedAt}
+                      onChange={(e) => toggleTask(task.id, e.target.checked)}
+                      className="mt-0.5 accent-neutral-900 dark:accent-white"
+                    />
+                    <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
+                      {task.title}
+                      {task.dueAt && (
+                        <span className="ml-1 text-neutral-400 dark:text-neutral-500">
+                          · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="card space-y-2 p-4 text-sm">
+              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do negócio</h3>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
+                <span className="flex items-center gap-1.5">
+                  <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
+                  <Select
+                    value={deal.owner.id}
+                    onChange={reassignOwner}
+                    className="py-1 text-xs"
+                    options={members.map((m) => ({ value: m.id, label: m.name }))}
+                  />
+                </span>
+              </div>
+              <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
+              <Row
+                label="Conclusão prevista"
+                value={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-neutral-500 dark:text-neutral-400">Tipo de crédito</span>
+                <Select
+                  value={deal.creditType ?? ""}
+                  onChange={updateCreditType}
+                  className="py-1 text-xs"
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "IMÓVEL", label: "Imóvel" },
+                    { value: "VEÍCULO", label: "Veículo" },
+                    { value: "OUTROS", label: "Outros" },
+                  ]}
+                />
+              </div>
+              <Row label="Descrição" value={deal.description ?? "—"} />
+            </div>
+
+            {deal.status === "LOST" && deal.lossReason && (
+              <div className="card space-y-2 border-red-100 bg-red-50/40 p-4 text-sm dark:border-red-900 dark:bg-red-500/10">
+                <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Motivo da perda</h3>
+                <Row label="Motivo" value={deal.lossReason.label} />
+                {deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
+              </div>
+            )}
+
+            <div className="card space-y-2 p-4 text-sm">
+              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do contato</h3>
+              <Row label="Nome" value={deal.contact.name} />
+              <Row label="E-mail" value={deal.contact.email ?? "—"} />
+              <Row label="Celular" value={deal.contact.phone ?? "—"} />
+              <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
+            </div>
+          </div>
+        )}
       </div>
 
       {lossDialogOpen && (
@@ -510,14 +734,28 @@ export function DealDetail({
       </div>
 
       {chatOpen && (
-        <WhatsAppPanel
-          contactId={deal.contact.id}
-          contactName={deal.contact.name}
-          contactPhone={deal.contact.whatsapp || deal.contact.phone}
-          currentUserName={currentUserName}
-          currentUserPhotoUrl={currentUserPhotoUrl}
-          onClose={() => setChatOpen(false)}
-        />
+        <>
+          <WhatsAppPanel
+            contactId={deal.contact.id}
+            contactName={deal.contact.name}
+            contactPhone={deal.contact.whatsapp || deal.contact.phone}
+            currentUserName={currentUserName}
+            currentUserPhotoUrl={currentUserPhotoUrl}
+            onClose={() => setChatOpen(false)}
+          />
+          <div className="fixed inset-0 z-50 flex flex-col bg-white p-4 dark:bg-neutral-950 lg:hidden">
+            <ChatWindow
+              contactId={deal.contact.id}
+              contactName={deal.contact.name}
+              contactPhone={deal.contact.whatsapp || deal.contact.phone}
+              currentUserName={currentUserName}
+              currentUserPhotoUrl={currentUserPhotoUrl}
+              onClose={() => setChatOpen(false)}
+              backMode
+              className="h-full"
+            />
+          </div>
+        </>
       )}
     </div>
   );

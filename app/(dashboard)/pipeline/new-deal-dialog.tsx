@@ -18,6 +18,7 @@ export function NewDealDialog({
   onCreated,
   open,
   onOpenChange,
+  hideTrigger,
 }: {
   pipelineId: string;
   firstStageId?: string;
@@ -25,6 +26,7 @@ export function NewDealDialog({
   onCreated: (deal: Deal) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
@@ -84,10 +86,12 @@ export function NewDealDialog({
 
   return (
     <>
-      <button onClick={() => setOpen(true)} className="btn-primary">
-        <Plus className="h-4 w-4" strokeWidth={2.5} />
-        Novo negócio
-      </button>
+      {!hideTrigger && (
+        <button onClick={() => setOpen(true)} className="btn-primary">
+          <Plus className="h-4 w-4" strokeWidth={2.5} />
+          Novo negócio
+        </button>
+      )}
 
       {isOpen && (
         <Modal onClose={() => setOpen(false)}>

@@ -282,6 +282,13 @@ model Contact {
   source             String?
   company            String?
   jobTitle           String?
+  address            String?
+  addressNumber      String?
+  addressComplement  String?
+  neighborhood       String?
+  city               String?
+  state              String?
+  zipCode            String?
   tags               String[] @default([])
   createdAt          DateTime @default(now())
 

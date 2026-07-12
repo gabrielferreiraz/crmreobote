@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -29,6 +29,21 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CRM",
   description: "CRM para equipes de vendas de consórcio",
+};
+
+// viewport-fit=cover é o que faz `env(safe-area-inset-*)` funcionar de
+// verdade nos cantos arredondados/notch do iPhone — sem isso a barra de
+// navegação e o FAB do mobile ficam encostados na borda. themeColor pinta a
+// barra de status/endereço do navegador com a cor do app em vez do branco
+// padrão, tirando aquele "corte" visual entre o app e o resto do celular.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f9fafb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
 };
 
 export default function RootLayout({

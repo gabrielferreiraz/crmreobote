@@ -47,7 +47,7 @@ export function TaskRow({
             e.stopPropagation();
             onToggle(task.id, !task.completedAt);
           }}
-          className="shrink-0"
+          className="tap-target max-lg:-m-2 shrink-0"
           aria-label={task.completedAt ? "Marcar como pendente" : "Marcar como concluída"}
         >
           {task.completedAt ? (

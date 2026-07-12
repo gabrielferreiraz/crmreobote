@@ -11,7 +11,9 @@ import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
 import type { Deal } from "./kanban-board";
 
-type MemberOption = { id: string; name: string };
+type MemberOption = { id: string; name: string; active: boolean };
+type Stage = { id: string; name: string; color: string | null };
+type LossReasonOption = { id: string; label: string };
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
   OPEN: "Em andamento",
@@ -22,21 +24,30 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
 export function DealsList({
   deals,
   members,
+  stages,
+  lossReasons,
 }: {
   deals: Deal[];
   members: MemberOption[];
+  stages: Stage[];
+  lossReasons: LossReasonOption[];
 }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">("OPEN");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
+  const [lossReasonFilter, setLossReasonFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const hasFilters = statusFilter !== "OPEN" || !!ownerFilter || !!dateFrom || !!dateTo;
+  const hasFilters =
+    statusFilter !== "OPEN" || !!ownerFilter || !!stageFilter || !!lossReasonFilter || !!dateFrom || !!dateTo;
 
   function clearFilters() {
     setStatusFilter("OPEN");
     setOwnerFilter("");
+    setStageFilter("");
+    setLossReasonFilter("");
     setDateFrom("");
     setDateTo("");
   }
@@ -52,12 +63,14 @@ export function DealsList({
       }
       if (statusFilter && d.status !== statusFilter) return false;
       if (ownerFilter && d.owner.id !== ownerFilter) return false;
+      if (stageFilter && d.stage.id !== stageFilter) return false;
+      if (lossReasonFilter && d.lossReasonId !== lossReasonFilter) return false;
       const createdAt = new Date(d.createdAt);
       if (from && createdAt < from) return false;
       if (to && createdAt >= to) return false;
       return true;
     });
-  }, [deals, search, statusFilter, ownerFilter, dateFrom, dateTo]);
+  }, [deals, search, statusFilter, ownerFilter, stageFilter, lossReasonFilter, dateFrom, dateTo]);
 
   return (
     <div className="space-y-3">
@@ -90,6 +103,18 @@ export function DealsList({
             />
           </div>
           <div className="space-y-1">
+            <label className="field-label">Etapa</label>
+            <Select
+              value={stageFilter}
+              onChange={setStageFilter}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Todas as etapas" },
+                ...stages.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
+          </div>
+          <div className="space-y-1">
             <label className="field-label">Responsável</label>
             <Select
               value={ownerFilter}
@@ -97,10 +122,24 @@ export function DealsList({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
-                ...members.map((m) => ({ value: m.id, label: m.name })),
+                ...members.map((m) => ({ value: m.id, label: m.active ? m.name : `${m.name} (inativo)` })),
               ]}
             />
           </div>
+          {statusFilter === "LOST" && lossReasons.length > 0 && (
+            <div className="space-y-1">
+              <label className="field-label">Motivo da perda</label>
+              <Select
+                value={lossReasonFilter}
+                onChange={setLossReasonFilter}
+                className="w-full py-1.5 text-sm"
+                options={[
+                  { value: "", label: "Todos os motivos" },
+                  ...lossReasons.map((r) => ({ value: r.id, label: r.label })),
+                ]}
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <label className="field-label">Criado de</label>
@@ -169,7 +208,12 @@ export function DealsList({
                       {deal.stage.name}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">{STATUS_LABELS[deal.status]}</td>
+                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                    {STATUS_LABELS[deal.status]}
+                    {deal.status === "LOST" && deal.lossReason && (
+                      <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{deal.lossReason.label}</p>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
                     <span className="flex items-center gap-1.5">
                       <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />

@@ -5,10 +5,11 @@ import Link from "next/link";
 import { MessageCircle, Search, Briefcase, X } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
+import { Select } from "@/components/select";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ChatWindow, withViewTransition } from "@/components/whatsapp-chat";
 
-type Conversation = {
+export type Conversation = {
   contactId: string;
   contactName: string;
   contactPhone: string | null;
@@ -17,6 +18,8 @@ type Conversation = {
   lastMessageAt: string | Date;
   unreadCount: number;
   deal: { id: string; name: string } | null;
+  ownerId: string;
+  ownerName: string;
 };
 
 const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] = [
@@ -25,7 +28,7 @@ const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] =
   { limitMs: 24 * 60 * 60_000, divisorMs: 60 * 60_000, suffix: "h" },
 ];
 
-function formatWhen(value: string | Date): string {
+export function formatWhen(value: string | Date): string {
   const date = new Date(value);
   const now = new Date();
   const diff = now.getTime() - date.getTime();
@@ -47,10 +50,12 @@ export function ConversationsView({
   initialConversations,
   currentUserName,
   currentUserPhotoUrl,
+  isOwner,
 }: {
   initialConversations: Conversation[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  isOwner?: boolean;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
@@ -58,6 +63,9 @@ export function ConversationsView({
   );
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
+  // Filtro por responsável só faz sentido pra quem enxerga conversa de mais
+  // de um vendedor (OWNER) — um MEMBER só vê as próprias mesmo.
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
   const unreadByContactRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.contactId, c.unreadCount])),
@@ -94,10 +102,17 @@ export function ConversationsView({
 
   const unreadTotal = useMemo(() => conversations.reduce((sum, c) => sum + c.unreadCount, 0), [conversations]);
 
+  const ownerOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const c of conversations) seen.set(c.ownerId, c.ownerName);
+    return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [conversations]);
+
   const filteredConversations = useMemo(() => {
     const term = search.trim().toLowerCase();
     return conversations.filter((c) => {
       if (onlyUnread && c.unreadCount === 0) return false;
+      if (ownerFilter && c.ownerId !== ownerFilter) return false;
       if (
         term &&
         !c.contactName.toLowerCase().includes(term) &&
@@ -108,7 +123,7 @@ export function ConversationsView({
       }
       return true;
     });
-  }, [conversations, search, onlyUnread]);
+  }, [conversations, search, onlyUnread, ownerFilter]);
 
   const selected = conversations.find((c) => c.contactId === selectedContactId) ?? null;
 
@@ -118,7 +133,7 @@ export function ConversationsView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 gap-4">
+    <div className="hidden min-h-0 flex-1 gap-4 lg:flex">
       <div className="card flex w-80 shrink-0 flex-col overflow-hidden">
         <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
           <div className="relative flex-1">
@@ -157,6 +172,17 @@ export function ConversationsView({
           </button>
         </div>
 
+        {isOwner && ownerOptions.length > 1 && (
+          <div className="shrink-0 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
+            <Select
+              value={ownerFilter}
+              onChange={setOwnerFilter}
+              className="w-full py-1.5 text-sm"
+              options={[{ value: "", label: "Todos os responsáveis" }, ...ownerOptions]}
+            />
+          </div>
+        )}
+
         <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto p-1.5">
           {conversations.length === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
@@ -171,77 +197,16 @@ export function ConversationsView({
               Nenhuma conversa encontrada.
             </p>
           ) : (
-            filteredConversations.map((c) => {
-              const unread = c.unreadCount > 0;
-              return (
-                <button
-                  key={c.contactId}
-                  type="button"
-                  onClick={() => selectConversation(c.contactId)}
-                  className={`flex w-full items-start gap-2.5 rounded-md border-l-2 p-2.5 text-left transition-colors active:scale-[0.98] ${
-                    c.contactId === selectedContactId
-                      ? "border-l-neutral-900 bg-neutral-100 dark:border-l-white dark:bg-neutral-800"
-                      : "border-l-transparent hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-                  } ${justArrived.has(c.contactId) ? "animate-highlight-once" : ""}`}
-                >
-                  <div className="group relative mt-0.5 shrink-0">
-                    <Avatar
-                      name={c.contactName}
-                      size="sm"
-                      className="transition-shadow group-hover:ring-2 group-hover:ring-neutral-300 group-hover:ring-offset-2 group-hover:ring-offset-white dark:group-hover:ring-neutral-600 dark:group-hover:ring-offset-neutral-900"
-                    />
-                    <span className="absolute -right-0.5 -bottom-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white ring-2 ring-white dark:bg-neutral-900 dark:ring-neutral-900">
-                      <WhatsAppIcon className="h-2.5 w-2.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p
-                        className={`truncate text-sm ${
-                          unread
-                            ? "font-semibold text-neutral-900 dark:text-neutral-100"
-                            : "font-medium text-neutral-700 dark:text-neutral-300"
-                        }`}
-                      >
-                        {c.contactName}
-                      </p>
-                      <span
-                        className={`shrink-0 text-[10px] ${
-                          unread
-                            ? "font-medium text-neutral-700 dark:text-neutral-300"
-                            : "text-neutral-400 dark:text-neutral-500"
-                        }`}
-                      >
-                        {formatWhen(c.lastMessageAt)}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center justify-between gap-2">
-                      <p
-                        className={`min-w-0 truncate text-xs ${
-                          unread
-                            ? "font-medium text-neutral-700 dark:text-neutral-300"
-                            : "text-neutral-500 dark:text-neutral-400"
-                        }`}
-                      >
-                        {c.lastMessageDirection === "OUTBOUND" ? "Você: " : ""}
-                        {c.lastMessagePreview}
-                      </p>
-                      {unread && (
-                        <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
-                          {c.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                    {c.deal && (
-                      <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-                        <Briefcase className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
-                        {c.deal.name}
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })
+            filteredConversations.map((c) => (
+              <ConversationRow
+                key={c.contactId}
+                conversation={c}
+                isActive={c.contactId === selectedContactId}
+                isOwner={isOwner}
+                justArrived={justArrived.has(c.contactId)}
+                onSelect={() => selectConversation(c.contactId)}
+              />
+            ))
           )}
         </div>
       </div>
@@ -280,5 +245,95 @@ export function ConversationsView({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Uma linha da lista de conversas — usada tanto aqui (desktop) quanto no
+ * mestre-detalhe do mobile (conversations-view-mobile.tsx), pra não duplicar
+ * essa marcação bem detalhada em dois lugares.
+ */
+export function ConversationRow({
+  conversation: c,
+  isActive,
+  isOwner,
+  justArrived,
+  onSelect,
+}: {
+  conversation: Conversation;
+  isActive: boolean;
+  isOwner?: boolean;
+  justArrived?: boolean;
+  onSelect: () => void;
+}) {
+  const unread = c.unreadCount > 0;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex w-full items-start gap-2.5 rounded-md border-l-2 p-2.5 text-left transition-colors active:scale-[0.98] ${
+        isActive
+          ? "border-l-neutral-900 bg-neutral-100 dark:border-l-white dark:bg-neutral-800"
+          : "border-l-transparent hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+      } ${justArrived ? "animate-highlight-once" : ""}`}
+    >
+      <div className="group relative mt-0.5 shrink-0">
+        <Avatar
+          name={c.contactName}
+          size="sm"
+          className="transition-shadow group-hover:ring-2 group-hover:ring-neutral-300 group-hover:ring-offset-2 group-hover:ring-offset-white dark:group-hover:ring-neutral-600 dark:group-hover:ring-offset-neutral-900"
+        />
+        <span className="absolute -right-0.5 -bottom-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white ring-2 ring-white dark:bg-neutral-900 dark:ring-neutral-900">
+          <WhatsAppIcon className="h-2.5 w-2.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p
+            className={`truncate text-sm ${
+              unread
+                ? "font-semibold text-neutral-900 dark:text-neutral-100"
+                : "font-medium text-neutral-700 dark:text-neutral-300"
+            }`}
+          >
+            {c.contactName}
+          </p>
+          <span
+            className={`shrink-0 text-[10px] ${
+              unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-400 dark:text-neutral-500"
+            }`}
+          >
+            {formatWhen(c.lastMessageAt)}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center justify-between gap-2">
+          <p
+            className={`min-w-0 truncate text-xs ${
+              unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            {c.lastMessageDirection === "OUTBOUND" ? "Você: " : ""}
+            {c.lastMessagePreview}
+          </p>
+          {unread && (
+            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
+              {c.unreadCount}
+            </span>
+          )}
+        </div>
+        {c.deal && (
+          <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+            <Briefcase className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
+            {c.deal.name}
+          </p>
+        )}
+        {isOwner && (
+          <p className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+            Responsável: {c.ownerName}
+          </p>
+        )}
+      </div>
+    </button>
   );
 }

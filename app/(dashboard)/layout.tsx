@@ -10,6 +10,8 @@ import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandPalette } from "@/components/command-palette";
 import { UserMenu } from "@/components/user-menu";
+import { MobileHeader } from "./mobile-header";
+import { MobileNav } from "./mobile-nav";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -46,7 +48,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <header className="flex h-14 shrink-0 items-center gap-6 border-b border-neutral-200 bg-white px-6 dark:border-neutral-800 dark:bg-neutral-900">
+      <MobileHeader photoUrl={photoUrl} name={session.user.name ?? session.user.email ?? "?"} />
+
+      <header className="hidden h-14 shrink-0 items-center gap-6 border-b border-neutral-200 bg-white px-6 dark:border-neutral-800 dark:bg-neutral-900 lg:flex">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-sm font-semibold text-white dark:bg-white dark:text-neutral-900">
             C
@@ -73,9 +77,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-8">
+      <main className="flex-1 overflow-y-auto p-4 pb-24 lg:p-8">
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
+
+      <MobileNav signOutAction={handleSignOut} />
     </div>
   );
 }

@@ -13,7 +13,7 @@ import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { TaskCalendar } from "./task-calendar";
 
-type Option = { id: string; name: string };
+export type Option = { id: string; name: string };
 
 function groupTasks(tasks: Task[]) {
   const now = new Date();
@@ -266,7 +266,7 @@ function TaskGroup({
   );
 }
 
-function NewTaskDialog({
+export function NewTaskDialog({
   deals,
   onClose,
   onCreated,

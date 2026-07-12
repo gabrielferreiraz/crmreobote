@@ -24,6 +24,9 @@ export type ConversationSummary = {
   lastMessageAt: Date;
   unreadCount: number;
   deal: { id: string; name: string } | null;
+  /** Vendedor dono da instância que trocou essa conversa — usado pro filtro "responsável" (só faz sentido pra OWNER, que vê várias). */
+  ownerId: string;
+  ownerName: string;
 };
 
 export async function listConversations(organizationId: string, scope: DealScope): Promise<ConversationSummary[]> {
@@ -33,7 +36,10 @@ export async function listConversations(organizationId: string, scope: DealScope
     where: { organizationId, ...instanceWhere },
     orderBy: { createdAt: "desc" },
     distinct: ["contactId"],
-    include: { contact: { select: { id: true, name: true, whatsapp: true, phone: true } } },
+    include: {
+      contact: { select: { id: true, name: true, whatsapp: true, phone: true } },
+      instance: { select: { userId: true, user: { select: { id: true, name: true } } } },
+    },
   });
 
   const contactIds = latestMessages.map((m) => m.contactId);
@@ -73,5 +79,7 @@ export async function listConversations(organizationId: string, scope: DealScope
     lastMessageAt: msg.createdAt,
     unreadCount: unreadByContact.get(msg.contactId) ?? 0,
     deal: dealByContact.get(msg.contactId) ?? null,
+    ownerId: msg.instance.userId,
+    ownerName: msg.instance.user.name,
   }));
 }

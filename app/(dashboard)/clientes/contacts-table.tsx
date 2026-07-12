@@ -47,6 +47,13 @@ type Contact = {
   source: string | null;
   company: string | null;
   jobTitle: string | null;
+  address: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
   tags: string[];
   _count: { deals: number };
 };
@@ -68,6 +75,13 @@ export function ContactsTable({
   const [source, setSource] = useState("");
   const [company, setCompany] = useState("");
   const [jobTitle, setJobTitle] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [address, setAddress] = useState("");
+  const [addressNumber, setAddressNumber] = useState("");
+  const [addressComplement, setAddressComplement] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [tags, setTags] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +137,13 @@ export function ContactsTable({
         source: source || undefined,
         company: company || undefined,
         jobTitle: jobTitle || undefined,
+        zipCode: zipCode || undefined,
+        address: address || undefined,
+        addressNumber: addressNumber || undefined,
+        addressComplement: addressComplement || undefined,
+        neighborhood: neighborhood || undefined,
+        city: city || undefined,
+        state: state || undefined,
         tags: tags
           .split(",")
           .map((t) => t.trim())
@@ -146,6 +167,13 @@ export function ContactsTable({
     setSource("");
     setCompany("");
     setJobTitle("");
+    setZipCode("");
+    setAddress("");
+    setAddressNumber("");
+    setAddressComplement("");
+    setNeighborhood("");
+    setCity("");
+    setState("");
     setTags("");
     router.refresh();
   }
@@ -322,6 +350,19 @@ export function ContactsTable({
             <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
             <Field label="Empresa" value={company} onChange={setCompany} />
             <Field label="Cargo" value={jobTitle} onChange={setJobTitle} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="CEP" value={zipCode} onChange={setZipCode} />
+              <Field label="Cidade" value={city} onChange={setCity} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Endereço" value={address} onChange={setAddress} />
+              <Field label="Estado" value={state} onChange={setState} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
+              <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
+              <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
+            </div>
             <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
             <div className="space-y-1">
               <label className="field-label">Origem</label>

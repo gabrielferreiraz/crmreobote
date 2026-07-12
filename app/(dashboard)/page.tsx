@@ -80,9 +80,9 @@ export default async function HomePage() {
   const ownPhotoUrl = session!.user.image ? (avatarMap.get(session!.user.image) ?? null) : null;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 lg:space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+        <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">
           {greeting()}{firstName ? `, ${firstName}` : ""}
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -90,15 +90,15 @@ export default async function HomePage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <StatTile icon={Briefcase} label="Negócios abertos" value={String(openDeals)} />
         <StatTile icon={ArrowUpRight} label="Pipeline aberto" value={formatCurrency(pipelineValue._sum.value ? Number(pipelineValue._sum.value) : 0)} />
         <StatTile icon={TrendingUp} label="Fechado no mês" value={formatCurrency(wonThisMonth._sum.value ? Number(wonThisMonth._sum.value) : 0)} hint={`${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`} />
         <StatTile icon={Users} label="Clientes ativos" value={String(activeClients)} />
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
-        <div className="card col-span-2 p-5">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="card p-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Funil de vendas</h2>
@@ -274,13 +274,15 @@ function StatTile({
   hint?: string;
 }) {
   return (
-    <div className="card p-4">
+    <div className="card p-3 lg:p-4">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
-        <Icon className="h-3.5 w-3.5 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+        <p className="truncate text-xs font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
+        <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
       </div>
-      <p className="text-2xl font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
-      {hint && <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
+      <p className="truncate text-xl font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 lg:text-2xl">
+        {value}
+      </p>
+      {hint && <p className="mt-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>
   );
 }

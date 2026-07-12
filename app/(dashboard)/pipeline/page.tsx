@@ -39,7 +39,7 @@ export default async function PipelinePage({
       pipelineId: activePipeline.id,
       ...scopeWhere(scope),
     },
-    include: { contact: true, owner: true, stage: true },
+    include: { contact: true, owner: true, stage: true, lossReason: true },
     orderBy: { stageEnteredAt: "desc" },
   });
 
@@ -93,6 +93,8 @@ export default async function PipelinePage({
     nextActivity: nextTaskByDeal.get(deal.id) ?? null,
     taskTypes: taskTypesByDeal.get(deal.id) ?? [],
     hasUnreadWhatsApp: unreadContactIds.has(deal.contactId),
+    lossReasonId: deal.lossReasonId,
+    lossReason: deal.lossReason ? { id: deal.lossReason.id, label: deal.lossReason.label } : null,
   }));
 
   const membersRaw = await prisma.organizationUser.findMany({
@@ -105,6 +107,24 @@ export default async function PipelinePage({
     scope.type === "owners"
       ? membersRaw.filter((m) => scope.ownerIds.includes(m.userId))
       : membersRaw;
+
+  // Inclui inativos aqui — diferente de `members` (usado pra atribuir/criar
+  // negócio, onde só faz sentido gente ativa), o filtro da lista precisa achar
+  // negócios de quem já saiu do time.
+  const allMembersRaw = await prisma.organizationUser.findMany({
+    where: { organizationId },
+    orderBy: [{ active: "desc" }, { createdAt: "asc" }],
+    include: { user: { select: { id: true, name: true } } },
+  });
+  const allMembersForFilter =
+    scope.type === "owners"
+      ? allMembersRaw.filter((m) => scope.ownerIds.includes(m.userId))
+      : allMembersRaw;
+
+  const lossReasons = await prisma.lossReason.findMany({
+    where: { organizationId },
+    orderBy: { order: "asc" },
+  });
 
   const isOwner = session!.user.role === "OWNER";
 
@@ -120,6 +140,8 @@ export default async function PipelinePage({
         stages={activePipeline.stages}
         initialDeals={deals}
         members={members.map((m) => m.user)}
+        allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
+        lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}
         isOwner={isOwner}
         openNewDeal={novo === "1"}
       />

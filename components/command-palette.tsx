@@ -21,7 +21,7 @@ type Result = {
   deals: { id: string; name: string; contact: { name: string } }[];
 };
 
-export function CommandPalette() {
+export function CommandPalette({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -77,16 +77,26 @@ export function CommandPalette() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex h-9 w-64 shrink-0 items-center gap-2 rounded-md border border-neutral-300 bg-white px-3 text-sm text-neutral-400 transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
-      >
-        <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        <span className="flex-1 truncate text-left whitespace-nowrap">Buscar clientes, negócios...</span>
-        <kbd className="shrink-0 rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
-          ⌘K
-        </kbd>
-      </button>
+      {compact ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="icon-btn"
+          aria-label="Buscar"
+        >
+          <Search className="h-4 w-4" strokeWidth={2} />
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex h-9 w-64 shrink-0 items-center gap-2 rounded-md border border-neutral-300 bg-white px-3 text-sm text-neutral-400 transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          <span className="flex-1 truncate text-left whitespace-nowrap">Buscar clientes, negócios...</span>
+          <kbd className="shrink-0 rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
+            ⌘K
+          </kbd>
+        </button>
+      )}
 
       {open && (
         <Modal onClose={() => setOpen(false)} maxWidth="max-w-lg">

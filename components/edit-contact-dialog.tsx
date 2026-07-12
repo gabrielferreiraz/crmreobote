@@ -24,6 +24,13 @@ type Contact = {
   source: string | null;
   company?: string | null;
   jobTitle?: string | null;
+  address?: string | null;
+  addressNumber?: string | null;
+  addressComplement?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
   tags?: string[];
 };
 
@@ -37,6 +44,13 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
   const [source, setSource] = useState(contact.source ?? "");
   const [company, setCompany] = useState(contact.company ?? "");
   const [jobTitle, setJobTitle] = useState(contact.jobTitle ?? "");
+  const [zipCode, setZipCode] = useState(contact.zipCode ?? "");
+  const [address, setAddress] = useState(contact.address ?? "");
+  const [addressNumber, setAddressNumber] = useState(contact.addressNumber ?? "");
+  const [addressComplement, setAddressComplement] = useState(contact.addressComplement ?? "");
+  const [neighborhood, setNeighborhood] = useState(contact.neighborhood ?? "");
+  const [city, setCity] = useState(contact.city ?? "");
+  const [state, setState] = useState(contact.state ?? "");
   const [tags, setTags] = useState((contact.tags ?? []).join(", "));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +63,13 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
     setSource(contact.source ?? "");
     setCompany(contact.company ?? "");
     setJobTitle(contact.jobTitle ?? "");
+    setZipCode(contact.zipCode ?? "");
+    setAddress(contact.address ?? "");
+    setAddressNumber(contact.addressNumber ?? "");
+    setAddressComplement(contact.addressComplement ?? "");
+    setNeighborhood(contact.neighborhood ?? "");
+    setCity(contact.city ?? "");
+    setState(contact.state ?? "");
     setTags((contact.tags ?? []).join(", "));
     setError(null);
     setOpen(true);
@@ -70,6 +91,13 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
         source: source || undefined,
         company: company || undefined,
         jobTitle: jobTitle || undefined,
+        zipCode: zipCode || undefined,
+        address: address || undefined,
+        addressNumber: addressNumber || undefined,
+        addressComplement: addressComplement || undefined,
+        neighborhood: neighborhood || undefined,
+        city: city || undefined,
+        state: state || undefined,
         tags: tags
           .split(",")
           .map((t) => t.trim())
@@ -122,6 +150,19 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
                 <label className="field-label">Origem</label>
                 <Select value={source} onChange={setSource} options={SOURCE_OPTIONS} />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="CEP" value={zipCode} onChange={setZipCode} />
+              <Field label="Cidade" value={city} onChange={setCity} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Endereço" value={address} onChange={setAddress} />
+              <Field label="Estado" value={state} onChange={setState} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
+              <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
+              <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
             </div>
             <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
 

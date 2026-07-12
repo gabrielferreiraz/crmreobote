@@ -4,6 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
 import { listConversations } from "@/lib/whatsapp/conversations";
 import { ConversationsView } from "./conversations-view";
+import { ConversationsMobile } from "./conversations-view-mobile";
 
 export default async function ConversasPage() {
   const session = await auth();
@@ -17,7 +18,7 @@ export default async function ConversasPage() {
 
     return (
       <div className="flex h-full flex-col gap-4">
-        <div>
+        <div className="hidden lg:block">
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
             Conversas
           </h1>
@@ -29,7 +30,15 @@ export default async function ConversasPage() {
           initialConversations={conversations}
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
+          isOwner={session!.user.role === "OWNER"}
         />
+        <div className="min-h-0 flex-1 lg:hidden">
+          <ConversationsMobile
+            initialConversations={conversations}
+            currentUserName={session!.user.name ?? undefined}
+            currentUserPhotoUrl={currentUserPhotoUrl}
+          />
+        </div>
       </div>
     );
   });

@@ -19,9 +19,17 @@ import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64 } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
+import { notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
-type InstanceRef = { id: string; organizationId: string; instanceName: string };
+type InstanceRef = {
+  id: string;
+  organizationId: string;
+  instanceName: string;
+  userId: string;
+  status: $Enums.WhatsAppInstanceStatus;
+  phoneNumber: string | null;
+};
 
 type ContextInfo = { stanzaId?: string };
 
@@ -232,6 +240,15 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     const status: $Enums.WhatsAppInstanceStatus =
       update?.state === "open" ? "CONNECTED" : update?.state === "connecting" ? "CONNECTING" : "DISCONNECTED";
     const phoneNumber = update?.wuid ? normalizePhoneNumber(update.wuid.split("@")[0]) : null;
+
+    // Só avisa por e-mail na transição de conectado → desconectado — não a
+    // cada evento (o Evolution manda "connecting" várias vezes durante o
+    // pareamento normal, isso não pode virar spam de e-mail).
+    if (instance.status === "CONNECTED" && status === "DISCONNECTED") {
+      notifyInstanceDisconnected(instance).catch((err) =>
+        console.error("[wa:webhook] falha ao enviar alerta de desconexão por e-mail", err),
+      );
+    }
 
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },

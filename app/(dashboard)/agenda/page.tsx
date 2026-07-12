@@ -4,11 +4,17 @@ import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { TasksList } from "./tasks-list";
+import { TasksListMobile } from "./tasks-list-mobile";
 
-export default async function AgendaPage() {
+export default async function AgendaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ novo?: string }>;
+}) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
+  const { novo } = await searchParams;
 
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
@@ -52,7 +58,12 @@ export default async function AgendaPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Agenda</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Reuniões, ligações e follow-ups do time</p>
         </div>
-        <TasksList initialTasks={tasks} deals={deals} members={members} />
+        <div className="hidden lg:block">
+          <TasksList initialTasks={tasks} deals={deals} members={members} />
+        </div>
+        <div className="lg:hidden">
+          <TasksListMobile initialTasks={tasks} deals={deals} members={members} openNewTask={novo === "1"} />
+        </div>
       </div>
     );
   });

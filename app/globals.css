@@ -28,6 +28,21 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  /* Some o flash cinza/azul padrão do navegador ao tocar em algo — já temos
+     estado de "pressionado" próprio (active:scale-*) em botões e cards. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Abaixo de 1024px (nossa fronteira mobile/desktop): navegadores baseados em
+   WebKit (Safari/iOS) dão zoom automático ao focar um campo com fonte menor
+   que 16px. Isso NÃO muda nada visualmente no desktop — só evita esse zoom
+   indesejado ao tocar num input no celular. */
+@media (max-width: 1023.98px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 ::selection {
@@ -80,6 +95,20 @@ body {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+@keyframes sheet-up-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheet-up {
+  animation: sheet-up-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @keyframes loading-fade-in {
@@ -171,5 +200,28 @@ body {
 
   .icon-btn {
     @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300;
+  }
+}
+
+/* Uso avulso: qualquer botão pequeno reaproveitado do desktop (sem classe
+   fixa de tamanho) que precise da mesma folga de toque no mobile. */
+@media (max-width: 1023.98px) {
+  .tap-target {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+}
+
+/* .icon-btn tem 28px — ótimo pra mouse, pequeno demais pra dedo (mínimo
+   recomendado é 44px). Aumenta só a área de toque no mobile, sem mexer no
+   tamanho visual do ícone nem no desktop — o glifo continua do mesmo jeito,
+   só sobra mais espaço clicável ao redor dele. */
+@media (max-width: 1023.98px) {
+  .icon-btn {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
   }
 }

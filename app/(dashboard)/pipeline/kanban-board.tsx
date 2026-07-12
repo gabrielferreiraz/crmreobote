@@ -48,6 +48,8 @@ export type Deal = {
   nextActivity: string | null;
   taskTypes: string[];
   hasUnreadWhatsApp: boolean;
+  lossReasonId: string | null;
+  lossReason: { id: string; label: string } | null;
 };
 
 type MemberOption = { id: string; name: string };

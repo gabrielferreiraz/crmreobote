@@ -18,6 +18,31 @@ const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" 
   LOST: { label: "Perdido", tone: "danger" },
 };
 
+function formatAddress(contact: {
+  address: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+}): string | null {
+  const line1 = [
+    contact.address,
+    contact.addressNumber ? `nº ${contact.addressNumber}` : null,
+    contact.addressComplement,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const line2 = [contact.neighborhood, [contact.city, contact.state].filter(Boolean).join(" - ")]
+    .filter(Boolean)
+    .join(", ");
+  const line3 = contact.zipCode ? `CEP ${contact.zipCode}` : null;
+
+  const lines = [line1, line2, line3].filter(Boolean);
+  return lines.length > 0 ? lines.join(" · ") : null;
+}
+
 export default async function ContactPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
@@ -53,6 +78,13 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
             source: contact.source,
             company: contact.company,
             jobTitle: contact.jobTitle,
+            address: contact.address,
+            addressNumber: contact.addressNumber,
+            addressComplement: contact.addressComplement,
+            neighborhood: contact.neighborhood,
+            city: contact.city,
+            state: contact.state,
+            zipCode: contact.zipCode,
             tags: contact.tags,
           }}
         />
@@ -92,6 +124,12 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
           <Row label="WhatsApp" value={contact.whatsapp ?? "—"} />
           <Row label="Empresa" value={contact.company ?? "—"} />
           <Row label="Origem" value={contact.source ?? "—"} />
+          {formatAddress(contact) && (
+            <div className="space-y-0.5">
+              <span className="text-neutral-500 dark:text-neutral-400">Endereço</span>
+              <p className="text-right text-neutral-800 dark:text-neutral-200">{formatAddress(contact)}</p>
+            </div>
+          )}
           {contact.tags.length > 0 && (
             <div className="flex items-center justify-between gap-2">
               <span className="text-neutral-500 dark:text-neutral-400">Tags</span>
