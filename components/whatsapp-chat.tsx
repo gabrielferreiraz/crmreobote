@@ -134,13 +134,13 @@ async function uploadMedia(file: File): Promise<string> {
  * disponível mesmo sem nenhuma automação ter disparado antes.
  */
 export function WhatsAppChat({
-  contactId,
+  threadId,
   contactName,
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
 }: {
-  contactId: string;
+  threadId: string;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -160,7 +160,7 @@ export function WhatsAppChat({
       </button>
       {open && (
         <WhatsAppChatModal
-          contactId={contactId}
+          threadId={threadId}
           contactName={contactName}
           contactPhone={contactPhone}
           currentUserName={currentUserName}
@@ -204,14 +204,14 @@ export function WhatsAppPanelTrigger({ onOpen, hasUnread }: { onOpen: () => void
  * quando montar/desmontar é de quem usa (deal-detail.tsx).
  */
 export function WhatsAppPanel({
-  contactId,
+  threadId,
   contactName,
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
   onClose,
 }: {
-  contactId: string;
+  threadId: string;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -221,7 +221,7 @@ export function WhatsAppPanel({
   return (
     <div className="surface-glass sticky top-4 hidden h-[calc(100vh-8rem)] w-[360px] shrink-0 flex-col overflow-hidden rounded-lg p-4 shadow-lg lg:flex">
       <ChatWindow
-        contactId={contactId}
+        threadId={threadId}
         contactName={contactName}
         contactPhone={contactPhone}
         currentUserName={currentUserName}
@@ -234,14 +234,14 @@ export function WhatsAppPanel({
 }
 
 function WhatsAppChatModal({
-  contactId,
+  threadId,
   contactName,
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
   onClose,
 }: {
-  contactId: string;
+  threadId: string;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -251,7 +251,7 @@ function WhatsAppChatModal({
   return (
     <Modal onClose={onClose} maxWidth="max-w-2xl">
       <ChatWindow
-        contactId={contactId}
+        threadId={threadId}
         contactName={contactName}
         contactPhone={contactPhone}
         currentUserName={currentUserName}
@@ -264,7 +264,7 @@ function WhatsAppChatModal({
 }
 
 export function ChatWindow({
-  contactId,
+  threadId,
   contactName,
   contactPhone,
   currentUserName,
@@ -273,7 +273,7 @@ export function ChatWindow({
   className = "",
   backMode = false,
 }: {
-  contactId: string;
+  threadId: string;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -294,7 +294,7 @@ export function ChatWindow({
 
   async function load() {
     try {
-      const res = await fetch(`/api/whatsapp/messages/${contactId}`);
+      const res = await fetch(`/api/whatsapp/messages/${threadId}`);
       if (res.ok) setMessages(await res.json());
     } catch {
       // Silencioso: se a conversa não carregar, o componente simplesmente não aparece.
@@ -309,7 +309,7 @@ export function ChatWindow({
     const interval = setInterval(load, 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactId]);
+  }, [threadId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "nearest" });
@@ -319,7 +319,7 @@ export function ChatWindow({
     setSending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/whatsapp/messages/${contactId}`, {
+      const res = await fetch(`/api/whatsapp/messages/${threadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, replyToId: replyingTo?.id }),
@@ -489,7 +489,7 @@ function MessageBubble({
     <button
       type="button"
       onClick={() => onReply(message)}
-      className="icon-btn h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+      className="icon-btn h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-100"
       aria-label="Responder"
       title="Responder"
     >
@@ -718,7 +718,7 @@ function TextComposer({
                   key={opt.mode}
                   type="button"
                   onClick={() => onPick(opt.mode)}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 active:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:active:bg-neutral-800"
                 >
                   <opt.icon className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                   {opt.label}

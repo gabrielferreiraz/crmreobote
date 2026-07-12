@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, AlertTriangle } from "lucide-react";
+import { Search, AlertTriangle, Inbox } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { Avatar } from "@/components/avatar";
@@ -78,10 +78,10 @@ export function PipelineMobile({
             <button
               key={stage.id}
               onClick={() => setActiveStageId(stage.id)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-medium whitespace-nowrap transition-colors active:scale-[0.97] ${
                 isActive
                   ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                  : "border-neutral-200 bg-white text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+                  : "border-neutral-200 bg-white text-neutral-600 active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:active:bg-neutral-800"
               }`}
             >
               <span
@@ -99,7 +99,7 @@ export function PipelineMobile({
         {filteredDeals.length === 0 ? (
           <div className="pt-10">
             <EmptyState
-              icon={AlertTriangle}
+              icon={Inbox}
               title="Nenhum negócio aqui"
               description="Essa etapa está vazia ou nada bate com a busca."
             />
@@ -118,7 +118,7 @@ function MobileDealCard({ deal }: { deal: Deal }) {
   return (
     <Link
       href={`/negocios/${deal.id}`}
-      className={`relative block rounded-lg border bg-white p-3 text-sm active:bg-neutral-50 dark:bg-neutral-900 dark:active:bg-neutral-800/60 ${
+      className={`relative block rounded-lg border bg-white p-3 text-sm transition-transform active:scale-[0.99] active:bg-neutral-50 dark:bg-neutral-900 dark:active:bg-neutral-800/60 ${
         stale
           ? "border-neutral-200 border-l-2 border-l-amber-500/70 dark:border-neutral-800 dark:border-l-amber-500/50"
           : "border-neutral-200 dark:border-neutral-800"

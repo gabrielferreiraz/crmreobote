@@ -16,10 +16,11 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
+import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64 } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
+import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
@@ -35,6 +36,10 @@ type ContextInfo = { stanzaId?: string };
 
 type BaileysMessage = {
   key?: { remoteJid?: string; fromMe?: boolean; id?: string };
+  // Nome de exibição do WhatsApp de quem mandou — irmão de key/message no
+  // mesmo nível (confirmado em payload real de produção: {"key":{...},
+  // "pushName":"Gabriel Ferreira","message":{...}}).
+  pushName?: string;
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string; contextInfo?: ContextInfo };
@@ -97,29 +102,20 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         console.log("[wa:webhook] ignorada: número não normalizável");
         continue;
       }
-      // O JID às vezes vem sem o 9º dígito do celular, mesmo quando o
-      // contato está salvo com ele (ou vice-versa) — testa as duas formas.
-      const variants = brazilianMobileVariants(normalized);
-      console.log(
-        `[wa:webhook] remoteJid=${remoteJid} → número bruto=${rawNumber} → normalizado=${normalized} (variantes: ${variants.join(", ")})`,
-      );
 
-      const contact = await prisma.contact.findFirst({
-        where: {
-          organizationId: instance.organizationId,
-          OR: variants.flatMap((v) => [{ whatsappNormalized: v }, { phoneNormalized: v }]),
-        },
-        select: { id: true, name: true },
+      // A conversa existe por si só — não exige mais que o número já seja
+      // um Contact cadastrado (ver lib/whatsapp/threads.ts). Se bater com
+      // um Contact, linka na hora; senão fica em "WhatsApp Geral" até
+      // alguém cadastrar esse número.
+      const thread = await getOrCreateThread({
+        organizationId: instance.organizationId,
+        instanceId: instance.id,
+        phoneNormalized: normalized,
+        whatsappName: msg.pushName,
       });
-      // Não cria contato novo a partir de mensagem recebida — só reflete
-      // conversa em contatos que já existem no CRM.
-      if (!contact) {
-        console.log(
-          `[wa:webhook] ignorada: nenhum contato com número normalizado "${normalized}" (ou variante) nesta organização`,
-        );
-        continue;
-      }
-      console.log(`[wa:webhook] contato encontrado: ${contact.name} (${contact.id})`);
+      console.log(
+        `[wa:webhook] remoteJid=${remoteJid} → normalizado=${normalized} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
+      );
 
       const externalId = msg.key?.id;
       if (externalId) {
@@ -177,7 +173,7 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         data: {
           organizationId: instance.organizationId,
           instanceId: instance.id,
-          contactId: contact.id,
+          threadId: thread.id,
           direction,
           type,
           body,
@@ -250,9 +246,19 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
       );
     }
 
+    // disconnectedAt marca o início da "queda atual" (pro cron de saúde saber
+    // quando escalar pra 1/2/3 dias); reconectar zera tudo, começa do zero
+    // na próxima queda.
+    const escalationFields =
+      status === "CONNECTED"
+        ? { disconnectedAt: null, disconnectAlertLevel: 0 }
+        : status === "DISCONNECTED" && instance.status !== "DISCONNECTED"
+          ? { disconnectedAt: new Date(), disconnectAlertLevel: 0 }
+          : {};
+
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },
-      data: { status, ...(phoneNumber ? { phoneNumber } : {}) },
+      data: { status, ...(phoneNumber ? { phoneNumber } : {}), ...escalationFields },
     });
     console.log(`[wa:webhook] instância ${instance.instanceName} → status=${status} phoneNumber=${phoneNumber}`);
   } catch (err) {

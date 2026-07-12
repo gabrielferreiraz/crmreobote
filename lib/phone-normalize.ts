@@ -46,3 +46,13 @@ export function brazilianMobileVariants(normalized: string): string[] {
   }
   return Array.from(variants);
 }
+
+/** Forma legível pra exibir na UI (ex.: "+55 (67) 99178-3902") — nunca usar isso pra comparar/buscar, só pra mostrar. */
+export function formatBrazilianPhone(normalized: string | null | undefined): string | null {
+  if (!normalized) return null;
+  const ddd = normalized.slice(0, 2);
+  const rest = normalized.slice(2);
+  if (rest.length === 9) return `+55 (${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
+  if (rest.length === 8) return `+55 (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+  return `+55 ${normalized}`;
+}

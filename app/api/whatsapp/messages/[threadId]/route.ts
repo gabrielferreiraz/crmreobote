@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { resolveChatMediaUrl } from "@/lib/r2";
+import { getDealScope } from "@/lib/team-scope";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -13,21 +14,37 @@ export const dynamic = "force-dynamic";
 // embora mensagens antigas com esse type continuem existindo no histórico.
 const VALID_TYPES: $Enums.WhatsAppMessageType[] = ["TEXT", "IMAGE", "AUDIO", "CONTACT", "PIX"];
 
-export async function GET(_req: Request, { params }: { params: Promise<{ contactId: string }> }) {
-  const { contactId } = await params;
+/** Garante que a conversa é da própria organização e está dentro do escopo de quem pediu (mesma regra do Pipeline). */
+async function loadAuthorizedThread(threadId: string, organizationId: string, userId: string, role: string | undefined) {
+  const thread = await prisma.whatsAppThread.findFirst({
+    where: { id: threadId, organizationId },
+    include: { instance: { select: { userId: true } } },
+  });
+  if (!thread) return { thread: null, forbidden: false };
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const scope = await getDealScope(organizationId, userId, role);
+  if (scope.type === "owners" && !scope.ownerIds.includes(thread.instance.userId)) {
+    return { thread: null, forbidden: true };
+  }
+  return { thread, forbidden: false };
+}
+
+export async function GET(_req: Request, { params }: { params: Promise<{ threadId: string }> }) {
+  const { threadId } = await params;
+
+  const { session, organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
-    const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
-    if (!contact) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    const { thread, forbidden } = await loadAuthorizedThread(threadId, organizationId, userId, session!.user.role);
+    if (forbidden) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     // rawPayload nunca vai pro frontend — é o {key, message} bruto do
     // WhatsApp, só serve pra montar o "quoted" na hora de responder,
     // internamente (ver lib/whatsapp/send.ts).
     const messages = await prisma.whatsAppMessage.findMany({
-      where: { organizationId, contactId },
+      where: { organizationId, threadId },
       orderBy: { createdAt: "asc" },
       select: {
         id: true,
@@ -46,7 +63,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ contact
     // Abrir a conversa é o próprio ato de "ler" — some com o sinal de
     // "lead respondeu" no card do negócio.
     await prisma.whatsAppMessage.updateMany({
-      where: { organizationId, contactId, direction: "INBOUND", read: false },
+      where: { organizationId, threadId, direction: "INBOUND", read: false },
       data: { read: true },
     });
 
@@ -63,8 +80,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ contact
   });
 }
 
-export async function POST(req: Request, { params }: { params: Promise<{ contactId: string }> }) {
-  const { contactId } = await params;
+export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
+  const { threadId } = await params;
   const requestBody = await req.json();
   const { text, type, mediaUrl, metadata, replyToId } = requestBody as {
     text?: string;
@@ -74,7 +91,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ contact
     replyToId?: string;
   };
 
-  const { organizationId, userId } = await requireSession();
+  const { session, organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   if (!text?.trim()) return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
   if (type && !VALID_TYPES.includes(type as $Enums.WhatsAppMessageType)) {
@@ -82,11 +99,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ contact
   }
 
   return runWithTenant(organizationId, async () => {
+    const { thread, forbidden } = await loadAuthorizedThread(threadId, organizationId, userId, session!.user.role);
+    if (forbidden) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
     try {
       const message = await sendWhatsAppMessage({
         organizationId,
-        contactId,
-        ownerId: userId,
+        threadId,
         text: text.trim(),
         type: type as $Enums.WhatsAppMessageType | undefined,
         mediaUrl,

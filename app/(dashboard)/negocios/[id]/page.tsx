@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { DealDetail } from "./deal-detail";
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
@@ -69,9 +70,23 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       orderBy: { order: "asc" },
     });
 
+    // Não lida: soma de qualquer conversa deste contato, não só a de quem
+    // está vendo a página agora (o lead pode ter respondido pra outro
+    // vendedor que já trocou mensagem com ele antes).
     const unreadCount = await prisma.whatsAppMessage.count({
-      where: { organizationId, contactId: deal.contactId, direction: "INBOUND", read: false },
+      where: { organizationId, thread: { contactId: deal.contactId }, direction: "INBOUND", read: false },
     });
+
+    // A conversa aberta na página é sempre a de quem está logado agora —
+    // mesma regra que já vale pro envio (cada um manda pelo próprio número
+    // conectado). Sem instância conectada, não tem como abrir chat aqui.
+    const myInstance = await prisma.whatsAppInstance.findUnique({
+      where: { organizationId_userId: { organizationId, userId: session!.user.id } },
+    });
+    const whatsappThread =
+      myInstance?.status === "CONNECTED"
+        ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact: dealRaw.contact })
+        : null;
 
     return (
       <Suspense fallback={null}>
@@ -82,6 +97,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}
+          whatsappThreadId={whatsappThread?.id ?? null}
         />
       </Suspense>
     );

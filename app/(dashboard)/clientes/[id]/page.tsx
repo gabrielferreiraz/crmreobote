@@ -11,6 +11,7 @@ import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { WhatsAppChat } from "@/components/whatsapp-chat";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
   OPEN: { label: "Em andamento", tone: "neutral" },
@@ -59,6 +60,16 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
   if (!contact) notFound();
 
   const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
+
+  // Mesma regra do envio: a conversa aberta aqui é sempre a de quem está
+  // logado (cada um manda pelo próprio número conectado).
+  const myInstance = await prisma.whatsAppInstance.findUnique({
+    where: { organizationId_userId: { organizationId, userId: session!.user.id } },
+  });
+  const whatsappThread =
+    myInstance?.status === "CONNECTED"
+      ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact })
+      : null;
 
   return (
     <div className="space-y-6">
@@ -142,13 +153,15 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
           )}
-          <WhatsAppChat
-            contactId={contact.id}
-            contactName={contact.name}
-            contactPhone={contact.whatsapp || contact.phone}
-            currentUserName={session!.user.name ?? undefined}
-            currentUserPhotoUrl={currentUserPhotoUrl}
-          />
+          {whatsappThread && (
+            <WhatsAppChat
+              threadId={whatsappThread.id}
+              contactName={contact.name}
+              contactPhone={contact.whatsapp || contact.phone}
+              currentUserName={session!.user.name ?? undefined}
+              currentUserPhotoUrl={currentUserPhotoUrl}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -69,6 +69,7 @@ export function DealDetail({
   currentUserName,
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
+  whatsappThreadId,
 }: {
   deal: Deal;
   members: MemberOption[];
@@ -76,6 +77,8 @@ export function DealDetail({
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   hasUnreadWhatsApp?: boolean;
+  /** null quando o contato não tem WhatsApp/celular cadastrado — não dá pra conversar. */
+  whatsappThreadId: string | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -420,7 +423,7 @@ export function DealDetail({
             <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(deal.value)}</p>
           </div>
 
-          {!chatOpen && (
+          {!chatOpen && whatsappThreadId && (
             <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
           )}
 
@@ -516,12 +519,16 @@ export function DealDetail({
       {/* Mobile — abas em vez de grade lado a lado; reaproveita os mesmos
           handlers/estado de cima, só reorganiza a apresentação. */}
       <div className="lg:hidden">
-        <div className="mb-3 inline-flex rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
+        <div className="relative mb-3 flex w-full max-w-[240px] rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
+          <div
+            className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-out dark:bg-neutral-900"
+            style={{ transform: mobileTab === "details" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
+          />
           <button
             onClick={() => setMobileTab("activities")}
-            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`relative z-10 flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
               mobileTab === "activities"
-                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                ? "text-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 dark:text-neutral-400"
             }`}
           >
@@ -529,9 +536,9 @@ export function DealDetail({
           </button>
           <button
             onClick={() => setMobileTab("details")}
-            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`relative z-10 flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
               mobileTab === "details"
-                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                ? "text-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 dark:text-neutral-400"
             }`}
           >
@@ -547,10 +554,10 @@ export function DealDetail({
                   <button
                     key={tab.type}
                     onClick={() => selectTab(tab.type)}
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
                       activeTab === tab.type
                         ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                        : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                        : "bg-neutral-100 text-neutral-500 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
                     }`}
                   >
                     <tab.icon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -626,7 +633,9 @@ export function DealDetail({
               <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(deal.value)}</p>
             </div>
 
-            {!chatOpen && <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />}
+            {!chatOpen && whatsappThreadId && (
+              <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
+            )}
 
             <div className="card space-y-2 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>
@@ -733,10 +742,10 @@ export function DealDetail({
       )}
       </div>
 
-      {chatOpen && (
+      {chatOpen && whatsappThreadId && (
         <>
           <WhatsAppPanel
-            contactId={deal.contact.id}
+            threadId={whatsappThreadId}
             contactName={deal.contact.name}
             contactPhone={deal.contact.whatsapp || deal.contact.phone}
             currentUserName={currentUserName}
@@ -745,7 +754,7 @@ export function DealDetail({
           />
           <div className="fixed inset-0 z-50 flex flex-col bg-white p-4 dark:bg-neutral-950 lg:hidden">
             <ChatWindow
-              contactId={deal.contact.id}
+              threadId={whatsappThreadId}
               contactName={deal.contact.name}
               contactPhone={deal.contact.whatsapp || deal.contact.phone}
               currentUserName={currentUserName}

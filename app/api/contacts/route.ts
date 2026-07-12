@@ -6,6 +6,7 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,14 @@ export async function POST(req: Request) {
           whatsappNormalized,
         },
       });
+
+      // Se esse número já tinha mandado mensagem antes de virar Contact, a
+      // conversa estava em "WhatsApp Geral" — promove pra "WhatsApp CRM" na
+      // hora, sem esperar a próxima mensagem chegar.
+      if (phoneNormalized || whatsappNormalized) {
+        await linkOrphanThreadsForOrganization(organizationId);
+      }
+
       return NextResponse.json(contact, { status: 201 });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

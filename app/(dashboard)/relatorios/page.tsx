@@ -130,16 +130,30 @@ export default async function RelatoriosPage({
       _count: true,
     }),
     prisma.whatsAppMessage.groupBy({
-      by: ["instanceId", "contactId"],
+      by: ["instanceId", "threadId"],
       where: { organizationId, direction: "INBOUND" },
     }),
     prisma.whatsAppMessage.groupBy({
-      by: ["instanceId", "contactId"],
+      by: ["instanceId", "threadId"],
       where: { organizationId, direction: "OUTBOUND" },
     }),
   ]);
 
-  const contactedContactIds = Array.from(new Set(outboundPairs.map((p) => p.contactId)));
+  // groupBy não alcança campo de relação (thread.contactId) — resolve à
+  // parte. Thread sem Contact vinculado (aba "Geral") não entra nas métricas
+  // de resposta/conversão, só quem é lead de verdade mesmo.
+  const allThreadIds = Array.from(
+    new Set([...inboundPairs.map((p) => p.threadId), ...outboundPairs.map((p) => p.threadId)]),
+  );
+  const threads = await prisma.whatsAppThread.findMany({
+    where: { id: { in: allThreadIds } },
+    select: { id: true, contactId: true },
+  });
+  const contactIdByThread = new Map(threads.map((t) => [t.id, t.contactId]));
+
+  const contactedContactIds = Array.from(
+    new Set(outboundPairs.map((p) => contactIdByThread.get(p.threadId)).filter((id): id is string => !!id)),
+  );
   const wonContacts = contactedContactIds.length
     ? await prisma.deal.findMany({
         where: { organizationId, status: "WON", contactId: { in: contactedContactIds } },
@@ -152,9 +166,15 @@ export default async function RelatoriosPage({
   const whatsappStats = whatsappInstances.map((inst) => {
     const sent = sentByInstance.find((s) => s.instanceId === inst.id)?._count ?? 0;
     const repliedContacts = new Set(
-      inboundPairs.filter((p) => p.instanceId === inst.id).map((p) => p.contactId),
+      inboundPairs
+        .filter((p) => p.instanceId === inst.id)
+        .map((p) => contactIdByThread.get(p.threadId))
+        .filter((id): id is string => !!id),
     ).size;
-    const contactedForInst = outboundPairs.filter((p) => p.instanceId === inst.id).map((p) => p.contactId);
+    const contactedForInst = outboundPairs
+      .filter((p) => p.instanceId === inst.id)
+      .map((p) => contactIdByThread.get(p.threadId))
+      .filter((id): id is string => !!id);
     const convertedForInst = contactedForInst.filter((cid) => wonContactIdSet.has(cid)).length;
     const conversionRate =
       contactedForInst.length > 0 ? Math.round((convertedForInst / contactedForInst.length) * 100) : 0;

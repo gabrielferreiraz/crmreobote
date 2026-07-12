@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { parseSpreadsheet, normalizeHeader } from "@/lib/parse-spreadsheet";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,14 @@ export async function POST(req: Request) {
       })),
       skipDuplicates: true,
     });
+
+    // Mesma promoção automática do cadastro manual (ver app/api/contacts/route.ts),
+    // só que de uma vez pro lote inteiro em vez de por linha — importação
+    // pode trazer milhares de contatos, então re-checa as conversas avulsas
+    // da organização uma única vez no final.
+    if (result.count > 0) {
+      await linkOrphanThreadsForOrganization(organizationId);
+    }
 
     return NextResponse.json({
       total: parsed.length,

@@ -15,6 +15,7 @@ import {
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { TestEmailButton } from "./test-email-button";
 
 type IconComponent = ComponentType<{ className?: string; strokeWidth?: number }>;
 
@@ -24,6 +25,7 @@ export default async function ConfiguracoesPage() {
   const isAdmin = ["OWNER", "ADMIN"].includes(session!.user.role ?? "");
 
   const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+  const isOwner = session!.user.role === "OWNER";
 
   return (
     <div className="max-w-2xl space-y-8">
@@ -58,6 +60,12 @@ export default async function ConfiguracoesPage() {
         <Row icon={Mail} title="E-mail e calendário" description="Sincronize Google, Outlook e IMAP." />
         <Row icon={WhatsAppIcon} title="WhatsApp" description="Conecte números oficiais via Cloud API." />
       </Section>
+
+      {isOwner && (
+        <Section title="Alertas por e-mail">
+          <TestEmailButton />
+        </Section>
+      )}
     </div>
   );
 }

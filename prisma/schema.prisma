@@ -25,6 +25,7 @@ model Organization {
   teams             Team[]
   automationRules   AutomationRule[]
   whatsappInstances WhatsAppInstance[]
+  whatsappThreads   WhatsAppThread[]
   whatsappMessages  WhatsAppMessage[]
 }
 
@@ -73,17 +74,26 @@ model PushSubscription {
 // do necessário pra exibir o QR Code de pareamento.
 
 model WhatsAppInstance {
-  id             String                 @id @default(cuid())
-  organizationId String
-  userId         String
-  instanceName   String                 @unique
-  phoneNumber    String?
-  status         WhatsAppInstanceStatus @default(DISCONNECTED)
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  id                   String                 @id @default(cuid())
+  organizationId       String
+  userId               String
+  instanceName         String                 @unique
+  phoneNumber          String?
+  status               WhatsAppInstanceStatus @default(DISCONNECTED)
+  // Quando ficou desconectado pela primeira vez nesta "queda" (null quando
+  // conectado) — usado pra escalar o alerta por e-mail (1, 2, 3 dias). Zera
+  // quando reconecta.
+  disconnectedAt       DateTime?
+  // Até qual nível de alerta já mandamos nesta queda: 0 = só o aviso
+  // imediato, 1/2/3 = já mandou o de 1/2/3 dias. Nunca passa de 3 — "chega
+  // de falar" depois disso.
+  disconnectAlertLevel Int                    @default(0)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threads      WhatsAppThread[]
   messages     WhatsAppMessage[]
 
   @@unique([organizationId, userId])
@@ -96,11 +106,37 @@ enum WhatsAppInstanceStatus {
   CONNECTED
 }
 
+// Uma "conversa" existe por si só — não depende de um Contact do CRM já
+// cadastrado. Toda mensagem (recebida ou enviada) sempre pertence a uma
+// thread; o Contact é um vínculo opcional que aparece quando o número bate
+// com um já cadastrado (na hora ou depois, promovendo a conversa pra aba
+// "WhatsApp CRM" — ver lib/whatsapp/threads.ts).
+model WhatsAppThread {
+  id              String  @id @default(cuid())
+  organizationId  String
+  instanceId      String
+  phoneNormalized String // número normalizado da OUTRA parte, nunca da nossa instância
+  whatsappName    String? // pushName do WhatsApp — melhor-esforço, pode ficar desatualizado
+  contactId       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance     WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact      Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  messages     WhatsAppMessage[]
+
+  @@unique([instanceId, phoneNormalized])
+  @@index([organizationId, contactId])
+  @@index([organizationId])
+}
+
 model WhatsAppMessage {
   id             String                   @id @default(cuid())
   organizationId String
   instanceId     String
-  contactId      String
+  threadId       String
   direction      WhatsAppMessageDirection
   type           WhatsAppMessageType      @default(TEXT)
   body           String?
@@ -108,8 +144,8 @@ model WhatsAppMessage {
   metadata       Json?
   status         WhatsAppMessageStatus    @default(PENDING)
   externalId     String?                  @unique
-  // Só é relevante pra mensagens INBOUND — vira true quando o chat daquele
-  // contato é aberto (GET /api/whatsapp/messages/[contactId]). Alimenta o
+  // Só é relevante pra mensagens INBOUND — vira true quando o chat daquela
+  // conversa é aberto (GET /api/whatsapp/messages/[threadId]). Alimenta o
   // sinal de "lead respondeu" no card do negócio.
   read           Boolean                  @default(false)
   // { key, message } no formato bruto do WhatsApp/Baileys — é o que o
@@ -121,13 +157,13 @@ model WhatsAppMessage {
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   instance     WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  contact      Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  thread       WhatsAppThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
   replyTo      WhatsAppMessage?  @relation("WhatsAppMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies      WhatsAppMessage[] @relation("WhatsAppMessageReplies")
 
-  @@index([organizationId, contactId, createdAt])
+  @@index([organizationId, threadId, createdAt])
   @@index([organizationId, instanceId])
-  @@index([organizationId, contactId, direction, read])
+  @@index([organizationId, threadId, direction, read])
 }
 
 enum WhatsAppMessageDirection {
@@ -292,11 +328,11 @@ model Contact {
   tags               String[] @default([])
   createdAt          DateTime @default(now())
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  deals            Deal[]
-  tasks            Task[]
-  activities       Activity[]
-  whatsappMessages WhatsAppMessage[]
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals           Deal[]
+  tasks           Task[]
+  activities      Activity[]
+  whatsappThreads WhatsAppThread[]
 
   @@unique([organizationId, phoneNormalized])
   @@unique([organizationId, whatsappNormalized])

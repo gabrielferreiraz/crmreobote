@@ -8,11 +8,15 @@ import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ChatWindow, withViewTransition } from "@/components/whatsapp-chat";
+import { formatBrazilianPhone } from "@/lib/phone-normalize";
 
 export type Conversation = {
-  contactId: string;
-  contactName: string;
-  contactPhone: string | null;
+  threadId: string;
+  /** null = ainda não vinculada a nenhum Contact do CRM ("WhatsApp Geral"). */
+  contactId: string | null;
+  displayName: string;
+  phoneNormalized: string;
+  whatsappName: string | null;
   lastMessagePreview: string;
   lastMessageDirection: "INBOUND" | "OUTBOUND";
   lastMessageAt: string | Date;
@@ -21,6 +25,8 @@ export type Conversation = {
   ownerId: string;
   ownerName: string;
 };
+
+export type ConversationTab = "crm" | "geral";
 
 const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] = [
   { limitMs: 60_000, divisorMs: 1, suffix: "agora" },
@@ -46,6 +52,42 @@ export function formatWhen(value: string | Date): string {
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
+/** Abas "WhatsApp CRM" (vinculado a um Contact) / "WhatsApp Geral" (todo o resto) — compartilhado entre desktop e mobile. */
+export function TabSwitcher({
+  tab,
+  onChange,
+  counts,
+}: {
+  tab: ConversationTab;
+  onChange: (tab: ConversationTab) => void;
+  counts: { crm: number; geral: number };
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1 border-b border-neutral-200/60 px-2.5 pt-2 dark:border-neutral-800/60">
+      {(
+        [
+          { value: "crm" as const, label: "WhatsApp CRM" },
+          { value: "geral" as const, label: "WhatsApp Geral" },
+        ]
+      ).map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={`rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            tab === opt.value
+              ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
+              : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
+          }`}
+        >
+          {opt.label}
+          {counts[opt.value] > 0 && <span className="ml-1 opacity-60">· {counts[opt.value]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function ConversationsView({
   initialConversations,
   currentUserName,
@@ -58,17 +100,18 @@ export function ConversationsView({
   isOwner?: boolean;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(
-    initialConversations[0]?.contactId ?? null,
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
+    initialConversations.find((c) => c.contactId)?.threadId ?? initialConversations[0]?.threadId ?? null,
   );
+  const [tab, setTab] = useState<ConversationTab>("crm");
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
   // Filtro por responsável só faz sentido pra quem enxerga conversa de mais
   // de um vendedor (OWNER) — um MEMBER só vê as próprias mesmo.
   const [ownerFilter, setOwnerFilter] = useState("");
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
-  const unreadByContactRef = useRef<Map<string, number>>(
-    new Map(initialConversations.map((c) => [c.contactId, c.unreadCount])),
+  const unreadByThreadRef = useRef<Map<string, number>>(
+    new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
 
   useEffect(() => {
@@ -83,10 +126,10 @@ export function ConversationsView({
         // reparando no número do badge, fácil de passar batido.
         const arrived = new Set<string>();
         for (const c of next) {
-          const prevCount = unreadByContactRef.current.get(c.contactId) ?? 0;
-          if (c.unreadCount > prevCount) arrived.add(c.contactId);
+          const prevCount = unreadByThreadRef.current.get(c.threadId) ?? 0;
+          if (c.unreadCount > prevCount) arrived.add(c.threadId);
         }
-        unreadByContactRef.current = new Map(next.map((c) => [c.contactId, c.unreadCount]));
+        unreadByThreadRef.current = new Map(next.map((c) => [c.threadId, c.unreadCount]));
 
         setConversations(next);
         if (arrived.size > 0) {
@@ -100,41 +143,56 @@ export function ConversationsView({
     return () => clearInterval(interval);
   }, []);
 
-  const unreadTotal = useMemo(() => conversations.reduce((sum, c) => sum + c.unreadCount, 0), [conversations]);
+  const tabCounts = useMemo(
+    () => ({
+      crm: conversations.filter((c) => c.contactId).length,
+      geral: conversations.filter((c) => !c.contactId).length,
+    }),
+    [conversations],
+  );
+
+  const tabConversations = useMemo(
+    () => conversations.filter((c) => (tab === "crm" ? !!c.contactId : !c.contactId)),
+    [conversations, tab],
+  );
+
+  const unreadTotal = useMemo(() => tabConversations.reduce((sum, c) => sum + c.unreadCount, 0), [tabConversations]);
 
   const ownerOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const c of conversations) seen.set(c.ownerId, c.ownerName);
+    for (const c of tabConversations) seen.set(c.ownerId, c.ownerName);
     return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [conversations]);
+  }, [tabConversations]);
 
   const filteredConversations = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return conversations.filter((c) => {
+    return tabConversations.filter((c) => {
       if (onlyUnread && c.unreadCount === 0) return false;
       if (ownerFilter && c.ownerId !== ownerFilter) return false;
       if (
         term &&
-        !c.contactName.toLowerCase().includes(term) &&
+        !c.displayName.toLowerCase().includes(term) &&
         !c.deal?.name.toLowerCase().includes(term) &&
-        !(c.contactPhone ?? "").includes(term)
+        !c.phoneNormalized.includes(term)
       ) {
         return false;
       }
       return true;
     });
-  }, [conversations, search, onlyUnread, ownerFilter]);
+  }, [tabConversations, search, onlyUnread, ownerFilter]);
 
-  const selected = conversations.find((c) => c.contactId === selectedContactId) ?? null;
+  const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
 
-  function selectConversation(contactId: string) {
-    if (contactId === selectedContactId) return;
-    withViewTransition(() => setSelectedContactId(contactId));
+  function selectConversation(threadId: string) {
+    if (threadId === selectedThreadId) return;
+    withViewTransition(() => setSelectedThreadId(threadId));
   }
 
   return (
     <div className="hidden min-h-0 flex-1 gap-4 lg:flex">
       <div className="card flex w-80 shrink-0 flex-col overflow-hidden">
+        <TabSwitcher tab={tab} onChange={setTab} counts={tabCounts} />
+
         <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
           <div className="relative flex-1">
             <Search
@@ -184,12 +242,16 @@ export function ConversationsView({
         )}
 
         <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto p-1.5">
-          {conversations.length === 0 ? (
+          {tabConversations.length === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState
                 icon={MessageCircle}
                 title="Nenhuma conversa ainda"
-                description="Assim que um lead te escrever, a conversa aparece aqui."
+                description={
+                  tab === "crm"
+                    ? "Conversas de contatos já cadastrados no CRM aparecem aqui."
+                    : "Conversas de números que ainda não são contato aparecem aqui."
+                }
               />
             </div>
           ) : filteredConversations.length === 0 ? (
@@ -199,12 +261,12 @@ export function ConversationsView({
           ) : (
             filteredConversations.map((c) => (
               <ConversationRow
-                key={c.contactId}
+                key={c.threadId}
                 conversation={c}
-                isActive={c.contactId === selectedContactId}
+                isActive={c.threadId === selectedThreadId}
                 isOwner={isOwner}
-                justArrived={justArrived.has(c.contactId)}
-                onSelect={() => selectConversation(c.contactId)}
+                justArrived={justArrived.has(c.threadId)}
+                onSelect={() => selectConversation(c.threadId)}
               />
             ))
           )}
@@ -224,13 +286,13 @@ export function ConversationsView({
               </Link>
             )}
             <ChatWindow
-              key={selected.contactId}
-              contactId={selected.contactId}
-              contactName={selected.contactName}
-              contactPhone={selected.contactPhone}
+              key={selected.threadId}
+              threadId={selected.threadId}
+              contactName={selected.displayName}
+              contactPhone={formatBrazilianPhone(selected.phoneNormalized)}
               currentUserName={currentUserName}
               currentUserPhotoUrl={currentUserPhotoUrl}
-              onClose={() => withViewTransition(() => setSelectedContactId(null))}
+              onClose={() => withViewTransition(() => setSelectedThreadId(null))}
               className="min-h-0 flex-1"
             />
           </div>
@@ -280,7 +342,7 @@ export function ConversationRow({
     >
       <div className="group relative mt-0.5 shrink-0">
         <Avatar
-          name={c.contactName}
+          name={c.displayName}
           size="sm"
           className="transition-shadow group-hover:ring-2 group-hover:ring-neutral-300 group-hover:ring-offset-2 group-hover:ring-offset-white dark:group-hover:ring-neutral-600 dark:group-hover:ring-offset-neutral-900"
         />
@@ -297,7 +359,7 @@ export function ConversationRow({
                 : "font-medium text-neutral-700 dark:text-neutral-300"
             }`}
           >
-            {c.contactName}
+            {c.displayName}
           </p>
           <span
             className={`shrink-0 text-[10px] ${

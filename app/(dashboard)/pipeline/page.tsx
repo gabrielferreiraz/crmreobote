@@ -66,12 +66,13 @@ export default async function PipelinePage({
       organizationId,
       direction: "INBOUND",
       read: false,
-      contactId: { in: dealsRaw.map((d) => d.contactId) },
+      thread: { contactId: { in: dealsRaw.map((d) => d.contactId) } },
     },
-    select: { contactId: true },
-    distinct: ["contactId"],
+    select: { thread: { select: { contactId: true } } },
   });
-  const unreadContactIds = new Set(unreadMessages.map((m) => m.contactId));
+  const unreadContactIds = new Set(
+    unreadMessages.map((m) => m.thread.contactId).filter((id): id is string => !!id),
+  );
 
   const deals = dealsRaw.map((deal) => ({
     id: deal.id,

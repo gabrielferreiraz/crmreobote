@@ -4,7 +4,7 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendPushToUser } from "@/lib/push";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessageToContact } from "@/lib/whatsapp/send";
 
 type TriggerConfig = {
   days?: number;
@@ -137,7 +137,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
   if (rule.action === "SEND_WHATSAPP") {
     if (!entity.contactId || !actionConfig.whatsappMessage?.trim()) return;
     try {
-      await sendWhatsAppMessage({
+      await sendWhatsAppMessageToContact({
         organizationId: entity.organizationId,
         contactId: entity.contactId,
         ownerId: entity.ownerId,

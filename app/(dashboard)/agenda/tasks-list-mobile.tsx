@@ -136,10 +136,10 @@ export function TasksListMobile({
                       key={value}
                       type="button"
                       onClick={() => toggleType(value)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
                         active
                           ? "border-neutral-900 dark:border-white"
-                          : "border-transparent hover:border-neutral-200 dark:hover:border-neutral-700"
+                          : "border-transparent active:border-neutral-200 dark:active:border-neutral-700"
                       } ${color.bg} ${color.text}`}
                     >
                       <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />

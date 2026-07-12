@@ -1,10 +1,19 @@
 /**
  * Ponto único de envio de mensagem — usado tanto pela rota de chat manual
- * (app/api/whatsapp/messages/[contactId]/route.ts) quanto pela ação
+ * (app/api/whatsapp/messages/[threadId]/route.ts) quanto pela ação
  * SEND_WHATSAPP do motor de automações (lib/automations/engine.ts). Mantém a
- * regra (resolver contato, resolver instância do responsável, despachar pro
+ * regra (resolver a conversa, resolver a instância certa, despachar pro
  * endpoint certo do Evolution conforme o tipo, registrar) num só lugar em vez
  * de duplicada nos dois chamadores.
+ *
+ * Duas funções: `sendWhatsAppMessage` é a primitiva de verdade — recebe um
+ * `threadId` já existente (a conversa já fixa qual instância/número usar,
+ * então quem clica em "enviar" numa conversa sempre manda pelo número
+ * daquela conversa, não pelo número de quem está logado — é assim que o
+ * dono consegue ajudar um vendedor numa conversa, mandando "como se fosse"
+ * o número dele). `sendWhatsAppMessageToContact` é o atalho pra quem só
+ * conhece um `contactId` (automação, página do negócio) — acha ou cria a
+ * conversa a partir do Contact e delega pra função de cima.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -16,7 +25,7 @@ import {
   sendContactMessage,
   type MessageRef,
 } from "@/lib/evolution";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 
 export class WhatsAppSendError extends Error {}
 
@@ -39,8 +48,7 @@ function buildEvolutionMediaUrl(mediaKey: string): string {
 
 export type WhatsAppOutgoingMessage = {
   organizationId: string;
-  contactId: string;
-  ownerId: string;
+  threadId: string;
   /** Texto sempre obrigatório: é o corpo da mensagem de texto e a legenda/fallback dos demais tipos. */
   text: string;
   type?: $Enums.WhatsAppMessageType;
@@ -51,35 +59,29 @@ export type WhatsAppOutgoingMessage = {
 };
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
-  const { organizationId, contactId, ownerId, text, type = "TEXT", mediaUrl, metadata, replyToId } = params;
+  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId } = params;
 
-  const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
-  if (!contact) throw new WhatsAppSendError("Contato não encontrado");
+  const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
+  if (!thread) throw new WhatsAppSendError("Conversa não encontrada");
 
-  // WhatsApp é o número principal; celular (nº 2) só entra se não houver WhatsApp.
-  const number = normalizePhoneNumber(contact.whatsapp || contact.phone);
-  if (!number) throw new WhatsAppSendError("Contato sem número de WhatsApp/celular cadastrado");
-
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: { organizationId_userId: { organizationId, userId: ownerId } },
-  });
+  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: thread.instanceId } });
   if (!instance || instance.status !== "CONNECTED") {
-    throw new WhatsAppSendError("O responsável por este contato não tem WhatsApp conectado no CRM");
+    throw new WhatsAppSendError("O WhatsApp desta conversa não está conectado no CRM");
   }
 
   let quoted: MessageRef | undefined;
   if (replyToId) {
     // Só permite citar mensagem da mesma conversa — nunca aceita um id de
-    // outro contato/organização vindo do cliente.
+    // outra conversa/organização vindo do cliente.
     const quotedMessage = await prisma.whatsAppMessage.findFirst({
-      where: { id: replyToId, organizationId, contactId },
+      where: { id: replyToId, organizationId, threadId },
       select: { rawPayload: true },
     });
     if (!quotedMessage?.rawPayload) throw new WhatsAppSendError("Mensagem original não encontrada pra responder");
     quoted = quotedMessage.rawPayload as MessageRef;
   }
 
-  const fullNumber = `55${number}`;
+  const fullNumber = `55${thread.phoneNormalized}`;
   let externalId: string | undefined;
   let rawPayload: MessageRef | undefined;
 
@@ -149,7 +151,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     data: {
       organizationId,
       instanceId: instance.id,
-      contactId,
+      threadId,
       direction: "OUTBOUND",
       type,
       body: text,
@@ -163,4 +165,35 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
   });
 
   return { id: message.id };
+}
+
+export type WhatsAppOutgoingMessageToContact = Omit<WhatsAppOutgoingMessage, "threadId"> & {
+  contactId: string;
+  /** De quem é a instância a usar, quando a conversa ainda não existe (o vendedor responsável). */
+  ownerId: string;
+};
+
+/**
+ * Atalho pra quem só conhece um Contact (não uma conversa já aberta) — a
+ * página do negócio e a ação SEND_WHATSAPP das automações usam este.
+ */
+export async function sendWhatsAppMessageToContact(
+  params: WhatsAppOutgoingMessageToContact,
+): Promise<{ id: string }> {
+  const { organizationId, contactId, ownerId, ...rest } = params;
+
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
+  if (!contact) throw new WhatsAppSendError("Contato não encontrado");
+
+  const instance = await prisma.whatsAppInstance.findUnique({
+    where: { organizationId_userId: { organizationId, userId: ownerId } },
+  });
+  if (!instance || instance.status !== "CONNECTED") {
+    throw new WhatsAppSendError("O responsável por este contato não tem WhatsApp conectado no CRM");
+  }
+
+  const thread = await getOrCreateThreadForContact({ organizationId, instance, contact });
+  if (!thread) throw new WhatsAppSendError("Contato sem número de WhatsApp/celular cadastrado");
+
+  return sendWhatsAppMessage({ organizationId, threadId: thread.id, ...rest });
 }
