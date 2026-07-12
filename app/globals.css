@@ -125,6 +125,24 @@ body {
   animation: sheet-right-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+@keyframes confetti-fall {
+  from {
+    transform: translate(0, -10px) rotate(0deg);
+    opacity: 1;
+  }
+
+  to {
+    transform: translate(var(--drift), 100vh) rotate(var(--rotate));
+    opacity: 0;
+  }
+}
+
+@keyframes check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 @keyframes loading-fade-in {
   from {
     opacity: 0;
@@ -205,7 +223,14 @@ body {
   }
 
   .card {
-    @apply rounded-lg border border-neutral-200/60 bg-white shadow-sm transition-colors dark:border-neutral-800/60 dark:bg-neutral-900 dark:shadow-none;
+    @apply rounded-lg border border-neutral-200/60 bg-white transition-colors dark:border-neutral-800/60 dark:bg-neutral-900 dark:shadow-none;
+    /* Sombra em camadas (perto+difusa) só faz sentido no claro — dá aquele
+       ar "flutuando" suave sem virar um card pesado/datado. No escuro a
+       borda já basta pra separar do fundo; sombra ali só sujaria. */
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 10px 20px -8px rgba(0, 0, 0, 0.10),
+      0 24px 40px -16px rgba(0, 0, 0, 0.08);
   }
 
   .surface-glass {

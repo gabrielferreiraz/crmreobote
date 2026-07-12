@@ -24,6 +24,7 @@ const VALID_ACTIONS: $Enums.AutomationAction[] = [
   "MARK_LOST",
   "SEND_PUSH",
   "SEND_WHATSAPP",
+  "SEND_EMAIL",
 ];
 
 export async function GET() {
@@ -79,6 +80,9 @@ export async function POST(req: Request) {
   }
   if (action === "SEND_WHATSAPP" && !(actionConfig?.whatsappMessage as string | undefined)?.trim()) {
     return NextResponse.json({ error: "Escreva o texto da mensagem de WhatsApp" }, { status: 400 });
+  }
+  if (action === "SEND_EMAIL" && !(actionConfig?.emailBody as string | undefined)?.trim()) {
+    return NextResponse.json({ error: "Escreva o texto do e-mail" }, { status: 400 });
   }
 
   return runWithTenant(access.organizationId, async () => {

@@ -19,7 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64 } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
-import { notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
+import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
@@ -45,6 +45,7 @@ type BaileysMessage = {
     extendedTextMessage?: { text?: string; contextInfo?: ContextInfo };
     imageMessage?: { caption?: string; contextInfo?: ContextInfo };
     audioMessage?: Record<string, unknown> & { contextInfo?: ContextInfo };
+    stickerMessage?: Record<string, unknown> & { contextInfo?: ContextInfo };
   };
 };
 
@@ -63,9 +64,10 @@ function extractText(msg: BaileysMessage): string | null {
   return msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? null;
 }
 
-function extractMediaKind(msg: BaileysMessage): "IMAGE" | "AUDIO" | null {
+function extractMediaKind(msg: BaileysMessage): "IMAGE" | "AUDIO" | "STICKER" | null {
   if (msg.message?.imageMessage) return "IMAGE";
   if (msg.message?.audioMessage) return "AUDIO";
+  if (msg.message?.stickerMessage) return "STICKER";
   return null;
 }
 
@@ -74,7 +76,8 @@ function extractQuotedExternalId(msg: BaileysMessage): string | undefined {
   return (
     msg.message?.extendedTextMessage?.contextInfo?.stanzaId ??
     msg.message?.imageMessage?.contextInfo?.stanzaId ??
-    msg.message?.audioMessage?.contextInfo?.stanzaId
+    msg.message?.audioMessage?.contextInfo?.stanzaId ??
+    msg.message?.stickerMessage?.contextInfo?.stanzaId
   );
 }
 
@@ -103,6 +106,14 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         continue;
       }
 
+      // pushName é o nome de quem MANDOU essa mensagem específica — numa
+      // mensagem OUTBOUND (eco do que o próprio vendedor mandou, inclusive
+      // pelo celular dele direto), isso é o nome do próprio vendedor, não
+      // do lead do outro lado. Só usa pushName pra nomear a conversa quando
+      // for de fato o lead falando (INBOUND); senão a conversa fica com o
+      // nome do vendedor até o lead responder alguma vez.
+      const direction = msg.key?.fromMe ? "OUTBOUND" : "INBOUND";
+
       // A conversa existe por si só — não exige mais que o número já seja
       // um Contact cadastrado (ver lib/whatsapp/threads.ts). Se bater com
       // um Contact, linka na hora; senão fica em "WhatsApp Geral" até
@@ -111,7 +122,7 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         organizationId: instance.organizationId,
         instanceId: instance.id,
         phoneNormalized: normalized,
-        whatsappName: msg.pushName,
+        whatsappName: direction === "INBOUND" ? msg.pushName : undefined,
       });
       console.log(
         `[wa:webhook] remoteJid=${remoteJid} → normalizado=${normalized} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
@@ -168,7 +179,6 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
         );
       }
 
-      const direction = msg.key?.fromMe ? "OUTBOUND" : "INBOUND";
       const saved = await prisma.whatsAppMessage.create({
         data: {
           organizationId: instance.organizationId,
@@ -237,12 +247,16 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
       update?.state === "open" ? "CONNECTED" : update?.state === "connecting" ? "CONNECTING" : "DISCONNECTED";
     const phoneNumber = update?.wuid ? normalizePhoneNumber(update.wuid.split("@")[0]) : null;
 
-    // Só avisa por e-mail na transição de conectado → desconectado — não a
-    // cada evento (o Evolution manda "connecting" várias vezes durante o
-    // pareamento normal, isso não pode virar spam de e-mail).
+    // Só avisa por e-mail nas transições de verdade (conectado → desconectado
+    // e o inverso) — não a cada evento (o Evolution manda "connecting" várias
+    // vezes durante o pareamento normal, isso não pode virar spam de e-mail).
     if (instance.status === "CONNECTED" && status === "DISCONNECTED") {
       notifyInstanceDisconnected(instance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de desconexão por e-mail", err),
+      );
+    } else if (instance.status !== "CONNECTED" && status === "CONNECTED") {
+      notifyInstanceConnected(instance).catch((err) =>
+        console.error("[wa:webhook] falha ao enviar alerta de conexão por e-mail", err),
       );
     }
 

@@ -11,8 +11,8 @@
  * este arquivo só sabe montar e mandar o e-mail certo pra cada nível.
  */
 
-import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
+import { resolveUserAndOrgOwners, type ResolvedRecipients } from "@/lib/notify-recipients";
 
 type InstanceRef = {
   id: string;
@@ -22,34 +22,36 @@ type InstanceRef = {
   phoneNumber: string | null;
 };
 
-async function resolveRecipients(instance: InstanceRef): Promise<{ name: string; recipients: Map<string, string> } | null> {
-  const [owner, orgOwners] = await Promise.all([
-    prisma.user.findUnique({ where: { id: instance.userId }, select: { name: true, email: true } }),
-    prisma.organizationUser.findMany({
-      where: { organizationId: instance.organizationId, role: "OWNER", active: true },
-      include: { user: { select: { name: true, email: true } } },
-    }),
-  ]);
-
-  if (!owner) {
+async function resolveRecipients(instance: InstanceRef): Promise<ResolvedRecipients | null> {
+  const resolved = await resolveUserAndOrgOwners(instance.organizationId, instance.userId);
+  if (!resolved) {
     console.error(`[wa:alert] instância ${instance.instanceName} sem usuário dono (userId=${instance.userId})`);
-    return null;
   }
-
-  const recipients = new Map<string, string>(); // email -> nome
-  recipients.set(owner.email, owner.name);
-  for (const ou of orgOwners) recipients.set(ou.user.email, ou.user.name);
-
-  return { name: owner.name, recipients };
+  return resolved;
 }
 
-async function dispatch(subject: string, html: string, resolved: { name: string; recipients: Map<string, string> }) {
+async function dispatch(subject: string, html: string, resolved: ResolvedRecipients) {
   const result = await sendEmail({ to: Array.from(resolved.recipients.keys()), subject, html });
   if (result.ok) {
     console.log(`[wa:alert] "${subject}" enviado para: ${Array.from(resolved.recipients.keys()).join(", ")}`);
   } else {
     console.error(`[wa:alert] falha ao enviar "${subject}": ${result.error}`);
   }
+}
+
+/** Disparado na transição pra CONNECTED (primeira conexão ou reconexão) — avisa que o número voltou a atender. */
+export async function notifyInstanceConnected(instance: InstanceRef): Promise<void> {
+  const resolved = await resolveRecipients(instance);
+  if (!resolved) return;
+
+  const phoneLabel = instance.phoneNumber ? ` (${instance.phoneNumber})` : "";
+
+  const html = `
+    <p>O WhatsApp de <strong>${resolved.name}</strong>${phoneLabel} conectou ao CRM.</p>
+    <p>Mensagens já estão sendo enviadas e recebidas normalmente por esse número.</p>
+  `;
+
+  await dispatch(`✅ WhatsApp de ${resolved.name} conectou`, html, resolved);
 }
 
 export async function notifyInstanceDisconnected(instance: InstanceRef): Promise<void> {

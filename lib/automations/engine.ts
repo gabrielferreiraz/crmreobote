@@ -5,6 +5,8 @@ import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendPushToUser } from "@/lib/push";
 import { sendWhatsAppMessageToContact } from "@/lib/whatsapp/send";
+import { sendEmail } from "@/lib/email";
+import { resolveUserAndOrgOwners } from "@/lib/notify-recipients";
 
 type TriggerConfig = {
   days?: number;
@@ -24,6 +26,8 @@ type ActionConfig = {
   pushTitle?: string;
   pushBody?: string;
   whatsappMessage?: string;
+  emailSubject?: string;
+  emailBody?: string;
 };
 
 type Entity = {
@@ -147,6 +151,24 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       // Falha de envio (ex.: responsável sem WhatsApp conectado) não deve
       // travar o resto da automação — só fica registrado no log do servidor.
       console.error(`[automations] falha ao enviar WhatsApp (regra "${rule.name}")`, err);
+    }
+    return;
+  }
+
+  if (rule.action === "SEND_EMAIL") {
+    // Mesmo destino dos alertas de WhatsApp desconectado: o responsável pela
+    // entidade + todo OWNER da organização, não o contato/lead — é um aviso
+    // interno, não uma comunicação externa.
+    const resolved = await resolveUserAndOrgOwners(entity.organizationId, entity.ownerId);
+    if (!resolved) return;
+
+    const subject = actionConfig.emailSubject?.trim() || `Automação: ${rule.name}`;
+    const body = actionConfig.emailBody?.trim() ?? "";
+    const html = `<p>${body.replace(/\n/g, "<br>")}</p>`;
+
+    const result = await sendEmail({ to: Array.from(resolved.recipients.keys()), subject, html });
+    if (!result.ok) {
+      console.error(`[automations] falha ao enviar e-mail (regra "${rule.name}"): ${result.error}`);
     }
     return;
   }

@@ -12,7 +12,6 @@ import {
   SlidersHorizontal,
   Mail,
 } from "lucide-react";
-import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TestEmailButton } from "./test-email-button";
@@ -37,8 +36,13 @@ export default async function ConfiguracoesPage() {
       </div>
 
       <Section title="Conta">
-        <Row href="/configuracoes/perfil" icon={UserCircle} title="Perfil e preferências" description="Sua foto de perfil." />
-        <Row icon={Bell} title="Notificações" description="E-mail, push e resumos diários." />
+        <Row
+          href="/configuracoes/perfil"
+          icon={UserCircle}
+          title="Perfil e preferências"
+          description="Foto, notificações push e conexão do WhatsApp."
+        />
+        <Row icon={Bell} title="Notificações" description="Alertas por e-mail e resumos diários." />
         <Row icon={ShieldCheck} title="Segurança" description="Senha, autenticação em dois fatores." />
       </Section>
 
@@ -58,7 +62,6 @@ export default async function ConfiguracoesPage() {
 
       <Section title="Integrações">
         <Row icon={Mail} title="E-mail e calendário" description="Sincronize Google, Outlook e IMAP." />
-        <Row icon={WhatsAppIcon} title="WhatsApp" description="Conecte números oficiais via Cloud API." />
       </Section>
 
       {isOwner && (

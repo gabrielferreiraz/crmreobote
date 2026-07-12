@@ -24,6 +24,7 @@ import {
   CheckCheck,
   Clock,
   AlertCircle,
+  Smile,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -54,7 +55,7 @@ const CHAT_BACKGROUND_PATTERN = `data:image/svg+xml,${encodeURIComponent(`
 </svg>
 `)}`;
 
-type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST";
+type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER";
 
 type MessageMetadata = {
   name?: string;
@@ -85,6 +86,7 @@ const QUOTE_PREVIEW_FALLBACK: Record<string, string> = {
   AUDIO: "🎵 Áudio",
   CONTACT: "👤 Contato",
   PIX: "💰 Pix",
+  STICKER: "🧩 Figurinha",
 };
 
 function previewForQuote(msg: QuotedMessage): string {
@@ -102,6 +104,24 @@ const ATTACH_OPTIONS: { mode: AttachMode; label: string; icon: typeof ImageIcon 
   { mode: "AUDIO", label: "Áudio", icon: Mic },
   { mode: "CONTACT", label: "Contato", icon: User },
   { mode: "PIX", label: "Pix", icon: QrCode },
+];
+
+// Áudio ganhou botão próprio (ícone de microfone sempre visível, do lado do
+// clipe) — deixa mais óbvio que dá pra gravar rápido, sem precisar abrir o
+// menu de anexo pra descobrir. O menu do clipe segue com o resto.
+const PAPERCLIP_MENU_OPTIONS = ATTACH_OPTIONS.filter((o) => o.mode !== "AUDIO");
+
+const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  {
+    label: "Reações",
+    emojis: ["😀", "😂", "😊", "🙂", "😉", "😍", "🥰", "😘", "😅", "🤔", "😢", "😭", "😡", "😱", "😴", "🙄", "😎", "🤝"],
+  },
+  { label: "Gestos", emojis: ["👍", "👎", "👏", "🙏", "💪", "✌️", "👌", "🤞", "🤙", "👋"] },
+  { label: "Corações", emojis: ["❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "💔"] },
+  {
+    label: "Negócio",
+    emojis: ["✅", "❌", "⚠️", "🔥", "🎉", "💰", "💵", "🏠", "🚗", "📞", "📱", "📅", "⏰", "📍", "✍️", "📄"],
+  },
 ];
 
 /**
@@ -514,16 +534,25 @@ function MessageBubble({
     </button>
   );
 
+  // Figurinha tem fundo transparente por natureza — meter ela dentro da bolha
+  // colorida escondia a arte atrás de um retângulo. Renderiza "solta", igual
+  // ao WhatsApp de verdade, só com o horário pequeno embaixo.
+  const isSticker = message.type === "STICKER";
+
   return (
     <div className={`group flex items-end gap-1.5 ${isOut ? "justify-end" : "justify-start"}`}>
       {!isOut && avatar}
       {isOut && replyButton}
       <div
-        className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${
-          isOut
-            ? "rounded-br-sm bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-            : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
-        }`}
+        className={
+          isSticker
+            ? "max-w-[55%]"
+            : `max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${
+                isOut
+                  ? "rounded-br-sm bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                  : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+              }`
+        }
       >
         {message.replyTo && (
           <div
@@ -537,7 +566,13 @@ function MessageBubble({
           </div>
         )}
         <MessageContent message={message} />
-        <p className="mt-0.5 flex items-center gap-1 text-[10px] opacity-60">
+        <p
+          className={
+            isSticker
+              ? "mt-0.5 flex items-center gap-1 text-[10px] text-neutral-400 dark:text-neutral-500"
+              : "mt-0.5 flex items-center gap-1 text-[10px] opacity-60"
+          }
+        >
           {new Date(message.createdAt).toLocaleString("pt-BR")}
           {isOut && <MessageStatusIcon status={message.status} />}
         </p>
@@ -662,6 +697,16 @@ function MessageContent({ message }: { message: Message }) {
       ) : (
         <p className="text-xs italic opacity-60">Áudio expirado</p>
       );
+    case "STICKER":
+      return message.mediaUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={message.mediaUrl} alt="Figurinha" className="h-28 w-28 object-contain" />
+      ) : (
+        <p className="flex items-center gap-1.5 text-xs italic opacity-60">
+          <ImageOff className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          Figurinha — não suportado
+        </p>
+      );
     case "CONTACT":
       return (
         <div className="flex items-center gap-2 rounded-md bg-black/5 px-2 py-1.5 dark:bg-white/10">
@@ -749,6 +794,51 @@ function getPastedImageFile(e: React.ClipboardEvent): File | null {
   return null;
 }
 
+/** Picker curado (não é o teclado de emoji inteiro do SO) — cobre o que mais se usa numa conversa de vendas. */
+function EmojiMenu({ onPick }: { onPick: (emoji: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="icon-btn" aria-label="Emojis">
+        <Smile className="h-4 w-4" strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="surface-glass scrollbar-thin absolute bottom-full left-0 z-30 mb-2 max-h-64 w-64 space-y-2 overflow-y-auto rounded-md p-2 shadow-lg">
+          {EMOJI_GROUPS.map((group) => (
+            <div key={group.label}>
+              <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+                {group.label}
+              </p>
+              <div className="grid grid-cols-8 gap-0.5">
+                {group.emojis.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => onPick(emoji)}
+                    className="flex h-7 w-7 items-center justify-center rounded text-base transition-colors hover:bg-neutral-100 active:bg-neutral-100 dark:hover:bg-neutral-800 dark:active:bg-neutral-800"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TextComposer({
   sending,
   onSend,
@@ -822,6 +912,23 @@ function TextComposer({
     }
   }
 
+  function insertEmoji(emoji: string) {
+    const el = textareaRef.current;
+    if (!el) {
+      setText((t) => t + emoji);
+      return;
+    }
+    const { selectionStart, selectionEnd, value } = el;
+    const next = value.slice(0, selectionStart) + emoji + value.slice(selectionEnd);
+    setText(next);
+    const cursor = selectionStart + emoji.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(cursor, cursor);
+      autoResizeTextarea(el);
+    });
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-1.5">
       <div className="flex items-center gap-0.5">
@@ -845,7 +952,7 @@ function TextComposer({
           </button>
           {menuOpen && (
             <div className="surface-glass absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
-              {ATTACH_OPTIONS.map((opt) => (
+              {PAPERCLIP_MENU_OPTIONS.map((opt) => (
                 <button
                   key={opt.mode}
                   type="button"
@@ -859,6 +966,7 @@ function TextComposer({
             </div>
           )}
         </div>
+        <EmojiMenu onPick={insertEmoji} />
         <textarea
           ref={textareaRef}
           value={text}
@@ -872,6 +980,15 @@ function TextComposer({
           rows={1}
           className="field-input scrollbar-thin max-h-[120px] flex-1 resize-none py-2 text-sm"
         />
+        <button
+          type="button"
+          onClick={() => onPick("AUDIO")}
+          className="icon-btn shrink-0"
+          aria-label="Gravar áudio"
+          title="Gravar áudio"
+        >
+          <Mic className="h-4 w-4" strokeWidth={2} />
+        </button>
         <button type="submit" disabled={sending || !text.trim()} className="btn-primary shrink-0">
           {sending ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
         </button>

@@ -19,7 +19,7 @@ type Trigger =
   | "DEAL_NO_OPEN_TASK"
   | "CONTACT_NO_DEAL"
   | "SCHEDULED";
-type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP";
+type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL";
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -70,6 +70,7 @@ const ACTION_LABELS: Record<Action, string> = {
   MARK_LOST: "Marcar como perdido",
   SEND_PUSH: "Enviar notificação push",
   SEND_WHATSAPP: "Enviar mensagem de WhatsApp",
+  SEND_EMAIL: "Enviar e-mail",
 };
 
 export function AutomationsTable({
@@ -130,6 +131,9 @@ export function AutomationsTable({
     if (rule.action === "SEND_WHATSAPP") {
       const text = config.whatsappMessage as string | undefined;
       return text ? (text.length > 40 ? `${text.slice(0, 40)}…` : text) : null;
+    }
+    if (rule.action === "SEND_EMAIL") {
+      return (config.emailSubject as string | undefined) || null;
     }
     return null;
   }
@@ -298,6 +302,8 @@ function NewAutomationDialog({
   const [pushTitle, setPushTitle] = useState("");
   const [pushBody, setPushBody] = useState("");
   const [whatsappMessage, setWhatsappMessage] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -336,7 +342,9 @@ function NewAutomationDialog({
             ? { lossReasonId }
             : action === "SEND_PUSH"
               ? { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined }
-              : { whatsappMessage };
+              : action === "SEND_WHATSAPP"
+                ? { whatsappMessage }
+                : { emailSubject: emailSubject || undefined, emailBody };
 
     const res = await fetch("/api/automations", {
       method: "POST",
@@ -360,7 +368,8 @@ function NewAutomationDialog({
     (trigger !== "DEAL_STAGE_ENTERED" || !!stageId) &&
     (trigger !== "SCHEDULED" || !!assigneeId) &&
     (action !== "MARK_LOST" || !!lossReasonId) &&
-    (action !== "SEND_WHATSAPP" || !!whatsappMessage.trim());
+    (action !== "SEND_WHATSAPP" || !!whatsappMessage.trim()) &&
+    (action !== "SEND_EMAIL" || !!emailBody.trim());
 
   return (
     <Modal onClose={onClose}>
@@ -625,6 +634,34 @@ function NewAutomationDialog({
               Enviada pelo número do WhatsApp do responsável pelo negócio/contato. Se ele não tiver conectado o
               WhatsApp em Configurações → Perfil, a automação não consegue enviar (fica registrado no log, não
               trava as outras ações).
+            </p>
+          </>
+        )}
+
+        {action === "SEND_EMAIL" && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Assunto</label>
+              <input
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder={`Automação: ${name || "..."}`}
+                className="field-input"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Texto</label>
+              <textarea
+                required
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                rows={3}
+                className="field-input"
+              />
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Enviado pro e-mail do responsável pelo negócio/contato e pro(s) dono(s) da conta — é um aviso interno,
+              não uma mensagem pro cliente.
             </p>
           </>
         )}

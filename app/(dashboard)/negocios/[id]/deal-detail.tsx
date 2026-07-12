@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
+import { StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES } from "@/lib/activity-icons";
@@ -14,6 +14,7 @@ import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
+import { ConfettiBurst } from "@/components/confetti-burst";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -70,6 +71,7 @@ export function DealDetail({
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
   whatsappThreadId,
+  canEditDetails,
 }: {
   deal: Deal;
   members: MemberOption[];
@@ -79,6 +81,8 @@ export function DealDetail({
   hasUnreadWhatsApp?: boolean;
   /** null quando o contato não tem WhatsApp/celular cadastrado — não dá pra conversar. */
   whatsappThreadId: string | null;
+  /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
+  canEditDetails: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -97,6 +101,7 @@ export function DealDetail({
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
+  const [showConfetti, setShowConfetti] = useState(false);
 
   useEffect(() => {
     const taskId = searchParams.get("highlightTask");
@@ -138,11 +143,13 @@ export function DealDetail({
       setLossDialogOpen(true);
       return;
     }
+    const wasWon = deal.status === "WON";
     await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    if (status === "WON" && !wasWon) setShowConfetti(true);
     router.refresh();
   }
 
@@ -172,6 +179,49 @@ export function DealDetail({
       body: JSON.stringify({ creditType: creditType || null }),
     });
     router.refresh();
+  }
+
+  async function saveDealField(
+    field: "description" | "expectedCloseAt",
+    value: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/deals/${deal.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: value || null }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: false, error: data.error ?? "Erro ao salvar" };
+    }
+    router.refresh();
+    return { ok: true };
+  }
+
+  // A rota de contato reescreve nome/e-mail/celular/whatsapp juntos a cada
+  // PUT (não é um PATCH parcial) — manda sempre os quatro, só trocando o
+  // campo editado, senão os que ficarem de fora são apagados sem querer.
+  async function saveContactField(
+    field: "name" | "email" | "phone" | "whatsapp",
+    value: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/contacts/${deal.contact.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: deal.contact.name,
+        email: deal.contact.email ?? "",
+        phone: deal.contact.phone ?? "",
+        whatsapp: deal.contact.whatsapp ?? "",
+        [field]: value,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: false, error: data.error ?? "Erro ao salvar" };
+    }
+    router.refresh();
+    return { ok: true };
   }
 
   async function moveToStage(stageId: string) {
@@ -247,6 +297,7 @@ export function DealDetail({
 
   return (
     <div className="flex items-start gap-4">
+      {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
       <div className="min-w-0 flex-1 space-y-6">
       <div className="flex flex-col items-start justify-between gap-3 lg:flex-row">
         <div className="flex items-start gap-3">
@@ -477,9 +528,13 @@ export function DealDetail({
               </span>
             </div>
             <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
-            <Row
+            <EditableRow
               label="Conclusão prevista"
-              value={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
+              value={toDateInputValue(deal.expectedCloseAt)}
+              displayValue={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
+              type="date"
+              editable={canEditDetails}
+              onSave={(v) => saveDealField("expectedCloseAt", v)}
             />
             <div className="flex items-center justify-between gap-2">
               <span className="text-neutral-500 dark:text-neutral-400">Tipo de crédito</span>
@@ -495,7 +550,13 @@ export function DealDetail({
                 ]}
               />
             </div>
-            <Row label="Descrição" value={deal.description ?? "—"} />
+            <EditableRow
+              label="Descrição"
+              value={deal.description ?? ""}
+              type="textarea"
+              editable={canEditDetails}
+              onSave={(v) => saveDealField("description", v)}
+            />
           </div>
 
           {deal.status === "LOST" && deal.lossReason && (
@@ -508,10 +569,31 @@ export function DealDetail({
 
           <div className="card space-y-2 p-4 text-sm">
             <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do contato</h3>
-            <Row label="Nome" value={deal.contact.name} />
-            <Row label="E-mail" value={deal.contact.email ?? "—"} />
-            <Row label="Celular" value={deal.contact.phone ?? "—"} />
-            <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
+            <EditableRow
+              label="Nome"
+              value={deal.contact.name}
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("name", v)}
+            />
+            <EditableRow
+              label="E-mail"
+              value={deal.contact.email ?? ""}
+              type="email"
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("email", v)}
+            />
+            <EditableRow
+              label="Celular"
+              value={deal.contact.phone ?? ""}
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("phone", v)}
+            />
+            <EditableRow
+              label="WhatsApp"
+              value={deal.contact.whatsapp ?? ""}
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("whatsapp", v)}
+            />
           </div>
         </div>
       </div>
@@ -705,7 +787,13 @@ export function DealDetail({
                   ]}
                 />
               </div>
-              <Row label="Descrição" value={deal.description ?? "—"} />
+              <EditableRow
+              label="Descrição"
+              value={deal.description ?? ""}
+              type="textarea"
+              editable={canEditDetails}
+              onSave={(v) => saveDealField("description", v)}
+            />
             </div>
 
             {deal.status === "LOST" && deal.lossReason && (
@@ -718,10 +806,31 @@ export function DealDetail({
 
             <div className="card space-y-2 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do contato</h3>
-              <Row label="Nome" value={deal.contact.name} />
-              <Row label="E-mail" value={deal.contact.email ?? "—"} />
-              <Row label="Celular" value={deal.contact.phone ?? "—"} />
-              <Row label="WhatsApp" value={deal.contact.whatsapp ?? "—"} />
+              <EditableRow
+                label="Nome"
+                value={deal.contact.name}
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("name", v)}
+              />
+              <EditableRow
+                label="E-mail"
+                value={deal.contact.email ?? ""}
+                type="email"
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("email", v)}
+              />
+              <EditableRow
+                label="Celular"
+                value={deal.contact.phone ?? ""}
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("phone", v)}
+              />
+              <EditableRow
+                label="WhatsApp"
+                value={deal.contact.whatsapp ?? ""}
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("whatsapp", v)}
+              />
             </div>
           </div>
         )}
@@ -854,6 +963,124 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-2">
       <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
       <span className="text-right text-neutral-800 dark:text-neutral-200">{value}</span>
+    </div>
+  );
+}
+
+/** "2026-07-12T00:00:00.000Z" → "2026-07-12", o formato que <input type="date"> espera. */
+function toDateInputValue(value: string | Date | null): string {
+  if (!value) return "";
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+/**
+ * Mesmo "Row", mas com lápis pra editar no lugar — só quando `editable` é
+ * true (dono do negócio ou OWNER da conta). Sem permissão, cai de volta pro
+ * Row normal, só leitura.
+ */
+function EditableRow({
+  label,
+  value,
+  displayValue,
+  onSave,
+  type = "text",
+  editable,
+}: {
+  label: string;
+  value: string;
+  /** Como mostrar o valor fora do modo edição, se diferente do value bruto (ex.: data formatada). */
+  displayValue?: string;
+  onSave: (value: string) => Promise<{ ok: boolean; error?: string }>;
+  type?: "text" | "email" | "textarea" | "date";
+  editable: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!editable) return <Row label={label} value={displayValue ?? value ?? "—"} />;
+
+  if (!editing) {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(value);
+            setError(null);
+            setEditing(true);
+          }}
+          className="group flex min-w-0 items-center gap-1 text-right"
+        >
+          <span className="truncate text-neutral-800 dark:text-neutral-200">{displayValue ?? (value || "—")}</span>
+          <Pencil
+            className="h-3 w-3 shrink-0 text-neutral-300 group-hover:text-neutral-600 dark:text-neutral-600 dark:group-hover:text-neutral-300"
+            strokeWidth={2}
+          />
+        </button>
+      </div>
+    );
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    const result = await onSave(draft);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error ?? "Erro ao salvar");
+      return;
+    }
+    setEditing(false);
+  }
+
+  return (
+    <div className="space-y-1">
+      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+      <div className="flex items-center gap-1">
+        {type === "textarea" ? (
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            className="field-input text-xs"
+          />
+        ) : (
+          <input
+            autoFocus
+            type={type}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="field-input text-xs"
+          />
+        )}
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="icon-btn shrink-0"
+          aria-label="Salvar"
+        >
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+          ) : (
+            <Check className="h-3.5 w-3.5" strokeWidth={2} />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="icon-btn shrink-0"
+          aria-label="Cancelar"
+        >
+          <X className="h-3.5 w-3.5" strokeWidth={2} />
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );
 }

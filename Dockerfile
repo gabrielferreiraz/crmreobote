@@ -16,6 +16,14 @@ COPY . .
 ARG DATABASE_URL="postgresql://placeholder:placeholder@placeholder:5432/placeholder"
 ENV DATABASE_URL=${DATABASE_URL}
 
+# NEXT_PUBLIC_* é gravado dentro do bundle JS do navegador durante o build do
+# Next.js, não lido em runtime — diferente de toda outra env var do container,
+# essa precisa chegar aqui, antes do `npm run build`, senão o toggle de
+# notificações push no navegador nunca vê a chave (mesmo com a env var certa
+# configurada no EasyPanel só pro container em execução).
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=""
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=${NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+
 RUN npx prisma generate
 RUN npm run build
 

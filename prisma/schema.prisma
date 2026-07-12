@@ -179,6 +179,7 @@ enum WhatsAppMessageType {
   PIX
   BUTTONS
   LIST
+  STICKER
 }
 
 enum WhatsAppMessageStatus {
@@ -523,4 +524,5 @@ enum AutomationAction {
   MARK_LOST
   SEND_PUSH
   SEND_WHATSAPP
+  SEND_EMAIL
 }

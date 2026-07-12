@@ -10,6 +10,7 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
+import { CountUpValue } from "@/components/count-up-value";
 
 export default async function HomePage() {
   const session = await auth();
@@ -91,10 +92,21 @@ export default async function HomePage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        <StatTile icon={Briefcase} label="Negócios abertos" value={String(openDeals)} />
-        <StatTile icon={ArrowUpRight} label="Pipeline aberto" value={formatCurrency(pipelineValue._sum.value ? Number(pipelineValue._sum.value) : 0)} />
-        <StatTile icon={TrendingUp} label="Fechado no mês" value={formatCurrency(wonThisMonth._sum.value ? Number(wonThisMonth._sum.value) : 0)} hint={`${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`} />
-        <StatTile icon={Users} label="Clientes ativos" value={String(activeClients)} />
+        <StatTile icon={Briefcase} label="Negócios abertos" value={openDeals} />
+        <StatTile
+          icon={ArrowUpRight}
+          label="Pipeline aberto"
+          value={pipelineValue._sum.value ? Number(pipelineValue._sum.value) : 0}
+          format="currency"
+        />
+        <StatTile
+          icon={TrendingUp}
+          label="Fechado no mês"
+          value={wonThisMonth._sum.value ? Number(wonThisMonth._sum.value) : 0}
+          format="currency"
+          hint={`${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`}
+        />
+        <StatTile icon={Users} label="Clientes ativos" value={activeClients} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -266,11 +278,13 @@ function StatTile({
   icon: Icon,
   label,
   value,
+  format = "number",
   hint,
 }: {
   icon: typeof Briefcase;
   label: string;
-  value: string;
+  value: number;
+  format?: "number" | "currency";
   hint?: string;
 }) {
   return (
@@ -280,7 +294,7 @@ function StatTile({
         <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
       </div>
       <p className="truncate text-xl font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 lg:text-2xl">
-        {value}
+        <CountUpValue value={value} format={format} />
       </p>
       {hint && <p className="mt-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>

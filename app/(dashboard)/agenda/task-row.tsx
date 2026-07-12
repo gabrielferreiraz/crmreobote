@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, CircleAlert, ChevronDown } from "lucide-react";
+import { CircleAlert, ChevronDown } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
+import { AnimatedCheck } from "@/components/animated-check";
 
 export type Task = {
   id: string;
@@ -30,10 +31,27 @@ export function TaskRow({
   showOwner?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [completed, setCompleted] = useState(!!task.completedAt);
+  const [justCompleted, setJustCompleted] = useState(false);
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
-  const overdue = !task.completedAt && !!task.dueAt && new Date(task.dueAt) < new Date();
+  const overdue = !completed && !!task.dueAt && new Date(task.dueAt) < new Date();
   const hasDetails = !!task.description || !!task.deal || !!task.contact;
+
+  useEffect(() => {
+    setCompleted(!!task.completedAt);
+  }, [task.completedAt]);
+
+  function handleToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    const next = !completed;
+    setCompleted(next);
+    if (next) {
+      setJustCompleted(true);
+      setTimeout(() => setJustCompleted(false), 500);
+    }
+    onToggle(task.id, next);
+  }
 
   return (
     <div className={`card text-sm ${muted ? "opacity-60" : ""}`}>
@@ -43,15 +61,12 @@ export function TaskRow({
       >
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle(task.id, !task.completedAt);
-          }}
+          onClick={handleToggle}
           className="tap-target max-lg:-m-2 shrink-0"
-          aria-label={task.completedAt ? "Marcar como pendente" : "Marcar como concluída"}
+          aria-label={completed ? "Marcar como pendente" : "Marcar como concluída"}
         >
-          {task.completedAt ? (
-            <CheckCircle2 className="h-[18px] w-[18px] text-emerald-500" strokeWidth={2} />
+          {completed ? (
+            <AnimatedCheck className="h-[18px] w-[18px] text-emerald-500" justDrawn={justCompleted} />
           ) : overdue ? (
             <CircleAlert className="h-[18px] w-[18px] text-red-500" strokeWidth={2} />
           ) : (
@@ -61,7 +76,7 @@ export function TaskRow({
 
         <span
           className={`min-w-0 flex-1 truncate ${
-            task.completedAt ? "text-neutral-400 line-through dark:text-neutral-500" : "text-neutral-900 dark:text-neutral-100"
+            completed ? "text-neutral-400 line-through dark:text-neutral-500" : "text-neutral-900 dark:text-neutral-100"
           }`}
         >
           {task.title}

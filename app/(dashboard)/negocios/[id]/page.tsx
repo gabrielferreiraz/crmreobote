@@ -77,16 +77,24 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       where: { organizationId, thread: { contactId: deal.contactId }, direction: "INBOUND", read: false },
     });
 
-    // A conversa aberta na página é sempre a de quem está logado agora —
-    // mesma regra que já vale pro envio (cada um manda pelo próprio número
-    // conectado). Sem instância conectada, não tem como abrir chat aqui.
-    const myInstance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId: session!.user.id } },
+    // A conversa é sempre a do vendedor responsável pelo negócio — é o
+    // número dele que troca mensagem com esse contato. Pra quem está vendo o
+    // próprio negócio dá no mesmo; pra dono/admin abrindo o negócio de outro
+    // vendedor, é isso que deixa ver e ajudar na conversa mesmo sem ter um
+    // WhatsApp próprio conectado. Sem instância conectada, não tem como
+    // abrir chat aqui.
+    const ownerInstance = await prisma.whatsAppInstance.findUnique({
+      where: { organizationId_userId: { organizationId, userId: dealRaw.ownerId } },
     });
     const whatsappThread =
-      myInstance?.status === "CONNECTED"
-        ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact: dealRaw.contact })
+      ownerInstance?.status === "CONNECTED"
+        ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
         : null;
+
+    // Edição inline (lápis) dos campos do negócio/contato: só quem é dono do
+    // negócio (o vendedor responsável) ou dono da conta (OWNER) pode editar
+    // por aqui — os demais só visualizam.
+    const canEditDetails = session!.user.id === dealRaw.ownerId || session!.user.role === "OWNER";
 
     return (
       <Suspense fallback={null}>
@@ -98,6 +106,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}
           whatsappThreadId={whatsappThread?.id ?? null}
+          canEditDetails={canEditDetails}
         />
       </Suspense>
     );
