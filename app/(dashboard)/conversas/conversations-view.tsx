@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, Search, Briefcase, X } from "lucide-react";
+import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ChatWindow, withViewTransition } from "@/components/whatsapp-chat";
+import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
 
 export type Conversation = {
@@ -77,7 +78,7 @@ export function TabSwitcher({
           className={`rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors ${
             tab === opt.value
               ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
-              : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
+              : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-700 active:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-300 dark:active:text-neutral-100"
           }`}
         >
           {opt.label}
@@ -110,6 +111,7 @@ export function ConversationsView({
   // de um vendedor (OWNER) — um MEMBER só vê as próprias mesmo.
   const [ownerFilter, setOwnerFilter] = useState("");
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
@@ -186,6 +188,14 @@ export function ConversationsView({
   function selectConversation(threadId: string) {
     if (threadId === selectedThreadId) return;
     withViewTransition(() => setSelectedThreadId(threadId));
+  }
+
+  function handleDealAdded(threadId: string, result: { contactId: string; deal: { id: string; name: string } }) {
+    setConversations((prev) =>
+      prev.map((c) => (c.threadId === threadId ? { ...c, contactId: result.contactId, deal: result.deal } : c)),
+    );
+    setQuickAddOpen(false);
+    setTab("crm");
   }
 
   return (
@@ -276,7 +286,7 @@ export function ConversationsView({
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         {selected ? (
           <div className="flex h-full flex-col p-4">
-            {selected.deal && (
+            {selected.deal ? (
               <Link
                 href={`/negocios/${selected.deal.id}`}
                 className="mb-2 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
@@ -284,6 +294,15 @@ export function ConversationsView({
                 <Briefcase className="h-3 w-3" strokeWidth={2} />
                 Ver negócio: {selected.deal.name}
               </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setQuickAddOpen(true)}
+                className="mb-2 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+              >
+                <BriefcaseBusiness className="h-3 w-3" strokeWidth={2} />
+                Adicionar negócio
+              </button>
             )}
             <ChatWindow
               key={selected.threadId}
@@ -295,6 +314,17 @@ export function ConversationsView({
               onClose={() => withViewTransition(() => setSelectedThreadId(null))}
               className="min-h-0 flex-1"
             />
+
+            {quickAddOpen && (
+              <QuickAddDealPanel
+                onClose={() => setQuickAddOpen(false)}
+                suggestedName={selected.whatsappName ?? ""}
+                phoneFormatted={formatBrazilianPhone(selected.phoneNormalized) ?? selected.phoneNormalized}
+                ownerId={selected.ownerId}
+                ownerName={selected.ownerName}
+                onCreated={(result) => handleDealAdded(selected.threadId, result)}
+              />
+            )}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">

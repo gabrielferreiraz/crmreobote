@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Search, X } from "lucide-react";
+import Link from "next/link";
+import { Briefcase, BriefcaseBusiness, MessageCircle, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { ChatWindow } from "@/components/whatsapp-chat";
+import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
+import { formatBrazilianPhone } from "@/lib/phone-normalize";
 import { ConversationRow, TabSwitcher, type Conversation, type ConversationTab } from "./conversations-view";
 
 /**
@@ -28,6 +31,7 @@ export function ConversationsMobile({
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
@@ -91,19 +95,58 @@ export function ConversationsMobile({
 
   const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
 
+  function handleDealAdded(threadId: string, result: { contactId: string; deal: { id: string; name: string } }) {
+    setConversations((prev) =>
+      prev.map((c) => (c.threadId === threadId ? { ...c, contactId: result.contactId, deal: result.deal } : c)),
+    );
+    setQuickAddOpen(false);
+    setTab("crm");
+  }
+
   if (selected) {
     return (
-      <ChatWindow
-        key={selected.threadId}
-        threadId={selected.threadId}
-        contactName={selected.displayName}
-        contactPhone={selected.phoneNormalized}
-        currentUserName={currentUserName}
-        currentUserPhotoUrl={currentUserPhotoUrl}
-        onClose={() => setSelectedThreadId(null)}
-        backMode
-        className="h-full"
-      />
+      <div className="flex h-full flex-col">
+        {selected.deal ? (
+          <Link
+            href={`/negocios/${selected.deal.id}`}
+            className="mx-3 mt-2 mb-1 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
+          >
+            <Briefcase className="h-3 w-3" strokeWidth={2} />
+            Ver negócio: {selected.deal.name}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setQuickAddOpen(true)}
+            className="mx-3 mt-2 mb-1 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
+          >
+            <BriefcaseBusiness className="h-3 w-3" strokeWidth={2} />
+            Adicionar negócio
+          </button>
+        )}
+        <ChatWindow
+          key={selected.threadId}
+          threadId={selected.threadId}
+          contactName={selected.displayName}
+          contactPhone={selected.phoneNormalized}
+          currentUserName={currentUserName}
+          currentUserPhotoUrl={currentUserPhotoUrl}
+          onClose={() => setSelectedThreadId(null)}
+          backMode
+          className="min-h-0 flex-1"
+        />
+
+        {quickAddOpen && (
+          <QuickAddDealPanel
+            onClose={() => setQuickAddOpen(false)}
+            suggestedName={selected.whatsappName ?? ""}
+            phoneFormatted={formatBrazilianPhone(selected.phoneNormalized) ?? selected.phoneNormalized}
+            ownerId={selected.ownerId}
+            ownerName={selected.ownerName}
+            onCreated={(result) => handleDealAdded(selected.threadId, result)}
+          />
+        )}
+      </div>
     );
   }
 

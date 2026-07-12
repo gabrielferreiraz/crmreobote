@@ -6,6 +6,7 @@ import {
   Send,
   Paperclip,
   Image as ImageIcon,
+  ImageOff,
   Mic,
   Square,
   User,
@@ -19,6 +20,10 @@ import {
   Strikethrough,
   Reply,
   ArrowLeft,
+  Check,
+  CheckCheck,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -288,6 +293,7 @@ export function ChatWindow({
   const [sending, setSending] = useState(false);
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [pastedImage, setPastedImage] = useState<File | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -449,15 +455,26 @@ export function ChatWindow({
               setAttachMode(mode);
               setAttachMenuOpen(false);
             }}
+            onPasteImage={(file) => {
+              setPastedImage(file);
+              setAttachMode("IMAGE");
+            }}
           />
         ) : (
           <StructuredComposer
             mode={attachMode}
             sending={sending}
-            onCancel={() => setAttachMode(null)}
+            initialImageFile={pastedImage}
+            onCancel={() => {
+              setAttachMode(null);
+              setPastedImage(null);
+            }}
             onSend={async (payload) => {
               const ok = await sendPayload(payload);
-              if (ok) setAttachMode(null);
+              if (ok) {
+                setAttachMode(null);
+                setPastedImage(null);
+              }
             }}
           />
         )}
@@ -520,10 +537,105 @@ function MessageBubble({
           </div>
         )}
         <MessageContent message={message} />
-        <p className="mt-0.5 text-[10px] opacity-60">{new Date(message.createdAt).toLocaleString("pt-BR")}</p>
+        <p className="mt-0.5 flex items-center gap-1 text-[10px] opacity-60">
+          {new Date(message.createdAt).toLocaleString("pt-BR")}
+          {isOut && <MessageStatusIcon status={message.status} />}
+        </p>
       </div>
       {!isOut && replyButton}
       {isOut && avatar}
+    </div>
+  );
+}
+
+/** Espelha o padrão de confirmação de leitura do WhatsApp — só faz sentido pra quem a gente enviou. */
+function MessageStatusIcon({ status }: { status: string }) {
+  switch (status) {
+    case "PENDING":
+      return <Clock className="h-3 w-3 shrink-0" strokeWidth={2} />;
+    case "SENT":
+      return <Check className="h-3 w-3 shrink-0" strokeWidth={2} />;
+    case "DELIVERED":
+      return <CheckCheck className="h-3 w-3 shrink-0" strokeWidth={2} />;
+    case "READ":
+      return <CheckCheck className="h-3 w-3 shrink-0 text-sky-400" strokeWidth={2} />;
+    case "FAILED":
+      return (
+        <span title="Falha ao entregar">
+          <AlertCircle className="h-3 w-3 shrink-0 text-red-400" strokeWidth={2} />
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
+/** Miniatura clicável — abre em tela cheia com zoom, do jeito que todo app de chat faz. */
+function ImageMessage({ url }: { url: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="block w-full overflow-hidden rounded-md">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt=""
+          className="max-h-48 w-full cursor-zoom-in object-cover transition-opacity active:opacity-80"
+        />
+      </button>
+      {open && <ImageLightbox url={url} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  const [zoomed, setZoomed] = useState(false);
+  const [origin, setOrigin] = useState("center");
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  function toggleZoom(e: React.MouseEvent<HTMLImageElement>) {
+    if (!zoomed) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setOrigin(`${((e.clientX - rect.left) / rect.width) * 100}% ${((e.clientY - rect.top) / rect.height) * 100}%`);
+    }
+    setZoomed((v) => !v);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4"
+      style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="icon-btn absolute top-3 right-3 text-white hover:bg-white/10 hover:text-white active:bg-white/10 active:text-white"
+        aria-label="Fechar"
+      >
+        <X className="h-5 w-5" strokeWidth={2} />
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt=""
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleZoom(e);
+        }}
+        className={`max-h-full max-w-full rounded-md object-contain transition-transform duration-200 ease-out ${
+          zoomed ? "scale-[2.2] cursor-zoom-out" : "cursor-zoom-in"
+        }`}
+        style={{ transformOrigin: origin }}
+      />
     </div>
   );
 }
@@ -534,10 +646,12 @@ function MessageContent({ message }: { message: Message }) {
       return (
         <div className="space-y-1">
           {message.mediaUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={message.mediaUrl} alt="" className="max-h-48 w-full rounded-md object-cover" />
+            <ImageMessage url={message.mediaUrl} />
           ) : (
-            <p className="text-xs italic opacity-60">Imagem expirada</p>
+            <p className="flex items-center gap-1.5 text-xs italic opacity-60">
+              <ImageOff className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+              Imagem expirada
+            </p>
           )}
           {message.body && <p className="whitespace-pre-wrap">{message.body}</p>}
         </div>
@@ -627,18 +741,28 @@ function autoResizeTextarea(el: HTMLTextAreaElement) {
   el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
 }
 
+/** Ctrl+V de um print/imagem copiada (não texto) — o caso comum de "colei sem salvar no PC antes". */
+function getPastedImageFile(e: React.ClipboardEvent): File | null {
+  for (const item of e.clipboardData?.items ?? []) {
+    if (item.type.startsWith("image/")) return item.getAsFile();
+  }
+  return null;
+}
+
 function TextComposer({
   sending,
   onSend,
   menuOpen,
   onToggleMenu,
   onPick,
+  onPasteImage,
 }: {
   sending: boolean;
   onSend: (text: string) => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
   onPick: (mode: AttachMode) => void;
+  onPasteImage: (file: File) => void;
 }) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -690,6 +814,14 @@ function TextComposer({
     }
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const file = getPastedImageFile(e);
+    if (file) {
+      e.preventDefault();
+      onPasteImage(file);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-1.5">
       <div className="flex items-center gap-0.5">
@@ -735,6 +867,7 @@ function TextComposer({
             autoResizeTextarea(e.target);
           }}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder="Digite uma mensagem… (Shift+Enter para quebrar linha)"
           rows={1}
           className="field-input scrollbar-thin max-h-[120px] flex-1 resize-none py-2 text-sm"
@@ -750,11 +883,13 @@ function TextComposer({
 function StructuredComposer({
   mode,
   sending,
+  initialImageFile,
   onCancel,
   onSend,
 }: {
   mode: AttachMode;
   sending: boolean;
+  initialImageFile?: File | null;
   onCancel: () => void;
   onSend: (payload: Record<string, unknown>) => void;
 }) {
@@ -770,12 +905,12 @@ function StructuredComposer({
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+          className="tap-target -m-2 px-2 text-xs text-neutral-400 transition-colors hover:text-neutral-700 active:text-neutral-900 dark:hover:text-neutral-200 dark:active:text-neutral-100"
         >
           Cancelar
         </button>
       </div>
-      {mode === "IMAGE" && <ImageForm sending={sending} onSend={onSend} />}
+      {mode === "IMAGE" && <ImageForm sending={sending} onSend={onSend} initialFile={initialImageFile} />}
       {mode === "AUDIO" && <AudioForm sending={sending} onSend={onSend} />}
       {mode === "CONTACT" && <ContactForm sending={sending} onSend={onSend} />}
       {mode === "PIX" && <PixForm sending={sending} onSend={onSend} />}
@@ -783,7 +918,15 @@ function StructuredComposer({
   );
 }
 
-function ImageForm({ sending, onSend }: { sending: boolean; onSend: (payload: Record<string, unknown>) => void }) {
+function ImageForm({
+  sending,
+  onSend,
+  initialFile,
+}: {
+  sending: boolean;
+  onSend: (payload: Record<string, unknown>) => void;
+  initialFile?: File | null;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
@@ -800,7 +943,22 @@ function ImageForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
     });
   }
 
+  // Chega já preenchido quando o usuário colou (Ctrl+V) uma imagem em vez de
+  // usar o seletor de arquivo — não precisa mais salvar no PC pra anexar.
+  useEffect(() => {
+    if (initialFile) pickFile(initialFile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFile]);
+
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const pasted = getPastedImageFile(e);
+    if (pasted) {
+      e.preventDefault();
+      pickFile(pasted);
+    }
+  }
 
   async function handleSend() {
     if (!file) return;
@@ -856,7 +1014,8 @@ function ImageForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
       <input
         value={caption}
         onChange={(e) => setCaption(e.target.value)}
-        placeholder="Legenda (opcional)"
+        onPaste={handlePaste}
+        placeholder={preview ? "Legenda (opcional)" : "Legenda — ou cole uma imagem aqui (Ctrl+V)"}
         className="field-input text-sm"
       />
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
