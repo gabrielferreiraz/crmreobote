@@ -16,11 +16,13 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64 } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
+import { sendPushToUser } from "@/lib/push";
+import { handleCampaignReply } from "@/lib/campaigns/reply";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
@@ -30,6 +32,8 @@ type InstanceRef = {
   userId: string;
   status: $Enums.WhatsAppInstanceStatus;
   phoneNumber: string | null;
+  notifyOnCrmMessage: boolean;
+  notifyOnGeralMessage: boolean;
 };
 
 type ContextInfo = { stanzaId?: string };
@@ -197,8 +201,172 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
       console.log(
         `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
       );
+
+      // Push só faz sentido pra mensagem recebida de verdade (nunca pro eco
+      // do que o próprio vendedor mandou) — e respeita a preferência de
+      // CRM/Geral configurada em Conversas (thread.contactId distingue as duas).
+      if (direction === "INBOUND") {
+        const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
+        if (shouldNotify) {
+          let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
+          if (thread.contactId) {
+            const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
+            if (contact) displayName = contact.name;
+          }
+          const preview =
+            body ||
+            (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
+          sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/conversas" }).catch((err) =>
+            console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
+          );
+        }
+
+        handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>
+          console.error("[wa:webhook] falha ao processar resposta de campanha", err),
+        );
+      }
     } catch (err) {
       console.error("[wa:webhook] falha ao processar mensagem recebida", err);
+    }
+  }
+}
+
+type BaileysCall = {
+  id?: string;
+  from?: string;
+  status?: string;
+  isVideo?: boolean;
+};
+
+function extractCalls(data: unknown): BaileysCall[] {
+  if (!data || typeof data !== "object") return [];
+  const asRecord = data as Record<string, unknown>;
+  if (Array.isArray(asRecord.calls)) return asRecord.calls as BaileysCall[];
+  if (Array.isArray(data)) return data as BaileysCall[];
+  if ("id" in asRecord || "from" in asRecord || "status" in asRecord) return [data as BaileysCall];
+  return [];
+}
+
+// Nomes de status variam entre versões do Baileys/Evolution — "offer" é a
+// chamada tocando, "timeout" é quando ninguém atende (a maioria dos casos
+// aqui, já que este número não tem alguém de prontidão pra atender chamada de
+// voz de verdade). Qualquer status não mapeado cai em MISSED — melhor avisar
+// à toa do que deixar uma chamada perdida passar batido.
+const CALL_STATUS_MAP: Record<string, "RINGING" | "MISSED" | "REJECTED" | "ACCEPTED"> = {
+  offer: "RINGING",
+  ringing: "RINGING",
+  timeout: "MISSED",
+  reject: "REJECTED",
+  decline: "REJECTED",
+  accept: "ACCEPTED",
+};
+
+/**
+ * Evento "call" do Evolution/Baileys — chamada de voz/vídeo recebida no
+ * número conectado. Como o mesmo id de chamada reaparece a cada mudança de
+ * status (tocando → perdida/recusada/atendida), usa upsert por externalId em
+ * vez de criar uma linha por status: a conversa mostra só o desfecho final,
+ * não um histórico de "tocando" seguido de "perdida" como se fossem duas
+ * coisas.
+ */
+export async function handleIncomingCall(instance: InstanceRef, data: unknown): Promise<void> {
+  console.log(`[wa:webhook] call instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
+
+  const calls = extractCalls(data);
+  console.log(`[wa:webhook] ${calls.length} chamada(s) extraída(s) do payload`);
+
+  for (const call of calls) {
+    try {
+      const remoteJid = call.from;
+      if (!remoteJid) {
+        console.log("[wa:webhook] chamada ignorada: sem campo 'from'", JSON.stringify(call));
+        continue;
+      }
+      if (remoteJid.endsWith("@g.us")) {
+        console.log(`[wa:webhook] chamada ignorada: chamada de grupo (${remoteJid})`);
+        continue;
+      }
+
+      const rawNumber = remoteJid.split("@")[0];
+      const normalized = normalizePhoneNumber(rawNumber);
+      if (!normalized) {
+        console.log("[wa:webhook] chamada ignorada: número não normalizável");
+        continue;
+      }
+
+      const callStatus = CALL_STATUS_MAP[String(call.status).toLowerCase()] ?? "MISSED";
+      // Prefixo "call:" porque o id de chamada do Baileys pode colidir em
+      // teoria com um id de mensagem — mantém os dois espaços de id separados
+      // dentro da mesma coluna externalId (única pra toda a tabela).
+      const externalId = call.id ? `call:${call.id}` : undefined;
+      const label = call.isVideo ? "Chamada de vídeo" : "Chamada de voz";
+      const body =
+        callStatus === "MISSED"
+          ? `📞 ${label} perdida`
+          : callStatus === "REJECTED"
+            ? `📞 ${label} recusada`
+            : callStatus === "ACCEPTED"
+              ? `📞 ${label} atendida`
+              : `📞 ${label} em andamento`;
+      const metadata = { callStatus, isVideo: !!call.isVideo } as Prisma.InputJsonValue;
+
+      const thread = await getOrCreateThread({
+        organizationId: instance.organizationId,
+        instanceId: instance.id,
+        phoneNormalized: normalized,
+      });
+
+      const saved = externalId
+        ? await prisma.whatsAppMessage.upsert({
+            where: { externalId },
+            create: {
+              organizationId: instance.organizationId,
+              instanceId: instance.id,
+              threadId: thread.id,
+              direction: "INBOUND",
+              type: "CALL",
+              body,
+              metadata,
+              externalId,
+              status: "DELIVERED",
+            },
+            update: { body, metadata },
+          })
+        : await prisma.whatsAppMessage.create({
+            data: {
+              organizationId: instance.organizationId,
+              instanceId: instance.id,
+              threadId: thread.id,
+              direction: "INBOUND",
+              type: "CALL",
+              body,
+              metadata,
+              status: "DELIVERED",
+            },
+          });
+      console.log(`[wa:webhook] chamada salva: id=${saved.id} status=${callStatus} thread=${thread.id}`);
+
+      // Chamada perdida/recusada é pelo menos tão urgente quanto mensagem de
+      // texto — avisa por push do mesmo jeito, respeitando a mesma preferência
+      // CRM/Geral configurada em Conversas.
+      if (callStatus === "MISSED" || callStatus === "REJECTED") {
+        const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
+        if (shouldNotify) {
+          let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
+          if (thread.contactId) {
+            const contact = await prisma.contact.findUnique({
+              where: { id: thread.contactId },
+              select: { name: true },
+            });
+            if (contact) displayName = contact.name;
+          }
+          sendPushToUser(instance.userId, { title: displayName, body, url: "/conversas" }).catch((err) =>
+            console.error("[wa:webhook] falha ao enviar push de chamada perdida", err),
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[wa:webhook] falha ao processar chamada", err);
     }
   }
 }

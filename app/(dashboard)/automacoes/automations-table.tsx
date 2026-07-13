@@ -385,10 +385,10 @@ function NewAutomationDialog({
     (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0));
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} maxWidth="max-w-3xl">
       <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Nova automação</h2>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="space-y-1">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
+        <div className="space-y-1 sm:col-span-2">
           <label className="field-label">Nome</label>
           <input
             autoFocus
@@ -554,6 +554,10 @@ function NewAutomationDialog({
           </div>
         )}
 
+        <div className="space-y-1 sm:col-span-2">
+          <div className="h-px bg-neutral-100 dark:bg-neutral-800" />
+        </div>
+
         <div className="space-y-1">
           <label className="field-label">Fazer</label>
           <Select
@@ -588,7 +592,7 @@ function NewAutomationDialog({
         )}
 
         {action === "ADD_NOTE" && (
-          <div className="space-y-1">
+          <div className="space-y-1 sm:col-span-2">
             <label className="field-label">Texto da nota</label>
             <textarea
               value={note}
@@ -627,7 +631,7 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 sm:col-span-2">
               <label className="field-label">Texto</label>
               <textarea
                 value={pushBody}
@@ -636,7 +640,7 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 sm:col-span-2">
               Só chega em quem ativou notificações push no navegador (Configurações → Perfil). Quem não ativou
               simplesmente não recebe nada.
             </p>
@@ -645,7 +649,7 @@ function NewAutomationDialog({
 
         {action === "SEND_WHATSAPP" && (
           <>
-            <div className="space-y-1">
+            <div className="space-y-1 sm:col-span-2">
               <label className="field-label">Mensagem</label>
               <textarea
                 required
@@ -656,17 +660,19 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
-            <RecipientPicker
-              recipients={whatsappRecipients}
-              onChange={setWhatsappRecipients}
-              availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
-              admins={admins}
-              owners={owners}
-              memberById={memberById}
-              customLabel="Número personalizado"
-              customPlaceholder="Ex.: 67991234567"
-            />
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <div className="sm:col-span-2">
+              <RecipientPicker
+                recipients={whatsappRecipients}
+                onChange={setWhatsappRecipients}
+                availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+                admins={admins}
+                owners={owners}
+                memberById={memberById}
+                customLabel="Número personalizado"
+                customPlaceholder="Ex.: 67991234567"
+              />
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 sm:col-span-2">
               Sempre sai pelo número do WhatsApp do responsável pelo negócio/contato/tarefa — os destinatários acima
               são só pra quem recebe. Se ele não tiver conectado o WhatsApp em Configurações → Perfil, a automação
               não consegue enviar pra ninguém (fica registrado no log, não trava as outras ações).
@@ -685,7 +691,7 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 sm:col-span-2">
               <label className="field-label">Texto</label>
               <textarea
                 required
@@ -695,22 +701,24 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
-            <RecipientPicker
-              recipients={emailRecipients}
-              onChange={setEmailRecipients}
-              availableTypes={["CLIENT", "RESPONSIBLE", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
-              admins={admins}
-              owners={owners}
-              memberById={memberById}
-              customLabel="E-mail personalizado"
-              customPlaceholder="Ex.: alguem@empresa.com"
-            />
+            <div className="sm:col-span-2">
+              <RecipientPicker
+                recipients={emailRecipients}
+                onChange={setEmailRecipients}
+                availableTypes={["CLIENT", "RESPONSIBLE", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+                admins={admins}
+                owners={owners}
+                memberById={memberById}
+                customLabel="E-mail personalizado"
+                customPlaceholder="Ex.: alguem@empresa.com"
+              />
+            </div>
           </>
         )}
 
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-400 sm:col-span-2">{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>

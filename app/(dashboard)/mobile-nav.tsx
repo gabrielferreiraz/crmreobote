@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Zap, Settings, LogOut, ChevronRight, Moon } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Zap, Megaphone, Settings, LogOut, ChevronRight, Moon } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const PRIMARY_ITEMS = [
@@ -17,6 +17,7 @@ const OVERFLOW_ITEMS = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/automacoes", label: "Automações", icon: Zap },
+  { href: "/campanhas", label: "Campanhas", icon: Megaphone },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

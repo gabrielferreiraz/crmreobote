@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X } from "lucide-react";
+import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
@@ -28,6 +28,8 @@ export type Conversation = {
 };
 
 export type ConversationTab = "crm" | "geral";
+
+export type NotificationPrefs = { notifyOnCrmMessage: boolean; notifyOnGeralMessage: boolean };
 
 const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] = [
   { limitMs: 60_000, divisorMs: 1, suffix: "agora" },
@@ -58,33 +60,58 @@ export function TabSwitcher({
   tab,
   onChange,
   counts,
+  notificationPrefs,
+  onToggleNotifications,
 }: {
   tab: ConversationTab;
   onChange: (tab: ConversationTab) => void;
   counts: { crm: number; geral: number };
+  /** Sem instância própria conectada não tem o que configurar — some o sino. */
+  notificationPrefs?: NotificationPrefs;
+  onToggleNotifications?: (tab: ConversationTab) => void;
 }) {
+  const notifyEnabled =
+    tab === "crm" ? notificationPrefs?.notifyOnCrmMessage : notificationPrefs?.notifyOnGeralMessage;
+
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-neutral-200/60 px-2.5 pt-2 dark:border-neutral-800/60">
-      {(
-        [
-          { value: "crm" as const, label: "WhatsApp CRM" },
-          { value: "geral" as const, label: "WhatsApp Geral" },
-        ]
-      ).map((opt) => (
+    <div className="flex shrink-0 items-center justify-between border-b border-neutral-200/60 px-2.5 pt-2 dark:border-neutral-800/60">
+      <div className="flex items-center gap-1">
+        {(
+          [
+            { value: "crm" as const, label: "WhatsApp CRM" },
+            { value: "geral" as const, label: "WhatsApp Geral" },
+          ]
+        ).map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === opt.value
+                ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
+                : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-700 active:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-300 dark:active:text-neutral-100"
+            }`}
+          >
+            {opt.label}
+            {counts[opt.value] > 0 && <span className="ml-1 opacity-60">· {counts[opt.value]}</span>}
+          </button>
+        ))}
+      </div>
+      {notificationPrefs && onToggleNotifications && (
         <button
-          key={opt.value}
           type="button"
-          onClick={() => onChange(opt.value)}
-          className={`rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            tab === opt.value
-              ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
-              : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-700 active:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-300 dark:active:text-neutral-100"
-          }`}
+          onClick={() => onToggleNotifications(tab)}
+          className="icon-btn mb-1 shrink-0"
+          aria-label={notifyEnabled ? `Desativar notificações do ${tab === "crm" ? "CRM" : "Geral"}` : `Ativar notificações do ${tab === "crm" ? "CRM" : "Geral"}`}
+          title={notifyEnabled ? "Notificações ativadas — clique pra desativar" : "Notificações desativadas — clique pra ativar"}
         >
-          {opt.label}
-          {counts[opt.value] > 0 && <span className="ml-1 opacity-60">· {counts[opt.value]}</span>}
+          {notifyEnabled ? (
+            <Bell className="h-3.5 w-3.5" strokeWidth={2} />
+          ) : (
+            <BellOff className="h-3.5 w-3.5" strokeWidth={2} />
+          )}
         </button>
-      ))}
+      )}
     </div>
   );
 }
@@ -94,11 +121,13 @@ export function ConversationsView({
   currentUserName,
   currentUserPhotoUrl,
   isOwner,
+  notificationPrefs: initialNotificationPrefs,
 }: {
   initialConversations: Conversation[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   isOwner?: boolean;
+  notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
@@ -112,6 +141,19 @@ export function ConversationsView({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
+
+  async function toggleNotifications(target: ConversationTab) {
+    if (!notificationPrefs) return;
+    const field = target === "crm" ? "notifyOnCrmMessage" : "notifyOnGeralMessage";
+    const nextValue = !notificationPrefs[field];
+    setNotificationPrefs({ ...notificationPrefs, [field]: nextValue });
+    await fetch("/api/whatsapp/instance", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: nextValue }),
+    });
+  }
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
@@ -201,7 +243,13 @@ export function ConversationsView({
   return (
     <div className="hidden min-h-0 flex-1 gap-4 lg:flex">
       <div className="card flex w-80 shrink-0 flex-col overflow-hidden">
-        <TabSwitcher tab={tab} onChange={setTab} counts={tabCounts} />
+        <TabSwitcher
+          tab={tab}
+          onChange={setTab}
+          counts={tabCounts}
+          notificationPrefs={notificationPrefs}
+          onToggleNotifications={toggleNotifications}
+        />
 
         <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
           <div className="relative flex-1">

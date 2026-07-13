@@ -15,6 +15,7 @@ const PREVIEW_FALLBACK: Record<string, string> = {
   CONTACT: "👤 Contato",
   PIX: "💰 Pix",
   STICKER: "🧩 Figurinha",
+  CALL: "📞 Chamada",
 };
 
 export type ConversationSummary = {

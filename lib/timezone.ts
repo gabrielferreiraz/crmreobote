@@ -80,3 +80,9 @@ export function brazilStartOfMonth(date: Date = new Date()): Date {
   const { year, month } = getBrazilParts(date);
   return new Date(Date.UTC(year, month, 1, 3, 0, 0, 0));
 }
+
+/** Meia-noite de hoje, no calendário de Brasília — mesma lógica de brazilStartOfMonth, granularidade dia. */
+export function brazilStartOfDay(date: Date = new Date()): Date {
+  const { year, month, day } = getBrazilParts(date);
+  return new Date(Date.UTC(year, month, day, 3, 0, 0, 0));
+}

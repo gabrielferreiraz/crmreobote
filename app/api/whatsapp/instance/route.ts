@@ -11,6 +11,7 @@ import {
   setWebhookConfig,
   logoutInstance,
   deleteInstance,
+  WEBHOOK_EVENTS,
 } from "@/lib/evolution";
 
 export const dynamic = "force-dynamic";
@@ -60,12 +61,13 @@ export async function GET() {
     try {
       const webhookConfig = await getWebhookConfig(instance.instanceName);
       const expectedUrl = buildWebhookUrl();
+      const missingEvents = WEBHOOK_EVENTS.filter((e) => !webhookConfig?.events?.includes(e));
       console.log(
-        `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} url="${webhookConfig?.url}" esperado="${expectedUrl}" events=${JSON.stringify(webhookConfig?.events)}`,
+        `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} url="${webhookConfig?.url}" esperado="${expectedUrl}" events=${JSON.stringify(webhookConfig?.events)} faltando=${JSON.stringify(missingEvents)}`,
       );
-      if (webhookConfig && (!webhookConfig.enabled || webhookConfig.url !== expectedUrl)) {
+      if (webhookConfig && (!webhookConfig.enabled || webhookConfig.url !== expectedUrl || missingEvents.length > 0)) {
         console.warn(
-          `[wa:webhook-config] URL/config divergente para ${instance.instanceName} — reconfigurando para "${expectedUrl}"`,
+          `[wa:webhook-config] config divergente para ${instance.instanceName} (url ou eventos ${JSON.stringify(missingEvents)}) — reconfigurando`,
         );
         await setWebhookConfig(instance.instanceName, expectedUrl);
       }
@@ -77,6 +79,39 @@ export async function GET() {
       connected: status === "CONNECTED",
       status,
       phoneNumber: instance.phoneNumber,
+      notifyOnCrmMessage: instance.notifyOnCrmMessage,
+      notifyOnGeralMessage: instance.notifyOnGeralMessage,
+    });
+  });
+}
+
+export async function PATCH(req: Request) {
+  const body = await req.json();
+  const { notifyOnCrmMessage, notifyOnGeralMessage } = body as {
+    notifyOnCrmMessage?: boolean;
+    notifyOnGeralMessage?: boolean;
+  };
+
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  return runWithTenant(organizationId, async () => {
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+    });
+    if (!instance) return NextResponse.json({ error: "Nenhum WhatsApp conectado" }, { status: 404 });
+
+    const updated = await prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: {
+        ...(notifyOnCrmMessage !== undefined ? { notifyOnCrmMessage } : {}),
+        ...(notifyOnGeralMessage !== undefined ? { notifyOnGeralMessage } : {}),
+      },
+    });
+
+    return NextResponse.json({
+      notifyOnCrmMessage: updated.notifyOnCrmMessage,
+      notifyOnGeralMessage: updated.notifyOnGeralMessage,
     });
   });
 }

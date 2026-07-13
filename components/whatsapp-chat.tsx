@@ -26,6 +26,9 @@ import {
   Clock,
   AlertCircle,
   Smile,
+  PhoneMissed,
+  PhoneOff,
+  Phone,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -34,7 +37,7 @@ import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
 
-type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER";
+type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER" | "CALL";
 
 type MessageMetadata = {
   name?: string;
@@ -43,6 +46,8 @@ type MessageMetadata = {
   key?: string;
   buttons?: { label: string }[];
   items?: { title: string; description?: string }[];
+  callStatus?: "RINGING" | "MISSED" | "REJECTED" | "ACCEPTED";
+  isVideo?: boolean;
 };
 
 type QuotedMessage = { id: string; type?: MessageType; body: string | null; direction: "OUTBOUND" | "INBOUND" };
@@ -66,6 +71,7 @@ const QUOTE_PREVIEW_FALLBACK: Record<string, string> = {
   CONTACT: "👤 Contato",
   PIX: "💰 Pix",
   STICKER: "🧩 Figurinha",
+  CALL: "📞 Chamada",
 };
 
 function previewForQuote(msg: QuotedMessage): string {
@@ -692,6 +698,28 @@ function MessageContent({ message }: { message: Message }) {
           Figurinha — não suportado
         </p>
       );
+    case "CALL": {
+      const status = message.metadata?.callStatus ?? "MISSED";
+      const isVideo = !!message.metadata?.isVideo;
+      const Icon = status === "MISSED" ? PhoneMissed : status === "REJECTED" ? PhoneOff : Phone;
+      const label = isVideo ? "Chamada de vídeo" : "Chamada de voz";
+      const statusLabel =
+        status === "MISSED"
+          ? "perdida"
+          : status === "REJECTED"
+            ? "recusada"
+            : status === "ACCEPTED"
+              ? "atendida"
+              : "em andamento";
+      return (
+        <div className={`flex items-center gap-2 ${status === "MISSED" ? "text-red-500 dark:text-red-400" : ""}`}>
+          <Icon className="h-4 w-4 shrink-0" strokeWidth={2} />
+          <span>
+            {label} <span className="opacity-70">{statusLabel}</span>
+          </span>
+        </div>
+      );
+    }
     case "CONTACT":
       return (
         <div className="flex items-center gap-2 rounded-md bg-black/5 px-2 py-1.5 dark:bg-white/10">

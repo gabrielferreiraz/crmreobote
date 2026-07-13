@@ -7,7 +7,13 @@ import { EmptyState } from "@/components/empty-state";
 import { ChatWindow } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
-import { ConversationRow, TabSwitcher, type Conversation, type ConversationTab } from "./conversations-view";
+import {
+  ConversationRow,
+  TabSwitcher,
+  type Conversation,
+  type ConversationTab,
+  type NotificationPrefs,
+} from "./conversations-view";
 
 /**
  * Conversas no celular: nunca duas colunas ao mesmo tempo — ou a lista
@@ -20,10 +26,12 @@ export function ConversationsMobile({
   initialConversations,
   currentUserName,
   currentUserPhotoUrl,
+  notificationPrefs: initialNotificationPrefs,
 }: {
   initialConversations: Conversation[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -32,6 +40,19 @@ export function ConversationsMobile({
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
+
+  async function toggleNotifications(target: ConversationTab) {
+    if (!notificationPrefs) return;
+    const field = target === "crm" ? "notifyOnCrmMessage" : "notifyOnGeralMessage";
+    const nextValue = !notificationPrefs[field];
+    setNotificationPrefs({ ...notificationPrefs, [field]: nextValue });
+    await fetch("/api/whatsapp/instance", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: nextValue }),
+    });
+  }
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
@@ -157,7 +178,13 @@ export function ConversationsMobile({
         <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">Todas as conversas de WhatsApp num só lugar.</p>
       </div>
 
-      <TabSwitcher tab={tab} onChange={setTab} counts={tabCounts} />
+      <TabSwitcher
+        tab={tab}
+        onChange={setTab}
+        counts={tabCounts}
+        notificationPrefs={notificationPrefs}
+        onToggleNotifications={toggleNotifications}
+      />
 
       <div className="flex shrink-0 items-center gap-1.5">
         <div className="relative flex-1">

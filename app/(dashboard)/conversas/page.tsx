@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
@@ -16,6 +17,14 @@ export default async function ConversasPage() {
     const conversations = await listConversations(organizationId, scope);
     const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
+    // Preferência de notificação é por instância (cada um só recebe push das
+    // próprias mensagens) — sem WhatsApp conectado não tem o que configurar.
+    const myInstance = await prisma.whatsAppInstance.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+      select: { notifyOnCrmMessage: true, notifyOnGeralMessage: true },
+    });
+    const notificationPrefs = myInstance ?? { notifyOnCrmMessage: true, notifyOnGeralMessage: true };
+
     return (
       <div className="flex h-full flex-col gap-4">
         <div className="hidden lg:block">
@@ -31,12 +40,14 @@ export default async function ConversasPage() {
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
           isOwner={session!.user.role === "OWNER"}
+          notificationPrefs={notificationPrefs}
         />
         <div className="min-h-0 flex-1 lg:hidden">
           <ConversationsMobile
             initialConversations={conversations}
             currentUserName={session!.user.name ?? undefined}
             currentUserPhotoUrl={currentUserPhotoUrl}
+            notificationPrefs={notificationPrefs}
           />
         </div>
       </div>

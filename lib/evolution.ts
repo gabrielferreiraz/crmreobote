@@ -9,6 +9,13 @@
  * "use client") — ele lê EVOLUTION_API_KEY do ambiente do servidor.
  */
 
+// Lista única de eventos que o webhook assina — usada tanto ao criar quanto
+// ao reconfigurar uma instância, e comparada no diagnóstico de
+// app/api/whatsapp/instance/route.ts pra saber se uma instância antiga
+// precisa ser reconfigurada depois que um evento novo (ex.: CALL) é
+// adicionado aqui.
+export const WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "CALL"];
+
 export class EvolutionApiError extends Error {
   constructor(
     message: string,
@@ -127,7 +134,7 @@ export async function createInstance(instanceName: string, webhookUrl: string): 
         url: webhookUrl,
         byEvents: false,
         base64: false,
-        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+        events: WEBHOOK_EVENTS,
       },
     }),
   });
@@ -289,7 +296,7 @@ export async function setWebhookConfig(instanceName: string, webhookUrl: string)
         url: webhookUrl,
         byEvents: false,
         base64: false,
-        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+        events: WEBHOOK_EVENTS,
       },
     }),
   });

@@ -27,6 +27,7 @@ model Organization {
   whatsappInstances WhatsAppInstance[]
   whatsappThreads   WhatsAppThread[]
   whatsappMessages  WhatsAppMessage[]
+  campaigns         Campaign[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ model User {
   teamsLed          Team[]
   pushSubscriptions PushSubscription[]
   whatsappInstances WhatsAppInstance[]
+  campaignsCreated  Campaign[]
 }
 
 // ─── Notificações push (Web Push) ───────────────────────────────────
@@ -74,20 +76,20 @@ model PushSubscription {
 // do necessário pra exibir o QR Code de pareamento.
 
 model WhatsAppInstance {
-  id                   String                 @id @default(cuid())
-  organizationId       String
-  userId               String
-  instanceName         String                 @unique
-  phoneNumber          String?
-  status               WhatsAppInstanceStatus @default(DISCONNECTED)
+  id                     String                 @id @default(cuid())
+  organizationId         String
+  userId                 String
+  instanceName           String                 @unique
+  phoneNumber            String?
+  status                 WhatsAppInstanceStatus @default(DISCONNECTED)
   // Quando ficou desconectado pela primeira vez nesta "queda" (null quando
   // conectado) — usado pra escalar o alerta por e-mail (1, 2, 3 dias). Zera
   // quando reconecta.
-  disconnectedAt       DateTime?
+  disconnectedAt         DateTime?
   // Até qual nível de alerta já mandamos nesta queda: 0 = só o aviso
   // imediato, 1/2/3 = já mandou o de 1/2/3 dias. Nunca passa de 3 — "chega
   // de falar" depois disso.
-  disconnectAlertLevel Int                    @default(0)
+  disconnectAlertLevel   Int                    @default(0)
   // Marca quando o cron de saúde viu pela 1ª vez um estado != "open" numa
   // instância que achávamos CONNECTED — só confirma a queda de verdade (e
   // avisa por e-mail) se isso persistir até a PRÓXIMA rodada. O Evolution às
@@ -95,13 +97,19 @@ model WhatsAppInstance {
   // soluço falso virava um e-mail de "desconectou" + outro de "conectou"
   // logo em seguida, um par de spam por rodada de cron.
   pendingDisconnectSince DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  // Liga/desliga separadamente o push de mensagem nova pra conversas
+  // vinculadas a um Contact (CRM) e pras avulsas (Geral) — dá pra silenciar
+  // o ruído do Geral sem perder aviso de lead de verdade, ou vice-versa.
+  notifyOnCrmMessage     Boolean                @default(true)
+  notifyOnGeralMessage   Boolean                @default(true)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   threads      WhatsAppThread[]
   messages     WhatsAppMessage[]
+  campaigns    Campaign[]
 
   @@unique([organizationId, userId])
   @@index([organizationId])
@@ -129,10 +137,11 @@ model WhatsAppThread {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance     WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  contact      Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  messages     WhatsAppMessage[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance           WhatsAppInstance    @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact            Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  messages           WhatsAppMessage[]
+  campaignRecipients CampaignRecipient[]
 
   @@unique([instanceId, phoneNormalized])
   @@index([organizationId, contactId])
@@ -187,6 +196,7 @@ enum WhatsAppMessageType {
   BUTTONS
   LIST
   STICKER
+  CALL
 }
 
 enum WhatsAppMessageStatus {
@@ -195,6 +205,91 @@ enum WhatsAppMessageStatus {
   DELIVERED
   READ
   FAILED
+}
+
+// ─── Campanhas de prospecção em massa ───────────────────────────────
+//
+// Envia pra uma lista de contatos (filtrada uma vez na criação, não uma
+// query dinâmica — evita a lista mudar no meio do disparo) usando o próprio
+// motor de WhatsApp do CRM (WhatsAppThread/WhatsAppMessage via Evolution),
+// nunca um serviço externo. Um cron dedicado (lib/campaigns/engine.ts) manda
+// no máximo uma mensagem por campanha a cada execução, respeitando o delay
+// configurado — não é um worker próprio rodando timers em memória.
+
+model Campaign {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  status         CampaignStatus @default(DRAFT)
+
+  // Variantes de mensagem: [{ text: "...{[Olá|Oi]} {nome}...", weight: 1 }, ...]
+  // Suporta spintax `{[a|b|c]}` e variáveis `{nome}`/`{primeiro_nome}`/`{saudacao}`.
+  messageTemplates Json
+
+  // Filtro usado pra montar a lista na criação — guardado só pra referência
+  // (auditoria/exibição), não é reconsultado depois: os destinatários reais
+  // são as linhas de CampaignRecipient já materializadas.
+  audienceJobTitle String?
+
+  instanceId String // De qual WhatsApp conectado a campanha dispara
+
+  delayMinSec Int  @default(30)
+  delayMaxSec Int  @default(90)
+  dailyCap    Int? // null = sem teto
+
+  // Janela de envio em horário de Brasília — 0=domingo…6=sábado.
+  allowedWeekdays Int[] @default([1, 2, 3, 4, 5])
+  windowStartHour Int   @default(9)
+  windowEndHour   Int   @default(18)
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance     WhatsAppInstance    @relation(fields: [instanceId], references: [id])
+  createdBy    User                @relation(fields: [createdById], references: [id])
+  recipients   CampaignRecipient[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+}
+
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  DONE
+}
+
+model CampaignRecipient {
+  id         String                  @id @default(cuid())
+  campaignId String
+  contactId  String
+  status     CampaignRecipientStatus @default(PENDING)
+
+  threadId String? // Setado quando enviado — a conversa segue normal em Conversas dali pra frente.
+  sentAt   DateTime?
+  error    String?
+
+  repliedAt DateTime? // Marcado pelo webhook de mensagem recebida (lib/whatsapp/events.ts).
+
+  createdAt DateTime @default(now())
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  thread   WhatsAppThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+  @@index([threadId])
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
 }
 
 model OrganizationUser {
@@ -336,11 +431,12 @@ model Contact {
   tags               String[] @default([])
   createdAt          DateTime @default(now())
 
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  deals           Deal[]
-  tasks           Task[]
-  activities      Activity[]
-  whatsappThreads WhatsAppThread[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals              Deal[]
+  tasks              Task[]
+  activities         Activity[]
+  whatsappThreads    WhatsAppThread[]
+  campaignRecipients CampaignRecipient[]
 
   @@unique([organizationId, phoneNormalized])
   @@unique([organizationId, whatsappNormalized])

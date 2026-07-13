@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithInstanceLookup, runWithTenant } from "@/lib/tenant-context";
-import { handleIncomingMessage, handleStatusUpdate, handleConnectionUpdate } from "@/lib/whatsapp/events";
+import { handleIncomingMessage, handleStatusUpdate, handleConnectionUpdate, handleIncomingCall } from "@/lib/whatsapp/events";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +52,8 @@ export async function POST(req: NextRequest) {
       await handleStatusUpdate(instance, data);
     } else if (event === "connection.update") {
       await handleConnectionUpdate(instance, data);
+    } else if (event === "call") {
+      await handleIncomingCall(instance, data);
     } else {
       console.log(`[wa:webhook] evento "${event}" recebido mas não tratado (nenhum handler pra ele ainda)`);
     }
