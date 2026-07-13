@@ -8,6 +8,7 @@ import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { RecipientPicker, type RecipientEntry } from "./recipient-picker";
 
 type Trigger =
   | "DEAL_STALE"
@@ -18,7 +19,8 @@ type Trigger =
   | "DEAL_STAGE_ENTERED"
   | "DEAL_NO_OPEN_TASK"
   | "CONTACT_NO_DEAL"
-  | "SCHEDULED";
+  | "SCHEDULED"
+  | "TASK_DUE_SOON";
 type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL";
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
@@ -38,7 +40,7 @@ type Rule = {
 type StageOption = { id: string; name: string };
 type PipelineOption = { id: string; name: string; stages: StageOption[] };
 type LossReasonOption = { id: string; label: string };
-type MemberOption = { id: string; name: string };
+type MemberOption = { id: string; name: string; role?: "OWNER" | "ADMIN" | "MEMBER" };
 
 const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STALE: "Negócio parado",
@@ -50,6 +52,7 @@ const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_NO_OPEN_TASK: "Negócio sem tarefa pendente",
   CONTACT_NO_DEAL: "Contato sem negócio",
   SCHEDULED: "Agendamento (horário fixo)",
+  TASK_DUE_SOON: "Tarefa perto do prazo",
 };
 
 const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
@@ -62,6 +65,7 @@ const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
   DEAL_NO_OPEN_TASK: "Rede de segurança: pega negócios abertos há mais de N horas que ninguém agendou nenhuma tarefa de acompanhamento.",
   CONTACT_NO_DEAL: "Pega contatos (ex.: importados via planilha) que continuam sem nenhum negócio depois de N dias.",
   SCHEDULED: "Dispara num horário recorrente (ex.: toda segunda às 8h), sem depender de nenhuma mudança em negócio. A checagem roda de hora em hora, então o disparo acontece em algum momento dentro da hora escolhida.",
+  TASK_DUE_SOON: "Dispara pouco antes do prazo de uma tarefa (ex.: lembrar de uma visita 15 minutos antes). Combine com \"Enviar notificação push\" pra virar um lembrete no celular. Importante: só funciona com a granularidade da checagem periódica das automações — se ela rodar de hora em hora, um aviso de 15 minutos pode não ser exato.",
 };
 
 const ACTION_LABELS: Record<Action, string> = {
@@ -103,6 +107,7 @@ export function AutomationsTable({
       return stageId ? (stageById.get(stageId) ?? "etapa removida") : null;
     }
     if (rule.trigger === "DEAL_NO_OPEN_TASK") return `após ${config.minHours ?? 24}h`;
+    if (rule.trigger === "TASK_DUE_SOON") return `${config.minutesBefore ?? 15} min antes do prazo`;
     if (rule.trigger === "CONTACT_NO_DEAL") return `após ${config.days ?? 2} dias`;
     if (rule.trigger === "SCHEDULED") {
       const frequency = config.frequency as string | undefined;
@@ -289,6 +294,7 @@ function NewAutomationDialog({
   const [staleDays, setStaleDays] = useState("3");
   const [stageId, setStageId] = useState(pipelines[0]?.stages[0]?.id ?? "");
   const [minHours, setMinHours] = useState("24");
+  const [minutesBefore, setMinutesBefore] = useState("15");
   const [contactDays, setContactDays] = useState("2");
   const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [scheduleTime, setScheduleTime] = useState("08:00");
@@ -302,12 +308,17 @@ function NewAutomationDialog({
   const [pushTitle, setPushTitle] = useState("");
   const [pushBody, setPushBody] = useState("");
   const [whatsappMessage, setWhatsappMessage] = useState("");
+  const [whatsappRecipients, setWhatsappRecipients] = useState<RecipientEntry[]>([{ type: "CLIENT" }]);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const [emailRecipients, setEmailRecipients] = useState<RecipientEntry[]>([{ type: "RESPONSIBLE" }]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const noStages = pipelines.every((p) => p.stages.length === 0);
+  const admins = members.filter((m) => m.role === "ADMIN");
+  const owners = members.filter((m) => m.role === "OWNER");
+  const memberById = new Map(members.map((m) => [m.id, m.name]));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -323,15 +334,17 @@ function NewAutomationDialog({
             ? { minHours: Number(minHours) || 24 }
             : trigger === "CONTACT_NO_DEAL"
               ? { days: Number(contactDays) || 2 }
-              : trigger === "SCHEDULED"
-                ? {
-                    frequency,
-                    time: scheduleTime,
-                    dayOfWeek: frequency === "weekly" ? Number(dayOfWeek) : undefined,
-                    dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
-                    assigneeId,
-                  }
-                : undefined;
+              : trigger === "TASK_DUE_SOON"
+                ? { minutesBefore: Number(minutesBefore) || 15 }
+                : trigger === "SCHEDULED"
+                  ? {
+                      frequency,
+                      time: scheduleTime,
+                      dayOfWeek: frequency === "weekly" ? Number(dayOfWeek) : undefined,
+                      dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
+                      assigneeId,
+                    }
+                  : undefined;
 
     const actionConfig =
       action === "CREATE_TASK"
@@ -343,8 +356,8 @@ function NewAutomationDialog({
             : action === "SEND_PUSH"
               ? { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined }
               : action === "SEND_WHATSAPP"
-                ? { whatsappMessage }
-                : { emailSubject: emailSubject || undefined, emailBody };
+                ? { whatsappMessage, whatsappRecipients }
+                : { emailSubject: emailSubject || undefined, emailBody, emailRecipients };
 
     const res = await fetch("/api/automations", {
       method: "POST",
@@ -368,8 +381,8 @@ function NewAutomationDialog({
     (trigger !== "DEAL_STAGE_ENTERED" || !!stageId) &&
     (trigger !== "SCHEDULED" || !!assigneeId) &&
     (action !== "MARK_LOST" || !!lossReasonId) &&
-    (action !== "SEND_WHATSAPP" || !!whatsappMessage.trim()) &&
-    (action !== "SEND_EMAIL" || !!emailBody.trim());
+    (action !== "SEND_WHATSAPP" || (!!whatsappMessage.trim() && whatsappRecipients.length > 0)) &&
+    (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0));
 
   return (
     <Modal onClose={onClose}>
@@ -528,6 +541,19 @@ function NewAutomationDialog({
           </div>
         )}
 
+        {trigger === "TASK_DUE_SOON" && (
+          <div className="space-y-1">
+            <label className="field-label">Minutos de antecedência</label>
+            <input
+              type="number"
+              min={1}
+              value={minutesBefore}
+              onChange={(e) => setMinutesBefore(e.target.value)}
+              className="field-input"
+            />
+          </div>
+        )}
+
         <div className="space-y-1">
           <label className="field-label">Fazer</label>
           <Select
@@ -630,10 +656,20 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
+            <RecipientPicker
+              recipients={whatsappRecipients}
+              onChange={setWhatsappRecipients}
+              availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+              admins={admins}
+              owners={owners}
+              memberById={memberById}
+              customLabel="Número personalizado"
+              customPlaceholder="Ex.: 67991234567"
+            />
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Enviada pelo número do WhatsApp do responsável pelo negócio/contato. Se ele não tiver conectado o
-              WhatsApp em Configurações → Perfil, a automação não consegue enviar (fica registrado no log, não
-              trava as outras ações).
+              Sempre sai pelo número do WhatsApp do responsável pelo negócio/contato/tarefa — os destinatários acima
+              são só pra quem recebe. Se ele não tiver conectado o WhatsApp em Configurações → Perfil, a automação
+              não consegue enviar pra ninguém (fica registrado no log, não trava as outras ações).
             </p>
           </>
         )}
@@ -659,10 +695,16 @@ function NewAutomationDialog({
                 className="field-input"
               />
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Enviado pro e-mail do responsável pelo negócio/contato e pro(s) dono(s) da conta — é um aviso interno,
-              não uma mensagem pro cliente.
-            </p>
+            <RecipientPicker
+              recipients={emailRecipients}
+              onChange={setEmailRecipients}
+              availableTypes={["CLIENT", "RESPONSIBLE", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+              admins={admins}
+              owners={owners}
+              memberById={memberById}
+              customLabel="E-mail personalizado"
+              customPlaceholder="Ex.: alguem@empresa.com"
+            />
           </>
         )}
 

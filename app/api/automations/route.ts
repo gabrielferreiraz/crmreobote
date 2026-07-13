@@ -16,6 +16,7 @@ const VALID_TRIGGERS: $Enums.AutomationTrigger[] = [
   "DEAL_NO_OPEN_TASK",
   "CONTACT_NO_DEAL",
   "SCHEDULED",
+  "TASK_DUE_SOON",
 ];
 
 const VALID_ACTIONS: $Enums.AutomationAction[] = [
@@ -81,8 +82,14 @@ export async function POST(req: Request) {
   if (action === "SEND_WHATSAPP" && !(actionConfig?.whatsappMessage as string | undefined)?.trim()) {
     return NextResponse.json({ error: "Escreva o texto da mensagem de WhatsApp" }, { status: 400 });
   }
+  if (action === "SEND_WHATSAPP" && !(actionConfig?.whatsappRecipients as unknown[] | undefined)?.length) {
+    return NextResponse.json({ error: "Selecione ao menos um destinatário" }, { status: 400 });
+  }
   if (action === "SEND_EMAIL" && !(actionConfig?.emailBody as string | undefined)?.trim()) {
     return NextResponse.json({ error: "Escreva o texto do e-mail" }, { status: 400 });
+  }
+  if (action === "SEND_EMAIL" && !(actionConfig?.emailRecipients as unknown[] | undefined)?.length) {
+    return NextResponse.json({ error: "Selecione ao menos um destinatário" }, { status: 400 });
   }
 
   return runWithTenant(access.organizationId, async () => {

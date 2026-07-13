@@ -50,7 +50,7 @@ export default async function AutomacoesPage() {
           canManage={isManager}
           pipelines={pipelines.map((p) => ({ id: p.id, name: p.name, stages: p.stages }))}
           lossReasons={lossReasons}
-          members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name }))}
+          members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name, role: m.role }))}
         />
       </div>
     );

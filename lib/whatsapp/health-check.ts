@@ -45,17 +45,44 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
         checked += 1;
         try {
           const state = await getConnectionState(instance.instanceName);
-          if (state !== "open") {
+
+          if (state === "open") {
+            // Saudável de verdade — limpa qualquer suspeita pendente de uma
+            // rodada anterior que não se confirmou (Evolution corrigiu sozinho).
+            if (instance.pendingDisconnectSince) {
+              await prisma.whatsAppInstance.update({
+                where: { id: instance.id },
+                data: { pendingDisconnectSince: null },
+              });
+            }
+            continue;
+          }
+
+          if (!instance.pendingDisconnectSince) {
+            // 1ª vez que vemos isso — só marca a suspeita, não avisa ainda.
+            // O Evolution às vezes reporta um estado errado passageiro; só
+            // confirma queda de verdade se isso persistir até a próxima rodada.
             console.warn(
-              `[wa:health] instância ${instance.instanceName} reporta "${state}" no Evolution mas estava marcada CONNECTED — corrigindo e avisando`,
+              `[wa:health] instância ${instance.instanceName} reporta "${state}" mas estava CONNECTED — marcando suspeita, confirma na próxima rodada`,
             );
             await prisma.whatsAppInstance.update({
               where: { id: instance.id },
-              data: { status: "DISCONNECTED", disconnectedAt: new Date(), disconnectAlertLevel: 0 },
+              data: { pendingDisconnectSince: new Date() },
             });
-            await notifyInstanceDisconnected(instance);
-            disconnected += 1;
+            continue;
           }
+
+          // Já vinha suspeito desde a rodada anterior e continua não-"open" —
+          // agora sim é uma queda confirmada.
+          console.warn(
+            `[wa:health] instância ${instance.instanceName} confirma "${state}" numa 2ª rodada — corrigindo e avisando`,
+          );
+          await prisma.whatsAppInstance.update({
+            where: { id: instance.id },
+            data: { status: "DISCONNECTED", disconnectedAt: new Date(), disconnectAlertLevel: 0, pendingDisconnectSince: null },
+          });
+          await notifyInstanceDisconnected(instance);
+          disconnected += 1;
         } catch (err) {
           console.error(`[wa:health] falha ao checar instância ${instance.instanceName}`, err);
         }

@@ -1,24 +1,40 @@
-import { BarChart3, Trophy, XCircle } from "lucide-react";
+import { BarChart3, Trophy, XCircle, CalendarCheck, Percent, UsersRound } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { getDealScope, scopeWhere, whatsappScopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveAvatarUrlMap } from "@/lib/r2";
+import { DonutChart } from "@/components/charts/donut-chart";
+import { TrendAreaChart } from "@/components/charts/trend-area-chart";
+import { Leaderboard, type LeaderboardEntry } from "@/components/leaderboard";
 import { BarRow } from "./bar-row";
+import { DateRangeFilter } from "./date-range-filter";
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ pipelineId?: string }>;
+  searchParams: Promise<{ pipelineId?: string; from?: string; to?: string }>;
 }) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
-  const { pipelineId: pipelineIdParam } = await searchParams;
+  const { pipelineId: pipelineIdParam, from: fromParam, to: toParam } = await searchParams;
 
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);
+  const ownerScopeWhere = scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {};
+
+  // Período do relatório — só afeta negócios DECIDIDOS (ganhos/perdidos),
+  // reuniões e WhatsApp. O pipeline em aberto continua sempre "agora": não
+  // faz sentido dizer que um negócio ainda aberto "é de março".
+  const rangeFrom = fromParam ? new Date(`${fromParam}T00:00:00`) : null;
+  const rangeTo = toParam ? new Date(`${toParam}T23:59:59.999`) : null;
+  const dateWhere = (field: "closedAt" | "createdAt") =>
+    rangeFrom || rangeTo
+      ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
+      : {};
 
   const pipelines = await prisma.pipeline.findMany({
     where: { organizationId },
@@ -31,12 +47,33 @@ export default async function RelatoriosPage({
     pipelines.find((p) => p.isDefault) ??
     pipelines[0];
 
-  const [statusCounts, stageValues, allByOwner, openByOwner, wonByOwner, lostByOwner, lostByReason] = await Promise.all([
-    prisma.deal.groupBy({
-      by: ["status"],
-      where: { organizationId, ...scopeWhere(scope) },
-      _count: true,
-    }),
+  // Janela do gráfico de evolução: exatamente o período escolhido; sem
+  // filtro, cai pros últimos 6 meses (senão "Tudo" viraria um gráfico com
+  // anos de histórico espremidos, ilegível).
+  const trendEnd = rangeTo ?? new Date();
+  const trendStart =
+    rangeFrom ??
+    (() => {
+      const d = new Date(trendEnd);
+      d.setDate(1);
+      d.setMonth(d.getMonth() - 5);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    })();
+
+  const [
+    openCount,
+    stageValues,
+    allByOwner,
+    openByOwner,
+    wonByOwner,
+    lostByOwner,
+    lostByReason,
+    meetingsByOwner,
+    orgMembers,
+    wonDealsForTrend,
+  ] = await Promise.all([
+    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
     activePipeline
       ? prisma.deal.groupBy({
           by: ["stageId"],
@@ -57,26 +94,44 @@ export default async function RelatoriosPage({
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "WON", ...scopeWhere(scope) },
+      where: { organizationId, status: "WON", ...scopeWhere(scope), ...dateWhere("closedAt") },
       _count: true,
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(scope) },
+      where: { organizationId, status: "LOST", ...scopeWhere(scope), ...dateWhere("closedAt") },
       _count: true,
     }),
     prisma.deal.groupBy({
       by: ["lossReasonId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(scope) },
+      where: { organizationId, status: "LOST", ...scopeWhere(scope), ...dateWhere("closedAt") },
       _count: true,
+    }),
+    // Ranking de reuniões: quem mais registrou atividade do tipo "Reunião".
+    prisma.activity.groupBy({
+      by: ["userId"],
+      where: { organizationId, type: "MEETING", ...ownerScopeWhere, ...dateWhere("createdAt") },
+      _count: true,
+    }),
+    // Ranking de equipes só existe pra quem enxerga tudo — um líder de
+    // equipe ou vendedor só veriam a própria equipe sozinha no ranking,
+    // o que não é uma comparação de verdade.
+    scope.type === "all"
+      ? prisma.organizationUser.findMany({
+          where: { organizationId, active: true },
+          select: { userId: true, teamId: true, team: { select: { id: true, name: true } } },
+        })
+      : Promise.resolve([]),
+    prisma.deal.findMany({
+      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(scope) },
+      select: { closedAt: true, value: true },
     }),
   ]);
 
-  const totalDeals = statusCounts.reduce((sum, s) => sum + s._count, 0);
-  const wonCount = statusCounts.find((s) => s.status === "WON")?._count ?? 0;
-  const lostCount = statusCounts.find((s) => s.status === "LOST")?._count ?? 0;
-  const openCount = statusCounts.find((s) => s.status === "OPEN")?._count ?? 0;
+  const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
+  const lostCount = lostByOwner.reduce((sum, l) => sum + l._count, 0);
+  const totalDeals = openCount + wonCount + lostCount;
   // Só conta negócio já decidido (ganho ou perdido) — um negócio ainda em
   // aberto não é nem acerto nem erro, incluir ele no denominador penaliza
   // artificialmente times com pipeline saudável e cheio de negócio recente.
@@ -84,6 +139,7 @@ export default async function RelatoriosPage({
   const winRate = closedCount > 0 ? Math.round((wonCount / closedCount) * 100) : 0;
 
   const wonTotalValue = wonByOwner.reduce((sum, w) => sum + (w._sum.value ? Number(w._sum.value) : 0), 0);
+  const openTotalValue = openByOwner.reduce((sum, o) => sum + (o._sum.value ? Number(o._sum.value) : 0), 0);
   const avgWonValue = wonCount > 0 ? wonTotalValue / wonCount : 0;
 
   const stageData = (activePipeline?.stages ?? []).map((stage) => {
@@ -97,32 +153,154 @@ export default async function RelatoriosPage({
     };
   });
   const maxStageValue = Math.max(1, ...stageData.map((s) => s.value));
-  const ownerIds = allByOwner.map((o) => o.ownerId);
-  const owners = await prisma.user.findMany({
-    where: { id: { in: ownerIds } },
-    select: { id: true, name: true },
+
+  // ─── Pessoas: junta quem tem negócio, quem registrou reunião e quem é
+  // membro de organização, pra não deixar ninguém de fora do nome/avatar. ──
+  const peopleIds = Array.from(
+    new Set([
+      ...allByOwner.map((o) => o.ownerId),
+      ...meetingsByOwner.map((m) => m.userId),
+      ...orgMembers.map((m) => m.userId),
+    ]),
+  );
+  const people = await prisma.user.findMany({
+    where: { id: { in: peopleIds } },
+    select: { id: true, name: true, image: true },
+  });
+  const avatarMap = await resolveAvatarUrlMap(people.map((p) => p.image));
+  const personName = (id: string) => people.find((p) => p.id === id)?.name ?? "—";
+  const personPhoto = (id: string) => {
+    const image = people.find((p) => p.id === id)?.image;
+    return image ? (avatarMap.get(image) ?? null) : null;
+  };
+
+  const ownerStats = peopleIds.map((id) => {
+    const wonCountForOwner = wonByOwner.find((w) => w.ownerId === id)?._count ?? 0;
+    const wonValueForOwner = wonByOwner.find((w) => w.ownerId === id)?._sum.value
+      ? Number(wonByOwner.find((w) => w.ownerId === id)!._sum.value)
+      : 0;
+    const lostCountForOwner = lostByOwner.find((l) => l.ownerId === id)?._count ?? 0;
+    const closedForOwner = wonCountForOwner + lostCountForOwner;
+    return {
+      id,
+      name: personName(id),
+      photoUrl: personPhoto(id),
+      wonCount: wonCountForOwner,
+      wonValue: wonValueForOwner,
+      lostCount: lostCountForOwner,
+      winRate: closedForOwner > 0 ? Math.round((wonCountForOwner / closedForOwner) * 100) : null,
+      meetingsCount: meetingsByOwner.find((m) => m.userId === id)?._count ?? 0,
+    };
   });
 
-  const performance = allByOwner
-    .map((o) => {
-      const wonCountForOwner = wonByOwner.find((w) => w.ownerId === o.ownerId)?._count ?? 0;
-      const lostCountForOwner = lostByOwner.find((l) => l.ownerId === o.ownerId)?._count ?? 0;
-      const closedForOwner = wonCountForOwner + lostCountForOwner;
+  const dealsClosedRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => o.wonCount > 0)
+    .sort((a, b) => b.wonCount - a.wonCount || b.wonValue - a.wonValue)
+    .slice(0, 8)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
+      secondaryValue: formatCurrency(o.wonValue),
+    }));
+
+  const meetingsRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => o.meetingsCount > 0)
+    .sort((a, b) => b.meetingsCount - a.meetingsCount)
+    .slice(0, 8)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: `${o.meetingsCount} ${o.meetingsCount === 1 ? "reunião" : "reuniões"}`,
+    }));
+
+  const conversionRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => o.winRate !== null)
+    .sort((a, b) => (b.winRate ?? 0) - (a.winRate ?? 0) || b.wonCount - a.wonCount)
+    .slice(0, 8)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: `${o.winRate}%`,
+      secondaryValue: `${o.wonCount + o.lostCount} decidido${o.wonCount + o.lostCount === 1 ? "" : "s"}`,
+    }));
+
+  const teamGroups = new Map<string, { name: string; memberIds: string[] }>();
+  for (const m of orgMembers) {
+    if (!m.teamId || !m.team) continue;
+    if (!teamGroups.has(m.teamId)) teamGroups.set(m.teamId, { name: m.team.name, memberIds: [] });
+    teamGroups.get(m.teamId)!.memberIds.push(m.userId);
+  }
+  const teamRanking: LeaderboardEntry[] = Array.from(teamGroups.entries())
+    .map(([id, team]) => {
+      const members = ownerStats.filter((o) => team.memberIds.includes(o.id));
       return {
-        ownerId: o.ownerId,
-        name: owners.find((u) => u.id === o.ownerId)?.name ?? "—",
-        deals: o._count,
-        pipeline: openByOwner.find((p) => p.ownerId === o.ownerId)?._sum.value
-          ? Number(openByOwner.find((p) => p.ownerId === o.ownerId)!._sum.value)
-          : 0,
-        won: wonByOwner.find((w) => w.ownerId === o.ownerId)?._sum.value
-          ? Number(wonByOwner.find((w) => w.ownerId === o.ownerId)!._sum.value)
-          : 0,
-        lostCount: lostCountForOwner,
-        winRate: closedForOwner > 0 ? Math.round((wonCountForOwner / closedForOwner) * 100) : null,
+        id,
+        name: team.name,
+        wonCount: members.reduce((sum, o) => sum + o.wonCount, 0),
+        wonValue: members.reduce((sum, o) => sum + o.wonValue, 0),
       };
     })
-    .sort((a, b) => b.pipeline + b.won - (a.pipeline + a.won));
+    .sort((a, b) => b.wonCount - a.wonCount || b.wonValue - a.wonValue)
+    .map((t) => ({
+      id: t.id,
+      name: t.name,
+      primaryValue: `${t.wonCount} negócio${t.wonCount === 1 ? "" : "s"}`,
+      secondaryValue: formatCurrency(t.wonValue),
+    }));
+
+  // ─── Evolução: valor ganho ao longo do período escolhido — por dia se o
+  // período for curto (cabe uns 30 pontos legíveis), por mês se for longo.
+  const trendSpanDays = Math.max(1, Math.round((trendEnd.getTime() - trendStart.getTime()) / 86_400_000));
+  const bucketDaily = trendSpanDays <= 31;
+
+  const monthTrend = bucketDaily
+    ? Array.from({ length: trendSpanDays + 1 }, (_, i) => {
+        const d = new Date(trendStart);
+        d.setDate(d.getDate() + i);
+        const showLabel = i === 0 || i === trendSpanDays || i % 7 === 0;
+        return {
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          day: d.getDate() as number | undefined,
+          label: showLabel ? d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "",
+          value: 0,
+        };
+      })
+    : (() => {
+        const buckets: { year: number; month: number; day?: number; label: string; value: number }[] = [];
+        const cursor = new Date(trendStart.getFullYear(), trendStart.getMonth(), 1);
+        const last = new Date(trendEnd.getFullYear(), trendEnd.getMonth(), 1);
+        while (cursor <= last) {
+          buckets.push({
+            year: cursor.getFullYear(),
+            month: cursor.getMonth(),
+            label: cursor.toLocaleDateString("pt-BR", { month: "short" }),
+            value: 0,
+          });
+          cursor.setMonth(cursor.getMonth() + 1);
+        }
+        return buckets;
+      })();
+
+  for (const deal of wonDealsForTrend) {
+    if (!deal.closedAt) continue;
+    const bucket = bucketDaily
+      ? monthTrend.find(
+          (b) => b.year === deal.closedAt!.getFullYear() && b.month === deal.closedAt!.getMonth() && b.day === deal.closedAt!.getDate(),
+        )
+      : monthTrend.find((b) => b.year === deal.closedAt!.getFullYear() && b.month === deal.closedAt!.getMonth());
+    if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
+  }
+
+  const statusSlices = [
+    { label: "Ganhos", value: wonCount, color: "#059669" },
+    { label: "Perdidos", value: lostCount, color: "#dc2626" },
+    { label: "Em aberto", value: openCount, color: "#a3a3a3" },
+  ];
 
   const reasonIds = lostByReason.map((l) => l.lossReasonId).filter((id): id is string => !!id);
   const reasonsList = await prisma.lossReason.findMany({
@@ -146,16 +324,16 @@ export default async function RelatoriosPage({
     }),
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId"],
-      where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope) },
+      where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
       _count: true,
     }),
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId", "threadId"],
-      where: { organizationId, direction: "INBOUND", ...whatsappScopeWhere(scope) },
+      where: { organizationId, direction: "INBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
     }),
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId", "threadId"],
-      where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope) },
+      where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
     }),
   ]);
 
@@ -235,7 +413,7 @@ export default async function RelatoriosPage({
 
   const dealMessages = dealThreadIds.length
     ? await prisma.whatsAppMessage.findMany({
-        where: { organizationId, threadId: { in: dealThreadIds } },
+        where: { organizationId, threadId: { in: dealThreadIds }, ...dateWhere("createdAt") },
         select: { threadId: true, instanceId: true, direction: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       })
@@ -313,209 +491,265 @@ export default async function RelatoriosPage({
     .filter((s) => s.conversations > 0);
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Relatórios</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Panorama do desempenho comercial no período</p>
-      </div>
-
-      <div className="grid grid-cols-5 gap-4">
-        <Stat label="Total de negócios" value={String(totalDeals)} />
-        <Stat label="Em aberto" value={String(openCount)} />
-        <Stat label="Ganhos" value={String(wonCount)} />
-        <Stat label="Taxa de conversão" value={closedCount > 0 ? `${winRate}%` : "—"} hint="negócios já fechados" />
-        <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-6">
-        <div className="card p-5">
-          <h2 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Valor por etapa</h2>
-          {stageData.length === 0 ? (
-            <EmptyState icon={BarChart3} title="Nenhum negócio em aberto" />
-          ) : (
-            <div className="flex items-end gap-4">
-              {stageData.map((stage) => (
-                <div key={stage.id} className="flex flex-1 flex-col items-center gap-2">
-                  <p className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
-                    {formatCurrency(stage.value)}
-                  </p>
-                  <div className="flex h-20 w-full items-end">
-                    <div
-                      className="w-full rounded-t-sm"
-                      style={{
-                        backgroundColor: stage.color ?? "#a3a3a3",
-                        height: `${Math.max(4, (stage.value / maxStageValue) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{stage.name}</p>
-                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                    {stage.count} negócio{stage.count === 1 ? "" : "s"}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="card p-5">
-          <h2 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Desempenho por responsável</h2>
-          {performance.length === 0 ? (
-            <EmptyState icon={Trophy} title="Nenhum negócio registrado ainda" />
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs text-neutral-400 dark:text-neutral-500">
-                  <th className="pb-2 font-medium">Vendedor</th>
-                  <th className="pb-2 font-medium">Negócios</th>
-                  <th className="pb-2 text-right font-medium">Pipeline</th>
-                  <th className="pb-2 text-right font-medium">Ganhos</th>
-                  <th className="pb-2 text-right font-medium">Perdidos</th>
-                  <th className="pb-2 text-right font-medium">Conversão</th>
-                </tr>
-              </thead>
-              <tbody>
-                {performance.map((p) => (
-                  <tr key={p.ownerId} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                    <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{p.name}</td>
-                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">{p.deals}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{formatCurrency(p.pipeline)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{formatCurrency(p.won)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{p.lostCount}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {p.winRate === null ? "—" : `${p.winRate}%`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {lostCount > 0 && (
+    <div className="space-y-16 pb-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Motivos de perda ({lostCount} negócios perdidos)
-          </h2>
-          <div className="card p-4">
-            {lossBreakdown.length === 0 ? (
-              <EmptyState icon={XCircle} title="Nenhum motivo registrado" />
+          <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
+            Relatórios
+          </p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+            Panorama comercial
+          </h1>
+          <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
+            Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
+          </p>
+        </div>
+        <DateRangeFilter />
+      </div>
+
+      {/* ─── Visão geral ────────────────────────────────────────────── */}
+      <section className="space-y-6">
+        <SectionHeading eyebrow="Visão geral" title="Como o funil está hoje" />
+        <div className="grid grid-cols-12 gap-5">
+          <div className="card col-span-12 p-6 lg:col-span-5">
+            <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Negócios por status</p>
+            <div className="mt-4">
+              <DonutChart slices={statusSlices} centerValue={`${winRate}%`} centerLabel="conversão" />
+            </div>
+          </div>
+          <div className="col-span-12 grid grid-cols-2 gap-5 lg:col-span-7">
+            <Stat label="Total de negócios" value={String(totalDeals)} />
+            <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
+            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
+            <Stat
+              label="Total ganho"
+              value={formatCurrency(wonTotalValue)}
+              hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          Ganhos e perdidos consideram o período selecionado acima; pipeline em aberto sempre reflete o momento atual.
+        </p>
+      </section>
+
+      {/* ─── Funil e evolução ───────────────────────────────────────── */}
+      <section className="space-y-6">
+        <SectionHeading eyebrow="Funil" title="Onde o valor está parado e como evoluiu" />
+        <div className="grid grid-cols-12 gap-5">
+          <div className="card col-span-12 p-6 lg:col-span-7">
+            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Valor por etapa</h3>
+            {stageData.length === 0 ? (
+              <EmptyState icon={BarChart3} title="Nenhum negócio em aberto" />
             ) : (
-              <div className="space-y-2">
-                {lossBreakdown.map((l) => (
-                  <BarRow
-                    key={l.id}
-                    label={l.label}
-                    value={l.count}
-                    max={maxLossCount}
-                    displayValue={String(l.count)}
-                  />
+              <div className="mt-6 flex items-end gap-4">
+                {stageData.map((stage) => (
+                  <div key={stage.id} className="flex flex-1 flex-col items-center gap-2">
+                    <p className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {formatCurrency(stage.value)}
+                    </p>
+                    <div className="flex h-28 w-full items-end">
+                      <div
+                        className="w-full rounded-t-sm"
+                        style={{
+                          backgroundColor: stage.color ?? "#a3a3a3",
+                          height: `${Math.max(4, (stage.value / maxStageValue) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{stage.name}</p>
+                    <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {stage.count} negócio{stage.count === 1 ? "" : "s"}
+                    </p>
+                  </div>
                 ))}
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {whatsappStats.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">WhatsApp por vendedor</h2>
-          <div className="card overflow-x-auto p-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs text-neutral-400 dark:text-neutral-500">
-                  <th className="pb-2 font-medium">Vendedor</th>
-                  <th className="pb-2 font-medium">Status</th>
-                  <th className="pb-2 text-right font-medium">Enviadas</th>
-                  <th className="pb-2 text-right font-medium">Responderam</th>
-                  <th className="pb-2 text-right font-medium">Conversão</th>
-                </tr>
-              </thead>
-              <tbody>
-                {whatsappStats.map((w) => (
-                  <tr key={w.userId} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                    <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
-                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">
-                      {w.connected ? "Conectado" : "Desconectado"}
-                    </td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.replied}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {w.conversionRate}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
-              Conversão = % dos contatos que receberam WhatsApp e fecharam negócio (ganho).
-            </p>
+          <div className="card col-span-12 p-6 lg:col-span-5">
+            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Evolução do valor ganho</h3>
+            <div className="mt-6">
+              <TrendAreaChart data={monthTrend} />
+            </div>
           </div>
         </div>
-      )}
+      </section>
 
-      {dealWhatsappStats.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">WhatsApp dos negócios</h2>
-          <div className="card overflow-x-auto p-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs text-neutral-400 dark:text-neutral-500">
-                  <th className="pb-2 font-medium">Vendedor</th>
-                  <th className="pb-2 text-right font-medium">Conversas</th>
-                  <th className="pb-2 text-right font-medium">Enviadas</th>
-                  <th className="pb-2 text-right font-medium">Resposta</th>
-                  <th className="pb-2 text-right font-medium">Conversão</th>
-                  <th className="pb-2 text-right font-medium">1ª resposta</th>
-                  <th className="pb-2 text-right font-medium">Duração</th>
-                  <th className="pb-2 text-right font-medium">Msgs/dia</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dealWhatsappStats.map((w) => (
-                  <tr key={w.userId} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                    <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.conversations}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {w.responseRate === null ? "—" : `${w.responseRate}%`}
-                    </td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {w.conversionRate === null ? "—" : `${w.conversionRate}%`}
-                    </td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {w.avgFirstResponseMs === null ? "—" : formatDuration(w.avgFirstResponseMs)}
-                    </td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {w.avgDurationMs === null ? "—" : formatDuration(w.avgDurationMs)}
-                    </td>
-                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {w.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
-              Só conversas de contatos que já viraram negócio (aberto, ganho ou perdido). Resposta = % de conversas em
-              que o lead respondeu. 1ª resposta = tempo médio até o vendedor responder a 1ª mensagem do lead. Duração
-              = tempo médio entre a 1ª e a última mensagem da conversa.
-            </p>
+      {/* ─── Ranking do time ────────────────────────────────────────── */}
+      <section className="space-y-6">
+        <SectionHeading
+          eyebrow="Time"
+          title="Ranking do time"
+          description="Quem mais fechou negócio, quem mais fez reunião e quem converte melhor."
+        />
+        <div className="grid grid-cols-12 gap-5">
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
+            <div className="mb-1 flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Negócios fechados</h3>
+            </div>
+            <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
+          </div>
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
+            <div className="mb-1 flex items-center gap-2">
+              <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões realizadas</h3>
+            </div>
+            <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião registrada ainda" />
+          </div>
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
+            <div className="mb-1 flex items-center gap-2">
+              <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>
+            </div>
+            <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio decidido ainda" />
           </div>
         </div>
+
+        {teamRanking.length > 0 && (
+          <div className="card p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Ranking de equipes</h3>
+            </div>
+            <Leaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
+          </div>
+        )}
+      </section>
+
+      {/* ─── Motivos de perda ───────────────────────────────────────── */}
+      {lostCount > 0 && (
+        <section className="space-y-6">
+          <SectionHeading eyebrow="Perdas" title={`Por que perdemos negócios (${lostCount} ao todo)`} />
+          <div className="card p-6">
+            {lossBreakdown.length === 0 ? (
+              <EmptyState icon={XCircle} title="Nenhum motivo registrado" />
+            ) : (
+              <div className="space-y-2.5">
+                {lossBreakdown.map((l) => (
+                  <BarRow key={l.id} label={l.label} value={l.count} max={maxLossCount} displayValue={String(l.count)} />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ─── WhatsApp ───────────────────────────────────────────────── */}
+      {(whatsappStats.length > 0 || dealWhatsappStats.length > 0) && (
+        <section className="space-y-6">
+          <SectionHeading eyebrow="WhatsApp" title="Conversas por vendedor" />
+
+          {whatsappStats.length > 0 && (
+            <div className="card overflow-x-auto p-6">
+              <h3 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Envio e resposta</h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                    <th className="pb-2 font-medium">Vendedor</th>
+                    <th className="pb-2 font-medium">Status</th>
+                    <th className="pb-2 text-right font-medium">Enviadas</th>
+                    <th className="pb-2 text-right font-medium">Responderam</th>
+                    <th className="pb-2 text-right font-medium">Conversão</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {whatsappStats.map((w) => (
+                    <tr key={w.userId} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                      <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
+                      <td className="py-2.5 text-neutral-500 dark:text-neutral-400">
+                        {w.connected ? "Conectado" : "Desconectado"}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.replied}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.conversionRate}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
+                Conversão = % dos contatos que receberam WhatsApp e fecharam negócio (ganho).
+              </p>
+            </div>
+          )}
+
+          {dealWhatsappStats.length > 0 && (
+            <div className="card overflow-x-auto p-6">
+              <h3 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Conversas de negócios</h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                    <th className="pb-2 font-medium">Vendedor</th>
+                    <th className="pb-2 text-right font-medium">Conversas</th>
+                    <th className="pb-2 text-right font-medium">Enviadas</th>
+                    <th className="pb-2 text-right font-medium">Resposta</th>
+                    <th className="pb-2 text-right font-medium">Conversão</th>
+                    <th className="pb-2 text-right font-medium">1ª resposta</th>
+                    <th className="pb-2 text-right font-medium">Duração</th>
+                    <th className="pb-2 text-right font-medium">Msgs/dia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dealWhatsappStats.map((w) => (
+                    <tr key={w.userId} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                      <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.conversations}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.responseRate === null ? "—" : `${w.responseRate}%`}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.conversionRate === null ? "—" : `${w.conversionRate}%`}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.avgFirstResponseMs === null ? "—" : formatDuration(w.avgFirstResponseMs)}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.avgDurationMs === null ? "—" : formatDuration(w.avgDurationMs)}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {w.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
+                Só conversas de contatos que já viraram negócio (aberto, ganho ou perdido). Resposta = % de conversas em
+                que o lead respondeu. 1ª resposta = tempo médio até o vendedor responder a 1ª mensagem do lead. Duração
+                = tempo médio entre a 1ª e a última mensagem da conversa.
+              </p>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
   });
 }
 
+function SectionHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description?: string }) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
+        {eyebrow}
+      </p>
+      <h2 className="mt-1 text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{title}</h2>
+      {description && <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{description}</p>}
+    </div>
+  );
+}
+
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="card p-4">
+    <div className="card p-5">
       <p className="text-sm text-neutral-500 dark:text-neutral-400">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
+      <p className="mt-2 text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
+      {hint && <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>
   );
 }

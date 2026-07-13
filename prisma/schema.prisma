@@ -88,6 +88,13 @@ model WhatsAppInstance {
   // imediato, 1/2/3 = já mandou o de 1/2/3 dias. Nunca passa de 3 — "chega
   // de falar" depois disso.
   disconnectAlertLevel Int                    @default(0)
+  // Marca quando o cron de saúde viu pela 1ª vez um estado != "open" numa
+  // instância que achávamos CONNECTED — só confirma a queda de verdade (e
+  // avisa por e-mail) se isso persistir até a PRÓXIMA rodada. O Evolution às
+  // vezes reporta um estado errado passageiro; sem essa confirmação, cada
+  // soluço falso virava um e-mail de "desconectou" + outro de "conectou"
+  // logo em seguida, um par de spam por rodada de cron.
+  pendingDisconnectSince DateTime?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
@@ -516,6 +523,7 @@ enum AutomationTrigger {
   DEAL_NO_OPEN_TASK
   CONTACT_NO_DEAL
   SCHEDULED
+  TASK_DUE_SOON
 }
 
 enum AutomationAction {

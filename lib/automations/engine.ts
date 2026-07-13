@@ -4,9 +4,10 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendPushToUser } from "@/lib/push";
-import { sendWhatsAppMessageToContact } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendEmail } from "@/lib/email";
-import { resolveUserAndOrgOwners } from "@/lib/notify-recipients";
+import { resolveEmailAddresses, resolveWhatsappRecipients, type RecipientEntry } from "@/lib/automations/recipients";
 
 type TriggerConfig = {
   days?: number;
@@ -17,6 +18,7 @@ type TriggerConfig = {
   dayOfWeek?: number;
   dayOfMonth?: number;
   assigneeId?: string;
+  minutesBefore?: number;
 };
 type ActionConfig = {
   title?: string;
@@ -26,8 +28,10 @@ type ActionConfig = {
   pushTitle?: string;
   pushBody?: string;
   whatsappMessage?: string;
+  whatsappRecipients?: RecipientEntry[];
   emailSubject?: string;
   emailBody?: string;
+  emailRecipients?: RecipientEntry[];
 };
 
 type Entity = {
@@ -139,34 +143,63 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
   }
 
   if (rule.action === "SEND_WHATSAPP") {
-    if (!entity.contactId || !actionConfig.whatsappMessage?.trim()) return;
-    try {
-      await sendWhatsAppMessageToContact({
-        organizationId: entity.organizationId,
-        contactId: entity.contactId,
-        ownerId: entity.ownerId,
-        text: actionConfig.whatsappMessage.trim(),
-      });
-    } catch (err) {
-      // Falha de envio (ex.: responsável sem WhatsApp conectado) não deve
-      // travar o resto da automação — só fica registrado no log do servidor.
-      console.error(`[automations] falha ao enviar WhatsApp (regra "${rule.name}")`, err);
+    const message = actionConfig.whatsappMessage?.trim();
+    if (!message) return;
+
+    // Sempre manda pelo número do responsável pela entidade — quem recebe
+    // que pode variar (cliente, supervisor, uma pessoa específica, um número
+    // avulso), não de onde sai.
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: { organizationId_userId: { organizationId: entity.organizationId, userId: entity.ownerId } },
+    });
+    if (!instance) return;
+
+    const recipientConfig = actionConfig.whatsappRecipients?.length
+      ? actionConfig.whatsappRecipients
+      : [{ type: "CLIENT" as const }];
+    const targets = await resolveWhatsappRecipients(
+      { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
+      recipientConfig,
+    );
+
+    for (const target of targets) {
+      try {
+        const thread = await getOrCreateThread({
+          organizationId: entity.organizationId,
+          instanceId: instance.id,
+          phoneNormalized: target.phoneNormalized,
+        });
+        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: message });
+      } catch (err) {
+        // Falha de envio (ex.: WhatsApp desconectado) não deve travar o
+        // resto da automação nem os outros destinatários — só fica
+        // registrado no log do servidor.
+        console.error(
+          `[automations] falha ao enviar WhatsApp pra ${target.phoneNormalized} (regra "${rule.name}")`,
+          err,
+        );
+      }
     }
     return;
   }
 
   if (rule.action === "SEND_EMAIL") {
-    // Mesmo destino dos alertas de WhatsApp desconectado: o responsável pela
-    // entidade + todo OWNER da organização, não o contato/lead — é um aviso
-    // interno, não uma comunicação externa.
-    const resolved = await resolveUserAndOrgOwners(entity.organizationId, entity.ownerId);
-    if (!resolved) return;
+    const body = actionConfig.emailBody?.trim() ?? "";
+    if (!body) return;
+
+    const recipientConfig = actionConfig.emailRecipients?.length
+      ? actionConfig.emailRecipients
+      : [{ type: "RESPONSIBLE" as const }];
+    const addresses = await resolveEmailAddresses(
+      { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
+      recipientConfig,
+    );
+    if (addresses.size === 0) return;
 
     const subject = actionConfig.emailSubject?.trim() || `Automação: ${rule.name}`;
-    const body = actionConfig.emailBody?.trim() ?? "";
     const html = `<p>${body.replace(/\n/g, "<br>")}</p>`;
 
-    const result = await sendEmail({ to: Array.from(resolved.recipients.keys()), subject, html });
+    const result = await sendEmail({ to: Array.from(addresses.keys()), subject, html });
     if (!result.ok) {
       console.error(`[automations] falha ao enviar e-mail (regra "${rule.name}"): ${result.error}`);
     }
@@ -234,6 +267,28 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
   if (rule.trigger === "TASK_OVERDUE") {
     const tasks = await prisma.task.findMany({
       where: { organizationId: rule.organizationId, completedAt: null, dueAt: { lte: new Date() } },
+      select: { id: true, dealId: true, contactId: true, ownerId: true },
+    });
+    const pending = await filterUnexecuted(rule.id, tasks.map((t) => t.id));
+    return tasks
+      .filter((t) => pending.has(t.id))
+      .map((t) => ({
+        entityId: t.id,
+        organizationId: rule.organizationId,
+        dealId: t.dealId ?? undefined,
+        contactId: t.contactId ?? undefined,
+        ownerId: t.ownerId,
+      }));
+  }
+
+  if (rule.trigger === "TASK_DUE_SOON") {
+    const minutesBefore = triggerConfig.minutesBefore ?? 15;
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + minutesBefore * 60 * 1000);
+    // Janela [agora, agora+N min) — dueAt já passado é assunto do TASK_OVERDUE,
+    // não deste gatilho, pra não avisar duas vezes pela mesma tarefa.
+    const tasks = await prisma.task.findMany({
+      where: { organizationId: rule.organizationId, completedAt: null, dueAt: { gte: now, lte: windowEnd } },
       select: { id: true, dealId: true, contactId: true, ownerId: true },
     });
     const pending = await filterUnexecuted(rule.id, tasks.map((t) => t.id));
