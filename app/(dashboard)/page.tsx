@@ -6,6 +6,7 @@ import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { ACTIVITY_ICON, ACTIVITY_LABEL } from "@/lib/activity-icons";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { brazilGreeting, brazilStartOfMonth } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { Avatar } from "@/components/avatar";
@@ -21,7 +22,7 @@ export default async function HomePage() {
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);
   const staleBefore = new Date(Date.now() - STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
-  const startOfMonth = new Date(new Date().setDate(1));
+  const startOfMonth = brazilStartOfMonth();
 
   const pipeline = await prisma.pipeline.findFirst({
     where: { organizationId, isDefault: true },
@@ -268,10 +269,7 @@ export default async function HomePage() {
 }
 
 function greeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Bom dia";
-  if (hour < 18) return "Boa tarde";
-  return "Boa noite";
+  return brazilGreeting();
 }
 
 function StatTile({

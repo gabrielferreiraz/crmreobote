@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Loader2,
   Send,
@@ -32,28 +33,6 @@ import { CurrencyInput } from "@/components/currency-input";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
-
-/**
- * Fundo tipo "papel de parede" do WhatsApp, mas discreto — uns rabiscos
- * soltos repetindo em mosaico, quase imperceptível atrás das bolhas.
- */
-const CHAT_BACKGROUND_PATTERN = `data:image/svg+xml,${encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140">
-  <g fill="none" stroke="#8a8a8a" stroke-width="1.3" stroke-linecap="round" opacity="0.5">
-    <circle cx="16" cy="18" r="2.4" />
-    <path d="M46 14c4-6 10-4 9 2s-8 6-9 0" />
-    <circle cx="92" cy="24" r="1.8" />
-    <path d="M118 46c3 3 3 7 0 10" />
-    <path d="M20 62c6-3 10 2 6 7s-10 1-9-4" />
-    <circle cx="64" cy="74" r="2.2" />
-    <path d="M104 82l6 6m-6 0l6-6" />
-    <circle cx="12" cy="110" r="1.8" />
-    <path d="M52 116c5-5 11-2 9 4" />
-    <circle cx="120" cy="118" r="2.4" />
-    <path d="M80 12c2 4-2 7-5 4" />
-  </g>
-</svg>
-`)}`;
 
 type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER";
 
@@ -366,7 +345,7 @@ export function ChatWindow({
     }
   }
 
-  return (
+  const content = (
     <div
       className={
         expanded
@@ -412,10 +391,7 @@ export function ChatWindow({
         </div>
       </div>
 
-      <div
-        className="scrollbar-thin flex-1 space-y-2 overflow-y-auto rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950/50"
-        style={{ backgroundImage: `url("${CHAT_BACKGROUND_PATTERN}")`, backgroundRepeat: "repeat" }}
-      >
+      <div className="chat-bg-dots scrollbar-thin flex-1 space-y-2 overflow-y-auto rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950/50">
         {!messages ? (
           <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
         ) : messages.length === 0 ? (
@@ -501,6 +477,15 @@ export function ChatWindow({
       </div>
     </div>
   );
+
+  // "Modo foco" usa position:fixed pra cobrir a tela inteira — mas o
+  // WhatsAppPanel (onde o ChatWindow normalmente vive) tem backdrop-blur, e
+  // qualquer ancestral com backdrop-filter/filter vira o "containing block"
+  // de um filho fixed (a especificação de CSS define isso), prendendo o
+  // fixed dentro do painelzinho em vez de cobrir o viewport. Portal pro
+  // body escapa desse problema não importa onde o ChatWindow esteja montado.
+  if (expanded) return createPortal(content, document.body);
+  return content;
 }
 
 function MessageBubble({

@@ -242,6 +242,18 @@ body {
   }
 }
 
+/* Fundo do chat: grade de pontos discreta (tipo "canvas" de app de
+   produtividade) em vez do rabisco estilo WhatsApp — combina mais com o
+   resto do app, que é liso/monocromático em todo canto. */
+.chat-bg-dots {
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.dark .chat-bg-dots {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+}
+
 /* Uso avulso: qualquer botão pequeno reaproveitado do desktop (sem classe
    fixa de tamanho) que precise da mesma folga de toque no mobile. */
 @media (max-width: 1023.98px) {

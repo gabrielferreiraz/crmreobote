@@ -11,6 +11,7 @@ import { Modal } from "@/components/modal";
 import { ContactPreviewModal } from "@/components/contact-preview-modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { CurrencyInput } from "@/components/currency-input";
 import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
@@ -99,6 +100,7 @@ export function DealDetail({
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<DealTask | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
   const [showConfetti, setShowConfetti] = useState(false);
@@ -215,6 +217,37 @@ export function DealDetail({
         whatsapp: deal.contact.whatsapp ?? "",
         [field]: value,
       }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: false, error: data.error ?? "Erro ao salvar" };
+    }
+    router.refresh();
+    return { ok: true };
+  }
+
+  async function saveDealValue(value: string): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/deals/${deal.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: value ? Number(value) : null }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: false, error: data.error ?? "Erro ao salvar" };
+    }
+    router.refresh();
+    return { ok: true };
+  }
+
+  async function saveTask(
+    taskId: string,
+    fields: { title: string; dueAt: string | null },
+  ): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/tasks/${taskId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -469,10 +502,7 @@ export function DealDetail({
         </div>
 
         <div className="space-y-4">
-          <div className="card p-4 text-sm">
-            <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
-            <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(deal.value)}</p>
-          </div>
+          <DealValueCard value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
 
           {!chatOpen && whatsappThreadId && (
             <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
@@ -487,28 +517,40 @@ export function DealDetail({
                 </p>
               )}
               {deal.tasks.map((task) => (
-                <label
+                <div
                   key={task.id}
                   id={`task-${task.id}`}
-                  className={`-mx-1.5 flex items-start gap-2 rounded-md px-1.5 py-0.5 text-xs ${
+                  className={`-mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
                     highlightedTaskId === task.id ? "animate-highlight-once" : ""
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={!!task.completedAt}
-                    onChange={(e) => toggleTask(task.id, e.target.checked)}
-                    className="mt-0.5 accent-neutral-900 dark:accent-white"
-                  />
-                  <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
-                    {task.title}
-                    {task.dueAt && (
-                      <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                        · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    )}
-                  </span>
-                </label>
+                  <label className="flex min-w-0 flex-1 items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!task.completedAt}
+                      onChange={(e) => toggleTask(task.id, e.target.checked)}
+                      className="mt-0.5 accent-neutral-900 dark:accent-white"
+                    />
+                    <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
+                      {task.title}
+                      {task.dueAt && (
+                        <span className="ml-1 text-neutral-400 dark:text-neutral-500">
+                          · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                  {canEditDetails && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingTask(task)}
+                      className="icon-btn h-5 w-5 shrink-0"
+                      aria-label="Editar tarefa"
+                    >
+                      <Pencil className="h-3 w-3" strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -710,10 +752,7 @@ export function DealDetail({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="card p-4 text-sm">
-              <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
-              <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(deal.value)}</p>
-            </div>
+            <DealValueCard value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
 
             {!chatOpen && whatsappThreadId && (
               <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
@@ -728,28 +767,40 @@ export function DealDetail({
                   </p>
                 )}
                 {deal.tasks.map((task) => (
-                  <label
+                  <div
                     key={task.id}
                     id={`task-${task.id}`}
-                    className={`-mx-1.5 flex items-start gap-2 rounded-md px-1.5 py-0.5 text-xs ${
+                    className={`-mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
                       highlightedTaskId === task.id ? "animate-highlight-once" : ""
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={!!task.completedAt}
-                      onChange={(e) => toggleTask(task.id, e.target.checked)}
-                      className="mt-0.5 accent-neutral-900 dark:accent-white"
-                    />
-                    <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
-                      {task.title}
-                      {task.dueAt && (
-                        <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                          · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      )}
-                    </span>
-                  </label>
+                    <label className="flex min-w-0 flex-1 items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!task.completedAt}
+                        onChange={(e) => toggleTask(task.id, e.target.checked)}
+                        className="mt-0.5 accent-neutral-900 dark:accent-white"
+                      />
+                      <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
+                        {task.title}
+                        {task.dueAt && (
+                          <span className="ml-1 text-neutral-400 dark:text-neutral-500">
+                            · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                    {canEditDetails && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingTask(task)}
+                        className="icon-btn h-5 w-5 shrink-0"
+                        aria-label="Editar tarefa"
+                      >
+                        <Pencil className="h-3 w-3" strokeWidth={2} />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -848,6 +899,14 @@ export function DealDetail({
 
       {contactModalOpen && (
         <ContactPreviewModal contactId={deal.contact.id} onClose={() => setContactModalOpen(false)} />
+      )}
+
+      {editingTask && (
+        <EditTaskModal
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+          onSave={(fields) => saveTask(editingTask.id, fields)}
+        />
       )}
       </div>
 
@@ -958,6 +1017,169 @@ function LossReasonDialog({
   );
 }
 
+function EditTaskModal({
+  task,
+  onClose,
+  onSave,
+}: {
+  task: { id: string; title: string; dueAt: string | Date | null };
+  onClose: () => void;
+  onSave: (fields: { title: string; dueAt: string | null }) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [dueDate, setDueDate] = useState(toDateInputValue(task.dueAt));
+  const [dueTime, setDueTime] = useState(toTimeInputValue(task.dueAt));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    const result = await onSave({
+      title,
+      dueAt: dueDate ? `${dueDate}T${dueTime || "00:00"}` : null,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error ?? "Erro ao salvar");
+      return;
+    }
+    onClose();
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar tarefa</h2>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="space-y-1">
+          <label className="field-label">Título</label>
+          <input
+            autoFocus
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="field-input"
+          />
+        </div>
+        <div className="flex gap-2">
+          <div className="space-y-1">
+            <label className="field-label">Prazo</label>
+            <DatePicker value={dueDate} onChange={setDueDate} />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Horário</label>
+            <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} />
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="btn-ghost">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving || !title.trim()} className="btn-primary">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {saving ? (
+              <span className="inline-flex items-center gap-1">
+                Salvando
+                <LoadingDots />
+              </span>
+            ) : (
+              "Salvar"
+            )}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function DealValueCard({
+  value,
+  editable,
+  onSave,
+}: {
+  value: number | null;
+  editable: boolean;
+  onSave: (value: string) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value != null ? String(value) : "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!editing) {
+    return (
+      <div className="card p-4 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
+          {editable && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(value != null ? String(value) : "");
+                setError(null);
+                setEditing(true);
+              }}
+              className="icon-btn h-5 w-5 shrink-0"
+              aria-label="Editar valor do negócio"
+            >
+              <Pencil className="h-3 w-3" strokeWidth={2} />
+            </button>
+          )}
+        </div>
+        <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(value)}</p>
+      </div>
+    );
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    const result = await onSave(draft);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error ?? "Erro ao salvar");
+      return;
+    }
+    setEditing(false);
+  }
+
+  return (
+    <div className="card space-y-2 p-4 text-sm">
+      <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
+      <div className="flex items-center gap-1.5">
+        <CurrencyInput value={draft} onChange={setDraft} />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="icon-btn shrink-0"
+          aria-label="Salvar"
+        >
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+          ) : (
+            <Check className="h-3.5 w-3.5" strokeWidth={2} />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="icon-btn shrink-0"
+          aria-label="Cancelar"
+        >
+          <X className="h-3.5 w-3.5" strokeWidth={2} />
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -971,6 +1193,13 @@ function Row({ label, value }: { label: string; value: string }) {
 function toDateInputValue(value: string | Date | null): string {
   if (!value) return "";
   return new Date(value).toISOString().slice(0, 10);
+}
+
+/** "2026-07-12T07:00:00.000Z" → "07:00", o formato que o TimePicker espera. */
+function toTimeInputValue(value: string | Date | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 /**

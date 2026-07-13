@@ -8,6 +8,7 @@ import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendEmail } from "@/lib/email";
 import { resolveEmailAddresses, resolveWhatsappRecipients, type RecipientEntry } from "@/lib/automations/recipients";
+import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/lib/timezone";
 
 type TriggerConfig = {
   days?: number;
@@ -398,18 +399,21 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
 
     // O cron roda de hora em hora, então a granularidade é "a hora certa",
     // não o minuto exato — checa se estamos na janela configurada agora.
+    // O horário digitado na regra ("08:00") é sempre horário de Brasília, não
+    // o do servidor (que roda em UTC no container) — daí usar brazilHour/
+    // brazilWeekday/brazilDayOfMonth em vez dos getters nativos do Date.
     const now = new Date();
     const isScheduledNow =
-      now.getHours() === hour &&
+      brazilHour(now) === hour &&
       (frequency === "daily" ||
-        (frequency === "weekly" && now.getDay() === (dayOfWeek ?? 1)) ||
-        (frequency === "monthly" && now.getDate() === (dayOfMonth ?? 1)));
+        (frequency === "weekly" && brazilWeekday(now) === (dayOfWeek ?? 1)) ||
+        (frequency === "monthly" && brazilDayOfMonth(now) === (dayOfMonth ?? 1)));
 
     if (!isScheduledNow) return [];
 
     // Uma ocorrência por dia+hora — impede disparo duplicado se o cron rodar
     // mais de uma vez na mesma janela, mas libera a próxima ocorrência normal.
-    const occurrenceId = `${now.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}`;
+    const occurrenceId = `${brazilDateKey(now)}T${String(hour).padStart(2, "0")}`;
     const pending = await filterUnexecuted(rule.id, [occurrenceId]);
     if (!pending.has(occurrenceId)) return [];
 
