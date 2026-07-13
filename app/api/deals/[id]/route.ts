@@ -40,10 +40,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     status,
     value,
     creditType,
-    creditTerm,
-    groupNumber,
-    quota,
-    contemplated,
     description,
     lossReasonId,
     lostReason,
@@ -54,10 +50,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     status?: "OPEN" | "WON" | "LOST";
     value?: number | null;
     creditType?: string | null;
-    creditTerm?: number | null;
-    groupNumber?: string | null;
-    quota?: string | null;
-    contemplated?: boolean;
     description?: string | null;
     lossReasonId?: string | null;
     lostReason?: string | null;
@@ -97,9 +89,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       [
         ["value", value],
         ["creditType", creditType],
-        ["creditTerm", creditTerm],
-        ["groupNumber", groupNumber],
-        ["quota", quota],
         ["expectedCloseAt", expectedCloseAt],
       ] as const
     )
@@ -127,10 +116,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         status,
         value,
         creditType: sanitizeCell(creditType),
-        creditTerm,
-        groupNumber: sanitizeCell(groupNumber),
-        quota: sanitizeCell(quota),
-        contemplated,
         description: sanitizeCell(description),
         lossReasonId,
         lostReason: sanitizeCell(lostReason),

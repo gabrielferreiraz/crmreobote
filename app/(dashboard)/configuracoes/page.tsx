@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Mail,
+  Zap,
 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -52,6 +53,7 @@ export default async function ConfiguracoesPage() {
           <Row href="/configuracoes/equipes" icon={UsersRound} title="Equipes" description="Agrupar vendedores sob um supervisor." />
           <Row href="/configuracoes/pipeline" icon={Kanban} title="Pipeline" description="Etapas, cores e regras do funil." />
           <Row href="/configuracoes/motivos-perda" icon={XCircle} title="Motivos de perda" description="Usados ao marcar um negócio como perdido." />
+          <Row href="/automacoes" icon={Zap} title="Automações" description="Regras que disparam ação sozinhas (tarefa, e-mail, WhatsApp, push)." />
           <Row icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
         </Section>
       ) : (

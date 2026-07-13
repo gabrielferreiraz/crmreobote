@@ -9,9 +9,6 @@
 export const REQUIRABLE_DEAL_FIELDS = [
   { key: "value", label: "Valor do negócio" },
   { key: "creditType", label: "Tipo de crédito" },
-  { key: "creditTerm", label: "Prazo do crédito" },
-  { key: "groupNumber", label: "Grupo" },
-  { key: "quota", label: "Cota" },
   { key: "expectedCloseAt", label: "Data prevista de fechamento" },
 ] as const;
 

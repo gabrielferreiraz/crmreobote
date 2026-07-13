@@ -6,6 +6,7 @@ import { Pencil, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { jobTitleSelectOptions } from "@/lib/job-titles";
 
 const SOURCE_OPTIONS = [
   { value: "", label: "—" },
@@ -145,7 +146,15 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
               <Field label="Empresa" value={company} onChange={setCompany} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Cargo" value={jobTitle} onChange={setJobTitle} />
+              <div className="space-y-1">
+                <label className="field-label">Cargo *</label>
+                <Select
+                  value={jobTitle}
+                  onChange={setJobTitle}
+                  placeholder="Selecione o cargo"
+                  options={jobTitleSelectOptions(contact.jobTitle)}
+                />
+              </div>
               <div className="space-y-1">
                 <label className="field-label">Origem</label>
                 <Select value={source} onChange={setSource} options={SOURCE_OPTIONS} />
@@ -172,7 +181,7 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
               <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading || !name.trim()} className="btn-primary">
+              <button type="submit" disabled={loading || !name.trim() || !jobTitle} className="btn-primary">
                 {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                 {loading ? (
                   <span className="inline-flex items-center gap-1">

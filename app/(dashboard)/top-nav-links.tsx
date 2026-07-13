@@ -7,12 +7,10 @@ const NAV_ITEMS = [
   { href: "/", label: "Início" },
   { href: "/clientes", label: "Clientes" },
   { href: "/pipeline", label: "Pipeline", alsoActiveOn: ["/negocios"] },
-  { href: "/conversas", label: "Conversas" },
+  { href: "/whatsapp", label: "WhatsApp" },
   { href: "/agenda", label: "Agenda" },
   { href: "/relatorios", label: "Relatórios" },
-  { href: "/automacoes", label: "Automações" },
-  { href: "/campanhas", label: "Campanhas" },
-  { href: "/configuracoes", label: "Configurações" },
+  { href: "/configuracoes", label: "Configurações", alsoActiveOn: ["/automacoes"] },
 ];
 
 export function TopNavLinks() {

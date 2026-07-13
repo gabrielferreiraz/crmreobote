@@ -169,10 +169,6 @@ model Deal {
 
   // Campos específicos de consórcio
   creditType     String?    // "IMÓVEL" | "VEÍCULO" | "OUTROS"
-  creditTerm     Int?       // prazo em meses
-  groupNumber    String?    // número do grupo
-  quota          String?    // número da cota
-  contemplated   Boolean    @default(false)
 
   // Datas
   startedAt      DateTime   @default(now())

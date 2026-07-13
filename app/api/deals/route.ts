@@ -41,9 +41,6 @@ export async function POST(req: Request) {
     name,
     value,
     creditType,
-    creditTerm,
-    groupNumber,
-    quota,
     description,
     expectedCloseAt,
   } = body as {
@@ -54,9 +51,6 @@ export async function POST(req: Request) {
     name?: string;
     value?: number;
     creditType?: string;
-    creditTerm?: number;
-    groupNumber?: string;
-    quota?: string;
     description?: string;
     expectedCloseAt?: string;
   };
@@ -100,9 +94,6 @@ export async function POST(req: Request) {
         name: sanitizeCell(name?.trim() || buildDealName(contact.name, contact.source)),
         value,
         creditType: sanitizeCell(creditType),
-        creditTerm,
-        groupNumber: sanitizeCell(groupNumber),
-        quota: sanitizeCell(quota),
         description: sanitizeCell(description),
         expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
       },

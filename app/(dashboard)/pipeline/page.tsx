@@ -85,7 +85,7 @@ export default async function PipelinePage({
     createdAt: deal.createdAt,
     closedAt: deal.closedAt,
     stage: { id: deal.stage.id, name: deal.stage.name, color: deal.stage.color },
-    contact: { id: deal.contact.id, name: deal.contact.name, source: deal.contact.source },
+    contact: { id: deal.contact.id, name: deal.contact.name, source: deal.contact.source, jobTitle: deal.contact.jobTitle },
     owner: {
       id: deal.owner.id,
       name: deal.owner.name,

@@ -32,9 +32,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const missing = findMissingRequiredFields(stage.requiredFields, {
       value: value !== undefined ? value : existing.value,
       creditType: existing.creditType,
-      creditTerm: existing.creditTerm,
-      groupNumber: existing.groupNumber,
-      quota: existing.quota,
       expectedCloseAt: existing.expectedCloseAt,
     });
     if (missing.length > 0) {

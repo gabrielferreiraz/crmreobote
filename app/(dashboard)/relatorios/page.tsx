@@ -1,8 +1,9 @@
-import { BarChart3, Trophy, XCircle, CalendarCheck, Percent, UsersRound } from "lucide-react";
+import { BarChart3, Trophy, XCircle, CalendarCheck, Percent, UsersRound, Bot, Send, Reply, TrendingUp } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
+import { Avatar } from "@/components/avatar";
 import { getDealScope, scopeWhere, whatsappScopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveAvatarUrlMap } from "@/lib/r2";
@@ -31,7 +32,7 @@ export default async function RelatoriosPage({
   // faz sentido dizer que um negócio ainda aberto "é de março".
   const rangeFrom = fromParam ? new Date(`${fromParam}T00:00:00`) : null;
   const rangeTo = toParam ? new Date(`${toParam}T23:59:59.999`) : null;
-  const dateWhere = (field: "closedAt" | "createdAt") =>
+  const dateWhere = (field: "closedAt" | "createdAt" | "sentAt") =>
     rangeFrom || rangeTo
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
       : {};
@@ -316,8 +317,38 @@ export default async function RelatoriosPage({
     .sort((a, b) => b.count - a.count);
   const maxLossCount = Math.max(1, ...lossBreakdown.map((l) => l.count));
 
+  // ─── Negócios decididos por cargo do contato — Prisma não agrupa por
+  // campo de relação (contact.jobTitle não é coluna de Deal), então busca os
+  // negócios decididos no período e agrupa na mão. Respeita o mesmo filtro
+  // de data das outras métricas "decididas" da página.
+  const decidedDealsForJobTitle = await prisma.deal.findMany({
+    where: { organizationId, status: { in: ["WON", "LOST"] }, ...scopeWhere(scope), ...dateWhere("closedAt") },
+    select: { status: true, value: true, contact: { select: { jobTitle: true } } },
+  });
+  const jobTitleStats = new Map<string, { won: number; lost: number; wonValue: number }>();
+  for (const deal of decidedDealsForJobTitle) {
+    const key = deal.contact.jobTitle || "Sem cargo cadastrado";
+    if (!jobTitleStats.has(key)) jobTitleStats.set(key, { won: 0, lost: 0, wonValue: 0 });
+    const stat = jobTitleStats.get(key)!;
+    if (deal.status === "WON") {
+      stat.won += 1;
+      stat.wonValue += deal.value ? Number(deal.value) : 0;
+    } else {
+      stat.lost += 1;
+    }
+  }
+  const jobTitleBreakdown = Array.from(jobTitleStats.entries())
+    .map(([label, s]) => ({
+      label,
+      won: s.won,
+      lost: s.lost,
+      wonValue: s.wonValue,
+      winRate: s.won + s.lost > 0 ? Math.round((s.won / (s.won + s.lost)) * 100) : 0,
+    }))
+    .sort((a, b) => b.won + b.lost - (a.won + a.lost));
+
   // ─── WhatsApp: enviadas, responderam e conversão por vendedor ──────────
-  const [whatsappInstances, sentByInstance, inboundPairs, outboundPairs] = await Promise.all([
+  const [whatsappInstances, sentByInstance, inboundPairs, outboundPairs, campaignRecipients] = await Promise.all([
     prisma.whatsAppInstance.findMany({
       where: { organizationId, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
       include: { user: { select: { id: true, name: true } } },
@@ -335,7 +366,27 @@ export default async function RelatoriosPage({
       by: ["instanceId", "threadId"],
       where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
     }),
+    // Prospecção fria: listas importadas + disparo em massa (Campanhas) — cada
+    // linha SENT é um lead que só existe na conversa porque o vendedor mandou
+    // a primeira mensagem (o oposto de um lead orgânico que chamou primeiro).
+    prisma.campaignRecipient.findMany({
+      where: {
+        campaign: { organizationId, ...(scope.type === "owners" ? { instance: { userId: { in: scope.ownerIds } } } : {}) },
+        status: "SENT",
+        ...dateWhere("sentAt"),
+      },
+      select: { repliedAt: true, campaign: { select: { instanceId: true } } },
+    }),
   ]);
+
+  const campaignStatsByInstance = new Map<string, { sent: number; replied: number }>();
+  for (const r of campaignRecipients) {
+    const key = r.campaign.instanceId;
+    if (!campaignStatsByInstance.has(key)) campaignStatsByInstance.set(key, { sent: 0, replied: 0 });
+    const stat = campaignStatsByInstance.get(key)!;
+    stat.sent += 1;
+    if (r.repliedAt) stat.replied += 1;
+  }
 
   // groupBy não alcança campo de relação (thread.contactId) — resolve à
   // parte. Thread sem Contact vinculado (aba "Geral") não entra nas métricas
@@ -382,6 +433,9 @@ export default async function RelatoriosPage({
     const convertedForInst = contactedForInst.filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
     const conversionRate =
       contactedForInst.length > 0 ? Math.round((convertedForInst / contactedForInst.length) * 100) : 0;
+    const campaignStats = campaignStatsByInstance.get(inst.id) ?? { sent: 0, replied: 0 };
+    const campaignReplyRate =
+      campaignStats.sent > 0 ? Math.round((campaignStats.replied / campaignStats.sent) * 100) : 0;
 
     return {
       userId: inst.userId,
@@ -390,6 +444,9 @@ export default async function RelatoriosPage({
       sent,
       replied: repliedContacts,
       conversionRate,
+      campaignSent: campaignStats.sent,
+      campaignReplied: campaignStats.replied,
+      campaignReplyRate,
     };
   });
 
@@ -489,6 +546,14 @@ export default async function RelatoriosPage({
       };
     })
     .filter((s) => s.conversations > 0);
+
+  // Um card só por vendedor, juntando as duas fontes acima (mesma pessoa,
+  // métricas complementares) — bem melhor de ler do que duas tabelas largas
+  // que a pessoa tem que cruzar mentalmente pelo nome.
+  const sellerWhatsappCards = whatsappStats.map((w) => ({
+    ...w,
+    deal: dealWhatsappStats.find((d) => d.userId === w.userId) ?? null,
+  }));
 
   return (
     <div className="space-y-16 pb-8">
@@ -617,6 +682,43 @@ export default async function RelatoriosPage({
         )}
       </section>
 
+      {/* ─── Cargo do lead ──────────────────────────────────────────── */}
+      {jobTitleBreakdown.length > 0 && (
+        <section className="space-y-6">
+          <SectionHeading
+            eyebrow="Perfil do lead"
+            title="Conversão por cargo"
+            description="Quais cargos mais fecham negócio no período — ajuda a saber onde focar a prospecção."
+          />
+          <div className="card overflow-x-auto p-6">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                  <th className="pb-2 font-medium">Cargo</th>
+                  <th className="pb-2 text-right font-medium">Ganhos</th>
+                  <th className="pb-2 text-right font-medium">Perdidos</th>
+                  <th className="pb-2 text-right font-medium">Conversão</th>
+                  <th className="pb-2 text-right font-medium">Valor ganho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobTitleBreakdown.map((j) => (
+                  <tr key={j.label} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                    <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{j.label}</td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{j.won}</td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{j.lost}</td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{j.winRate}%</td>
+                    <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                      {formatCurrency(j.wonValue)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* ─── Motivos de perda ───────────────────────────────────────── */}
       {lostCount > 0 && (
         <section className="space-y-6">
@@ -636,95 +738,105 @@ export default async function RelatoriosPage({
       )}
 
       {/* ─── WhatsApp ───────────────────────────────────────────────── */}
-      {(whatsappStats.length > 0 || dealWhatsappStats.length > 0) && (
+      {sellerWhatsappCards.length > 0 && (
         <section className="space-y-6">
-          <SectionHeading eyebrow="WhatsApp" title="Conversas por vendedor" />
+          <SectionHeading
+            eyebrow="WhatsApp"
+            title="Atividade por vendedor"
+            description="Envio geral, prospecção fria (campanhas em listas importadas) e conversas já vinculadas a negócio."
+          />
 
-          {whatsappStats.length > 0 && (
-            <div className="card overflow-x-auto p-6">
-              <h3 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Envio e resposta</h3>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                    <th className="pb-2 font-medium">Vendedor</th>
-                    <th className="pb-2 font-medium">Status</th>
-                    <th className="pb-2 text-right font-medium">Enviadas</th>
-                    <th className="pb-2 text-right font-medium">Responderam</th>
-                    <th className="pb-2 text-right font-medium">Conversão</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {whatsappStats.map((w) => (
-                    <tr key={w.userId} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
-                      <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
-                      <td className="py-2.5 text-neutral-500 dark:text-neutral-400">
-                        {w.connected ? "Conectado" : "Desconectado"}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.replied}</td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.conversionRate}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
-                Conversão = % dos contatos que receberam WhatsApp e fecharam negócio (ganho).
-              </p>
-            </div>
-          )}
+          <div className="space-y-5">
+            {sellerWhatsappCards.map((w) => (
+              <div key={w.userId} className="card p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={w.name} size="sm" />
+                    <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{w.name}</h3>
+                  </div>
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                      w.connected
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                        : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${w.connected ? "bg-emerald-500" : "bg-neutral-400"}`} />
+                    {w.connected ? "Conectado" : "Desconectado"}
+                  </span>
+                </div>
 
-          {dealWhatsappStats.length > 0 && (
-            <div className="card overflow-x-auto p-6">
-              <h3 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Conversas de negócios</h3>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                    <th className="pb-2 font-medium">Vendedor</th>
-                    <th className="pb-2 text-right font-medium">Conversas</th>
-                    <th className="pb-2 text-right font-medium">Enviadas</th>
-                    <th className="pb-2 text-right font-medium">Resposta</th>
-                    <th className="pb-2 text-right font-medium">Conversão</th>
-                    <th className="pb-2 text-right font-medium">1ª resposta</th>
-                    <th className="pb-2 text-right font-medium">Duração</th>
-                    <th className="pb-2 text-right font-medium">Msgs/dia</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dealWhatsappStats.map((w) => (
-                    <tr key={w.userId} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
-                      <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{w.name}</td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.conversations}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{w.sent}</td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.responseRate === null ? "—" : `${w.responseRate}%`}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.conversionRate === null ? "—" : `${w.conversionRate}%`}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.avgFirstResponseMs === null ? "—" : formatDuration(w.avgFirstResponseMs)}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.avgDurationMs === null ? "—" : formatDuration(w.avgDurationMs)}
-                      </td>
-                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {w.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
-                Só conversas de contatos que já viraram negócio (aberto, ganho ou perdido). Resposta = % de conversas em
-                que o lead respondeu. 1ª resposta = tempo médio até o vendedor responder a 1ª mensagem do lead. Duração
-                = tempo médio entre a 1ª e a última mensagem da conversa.
-              </p>
-            </div>
-          )}
+                <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
+                  <MetricTile icon={Send} label="Mensagens enviadas" value={String(w.sent)} />
+                  <MetricTile
+                    icon={Reply}
+                    label="Responderam"
+                    value={String(w.replied)}
+                    progress={w.sent > 0 ? (w.replied / w.sent) * 100 : 0}
+                  />
+                  <MetricTile icon={TrendingUp} label="Conversão em venda" value={`${w.conversionRate}%`} accent="emerald" />
+                </div>
+
+                <div className="mt-5 rounded-lg bg-violet-50/60 p-4 dark:bg-violet-500/[0.06]">
+                  <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-400">
+                    <Bot className="h-3.5 w-3.5" strokeWidth={2} />
+                    Prospecção fria · campanhas em listas importadas
+                  </p>
+                  {w.campaignSent > 0 ? (
+                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                      <MetricTile icon={Send} label="Enviadas" value={String(w.campaignSent)} accent="violet" />
+                      <MetricTile
+                        icon={Reply}
+                        label="Responderam"
+                        value={String(w.campaignReplied)}
+                        accent="violet"
+                        progress={w.campaignReplyRate}
+                      />
+                      <MetricTile icon={Percent} label="Taxa de resposta" value={`${w.campaignReplyRate}%`} accent="violet" />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-violet-700/70 dark:text-violet-400/70">
+                      Nenhuma campanha disparada por esse número no período.
+                    </p>
+                  )}
+                </div>
+
+                {w.deal && (
+                  <div className="mt-5 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+                    <p className="mb-3 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+                      Conversas de negócio
+                    </p>
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+                      <MiniStat label="Conversas" value={String(w.deal.conversations)} small />
+                      <MiniStat label="Resposta" value={w.deal.responseRate === null ? "—" : `${w.deal.responseRate}%`} small />
+                      <MiniStat
+                        label="1ª resposta"
+                        value={w.deal.avgFirstResponseMs === null ? "—" : formatDuration(w.deal.avgFirstResponseMs)}
+                        small
+                      />
+                      <MiniStat
+                        label="Duração"
+                        value={w.deal.avgDurationMs === null ? "—" : formatDuration(w.deal.avgDurationMs)}
+                        small
+                      />
+                      <MiniStat
+                        label="Msgs/dia"
+                        value={w.deal.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                        small
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Conversão em venda = % dos contatos que receberam WhatsApp e fecharam negócio (ganho). Prospecção fria =
+            envios de campanha (lista importada, primeira mensagem partiu do vendedor/robô). Conversas de negócio =
+            só contatos já vinculados a um negócio; resposta = % que o lead respondeu; 1ª resposta e duração são
+            médias de tempo.
+          </p>
         </section>
       )}
     </div>
@@ -750,6 +862,68 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       <p className="text-sm text-neutral-500 dark:text-neutral-400">{label}</p>
       <p className="mt-2 text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
       {hint && <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
+    </div>
+  );
+}
+
+const METRIC_TILE_ACCENT: Record<"neutral" | "emerald" | "violet", { chip: string; bar: string }> = {
+  neutral: {
+    chip: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
+    bar: "bg-neutral-900 dark:bg-white",
+  },
+  emerald: {
+    chip: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
+    bar: "bg-emerald-500",
+  },
+  violet: {
+    chip: "bg-white text-violet-600 dark:bg-violet-500/10 dark:text-violet-400",
+    bar: "bg-violet-500",
+  },
+};
+
+/** Ícone + número grande + rótulo, com barrinha opcional mostrando a proporção (ex.: respondidas sobre enviadas). */
+function MetricTile({
+  icon: Icon,
+  label,
+  value,
+  accent = "neutral",
+  progress,
+}: {
+  icon: typeof Send;
+  label: string;
+  value: string;
+  accent?: "neutral" | "emerald" | "violet";
+  progress?: number;
+}) {
+  const { chip, bar } = METRIC_TILE_ACCENT[accent];
+  return (
+    <div className="flex items-start gap-3">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${chip}`}>
+        <Icon className="h-4 w-4" strokeWidth={2} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
+        {progress !== undefined && (
+          <div className="mt-1.5 h-1 w-full max-w-24 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+            <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, hint, small }: { label: string; value: string; hint?: string; small?: boolean }) {
+  return (
+    <div>
+      <p className={`text-neutral-500 dark:text-neutral-400 ${small ? "text-xs" : "text-sm"}`}>{label}</p>
+      <p
+        className={`mt-1 font-semibold tabular-nums text-neutral-900 dark:text-neutral-100 ${small ? "text-base" : "text-xl"}`}
+      >
+        {value}
+        {hint && <span className="ml-1 text-xs font-normal text-neutral-400 dark:text-neutral-500">({hint})</span>}
+      </p>
     </div>
   );
 }

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Megaphone, Plus, Loader2, Trash2, Play, Pause, X } from "lucide-react";
+import Link from "next/link";
+import { Megaphone, Plus, Loader2, Trash2, Play, Pause } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -29,6 +30,7 @@ type Campaign = {
 };
 
 type InstanceOption = { id: string; label: string };
+type ScriptOption = { id: string; name: string; text: string };
 
 const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -49,9 +51,11 @@ const STATUS_TONE: Record<CampaignStatus, string> = {
 export function CampaignsTable({
   initialCampaigns,
   instances,
+  scripts,
 }: {
   initialCampaigns: Campaign[];
   instances: InstanceOption[];
+  scripts: ScriptOption[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -176,6 +180,7 @@ export function CampaignsTable({
       {open && (
         <NewCampaignDialog
           instances={instances}
+          scripts={scripts}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);
@@ -200,21 +205,22 @@ export function CampaignsTable({
   );
 }
 
-type TemplateDraft = { text: string; weight: string };
-
 function NewCampaignDialog({
   instances,
+  scripts,
   onClose,
   onCreated,
 }: {
   instances: InstanceOption[];
+  scripts: ScriptOption[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
   const [audienceJobTitle, setAudienceJobTitle] = useState("");
   const [instanceId, setInstanceId] = useState(instances[0]?.id ?? "");
-  const [templates, setTemplates] = useState<TemplateDraft[]>([{ text: "", weight: "1" }]);
+  const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([]);
+  const [weightByScript, setWeightByScript] = useState<Record<string, string>>({});
   const [delayMinSec, setDelayMinSec] = useState("30");
   const [delayMaxSec, setDelayMaxSec] = useState("90");
   const [dailyCap, setDailyCap] = useState("");
@@ -228,12 +234,11 @@ function NewCampaignDialog({
     setAllowedWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()));
   }
 
-  function updateTemplate(index: number, field: "text" | "weight", value: string) {
-    setTemplates((prev) => prev.map((t, i) => (i === index ? { ...t, [field]: value } : t)));
-  }
-
-  function removeTemplate(index: number) {
-    setTemplates((prev) => prev.filter((_, i) => i !== index));
+  function toggleScript(scriptId: string) {
+    setSelectedScriptIds((prev) =>
+      prev.includes(scriptId) ? prev.filter((id) => id !== scriptId) : [...prev, scriptId],
+    );
+    setWeightByScript((prev) => (prev[scriptId] ? prev : { ...prev, [scriptId]: "1" }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -248,7 +253,7 @@ function NewCampaignDialog({
         name,
         audienceJobTitle,
         instanceId,
-        messageTemplates: templates.map((t) => ({ text: t.text, weight: Number(t.weight) || 1 })),
+        scripts: selectedScriptIds.map((id) => ({ scriptId: id, weight: Number(weightByScript[id]) || 1 })),
         delayMinSec: Number(delayMinSec) || 30,
         delayMaxSec: Number(delayMaxSec) || 90,
         dailyCap: dailyCap ? Number(dailyCap) : null,
@@ -270,12 +275,7 @@ function NewCampaignDialog({
   }
 
   const canSubmit =
-    !!name.trim() &&
-    !!audienceJobTitle.trim() &&
-    !!instanceId &&
-    templates.length > 0 &&
-    templates.every((t) => t.text.trim()) &&
-    allowedWeekdays.length > 0;
+    !!name.trim() && !!audienceJobTitle.trim() && !!instanceId && selectedScriptIds.length > 0 && allowedWeekdays.length > 0;
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-lg">
@@ -317,48 +317,55 @@ function NewCampaignDialog({
         </div>
 
         <div className="space-y-1.5">
-          <label className="field-label">Variantes de mensagem</label>
-          {templates.map((t, i) => (
-            <div key={i} className="flex items-start gap-1.5">
-              <textarea
-                required
-                value={t.text}
-                onChange={(e) => updateTemplate(i, "text", e.target.value)}
-                rows={2}
-                placeholder="Ex.: {saudacao} {primeiro_nome}! {[Tudo bem|Como vai]}? Vi que você atua como {cargo}..."
-                className="field-input flex-1"
-              />
-              <input
-                type="number"
-                min={1}
-                value={t.weight}
-                onChange={(e) => updateTemplate(i, "weight", e.target.value)}
-                title="Peso (frequência relativa desta variante)"
-                className="field-input w-14 shrink-0 px-2"
-              />
-              {templates.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeTemplate(i)}
-                  className="icon-btn mt-1 shrink-0"
-                  aria-label="Remover variante"
-                >
-                  <X className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-              )}
+          <label className="field-label">Scripts (variantes de mensagem)</label>
+          {scripts.length === 0 ? (
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              Nenhum script cadastrado ainda —{" "}
+              <Link href="/whatsapp/scripts" className="underline">
+                crie um na aba Scripts
+              </Link>{" "}
+              antes de montar a campanha.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {scripts.map((s) => {
+                const checked = selectedScriptIds.includes(s.id);
+                return (
+                  <div
+                    key={s.id}
+                    className={`flex items-start gap-2 rounded-md border p-2.5 text-sm transition-colors ${
+                      checked
+                        ? "border-neutral-900 dark:border-white"
+                        : "border-neutral-200 dark:border-neutral-800"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleScript(s.id)}
+                      className="mt-0.5 accent-neutral-900 dark:accent-white"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</p>
+                      <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{s.text}</p>
+                    </div>
+                    {checked && (
+                      <input
+                        type="number"
+                        min={1}
+                        value={weightByScript[s.id] ?? "1"}
+                        onChange={(e) => setWeightByScript((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                        title="Peso (frequência relativa deste script)"
+                        className="field-input w-14 shrink-0 px-2"
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setTemplates((prev) => [...prev, { text: "", weight: "1" }])}
-            className="btn-ghost btn-sm"
-          >
-            <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-            Adicionar variante
-          </button>
+          )}
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Use <code>{"{[opção 1|opção 2]}"}</code> pra variar trechos, e <code>{"{nome}"}</code>/<code>{"{primeiro_nome}"}</code>/
-            <code>{"{cargo}"}</code>/<code>{"{saudacao}"}</code> pra personalizar. Cada envio sorteia uma variante (proporcional ao peso).
+            Cada envio sorteia um dos scripts marcados, proporcional ao peso.
           </p>
         </div>
 

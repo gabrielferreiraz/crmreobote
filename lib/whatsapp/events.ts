@@ -216,7 +216,7 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
           const preview =
             body ||
             (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
-          sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/conversas" }).catch((err) =>
+          sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
             console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
           );
         }
@@ -360,7 +360,7 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
             });
             if (contact) displayName = contact.name;
           }
-          sendPushToUser(instance.userId, { title: displayName, body, url: "/conversas" }).catch((err) =>
+          sendPushToUser(instance.userId, { title: displayName, body, url: "/whatsapp/conversas" }).catch((err) =>
             console.error("[wa:webhook] falha ao enviar push de chamada perdida", err),
           );
         }
@@ -416,13 +416,19 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     const phoneNumber = update?.wuid ? normalizePhoneNumber(update.wuid.split("@")[0]) : null;
 
     // Só avisa por e-mail nas transições de verdade (conectado → desconectado
-    // e o inverso) — não a cada evento (o Evolution manda "connecting" várias
-    // vezes durante o pareamento normal, isso não pode virar spam de e-mail).
+    // e o inverso) — não a cada evento. Importante: o "conectou" só dispara
+    // vindo de um DISCONNECTED confirmado, nunca de CONNECTING — o Evolution
+    // manda "connecting" à toa em vários momentos (refresh interno de sessão,
+    // keep-alive) mesmo com a sessão perfeitamente estável, e isso nunca gera
+    // o e-mail de "desconectou" (só DISCONNECTED gera). Se o "conectou"
+    // disparasse a partir de "não está CONNECTED" (o que inclui CONNECTING),
+    // cada um desses soluços sem desconexão de verdade virava um e-mail de
+    // "conectou" — era exatamente esse o e-mail repetido que a gente via.
     if (instance.status === "CONNECTED" && status === "DISCONNECTED") {
       notifyInstanceDisconnected(instance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de desconexão por e-mail", err),
       );
-    } else if (instance.status !== "CONNECTED" && status === "CONNECTED") {
+    } else if (instance.status === "DISCONNECTED" && status === "CONNECTED") {
       notifyInstanceConnected(instance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de conexão por e-mail", err),
       );

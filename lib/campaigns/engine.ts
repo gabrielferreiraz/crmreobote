@@ -14,12 +14,15 @@ import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { renderTemplate, pickWeightedTemplate, type WeightedTemplate } from "@/lib/campaigns/spintax";
-import type { $Enums } from "@/app/generated/prisma/client";
+import type { $Enums, Contact } from "@/app/generated/prisma/client";
 
 type CampaignRow = {
   id: string;
   instanceId: string;
   messageTemplates: unknown;
+  followUpEnabled: boolean;
+  followUpDelayHours: number;
+  followUpTemplates: unknown;
   delayMinSec: number;
   delayMaxSec: number;
   dailyCap: number | null;
@@ -44,20 +47,26 @@ async function dailyCapReached(campaign: CampaignRow): Promise<boolean> {
 }
 
 /**
- * Sempre exige pelo menos delayMinSec desde o último envio. Passado o
- * mínimo, sorteia um novo limiar dentro da faixa a cada checagem em vez de
- * disparar sempre no primeiro tick após o mínimo — assim o intervalo real
- * varia dentro da faixa configurada em vez de virar um padrão fixo.
+ * Sempre exige pelo menos delayMinSec desde o último envio (inicial ou de
+ * reenvio — os dois usam o mesmo número, então o throttle vale pros dois).
+ * Passado o mínimo, sorteia um novo limiar dentro da faixa a cada checagem
+ * em vez de disparar sempre no primeiro tick após o mínimo — assim o
+ * intervalo real varia dentro da faixa configurada em vez de virar um
+ * padrão fixo.
  */
 async function shouldSendNow(campaign: CampaignRow): Promise<boolean> {
   const last = await prisma.campaignRecipient.findFirst({
-    where: { campaignId: campaign.id, status: "SENT" },
-    orderBy: { sentAt: "desc" },
-    select: { sentAt: true },
+    where: {
+      campaignId: campaign.id,
+      OR: [{ status: "SENT" }, { followUpSentAt: { not: null } }],
+    },
+    orderBy: [{ sentAt: "desc" }, { followUpSentAt: "desc" }],
+    select: { sentAt: true, followUpSentAt: true },
   });
-  if (!last?.sentAt) return true;
+  const lastAt = last && (last.followUpSentAt ?? last.sentAt);
+  if (!lastAt) return true;
 
-  const elapsedSec = (Date.now() - last.sentAt.getTime()) / 1000;
+  const elapsedSec = (Date.now() - lastAt.getTime()) / 1000;
   if (elapsedSec < campaign.delayMinSec) return false;
 
   const threshold = campaign.delayMinSec + Math.random() * (campaign.delayMaxSec - campaign.delayMinSec);
@@ -73,6 +82,95 @@ async function pauseIfFailing(campaignId: string): Promise<void> {
   });
   if (recent.length === 5 && recent.every((r) => r.status === "FAILED")) {
     await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
+  }
+}
+
+/** Só entra na fila de reenvio quem foi enviado com sucesso, nunca respondeu, nunca teve reenvio tentado e já passou o prazo configurado. */
+async function findFollowUpCandidate(campaign: CampaignRow) {
+  const cutoff = new Date(Date.now() - campaign.followUpDelayHours * 60 * 60 * 1000);
+  return prisma.campaignRecipient.findFirst({
+    where: {
+      campaignId: campaign.id,
+      status: "SENT",
+      repliedAt: null,
+      followUpSentAt: null,
+      sentAt: { lte: cutoff },
+    },
+    orderBy: { sentAt: "asc" },
+    include: { contact: true },
+  });
+}
+
+/** Reenvio habilitado mas ainda há alguém aguardando o prazo (ou já tentado) — não pode marcar a campanha como DONE ainda. */
+async function hasPendingFollowUps(campaignId: string): Promise<boolean> {
+  const count = await prisma.campaignRecipient.count({
+    where: { campaignId, status: "SENT", repliedAt: null, followUpSentAt: null },
+  });
+  return count > 0;
+}
+
+function buildVariables(contact: Contact) {
+  return { nome: contact.name, cargo: contact.jobTitle, empresa: contact.company, cidade: contact.city };
+}
+
+type SendKind = "initial" | "followUp";
+
+async function sendToRecipient(
+  organizationId: string,
+  campaign: CampaignRow,
+  recipient: { id: string; contact: Contact },
+  kind: SendKind,
+): Promise<"sent" | "failed" | "skipped"> {
+  const phoneNormalized = normalizePhoneNumber(recipient.contact.whatsapp || recipient.contact.phone);
+  if (!phoneNormalized) {
+    if (kind === "initial") {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { status: "SKIPPED", error: "Contato sem WhatsApp/celular cadastrado" },
+      });
+    } else {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { followUpSentAt: new Date(), followUpError: "Contato sem WhatsApp/celular cadastrado" },
+      });
+    }
+    return "skipped";
+  }
+
+  try {
+    const templates = (
+      kind === "followUp" && campaign.followUpTemplates ? campaign.followUpTemplates : campaign.messageTemplates
+    ) as unknown as WeightedTemplate[];
+    const chosen = pickWeightedTemplate(templates);
+    const text = renderTemplate(chosen.text, buildVariables(recipient.contact), brazilGreeting());
+
+    const thread = await getOrCreateThread({ organizationId, instanceId: campaign.instanceId, phoneNormalized });
+    await sendWhatsAppMessage({ organizationId, threadId: thread.id, text });
+
+    if (kind === "initial") {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { status: "SENT", sentAt: new Date(), threadId: thread.id },
+      });
+    } else {
+      await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { followUpSentAt: new Date() } });
+    }
+    return "sent";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (kind === "initial") {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { status: "FAILED" as $Enums.CampaignRecipientStatus, error: message },
+      });
+      await pauseIfFailing(campaign.id);
+    } else {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { followUpSentAt: new Date(), followUpError: message },
+      });
+    }
+    return "failed";
   }
 }
 
@@ -101,52 +199,28 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
           include: { contact: true },
         });
 
-        if (!recipient) {
-          await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "DONE" } });
+        if (recipient) {
+          const outcome = await sendToRecipient(org.id, campaign, recipient, "initial");
+          if (outcome === "sent") sent += 1;
+          if (outcome === "failed") failed += 1;
           continue;
         }
 
-        const phoneNormalized = normalizePhoneNumber(recipient.contact.whatsapp || recipient.contact.phone);
-        if (!phoneNormalized) {
-          await prisma.campaignRecipient.update({
-            where: { id: recipient.id },
-            data: { status: "SKIPPED", error: "Contato sem WhatsApp/celular cadastrado" },
-          });
-          continue;
+        // Sem mais destinatários pendentes — se o reenvio automático estiver
+        // ligado, tenta achar alguém pronto pra ser reenviado antes de
+        // considerar a campanha encerrada.
+        if (campaign.followUpEnabled) {
+          const followUpCandidate = await findFollowUpCandidate(campaign);
+          if (followUpCandidate) {
+            const outcome = await sendToRecipient(org.id, campaign, followUpCandidate, "followUp");
+            if (outcome === "sent") sent += 1;
+            if (outcome === "failed") failed += 1;
+            continue;
+          }
+          if (await hasPendingFollowUps(campaign.id)) continue; // ainda dentro do prazo de espera
         }
 
-        try {
-          const templates = campaign.messageTemplates as unknown as WeightedTemplate[];
-          const chosen = pickWeightedTemplate(templates);
-          const text = renderTemplate(
-            chosen.text,
-            { nome: recipient.contact.name, cargo: recipient.contact.jobTitle },
-            brazilGreeting(),
-          );
-
-          const thread = await getOrCreateThread({
-            organizationId: org.id,
-            instanceId: campaign.instanceId,
-            phoneNormalized,
-          });
-          await sendWhatsAppMessage({ organizationId: org.id, threadId: thread.id, text });
-
-          await prisma.campaignRecipient.update({
-            where: { id: recipient.id },
-            data: { status: "SENT", sentAt: new Date(), threadId: thread.id },
-          });
-          sent += 1;
-        } catch (err) {
-          await prisma.campaignRecipient.update({
-            where: { id: recipient.id },
-            data: {
-              status: "FAILED" as $Enums.CampaignRecipientStatus,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          });
-          failed += 1;
-          await pauseIfFailing(campaign.id);
-        }
+        await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "DONE" } });
       }
     });
   }

@@ -3,21 +3,19 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Zap, Megaphone, Settings, LogOut, ChevronRight, Moon } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const PRIMARY_ITEMS = [
   { href: "/", label: "Início", icon: Home, exact: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban, alsoActiveOn: ["/negocios"] },
-  { href: "/conversas", label: "Conversas", icon: MessageCircle },
+  { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
 ];
 
 const OVERFLOW_ITEMS = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  { href: "/automacoes", label: "Automações", icon: Zap },
-  { href: "/campanhas", label: "Campanhas", icon: Megaphone },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
@@ -38,7 +36,7 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
   const pathname = usePathname();
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const isOverflowActive = OVERFLOW_ITEMS.some((i) => pathname.startsWith(i.href));
+  const isOverflowActive = OVERFLOW_ITEMS.some((i) => pathname.startsWith(i.href)) || pathname.startsWith("/automacoes");
   const fab = FAB_BY_SECTION.find((f) => f.match(pathname));
 
   return (

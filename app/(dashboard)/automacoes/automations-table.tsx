@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Zap, Plus, Loader2, Trash2 } from "lucide-react";
+import { Zap, Plus, Loader2, Trash2, Play, Pause } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -143,6 +143,19 @@ export function AutomationsTable({
     return null;
   }
 
+  function lowerFirst(s: string): string {
+    return s.charAt(0).toLowerCase() + s.slice(1);
+  }
+
+  /** Frase única resumindo gatilho + ação — o que a pessoa lê pra entender a regra sem abrir o modal. */
+  function describeRule(rule: Rule): string {
+    const triggerDetail = describeTrigger(rule);
+    const actionDetail = describeAction(rule);
+    const triggerPart = `${lowerFirst(TRIGGER_LABELS[rule.trigger])}${triggerDetail ? ` (${triggerDetail})` : ""}`;
+    const actionPart = `${lowerFirst(ACTION_LABELS[rule.action])}${actionDetail ? ` (${actionDetail})` : ""}`;
+    return `Quando ${triggerPart} → ${actionPart}.`;
+  }
+
   async function toggleEnabled(rule: Rule) {
     setTogglingId(rule.id);
     await fetch(`/api/automations/${rule.id}`, {
@@ -179,70 +192,58 @@ export function AutomationsTable({
           />
         </div>
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
-                <th className="px-4 py-2 font-medium">Nome</th>
-                <th className="px-4 py-2 font-medium">Gatilho</th>
-                <th className="px-4 py-2 font-medium">Ação</th>
-                <th className="px-4 py-2 font-medium">Execuções</th>
-                <th className="px-4 py-2 font-medium">Última execução</th>
-                <th className="px-4 py-2 font-medium">Ativa</th>
-                <th className="px-4 py-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {initialRules.map((rule) => (
-                <tr key={rule.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800">
-                  <td className="px-4 py-2 font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</td>
-                  <td className="px-4 py-2 text-neutral-500 dark:text-neutral-400">
-                    {TRIGGER_LABELS[rule.trigger]}
-                    {describeTrigger(rule) && (
-                      <span className="block text-xs text-neutral-400 dark:text-neutral-500">{describeTrigger(rule)}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-neutral-500 dark:text-neutral-400">
-                    {ACTION_LABELS[rule.action]}
-                    {describeAction(rule) && (
-                      <span className="block text-xs text-neutral-400 dark:text-neutral-500">{describeAction(rule)}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-neutral-500 dark:text-neutral-400">{rule.runCount}</td>
-                  <td className="px-4 py-2 text-neutral-500 dark:text-neutral-400">
-                    {rule.lastRunAt ? new Date(rule.lastRunAt).toLocaleString("pt-BR") : "—"}
-                  </td>
-                  <td className="px-4 py-2">
-                    <button
-                      disabled={!canManage || togglingId === rule.id}
-                      onClick={() => toggleEnabled(rule)}
-                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                        rule.enabled ? "bg-neutral-900 dark:bg-white" : "bg-neutral-200 dark:bg-neutral-700"
-                      }`}
-                      aria-label={rule.enabled ? "Pausar" : "Ativar"}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white dark:bg-neutral-900 transition-transform ${
-                          rule.enabled ? "translate-x-4.5" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {canManage && (
-                      <button
-                        onClick={() => setRuleToDelete(rule)}
-                        className="icon-btn"
-                        aria-label="Excluir automação"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
+          {initialRules.map((rule) => (
+            <div
+              key={rule.id}
+              className={`automation-row first:rounded-t-lg last:rounded-b-lg flex items-center gap-3 p-4 ${
+                rule.enabled ? "" : "opacity-60"
+              }`}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
+                <Zap className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</p>
+                <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{describeRule(rule)}</p>
+              </div>
+
+              <div className="hidden shrink-0 text-right sm:block">
+                <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">
+                  {rule.runCount} execuç{rule.runCount === 1 ? "ão" : "ões"}
+                </p>
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                  {rule.lastRunAt ? `última ${new Date(rule.lastRunAt).toLocaleDateString("pt-BR")}` : "nunca rodou"}
+                </p>
+              </div>
+
+              <button
+                disabled={!canManage || togglingId === rule.id}
+                onClick={() => toggleEnabled(rule)}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                {togglingId === rule.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                ) : rule.enabled ? (
+                  <Pause className="h-3 w-3" strokeWidth={2} />
+                ) : (
+                  <Play className="h-3 w-3" strokeWidth={2} />
+                )}
+                {rule.enabled ? "Pausar" : "Ativar"}
+              </button>
+
+              {canManage && (
+                <button
+                  onClick={() => setRuleToDelete(rule)}
+                  className="icon-btn shrink-0"
+                  aria-label="Excluir automação"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

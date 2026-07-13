@@ -37,17 +37,31 @@ export function DealsList({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [lossReasonFilter, setLossReasonFilter] = useState("");
+  const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  const jobTitleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of deals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
+    return Array.from(set).sort();
+  }, [deals]);
+
   const hasFilters =
-    statusFilter !== "OPEN" || !!ownerFilter || !!stageFilter || !!lossReasonFilter || !!dateFrom || !!dateTo;
+    statusFilter !== "OPEN" ||
+    !!ownerFilter ||
+    !!stageFilter ||
+    !!lossReasonFilter ||
+    !!jobTitleFilter ||
+    !!dateFrom ||
+    !!dateTo;
 
   function clearFilters() {
     setStatusFilter("OPEN");
     setOwnerFilter("");
     setStageFilter("");
     setLossReasonFilter("");
+    setJobTitleFilter("");
     setDateFrom("");
     setDateTo("");
   }
@@ -65,12 +79,13 @@ export function DealsList({
       if (ownerFilter && d.owner.id !== ownerFilter) return false;
       if (stageFilter && d.stage.id !== stageFilter) return false;
       if (lossReasonFilter && d.lossReasonId !== lossReasonFilter) return false;
+      if (jobTitleFilter && d.contact.jobTitle !== jobTitleFilter) return false;
       const createdAt = new Date(d.createdAt);
       if (from && createdAt < from) return false;
       if (to && createdAt >= to) return false;
       return true;
     });
-  }, [deals, search, statusFilter, ownerFilter, stageFilter, lossReasonFilter, dateFrom, dateTo]);
+  }, [deals, search, statusFilter, ownerFilter, stageFilter, lossReasonFilter, jobTitleFilter, dateFrom, dateTo]);
 
   return (
     <div className="space-y-3">
@@ -126,6 +141,20 @@ export function DealsList({
               ]}
             />
           </div>
+          {jobTitleOptions.length > 0 && (
+            <div className="space-y-1">
+              <label className="field-label">Cargo</label>
+              <Select
+                value={jobTitleFilter}
+                onChange={setJobTitleFilter}
+                className="w-full py-1.5 text-sm"
+                options={[
+                  { value: "", label: "Todos os cargos" },
+                  ...jobTitleOptions.map((j) => ({ value: j, label: j })),
+                ]}
+              />
+            </div>
+          )}
           {statusFilter === "LOST" && lossReasons.length > 0 && (
             <div className="space-y-1">
               <label className="field-label">Motivo da perda</label>

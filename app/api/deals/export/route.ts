@@ -43,9 +43,6 @@ export async function GET() {
     { header: "Responsável", key: "owner", width: 20 },
     { header: "Valor", key: "value", width: 14 },
     { header: "Tipo de crédito", key: "creditType", width: 16 },
-    { header: "Prazo (meses)", key: "creditTerm", width: 14 },
-    { header: "Grupo", key: "groupNumber", width: 12 },
-    { header: "Cota", key: "quota", width: 12 },
     { header: "Motivo da perda", key: "lossReason", width: 24 },
     { header: "Criado em", key: "createdAt", width: 16 },
   ];
@@ -62,9 +59,6 @@ export async function GET() {
       owner: sanitizeCell(deal.owner.name),
       value: deal.value ? Number(deal.value) : "",
       creditType: sanitizeCell(deal.creditType ?? ""),
-      creditTerm: deal.creditTerm ?? "",
-      groupNumber: sanitizeCell(deal.groupNumber ?? ""),
-      quota: sanitizeCell(deal.quota ?? ""),
       lossReason: sanitizeCell(deal.lossReason?.label ?? ""),
       createdAt: deal.createdAt.toLocaleDateString("pt-BR"),
     });

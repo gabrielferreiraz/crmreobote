@@ -138,7 +138,7 @@ export function PipelineView({
       {importOpen && (
         <ImportDialog
           title="Importar negócios"
-          hint="Arquivo .csv ou .xlsx com colunas: contato (obrigatório), whatsapp, telefone/celular (número 2, usado se o WhatsApp não funcionar), email, origem, negocio, valor, etapa, responsavel, tipo de credito, prazo, grupo, cota."
+          hint="Arquivo .csv ou .xlsx com colunas: contato (obrigatório), whatsapp, telefone/celular (número 2, usado se o WhatsApp não funcionar), email, origem, negocio, valor, etapa, responsavel, tipo de credito."
           endpoint="/api/deals/import"
           extraFields={{ pipelineId }}
           onClose={() => setImportOpen(false)}

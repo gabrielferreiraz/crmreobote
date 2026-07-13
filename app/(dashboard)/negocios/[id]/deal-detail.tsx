@@ -41,10 +41,6 @@ type Deal = {
   value: number | null;
   description: string | null;
   creditType: string | null;
-  creditTerm: number | null;
-  groupNumber: string | null;
-  quota: string | null;
-  contemplated: boolean;
   startedAt: string | Date;
   closedAt: string | Date | null;
   expectedCloseAt: string | Date | null;

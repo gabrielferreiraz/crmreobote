@@ -43,7 +43,7 @@ export type Deal = {
   createdAt: string | Date;
   closedAt: string | Date | null;
   stage: { id: string; name: string; color: string | null };
-  contact: { id: string; name: string; source: string | null };
+  contact: { id: string; name: string; source: string | null; jobTitle: string | null };
   owner: { id: string; name: string; photoUrl: string | null };
   nextActivity: string | null;
   taskTypes: string[];
@@ -73,6 +73,7 @@ export function KanbanBoard({
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [staleOnly, setStaleOnly] = useState(false);
 
   const openDeals = useMemo(() => deals.filter((d) => d.status === "OPEN"), [deals]);
@@ -83,12 +84,19 @@ export function KanbanBoard({
     return Array.from(set).sort();
   }, [openDeals]);
 
-  const hasFilters = !!search || !!ownerFilter || !!sourceFilter || staleOnly;
+  const jobTitleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of openDeals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
+    return Array.from(set).sort();
+  }, [openDeals]);
+
+  const hasFilters = !!search || !!ownerFilter || !!sourceFilter || !!jobTitleFilter || staleOnly;
 
   function clearFilters() {
     setSearch("");
     setOwnerFilter("");
     setSourceFilter("");
+    setJobTitleFilter("");
     setStaleOnly(false);
   }
 
@@ -100,10 +108,11 @@ export function KanbanBoard({
       }
       if (ownerFilter && d.owner.id !== ownerFilter) return false;
       if (sourceFilter && d.contact.source !== sourceFilter) return false;
+      if (jobTitleFilter && d.contact.jobTitle !== jobTitleFilter) return false;
       if (staleOnly && !isStale(d.stageEnteredAt)) return false;
       return true;
     });
-  }, [openDeals, search, ownerFilter, sourceFilter, staleOnly]);
+  }, [openDeals, search, ownerFilter, sourceFilter, jobTitleFilter, staleOnly]);
 
   function handleDragStart(event: DragStartEvent) {
     const deal = openDeals.find((d) => d.id === event.active.id);
@@ -184,6 +193,20 @@ export function KanbanBoard({
                 options={[
                   { value: "", label: "Todas as origens" },
                   ...sourceOptions.map((s) => ({ value: s, label: s })),
+                ]}
+              />
+            </div>
+          )}
+          {jobTitleOptions.length > 0 && (
+            <div className="space-y-1">
+              <label className="field-label">Cargo</label>
+              <Select
+                value={jobTitleFilter}
+                onChange={setJobTitleFilter}
+                className="w-full py-1.5 text-sm"
+                options={[
+                  { value: "", label: "Todos os cargos" },
+                  ...jobTitleOptions.map((j) => ({ value: j, label: j })),
                 ]}
               />
             </div>

@@ -10,10 +10,9 @@ const QUICK_LINKS = [
   { href: "/clientes", label: "Clientes" },
   { href: "/negocios", label: "Negócios" },
   { href: "/pipeline", label: "Pipeline" },
+  { href: "/whatsapp", label: "WhatsApp" },
   { href: "/agenda", label: "Agenda" },
   { href: "/relatorios", label: "Relatórios" },
-  { href: "/automacoes", label: "Automações" },
-  { href: "/campanhas", label: "Campanhas" },
   { href: "/configuracoes", label: "Configurações" },
 ];
 

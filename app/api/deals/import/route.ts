@@ -32,9 +32,6 @@ const SOURCE_HEADERS = ["origem", "source"];
 const DEAL_NAME_HEADERS = ["negocio", "nome do negocio", "titulo"];
 const VALUE_HEADERS = ["valor", "value"];
 const CREDIT_TYPE_HEADERS = ["tipo de credito", "tipo", "credittype"];
-const CREDIT_TERM_HEADERS = ["prazo", "creditterm"];
-const GROUP_HEADERS = ["grupo", "groupnumber"];
-const QUOTA_HEADERS = ["cota", "quota"];
 const STAGE_HEADERS = ["etapa", "stage"];
 const OWNER_HEADERS = ["responsavel", "vendedor", "owner"];
 
@@ -103,9 +100,6 @@ export async function POST(req: Request) {
   const dealNameIdx = columnIndex(DEAL_NAME_HEADERS);
   const valueIdx = columnIndex(VALUE_HEADERS);
   const creditTypeIdx = columnIndex(CREDIT_TYPE_HEADERS);
-  const creditTermIdx = columnIndex(CREDIT_TERM_HEADERS);
-  const groupIdx = columnIndex(GROUP_HEADERS);
-  const quotaIdx = columnIndex(QUOTA_HEADERS);
   const stageIdx = columnIndex(STAGE_HEADERS);
   const ownerIdx = columnIndex(OWNER_HEADERS);
 
@@ -214,10 +208,6 @@ export async function POST(req: Request) {
       : undefined;
     const value = parsedValue !== undefined && Number.isFinite(parsedValue) ? parsedValue : undefined;
 
-    const creditTermRaw = cell(row, creditTermIdx);
-    const parsedTerm = creditTermRaw ? parseInt(creditTermRaw, 10) : undefined;
-    const creditTerm = parsedTerm !== undefined && Number.isFinite(parsedTerm) ? parsedTerm : undefined;
-
     const dealNameRaw = cell(row, dealNameIdx);
     const name = dealNameRaw || buildDealName(contact.name, contact.source);
 
@@ -231,9 +221,6 @@ export async function POST(req: Request) {
         name,
         value,
         creditType: cell(row, creditTypeIdx) || undefined,
-        creditTerm,
-        groupNumber: cell(row, groupIdx) || undefined,
-        quota: cell(row, quotaIdx) || undefined,
       },
     });
 

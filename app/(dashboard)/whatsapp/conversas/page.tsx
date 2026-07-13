@@ -27,14 +27,6 @@ export default async function ConversasPage() {
 
     return (
       <div className="flex h-full flex-col gap-4">
-        <div className="hidden lg:block">
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-            Conversas
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Todas as conversas de WhatsApp num só lugar.
-          </p>
-        </div>
         <ConversationsView
           initialConversations={conversations}
           currentUserName={session!.user.name ?? undefined}

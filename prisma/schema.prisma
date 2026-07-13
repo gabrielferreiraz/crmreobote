@@ -28,6 +28,7 @@ model Organization {
   whatsappThreads   WhatsAppThread[]
   whatsappMessages  WhatsAppMessage[]
   campaigns         Campaign[]
+  messageScripts    MessageScript[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ model User {
   pushSubscriptions PushSubscription[]
   whatsappInstances WhatsAppInstance[]
   campaignsCreated  Campaign[]
+  messageScripts    MessageScript[]
 }
 
 // ─── Notificações push (Web Push) ───────────────────────────────────
@@ -207,6 +209,28 @@ enum WhatsAppMessageStatus {
   FAILED
 }
 
+// ─── Scripts (biblioteca de mensagens reutilizáveis) ────────────────
+//
+// Salvo uma vez, reaproveitado em quantas campanhas quiser — na criação da
+// campanha o texto de cada script escolhido é copiado pro
+// Campaign.messageTemplates (snapshot), então editar/apagar um script depois
+// nunca muda uma campanha que já estava rodando com ele.
+
+model MessageScript {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  text           String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id])
+
+  @@index([organizationId])
+}
+
 // ─── Campanhas de prospecção em massa ───────────────────────────────
 //
 // Envia pra uma lista de contatos (filtrada uma vez na criação, não uma
@@ -242,6 +266,13 @@ model Campaign {
   windowStartHour Int   @default(9)
   windowEndHour   Int   @default(18)
 
+  // Reenvio automático (remarketing) pra quem não respondeu — só UM reenvio
+  // por destinatário, nunca uma sequência de várias tentativas. Se
+  // followUpTemplates for null, reaproveita messageTemplates no reenvio.
+  followUpEnabled    Boolean @default(false)
+  followUpDelayHours Int     @default(24)
+  followUpTemplates  Json?
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -273,6 +304,12 @@ model CampaignRecipient {
   error    String?
 
   repliedAt DateTime? // Marcado pelo webhook de mensagem recebida (lib/whatsapp/events.ts).
+
+  // Reenvio automático (remarketing) — followUpSentAt marca que já TENTOU
+  // (sucesso ou falha, ver followUpError), nunca fica null de novo depois de
+  // tentado, pra não reenviar em loop a cada tick do cron.
+  followUpSentAt DateTime?
+  followUpError  String?
 
   createdAt DateTime @default(now())
 
@@ -474,11 +511,7 @@ model Deal {
 
   value Decimal? @db.Decimal(12, 2)
 
-  creditType   String?
-  creditTerm   Int?
-  groupNumber  String?
-  quota        String?
-  contemplated Boolean @default(false)
+  creditType String?
 
   startedAt       DateTime  @default(now())
   expectedCloseAt DateTime?

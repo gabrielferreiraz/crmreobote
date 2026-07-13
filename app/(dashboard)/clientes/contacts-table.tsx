@@ -12,6 +12,9 @@ import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { FilterPopover } from "@/components/filter-popover";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { JOB_TITLE_OPTIONS } from "@/lib/job-titles";
+
+const NO_JOB_TITLE = "__NONE__";
 
 const SOURCE_OPTIONS = [
   { value: "", label: "—" },
@@ -88,6 +91,7 @@ export function ContactsTable({
 
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [onlyWithDeals, setOnlyWithDeals] = useState(false);
 
   const sourceOptions = useMemo(() => {
@@ -96,11 +100,21 @@ export function ContactsTable({
     return Array.from(set).sort();
   }, [initialContacts]);
 
-  const hasFilters = !!search || !!sourceFilter || onlyWithDeals;
+  // Junta a lista fixa com qualquer valor "antigo" (texto livre de antes
+  // dessa lista existir) que ainda esteja em uso — senão o filtro não
+  // encontraria contatos com cargo cadastrado fora do padrão novo.
+  const jobTitleOptions = useMemo(() => {
+    const set = new Set(JOB_TITLE_OPTIONS);
+    for (const c of initialContacts) if (c.jobTitle) set.add(c.jobTitle);
+    return Array.from(set);
+  }, [initialContacts]);
+
+  const hasFilters = !!search || !!sourceFilter || !!jobTitleFilter || onlyWithDeals;
 
   function clearFilters() {
     setSearch("");
     setSourceFilter("");
+    setJobTitleFilter("");
     setOnlyWithDeals(false);
   }
 
@@ -116,10 +130,12 @@ export function ContactsTable({
         return false;
       }
       if (sourceFilter && c.source !== sourceFilter) return false;
+      if (jobTitleFilter === NO_JOB_TITLE && c.jobTitle) return false;
+      if (jobTitleFilter && jobTitleFilter !== NO_JOB_TITLE && c.jobTitle !== jobTitleFilter) return false;
       if (onlyWithDeals && c._count.deals === 0) return false;
       return true;
     });
-  }, [initialContacts, search, sourceFilter, onlyWithDeals]);
+  }, [initialContacts, search, sourceFilter, jobTitleFilter, onlyWithDeals]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -225,6 +241,19 @@ export function ContactsTable({
               />
             </div>
           )}
+          <div className="space-y-1">
+            <label className="field-label">Cargo</label>
+            <Select
+              value={jobTitleFilter}
+              onChange={setJobTitleFilter}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Todos os cargos" },
+                { value: NO_JOB_TITLE, label: "Sem cargo cadastrado" },
+                ...jobTitleOptions.map((j) => ({ value: j, label: j })),
+              ]}
+            />
+          </div>
           <button
             onClick={() => setOnlyWithDeals((v) => !v)}
             className={`w-full rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -349,7 +378,18 @@ export function ContactsTable({
             <Field label="Celular" value={phone} onChange={setPhone} />
             <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
             <Field label="Empresa" value={company} onChange={setCompany} />
-            <Field label="Cargo" value={jobTitle} onChange={setJobTitle} />
+            <div className="space-y-1">
+              <label className="field-label">Cargo *</label>
+              <Select
+                value={jobTitle}
+                onChange={setJobTitle}
+                placeholder="Selecione o cargo"
+                options={JOB_TITLE_OPTIONS.map((v) => ({ value: v, label: v }))}
+              />
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Essencial pra achar o lead certo depois em filtros e relatórios.
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="CEP" value={zipCode} onChange={setZipCode} />
               <Field label="Cidade" value={city} onChange={setCity} />
@@ -375,7 +415,7 @@ export function ContactsTable({
               <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading || !name.trim()} className="btn-primary">
+              <button type="submit" disabled={loading || !name.trim() || !jobTitle} className="btn-primary">
                 {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                 {loading ? (
                   <span className="inline-flex items-center gap-1">
