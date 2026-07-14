@@ -519,20 +519,27 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
       return;
     }
 
+    // Primeiro pareamento de verdade (nunca teve phoneNumber gravado ainda) —
+    // o estado anterior aqui é "CONNECTING" (setado na criação da instância,
+    // nunca "DISCONNECTED"), então sem esse caso o e-mail de boas-vindas
+    // nunca disparava pra quem tava conectando um WhatsApp pela 1ª vez.
+    const isFirstEverConnection = !instance.phoneNumber;
+
     // Só avisa por e-mail nas transições de verdade (conectado → desconectado
     // e o inverso) — não a cada evento. Importante: o "conectou" só dispara
-    // vindo de um DISCONNECTED confirmado, nunca de CONNECTING — o Evolution
-    // manda "connecting" à toa em vários momentos (refresh interno de sessão,
-    // keep-alive) mesmo com a sessão perfeitamente estável, e isso nunca gera
-    // o e-mail de "desconectou" (só DISCONNECTED gera). Se o "conectou"
-    // disparasse a partir de "não está CONNECTED" (o que inclui CONNECTING),
-    // cada um desses soluços sem desconexão de verdade virava um e-mail de
-    // "conectou" — era exatamente esse o e-mail repetido que a gente via.
+    // vindo de um DISCONNECTED confirmado (ou do 1º pareamento), nunca de um
+    // CONNECTING qualquer — o Evolution manda "connecting" à toa em vários
+    // momentos (refresh interno de sessão, keep-alive) mesmo com a sessão já
+    // estável antes, e isso nunca gera o e-mail de "desconectou" (só
+    // DISCONNECTED gera). Se o "conectou" disparasse a partir de "não está
+    // CONNECTED" (o que inclui CONNECTING), cada um desses soluços sem
+    // desconexão de verdade virava um e-mail de "conectou" — era exatamente
+    // esse o e-mail repetido que a gente via.
     if (instance.status === "CONNECTED" && status === "DISCONNECTED") {
       notifyInstanceDisconnected(instance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de desconexão por e-mail", err),
       );
-    } else if (instance.status === "DISCONNECTED" && status === "CONNECTED") {
+    } else if (status === "CONNECTED" && instance.status !== "CONNECTED" && (instance.status === "DISCONNECTED" || isFirstEverConnection)) {
       notifyInstanceConnected(instance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de conexão por e-mail", err),
       );

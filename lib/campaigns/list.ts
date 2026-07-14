@@ -87,10 +87,13 @@ export type CampaignRecipientRow = {
   id: string;
   contactName: string;
   contactPhone: string | null;
+  contactJobTitle: string | null;
   status: $Enums.CampaignRecipientStatus;
   sentAt: Date | null;
   repliedAt: Date | null;
   followUpSentAt: Date | null;
+  scriptName: string | null;
+  followUpScriptName: string | null;
   error: string | null;
 };
 
@@ -111,11 +114,19 @@ export async function getCampaignDetail(
       createdBy: { select: { name: true } },
       recipients: {
         orderBy: { createdAt: "asc" },
-        include: { contact: { select: { name: true, whatsapp: true, phone: true } } },
+        include: { contact: { select: { name: true, whatsapp: true, phone: true, jobTitle: true } } },
       },
     },
   });
   if (!campaign) return null;
+
+  const scriptIds = Array.from(
+    new Set(campaign.recipients.flatMap((r) => [r.scriptId, r.followUpScriptId]).filter((id): id is string => !!id)),
+  );
+  const scripts = scriptIds.length
+    ? await prisma.messageScript.findMany({ where: { id: { in: scriptIds } }, select: { id: true, name: true } })
+    : [];
+  const scriptNameById = new Map(scripts.map((s) => [s.id, s.name]));
 
   const counts = { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 };
   const metricsByDay = new Map<string, CampaignDailyMetric>();
@@ -160,10 +171,13 @@ export async function getCampaignDetail(
       id: r.id,
       contactName: r.contact.name,
       contactPhone: r.contact.whatsapp || r.contact.phone,
+      contactJobTitle: r.contact.jobTitle,
       status: r.status,
       sentAt: r.sentAt,
       repliedAt: r.repliedAt,
       followUpSentAt: r.followUpSentAt,
+      scriptName: r.scriptId ? (scriptNameById.get(r.scriptId) ?? "Script removido") : null,
+      followUpScriptName: r.followUpScriptId ? (scriptNameById.get(r.followUpScriptId) ?? "Script removido") : null,
       error: r.error ?? r.followUpError,
     })),
     dailyMetrics: Array.from(metricsByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),

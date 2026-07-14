@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
-import { getDealScope, scopeWhere, whatsappScopeWhere } from "@/lib/team-scope";
+import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { DonutChart } from "@/components/charts/donut-chart";
@@ -12,20 +12,53 @@ import { TrendAreaChart } from "@/components/charts/trend-area-chart";
 import { Leaderboard, type LeaderboardEntry } from "@/components/leaderboard";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
+import { TeamOwnerFilter } from "./team-owner-filter";
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ pipelineId?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ pipelineId?: string; from?: string; to?: string; who?: string }>;
 }) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
-  const { pipelineId: pipelineIdParam, from: fromParam, to: toParam } = await searchParams;
+  const { pipelineId: pipelineIdParam, from: fromParam, to: toParam, who: whoParam } = await searchParams;
 
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);
-  const ownerScopeWhere = scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {};
+
+  // Membros que esta pessoa já enxerga no escopo normal dela — vira tanto as
+  // opções do filtro por equipe/responsável abaixo quanto a base do ranking
+  // de equipes. O filtro só ESTREITA o que já era visível, nunca abre acesso
+  // a mais gente do que o papel do usuário já permite.
+  const visibleMembers = await prisma.organizationUser.findMany({
+    where: { organizationId, active: true, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
+    select: { userId: true, teamId: true, team: { select: { id: true, name: true } }, user: { select: { name: true } } },
+  });
+  const teamFilterOptions = Array.from(
+    new Map(visibleMembers.filter((m) => m.teamId && m.team).map((m) => [m.teamId!, m.team!.name])),
+    ([id, name]) => ({ id, name }),
+  );
+  const memberFilterOptions = visibleMembers.map((m) => ({ id: m.userId, name: m.user.name }));
+
+  // "team:<id>" ou "owner:<id>" — um único parâmetro de URL pro dropdown
+  // combinado (ver team-owner-filter.tsx), mais simples que dois selects que
+  // precisariam se zerar um ao outro.
+  const filterTeamId = whoParam?.startsWith("team:") ? whoParam.slice(5) : undefined;
+  const filterOwnerId = whoParam?.startsWith("owner:") ? whoParam.slice(6) : undefined;
+
+  let effectiveScope: DealScope = scope;
+  if (filterTeamId) {
+    const ids = visibleMembers.filter((m) => m.teamId === filterTeamId).map((m) => m.userId);
+    effectiveScope = { type: "owners", ownerIds: ids };
+  } else if (filterOwnerId && visibleMembers.some((m) => m.userId === filterOwnerId)) {
+    effectiveScope = { type: "owners", ownerIds: [filterOwnerId] };
+  }
+  const ownerScopeWhere = effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {};
+  // Ranking de equipes exige a visão irrestrita de base — um líder de equipe
+  // só veria a própria equipe sozinha (não é comparação de verdade), e um
+  // filtro ativo (equipe/pessoa específica) já não faz sentido comparar times.
+  const showTeamRanking = scope.type === "all" && !filterTeamId && !filterOwnerId;
 
   // Período do relatório — só afeta negócios DECIDIDOS (ganhos/perdidos),
   // reuniões e WhatsApp. O pipeline em aberto continua sempre "agora": não
@@ -71,43 +104,42 @@ export default async function RelatoriosPage({
     lostByOwner,
     lostByReason,
     meetingsByOwner,
-    orgMembers,
     wonDealsForTrend,
     wonByCreditType,
   ] = await Promise.all([
-    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
+    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope) } }),
     activePipeline
       ? prisma.deal.groupBy({
           by: ["stageId"],
-          where: { organizationId, pipelineId: activePipeline.id, status: "OPEN", ...scopeWhere(scope) },
+          where: { organizationId, pipelineId: activePipeline.id, status: "OPEN", ...scopeWhere(effectiveScope) },
           _count: true,
           _sum: { value: true },
         })
       : Promise.resolve([]),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, ...scopeWhere(scope) },
+      where: { organizationId, ...scopeWhere(effectiveScope) },
       _count: true,
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
+      where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope) },
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "WON", ...scopeWhere(scope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
       _count: true,
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(scope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
       _count: true,
     }),
     prisma.deal.groupBy({
       by: ["lossReasonId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(scope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
       _count: true,
     }),
     // Ranking de reuniões: quem mais registrou atividade do tipo "Reunião".
@@ -116,24 +148,15 @@ export default async function RelatoriosPage({
       where: { organizationId, type: "MEETING", ...ownerScopeWhere, ...dateWhere("createdAt") },
       _count: true,
     }),
-    // Ranking de equipes só existe pra quem enxerga tudo — um líder de
-    // equipe ou vendedor só veriam a própria equipe sozinha no ranking,
-    // o que não é uma comparação de verdade.
-    scope.type === "all"
-      ? prisma.organizationUser.findMany({
-          where: { organizationId, active: true },
-          select: { userId: true, teamId: true, team: { select: { id: true, name: true } } },
-        })
-      : Promise.resolve([]),
     prisma.deal.findMany({
-      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(scope) },
+      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope) },
       select: { closedAt: true, value: true },
     }),
     // Faturamento por tipo de crédito — imóvel e veículo têm ticket e ciclo
     // de decisão bem diferentes, vale ver separado, não só o total misturado.
     prisma.deal.groupBy({
       by: ["creditType"],
-      where: { organizationId, status: "WON", ...scopeWhere(scope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
       _count: true,
       _sum: { value: true },
     }),
@@ -195,7 +218,7 @@ export default async function RelatoriosPage({
     new Set([
       ...allByOwner.map((o) => o.ownerId),
       ...meetingsByOwner.map((m) => m.userId),
-      ...orgMembers.map((m) => m.userId),
+      ...visibleMembers.map((m) => m.userId),
     ]),
   );
   const people = await prisma.user.findMany({
@@ -264,7 +287,7 @@ export default async function RelatoriosPage({
     }));
 
   const teamGroups = new Map<string, { name: string; memberIds: string[] }>();
-  for (const m of orgMembers) {
+  for (const m of showTeamRanking ? visibleMembers : []) {
     if (!m.teamId || !m.team) continue;
     if (!teamGroups.has(m.teamId)) teamGroups.set(m.teamId, { name: m.team.name, memberIds: [] });
     teamGroups.get(m.teamId)!.memberIds.push(m.userId);
@@ -356,7 +379,7 @@ export default async function RelatoriosPage({
   // negócios decididos no período e agrupa na mão. Respeita o mesmo filtro
   // de data das outras métricas "decididas" da página.
   const decidedDealsForJobTitle = await prisma.deal.findMany({
-    where: { organizationId, status: { in: ["WON", "LOST"] }, ...scopeWhere(scope), ...dateWhere("closedAt") },
+    where: { organizationId, status: { in: ["WON", "LOST"] }, ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
     select: { status: true, value: true, contact: { select: { jobTitle: true } } },
   });
   const jobTitleStats = new Map<string, { won: number; lost: number; wonValue: number }>();
@@ -382,45 +405,118 @@ export default async function RelatoriosPage({
     .sort((a, b) => b.won + b.lost - (a.won + a.lost));
 
   // ─── WhatsApp: enviadas, responderam e conversão por vendedor ──────────
-  const [whatsappInstances, sentByInstance, inboundPairs, outboundPairs, campaignRecipients] = await Promise.all([
+  // "Geral" nunca conta mensagem de disparo de lista fria (campaignId
+  // setado por lib/campaigns/engine.ts) — sem essa exclusão, qualquer
+  // campanha inflava "mensagens enviadas"/"responderam" junto com conversa
+  // manual/automação, misturando prospecção fria com atividade orgânica.
+  const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
     prisma.whatsAppInstance.findMany({
-      where: { organizationId, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
+      where: { organizationId, ...(effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {}) },
       include: { user: { select: { id: true, name: true } } },
     }),
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId"],
-      where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
+      where: {
+        organizationId,
+        direction: "OUTBOUND",
+        campaignId: null,
+        ...whatsappScopeWhere(effectiveScope),
+        ...dateWhere("createdAt"),
+      },
       _count: true,
     }),
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId", "threadId"],
-      where: { organizationId, direction: "INBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
-    }),
-    prisma.whatsAppMessage.groupBy({
-      by: ["instanceId", "threadId"],
-      where: { organizationId, direction: "OUTBOUND", ...whatsappScopeWhere(scope), ...dateWhere("createdAt") },
+      where: {
+        organizationId,
+        direction: "OUTBOUND",
+        campaignId: null,
+        ...whatsappScopeWhere(effectiveScope),
+        ...dateWhere("createdAt"),
+      },
     }),
     // Prospecção fria: listas importadas + disparo em massa (Campanhas) — cada
     // linha SENT é um lead que só existe na conversa porque o vendedor mandou
     // a primeira mensagem (o oposto de um lead orgânico que chamou primeiro).
     prisma.campaignRecipient.findMany({
       where: {
-        campaign: { organizationId, ...(scope.type === "owners" ? { instance: { userId: { in: scope.ownerIds } } } : {}) },
+        campaign: { organizationId, ...(effectiveScope.type === "owners" ? { instance: { userId: { in: effectiveScope.ownerIds } } } : {}) },
         status: "SENT",
         ...dateWhere("sentAt"),
       },
-      select: { repliedAt: true, campaign: { select: { instanceId: true } } },
+      select: {
+        repliedAt: true,
+        scriptId: true,
+        campaign: { select: { instanceId: true } },
+        contact: { select: { jobTitle: true } },
+      },
     }),
   ]);
+  const outboundPairs = organicOutboundPairs;
+
+  // Resposta "geral" só conta se o thread também teve pelo menos uma
+  // mensagem orgânica (não-campanha) enviada — uma resposta a um disparo de
+  // lista fria puro (sem nenhum contato manual depois) já está contada em
+  // "prospecção fria" via CampaignRecipient.repliedAt, não deve duplicar aqui.
+  const organicThreadIds = Array.from(new Set(organicOutboundPairs.map((p) => p.threadId)));
+  const inboundPairs = organicThreadIds.length
+    ? await prisma.whatsAppMessage.groupBy({
+        by: ["instanceId", "threadId"],
+        where: {
+          organizationId,
+          direction: "INBOUND",
+          threadId: { in: organicThreadIds },
+          ...whatsappScopeWhere(effectiveScope),
+          ...dateWhere("createdAt"),
+        },
+      })
+    : [];
 
   const campaignStatsByInstance = new Map<string, { sent: number; replied: number }>();
+  const campaignStatsByScript = new Map<string, { sent: number; replied: number }>();
+  const campaignStatsByJobTitle = new Map<string, { sent: number; replied: number }>();
   for (const r of campaignRecipients) {
     const key = r.campaign.instanceId;
     if (!campaignStatsByInstance.has(key)) campaignStatsByInstance.set(key, { sent: 0, replied: 0 });
     const stat = campaignStatsByInstance.get(key)!;
     stat.sent += 1;
     if (r.repliedAt) stat.replied += 1;
+
+    const scriptKey = r.scriptId ?? "sem-script";
+    if (!campaignStatsByScript.has(scriptKey)) campaignStatsByScript.set(scriptKey, { sent: 0, replied: 0 });
+    const scriptStat = campaignStatsByScript.get(scriptKey)!;
+    scriptStat.sent += 1;
+    if (r.repliedAt) scriptStat.replied += 1;
+
+    const jobTitleKey = r.contact.jobTitle || "Sem cargo cadastrado";
+    if (!campaignStatsByJobTitle.has(jobTitleKey)) campaignStatsByJobTitle.set(jobTitleKey, { sent: 0, replied: 0 });
+    const jobTitleStat = campaignStatsByJobTitle.get(jobTitleKey)!;
+    jobTitleStat.sent += 1;
+    if (r.repliedAt) jobTitleStat.replied += 1;
   }
+
+  const campaignScriptIds = Array.from(campaignStatsByScript.keys()).filter((id) => id !== "sem-script");
+  const campaignScripts = campaignScriptIds.length
+    ? await prisma.messageScript.findMany({ where: { id: { in: campaignScriptIds } }, select: { id: true, name: true } })
+    : [];
+  const scriptBreakdown = Array.from(campaignStatsByScript.entries())
+    .map(([id, s]) => ({
+      id,
+      name: id === "sem-script" ? "Sem script identificado" : (campaignScripts.find((cs) => cs.id === id)?.name ?? "Script removido"),
+      sent: s.sent,
+      replied: s.replied,
+      replyRate: s.sent > 0 ? Math.round((s.replied / s.sent) * 100) : 0,
+    }))
+    .sort((a, b) => b.sent - a.sent);
+
+  const cargoBreakdown = Array.from(campaignStatsByJobTitle.entries())
+    .map(([label, s]) => ({
+      label,
+      sent: s.sent,
+      replied: s.replied,
+      replyRate: s.sent > 0 ? Math.round((s.replied / s.sent) * 100) : 0,
+    }))
+    .sort((a, b) => b.sent - a.sent);
 
   // groupBy não alcança campo de relação (thread.contactId) — resolve à
   // parte. Thread sem Contact vinculado (aba "Geral") não entra nas métricas
@@ -488,7 +584,7 @@ export default async function RelatoriosPage({
   // (aberto, ganho ou perdido) — exclui "WhatsApp Geral". Aqui entram
   // métricas de tempo, que exigem olhar as mensagens em ordem, não só contar.
   const dealContacts = await prisma.deal.findMany({
-    where: { organizationId, ...scopeWhere(scope) },
+    where: { organizationId, ...scopeWhere(effectiveScope) },
     select: { contactId: true },
     distinct: ["contactId"],
   });
@@ -496,7 +592,7 @@ export default async function RelatoriosPage({
 
   const dealThreads = dealContactIds.length
     ? await prisma.whatsAppThread.findMany({
-        where: { organizationId, contactId: { in: dealContactIds }, ...whatsappScopeWhere(scope) },
+        where: { organizationId, contactId: { in: dealContactIds }, ...whatsappScopeWhere(effectiveScope) },
         select: { id: true, instanceId: true, contactId: true },
       })
     : [];
@@ -603,7 +699,10 @@ export default async function RelatoriosPage({
             Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
           </p>
         </div>
-        <DateRangeFilter />
+        <div className="flex flex-wrap items-center gap-2">
+          <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} />
+          <DateRangeFilter />
+        </div>
       </div>
 
       {/* ─── Visão geral ────────────────────────────────────────────── */}
@@ -756,7 +855,7 @@ export default async function RelatoriosPage({
           </div>
         </div>
 
-        {teamRanking.length > 0 && (
+        {showTeamRanking && teamRanking.length > 0 && (
           <div className="card p-6">
             <div className="mb-1 flex items-center gap-2">
               <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
@@ -916,11 +1015,62 @@ export default async function RelatoriosPage({
             ))}
           </div>
 
+          {scriptBreakdown.length > 0 && (
+            <div className="grid grid-cols-12 gap-5">
+              <div className="card col-span-12 overflow-x-auto p-6 lg:col-span-6">
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Prospecção fria por script</h3>
+                <table className="mt-4 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                      <th className="pb-2 font-medium">Script</th>
+                      <th className="pb-2 text-right font-medium">Enviadas</th>
+                      <th className="pb-2 text-right font-medium">Responderam</th>
+                      <th className="pb-2 text-right font-medium">Taxa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scriptBreakdown.map((s) => (
+                      <tr key={s.id} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                        <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{s.name}</td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{s.sent}</td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{s.replied}</td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{s.replyRate}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="card col-span-12 overflow-x-auto p-6 lg:col-span-6">
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Prospecção fria por cargo</h3>
+                <table className="mt-4 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                      <th className="pb-2 font-medium">Cargo</th>
+                      <th className="pb-2 text-right font-medium">Enviadas</th>
+                      <th className="pb-2 text-right font-medium">Responderam</th>
+                      <th className="pb-2 text-right font-medium">Taxa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cargoBreakdown.map((c) => (
+                      <tr key={c.label} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                        <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{c.label}</td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{c.sent}</td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{c.replied}</td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{c.replyRate}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Conversão em venda = % dos contatos que receberam WhatsApp e fecharam negócio (ganho). Prospecção fria =
-            envios de campanha (lista importada, primeira mensagem partiu do vendedor/robô). Conversas de negócio =
-            só contatos já vinculados a um negócio; resposta = % que o lead respondeu; 1ª resposta e duração são
-            médias de tempo.
+            Conversão em venda = % dos contatos que receberam WhatsApp e fecharam negócio (ganho), sem contar disparo
+            de campanha. Prospecção fria = envios de campanha (lista importada), sempre separado da atividade geral —
+            uma mensagem nunca conta nos dois ao mesmo tempo. Conversas de negócio = só contatos já vinculados a um
+            negócio; resposta = % que o lead respondeu; 1ª resposta e duração são médias de tempo.
           </p>
         </section>
       )}

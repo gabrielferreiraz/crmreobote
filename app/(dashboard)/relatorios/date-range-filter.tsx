@@ -4,46 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { DatePicker } from "@/components/date-picker";
+import { buildQuickRanges } from "@/lib/date-ranges";
 
-function toISODate(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-const QUICK_RANGES: { key: string; label: string; range: () => { from: string; to: string } }[] = [
-  {
-    key: "this-month",
-    label: "Este mês",
-    range: () => {
-      const now = new Date();
-      return {
-        from: toISODate(new Date(now.getFullYear(), now.getMonth(), 1)),
-        to: toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
-      };
-    },
-  },
-  {
-    key: "last-month",
-    label: "Mês passado",
-    range: () => {
-      const now = new Date();
-      return {
-        from: toISODate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-        to: toISODate(new Date(now.getFullYear(), now.getMonth(), 0)),
-      };
-    },
-  },
-  {
-    key: "this-year",
-    label: "Este ano",
-    range: () => {
-      const now = new Date();
-      return { from: toISODate(new Date(now.getFullYear(), 0, 1)), to: toISODate(new Date(now.getFullYear(), 11, 31)) };
-    },
-  },
-];
+const QUICK_RANGES = buildQuickRanges();
 
 const PILL_BASE = "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97]";
 const PILL_ACTIVE = "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900";

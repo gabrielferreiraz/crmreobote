@@ -13,6 +13,71 @@ type Step = { text: string; delayAfterSec: number };
 const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
 const MAX_DELAY_SEC = 120;
 
+const TOKEN_LABEL = new Map<string, string>([
+  ["nome", "Nome"],
+  ["primeiro_nome", "1º nome"],
+  ["cargo", "Cargo"],
+  ["empresa", "Empresa"],
+  ["cidade", "Cidade"],
+  ["saudacao", "Saudação"],
+]);
+// Casa só os tokens de variável conhecidos (ex.: "{cargo}") — de propósito não
+// casa "{[opção 1|opção 2]}" (sintaxe de spintax, ver lib/campaigns/spintax.ts),
+// que deve continuar como texto puro editável, não virar pílula.
+const TOKEN_RE = new RegExp(`(\\{(?:${Array.from(TOKEN_LABEL.keys()).join("|")})\\})`, "g");
+
+function buildChipHtml(token: string): string {
+  const label = TOKEN_LABEL.get(token) ?? token;
+  return `<span contenteditable="false" data-token="${token}" class="variable-pill variable-pill--clickable" title="Clique para remover">${label}</span> `;
+}
+
+/** DOM do editor → string com `{token}` (mesmo formato que sempre foi salvo/renderizado). */
+function serializeEditor(root: HTMLElement): string {
+  let out = "";
+  for (const node of Array.from(root.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.textContent ?? "";
+    } else if (node instanceof HTMLElement) {
+      if (node.dataset.token) out += `{${node.dataset.token}}`;
+      else if (node.tagName === "BR") out += "\n";
+      else out += node.textContent ?? "";
+    }
+  }
+  return out;
+}
+
+/** string com `{token}` → DOM (pílulas + texto) — só roda uma vez, no mount de cada editor. */
+function deserializeIntoEditor(root: HTMLElement, value: string) {
+  root.innerHTML = "";
+  const parts = value.split(TOKEN_RE);
+  for (const part of parts) {
+    const match = part.match(/^\{(\w+)\}$/);
+    if (match && TOKEN_LABEL.has(match[1])) {
+      const wrapper = document.createElement("span");
+      wrapper.innerHTML = buildChipHtml(match[1]);
+      while (wrapper.firstChild) root.appendChild(wrapper.firstChild);
+    } else if (part) {
+      part.split("\n").forEach((line, i) => {
+        if (i > 0) root.appendChild(document.createElement("br"));
+        if (line) root.appendChild(document.createTextNode(line));
+      });
+    }
+  }
+}
+
+function ensureFocusInsideEditor(el: HTMLElement) {
+  const sel = window.getSelection();
+  const hasSelectionInside = !!sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer);
+  if (!hasSelectionInside) {
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+}
+
 export function ScriptEditor({
   scriptId,
   initialName = "",
@@ -31,12 +96,29 @@ export function ScriptEditor({
   const [steps, setSteps] = useState<Step[]>(
     initialSteps?.length ? initialSteps : [{ text: "", delayAfterSec: 0 }],
   );
+  // Chave estável por mensagem, independente da posição no array — sem isso,
+  // remover a mensagem 1 faria a mensagem 2 "herdar" o DOM (e o innerHTML já
+  // deserializado) da mensagem 1 no React, já que os editores não são mais
+  // controlados por `value` a cada tecla (ver deserializeIntoEditor).
+  const nextKeyRef = useRef(0);
+  const newStepKey = () => `s${nextKeyRef.current++}`;
+  const [stepKeys, setStepKeys] = useState<string[]>(() => steps.map(() => newStepKey()));
   const [tags, setTags] = useState<string[]>(initialTags);
   const [tagInput, setTagInput] = useState("");
   const [focusedStepIndex, setFocusedStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+
+  const editorRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const initializedSteps = useRef<Set<number>>(new Set());
+
+  function setEditorRef(idx: number, el: HTMLDivElement | null) {
+    editorRefs.current[idx] = el;
+    if (el && !initializedSteps.current.has(idx)) {
+      deserializeIntoEditor(el, steps[idx]?.text ?? "");
+      initializedSteps.current.add(idx);
+    }
+  }
 
   function updateStepText(idx: number, text: string) {
     setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, text } : s)));
@@ -49,31 +131,52 @@ export function ScriptEditor({
 
   function addStep() {
     setSteps((prev) => [...prev, { text: "", delayAfterSec: 2 }]);
+    setStepKeys((prev) => [...prev, newStepKey()]);
     setFocusedStepIndex(steps.length);
   }
 
   function removeStep(idx: number) {
     setSteps((prev) => prev.filter((_, i) => i !== idx));
+    setStepKeys((prev) => prev.filter((_, i) => i !== idx));
+    initializedSteps.current.delete(idx);
   }
 
-  /** Insere no campo de texto que estava com foco por último, na posição do cursor. */
-  function insertVariable(token: string) {
-    const idx = focusedStepIndex;
-    const el = textareaRefs.current[idx];
-    const current = steps[idx]?.text ?? "";
-    const start = el?.selectionStart ?? current.length;
-    const end = el?.selectionEnd ?? current.length;
-    const nextText = current.slice(0, start) + token + current.slice(end);
-    updateStepText(idx, nextText);
+  function handleEditorInput(idx: number) {
+    const el = editorRefs.current[idx];
+    if (!el) return;
+    updateStepText(idx, serializeEditor(el));
+  }
 
-    requestAnimationFrame(() => {
-      const target = textareaRefs.current[idx];
-      if (target) {
-        const pos = start + token.length;
-        target.focus();
-        target.setSelectionRange(pos, pos);
-      }
-    });
+  function handleEditorKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    document.execCommand("insertLineBreak");
+  }
+
+  function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    // Sempre como texto puro — colar de um site/Word traria formatação/HTML
+    // estranho pro corpo da mensagem.
+    e.preventDefault();
+    document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+  }
+
+  /** Clique numa pílula inserida no texto a remove — sem precisar posicionar o cursor e apagar. */
+  function handleEditorClick(e: React.MouseEvent<HTMLDivElement>, idx: number) {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-token]");
+    if (!chip) return;
+    chip.remove();
+    handleEditorInput(idx);
+  }
+
+  /** Insere a pílula da variável no editor que estava com foco por último, na posição do cursor. */
+  function insertVariable(bracedToken: string) {
+    const idx = focusedStepIndex;
+    const el = editorRefs.current[idx];
+    if (!el) return;
+    const token = bracedToken.replace(/[{}]/g, "");
+    ensureFocusInsideEditor(el);
+    document.execCommand("insertHTML", false, buildChipHtml(token));
+    handleEditorInput(idx);
   }
 
   function addTag(raw: string) {
@@ -121,7 +224,7 @@ export function ScriptEditor({
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-5xl space-y-4">
       <Link
         href="/whatsapp/scripts"
         className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
@@ -195,82 +298,90 @@ export function ScriptEditor({
           </div>
         </div>
 
-        <div className="space-y-2">
-          {steps.map((step, idx) => (
-            <div key={idx} className="card space-y-2 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Mensagem {idx + 1}</span>
-                {steps.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeStep(idx)}
-                    className="icon-btn"
-                    aria-label={`Remover mensagem ${idx + 1}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                  </button>
-                )}
-              </div>
-              <textarea
-                ref={(el) => {
-                  textareaRefs.current[idx] = el;
-                }}
-                required
-                value={step.text}
-                onFocus={() => setFocusedStepIndex(idx)}
-                onChange={(e) => updateStepText(idx, e.target.value)}
-                rows={3}
-                placeholder="Ex.: {saudacao} {primeiro_nome}! {[Tudo bem|Como vai]}? Vi que você atua como {cargo}..."
-                className="field-input"
-              />
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-400 dark:text-neutral-500">
-                <span>{step.text.length} caracteres</span>
-                {idx < steps.length - 1 && (
-                  <label className="flex items-center gap-1.5">
-                    Esperar
-                    <input
-                      type="number"
-                      min={0}
-                      max={MAX_DELAY_SEC}
-                      value={step.delayAfterSec}
-                      onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
-                      className="field-input w-16 px-2 py-0.5"
-                    />
-                    segundos antes da próxima mensagem
-                  </label>
-                )}
-              </div>
-            </div>
-          ))}
-
-          <div className="card space-y-2 p-3">
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Inserir variável em: <span className="font-medium text-neutral-600 dark:text-neutral-300">Mensagem {focusedStepIndex + 1}</span>
-            </p>
-            <VariablePills onInsert={insertVariable} />
-          </div>
-
-          <button type="button" onClick={addStep} className="btn-ghost w-full justify-center">
-            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-            Adicionar outra mensagem
-          </button>
-        </div>
-
-        <div className="card space-y-2 p-4">
-          <p className="field-label">Prévia (com dados de exemplo)</p>
-          <div className="space-y-1.5">
-            {previewSteps.map((s, i) => (
-              <div
-                key={i}
-                className="max-w-[85%] rounded-lg bg-emerald-50 px-3 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200"
-              >
-                {s.text || <span className="text-neutral-400 dark:text-neutral-500">(vazio)</span>}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:items-start">
+          <div className="space-y-2 lg:col-span-7">
+            {steps.map((step, idx) => (
+              <div key={stepKeys[idx]} className="card space-y-2 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Mensagem {idx + 1}</span>
+                  {steps.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeStep(idx)}
+                      className="icon-btn"
+                      aria-label={`Remover mensagem ${idx + 1}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <div
+                    ref={(el) => setEditorRef(idx, el)}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onFocus={() => setFocusedStepIndex(idx)}
+                    onInput={() => handleEditorInput(idx)}
+                    onKeyDown={handleEditorKeyDown}
+                    onPaste={handleEditorPaste}
+                    onClick={(e) => handleEditorClick(e, idx)}
+                    className="field-input scrollbar-thin min-h-[4.5rem] cursor-text overflow-y-auto whitespace-pre-wrap"
+                  />
+                  {!step.text && (
+                    <span className="pointer-events-none absolute top-2 left-3 text-sm text-neutral-400 dark:text-neutral-500">
+                      Ex.: {"{saudacao} {primeiro_nome}"}! {"{[Tudo bem|Como vai]}"}? Vi que você atua como {"{cargo}"}...
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-400 dark:text-neutral-500">
+                  <span>{step.text.length} caracteres</span>
+                  {idx < steps.length - 1 && (
+                    <label className="flex items-center gap-1.5">
+                      Esperar
+                      <input
+                        type="number"
+                        min={0}
+                        max={MAX_DELAY_SEC}
+                        value={step.delayAfterSec}
+                        onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
+                        className="field-input w-16 px-2 py-0.5"
+                      />
+                      segundos antes da próxima mensagem
+                    </label>
+                  )}
+                </div>
               </div>
             ))}
+
+            <div className="card space-y-2 p-3">
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Inserir variável em: <span className="font-medium text-neutral-600 dark:text-neutral-300">Mensagem {focusedStepIndex + 1}</span>
+              </p>
+              <VariablePills onInsert={insertVariable} />
+            </div>
+
+            <button type="button" onClick={addStep} className="btn-ghost w-full justify-center">
+              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Adicionar outra mensagem
+            </button>
           </div>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            {totalChars} caracteres no total · <code>{"{[opção 1|opção 2]}"}</code> varia trechos
-          </p>
+
+          <div className="card space-y-2 p-4 lg:sticky lg:top-4 lg:col-span-5">
+            <p className="field-label">Prévia (com dados de exemplo)</p>
+            <div className="space-y-1.5">
+              {previewSteps.map((s, i) => (
+                <div
+                  key={i}
+                  className="max-w-[85%] rounded-lg bg-emerald-50 px-3 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200"
+                >
+                  {s.text || <span className="text-neutral-400 dark:text-neutral-500">(vazio)</span>}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              {totalChars} caracteres no total · <code>{"{[opção 1|opção 2]}"}</code> varia trechos
+            </p>
+          </div>
         </div>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

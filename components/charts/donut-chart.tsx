@@ -43,9 +43,18 @@ export function DonutChart({
           })}
         </svg>
         {(centerValue || centerLabel) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
             {centerValue && (
-              <span className="text-lg leading-tight font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+              // Largura e tamanho da fonte limitados ao "furo" real da rosca (~126px de
+              // diâmetro) — um valor curto ("97%") cabe numa linha em text-lg, mas um
+              // valor longo (moeda, ex. "R$ 1.670.000,00") em text-lg atravessa o anel;
+              // por isso a fonte encolhe e a largura força quebra de linha conforme o
+              // texto cresce, em vez de vazar por cima do gráfico.
+              <span
+                className={`max-w-[104px] leading-tight font-semibold tabular-nums text-neutral-900 dark:text-neutral-100 ${
+                  centerValue.length > 10 ? "text-sm" : centerValue.length > 6 ? "text-base" : "text-lg"
+                }`}
+              >
                 {centerValue}
               </span>
             )}

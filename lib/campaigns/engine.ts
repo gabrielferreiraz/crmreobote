@@ -163,8 +163,11 @@ async function sendToRecipient(
     // configurado entre as partes — é o que faz o script de várias mensagens
     // parecer alguém digitando em seguida, não disparos avulsos minutos
     // depois (o delay ENTRE destinatários continua sendo o do cron/shouldSendNow).
+    // campaignId vai em toda mensagem enviada por aqui — é o que separa
+    // prospecção fria de conversa manual/automação nos relatórios, sem
+    // precisar adivinhar pelo conteúdo ou pelo horário.
     for (let i = 0; i < steps.length; i++) {
-      await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[i].text });
+      await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[i].text, campaignId: campaign.id });
       if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
         await sleep(steps[i].delayAfterSec * 1000);
       }
@@ -173,10 +176,13 @@ async function sendToRecipient(
     if (kind === "initial") {
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
-        data: { status: "SENT", sentAt: new Date(), threadId: thread.id },
+        data: { status: "SENT", sentAt: new Date(), threadId: thread.id, scriptId: chosen.scriptId },
       });
     } else {
-      await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { followUpSentAt: new Date() } });
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { followUpSentAt: new Date(), followUpScriptId: chosen.scriptId },
+      });
     }
     return "sent";
   } catch (err) {

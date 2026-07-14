@@ -206,6 +206,13 @@ model WhatsAppMessage {
   // (tanto em mensagens recebidas quanto nas que a gente manda).
   rawPayload     Json?
   replyToId      String?
+  // Marca esta mensagem (só as OUTBOUND que o motor de campanhas manda) como
+  // vinda de um disparo de lista fria — indicador de primeira classe, em vez
+  // de tentar adivinhar "isso parece uma campanha" comparando texto/horário
+  // depois. Sem isso, os relatórios (app/(dashboard)/relatorios/page.tsx)
+  // contavam qualquer mensagem enviada (conversa manual, automação) junto
+  // com prospecção fria nas mesmas métricas gerais.
+  campaignId     String?
   createdAt      DateTime                 @default(now())
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -213,10 +220,12 @@ model WhatsAppMessage {
   thread       WhatsAppThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
   replyTo      WhatsAppMessage?  @relation("WhatsAppMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies      WhatsAppMessage[] @relation("WhatsAppMessageReplies")
+  campaign     Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, threadId, createdAt])
   @@index([organizationId, instanceId])
   @@index([organizationId, threadId, direction, read])
+  @@index([organizationId, campaignId])
 }
 
 enum WhatsAppMessageDirection {
@@ -334,6 +343,7 @@ model Campaign {
   instance     WhatsAppInstance    @relation(fields: [instanceId], references: [id])
   createdBy    User                @relation(fields: [createdById], references: [id])
   recipients   CampaignRecipient[]
+  messages     WhatsAppMessage[]
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -352,9 +362,16 @@ model CampaignRecipient {
   contactId  String
   status     CampaignRecipientStatus @default(PENDING)
 
-  threadId String? // Setado quando enviado — a conversa segue normal em Conversas dali pra frente.
-  sentAt   DateTime?
-  error    String?
+  threadId         String? // Setado quando enviado — a conversa segue normal em Conversas dali pra frente.
+  sentAt           DateTime?
+  error            String?
+  // Qual script (dentro do snapshot messageTemplates/followUpTemplates) foi
+  // de fato sorteado pra esse destinatário — alimenta a quebra por script
+  // nos relatórios de prospecção fria. Campos separados porque o envio
+  // inicial e o reenvio são eventos distintos, cada um pode ter sorteado um
+  // script diferente (mesmo padrão de sentAt/followUpSentAt).
+  scriptId         String?
+  followUpScriptId String?
 
   repliedAt DateTime? // Marcado pelo webhook de mensagem recebida (lib/whatsapp/events.ts).
 

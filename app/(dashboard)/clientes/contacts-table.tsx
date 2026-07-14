@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Inbox, Loader2, Upload, Download, Search, SearchX, User, Mail, Phone, Tag, Briefcase } from "lucide-react";
+import { Plus, Inbox, Loader2, Upload, Download, Search, SearchX, User, Mail, Phone, Tag, Briefcase, IdCard } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
@@ -304,6 +304,12 @@ export function ContactsTable({
                 </th>
                 <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
                   <span className="inline-flex items-center gap-1.5">
+                    <IdCard className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                    Cargo
+                  </span>
+                </th>
+                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <span className="inline-flex items-center gap-1.5">
                     <Tag className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
                     Origem
                   </span>
@@ -326,14 +332,7 @@ export function ContactsTable({
                       className="flex items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
                     >
                       <Avatar name={c.name} size="xs" />
-                      <span>
-                        {c.name}
-                        {c.jobTitle && (
-                          <span className="block text-xs font-normal text-neutral-400 dark:text-neutral-500">
-                            {c.jobTitle}
-                          </span>
-                        )}
-                      </span>
+                      <span>{c.name}</span>
                     </Link>
                   </td>
                   <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
@@ -341,6 +340,9 @@ export function ContactsTable({
                   </td>
                   <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                     {c.phone ?? "—"}
+                  </td>
+                  <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                    {c.jobTitle ?? "—"}
                   </td>
                   <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
                     {c.source ? (

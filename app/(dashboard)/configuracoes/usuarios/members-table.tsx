@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck } from "lucide-react";
+import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
@@ -52,6 +52,10 @@ export function MembersTable({
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccessName, setResetSuccessName] = useState<string | null>(null);
+  const [memberToRename, setMemberToRename] = useState<Member | null>(null);
+  const [newName, setNewName] = useState("");
+  const [renameLoading, setRenameLoading] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -166,6 +170,30 @@ export function MembersTable({
     setNewPassword("");
   }
 
+  async function renameMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (!memberToRename) return;
+    setRenameLoading(true);
+    setRenameError(null);
+
+    const res = await fetch(`/api/org/members/${memberToRename.user.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setRenameLoading(false);
+
+    if (!res.ok) {
+      setRenameError(data.error ?? "Erro ao alterar nome");
+      return;
+    }
+
+    setMemberToRename(null);
+    setNewName("");
+    router.refresh();
+  }
+
   return (
     <div className="space-y-4">
       <input
@@ -211,119 +239,127 @@ export function MembersTable({
         </button>
       </div>
 
-      <div className="card overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead>
-            <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
-              <th className="px-4 py-2.5 font-medium">Nome</th>
-              <th className="px-4 py-2.5 font-medium">E-mail</th>
-              <th className="px-4 py-2.5 font-medium">Papel</th>
-              <th className="px-4 py-2.5 font-medium">Equipe</th>
-              <th className="px-4 py-2.5 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleMembers.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                  {tab === "active" ? "Nenhum usuário ativo." : "Nenhum usuário inativo."}
-                </td>
-              </tr>
-            )}
-            {visibleMembers.map((m) => (
-              <tr key={m.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800">
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <span className="flex items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100">
-                    {isOwner ? (
-                      <button
-                        onClick={() => triggerPhotoUpload(m.user.id)}
-                        className="group relative shrink-0"
-                        title="Alterar foto"
-                        disabled={uploadingId === m.user.id}
-                      >
-                        <Avatar name={m.user.name} src={m.photoUrl} size="xs" />
-                        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                          {uploadingId === m.user.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin text-white" strokeWidth={2} />
-                          ) : (
-                            <Camera className="h-3 w-3 text-white" strokeWidth={2} />
-                          )}
-                        </span>
-                      </button>
-                    ) : (
-                      <Avatar name={m.user.name} src={m.photoUrl} size="xs" />
-                    )}
+      {visibleMembers.length === 0 ? (
+        <div className="card px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
+          {tab === "active" ? "Nenhum usuário ativo." : "Nenhum usuário inativo."}
+        </div>
+      ) : (
+        <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
+          {visibleMembers.map((m) => (
+            <div
+              key={m.id}
+              className={`flex flex-wrap items-center gap-x-4 gap-y-2 p-4 ${!m.active ? "opacity-60" : ""}`}
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                {isOwner ? (
+                  <button
+                    onClick={() => triggerPhotoUpload(m.user.id)}
+                    className="group relative shrink-0"
+                    title="Alterar foto"
+                    disabled={uploadingId === m.user.id}
+                  >
+                    <Avatar name={m.user.name} src={m.photoUrl} size="sm" />
+                    <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                      {uploadingId === m.user.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin text-white" strokeWidth={2} />
+                      ) : (
+                        <Camera className="h-3 w-3 text-white" strokeWidth={2} />
+                      )}
+                    </span>
+                  </button>
+                ) : (
+                  <Avatar name={m.user.name} src={m.photoUrl} size="sm" />
+                )}
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
                     {m.user.name}
                     {!m.active && <Badge tone="neutral">Inativo</Badge>}
-                  </span>
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-neutral-500 dark:text-neutral-400">{m.user.email}</td>
-                <td className="px-4 py-3">
-                  {isOwner && m.user.id !== currentUserId ? (
-                    <Select
-                      value={m.role}
-                      onChange={(v) => changeRole(m.user.id, v as Member["role"])}
-                      className="min-w-[110px] py-1.5 text-xs"
-                      options={[
-                        { value: "OWNER", label: "Dono" },
-                        { value: "ADMIN", label: "Admin" },
-                        { value: "MEMBER", label: "Membro" },
-                      ]}
-                    />
+                  </p>
+                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{m.user.email}</p>
+                </div>
+              </div>
+
+              <div className="shrink-0">
+                {isOwner && m.user.id !== currentUserId ? (
+                  <Select
+                    value={m.role}
+                    onChange={(v) => changeRole(m.user.id, v as Member["role"])}
+                    className="min-w-[110px] py-1.5 text-xs"
+                    options={[
+                      { value: "OWNER", label: "Dono" },
+                      { value: "ADMIN", label: "Admin" },
+                      { value: "MEMBER", label: "Membro" },
+                    ]}
+                  />
+                ) : (
+                  <Badge tone={m.role === "OWNER" ? "accent" : "neutral"}>{ROLE_LABELS[m.role]}</Badge>
+                )}
+              </div>
+
+              <p className="hidden w-24 shrink-0 truncate text-xs text-neutral-500 dark:text-neutral-400 sm:block">
+                {m.team?.name ?? "—"}
+              </p>
+
+              {isOwner && (
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => {
+                      setMemberToRename(m);
+                      setNewName(m.user.name);
+                    }}
+                    className="icon-btn"
+                    title="Alterar nome"
+                    aria-label={`Alterar nome de ${m.user.name}`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                  </button>
+                  {m.active ? (
+                    <button
+                      onClick={() => setMemberToReset(m)}
+                      className="icon-btn"
+                      title="Trocar senha"
+                      aria-label={`Trocar senha de ${m.user.name}`}
+                    >
+                      <KeyRound className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
                   ) : (
-                    <Badge tone={m.role === "OWNER" ? "accent" : "neutral"}>
-                      {ROLE_LABELS[m.role]}
-                    </Badge>
+                    <button
+                      onClick={() => setActive(m.user.id, true)}
+                      className="icon-btn hover:text-emerald-600 dark:hover:text-emerald-400"
+                      title="Reativar"
+                      aria-label={`Reativar ${m.user.name}`}
+                    >
+                      <UserCheck className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
                   )}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-neutral-500 dark:text-neutral-400">{m.team?.name ?? "—"}</td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {isOwner && (
-                    <div className="flex items-center justify-end gap-4">
-                      {m.active ? (
+                  {m.user.id !== currentUserId && (
+                    <>
+                      {m.active && (
                         <button
-                          onClick={() => setMemberToReset(m)}
-                          className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                          onClick={() => setMemberToDeactivate(m)}
+                          className="icon-btn hover:text-amber-600 dark:hover:text-amber-400"
+                          title="Desativar"
+                          aria-label={`Desativar ${m.user.name}`}
                         >
-                          <KeyRound className="h-3.5 w-3.5" strokeWidth={2} />
-                          Trocar senha
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setActive(m.user.id, true)}
-                          className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-emerald-600 dark:hover:text-emerald-400"
-                        >
-                          <UserCheck className="h-3.5 w-3.5" strokeWidth={2} />
-                          Reativar
+                          <UserX className="h-3.5 w-3.5" strokeWidth={2} />
                         </button>
                       )}
-                      {m.user.id !== currentUserId && (
-                        <>
-                          {m.active && (
-                            <button
-                              onClick={() => setMemberToDeactivate(m)}
-                              className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-amber-600 dark:hover:text-amber-400"
-                            >
-                              <UserX className="h-3.5 w-3.5" strokeWidth={2} />
-                              Desativar
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setMemberToRemove(m)}
-                            className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-red-600 dark:hover:text-red-400"
-                          >
-                            Remover
-                          </button>
-                        </>
-                      )}
-                    </div>
+                      <button
+                        onClick={() => setMemberToRemove(m)}
+                        className="icon-btn hover:text-red-600 dark:hover:text-red-400"
+                        title="Remover"
+                        aria-label={`Remover ${m.user.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    </>
                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {open && (
         <Modal onClose={() => setOpen(false)}>
@@ -460,6 +496,59 @@ export function MembersTable({
                   </span>
                 ) : (
                   "Trocar senha"
+                )}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {memberToRename && (
+        <Modal
+          onClose={() => {
+            setMemberToRename(null);
+            setNewName("");
+            setRenameError(null);
+          }}
+        >
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            Alterar nome de {memberToRename.user.name}
+          </h2>
+          <form onSubmit={renameMember} className="space-y-3">
+            <div className="space-y-1">
+              <label className="field-label">Nome</label>
+              <input
+                autoFocus
+                required
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="field-input"
+              />
+            </div>
+
+            {renameError && <p className="text-sm text-red-600 dark:text-red-400">{renameError}</p>}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMemberToRename(null);
+                  setNewName("");
+                  setRenameError(null);
+                }}
+                className="btn-ghost"
+              >
+                Cancelar
+              </button>
+              <button type="submit" disabled={renameLoading || !newName.trim()} className="btn-primary">
+                {renameLoading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+                {renameLoading ? (
+                  <span className="inline-flex items-center gap-1">
+                    Salvando
+                    <LoadingDots />
+                  </span>
+                ) : (
+                  "Salvar"
                 )}
               </button>
             </div>

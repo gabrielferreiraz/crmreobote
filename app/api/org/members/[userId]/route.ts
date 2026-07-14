@@ -13,17 +13,22 @@ export async function PATCH(
 ) {
   const { userId } = await params;
   const body = await req.json();
-  const { role, teamId, active } = body as {
+  const { role, teamId, active, name } = body as {
     role?: "OWNER" | "ADMIN" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
+    name?: string;
   };
 
   const access = await requireRole(["OWNER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  if (!role && teamId === undefined && active === undefined) {
-    return NextResponse.json({ error: "role, teamId ou active é obrigatório" }, { status: 400 });
+  if (!role && teamId === undefined && active === undefined && name === undefined) {
+    return NextResponse.json({ error: "role, teamId, active ou name é obrigatório" }, { status: 400 });
+  }
+
+  if (name !== undefined && !name.trim()) {
+    return NextResponse.json({ error: "Nome não pode ficar vazio" }, { status: 400 });
   }
 
   if (active === false && userId === access.userId) {
@@ -61,6 +66,15 @@ export async function PATCH(
 
     const updated = await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, access.organizationId);
+
+      // Nome vive em User (compartilhado entre organizações, se a pessoa fizer
+      // parte de mais de uma — ver POST em app/api/org/members/route.ts, que
+      // reaproveita o User existente pelo e-mail). Editar aqui muda o nome em
+      // toda organização da pessoa, não só nesta — aceitável no momento porque
+      // não há hoje nenhuma noção de "nome de exibição por organização".
+      if (name !== undefined) {
+        await tx.user.update({ where: { id: userId }, data: { name: name.trim() } });
+      }
 
       const updatedMembership = await tx.organizationUser.update({
         where: { organizationId_userId: { organizationId: access.organizationId, userId } },

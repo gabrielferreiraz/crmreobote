@@ -8,10 +8,13 @@ type Recipient = {
   id: string;
   contactName: string;
   contactPhone: string | null;
+  contactJobTitle: string | null;
   status: RecipientStatus;
   sentAt: string | null;
   repliedAt: string | null;
   followUpSentAt: string | null;
+  scriptName: string | null;
+  followUpScriptName: string | null;
   error: string | null;
 };
 
@@ -74,7 +77,9 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
               <th className="px-4 py-2 font-medium">Contato</th>
+              <th className="px-4 py-2 font-medium">Cargo</th>
               <th className="px-4 py-2 font-medium">Telefone</th>
+              <th className="px-4 py-2 font-medium">Script</th>
               <th className="px-4 py-2 font-medium">Status</th>
               <th className="px-4 py-2 font-medium">Enviada em</th>
               <th className="px-4 py-2 font-medium">Respondeu em</th>
@@ -85,7 +90,14 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
             {filtered.map((r) => (
               <tr key={r.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
                 <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{r.contactName}</td>
+                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactJobTitle ?? "—"}</td>
                 <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactPhone ?? "—"}</td>
+                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
+                  {r.scriptName ?? "—"}
+                  {r.followUpScriptName && (
+                    <p className="text-xs text-neutral-400 dark:text-neutral-500">Reenvio: {r.followUpScriptName}</p>
+                  )}
+                </td>
                 <td className="px-4 py-2.5">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[r.status]}`}>
                     {STATUS_LABELS[r.status]}
@@ -99,7 +111,7 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-neutral-400 dark:text-neutral-500">
+                <td colSpan={8} className="px-4 py-6 text-center text-neutral-400 dark:text-neutral-500">
                   Nenhum destinatário encontrado.
                 </td>
               </tr>

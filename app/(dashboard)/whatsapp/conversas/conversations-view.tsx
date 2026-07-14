@@ -25,6 +25,7 @@ export type Conversation = {
   deal: { id: string; name: string } | null;
   ownerId: string;
   ownerName: string;
+  profilePicUrl: string | null;
 };
 
 export type ConversationTab = "crm" | "geral";
@@ -494,6 +495,7 @@ export function ConversationRow({
       <div className="group relative mt-0.5 shrink-0">
         <Avatar
           name={c.displayName}
+          src={c.profilePicUrl}
           size="sm"
           className="transition-shadow group-hover:ring-2 group-hover:ring-neutral-300 group-hover:ring-offset-2 group-hover:ring-offset-white dark:group-hover:ring-neutral-600 dark:group-hover:ring-offset-neutral-900"
         />

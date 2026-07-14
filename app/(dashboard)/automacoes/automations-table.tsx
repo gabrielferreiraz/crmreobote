@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Zap, Plus, Loader2, Trash2, Play, Pause } from "lucide-react";
+import Link from "next/link";
+import { Zap, Plus, Loader2, Trash2, Play, Pause, History } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -94,6 +95,7 @@ export function AutomationsTable({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [ruleToDelete, setRuleToDelete] = useState<Rule | null>(null);
+  const [historyRule, setHistoryRule] = useState<Rule | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const stageById = new Map(pipelines.flatMap((p) => p.stages.map((s) => [s.id, `${s.name} (${p.name})`])));
@@ -210,14 +212,20 @@ export function AutomationsTable({
                 <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{describeRule(rule)}</p>
               </div>
 
-              <div className="hidden shrink-0 text-right sm:block">
+              <button
+                type="button"
+                onClick={() => setHistoryRule(rule)}
+                disabled={rule.runCount === 0}
+                className="hidden shrink-0 text-right transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:hover:opacity-100 sm:block"
+                title="Ver histórico de execuções"
+              >
                 <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">
                   {rule.runCount} execuç{rule.runCount === 1 ? "ão" : "ões"}
                 </p>
                 <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
                   {rule.lastRunAt ? `última ${new Date(rule.lastRunAt).toLocaleDateString("pt-BR")}` : "nunca rodou"}
                 </p>
-              </div>
+              </button>
 
               <button
                 disabled={!canManage || togglingId === rule.id}
@@ -232,6 +240,14 @@ export function AutomationsTable({
                   <Play className="h-3 w-3" strokeWidth={2} />
                 )}
                 {rule.enabled ? "Pausar" : "Ativar"}
+              </button>
+
+              <button
+                onClick={() => setHistoryRule(rule)}
+                className="icon-btn shrink-0 sm:hidden"
+                aria-label="Ver histórico de execuções"
+              >
+                <History className="h-3.5 w-3.5" strokeWidth={2} />
               </button>
 
               {canManage && (
@@ -273,7 +289,75 @@ export function AutomationsTable({
           }}
         />
       )}
+
+      {historyRule && <AutomationHistoryModal rule={historyRule} onClose={() => setHistoryRule(null)} />}
     </div>
+  );
+}
+
+type HistoryEntry = { id: string; executedAt: string; label: string; href: string | null };
+
+function AutomationHistoryModal({ rule, onClose }: { rule: Rule; onClose: () => void }) {
+  const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/automations/${rule.id}/history`);
+      if (cancelled) return;
+      if (!res.ok) {
+        setError("Não foi possível carregar o histórico.");
+        return;
+      }
+      setEntries(await res.json());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rule.id]);
+
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-md">
+      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Histórico de execuções</h2>
+      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">{rule.name}</p>
+
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      {!error && entries === null && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Carregando…</p>
+      )}
+
+      {entries?.length === 0 && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Essa automação ainda não rodou.</p>
+      )}
+
+      {entries && entries.length > 0 && (
+        <div className="scrollbar-thin max-h-96 space-y-1 overflow-y-auto">
+          {entries.map((e) => (
+            <div
+              key={e.id}
+              className="flex items-center justify-between gap-3 rounded-md px-2 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+            >
+              {e.href ? (
+                <Link href={e.href} onClick={onClose} className="min-w-0 truncate text-neutral-800 hover:underline dark:text-neutral-200">
+                  {e.label}
+                </Link>
+              ) : (
+                <span className="min-w-0 truncate text-neutral-800 dark:text-neutral-200">{e.label}</span>
+              )}
+              <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+                {new Date(e.executedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {entries && entries.length >= 50 && (
+        <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">Mostrando as 50 execuções mais recentes.</p>
+      )}
+    </Modal>
   );
 }
 

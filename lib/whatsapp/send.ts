@@ -56,10 +56,12 @@ export type WhatsAppOutgoingMessage = {
   metadata?: Record<string, unknown>;
   /** Id de outra WhatsAppMessage desta mesma conversa — responde a ela, igual ao "responder" do WhatsApp. */
   replyToId?: string;
+  /** Só o motor de campanhas preenche isso — marca a mensagem como disparo de lista fria (ver relatórios). */
+  campaignId?: string;
 };
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
-  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId } = params;
+  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId } = params;
 
   const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
   if (!thread) throw new WhatsAppSendError("Conversa não encontrada");
@@ -161,6 +163,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       rawPayload: rawPayload as Prisma.InputJsonValue | undefined,
       replyToId,
       status: "SENT",
+      campaignId,
     },
   });
 

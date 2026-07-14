@@ -32,6 +32,8 @@ export type ConversationSummary = {
   deal: { id: string; name: string } | null;
   ownerId: string;
   ownerName: string;
+  /** Cacheada em WhatsAppThread (ver app/api/whatsapp/threads/[threadId]/photo) — null até a conversa ser aberta ao menos uma vez. */
+  profilePicUrl: string | null;
 };
 
 export async function listConversations(organizationId: string, scope: DealScope): Promise<ConversationSummary[]> {
@@ -97,6 +99,7 @@ export async function listConversations(organizationId: string, scope: DealScope
       // que é a única informação de "responsável" que existe nesse caso.
       ownerId: deal?.ownerId ?? thread.instance.userId,
       ownerName: deal?.ownerName ?? thread.instance.user.name,
+      profilePicUrl: thread.profilePicUrl,
     };
   });
 

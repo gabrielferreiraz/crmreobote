@@ -9,7 +9,10 @@ import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
+import { buildQuickRanges } from "@/lib/date-ranges";
 import type { Deal } from "./kanban-board";
+
+const QUICK_RANGES = buildQuickRanges();
 
 type MemberOption = { id: string; name: string; active: boolean };
 type Stage = { id: string; name: string; color: string | null };
@@ -35,11 +38,15 @@ export function DealsList({
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">("OPEN");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [ownerStatusFilter, setOwnerStatusFilter] = useState<"" | "active" | "inactive">("");
   const [stageFilter, setStageFilter] = useState("");
   const [lossReasonFilter, setLossReasonFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
+  const [originFilter, setOriginFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [closedFrom, setClosedFrom] = useState("");
+  const [closedTo, setClosedTo] = useState("");
 
   const jobTitleOptions = useMemo(() => {
     const set = new Set<string>();
@@ -47,29 +54,52 @@ export function DealsList({
     return Array.from(set).sort();
   }, [deals]);
 
+  const originOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of deals) if (d.contact.source) set.add(d.contact.source);
+    return Array.from(set).sort();
+  }, [deals]);
+
+  const activeByOwnerId = useMemo(() => new Map(members.map((m) => [m.id, m.active])), [members]);
+
   const hasFilters =
     statusFilter !== "OPEN" ||
     !!ownerFilter ||
+    !!ownerStatusFilter ||
     !!stageFilter ||
     !!lossReasonFilter ||
     !!jobTitleFilter ||
+    !!originFilter ||
     !!dateFrom ||
-    !!dateTo;
+    !!dateTo ||
+    !!closedFrom ||
+    !!closedTo;
 
   function clearFilters() {
     setStatusFilter("OPEN");
     setOwnerFilter("");
+    setOwnerStatusFilter("");
     setStageFilter("");
     setLossReasonFilter("");
     setJobTitleFilter("");
+    setOriginFilter("");
     setDateFrom("");
     setDateTo("");
+    setClosedFrom("");
+    setClosedTo("");
+  }
+
+  function applyClosedQuickRange(range: { from: string; to: string }) {
+    setClosedFrom(range.from);
+    setClosedTo(range.to);
   }
 
   const filteredDeals = useMemo(() => {
     const term = search.trim().toLowerCase();
     const from = dateFrom ? new Date(dateFrom) : null;
     const to = dateTo ? new Date(new Date(dateTo).getTime() + 24 * 60 * 60 * 1000) : null;
+    const closedFromDate = closedFrom ? new Date(closedFrom) : null;
+    const closedToDate = closedTo ? new Date(new Date(closedTo).getTime() + 24 * 60 * 60 * 1000) : null;
 
     return deals.filter((d) => {
       if (term && !d.name.toLowerCase().includes(term) && !d.contact.name.toLowerCase().includes(term)) {
@@ -77,15 +107,42 @@ export function DealsList({
       }
       if (statusFilter && d.status !== statusFilter) return false;
       if (ownerFilter && d.owner.id !== ownerFilter) return false;
+      if (ownerStatusFilter) {
+        const isActive = activeByOwnerId.get(d.owner.id) ?? true;
+        if (ownerStatusFilter === "active" && !isActive) return false;
+        if (ownerStatusFilter === "inactive" && isActive) return false;
+      }
       if (stageFilter && d.stage.id !== stageFilter) return false;
       if (lossReasonFilter && d.lossReasonId !== lossReasonFilter) return false;
       if (jobTitleFilter && d.contact.jobTitle !== jobTitleFilter) return false;
+      if (originFilter && d.contact.source !== originFilter) return false;
       const createdAt = new Date(d.createdAt);
       if (from && createdAt < from) return false;
       if (to && createdAt >= to) return false;
+      if (closedFromDate || closedToDate) {
+        if (!d.closedAt) return false;
+        const closedAt = new Date(d.closedAt);
+        if (closedFromDate && closedAt < closedFromDate) return false;
+        if (closedToDate && closedAt >= closedToDate) return false;
+      }
       return true;
     });
-  }, [deals, search, statusFilter, ownerFilter, stageFilter, lossReasonFilter, jobTitleFilter, dateFrom, dateTo]);
+  }, [
+    deals,
+    search,
+    statusFilter,
+    ownerFilter,
+    ownerStatusFilter,
+    activeByOwnerId,
+    stageFilter,
+    lossReasonFilter,
+    jobTitleFilter,
+    originFilter,
+    dateFrom,
+    dateTo,
+    closedFrom,
+    closedTo,
+  ]);
 
   return (
     <div className="space-y-3">
@@ -141,6 +198,19 @@ export function DealsList({
               ]}
             />
           </div>
+          <div className="space-y-1">
+            <label className="field-label">Status do consultor</label>
+            <Select
+              value={ownerStatusFilter}
+              onChange={(v) => setOwnerStatusFilter(v as "" | "active" | "inactive")}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Ativos e inativos" },
+                { value: "active", label: "Somente ativos" },
+                { value: "inactive", label: "Somente inativos" },
+              ]}
+            />
+          </div>
           {jobTitleOptions.length > 0 && (
             <div className="space-y-1">
               <label className="field-label">Cargo</label>
@@ -151,6 +221,20 @@ export function DealsList({
                 options={[
                   { value: "", label: "Todos os cargos" },
                   ...jobTitleOptions.map((j) => ({ value: j, label: j })),
+                ]}
+              />
+            </div>
+          )}
+          {originOptions.length > 0 && (
+            <div className="space-y-1">
+              <label className="field-label">Origem</label>
+              <Select
+                value={originFilter}
+                onChange={setOriginFilter}
+                className="w-full py-1.5 text-sm"
+                options={[
+                  { value: "", label: "Todas as origens" },
+                  ...originOptions.map((o) => ({ value: o, label: o })),
                 ]}
               />
             </div>
@@ -177,6 +261,27 @@ export function DealsList({
             <div className="space-y-1">
               <label className="field-label">até</label>
               <DatePicker value={dateTo} onChange={setDateTo} className="w-full py-1.5 text-sm" />
+            </div>
+          </div>
+          <div className="space-y-1.5 border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
+            <label className="field-label">
+              Concluído em <span className="font-normal normal-case text-neutral-400">(ganhos/perdidos)</span>
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {QUICK_RANGES.map((q) => (
+                <button
+                  key={q.key}
+                  type="button"
+                  onClick={() => applyClosedQuickRange(q.range())}
+                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <DatePicker value={closedFrom} onChange={setClosedFrom} className="w-full py-1.5 text-sm" />
+              <DatePicker value={closedTo} onChange={setClosedTo} className="w-full py-1.5 text-sm" />
             </div>
           </div>
         </FilterPopover>
