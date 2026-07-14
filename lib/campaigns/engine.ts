@@ -55,16 +55,26 @@ async function dailyCapReached(campaign: CampaignRow): Promise<boolean> {
  * padrão fixo.
  */
 async function shouldSendNow(campaign: CampaignRow): Promise<boolean> {
-  const last = await prisma.campaignRecipient.findFirst({
-    where: {
-      campaignId: campaign.id,
-      OR: [{ status: "SENT" }, { followUpSentAt: { not: null } }],
-    },
-    orderBy: [{ sentAt: "desc" }, { followUpSentAt: "desc" }],
-    select: { sentAt: true, followUpSentAt: true },
-  });
-  const lastAt = last && (last.followUpSentAt ?? last.sentAt);
-  if (!lastAt) return true;
+  // Precisa do MAIOR timestamp entre os dois tipos de envio — um único
+  // orderBy composto (sentAt, followUpSentAt) ordenaria primeiro por sentAt
+  // inteiro e só usaria followUpSentAt como desempate, o que erra o "último
+  // evento de verdade" sempre que o reenvio mais recente pertence a um
+  // destinatário cujo envio inicial é mais antigo que o de outro.
+  const [lastSent, lastFollowUp] = await Promise.all([
+    prisma.campaignRecipient.findFirst({
+      where: { campaignId: campaign.id, status: "SENT" },
+      orderBy: { sentAt: "desc" },
+      select: { sentAt: true },
+    }),
+    prisma.campaignRecipient.findFirst({
+      where: { campaignId: campaign.id, followUpSentAt: { not: null } },
+      orderBy: { followUpSentAt: "desc" },
+      select: { followUpSentAt: true },
+    }),
+  ]);
+  const candidates = [lastSent?.sentAt, lastFollowUp?.followUpSentAt].filter((d): d is Date => !!d);
+  if (candidates.length === 0) return true;
+  const lastAt = new Date(Math.max(...candidates.map((d) => d.getTime())));
 
   const elapsedSec = (Date.now() - lastAt.getTime()) / 1000;
   if (elapsedSec < campaign.delayMinSec) return false;

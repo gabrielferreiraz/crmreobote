@@ -8,7 +8,9 @@ import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendEmail } from "@/lib/email";
 import { resolveEmailAddresses, resolveWhatsappRecipients, type RecipientEntry } from "@/lib/automations/recipients";
+import { interpolateAutomationTemplate } from "@/lib/automations/variables";
 import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/lib/timezone";
+import { formatCurrency, daysSince } from "@/lib/format";
 
 type TriggerConfig = {
   days?: number;
@@ -73,6 +75,51 @@ async function recordExecution(ruleId: string, entityId: string): Promise<boolea
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return false;
     throw err;
   }
+}
+
+/**
+ * Resolve os valores reais das variáveis `{{negocio.x}}`/`{{cliente.x}}`/
+ * `{{responsavel.x}}` (ver lib/automations/variables.ts) pra essa entidade
+ * específica. Gatilhos sem negócio (ex.: CONTACT_NO_DEAL, SCHEDULED) só
+ * preenchem o que existir — token sem valor vira string vazia na hora de
+ * interpolar, nunca quebra o envio.
+ */
+async function resolveTemplateValues(entity: Entity): Promise<Record<string, string>> {
+  const values: Record<string, string> = {};
+
+  if (entity.dealId) {
+    const deal = await prisma.deal.findUnique({
+      where: { id: entity.dealId },
+      include: { stage: true, contact: true, owner: true },
+    });
+    if (deal) {
+      values["negocio.nome"] = deal.name;
+      values["negocio.valor"] = deal.value ? formatCurrency(Number(deal.value)) : "—";
+      values["negocio.etapa"] = deal.stage.name;
+      values["negocio.tipoCredito"] = deal.creditType ?? "—";
+      values["negocio.diasNaEtapa"] = String(daysSince(deal.stageEnteredAt));
+      values["negocio.diasAberto"] = String(daysSince(deal.startedAt));
+      values["cliente.nome"] = deal.contact.name;
+      values["cliente.cargo"] = deal.contact.jobTitle ?? "—";
+      values["cliente.telefone"] = deal.contact.phone ?? deal.contact.whatsapp ?? "—";
+      values["responsavel.nome"] = deal.owner.name;
+      return values;
+    }
+  }
+
+  if (entity.contactId) {
+    const contact = await prisma.contact.findUnique({ where: { id: entity.contactId } });
+    if (contact) {
+      values["cliente.nome"] = contact.name;
+      values["cliente.cargo"] = contact.jobTitle ?? "—";
+      values["cliente.telefone"] = contact.phone ?? contact.whatsapp ?? "—";
+    }
+  }
+
+  const owner = await prisma.user.findUnique({ where: { id: entity.ownerId }, select: { name: true } });
+  if (owner) values["responsavel.nome"] = owner.name;
+
+  return values;
 }
 
 async function performAction(rule: RuleWithOrg, entity: Entity) {
@@ -144,8 +191,10 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
   }
 
   if (rule.action === "SEND_WHATSAPP") {
-    const message = actionConfig.whatsappMessage?.trim();
-    if (!message) return;
+    const rawMessage = actionConfig.whatsappMessage?.trim();
+    if (!rawMessage) return;
+    const templateValues = await resolveTemplateValues(entity);
+    const message = interpolateAutomationTemplate(rawMessage, templateValues);
 
     // Sempre manda pelo número do responsável pela entidade — quem recebe
     // que pode variar (cliente, supervisor, uma pessoa específica, um número
@@ -185,8 +234,8 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
   }
 
   if (rule.action === "SEND_EMAIL") {
-    const body = actionConfig.emailBody?.trim() ?? "";
-    if (!body) return;
+    const rawBody = actionConfig.emailBody?.trim() ?? "";
+    if (!rawBody) return;
 
     const recipientConfig = actionConfig.emailRecipients?.length
       ? actionConfig.emailRecipients
@@ -197,7 +246,12 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
     );
     if (addresses.size === 0) return;
 
-    const subject = actionConfig.emailSubject?.trim() || `Automação: ${rule.name}`;
+    const templateValues = await resolveTemplateValues(entity);
+    const subject = interpolateAutomationTemplate(
+      actionConfig.emailSubject?.trim() || `Automação: ${rule.name}`,
+      templateValues,
+    );
+    const body = interpolateAutomationTemplate(rawBody, templateValues);
     const html = `<p>${body.replace(/\n/g, "<br>")}</p>`;
 
     const result = await sendEmail({ to: Array.from(addresses.keys()), subject, html });

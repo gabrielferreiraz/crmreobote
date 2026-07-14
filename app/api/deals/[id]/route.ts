@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
+import { formatCurrency } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -57,8 +58,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     ownerId?: string;
   };
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
     const existing = await prisma.deal.findFirst({ where: { id, organizationId } });
@@ -71,11 +72,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (!membership) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
     }
 
+    let lossReasonLabel: string | null = null;
     if (lossReasonId) {
       const reason = await prisma.lossReason.findFirst({
         where: { id: lossReasonId, organizationId },
       });
       if (!reason) return NextResponse.json({ error: "Motivo de perda inválido" }, { status: 400 });
+      lossReasonLabel = reason.label;
     }
 
     if (status === "LOST" && !lossReasonId && !existing.lossReasonId) {
@@ -125,6 +128,37 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       },
       include: { contact: true, owner: true, stage: true, lossReason: true },
     });
+
+    // Marcos automáticos na timeline — ganho/perdido/reabertura e mudança de
+    // valor, sempre que de fato mudaram (nunca em toda edição de campo).
+    const systemBodies: string[] = [];
+    if (status && status !== existing.status) {
+      if (status === "WON") {
+        const valueSuffix = deal.value != null ? ` · ${formatCurrency(Number(deal.value))}` : "";
+        systemBodies.push(`marcou o negócio como ganho${valueSuffix}`);
+      } else if (status === "LOST") {
+        const reasonSuffix = lossReasonLabel ? ` · ${lossReasonLabel}` : "";
+        systemBodies.push(`marcou o negócio como perdido${reasonSuffix}`);
+      } else if (status === "OPEN") {
+        systemBodies.push("reabriu o negócio");
+      }
+    } else if (value !== undefined) {
+      const existingValueNum = existing.value != null ? Number(existing.value) : null;
+      if (existingValueNum !== value) {
+        systemBodies.push(`alterou o valor do negócio para ${formatCurrency(value)}`);
+      }
+    }
+    if (systemBodies.length > 0) {
+      await prisma.activity.createMany({
+        data: systemBodies.map((activityBody) => ({
+          organizationId,
+          dealId: id,
+          userId,
+          type: "SYSTEM" as const,
+          body: activityBody,
+        })),
+      });
+    }
 
     return NextResponse.json(deal);
   });

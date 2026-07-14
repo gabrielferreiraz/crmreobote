@@ -240,6 +240,13 @@ body {
   .icon-btn {
     @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
   }
+
+  /* Pílula de variável inserida no meio do texto (ver components/variable-input.tsx)
+     — criada via innerHTML (não JSX), por isso vive como classe de verdade
+     aqui em vez de className inline. */
+  .variable-pill {
+    @apply inline-flex items-center rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 align-baseline text-xs font-medium text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300;
+  }
 }
 
 /* Fundo do chat: grade de pontos discreta (tipo "canvas" de app de

@@ -37,6 +37,23 @@ const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] =
   { limitMs: 24 * 60 * 60_000, divisorMs: 60 * 60_000, suffix: "h" },
 ];
 
+/**
+ * Agrupa por responsável preservando a ordem de primeira aparição — como a
+ * lista já chega ordenada por mensagem mais recente, isso naturalmente põe o
+ * grupo do vendedor mais ativo agora no topo, sem precisar reordenar nada.
+ */
+export function groupByOwner<T extends { ownerId: string; ownerName: string }>(
+  conversations: T[],
+): { ownerId: string; ownerName: string; items: T[] }[] {
+  const groups = new Map<string, { ownerId: string; ownerName: string; items: T[] }>();
+  for (const c of conversations) {
+    const group = groups.get(c.ownerId);
+    if (group) group.items.push(c);
+    else groups.set(c.ownerId, { ownerId: c.ownerId, ownerName: c.ownerName, items: [c] });
+  }
+  return Array.from(groups.values());
+}
+
 export function formatWhen(value: string | Date): string {
   const date = new Date(value);
   const now = new Date();
@@ -120,13 +137,13 @@ export function ConversationsView({
   initialConversations,
   currentUserName,
   currentUserPhotoUrl,
-  isOwner,
+  currentUserId,
   notificationPrefs: initialNotificationPrefs,
 }: {
   initialConversations: Conversation[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
-  isOwner?: boolean;
+  currentUserId?: string;
   notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
@@ -204,9 +221,12 @@ export function ConversationsView({
 
   const ownerOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const c of tabConversations) seen.set(c.ownerId, c.ownerName);
+    for (const c of tabConversations) seen.set(c.ownerId, c.ownerId === currentUserId ? "Você" : c.ownerName);
     return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [tabConversations]);
+  }, [tabConversations, currentUserId]);
+  // Enxergar mais de um responsável nas conversas já indica visibilidade
+  // ampliada (dono, ou admin líder de equipe) — não precisa checar role.
+  const showOwnerInfo = ownerOptions.length > 1;
 
   const filteredConversations = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -224,6 +244,15 @@ export function ConversationsView({
       return true;
     });
   }, [tabConversations, search, onlyUnread, ownerFilter]);
+
+  // Sem filtro de responsável escolhido e visibilidade ampliada: agrupa por
+  // vendedor (cada um numa seção com cabeçalho) em vez de misturar tudo numa
+  // lista só — é o "bem separado" que dá pra enxergar de quem é cada
+  // conversa sem precisar abrir uma por uma.
+  const groupedConversations = useMemo(() => {
+    if (!showOwnerInfo || ownerFilter) return null;
+    return groupByOwner(filteredConversations);
+  }, [showOwnerInfo, ownerFilter, filteredConversations]);
 
   const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
 
@@ -288,7 +317,7 @@ export function ConversationsView({
           </button>
         </div>
 
-        {isOwner && ownerOptions.length > 1 && (
+        {showOwnerInfo && (
           <div className="shrink-0 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
             <Select
               value={ownerFilter}
@@ -316,13 +345,31 @@ export function ConversationsView({
             <p className="p-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
               Nenhuma conversa encontrada.
             </p>
+          ) : groupedConversations ? (
+            groupedConversations.map((group) => (
+              <div key={group.ownerId} className="space-y-0.5">
+                <p className="sticky top-0 z-10 truncate bg-white px-1.5 py-1 text-[11px] font-semibold text-neutral-400 dark:bg-neutral-900 dark:text-neutral-500">
+                  {group.ownerId === currentUserId ? "Você" : group.ownerName}
+                </p>
+                {group.items.map((c) => (
+                  <ConversationRow
+                    key={c.threadId}
+                    conversation={c}
+                    isActive={c.threadId === selectedThreadId}
+                    justArrived={justArrived.has(c.threadId)}
+                    onSelect={() => selectConversation(c.threadId)}
+                  />
+                ))}
+              </div>
+            ))
           ) : (
             filteredConversations.map((c) => (
               <ConversationRow
                 key={c.threadId}
                 conversation={c}
                 isActive={c.threadId === selectedThreadId}
-                isOwner={isOwner}
+                showOwner={showOwnerInfo}
+                isCurrentUser={c.ownerId === currentUserId}
                 justArrived={justArrived.has(c.threadId)}
                 onSelect={() => selectConversation(c.threadId)}
               />
@@ -396,13 +443,15 @@ export function ConversationsView({
 export function ConversationRow({
   conversation: c,
   isActive,
-  isOwner,
+  showOwner,
+  isCurrentUser,
   justArrived,
   onSelect,
 }: {
   conversation: Conversation;
   isActive: boolean;
-  isOwner?: boolean;
+  showOwner?: boolean;
+  isCurrentUser?: boolean;
   justArrived?: boolean;
   onSelect: () => void;
 }) {
@@ -468,9 +517,9 @@ export function ConversationRow({
             {c.deal.name}
           </p>
         )}
-        {isOwner && (
+        {showOwner && (
           <p className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-            Responsável: {c.ownerName}
+            Responsável: {isCurrentUser ? "Você" : c.ownerName}
           </p>
         )}
       </div>

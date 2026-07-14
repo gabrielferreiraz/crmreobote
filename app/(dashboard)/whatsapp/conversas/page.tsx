@@ -31,7 +31,7 @@ export default async function ConversasPage() {
           initialConversations={conversations}
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
-          isOwner={session!.user.role === "OWNER"}
+          currentUserId={userId}
           notificationPrefs={notificationPrefs}
         />
         <div className="min-h-0 flex-1 lg:hidden">
@@ -39,6 +39,7 @@ export default async function ConversasPage() {
             initialConversations={conversations}
             currentUserName={session!.user.name ?? undefined}
             currentUserPhotoUrl={currentUserPhotoUrl}
+            currentUserId={userId}
             notificationPrefs={notificationPrefs}
           />
         </div>

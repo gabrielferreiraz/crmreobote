@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
+import { formatCurrency } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json();
   const { stageId, value } = body as { stageId?: string; value?: number | null };
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });
 
   return runWithTenant(organizationId, async () => {
@@ -50,6 +51,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       },
       include: { contact: true, owner: true, stage: true },
     });
+
+    if (existing.stageId !== stageId) {
+      const oldStage = await prisma.pipelineStage.findUnique({
+        where: { id: existing.stageId },
+        select: { name: true },
+      });
+      const valueSuffix = deal.value != null ? ` · ${formatCurrency(Number(deal.value))}` : "";
+      await prisma.activity.create({
+        data: {
+          organizationId,
+          dealId: id,
+          userId,
+          type: "SYSTEM",
+          body: `moveu o negócio de ${oldStage?.name ?? "—"} para ${stage.name}${valueSuffix}`,
+        },
+      });
+    }
 
     return NextResponse.json(deal);
   });

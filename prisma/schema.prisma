@@ -136,6 +136,13 @@ model WhatsAppThread {
   whatsappName    String? // pushName do WhatsApp — melhor-esforço, pode ficar desatualizado
   contactId       String?
 
+  // Foto de perfil do WhatsApp do contato — cacheada aqui pra não bater no
+  // Evolution API toda vez que o chat abre (ver app/api/whatsapp/threads/
+  // [threadId]/photo). null também é cache válido: contato pode não ter foto
+  // ou ter privacidade restrita; profilePicFetchedAt marca a última tentativa.
+  profilePicUrl       String?
+  profilePicFetchedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -608,6 +615,10 @@ enum ActivityType {
   PROPOSAL
   MEETING
   VISIT
+  // Gerada pelo próprio sistema (mudança de etapa, ganho/perdido, valor) —
+  // nunca criada pelo usuário, renderizada como uma linha minimalista na
+  // timeline em vez do cartão das atividades manuais.
+  SYSTEM
 }
 
 // ─── Automações ──────────────────────────────────────────────────────

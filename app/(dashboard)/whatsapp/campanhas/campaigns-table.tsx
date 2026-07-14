@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Megaphone, Plus, Loader2, Trash2, Play, Pause } from "lucide-react";
+import { Megaphone, Plus, Loader2, Trash2, Play, Pause, Copy, ListChecks, Send } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { renderTemplate, pickWeightedTemplate, type WeightedTemplate } from "@/lib/campaigns/spintax";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
 
@@ -25,6 +26,8 @@ type Campaign = {
   allowedWeekdays: number[];
   windowStartHour: number;
   windowEndHour: number;
+  followUpEnabled: boolean;
+  followUpDelayHours: number;
   createdAt: string;
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
 };
@@ -48,6 +51,8 @@ const STATUS_TONE: Record<CampaignStatus, string> = {
   DONE: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500",
 };
 
+const SAMPLE_CONTACT = { nome: "Maria Silva", cargo: "Advogados CG", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
+
 export function CampaignsTable({
   initialCampaigns,
   instances,
@@ -61,6 +66,7 @@ export function CampaignsTable({
   const [open, setOpen] = useState(false);
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   async function setStatus(campaign: Campaign, status: CampaignStatus) {
     setTogglingId(campaign.id);
@@ -76,6 +82,13 @@ export function CampaignsTable({
   async function deleteCampaign(id: string) {
     await fetch(`/api/campaigns/${id}`, { method: "DELETE" });
     router.refresh();
+  }
+
+  async function duplicateCampaign(id: string) {
+    setDuplicatingId(id);
+    const res = await fetch(`/api/campaigns/${id}/duplicate`, { method: "POST" });
+    setDuplicatingId(null);
+    if (res.ok) router.refresh();
   }
 
   return (
@@ -120,7 +133,11 @@ export function CampaignsTable({
                 const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
                 return (
                   <tr key={c.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{c.name}</td>
+                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
+                      <Link href={`/whatsapp/campanhas/${c.id}`} className="hover:underline">
+                        {c.name}
+                      </Link>
+                    </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.audienceJobTitle}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.instanceName}</td>
                     <td className="px-4 py-2.5">
@@ -159,6 +176,19 @@ export function CampaignsTable({
                             <Pause className="h-3.5 w-3.5" strokeWidth={2} />
                           </button>
                         )}
+                        <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
+                          <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={duplicatingId === c.id}
+                          onClick={() => duplicateCampaign(c.id)}
+                          className="icon-btn"
+                          aria-label="Duplicar campanha"
+                          title="Duplicar campanha"
+                        >
+                          <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => setCampaignToDelete(c)}
@@ -205,6 +235,57 @@ export function CampaignsTable({
   );
 }
 
+function ScriptPicker({
+  scripts,
+  selectedIds,
+  weightById,
+  onToggle,
+  onWeightChange,
+}: {
+  scripts: ScriptOption[];
+  selectedIds: string[];
+  weightById: Record<string, string>;
+  onToggle: (scriptId: string) => void;
+  onWeightChange: (scriptId: string, value: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {scripts.map((s) => {
+        const checked = selectedIds.includes(s.id);
+        return (
+          <div
+            key={s.id}
+            className={`flex items-start gap-2 rounded-md border p-2.5 text-sm transition-colors ${
+              checked ? "border-neutral-900 dark:border-white" : "border-neutral-200 dark:border-neutral-800"
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => onToggle(s.id)}
+              className="mt-0.5 accent-neutral-900 dark:accent-white"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</p>
+              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{s.text}</p>
+            </div>
+            {checked && (
+              <input
+                type="number"
+                min={1}
+                value={weightById[s.id] ?? "1"}
+                onChange={(e) => onWeightChange(s.id, e.target.value)}
+                title="Peso (frequência relativa deste script)"
+                className="field-input w-14 shrink-0 px-2"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function NewCampaignDialog({
   instances,
   scripts,
@@ -227,6 +308,16 @@ function NewCampaignDialog({
   const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [windowStartHour, setWindowStartHour] = useState("9");
   const [windowEndHour, setWindowEndHour] = useState("18");
+
+  const [followUpEnabled, setFollowUpEnabled] = useState(false);
+  const [followUpDelayHours, setFollowUpDelayHours] = useState("24");
+  const [followUpScriptIds, setFollowUpScriptIds] = useState<string[]>([]);
+  const [followUpWeightByScript, setFollowUpWeightByScript] = useState<Record<string, string>>({});
+
+  const [testPhone, setTestPhone] = useState("");
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -239,6 +330,48 @@ function NewCampaignDialog({
       prev.includes(scriptId) ? prev.filter((id) => id !== scriptId) : [...prev, scriptId],
     );
     setWeightByScript((prev) => (prev[scriptId] ? prev : { ...prev, [scriptId]: "1" }));
+  }
+
+  function toggleFollowUpScript(scriptId: string) {
+    setFollowUpScriptIds((prev) =>
+      prev.includes(scriptId) ? prev.filter((id) => id !== scriptId) : [...prev, scriptId],
+    );
+    setFollowUpWeightByScript((prev) => (prev[scriptId] ? prev : { ...prev, [scriptId]: "1" }));
+  }
+
+  // Prévia: sorteia um dos scripts marcados e resolve spintax + variáveis com
+  // um contato de exemplo, pra ver exatamente o que vai chegar pro lead antes
+  // de disparar de verdade.
+  const previewText = useMemo(() => {
+    const templates: WeightedTemplate[] = selectedScriptIds
+      .map((id) => scripts.find((s) => s.id === id))
+      .filter((s): s is ScriptOption => !!s)
+      .map((s) => ({ text: s.text, weight: Number(weightByScript[s.id]) || 1 }));
+    if (templates.length === 0) return "";
+    const chosen = pickWeightedTemplate(templates);
+    return renderTemplate(
+      chosen.text,
+      { nome: SAMPLE_CONTACT.nome, cargo: audienceJobTitle || SAMPLE_CONTACT.cargo, empresa: SAMPLE_CONTACT.empresa, cidade: SAMPLE_CONTACT.cidade },
+      "Boa tarde",
+    );
+  }, [selectedScriptIds, weightByScript, scripts, audienceJobTitle]);
+
+  async function sendTest() {
+    if (!previewText || !instanceId || !testPhone.trim()) return;
+    setTestSending(true);
+    setTestResult(null);
+    const res = await fetch("/api/campaigns/test-send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instanceId, phone: testPhone, text: previewText }),
+    });
+    setTestSending(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setTestResult(data.error ?? "Erro ao enviar teste");
+      return;
+    }
+    setTestResult("Teste enviado!");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -260,6 +393,11 @@ function NewCampaignDialog({
         allowedWeekdays,
         windowStartHour: Number(windowStartHour),
         windowEndHour: Number(windowEndHour),
+        followUpEnabled,
+        followUpDelayHours: Number(followUpDelayHours) || 24,
+        followUpScripts: followUpEnabled
+          ? followUpScriptIds.map((id) => ({ scriptId: id, weight: Number(followUpWeightByScript[id]) || 1 }))
+          : undefined,
       }),
     });
 
@@ -327,47 +465,45 @@ function NewCampaignDialog({
               antes de montar a campanha.
             </p>
           ) : (
-            <div className="space-y-1.5">
-              {scripts.map((s) => {
-                const checked = selectedScriptIds.includes(s.id);
-                return (
-                  <div
-                    key={s.id}
-                    className={`flex items-start gap-2 rounded-md border p-2.5 text-sm transition-colors ${
-                      checked
-                        ? "border-neutral-900 dark:border-white"
-                        : "border-neutral-200 dark:border-neutral-800"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleScript(s.id)}
-                      className="mt-0.5 accent-neutral-900 dark:accent-white"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</p>
-                      <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{s.text}</p>
-                    </div>
-                    {checked && (
-                      <input
-                        type="number"
-                        min={1}
-                        value={weightByScript[s.id] ?? "1"}
-                        onChange={(e) => setWeightByScript((prev) => ({ ...prev, [s.id]: e.target.value }))}
-                        title="Peso (frequência relativa deste script)"
-                        className="field-input w-14 shrink-0 px-2"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <ScriptPicker
+              scripts={scripts}
+              selectedIds={selectedScriptIds}
+              weightById={weightByScript}
+              onToggle={toggleScript}
+              onWeightChange={(id, value) => setWeightByScript((prev) => ({ ...prev, [id]: value }))}
+            />
           )}
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Cada envio sorteia um dos scripts marcados, proporcional ao peso.
+            Cada envio sorteia um dos scripts marcados, proporcional ao peso. Variáveis disponíveis:{" "}
+            <code>{"{nome}"}</code>, <code>{"{primeiro_nome}"}</code>, <code>{"{cargo}"}</code>,{" "}
+            <code>{"{empresa}"}</code>, <code>{"{cidade}"}</code> e <code>{"{saudacao}"}</code>.
           </p>
         </div>
+
+        {previewText && (
+          <div className="space-y-1.5 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+            <p className="field-label">Prévia (com dados de exemplo)</p>
+            <p className="whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{previewText}</p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <input
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                placeholder="Seu número p/ testar (com DDD)"
+                className="field-input w-56"
+              />
+              <button
+                type="button"
+                disabled={testSending || !testPhone.trim() || !instanceId}
+                onClick={sendTest}
+                className="btn-ghost"
+              >
+                {testSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Send className="h-3.5 w-3.5" strokeWidth={2} />}
+                Enviar teste
+              </button>
+              {testResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{testResult}</span>}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -447,6 +583,48 @@ function NewCampaignDialog({
               className="field-input"
             />
           </div>
+        </div>
+
+        <div className="space-y-2 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+          <label className="flex items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            <input
+              type="checkbox"
+              checked={followUpEnabled}
+              onChange={(e) => setFollowUpEnabled(e.target.checked)}
+              className="accent-neutral-900 dark:accent-white"
+            />
+            Reenvio automático pra quem não responder (remarketing)
+          </label>
+
+          {followUpEnabled && (
+            <div className="space-y-2 pt-1">
+              <div className="space-y-1">
+                <label className="field-label">Esperar quantas horas sem resposta</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={followUpDelayHours}
+                  onChange={(e) => setFollowUpDelayHours(e.target.value)}
+                  className="field-input w-32"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="field-label">Scripts do reenvio (opcional)</label>
+                {scripts.length > 0 && (
+                  <ScriptPicker
+                    scripts={scripts}
+                    selectedIds={followUpScriptIds}
+                    weightById={followUpWeightByScript}
+                    onToggle={toggleFollowUpScript}
+                    onWeightChange={(id, value) => setFollowUpWeightByScript((prev) => ({ ...prev, [id]: value }))}
+                  />
+                )}
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                  Se nenhum for marcado, o reenvio usa os mesmos scripts do envio inicial.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

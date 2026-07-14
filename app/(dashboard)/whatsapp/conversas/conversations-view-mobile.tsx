@@ -4,12 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Briefcase, BriefcaseBusiness, MessageCircle, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
+import { Select } from "@/components/select";
 import { ChatWindow } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
 import {
   ConversationRow,
   TabSwitcher,
+  groupByOwner,
   type Conversation,
   type ConversationTab,
   type NotificationPrefs,
@@ -26,11 +28,13 @@ export function ConversationsMobile({
   initialConversations,
   currentUserName,
   currentUserPhotoUrl,
+  currentUserId,
   notificationPrefs: initialNotificationPrefs,
 }: {
   initialConversations: Conversation[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  currentUserId?: string;
   notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
@@ -38,6 +42,7 @@ export function ConversationsMobile({
   const [tab, setTab] = useState<ConversationTab>("crm");
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
@@ -98,10 +103,18 @@ export function ConversationsMobile({
 
   const unreadTotal = useMemo(() => tabConversations.reduce((sum, c) => sum + c.unreadCount, 0), [tabConversations]);
 
+  const ownerOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const c of tabConversations) seen.set(c.ownerId, c.ownerId === currentUserId ? "Você" : c.ownerName);
+    return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [tabConversations, currentUserId]);
+  const showOwnerInfo = ownerOptions.length > 1;
+
   const filteredConversations = useMemo(() => {
     const term = search.trim().toLowerCase();
     return tabConversations.filter((c) => {
       if (onlyUnread && c.unreadCount === 0) return false;
+      if (ownerFilter && c.ownerId !== ownerFilter) return false;
       if (
         term &&
         !c.displayName.toLowerCase().includes(term) &&
@@ -112,7 +125,12 @@ export function ConversationsMobile({
       }
       return true;
     });
-  }, [tabConversations, search, onlyUnread]);
+  }, [tabConversations, search, onlyUnread, ownerFilter]);
+
+  const groupedConversations = useMemo(() => {
+    if (!showOwnerInfo || ownerFilter) return null;
+    return groupByOwner(filteredConversations);
+  }, [showOwnerInfo, ownerFilter, filteredConversations]);
 
   const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
 
@@ -222,6 +240,15 @@ export function ConversationsMobile({
         </button>
       </div>
 
+      {showOwnerInfo && (
+        <Select
+          value={ownerFilter}
+          onChange={setOwnerFilter}
+          className="w-full py-2 text-sm"
+          options={[{ value: "", label: "Todos os responsáveis" }, ...ownerOptions]}
+        />
+      )}
+
       <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto">
         {tabConversations.length === 0 ? (
           <div className="flex h-full items-center justify-center p-6">
@@ -237,12 +264,31 @@ export function ConversationsMobile({
           </div>
         ) : filteredConversations.length === 0 ? (
           <p className="p-4 text-center text-sm text-neutral-400 dark:text-neutral-500">Nenhuma conversa encontrada.</p>
+        ) : groupedConversations ? (
+          groupedConversations.map((group) => (
+            <div key={group.ownerId} className="space-y-0.5">
+              <p className="sticky top-0 z-10 truncate bg-white px-1.5 py-1 text-[11px] font-semibold text-neutral-400 dark:bg-neutral-900 dark:text-neutral-500">
+                {group.ownerId === currentUserId ? "Você" : group.ownerName}
+              </p>
+              {group.items.map((c) => (
+                <ConversationRow
+                  key={c.threadId}
+                  conversation={c}
+                  isActive={false}
+                  justArrived={justArrived.has(c.threadId)}
+                  onSelect={() => setSelectedThreadId(c.threadId)}
+                />
+              ))}
+            </div>
+          ))
         ) : (
           filteredConversations.map((c) => (
             <ConversationRow
               key={c.threadId}
               conversation={c}
               isActive={false}
+              showOwner={showOwnerInfo}
+              isCurrentUser={c.ownerId === currentUserId}
               justArrived={justArrived.has(c.threadId)}
               onSelect={() => setSelectedThreadId(c.threadId)}
             />

@@ -294,6 +294,7 @@ export function ChatWindow({
   backMode?: boolean;
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
+  const [contactPhotoUrl, setContactPhotoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
@@ -320,6 +321,24 @@ export function ChatWindow({
     const interval = setInterval(load, 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+
+  useEffect(() => {
+    // Só uma vez por troca de conversa (não entra no polling de 4s) — a rota
+    // já cacheia no banco, mas evita repetir a requisição HTTP toda hora.
+    setContactPhotoUrl(null);
+    let cancelled = false;
+    fetch(`/api/whatsapp/threads/${threadId}/photo`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.url) setContactPhotoUrl(data.url);
+      })
+      .catch(() => {
+        // Silencioso: sem foto, o Avatar cai pras iniciais normalmente.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [threadId]);
 
   useEffect(() => {
@@ -366,7 +385,7 @@ export function ChatWindow({
               <ArrowLeft className="h-4 w-4" strokeWidth={2} />
             </button>
           )}
-          <Avatar name={contactName ?? "?"} size="md" className="shrink-0" />
+          <Avatar name={contactName ?? "?"} src={contactPhotoUrl} size="md" className="shrink-0" />
           <div className="min-w-0">
             <h2 className="flex items-center gap-1.5 truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               {contactName ?? "Conversa"}
@@ -942,44 +961,11 @@ function TextComposer({
     });
   }
 
+  const hasText = !!text.trim();
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-1.5">
-      <div className="flex items-center gap-0.5">
-        {FORMAT_OPTIONS.map((f) => (
-          <button
-            key={f.marker}
-            type="button"
-            onClick={() => applyFormat(f.marker)}
-            className="icon-btn h-6 w-6"
-            aria-label={f.label}
-            title={`${f.label} (${f.shortcutLabel})`}
-          >
-            <f.icon className="h-3.5 w-3.5" strokeWidth={2} />
-          </button>
-        ))}
-      </div>
-      <div className="flex items-end gap-2">
-        <div className="relative shrink-0">
-          <button type="button" onClick={onToggleMenu} className="icon-btn" aria-label="Anexar">
-            <Paperclip className="h-4 w-4" strokeWidth={2} />
-          </button>
-          {menuOpen && (
-            <div className="surface-glass absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
-              {PAPERCLIP_MENU_OPTIONS.map((opt) => (
-                <button
-                  key={opt.mode}
-                  type="button"
-                  onClick={() => onPick(opt.mode)}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 active:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:active:bg-neutral-800"
-                >
-                  <opt.icon className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <EmojiMenu onPick={insertEmoji} />
+    <form onSubmit={handleSubmit}>
+      <div className="relative rounded-3xl border border-neutral-200 bg-white transition-colors focus-within:border-neutral-400 focus-within:ring-1 focus-within:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-500 dark:focus-within:ring-neutral-500">
         <textarea
           ref={textareaRef}
           value={text}
@@ -991,19 +977,61 @@ function TextComposer({
           onPaste={handlePaste}
           placeholder="Digite uma mensagem… (Shift+Enter para quebrar linha)"
           rows={1}
-          className="field-input scrollbar-thin max-h-[120px] flex-1 resize-none py-2 text-sm"
+          className="scrollbar-thin max-h-[120px] w-full resize-none bg-transparent py-3 pr-14 pl-4 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
+
+        <div className="flex items-center gap-0.5 px-2 pb-2">
+          {FORMAT_OPTIONS.map((f) => (
+            <button
+              key={f.marker}
+              type="button"
+              onClick={() => applyFormat(f.marker)}
+              className="icon-btn h-7 w-7"
+              aria-label={f.label}
+              title={`${f.label} (${f.shortcutLabel})`}
+            >
+              <f.icon className="h-3.5 w-3.5" strokeWidth={2} />
+            </button>
+          ))}
+          <span className="mx-1 h-4 w-px shrink-0 bg-neutral-200 dark:bg-neutral-700" />
+          <div className="relative shrink-0">
+            <button type="button" onClick={onToggleMenu} className="icon-btn h-7 w-7" aria-label="Anexar">
+              <Paperclip className="h-3.5 w-3.5" strokeWidth={2} />
+            </button>
+            {menuOpen && (
+              <div className="surface-glass absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
+                {PAPERCLIP_MENU_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.mode}
+                    type="button"
+                    onClick={() => onPick(opt.mode)}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 active:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:active:bg-neutral-800"
+                  >
+                    <opt.icon className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <EmojiMenu onPick={insertEmoji} />
+        </div>
+
         <button
           type="button"
-          onClick={() => onPick("AUDIO")}
-          className="icon-btn shrink-0"
-          aria-label="Gravar áudio"
-          title="Gravar áudio"
+          disabled={sending}
+          onClick={() => (hasText ? submit() : onPick("AUDIO"))}
+          className="absolute right-2 bottom-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition-all active:scale-95 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          aria-label={hasText ? "Enviar" : "Gravar áudio"}
+          title={hasText ? "Enviar" : "Gravar áudio"}
         >
-          <Mic className="h-4 w-4" strokeWidth={2} />
-        </button>
-        <button type="submit" disabled={sending || !text.trim()} className="btn-primary shrink-0">
-          {sending ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
+          {sending ? (
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+          ) : hasText ? (
+            <Send className="h-4 w-4" strokeWidth={2} />
+          ) : (
+            <Mic className="h-4 w-4" strokeWidth={2} />
+          )}
         </button>
       </div>
     </form>

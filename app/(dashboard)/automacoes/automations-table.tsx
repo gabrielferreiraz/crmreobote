@@ -8,6 +8,7 @@ import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { VariableInput } from "@/components/variable-input";
 import { RecipientPicker, type RecipientEntry } from "./recipient-picker";
 
 type Trigger =
@@ -652,13 +653,12 @@ function NewAutomationDialog({
           <>
             <div className="space-y-1 sm:col-span-2">
               <label className="field-label">Mensagem</label>
-              <textarea
-                required
+              <VariableInput
                 value={whatsappMessage}
-                onChange={(e) => setWhatsappMessage(e.target.value)}
+                onChange={setWhatsappMessage}
+                multiline
                 rows={3}
                 placeholder="Ex.: Olá! Vi que você se interessou pelo nosso consórcio, posso te ajudar com alguma dúvida?"
-                className="field-input"
               />
             </div>
             <div className="sm:col-span-2">
@@ -685,22 +685,11 @@ function NewAutomationDialog({
           <>
             <div className="space-y-1">
               <label className="field-label">Assunto</label>
-              <input
-                value={emailSubject}
-                onChange={(e) => setEmailSubject(e.target.value)}
-                placeholder={`Automação: ${name || "..."}`}
-                className="field-input"
-              />
+              <VariableInput value={emailSubject} onChange={setEmailSubject} placeholder={`Automação: ${name || "..."}`} />
             </div>
             <div className="space-y-1 sm:col-span-2">
               <label className="field-label">Texto</label>
-              <textarea
-                required
-                value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                rows={3}
-                className="field-input"
-              />
+              <VariableInput value={emailBody} onChange={setEmailBody} multiline rows={3} />
             </div>
             <div className="sm:col-span-2">
               <RecipientPicker

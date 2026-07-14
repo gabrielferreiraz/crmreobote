@@ -60,6 +60,44 @@ type Deal = {
 type MemberOption = { id: string; name: string };
 type LossReasonOption = { id: string; label: string };
 
+/**
+ * Log automático (mudança de etapa, ganho/perdido, valor) — uma linha
+ * minúscula sem cartão nem avatar, pra não competir visualmente com as
+ * atividades manuais (nota, ligação etc.), que são o conteúdo principal.
+ */
+function ActivityItem({ activity, highlighted }: { activity: Activity; highlighted: boolean }) {
+  if (activity.type === "SYSTEM") {
+    return (
+      <p
+        id={`activity-${activity.id}`}
+        className={`px-1 py-0.5 text-[11px] text-neutral-400 dark:text-neutral-500 ${highlighted ? "animate-highlight-once" : ""}`}
+      >
+        {activity.user.name} {activity.body}
+        <span className="text-neutral-300 dark:text-neutral-600"> · {new Date(activity.createdAt).toLocaleString("pt-BR")}</span>
+      </p>
+    );
+  }
+
+  const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
+  return (
+    <div
+      id={`activity-${activity.id}`}
+      className={`card flex gap-3 p-3 text-sm ${highlighted ? "animate-highlight-once" : ""}`}
+    >
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
+        <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+      </div>
+      <div className="min-w-0 flex-1">
+        {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+          <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
+          {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function DealDetail({
   deal,
   members,
@@ -471,29 +509,13 @@ export function DealDetail({
             {deal.activities.length === 0 && (
               <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhuma atividade registrada.</p>
             )}
-            {deal.activities.map((activity) => {
-              const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
-              return (
-                <div
-                  key={activity.id}
-                  id={`activity-${activity.id}`}
-                  className={`card flex gap-3 p-3 text-sm ${
-                    highlightedActivityId === activity.id ? "animate-highlight-once" : ""
-                  }`}
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
-                    <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
-                    <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-                      <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
-                      {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            {deal.activities.map((activity) => (
+              <ActivityItem
+                key={activity.id}
+                activity={activity}
+                highlighted={highlightedActivityId === activity.id}
+              />
+            ))}
           </div>
         </div>
 
@@ -721,29 +743,13 @@ export function DealDetail({
               {deal.activities.length === 0 && (
                 <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhuma atividade registrada.</p>
               )}
-              {deal.activities.map((activity) => {
-                const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
-                return (
-                  <div
-                    key={activity.id}
-                    id={`activity-${activity.id}`}
-                    className={`card flex gap-3 p-3 text-sm ${
-                      highlightedActivityId === activity.id ? "animate-highlight-once" : ""
-                    }`}
-                  >
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
-                      <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
-                      <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-                        <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
-                        {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
+              {deal.activities.map((activity) => (
+                <ActivityItem
+                  key={activity.id}
+                  activity={activity}
+                  highlighted={highlightedActivityId === activity.id}
+                />
+              ))}
             </div>
           </div>
         ) : (

@@ -157,6 +157,25 @@ export async function getConnectionState(instanceName: string): Promise<Connecti
   return "close";
 }
 
+/**
+ * Foto de perfil do WhatsApp de um número — `number` no mesmo formato que
+ * sendTextMessage (só dígitos, com DDI). Retorna null (não lança) quando o
+ * contato não tem foto, tem privacidade restrita, ou o Evolution não
+ * reconhece o número — tudo isso é resultado normal, não erro de verdade.
+ */
+export async function fetchProfilePictureUrl(instanceName: string, number: string): Promise<string | null> {
+  try {
+    const data = await request<{ profilePictureUrl?: string; wuid?: string } | null>(
+      `/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`,
+      { method: "POST", body: JSON.stringify({ number }) },
+    );
+    return data?.profilePictureUrl ?? null;
+  } catch (err) {
+    console.error(`[evolution] falha ao buscar foto de perfil de ${number}`, err);
+    return null;
+  }
+}
+
 export async function logoutInstance(instanceName: string): Promise<void> {
   await request(`/instance/logout/${encodeURIComponent(instanceName)}`, { method: "DELETE" });
 }
