@@ -73,6 +73,7 @@ export default async function RelatoriosPage({
     meetingsByOwner,
     orgMembers,
     wonDealsForTrend,
+    wonByCreditType,
   ] = await Promise.all([
     prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
     activePipeline
@@ -128,6 +129,14 @@ export default async function RelatoriosPage({
       where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(scope) },
       select: { closedAt: true, value: true },
     }),
+    // Faturamento por tipo de crédito — imóvel e veículo têm ticket e ciclo
+    // de decisão bem diferentes, vale ver separado, não só o total misturado.
+    prisma.deal.groupBy({
+      by: ["creditType"],
+      where: { organizationId, status: "WON", ...scopeWhere(scope), ...dateWhere("closedAt") },
+      _count: true,
+      _sum: { value: true },
+    }),
   ]);
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
@@ -142,6 +151,31 @@ export default async function RelatoriosPage({
   const wonTotalValue = wonByOwner.reduce((sum, w) => sum + (w._sum.value ? Number(w._sum.value) : 0), 0);
   const openTotalValue = openByOwner.reduce((sum, o) => sum + (o._sum.value ? Number(o._sum.value) : 0), 0);
   const avgWonValue = wonCount > 0 ? wonTotalValue / wonCount : 0;
+
+  // Imóvel e veículo entram em buckets próprios; qualquer outra coisa (null,
+  // "OUTROS", ou um valor futuro ainda não previsto) cai junto em "Outros" —
+  // nunca deixa um tipo de crédito sumir do total por não ter rótulo certo.
+  const CREDIT_TYPE_LABELS: Record<string, string> = { "IMÓVEL": "Imóvel", "VEÍCULO": "Veículo" };
+  const CREDIT_TYPE_COLORS: Record<string, string> = { "IMÓVEL": "#059669", "VEÍCULO": "#64748b" };
+  const creditTypeTotals = new Map<string, { count: number; value: number }>();
+  for (const c of wonByCreditType) {
+    const key = c.creditType === "IMÓVEL" || c.creditType === "VEÍCULO" ? c.creditType : "OUTROS";
+    const prev = creditTypeTotals.get(key) ?? { count: 0, value: 0 };
+    prev.count += c._count;
+    prev.value += c._sum.value ? Number(c._sum.value) : 0;
+    creditTypeTotals.set(key, prev);
+  }
+  const creditTypeBreakdown = Array.from(creditTypeTotals.entries())
+    .map(([key, t]) => ({
+      key,
+      label: CREDIT_TYPE_LABELS[key] ?? "Outros",
+      color: CREDIT_TYPE_COLORS[key] ?? "#a3a3a3",
+      count: t.count,
+      value: t.value,
+      avgValue: t.count > 0 ? t.value / t.count : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+  const creditTypeTotalValue = creditTypeBreakdown.reduce((sum, c) => sum + c.value, 0);
 
   const stageData = (activePipeline?.stages ?? []).map((stage) => {
     const match = stageValues.find((s) => s.stageId === stage.id);
@@ -597,6 +631,57 @@ export default async function RelatoriosPage({
           Ganhos e perdidos consideram o período selecionado acima; pipeline em aberto sempre reflete o momento atual.
         </p>
       </section>
+
+      {/* ─── Faturamento por tipo de crédito ───────────────────────────── */}
+      {creditTypeBreakdown.length > 0 && (
+        <section className="space-y-6">
+          <SectionHeading
+            eyebrow="Carteira"
+            title="Faturamento por tipo de crédito"
+            description="Imóvel e veículo têm ticket e ciclo de decisão bem diferentes — vale ver o que puxa o resultado."
+          />
+          <div className="grid grid-cols-12 gap-5">
+            <div className="card col-span-12 p-6 lg:col-span-5">
+              <DonutChart
+                slices={creditTypeBreakdown.map((c) => ({ label: c.label, value: c.value, color: c.color }))}
+                centerValue={formatCurrency(creditTypeTotalValue)}
+                centerLabel="faturamento"
+              />
+            </div>
+            <div className="card col-span-12 overflow-x-auto p-6 lg:col-span-7">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                    <th className="pb-2 font-medium">Tipo</th>
+                    <th className="pb-2 text-right font-medium">Negócios</th>
+                    <th className="pb-2 text-right font-medium">Faturamento</th>
+                    <th className="pb-2 text-right font-medium">Ticket médio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditTypeBreakdown.map((c) => (
+                    <tr key={c.key} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                      <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />
+                          {c.label}
+                        </span>
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{c.count}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {formatCurrency(c.value)}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                        {formatCurrency(c.avgValue)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ─── Funil e evolução ───────────────────────────────────────── */}
       <section className="space-y-6">

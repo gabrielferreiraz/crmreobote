@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getConnectionState } from "@/lib/evolution";
 import { notifyInstanceDisconnected, notifyInstanceStillDisconnected } from "@/lib/whatsapp/instance-alerts";
+import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -77,6 +78,16 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
           console.warn(
             `[wa:health] instância ${instance.instanceName} confirma "${state}" numa 2ª rodada — corrigindo e avisando`,
           );
+
+          // Dono não é mais membro ativo: remove de vez em vez de só marcar
+          // desconectado (mesma regra do webhook — ver lib/whatsapp/events.ts).
+          if (!(await isActiveMember(instance.organizationId, instance.userId))) {
+            await deleteInstanceForInactiveUser(instance);
+            console.log(`[wa:health] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
+            disconnected += 1;
+            continue;
+          }
+
           await prisma.whatsAppInstance.update({
             where: { id: instance.id },
             data: { status: "DISCONNECTED", disconnectedAt: new Date(), disconnectAlertLevel: 0, pendingDisconnectSince: null },

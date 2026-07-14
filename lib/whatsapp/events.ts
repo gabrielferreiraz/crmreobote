@@ -20,6 +20,7 @@ import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normaliz
 import { getIncomingMediaBase64 } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
+import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
@@ -414,6 +415,16 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     const status: $Enums.WhatsAppInstanceStatus =
       update?.state === "open" ? "CONNECTED" : update?.state === "connecting" ? "CONNECTING" : "DISCONNECTED";
     const phoneNumber = update?.wuid ? normalizePhoneNumber(update.wuid.split("@")[0]) : null;
+
+    // Dono não é mais membro ativo da organização — em vez de só marcar
+    // desconectado e ficar esperando alguém reconectar (o que nunca vai
+    // acontecer), remove a instância de vez. Nunca faz isso pra quem
+    // continua ativo, mesmo desconectado.
+    if (status === "DISCONNECTED" && !(await isActiveMember(instance.organizationId, instance.userId))) {
+      await deleteInstanceForInactiveUser(instance);
+      console.log(`[wa:webhook] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
+      return;
+    }
 
     // Só avisa por e-mail nas transições de verdade (conectado → desconectado
     // e o inverso) — não a cada evento. Importante: o "conectou" só dispara

@@ -4,9 +4,15 @@ import { resolveAvatarUrl } from "@/lib/r2";
 import { ProfileAvatarForm } from "./profile-avatar-form";
 import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
 import { WhatsAppConnect } from "@/components/whatsapp-connect";
+import { GoogleCalendarConnect } from "@/components/google-calendar-connect";
 
-export default async function PerfilPage() {
+export default async function PerfilPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ google?: string }>;
+}) {
   const session = await auth();
+  const { google } = await searchParams;
   const user = await prisma.user.findUnique({
     where: { id: session!.user.id },
     select: { id: true, name: true, email: true, image: true },
@@ -27,6 +33,9 @@ export default async function PerfilPage() {
       </div>
       <div className="card p-4">
         <WhatsAppConnect />
+      </div>
+      <div className="card p-4">
+        <GoogleCalendarConnect initialGoogleParam={google} />
       </div>
     </div>
   );

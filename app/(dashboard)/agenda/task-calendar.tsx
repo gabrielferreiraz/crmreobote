@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Avatar } from "@/components/avatar";
 import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
+
+export type GoogleEvent = { id: string; title: string; start: string; allDay: boolean; htmlLink: string };
 
 const WEEKDAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 const MONTH_LABELS = [
@@ -25,10 +27,13 @@ export function TaskCalendar({
   tasks,
   onToggle,
   showOwner,
+  googleEvents = [],
 }: {
   tasks: Task[];
   onToggle: (id: string, completed: boolean) => void;
   showOwner: boolean;
+  /** Eventos importados do Google Agenda da pessoa (ver components/google-calendar-connect.tsx) — só leitura, nunca editáveis aqui. */
+  googleEvents?: GoogleEvent[];
 }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -65,6 +70,19 @@ export function TaskCalendar({
     }
     return map;
   }, [tasks]);
+
+  const googleEventsByDay = useMemo(() => {
+    const map = new Map<string, GoogleEvent[]>();
+    for (const e of googleEvents) {
+      const key = startOfDay(new Date(e.start)).toDateString();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    }
+    return map;
+  }, [googleEvents]);
 
   return (
     <div className="card p-4">
@@ -106,8 +124,10 @@ export function TaskCalendar({
           const inMonth = day.getMonth() === cursor.getMonth();
           const isToday = isSameDay(day, today);
           const dayTasks = tasksByDay.get(day.toDateString()) ?? [];
+          const dayGoogleEvents = googleEventsByDay.get(day.toDateString()) ?? [];
           const visible = dayTasks.slice(0, 3);
-          const overflow = dayTasks.length - visible.length;
+          const visibleGoogle = dayGoogleEvents.slice(0, Math.max(0, 3 - visible.length));
+          const overflow = dayTasks.length - visible.length + (dayGoogleEvents.length - visibleGoogle.length);
 
           return (
             <div
@@ -150,6 +170,19 @@ export function TaskCalendar({
                     </button>
                   );
                 })}
+                {visibleGoogle.map((e) => (
+                  <a
+                    key={e.id}
+                    href={e.htmlLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={e.title}
+                    className="flex w-full items-center gap-1 truncate rounded bg-blue-50 px-1 py-0.5 text-left text-[11px] text-blue-700 transition-colors hover:brightness-95 dark:bg-blue-500/10 dark:text-blue-400"
+                  >
+                    <CalendarIcon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
+                    <span className="truncate">{e.title}</span>
+                  </a>
+                ))}
                 {overflow > 0 && (
                   <button
                     onClick={() => setSelectedDay(day)}
@@ -172,6 +205,23 @@ export function TaskCalendar({
           <div className="scrollbar-thin max-h-[60vh] space-y-2 overflow-y-auto">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
               <TaskRow key={t.id} task={t} onToggle={onToggle} showOwner={showOwner} />
+            ))}
+            {(googleEventsByDay.get(selectedDay.toDateString()) ?? []).map((e) => (
+              <a
+                key={e.id}
+                href={e.htmlLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="card flex items-center gap-3 p-3 text-sm text-blue-700 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-500/10"
+              >
+                <CalendarIcon className="h-4 w-4 shrink-0" strokeWidth={2} />
+                <span className="min-w-0 flex-1 truncate">{e.title}</span>
+                {!e.allDay && (
+                  <span className="shrink-0 text-xs text-blue-500/80 dark:text-blue-400/70">
+                    {new Date(e.start).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </a>
             ))}
           </div>
         </Modal>

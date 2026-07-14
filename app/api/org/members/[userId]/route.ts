@@ -3,6 +3,7 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { deleteAvatar } from "@/lib/r2";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
+import { cleanupInstanceIfDisconnected } from "@/lib/whatsapp/instance-cleanup";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,10 @@ export async function PATCH(
         await prisma.user.update({ where: { id: userId }, data: { image: null } });
         await deleteAvatar(previousKey).catch(() => {});
       }
+      // Só remove aqui se já estiver desconectada — enquanto conectada, a
+      // limpeza fica pro webhook/health-check pegar na próxima queda (nunca
+      // derruba uma sessão que ainda está de pé só por causa da desativação).
+      await cleanupInstanceIfDisconnected(access.organizationId, userId);
     }
 
     return NextResponse.json(updated);
@@ -128,6 +133,10 @@ export async function DELETE(
         where: { organizationId_userId: { organizationId: access.organizationId, userId } },
       });
     });
+
+    // Mesma regra da desativação: só remove aqui se já estiver desconectada;
+    // conectada, espera o webhook/health-check pegar na próxima queda.
+    await cleanupInstanceIfDisconnected(access.organizationId, userId);
 
     const remainingMemberships = await prisma.organizationUser.count({ where: { userId } });
     if (remainingMemberships === 0) {

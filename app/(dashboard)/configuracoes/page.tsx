@@ -1,18 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import {
-  Kanban,
-  Users,
-  ChevronRight,
-  XCircle,
-  UsersRound,
-  UserCircle,
-  Bell,
-  ShieldCheck,
-  SlidersHorizontal,
-  Mail,
-  Zap,
-} from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TestEmailButton } from "./test-email-button";
@@ -43,8 +31,6 @@ export default async function ConfiguracoesPage() {
           title="Perfil e preferências"
           description="Foto, notificações push e conexão do WhatsApp."
         />
-        <Row icon={Bell} title="Notificações" description="Alertas por e-mail e resumos diários." />
-        <Row icon={ShieldCheck} title="Segurança" description="Senha, autenticação em dois fatores." />
       </Section>
 
       {isAdmin ? (
@@ -63,7 +49,12 @@ export default async function ConfiguracoesPage() {
       )}
 
       <Section title="Integrações">
-        <Row icon={Mail} title="E-mail e calendário" description="Sincronize Google, Outlook e IMAP." />
+        <Row
+          href="/configuracoes/perfil"
+          icon={Mail}
+          title="Google Agenda"
+          description="Conecte sua conta pra ver seus eventos na Agenda do CRM."
+        />
       </Section>
 
       {isOwner && (

@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CircleAlert, ChevronDown } from "lucide-react";
+import { CircleAlert, ChevronDown, CalendarPlus } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
 import { AnimatedCheck } from "@/components/animated-check";
+import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
 
 export type Task = {
   id: string;
@@ -100,6 +101,20 @@ export function TaskRow({
           >
             {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
           </span>
+        )}
+
+        {task.dueAt && (
+          <a
+            href={buildGoogleCalendarUrl({ title: task.title, description: task.description, start: task.dueAt })}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="icon-btn shrink-0"
+            aria-label="Adicionar ao Google Agenda"
+            title="Adicionar ao Google Agenda"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" strokeWidth={2} />
+          </a>
         )}
 
         {hasDetails && (

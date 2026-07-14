@@ -11,7 +11,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
-import { TaskCalendar } from "./task-calendar";
+import { TaskCalendar, type GoogleEvent } from "./task-calendar";
 
 export type Option = { id: string; name: string };
 
@@ -37,10 +37,12 @@ export function TasksList({
   initialTasks,
   deals,
   members,
+  googleEvents,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
+  googleEvents?: GoogleEvent[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -198,7 +200,7 @@ export function TasksList({
           />
         </div>
       ) : view === "calendar" ? (
-        <TaskCalendar tasks={filteredTasks} onToggle={toggleComplete} showOwner={showOwner} />
+        <TaskCalendar tasks={filteredTasks} onToggle={toggleComplete} showOwner={showOwner} googleEvents={googleEvents} />
       ) : noResults ? (
         <div className="card">
           <EmptyState
