@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCampaignDetail } from "@/lib/campaigns/list";
 import { RecipientsTable } from "./recipients-table";
+import { CampaignMetricsChart } from "./metrics-chart";
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,10 +38,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <div>
           <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{campaign.name}</h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            {campaign.counts.sent} enviadas · {campaign.counts.replied} respostas · {campaign.counts.failed} falhas ·{" "}
-            {campaign.counts.skipped} puladas · {campaign.counts.pending} pendentes
+            {campaign.audienceLabel} · {campaign.counts.sent} enviadas · {campaign.counts.replied} respostas ·{" "}
+            {campaign.counts.failed} falhas · {campaign.counts.skipped} puladas · {campaign.counts.pending} pendentes
           </p>
         </div>
+
+        <CampaignMetricsChart data={campaign.dailyMetrics} />
 
         <RecipientsTable
           recipients={campaign.recipients.map((r) => ({

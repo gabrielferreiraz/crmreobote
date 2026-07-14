@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithInstanceLookup, runWithTenant } from "@/lib/tenant-context";
-import { handleIncomingMessage, handleStatusUpdate, handleConnectionUpdate, handleIncomingCall } from "@/lib/whatsapp/events";
+import {
+  handleIncomingMessage,
+  handleStatusUpdate,
+  handleConnectionUpdate,
+  handleIncomingCall,
+  handleHistorySync,
+} from "@/lib/whatsapp/events";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +60,11 @@ export async function POST(req: NextRequest) {
       await handleConnectionUpdate(instance, data);
     } else if (event === "call") {
       await handleIncomingCall(instance, data);
+    } else if (event === "messages.set") {
+      // Ignora o payload deste evento de propósito — chama o endpoint de
+      // histórico direto (ver lib/whatsapp/events.ts) em vez de confiar no
+      // formato deste payload, que pode vir em pedaços num sync grande.
+      await handleHistorySync(instance);
     } else {
       console.log(`[wa:webhook] evento "${event}" recebido mas não tratado (nenhum handler pra ele ainda)`);
     }

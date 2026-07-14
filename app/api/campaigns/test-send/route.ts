@@ -8,22 +8,33 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 
 export const dynamic = "force-dynamic";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Manda um envio de teste (uma mensagem só, pra um número escolhido) antes
- * de criar/rodar a campanha de verdade — o texto já vem pronto do cliente
- * (spintax e variáveis já resolvidos lá, com dados de exemplo), então esta
- * rota só precisa achar/criar a conversa e despachar, igual o motor da
- * campanha faz depois pra cada destinatário real.
+ * Manda um envio de teste (a sequência inteira do script, com o delay real
+ * entre as partes) pra um número escolhido, antes de criar/rodar a campanha
+ * de verdade — os textos já vêm prontos do cliente (spintax e variáveis já
+ * resolvidos lá, com dados de exemplo), então esta rota só precisa achar/
+ * criar a conversa e despachar em sequência, igual o motor da campanha faz
+ * depois pra cada destinatário real.
  */
 export async function POST(req: Request) {
   const body = await req.json();
-  const { instanceId, phone, text } = body as { instanceId?: string; phone?: string; text?: string };
+  const { instanceId, phone, steps } = body as {
+    instanceId?: string;
+    phone?: string;
+    steps?: { text: string; delayAfterSec: number }[];
+  };
 
   const access = await requireRole(["OWNER", "ADMIN"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!instanceId) return NextResponse.json({ error: "Selecione de qual WhatsApp enviar" }, { status: 400 });
-  if (!text?.trim()) return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
+  if (!steps?.length || steps.some((s) => !s.text.trim())) {
+    return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
+  }
   const phoneNormalized = normalizePhoneNumber(phone);
   if (!phoneNormalized) return NextResponse.json({ error: "Número de teste inválido" }, { status: 400 });
 
@@ -39,7 +50,12 @@ export async function POST(req: Request) {
         instanceId,
         phoneNormalized,
       });
-      await sendWhatsAppMessage({ organizationId: access.organizationId, threadId: thread.id, text });
+      for (let i = 0; i < steps.length; i++) {
+        await sendWhatsAppMessage({ organizationId: access.organizationId, threadId: thread.id, text: steps[i].text });
+        if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
+          await sleep(steps[i].delayAfterSec * 1000);
+        }
+      }
     } catch (err) {
       if (err instanceof WhatsAppSendError) return NextResponse.json({ error: err.message }, { status: 400 });
       throw err;

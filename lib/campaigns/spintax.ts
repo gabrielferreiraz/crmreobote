@@ -39,17 +39,26 @@ export function renderTemplate(template: string, vars: CampaignVariables, greeti
     .replaceAll("{saudacao}", greeting);
 }
 
-export type WeightedTemplate = { text: string; weight: number };
+/** Uma "mensagem" da sequência de um script — delayAfterSec é a espera até a PRÓXIMA (ignorado na última). */
+export type ScriptStep = { text: string; delayAfterSec: number };
 
-/** Sorteia uma variante de mensagem proporcional ao peso configurado. */
-export function pickWeightedTemplate(templates: WeightedTemplate[]): WeightedTemplate {
-  const totalWeight = templates.reduce((sum, t) => sum + Math.max(0, t.weight), 0);
-  if (totalWeight <= 0) return templates[0];
+/** Aplica renderTemplate em cada mensagem da sequência, preservando o delay configurado. */
+export function renderSteps(steps: ScriptStep[], vars: CampaignVariables, greeting: string): ScriptStep[] {
+  return steps.map((step) => ({ text: renderTemplate(step.text, vars, greeting), delayAfterSec: step.delayAfterSec }));
+}
+
+/** Uma variante de script dentro de uma campanha — sorteada por peso (ver pickWeighted). */
+export type WeightedScript = { steps: ScriptStep[]; weight: number; scriptId?: string };
+
+/** Sorteia um item proporcional ao peso configurado — genérico pra servir tanto scripts de campanha quanto qualquer outra lista com peso. */
+export function pickWeighted<T extends { weight: number }>(items: T[]): T {
+  const totalWeight = items.reduce((sum, t) => sum + Math.max(0, t.weight), 0);
+  if (totalWeight <= 0) return items[0];
 
   let roll = Math.random() * totalWeight;
-  for (const template of templates) {
-    roll -= Math.max(0, template.weight);
-    if (roll <= 0) return template;
+  for (const item of items) {
+    roll -= Math.max(0, item.weight);
+    if (roll <= 0) return item;
   }
-  return templates[templates.length - 1];
+  return items[items.length - 1];
 }

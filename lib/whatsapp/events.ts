@@ -17,7 +17,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normalize";
-import { getIncomingMediaBase64 } from "@/lib/evolution";
+import { getIncomingMediaBase64, findMessages, type HistoryMessage } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
@@ -35,6 +35,7 @@ type InstanceRef = {
   phoneNumber: string | null;
   notifyOnCrmMessage: boolean;
   notifyOnGeralMessage: boolean;
+  historySyncedAt: Date | null;
 };
 
 type ContextInfo = { stanzaId?: string };
@@ -86,6 +87,156 @@ function extractQuotedExternalId(msg: BaileysMessage): string | undefined {
   );
 }
 
+type SaveMessageOptions = {
+  /** false pro backfill de histórico — nunca manda push nem processa resposta de campanha por uma mensagem antiga. */
+  notify: boolean;
+  /** Preserva o horário real da mensagem no backfill; tempo real usa o default (now()) do banco. */
+  createdAt?: Date;
+};
+
+/**
+ * Processa e grava UMA mensagem (recebida em tempo real via webhook, ou
+ * histórica via backfill — ver importHistoryMessages) — mesma lógica pros
+ * dois casos: resolve/cria a conversa, baixa mídia, resolve resposta citada,
+ * deduplica por externalId. O que muda é só `options` (notificar ou não, e
+ * qual `createdAt` usar).
+ */
+async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, options: SaveMessageOptions): Promise<void> {
+  const remoteJid = msg.key?.remoteJid;
+  if (!remoteJid) {
+    console.log("[wa:webhook] ignorada: sem key.remoteJid", JSON.stringify(msg));
+    return;
+  }
+  if (remoteJid.endsWith("@g.us")) {
+    console.log(`[wa:webhook] ignorada: mensagem de grupo (${remoteJid})`);
+    return;
+  }
+
+  const rawNumber = remoteJid.split("@")[0];
+  const normalized = normalizePhoneNumber(rawNumber);
+  if (!normalized) {
+    console.log("[wa:webhook] ignorada: número não normalizável");
+    return;
+  }
+
+  // pushName é o nome de quem MANDOU essa mensagem específica — numa
+  // mensagem OUTBOUND (eco do que o próprio vendedor mandou, inclusive
+  // pelo celular dele direto), isso é o nome do próprio vendedor, não
+  // do lead do outro lado. Só usa pushName pra nomear a conversa quando
+  // for de fato o lead falando (INBOUND); senão a conversa fica com o
+  // nome do vendedor até o lead responder alguma vez.
+  const direction = msg.key?.fromMe ? "OUTBOUND" : "INBOUND";
+
+  // A conversa existe por si só — não exige mais que o número já seja
+  // um Contact cadastrado (ver lib/whatsapp/threads.ts). Se bater com
+  // um Contact, linka na hora; senão fica em "WhatsApp Geral" até
+  // alguém cadastrar esse número.
+  const thread = await getOrCreateThread({
+    organizationId: instance.organizationId,
+    instanceId: instance.id,
+    phoneNormalized: normalized,
+    whatsappName: direction === "INBOUND" ? msg.pushName : undefined,
+  });
+  console.log(
+    `[wa:webhook] remoteJid=${remoteJid} → normalizado=${normalized} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
+  );
+
+  const externalId = msg.key?.id;
+  if (externalId) {
+    const existing = await prisma.whatsAppMessage.findUnique({ where: { externalId }, select: { id: true } });
+    if (existing) {
+      console.log(`[wa:webhook] ignorada: externalId ${externalId} já registrado (duplicata/eco)`);
+      return;
+    }
+  }
+
+  let body = extractText(msg);
+  let type: $Enums.WhatsAppMessageType = "TEXT";
+  let mediaUrl: string | undefined;
+
+  const mediaKind = extractMediaKind(msg);
+  if (mediaKind) {
+    console.log(`[wa:webhook] mensagem contém mídia (${mediaKind}) — baixando via Evolution...`);
+    const media = await getIncomingMediaBase64(instance.instanceName, msg);
+    if (!media) {
+      console.warn("[wa:webhook] Evolution não retornou a mídia (mensagem pode ter expirado ou já foi removida)");
+    } else {
+      try {
+        const buffer = Buffer.from(media.base64, "base64");
+        assertValidChatMedia(media.mimetype, buffer.length);
+        const key = buildChatMediaKey(instance.organizationId, media.mimetype);
+        await uploadChatMedia(key, buffer, media.mimetype);
+        type = mediaKind;
+        mediaUrl = key;
+        body = media.caption ?? body;
+        console.log(
+          `[wa:webhook] mídia baixada e salva no R2: key=${key} mimetype=${media.mimetype} tamanho=${buffer.length} bytes`,
+        );
+      } catch (err) {
+        const reason = err instanceof ChatMediaUploadError ? err.message : String(err);
+        console.error(`[wa:webhook] falha ao salvar mídia recebida no R2: ${reason}`);
+      }
+    }
+  }
+
+  let replyToId: string | undefined;
+  const quotedExternalId = extractQuotedExternalId(msg);
+  if (quotedExternalId) {
+    const quotedMessage = await prisma.whatsAppMessage.findUnique({
+      where: { externalId: quotedExternalId },
+      select: { id: true },
+    });
+    replyToId = quotedMessage?.id;
+    console.log(
+      `[wa:webhook] mensagem é resposta a externalId=${quotedExternalId} → ${replyToId ? `encontrada (${replyToId})` : "não encontrada no histórico"}`,
+    );
+  }
+
+  const saved = await prisma.whatsAppMessage.create({
+    data: {
+      organizationId: instance.organizationId,
+      instanceId: instance.id,
+      threadId: thread.id,
+      direction,
+      type,
+      body,
+      mediaUrl,
+      externalId: externalId ?? undefined,
+      rawPayload: msg.key ? ({ key: msg.key, message: msg.message } as Prisma.InputJsonValue) : undefined,
+      replyToId,
+      status: "DELIVERED",
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
+    },
+  });
+  console.log(
+    `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
+  );
+
+  // Push e resposta de campanha só fazem sentido pra mensagem recebida de
+  // verdade em tempo real (nunca pro eco do que o próprio vendedor mandou,
+  // nem pra uma mensagem antiga vinda do backfill de histórico).
+  if (direction === "INBOUND" && options.notify) {
+    const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
+    if (shouldNotify) {
+      let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
+      if (thread.contactId) {
+        const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
+        if (contact) displayName = contact.name;
+      }
+      const preview =
+        body ||
+        (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
+      sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
+        console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
+      );
+    }
+
+    handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>
+      console.error("[wa:webhook] falha ao processar resposta de campanha", err),
+    );
+  }
+}
+
 export async function handleIncomingMessage(instance: InstanceRef, data: unknown): Promise<void> {
   console.log(`[wa:webhook] messages.upsert instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
 
@@ -94,142 +245,84 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
 
   for (const msg of messages) {
     try {
-      const remoteJid = msg.key?.remoteJid;
-      if (!remoteJid) {
-        console.log("[wa:webhook] ignorada: sem key.remoteJid", JSON.stringify(msg));
-        continue;
-      }
-      if (remoteJid.endsWith("@g.us")) {
-        console.log(`[wa:webhook] ignorada: mensagem de grupo (${remoteJid})`);
-        continue;
-      }
-
-      const rawNumber = remoteJid.split("@")[0];
-      const normalized = normalizePhoneNumber(rawNumber);
-      if (!normalized) {
-        console.log("[wa:webhook] ignorada: número não normalizável");
-        continue;
-      }
-
-      // pushName é o nome de quem MANDOU essa mensagem específica — numa
-      // mensagem OUTBOUND (eco do que o próprio vendedor mandou, inclusive
-      // pelo celular dele direto), isso é o nome do próprio vendedor, não
-      // do lead do outro lado. Só usa pushName pra nomear a conversa quando
-      // for de fato o lead falando (INBOUND); senão a conversa fica com o
-      // nome do vendedor até o lead responder alguma vez.
-      const direction = msg.key?.fromMe ? "OUTBOUND" : "INBOUND";
-
-      // A conversa existe por si só — não exige mais que o número já seja
-      // um Contact cadastrado (ver lib/whatsapp/threads.ts). Se bater com
-      // um Contact, linka na hora; senão fica em "WhatsApp Geral" até
-      // alguém cadastrar esse número.
-      const thread = await getOrCreateThread({
-        organizationId: instance.organizationId,
-        instanceId: instance.id,
-        phoneNormalized: normalized,
-        whatsappName: direction === "INBOUND" ? msg.pushName : undefined,
-      });
-      console.log(
-        `[wa:webhook] remoteJid=${remoteJid} → normalizado=${normalized} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
-      );
-
-      const externalId = msg.key?.id;
-      if (externalId) {
-        const existing = await prisma.whatsAppMessage.findUnique({ where: { externalId }, select: { id: true } });
-        if (existing) {
-          console.log(`[wa:webhook] ignorada: externalId ${externalId} já registrado (duplicata/eco)`);
-          continue;
-        }
-      }
-
-      let body = extractText(msg);
-      let type: $Enums.WhatsAppMessageType = "TEXT";
-      let mediaUrl: string | undefined;
-
-      const mediaKind = extractMediaKind(msg);
-      if (mediaKind) {
-        console.log(`[wa:webhook] mensagem contém mídia (${mediaKind}) — baixando via Evolution...`);
-        const media = await getIncomingMediaBase64(instance.instanceName, msg);
-        if (!media) {
-          console.warn("[wa:webhook] Evolution não retornou a mídia (mensagem pode ter expirado ou já foi removida)");
-        } else {
-          try {
-            const buffer = Buffer.from(media.base64, "base64");
-            assertValidChatMedia(media.mimetype, buffer.length);
-            const key = buildChatMediaKey(instance.organizationId, media.mimetype);
-            await uploadChatMedia(key, buffer, media.mimetype);
-            type = mediaKind;
-            mediaUrl = key;
-            body = media.caption ?? body;
-            console.log(
-              `[wa:webhook] mídia baixada e salva no R2: key=${key} mimetype=${media.mimetype} tamanho=${buffer.length} bytes`,
-            );
-          } catch (err) {
-            const reason = err instanceof ChatMediaUploadError ? err.message : String(err);
-            console.error(`[wa:webhook] falha ao salvar mídia recebida no R2: ${reason}`);
-          }
-        }
-      }
-
-      let replyToId: string | undefined;
-      const quotedExternalId = extractQuotedExternalId(msg);
-      if (quotedExternalId) {
-        const quotedMessage = await prisma.whatsAppMessage.findUnique({
-          where: { externalId: quotedExternalId },
-          select: { id: true },
-        });
-        replyToId = quotedMessage?.id;
-        console.log(
-          `[wa:webhook] mensagem é resposta a externalId=${quotedExternalId} → ${replyToId ? `encontrada (${replyToId})` : "não encontrada no histórico"}`,
-        );
-      }
-
-      const saved = await prisma.whatsAppMessage.create({
-        data: {
-          organizationId: instance.organizationId,
-          instanceId: instance.id,
-          threadId: thread.id,
-          direction,
-          type,
-          body,
-          mediaUrl,
-          externalId: externalId ?? undefined,
-          rawPayload: msg.key ? ({ key: msg.key, message: msg.message } as Prisma.InputJsonValue) : undefined,
-          replyToId,
-          status: "DELIVERED",
-        },
-      });
-      console.log(
-        `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
-      );
-
-      // Push só faz sentido pra mensagem recebida de verdade (nunca pro eco
-      // do que o próprio vendedor mandou) — e respeita a preferência de
-      // CRM/Geral configurada em Conversas (thread.contactId distingue as duas).
-      if (direction === "INBOUND") {
-        const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
-        if (shouldNotify) {
-          let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
-          if (thread.contactId) {
-            const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
-            if (contact) displayName = contact.name;
-          }
-          const preview =
-            body ||
-            (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
-          sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
-            console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
-          );
-        }
-
-        handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>
-          console.error("[wa:webhook] falha ao processar resposta de campanha", err),
-        );
-      }
+      await saveIncomingMessage(instance, msg, { notify: true });
     } catch (err) {
       console.error("[wa:webhook] falha ao processar mensagem recebida", err);
     }
   }
+}
+
+const HISTORY_MESSAGES_PER_CONTACT = 50;
+
+/** Epoch do Baileys pode vir em segundos ou já em ms conforme a versão — abaixo de 10 bilhões só pode ser segundos (ms nessa faixa seria ano 1970). */
+function toEpochMs(ts: number | string | undefined): number {
+  if (ts === undefined) return Date.now();
+  const n = typeof ts === "string" ? Number(ts) : ts;
+  if (!Number.isFinite(n)) return Date.now();
+  return n < 10_000_000_000 ? n * 1000 : n;
+}
+
+/**
+ * Importa o histórico de conversas já sincronizado pelo Evolution (ver
+ * `syncFullHistory` em lib/evolution.ts) — busca tudo de uma vez, agrupa por
+ * contato e mantém só as `HISTORY_MESSAGES_PER_CONTACT` mais recentes de
+ * cada um, preservando o horário real de cada mensagem (`createdAt`
+ * explícito) pra a conversa aparecer na ordem certa.
+ */
+export async function importHistoryMessages(instance: InstanceRef): Promise<{ imported: number; contacts: number }> {
+  let raw: HistoryMessage[];
+  try {
+    raw = await findMessages(instance.instanceName);
+  } catch (err) {
+    console.error(`[wa:webhook] falha ao buscar histórico de ${instance.instanceName}`, err);
+    return { imported: 0, contacts: 0 };
+  }
+  console.log(`[wa:webhook] histórico bruto de ${instance.instanceName}: ${raw.length} mensagem(ns)`);
+
+  const byContact = new Map<string, HistoryMessage[]>();
+  for (const item of raw) {
+    const remoteJid = item.key?.remoteJid;
+    if (!remoteJid || remoteJid.endsWith("@g.us")) continue;
+    const list = byContact.get(remoteJid) ?? [];
+    list.push(item);
+    byContact.set(remoteJid, list);
+  }
+
+  let imported = 0;
+  for (const items of byContact.values()) {
+    const mostRecentFirst = [...items].sort((a, b) => toEpochMs(b.messageTimestamp) - toEpochMs(a.messageTimestamp));
+    const chronological = mostRecentFirst.slice(0, HISTORY_MESSAGES_PER_CONTACT).reverse();
+
+    for (const item of chronological) {
+      try {
+        await saveIncomingMessage(instance, item as BaileysMessage, {
+          notify: false,
+          createdAt: new Date(toEpochMs(item.messageTimestamp)),
+        });
+        imported += 1;
+      } catch (err) {
+        console.error("[wa:webhook] falha ao importar mensagem histórica", err);
+      }
+    }
+  }
+
+  console.log(`[wa:webhook] histórico importado de ${instance.instanceName}: ${imported} mensagem(ns) em ${byContact.size} conversa(s)`);
+  return { imported, contacts: byContact.size };
+}
+
+/**
+ * Gatilho do evento MESSAGES_SET — roda a importação uma única vez por
+ * pareamento (marca `historySyncedAt`), mesmo que o Evolution reenvie esse
+ * evento mais de uma vez (acontece em sync grande, mandado em pedaços).
+ */
+export async function handleHistorySync(instance: InstanceRef): Promise<void> {
+  if (instance.historySyncedAt) {
+    console.log(`[wa:webhook] histórico de ${instance.instanceName} já importado antes (${instance.historySyncedAt.toISOString()}) — ignorando`);
+    return;
+  }
+
+  await importHistoryMessages(instance);
+  await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: { historySyncedAt: new Date() } });
 }
 
 type BaileysCall = {

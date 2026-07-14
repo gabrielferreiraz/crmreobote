@@ -62,19 +62,22 @@ export async function listConversations(organizationId: string, scope: DealScope
       ? prisma.deal.findMany({
           where: { organizationId, contactId: { in: contactIds }, status: "OPEN" },
           orderBy: { createdAt: "desc" },
-          select: { id: true, name: true, contactId: true },
+          select: { id: true, name: true, contactId: true, ownerId: true, owner: { select: { name: true } } },
         })
       : Promise.resolve([]),
   ]);
 
   const unreadByThread = new Map(unreadCounts.map((u) => [u.threadId, u._count._all]));
-  const dealByContact = new Map<string, { id: string; name: string }>();
+  const dealByContact = new Map<string, { id: string; name: string; ownerId: string; ownerName: string }>();
   for (const deal of openDeals) {
-    if (!dealByContact.has(deal.contactId)) dealByContact.set(deal.contactId, { id: deal.id, name: deal.name });
+    if (!dealByContact.has(deal.contactId)) {
+      dealByContact.set(deal.contactId, { id: deal.id, name: deal.name, ownerId: deal.ownerId, ownerName: deal.owner.name });
+    }
   }
 
   const result: ConversationSummary[] = withMessages.map((thread) => {
     const msg = thread.messages[0];
+    const deal = thread.contactId ? dealByContact.get(thread.contactId) : undefined;
     return {
       threadId: thread.id,
       contactId: thread.contactId,
@@ -86,9 +89,14 @@ export async function listConversations(organizationId: string, scope: DealScope
       lastMessageDirection: msg.direction,
       lastMessageAt: msg.createdAt,
       unreadCount: unreadByThread.get(thread.id) ?? 0,
-      deal: thread.contactId ? (dealByContact.get(thread.contactId) ?? null) : null,
-      ownerId: thread.instance.userId,
-      ownerName: thread.instance.user.name,
+      deal: deal ? { id: deal.id, name: deal.name } : null,
+      // "Responsável" é quem é dono do NEGÓCIO vinculado, quando existe um —
+      // pode ser diferente de quem tem esse WhatsApp conectado (o dono
+      // conecta o número, mas atribui o lead pra outro vendedor cuidar). Sem
+      // negócio vinculado (WhatsApp Geral), cai no dono da instância mesmo,
+      // que é a única informação de "responsável" que existe nesse caso.
+      ownerId: deal?.ownerId ?? thread.instance.userId,
+      ownerName: deal?.ownerName ?? thread.instance.user.name,
     };
   });
 

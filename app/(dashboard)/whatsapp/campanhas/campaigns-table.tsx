@@ -1,23 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Megaphone, Plus, Loader2, Trash2, Play, Pause, Copy, ListChecks, Send } from "lucide-react";
+import { Megaphone, Plus, Loader2, Trash2, Play, Pause, Copy, ListChecks, Send, Pencil, X, Users } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
-import { renderTemplate, pickWeightedTemplate, type WeightedTemplate } from "@/lib/campaigns/spintax";
+import { renderSteps, pickWeighted, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
+type AudienceFilter = { jobTitles: string[]; tags: string[]; cities: string[] };
 
 type Campaign = {
   id: string;
   name: string;
   status: CampaignStatus;
-  audienceJobTitle: string | null;
+  audienceFilter: AudienceFilter;
+  audienceLabel: string;
   instanceName: string;
   createdByName: string;
   delayMinSec: number;
@@ -32,8 +34,26 @@ type Campaign = {
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
 };
 
+/** Vem cru de GET /api/campaigns/[id] — usado só pra pré-preencher o modal em modo edição. */
+type RawCampaign = {
+  id: string;
+  name: string;
+  audienceFilter: AudienceFilter;
+  instanceId: string;
+  messageTemplates: { steps: ScriptStep[]; weight: number; scriptId?: string }[];
+  followUpTemplates: { steps: ScriptStep[]; weight: number; scriptId?: string }[] | null;
+  followUpEnabled: boolean;
+  followUpDelayHours: number;
+  delayMinSec: number;
+  delayMaxSec: number;
+  dailyCap: number | null;
+  allowedWeekdays: number[];
+  windowStartHour: number;
+  windowEndHour: number;
+};
+
 type InstanceOption = { id: string; label: string };
-type ScriptOption = { id: string; name: string; text: string };
+type ScriptOption = { id: string; name: string; steps: ScriptStep[] };
 
 const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -51,7 +71,7 @@ const STATUS_TONE: Record<CampaignStatus, string> = {
   DONE: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500",
 };
 
-const SAMPLE_CONTACT = { nome: "Maria Silva", cargo: "Advogados CG", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
+const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
 
 export function CampaignsTable({
   initialCampaigns,
@@ -64,6 +84,8 @@ export function CampaignsTable({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [editCampaign, setEditCampaign] = useState<RawCampaign | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
@@ -91,10 +113,27 @@ export function CampaignsTable({
     if (res.ok) router.refresh();
   }
 
+  async function openEdit(id: string) {
+    setLoadingEditId(id);
+    const res = await fetch(`/api/campaigns/${id}`);
+    setLoadingEditId(null);
+    if (!res.ok) return;
+    const raw: RawCampaign = await res.json();
+    setEditCampaign(raw);
+    setOpen(true);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <button onClick={() => setOpen(true)} className="btn-primary" disabled={instances.length === 0}>
+        <button
+          onClick={() => {
+            setEditCampaign(null);
+            setOpen(true);
+          }}
+          className="btn-primary"
+          disabled={instances.length === 0}
+        >
           <Plus className="h-4 w-4" strokeWidth={2.5} />
           Nova campanha
         </button>
@@ -111,7 +150,7 @@ export function CampaignsTable({
           <EmptyState
             icon={Megaphone}
             title="Nenhuma campanha criada ainda"
-            description="Filtre um público pelo cargo cadastrado nos contatos e mande uma prospecção com variação de mensagem e intervalo seguro entre envios."
+            description="Filtre um público (cargo, tag ou cidade) e mande uma prospecção com variação de mensagem e intervalo seguro entre envios."
           />
         </div>
       ) : (
@@ -138,7 +177,7 @@ export function CampaignsTable({
                         {c.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.audienceJobTitle}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.audienceLabel}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.instanceName}</td>
                     <td className="px-4 py-2.5">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
@@ -176,6 +215,18 @@ export function CampaignsTable({
                             <Pause className="h-3.5 w-3.5" strokeWidth={2} />
                           </button>
                         )}
+                        {c.status === "DRAFT" && (
+                          <button
+                            type="button"
+                            disabled={loadingEditId === c.id}
+                            onClick={() => openEdit(c.id)}
+                            className="icon-btn"
+                            aria-label="Editar campanha"
+                            title="Editar campanha"
+                          >
+                            <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                          </button>
+                        )}
                         <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
                           <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
                         </Link>
@@ -208,11 +259,12 @@ export function CampaignsTable({
       )}
 
       {open && (
-        <NewCampaignDialog
+        <CampaignDialog
           instances={instances}
           scripts={scripts}
+          editCampaign={editCampaign}
           onClose={() => setOpen(false)}
-          onCreated={() => {
+          onSaved={() => {
             setOpen(false);
             router.refresh();
           }}
@@ -231,6 +283,64 @@ export function CampaignsTable({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Campo de lista (cargos/tags/cidades) — digita e aperta Enter/vírgula pra adicionar um chip. */
+function ChipInput({
+  label,
+  values,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder: string;
+}) {
+  const [input, setInput] = useState("");
+
+  function add(raw: string) {
+    const clean = raw.trim();
+    if (clean && !values.includes(clean)) onChange([...values, clean]);
+    setInput("");
+  }
+
+  return (
+    <div className="space-y-1">
+      <label className="field-label">{label}</label>
+      <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-neutral-300 p-1.5 dark:border-neutral-700">
+        {values.map((v) => (
+          <span
+            key={v}
+            className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+          >
+            {v}
+            <button
+              type="button"
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+              aria-label={`Remover ${v}`}
+            >
+              <X className="h-3 w-3" strokeWidth={2} />
+            </button>
+          </span>
+        ))}
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              add(input);
+            }
+          }}
+          onBlur={() => input && add(input)}
+          placeholder={values.length === 0 ? placeholder : ""}
+          className="min-w-[100px] flex-1 border-0 bg-transparent p-0.5 text-sm outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+        />
+      </div>
     </div>
   );
 }
@@ -266,8 +376,15 @@ function ScriptPicker({
               className="mt-0.5 accent-neutral-900 dark:accent-white"
             />
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</p>
-              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{s.text}</p>
+              <p className="font-medium text-neutral-900 dark:text-neutral-100">
+                {s.name}
+                {s.steps.length > 1 && (
+                  <span className="ml-1.5 text-xs font-normal text-neutral-400 dark:text-neutral-500">
+                    · {s.steps.length} mensagens
+                  </span>
+                )}
+              </p>
+              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{s.steps[0]?.text}</p>
             </div>
             {checked && (
               <input
@@ -286,40 +403,95 @@ function ScriptPicker({
   );
 }
 
-function NewCampaignDialog({
+function scriptRefsFromTemplates(
+  templates: { steps: ScriptStep[]; weight: number; scriptId?: string }[] | null | undefined,
+  availableScripts: ScriptOption[],
+): { ids: string[]; weights: Record<string, string> } {
+  const ids: string[] = [];
+  const weights: Record<string, string> = {};
+  for (const t of templates ?? []) {
+    if (!t.scriptId || !availableScripts.some((s) => s.id === t.scriptId)) continue;
+    ids.push(t.scriptId);
+    weights[t.scriptId] = String(t.weight);
+  }
+  return { ids, weights };
+}
+
+function CampaignDialog({
   instances,
   scripts,
+  editCampaign,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   instances: InstanceOption[];
   scripts: ScriptOption[];
+  editCampaign: RawCampaign | null;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [audienceJobTitle, setAudienceJobTitle] = useState("");
-  const [instanceId, setInstanceId] = useState(instances[0]?.id ?? "");
-  const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([]);
-  const [weightByScript, setWeightByScript] = useState<Record<string, string>>({});
-  const [delayMinSec, setDelayMinSec] = useState("30");
-  const [delayMaxSec, setDelayMaxSec] = useState("90");
-  const [dailyCap, setDailyCap] = useState("");
-  const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [windowStartHour, setWindowStartHour] = useState("9");
-  const [windowEndHour, setWindowEndHour] = useState("18");
+  const isEdit = !!editCampaign;
+  const initialScriptRefs = useMemo(
+    () => scriptRefsFromTemplates(editCampaign?.messageTemplates, scripts),
+    [editCampaign, scripts],
+  );
+  const initialFollowUpRefs = useMemo(
+    () => scriptRefsFromTemplates(editCampaign?.followUpTemplates, scripts),
+    [editCampaign, scripts],
+  );
 
-  const [followUpEnabled, setFollowUpEnabled] = useState(false);
-  const [followUpDelayHours, setFollowUpDelayHours] = useState("24");
-  const [followUpScriptIds, setFollowUpScriptIds] = useState<string[]>([]);
-  const [followUpWeightByScript, setFollowUpWeightByScript] = useState<Record<string, string>>({});
+  const [name, setName] = useState(editCampaign?.name ?? "");
+  const [jobTitles, setJobTitles] = useState<string[]>(editCampaign?.audienceFilter.jobTitles ?? []);
+  const [tags, setTags] = useState<string[]>(editCampaign?.audienceFilter.tags ?? []);
+  const [cities, setCities] = useState<string[]>(editCampaign?.audienceFilter.cities ?? []);
+  const [instanceId, setInstanceId] = useState(editCampaign?.instanceId ?? instances[0]?.id ?? "");
+  const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>(initialScriptRefs.ids);
+  const [weightByScript, setWeightByScript] = useState<Record<string, string>>(initialScriptRefs.weights);
+  const [delayMinSec, setDelayMinSec] = useState(String(editCampaign?.delayMinSec ?? 30));
+  const [delayMaxSec, setDelayMaxSec] = useState(String(editCampaign?.delayMaxSec ?? 90));
+  const [dailyCap, setDailyCap] = useState(editCampaign?.dailyCap ? String(editCampaign.dailyCap) : "");
+  const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>(editCampaign?.allowedWeekdays ?? [1, 2, 3, 4, 5]);
+  const [windowStartHour, setWindowStartHour] = useState(String(editCampaign?.windowStartHour ?? 9));
+  const [windowEndHour, setWindowEndHour] = useState(String(editCampaign?.windowEndHour ?? 18));
+
+  const [followUpEnabled, setFollowUpEnabled] = useState(editCampaign?.followUpEnabled ?? false);
+  const [followUpDelayHours, setFollowUpDelayHours] = useState(String(editCampaign?.followUpDelayHours ?? 24));
+  const [followUpScriptIds, setFollowUpScriptIds] = useState<string[]>(initialFollowUpRefs.ids);
+  const [followUpWeightByScript, setFollowUpWeightByScript] = useState<Record<string, string>>(initialFollowUpRefs.weights);
 
   const [testPhone, setTestPhone] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
+  const [audienceCount, setAudienceCount] = useState<number | null>(null);
+  const [audienceLoading, setAudienceLoading] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const hasAudienceFilter = jobTitles.length > 0 || tags.length > 0 || cities.length > 0;
+
+  // Prévia do público — debounced, evita disparar uma consulta a cada tecla.
+  // Todo o trabalho (inclusive ligar o "carregando") roda dentro do timeout,
+  // nunca direto no corpo do efeito. Sem critério nenhum, a mensagem exibida
+  // já cobre esse caso olhando pra hasAudienceFilter, sem precisar de fetch.
+  useEffect(() => {
+    const timeout = setTimeout(async () => {
+      if (!hasAudienceFilter) return;
+      setAudienceLoading(true);
+      const res = await fetch("/api/campaigns/audience-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audienceFilter: { jobTitles, tags, cities } }),
+      });
+      setAudienceLoading(false);
+      if (res.ok) {
+        const data = await res.json();
+        setAudienceCount(data.count);
+      }
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [jobTitles, tags, cities, hasAudienceFilter]);
 
   function toggleWeekday(day: number) {
     setAllowedWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()));
@@ -341,29 +513,29 @@ function NewCampaignDialog({
 
   // Prévia: sorteia um dos scripts marcados e resolve spintax + variáveis com
   // um contato de exemplo, pra ver exatamente o que vai chegar pro lead antes
-  // de disparar de verdade.
-  const previewText = useMemo(() => {
-    const templates: WeightedTemplate[] = selectedScriptIds
+  // de disparar de verdade — uma bolha por mensagem da sequência.
+  const previewSteps = useMemo(() => {
+    const candidates: WeightedScript[] = selectedScriptIds
       .map((id) => scripts.find((s) => s.id === id))
       .filter((s): s is ScriptOption => !!s)
-      .map((s) => ({ text: s.text, weight: Number(weightByScript[s.id]) || 1 }));
-    if (templates.length === 0) return "";
-    const chosen = pickWeightedTemplate(templates);
-    return renderTemplate(
-      chosen.text,
-      { nome: SAMPLE_CONTACT.nome, cargo: audienceJobTitle || SAMPLE_CONTACT.cargo, empresa: SAMPLE_CONTACT.empresa, cidade: SAMPLE_CONTACT.cidade },
+      .map((s) => ({ steps: s.steps, weight: Number(weightByScript[s.id]) || 1 }));
+    if (candidates.length === 0) return [];
+    const chosen = pickWeighted(candidates);
+    return renderSteps(
+      chosen.steps,
+      { nome: SAMPLE_VARS.nome, cargo: jobTitles[0] || SAMPLE_VARS.cargo, empresa: SAMPLE_VARS.empresa, cidade: cities[0] || SAMPLE_VARS.cidade },
       "Boa tarde",
     );
-  }, [selectedScriptIds, weightByScript, scripts, audienceJobTitle]);
+  }, [selectedScriptIds, weightByScript, scripts, jobTitles, cities]);
 
   async function sendTest() {
-    if (!previewText || !instanceId || !testPhone.trim()) return;
+    if (previewSteps.length === 0 || !instanceId || !testPhone.trim()) return;
     setTestSending(true);
     setTestResult(null);
     const res = await fetch("/api/campaigns/test-send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instanceId, phone: testPhone, text: previewText }),
+      body: JSON.stringify({ instanceId, phone: testPhone, steps: previewSteps }),
     });
     setTestSending(false);
     if (!res.ok) {
@@ -379,45 +551,49 @@ function NewCampaignDialog({
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/campaigns", {
-      method: "POST",
+    const payload = {
+      name,
+      audienceFilter: { jobTitles, tags, cities },
+      instanceId,
+      scripts: selectedScriptIds.map((id) => ({ scriptId: id, weight: Number(weightByScript[id]) || 1 })),
+      delayMinSec: Number(delayMinSec) || 30,
+      delayMaxSec: Number(delayMaxSec) || 90,
+      dailyCap: dailyCap ? Number(dailyCap) : null,
+      allowedWeekdays,
+      windowStartHour: Number(windowStartHour),
+      windowEndHour: Number(windowEndHour),
+      followUpEnabled,
+      followUpDelayHours: Number(followUpDelayHours) || 24,
+      followUpScripts: followUpEnabled
+        ? followUpScriptIds.map((id) => ({ scriptId: id, weight: Number(followUpWeightByScript[id]) || 1 }))
+        : undefined,
+    };
+
+    const res = await fetch(isEdit ? `/api/campaigns/${editCampaign!.id}` : "/api/campaigns", {
+      method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        audienceJobTitle,
-        instanceId,
-        scripts: selectedScriptIds.map((id) => ({ scriptId: id, weight: Number(weightByScript[id]) || 1 })),
-        delayMinSec: Number(delayMinSec) || 30,
-        delayMaxSec: Number(delayMaxSec) || 90,
-        dailyCap: dailyCap ? Number(dailyCap) : null,
-        allowedWeekdays,
-        windowStartHour: Number(windowStartHour),
-        windowEndHour: Number(windowEndHour),
-        followUpEnabled,
-        followUpDelayHours: Number(followUpDelayHours) || 24,
-        followUpScripts: followUpEnabled
-          ? followUpScriptIds.map((id) => ({ scriptId: id, weight: Number(followUpWeightByScript[id]) || 1 }))
-          : undefined,
-      }),
+      body: JSON.stringify(payload),
     });
 
     setLoading(false);
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erro ao criar campanha");
+      setError(data.error ?? "Erro ao salvar campanha");
       return;
     }
 
-    onCreated();
+    onSaved();
   }
 
   const canSubmit =
-    !!name.trim() && !!audienceJobTitle.trim() && !!instanceId && selectedScriptIds.length > 0 && allowedWeekdays.length > 0;
+    !!name.trim() && hasAudienceFilter && !!instanceId && selectedScriptIds.length > 0 && allowedWeekdays.length > 0;
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-lg">
-      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Nova campanha</h2>
+      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+        {isEdit ? "Editar campanha" : "Nova campanha"}
+      </h2>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1">
           <label className="field-label">Nome</label>
@@ -431,17 +607,19 @@ function NewCampaignDialog({
           />
         </div>
 
-        <div className="space-y-1">
-          <label className="field-label">Cargo (público-alvo)</label>
-          <input
-            required
-            value={audienceJobTitle}
-            onChange={(e) => setAudienceJobTitle(e.target.value)}
-            placeholder="Ex.: Advogados CG"
-            className="field-input"
-          />
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Precisa bater exatamente com o campo &quot;Cargo&quot; já cadastrado nos contatos.
+        <div className="space-y-2 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+          <ChipInput label="Cargo (um ou mais)" values={jobTitles} onChange={setJobTitles} placeholder="Ex.: Advogado — Enter pra adicionar" />
+          <ChipInput label="Tags do contato" values={tags} onChange={setTags} placeholder="Ex.: lead-quente" />
+          <ChipInput label="Cidade" values={cities} onChange={setCities} placeholder="Ex.: Campo Grande" />
+          <p className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+            {!hasAudienceFilter
+              ? "Defina ao menos um critério pra ver quantos contatos batem."
+              : audienceLoading || audienceCount === null
+                ? "Calculando público..."
+                : audienceCount === 0
+                  ? "Nenhum contato encontrado com esse público."
+                  : `${audienceCount} contato${audienceCount === 1 ? "" : "s"} encontrado${audienceCount === 1 ? "" : "s"}.`}
           </p>
         </div>
 
@@ -473,17 +651,19 @@ function NewCampaignDialog({
               onWeightChange={(id, value) => setWeightByScript((prev) => ({ ...prev, [id]: value }))}
             />
           )}
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Cada envio sorteia um dos scripts marcados, proporcional ao peso. Variáveis disponíveis:{" "}
-            <code>{"{nome}"}</code>, <code>{"{primeiro_nome}"}</code>, <code>{"{cargo}"}</code>,{" "}
-            <code>{"{empresa}"}</code>, <code>{"{cidade}"}</code> e <code>{"{saudacao}"}</code>.
-          </p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada envio sorteia um dos scripts marcados, proporcional ao peso.</p>
         </div>
 
-        {previewText && (
+        {previewSteps.length > 0 && (
           <div className="space-y-1.5 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
             <p className="field-label">Prévia (com dados de exemplo)</p>
-            <p className="whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{previewText}</p>
+            <div className="space-y-1">
+              {previewSteps.map((s, i) => (
+                <div key={i} className="max-w-[85%] rounded-lg bg-emerald-50 px-2.5 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200">
+                  {s.text}
+                </div>
+              ))}
+            </div>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <input
                 value={testPhone}
@@ -637,9 +817,11 @@ function NewCampaignDialog({
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">
-                Criando
+                {isEdit ? "Salvando" : "Criando"}
                 <LoadingDots />
               </span>
+            ) : isEdit ? (
+              "Salvar alterações"
             ) : (
               "Criar campanha"
             )}

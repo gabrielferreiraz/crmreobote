@@ -147,9 +147,11 @@ export function ConversationsView({
   notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
-    initialConversations.find((c) => c.contactId)?.threadId ?? initialConversations[0]?.threadId ?? null,
-  );
+  // Sempre começa sem nenhuma conversa aberta — abrir uma automaticamente
+  // marcaria ela como lida (GET /api/whatsapp/messages/[threadId]) sem a
+  // pessoa ter escolhido nada, além de ser surpreendente entrar na tela já
+  // "dentro" de uma conversa específica.
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [tab, setTab] = useState<ConversationTab>("crm");
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
@@ -159,17 +161,33 @@ export function ConversationsView({
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   async function toggleNotifications(target: ConversationTab) {
     if (!notificationPrefs) return;
     const field = target === "crm" ? "notifyOnCrmMessage" : "notifyOnGeralMessage";
-    const nextValue = !notificationPrefs[field];
-    setNotificationPrefs({ ...notificationPrefs, [field]: nextValue });
-    await fetch("/api/whatsapp/instance", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: nextValue }),
-    });
+    const previous = notificationPrefs;
+    const nextValue = !previous[field];
+    setNotificationError(null);
+    setNotificationPrefs({ ...previous, [field]: nextValue });
+    try {
+      const res = await fetch("/api/whatsapp/instance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: nextValue }),
+      });
+      if (!res.ok) {
+        // Sem isso, uma falha (sessão expirada, sem instância etc.) deixava o
+        // sino "mudo" na tela mas nada gravado — voltava sozinho ao recarregar,
+        // sem nenhum aviso de que não tinha salvo de verdade.
+        const data = await res.json().catch(() => ({}));
+        setNotificationPrefs(previous);
+        setNotificationError(data.error ?? "Não foi possível salvar a preferência de notificação.");
+      }
+    } catch {
+      setNotificationPrefs(previous);
+      setNotificationError("Falha de conexão ao salvar a preferência de notificação.");
+    }
   }
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
@@ -279,6 +297,12 @@ export function ConversationsView({
           notificationPrefs={notificationPrefs}
           onToggleNotifications={toggleNotifications}
         />
+
+        {notificationError && (
+          <p className="shrink-0 bg-red-50 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-400">
+            {notificationError}
+          </p>
+        )}
 
         <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
           <div className="relative flex-1">

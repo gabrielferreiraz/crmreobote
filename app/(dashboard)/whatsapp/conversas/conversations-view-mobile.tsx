@@ -46,17 +46,30 @@ export function ConversationsMobile({
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   async function toggleNotifications(target: ConversationTab) {
     if (!notificationPrefs) return;
     const field = target === "crm" ? "notifyOnCrmMessage" : "notifyOnGeralMessage";
-    const nextValue = !notificationPrefs[field];
-    setNotificationPrefs({ ...notificationPrefs, [field]: nextValue });
-    await fetch("/api/whatsapp/instance", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: nextValue }),
-    });
+    const previous = notificationPrefs;
+    const nextValue = !previous[field];
+    setNotificationError(null);
+    setNotificationPrefs({ ...previous, [field]: nextValue });
+    try {
+      const res = await fetch("/api/whatsapp/instance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: nextValue }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setNotificationPrefs(previous);
+        setNotificationError(data.error ?? "Não foi possível salvar a preferência de notificação.");
+      }
+    } catch {
+      setNotificationPrefs(previous);
+      setNotificationError("Falha de conexão ao salvar a preferência de notificação.");
+    }
   }
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
@@ -203,6 +216,11 @@ export function ConversationsMobile({
         notificationPrefs={notificationPrefs}
         onToggleNotifications={toggleNotifications}
       />
+      {notificationError && (
+        <p className="shrink-0 bg-red-50 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-400">
+          {notificationError}
+        </p>
+      )}
 
       <div className="flex shrink-0 items-center gap-1.5">
         <div className="relative flex-1">

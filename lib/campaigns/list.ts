@@ -1,11 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
+import { brazilDateKey } from "@/lib/timezone";
 
 export type CampaignSummary = {
   id: string;
   name: string;
   status: $Enums.CampaignStatus;
-  audienceJobTitle: string | null;
+  audienceFilter: AudienceFilter;
+  audienceLabel: string;
   instanceName: string;
   createdByName: string;
   delayMinSec: number;
@@ -56,24 +59,28 @@ export async function listCampaigns(organizationId: string): Promise<CampaignSum
     countsByCampaign.set(row.campaignId, entry);
   }
 
-  return campaigns.map((c) => ({
-    id: c.id,
-    name: c.name,
-    status: c.status,
-    audienceJobTitle: c.audienceJobTitle,
-    instanceName: c.instance.user.name,
-    createdByName: c.createdBy.name,
-    delayMinSec: c.delayMinSec,
-    delayMaxSec: c.delayMaxSec,
-    dailyCap: c.dailyCap,
-    allowedWeekdays: c.allowedWeekdays,
-    windowStartHour: c.windowStartHour,
-    windowEndHour: c.windowEndHour,
-    followUpEnabled: c.followUpEnabled,
-    followUpDelayHours: c.followUpDelayHours,
-    createdAt: c.createdAt,
-    counts: countsByCampaign.get(c.id) ?? { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 },
-  }));
+  return campaigns.map((c) => {
+    const audienceFilter = parseAudienceFilter(c.audienceFilter);
+    return {
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      audienceFilter,
+      audienceLabel: describeAudienceFilter(audienceFilter),
+      instanceName: c.instance.user.name,
+      createdByName: c.createdBy.name,
+      delayMinSec: c.delayMinSec,
+      delayMaxSec: c.delayMaxSec,
+      dailyCap: c.dailyCap,
+      allowedWeekdays: c.allowedWeekdays,
+      windowStartHour: c.windowStartHour,
+      windowEndHour: c.windowEndHour,
+      followUpEnabled: c.followUpEnabled,
+      followUpDelayHours: c.followUpDelayHours,
+      createdAt: c.createdAt,
+      counts: countsByCampaign.get(c.id) ?? { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 },
+    };
+  });
 }
 
 export type CampaignRecipientRow = {
@@ -87,9 +94,12 @@ export type CampaignRecipientRow = {
   error: string | null;
 };
 
-export type CampaignDetail = CampaignSummary & { recipients: CampaignRecipientRow[] };
+/** Um ponto do gráfico do painel de métricas — um dia (calendário de Brasília), quantos envios e quantas respostas. */
+export type CampaignDailyMetric = { date: string; sent: number; replied: number };
 
-/** Usado pela tela de destinatários — uma linha por contato, com status individual. */
+export type CampaignDetail = CampaignSummary & { recipients: CampaignRecipientRow[]; dailyMetrics: CampaignDailyMetric[] };
+
+/** Usado pela tela de destinatários — uma linha por contato, com status individual, mais a série diária pro painel de métricas. */
 export async function getCampaignDetail(
   organizationId: string,
   campaignId: string,
@@ -108,19 +118,32 @@ export async function getCampaignDetail(
   if (!campaign) return null;
 
   const counts = { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 };
+  const metricsByDay = new Map<string, CampaignDailyMetric>();
+  const bump = (date: Date, field: "sent" | "replied") => {
+    const key = brazilDateKey(date);
+    const entry = metricsByDay.get(key) ?? { date: key, sent: 0, replied: 0 };
+    entry[field] += 1;
+    metricsByDay.set(key, entry);
+  };
+
   for (const r of campaign.recipients) {
     if (r.status === "PENDING") counts.pending += 1;
     if (r.status === "SENT") counts.sent += 1;
     if (r.status === "FAILED") counts.failed += 1;
     if (r.status === "SKIPPED") counts.skipped += 1;
     if (r.repliedAt) counts.replied += 1;
+    if (r.sentAt) bump(r.sentAt, "sent");
+    if (r.repliedAt) bump(r.repliedAt, "replied");
   }
+
+  const audienceFilter = parseAudienceFilter(campaign.audienceFilter);
 
   return {
     id: campaign.id,
     name: campaign.name,
     status: campaign.status,
-    audienceJobTitle: campaign.audienceJobTitle,
+    audienceFilter,
+    audienceLabel: describeAudienceFilter(audienceFilter),
     instanceName: campaign.instance.user.name,
     createdByName: campaign.createdBy.name,
     delayMinSec: campaign.delayMinSec,
@@ -143,5 +166,6 @@ export async function getCampaignDetail(
       followUpSentAt: r.followUpSentAt,
       error: r.error ?? r.followUpError,
     })),
+    dailyMetrics: Array.from(metricsByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
   };
 }

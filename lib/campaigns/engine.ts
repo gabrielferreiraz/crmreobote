@@ -13,8 +13,12 @@ import { brazilHour, brazilWeekday, brazilStartOfDay, brazilGreeting } from "@/l
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
-import { renderTemplate, pickWeightedTemplate, type WeightedTemplate } from "@/lib/campaigns/spintax";
+import { renderSteps, pickWeighted, type WeightedScript } from "@/lib/campaigns/spintax";
 import type { $Enums, Contact } from "@/app/generated/prisma/client";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type CampaignRow = {
   id: string;
@@ -150,12 +154,21 @@ async function sendToRecipient(
   try {
     const templates = (
       kind === "followUp" && campaign.followUpTemplates ? campaign.followUpTemplates : campaign.messageTemplates
-    ) as unknown as WeightedTemplate[];
-    const chosen = pickWeightedTemplate(templates);
-    const text = renderTemplate(chosen.text, buildVariables(recipient.contact), brazilGreeting());
+    ) as unknown as WeightedScript[];
+    const chosen = pickWeighted(templates);
+    const steps = renderSteps(chosen.steps, buildVariables(recipient.contact), brazilGreeting());
 
     const thread = await getOrCreateThread({ organizationId, instanceId: campaign.instanceId, phoneNormalized });
-    await sendWhatsAppMessage({ organizationId, threadId: thread.id, text });
+    // Manda a sequência do script inteira numa tacada só, com o delay real
+    // configurado entre as partes — é o que faz o script de várias mensagens
+    // parecer alguém digitando em seguida, não disparos avulsos minutos
+    // depois (o delay ENTRE destinatários continua sendo o do cron/shouldSendNow).
+    for (let i = 0; i < steps.length; i++) {
+      await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[i].text });
+      if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
+        await sleep(steps[i].delayAfterSec * 1000);
+      }
+    }
 
     if (kind === "initial") {
       await prisma.campaignRecipient.update({

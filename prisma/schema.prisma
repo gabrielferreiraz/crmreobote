@@ -126,6 +126,12 @@ model WhatsAppInstance {
   // o ruído do Geral sem perder aviso de lead de verdade, ou vice-versa.
   notifyOnCrmMessage     Boolean                @default(true)
   notifyOnGeralMessage   Boolean                @default(true)
+  // Marcado depois de importar o histórico (evento MESSAGES_SET, disparado
+  // pelo Evolution só na 1ª sincronização após escanear o QR Code) — garante
+  // que a importação roda uma única vez por pareamento, nunca de novo à toa
+  // a cada webhook repetido. Instâncias que já existiam antes desse recurso
+  // nunca disparam esse evento de novo sozinhas, então nunca são afetadas.
+  historySyncedAt        DateTime?
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
@@ -246,13 +252,25 @@ enum WhatsAppMessageStatus {
 // nunca muda uma campanha que já estava rodando com ele.
 
 model MessageScript {
-  id             String   @id @default(cuid())
+  id             String @id @default(cuid())
   organizationId String
   name           String
-  text           String
-  createdById    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+
+  // Sequência de mensagens do script (nunca um texto único) — simula uma
+  // pessoa mandando várias mensagens curtas em seguida, cada uma com um
+  // delay (em segundos) até a próxima:
+  // [{ text: "Oi {primeiro_nome}!", delayAfterSec: 2 }, { text: "Tudo bem?", delayAfterSec: 0 }]
+  // Suporta spintax `{[a|b|c]}` e variáveis `{nome}`/`{primeiro_nome}`/
+  // `{cargo}`/`{empresa}`/`{cidade}`/`{saudacao}` em cada texto.
+  steps Json
+
+  // Livre, sem tabela própria — organiza/filtra a biblioteca (ex.: "abertura",
+  // "follow-up"), não é uma taxonomia fixa controlada pelo admin.
+  tags String[] @default([])
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation(fields: [createdById], references: [id])
@@ -275,14 +293,20 @@ model Campaign {
   name           String
   status         CampaignStatus @default(DRAFT)
 
-  // Variantes de mensagem: [{ text: "...{[Olá|Oi]} {nome}...", weight: 1 }, ...]
-  // Suporta spintax `{[a|b|c]}` e variáveis `{nome}`/`{primeiro_nome}`/`{saudacao}`.
+  // Variantes de mensagem (snapshot do script na hora da criação, nunca
+  // reconsultado depois): [{ steps: [{text, delayAfterSec}], weight: 1,
+  // scriptId: "..." }, ...]. scriptId é só referência pra exibição ("onde
+  // esse script é usado") — apagar/editar o script original não afeta isso.
   messageTemplates Json
 
   // Filtro usado pra montar a lista na criação — guardado só pra referência
-  // (auditoria/exibição), não é reconsultado depois: os destinatários reais
-  // são as linhas de CampaignRecipient já materializadas.
-  audienceJobTitle String?
+  // (auditoria/exibição/reedição em rascunho), não é reconsultado
+  // automaticamente depois: os destinatários reais são as linhas de
+  // CampaignRecipient já materializadas.
+  // { jobTitles: string[], tags: string[], cities: string[] } — cada lista é
+  // um OR entre si, listas diferentes são AND entre si; lista vazia = não
+  // filtra por esse critério.
+  audienceFilter Json
 
   instanceId String // De qual WhatsApp conectado a campanha dispara
 

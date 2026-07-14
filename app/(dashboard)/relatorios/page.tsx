@@ -609,7 +609,7 @@ export default async function RelatoriosPage({
       {/* ─── Visão geral ────────────────────────────────────────────── */}
       <section className="space-y-6">
         <SectionHeading eyebrow="Visão geral" title="Como o funil está hoje" />
-        <div className="grid grid-cols-12 gap-5">
+        <div className="grid grid-cols-12 items-start gap-5">
           <div className="card col-span-12 p-6 lg:col-span-5">
             <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Negócios por status</p>
             <div className="mt-4">
@@ -640,7 +640,7 @@ export default async function RelatoriosPage({
             title="Faturamento por tipo de crédito"
             description="Imóvel e veículo têm ticket e ciclo de decisão bem diferentes — vale ver o que puxa o resultado."
           />
-          <div className="grid grid-cols-12 gap-5">
+          <div className="grid grid-cols-12 items-start gap-5">
             <div className="card col-span-12 p-6 lg:col-span-5">
               <DonutChart
                 slices={creditTypeBreakdown.map((c) => ({ label: c.label, value: c.value, color: c.color }))}
@@ -831,9 +831,9 @@ export default async function RelatoriosPage({
             description="Envio geral, prospecção fria (campanhas em listas importadas) e conversas já vinculadas a negócio."
           />
 
-          <div className="space-y-5">
+          <div className="space-y-4">
             {sellerWhatsappCards.map((w) => (
-              <div key={w.userId} className="card p-6">
+              <div key={w.userId} className="card p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <Avatar name={w.name} size="sm" />
@@ -851,7 +851,7 @@ export default async function RelatoriosPage({
                   </span>
                 </div>
 
-                <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
+                <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <MetricTile icon={Send} label="Mensagens enviadas" value={String(w.sent)} />
                   <MetricTile
                     icon={Reply}
@@ -862,13 +862,13 @@ export default async function RelatoriosPage({
                   <MetricTile icon={TrendingUp} label="Conversão em venda" value={`${w.conversionRate}%`} accent="emerald" />
                 </div>
 
-                <div className="mt-5 rounded-lg bg-violet-50/60 p-4 dark:bg-violet-500/[0.06]">
-                  <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-400">
+                <div className="mt-4 rounded-lg bg-violet-50/60 p-3.5 dark:bg-violet-500/[0.06]">
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-400">
                     <Bot className="h-3.5 w-3.5" strokeWidth={2} />
                     Prospecção fria · campanhas em listas importadas
                   </p>
                   {w.campaignSent > 0 ? (
-                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                       <MetricTile icon={Send} label="Enviadas" value={String(w.campaignSent)} accent="violet" />
                       <MetricTile
                         icon={Reply}
@@ -887,8 +887,8 @@ export default async function RelatoriosPage({
                 </div>
 
                 {w.deal && (
-                  <div className="mt-5 border-t border-neutral-100 pt-4 dark:border-neutral-800">
-                    <p className="mb-3 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+                  <div className="mt-4 border-t border-neutral-100 pt-3.5 dark:border-neutral-800">
+                    <p className="mb-2 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
                       Conversas de negócio
                     </p>
                     <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">

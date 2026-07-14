@@ -35,7 +35,11 @@ export default async function CampanhasPage() {
         <CampaignsTable
           initialCampaigns={campaigns.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
           instances={instancesRaw.map((i) => ({ id: i.id, label: i.user.name }))}
-          scripts={scriptsRaw.map((s) => ({ id: s.id, name: s.name, text: s.text }))}
+          scripts={scriptsRaw.map((s) => ({
+            id: s.id,
+            name: s.name,
+            steps: s.steps as { text: string; delayAfterSec: number }[],
+          }))}
         />
       </div>
     );

@@ -14,7 +14,11 @@
 // app/api/whatsapp/instance/route.ts pra saber se uma instância antiga
 // precisa ser reconfigurada depois que um evento novo (ex.: CALL) é
 // adicionado aqui.
-export const WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "CALL"];
+// MESSAGES_SET: disparado pelo Evolution só na 1ª sincronização de histórico
+// após escanear o QR Code (o WhatsApp manda esse histórico de propósito
+// nesse momento, via protocolo multi-device) — usado como gatilho pra
+// importar as conversas anteriores (ver lib/whatsapp/events.ts).
+export const WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "MESSAGES_SET", "CONNECTION_UPDATE", "CALL"];
 
 export class EvolutionApiError extends Error {
   constructor(
@@ -130,6 +134,11 @@ export async function createInstance(instanceName: string, webhookUrl: string): 
       instanceName,
       qrcode: true,
       integration: "WHATSAPP-BAILEYS",
+      // Só afeta instâncias criadas a partir de agora — pede ao WhatsApp o
+      // histórico de conversas no momento do pareamento (evento MESSAGES_SET
+      // no webhook). Instância já existente não pode ser "voltada no tempo"
+      // pra isso; só reconectando (novo QR Code) ganharia esse sync.
+      syncFullHistory: true,
       webhook: {
         url: webhookUrl,
         byEvents: false,
@@ -174,6 +183,47 @@ export async function fetchProfilePictureUrl(instanceName: string, number: strin
     console.error(`[evolution] falha ao buscar foto de perfil de ${number}`, err);
     return null;
   }
+}
+
+/**
+ * Mensagem "crua" devolvida pelo histórico — mesmo formato de
+ * key/message/pushName que chega em `messages.upsert` em tempo real, mais
+ * `messageTimestamp` (epoch, em segundos ou ms conforme a versão).
+ */
+export type HistoryMessage = {
+  key?: { remoteJid?: string; fromMe?: boolean; id?: string };
+  pushName?: string;
+  message?: unknown;
+  messageTimestamp?: number | string;
+};
+
+/**
+ * Histórico de mensagens já sincronizado pelo Evolution (populado no
+ * pareamento, quando a instância foi criada com `syncFullHistory: true`).
+ * O filtro por `remoteJid` desse endpoint é conhecidamente instável entre
+ * versões do Evolution — busca tudo de uma vez e filtra/agrupa por contato
+ * do nosso lado (ver lib/whatsapp/events.ts) em vez de confiar nele.
+ * A forma da resposta também varia (array puro, ou paginada em
+ * `{ messages: { records } }` / `{ records }`) — trata as três.
+ */
+export async function findMessages(instanceName: string): Promise<HistoryMessage[]> {
+  const data = await request<unknown>(`/chat/findMessages/${encodeURIComponent(instanceName)}`, {
+    method: "POST",
+    body: JSON.stringify({ where: {} }),
+  });
+
+  if (Array.isArray(data)) return data as HistoryMessage[];
+
+  const asRecord = data as Record<string, unknown> | null;
+  const messagesField = asRecord?.messages;
+  if (Array.isArray(messagesField)) return messagesField as HistoryMessage[];
+  if (messagesField && typeof messagesField === "object") {
+    const records = (messagesField as Record<string, unknown>).records;
+    if (Array.isArray(records)) return records as HistoryMessage[];
+  }
+  if (Array.isArray(asRecord?.records)) return asRecord.records as HistoryMessage[];
+
+  return [];
 }
 
 export async function logoutInstance(instanceName: string): Promise<void> {
