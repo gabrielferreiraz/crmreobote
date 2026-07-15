@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell } from "lucide-react";
+import { Bell, BellOff, Loader2 } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
+import { usePushSubscription } from "@/lib/use-push-subscription";
 
 type NotificationTask = {
   id: string;
@@ -20,6 +21,7 @@ export function NotificationBell() {
   const [tasks, setTasks] = useState<NotificationTask[]>([]);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +50,9 @@ export function NotificationBell() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const showPushToggle = pushStatus !== "unsupported";
+  const isSubscribed = pushStatus === "subscribed";
 
   return (
     <div ref={containerRef} className="relative">
@@ -112,7 +117,9 @@ export function NotificationBell() {
               })
             )}
           </div>
-          <div className="border-t border-neutral-100 dark:border-neutral-800 px-4 py-2">
+
+          {/* Footer: link agenda + botão silenciar/ativar push */}
+          <div className="flex items-center justify-between border-t border-neutral-100 dark:border-neutral-800 px-4 py-2 gap-3">
             <Link
               href="/agenda"
               onClick={() => setOpen(false)}
@@ -120,6 +127,28 @@ export function NotificationBell() {
             >
               Ver agenda completa
             </Link>
+
+            {showPushToggle && (
+              <button
+                onClick={isSubscribed ? unsubscribe : subscribe}
+                disabled={pushLoading || pushStatus === "checking"}
+                title={isSubscribed ? "Silenciar notificações push" : "Ativar notificações push"}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  isSubscribed
+                    ? "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+                }`}
+              >
+                {pushLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : isSubscribed ? (
+                  <BellOff className="h-3 w-3" strokeWidth={2} />
+                ) : (
+                  <Bell className="h-3 w-3" strokeWidth={2} />
+                )}
+                {pushStatus === "checking" ? "…" : isSubscribed ? "Silenciar" : "Ativar avisos"}
+              </button>
+            )}
           </div>
         </div>
       )}

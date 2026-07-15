@@ -9,7 +9,7 @@ export default async function AutomacoesPage() {
   const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
-    const [rulesRaw, pipelines, lossReasons, membersRaw] = await Promise.all([
+    const [rulesRaw, pipelines, lossReasons, membersRaw, connectedInstances] = await Promise.all([
       prisma.automationRule.findMany({
         where: { organizationId },
         orderBy: { createdAt: "desc" },
@@ -29,6 +29,12 @@ export default async function AutomacoesPage() {
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true } } },
       }),
+      // Instâncias com WhatsApp conectado — usadas no campo "Enviar de"
+      prisma.whatsAppInstance.findMany({
+        where: { organizationId, status: "CONNECTED" },
+        select: { userId: true, phoneNumber: true },
+        orderBy: { createdAt: "asc" },
+      }),
     ]);
 
     const rules = rulesRaw.map((r) => ({
@@ -37,6 +43,12 @@ export default async function AutomacoesPage() {
       actionConfig: r.actionConfig as Record<string, unknown> | null,
       lastRunAt: r.lastRunAt ? r.lastRunAt.toISOString() : null,
       createdAt: r.createdAt.toISOString(),
+    }));
+
+    const memberUserMap = new Map(membersRaw.map((m) => [m.user.id, m.user.name]));
+    const whatsappInstances = connectedInstances.map((inst) => ({
+      userId: inst.userId,
+      label: `${memberUserMap.get(inst.userId) ?? "Usuário"} (${inst.phoneNumber ?? "sem número"})`,
     }));
 
     return (
@@ -51,6 +63,7 @@ export default async function AutomacoesPage() {
           pipelines={pipelines.map((p) => ({ id: p.id, name: p.name, stages: p.stages }))}
           lossReasons={lossReasons}
           members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name, role: m.role }))}
+          whatsappInstances={whatsappInstances}
         />
       </div>
     );

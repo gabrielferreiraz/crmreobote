@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
@@ -148,12 +149,35 @@ export function ConversationsView({
   notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
-  // Sempre começa sem nenhuma conversa aberta — abrir uma automaticamente
-  // marcaria ela como lida (GET /api/whatsapp/messages/[threadId]) sem a
-  // pessoa ter escolhido nada, além de ser surpreendente entrar na tela já
-  // "dentro" de uma conversa específica.
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [tab, setTab] = useState<ConversationTab>("crm");
+  const searchParams = useSearchParams();
+  const paramThreadId = searchParams?.get("threadId");
+  const paramContactId = searchParams?.get("contactId");
+
+  const initialSelectedId = useMemo(() => {
+    if (paramThreadId) return paramThreadId;
+    if (paramContactId) {
+      const found = conversations.find((c) => c.contactId === paramContactId);
+      if (found) return found.threadId;
+    }
+    return null;
+  }, [paramThreadId, paramContactId, conversations]);
+
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialSelectedId);
+
+  useEffect(() => {
+    if (initialSelectedId) {
+      setSelectedThreadId(initialSelectedId);
+    }
+  }, [initialSelectedId]);
+
+  const [tab, setTab] = useState<ConversationTab>(() => {
+    if (paramContactId) return "crm";
+    if (paramThreadId) {
+      const found = conversations.find((c) => c.threadId === paramThreadId);
+      return found?.contactId ? "crm" : "geral";
+    }
+    return "crm";
+  });
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
   // Filtro por responsável só faz sentido pra quem enxerga conversa de mais

@@ -33,6 +33,8 @@ type ActionConfig = {
   pushBody?: string;
   whatsappMessage?: string;
   whatsappRecipients?: RecipientEntry[];
+  /** userId do remetente fixo. Quando presente, ignora entity.ownerId pra escolha da instância. */
+  whatsappSenderId?: string;
   emailSubject?: string;
   emailBody?: string;
   emailRecipients?: RecipientEntry[];
@@ -209,13 +211,19 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
     const templateValues = await resolveTemplateValues(entity);
     const message = interpolateAutomationTemplate(rawMessage, templateValues);
 
-    // Sempre manda pelo número do responsável pela entidade — quem recebe
-    // que pode variar (cliente, supervisor, uma pessoa específica, um número
-    // avulso), não de onde sai.
+    // Se a regra tem um remetente fixo (whatsappSenderId), usa a instância
+    // desse usuário. Caso contrário, cai no comportamento padrão: a instância
+    // do responsável pela entidade (deal/contact/tarefa).
+    const senderId = actionConfig.whatsappSenderId ?? entity.ownerId;
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId: entity.organizationId, userId: entity.ownerId } },
+      where: { organizationId_userId: { organizationId: entity.organizationId, userId: senderId } },
     });
-    if (!instance) return;
+    if (!instance || instance.status !== "CONNECTED") {
+      console.warn(
+        `[automations] WhatsApp do remetente (${senderId}) não está conectado (regra "${rule.name}") — pulando envio.`,
+      );
+      return;
+    }
 
     const recipientConfig = actionConfig.whatsappRecipients?.length
       ? actionConfig.whatsappRecipients

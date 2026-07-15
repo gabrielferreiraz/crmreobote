@@ -67,6 +67,20 @@ export async function validateActionConfig(
   if (action === "SEND_WHATSAPP") {
     if (!(actionConfig?.whatsappMessage as string | undefined)?.trim()) return "Escreva o texto da mensagem de WhatsApp";
     if (!(actionConfig?.whatsappRecipients as unknown[] | undefined)?.length) return "Selecione ao menos um destinatário";
+    const senderId = actionConfig?.whatsappSenderId as string | undefined;
+    if (senderId) {
+      const member = await prisma.organizationUser.findFirst({
+        where: { organizationId, userId: senderId, active: true },
+      });
+      if (!member) return "Remetente inválido — o usuário não é membro ativo desta organização";
+      const instance = await prisma.whatsAppInstance.findUnique({
+        where: { organizationId_userId: { organizationId, userId: senderId } },
+        select: { status: true },
+      });
+      if (!instance || instance.status !== "CONNECTED") {
+        return "O número WhatsApp do remetente selecionado não está conectado";
+      }
+    }
   }
   if (action === "SEND_EMAIL") {
     if (!(actionConfig?.emailBody as string | undefined)?.trim()) return "Escreva o texto do e-mail";

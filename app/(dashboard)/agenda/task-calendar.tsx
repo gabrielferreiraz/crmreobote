@@ -6,6 +6,7 @@ import { Modal } from "@/components/modal";
 import { Avatar } from "@/components/avatar";
 import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
+import { TaskDetailModal } from "./task-detail-modal";
 
 export type GoogleEvent = { id: string; title: string; start: string; allDay: boolean; htmlLink: string };
 
@@ -37,6 +38,7 @@ export function TaskCalendar({
 }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const today = useMemo(() => startOfDay(new Date()), []);
 
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -132,7 +134,8 @@ export function TaskCalendar({
           return (
             <div
               key={day.toISOString()}
-              className={`min-h-[104px] p-1.5 ${inMonth ? "bg-white dark:bg-neutral-900" : "bg-neutral-50/60 dark:bg-neutral-900/40"} ${
+              onClick={() => setSelectedDay(day)}
+              className={`min-h-[104px] p-1.5 cursor-pointer hover:bg-neutral-50/80 dark:hover:bg-neutral-800/20 transition-colors ${inMonth ? "bg-white dark:bg-neutral-900" : "bg-neutral-50/60 dark:bg-neutral-900/40"} ${
                 isToday ? "ring-1 ring-inset ring-neutral-900 dark:ring-white" : ""
               }`}
             >
@@ -155,11 +158,14 @@ export function TaskCalendar({
                   return (
                     <button
                       key={t.id}
-                      onClick={() => setSelectedDay(day)}
-                      className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] transition-colors ${
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTask(t);
+                      }}
+                      className={`flex w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-[11px] transition-all duration-150 hover:scale-[1.03] hover:shadow-sm active:scale-[0.97] ${
                         t.completedAt
-                          ? "text-neutral-400 line-through dark:text-neutral-500"
-                          : `${color.bg} ${color.text} hover:brightness-95 ${overdue ? "ring-1 ring-inset ring-red-500" : ""}`
+                          ? "text-neutral-400 line-through hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                          : `${color.bg} ${color.text} hover:brightness-90 dark:hover:brightness-110 ${overdue ? "ring-1 ring-inset ring-red-500" : ""}`
                       }`}
                     >
                       <Icon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
@@ -176,6 +182,7 @@ export function TaskCalendar({
                     href={e.htmlLink}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
                     title={e.title}
                     className="flex w-full items-center gap-1 truncate rounded bg-blue-50 px-1 py-0.5 text-left text-[11px] text-blue-700 transition-colors hover:brightness-95 dark:bg-blue-500/10 dark:text-blue-400"
                   >
@@ -185,7 +192,10 @@ export function TaskCalendar({
                 ))}
                 {overflow > 0 && (
                   <button
-                    onClick={() => setSelectedDay(day)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedDay(day);
+                    }}
                     className="px-1 text-[11px] font-medium text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-100"
                   >
                     +{overflow} mais
@@ -198,7 +208,7 @@ export function TaskCalendar({
       </div>
 
       {selectedDay && (
-        <Modal onClose={() => setSelectedDay(null)}>
+        <Modal onClose={() => setSelectedDay(null)} maxWidth="max-w-xl">
           <h2 className="mb-3 text-sm font-semibold text-neutral-900 capitalize dark:text-neutral-100">
             {selectedDay.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
           </h2>
@@ -212,6 +222,7 @@ export function TaskCalendar({
                 href={e.htmlLink}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="card flex items-center gap-3 p-3 text-sm text-blue-700 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-500/10"
               >
                 <CalendarIcon className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -225,6 +236,20 @@ export function TaskCalendar({
             ))}
           </div>
         </Modal>
+      )}
+
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          completed={!!selectedTask.completedAt}
+          justCompleted={false}
+          onClose={() => setSelectedTask(null)}
+          onToggle={() => {
+            const next = !selectedTask.completedAt;
+            onToggle(selectedTask.id, next);
+            setSelectedTask(null);
+          }}
+        />
       )}
     </div>
   );

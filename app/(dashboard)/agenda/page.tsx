@@ -48,7 +48,15 @@ export default async function AgendaPage({
       prisma.task.findMany({
         where: { organizationId, ...scopeWhere(scope) },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
-        include: { deal: true, contact: true, owner: { select: { id: true, name: true, image: true } } },
+        include: {
+          deal: {
+            select: { id: true, name: true, value: true, stage: { select: { name: true } } },
+          },
+          contact: {
+            select: { id: true, name: true, phone: true, whatsapp: true, source: true, email: true },
+          },
+          owner: { select: { id: true, name: true, image: true } },
+        },
       }),
       prisma.organizationUser.findMany({
         where: { organizationId, active: true },
@@ -66,7 +74,23 @@ export default async function AgendaPage({
     const avatarMap = await resolveAvatarUrlMap(tasksRaw.map((t) => t.owner.image));
     const tasks = tasksRaw.map((task) => ({
       ...task,
-      deal: task.deal ? { id: task.deal.id, name: task.deal.name } : null,
+      deal: task.deal
+        ? {
+            id: task.deal.id,
+            name: task.deal.name,
+            value: task.deal.value != null ? Number(task.deal.value) : null,
+            stageName: task.deal.stage?.name ?? null,
+          }
+        : null,
+      contact: task.contact
+        ? {
+            id: task.contact.id,
+            name: task.contact.name,
+            phone: task.contact.phone ?? task.contact.whatsapp ?? null,
+            source: task.contact.source ?? null,
+            email: task.contact.email ?? null,
+          }
+        : null,
       owner: {
         id: task.owner.id,
         name: task.owner.name,

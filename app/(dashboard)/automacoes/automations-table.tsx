@@ -43,6 +43,7 @@ type StageOption = { id: string; name: string };
 type PipelineOption = { id: string; name: string; stages: StageOption[] };
 type LossReasonOption = { id: string; label: string };
 type MemberOption = { id: string; name: string; role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER" };
+type WhatsappInstanceOption = { userId: string; label: string };
 
 const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STALE: "Negócio parado",
@@ -85,12 +86,14 @@ export function AutomationsTable({
   pipelines,
   lossReasons,
   members,
+  whatsappInstances,
 }: {
   initialRules: Rule[];
   canManage: boolean;
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  whatsappInstances: WhatsappInstanceOption[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -290,6 +293,7 @@ export function AutomationsTable({
           pipelines={pipelines}
           lossReasons={lossReasons}
           members={members}
+          whatsappInstances={whatsappInstances}
           editRule={editRule}
           onClose={() => setOpen(false)}
           onSaved={() => {
@@ -387,6 +391,7 @@ function AutomationDialog({
   pipelines,
   lossReasons,
   members,
+  whatsappInstances,
   editRule,
   onClose,
   onSaved,
@@ -394,6 +399,7 @@ function AutomationDialog({
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  whatsappInstances: WhatsappInstanceOption[];
   editRule: Rule | null;
   onClose: () => void;
   onSaved: () => void;
@@ -426,6 +432,9 @@ function AutomationDialog({
   const [whatsappMessage, setWhatsappMessage] = useState((ac.whatsappMessage as string | undefined) ?? "");
   const [whatsappRecipients, setWhatsappRecipients] = useState<RecipientEntry[]>(
     (ac.whatsappRecipients as RecipientEntry[] | undefined) ?? [{ type: "CLIENT" }],
+  );
+  const [whatsappSenderId, setWhatsappSenderId] = useState(
+    (ac.whatsappSenderId as string | undefined) ?? "",
   );
   const [emailSubject, setEmailSubject] = useState((ac.emailSubject as string | undefined) ?? "");
   const [emailBody, setEmailBody] = useState((ac.emailBody as string | undefined) ?? "");
@@ -478,7 +487,7 @@ function AutomationDialog({
             : action === "SEND_PUSH"
               ? { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined }
               : action === "SEND_WHATSAPP"
-                ? { whatsappMessage, whatsappRecipients }
+                ? { whatsappMessage, whatsappRecipients, whatsappSenderId: whatsappSenderId || undefined }
                 : { emailSubject: emailSubject || undefined, emailBody, emailRecipients };
 
     const res = await fetch(isEdit ? `/api/automations/${editRule!.id}` : "/api/automations", {
@@ -783,6 +792,28 @@ function AutomationDialog({
                 placeholder="Ex.: Olá! Vi que você se interessou pelo nosso consórcio, posso te ajudar com alguma dúvida?"
               />
             </div>
+
+            <div className="space-y-1">
+              <label className="field-label">Enviar de</label>
+              {whatsappInstances.length === 0 ? (
+                <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400">
+                  Nenhum WhatsApp conectado. Conecte um número em Configurações → Perfil.
+                </p>
+              ) : (
+                <Select
+                  value={whatsappSenderId}
+                  onChange={setWhatsappSenderId}
+                  options={[
+                    { value: "", label: "Responsável pelo negócio (padrão)" },
+                    ...whatsappInstances.map((inst) => ({ value: inst.userId, label: inst.label })),
+                  ]}
+                />
+              )}
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Escolha um número fixo para enviar todas as mensagens desta automação. Deixe em branco para usar o número do responsável pelo negócio.
+              </p>
+            </div>
+
             <div className="sm:col-span-2">
               <RecipientPicker
                 recipients={whatsappRecipients}
@@ -795,11 +826,6 @@ function AutomationDialog({
                 customPlaceholder="Ex.: 67991234567"
               />
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 sm:col-span-2">
-              Sempre sai pelo número do WhatsApp do responsável pelo negócio/contato/tarefa — os destinatários acima
-              são só pra quem recebe. Se ele não tiver conectado o WhatsApp em Configurações → Perfil, a automação
-              não consegue enviar pra ninguém (fica registrado no log, não trava as outras ações).
-            </p>
           </>
         )}
 

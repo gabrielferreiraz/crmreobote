@@ -8,6 +8,7 @@ import { Select } from "@/components/select";
 import { ChatWindow } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
+import { useSearchParams } from "next/navigation";
 import {
   ConversationRow,
   TabSwitcher,
@@ -38,8 +39,35 @@ export function ConversationsMobile({
   notificationPrefs?: NotificationPrefs;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [tab, setTab] = useState<ConversationTab>("crm");
+  const searchParams = useSearchParams();
+  const paramThreadId = searchParams?.get("threadId");
+  const paramContactId = searchParams?.get("contactId");
+
+  const initialSelectedId = useMemo(() => {
+    if (paramThreadId) return paramThreadId;
+    if (paramContactId) {
+      const found = conversations.find((c) => c.contactId === paramContactId);
+      if (found) return found.threadId;
+    }
+    return null;
+  }, [paramThreadId, paramContactId, conversations]);
+
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialSelectedId);
+
+  useEffect(() => {
+    if (initialSelectedId) {
+      setSelectedThreadId(initialSelectedId);
+    }
+  }, [initialSelectedId]);
+
+  const [tab, setTab] = useState<ConversationTab>(() => {
+    if (paramContactId) return "crm";
+    if (paramThreadId) {
+      const found = conversations.find((c) => c.threadId === paramThreadId);
+      return found?.contactId ? "crm" : "geral";
+    }
+    return "crm";
+  });
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState("");
