@@ -6,6 +6,7 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
+import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { DealDetail } from "./deal-detail";
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
@@ -41,6 +42,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     const deal = {
       ...dealRaw,
       value: dealRaw.value ? Number(dealRaw.value) : null,
+      customFieldValues: dealRaw.customFieldValues as CustomFieldFormValues | null,
       owner: {
         id: dealRaw.owner.id,
         name: dealRaw.owner.name,
@@ -70,6 +72,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
     const lossReasons = await prisma.lossReason.findMany({
       where: { organizationId },
+      orderBy: { order: "asc" },
+    });
+
+    const customFields = await prisma.customFieldDefinition.findMany({
+      where: { organizationId, entityType: "DEAL" },
       orderBy: { order: "asc" },
     });
 
@@ -105,6 +112,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           deal={deal}
           members={members}
           lossReasons={lossReasons}
+          customFields={customFields}
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}

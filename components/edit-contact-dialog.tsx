@@ -6,15 +6,8 @@ import { Pencil, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { jobTitleSelectOptions } from "@/lib/job-titles";
-
-const SOURCE_OPTIONS = [
-  { value: "", label: "—" },
-  { value: "FACEBOOK", label: "Facebook" },
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "INDICAÇÃO", label: "Indicação" },
-  { value: "OUTROS", label: "Outros" },
-];
 
 type Contact = {
   id: string;
@@ -33,9 +26,18 @@ type Contact = {
   state?: string | null;
   zipCode?: string | null;
   tags?: string[];
+  customFieldValues?: CustomFieldFormValues | null;
 };
 
-export function EditContactDialog({ contact }: { contact: Contact }) {
+export function EditContactDialog({
+  contact,
+  sources,
+  customFields,
+}: {
+  contact: Contact;
+  sources: { id: string; label: string }[];
+  customFields: CustomFieldDefinitionInput[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(contact.name);
@@ -53,6 +55,7 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
   const [city, setCity] = useState(contact.city ?? "");
   const [state, setState] = useState(contact.state ?? "");
   const [tags, setTags] = useState((contact.tags ?? []).join(", "));
+  const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +75,7 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
     setCity(contact.city ?? "");
     setState(contact.state ?? "");
     setTags((contact.tags ?? []).join(", "));
+    setCustomFieldValues(contact.customFieldValues ?? {});
     setError(null);
     setOpen(true);
   }
@@ -103,6 +107,7 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        customFieldValues,
       }),
     });
 
@@ -157,7 +162,11 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
               </div>
               <div className="space-y-1">
                 <label className="field-label">Origem</label>
-                <Select value={source} onChange={setSource} options={SOURCE_OPTIONS} />
+                <Select
+                  value={source}
+                  onChange={setSource}
+                  options={[{ value: "", label: "—" }, ...sources.map((s) => ({ value: s.label, label: s.label }))]}
+                />
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -174,6 +183,7 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
               <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
             </div>
             <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
+            <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

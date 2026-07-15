@@ -32,6 +32,8 @@ model Organization {
   apiKeys           ApiKey[]
   webhookSubscriptions WebhookSubscription[]
   webhookDeliveries WebhookDelivery[]
+  leadSources       LeadSource[]
+  customFieldDefinitions CustomFieldDefinition[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -557,6 +559,10 @@ model Contact {
   // pra nenhum campo conhecido — guardado como veio, só exibido, sem UI de
   // gestão de schema por organização (fora de escopo).
   customFields       Json?
+  // Valores dos campos personalizados definidos em CustomFieldDefinition —
+  // { [customFieldDefinitionId]: string | number | boolean }. Separado do
+  // customFields acima de propósito (esse é write-only da ingestão externa).
+  customFieldValues  Json?
   createdAt          DateTime @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -587,6 +593,63 @@ model LossReason {
   @@index([organizationId])
 }
 
+// ─── Origens de lead (lista editável, alimenta o Select de "Origem" do
+// contato) ────────────────────────────────────────────────────────────
+//
+// De propósito NÃO é FK do Contact.source (que continua String livre) —
+// script de importação e a API externa /api/v1/contacts continuam aceitando
+// texto livre sem bater contra essa lista. Renomear aqui não retroage sobre
+// contatos que já usavam o nome antigo.
+
+model LeadSource {
+  id             String   @id @default(cuid())
+  organizationId String
+  label          String
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ─── Campos personalizados (definidos pelo admin, valores em Contact e
+// Deal) ───────────────────────────────────────────────────────────────
+//
+// Guardado por id (não por um slug do label) na Json bag de cada entidade —
+// renomear um campo depois nunca quebra dado já salvo nem regra de
+// automação que referencia esse id.
+
+model CustomFieldDefinition {
+  id             String            @id @default(cuid())
+  organizationId String
+  entityType     CustomFieldEntity
+  label          String
+  type           CustomFieldType
+  options        String[]          @default([]) // só usado quando type = SELECT
+  required       Boolean           @default(false)
+  order          Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, entityType, order])
+}
+
+enum CustomFieldEntity {
+  CONTACT
+  DEAL
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
 // ─── Negócio (Deal) ──────────────────────────────────────────────────
 
 model Deal {
@@ -612,6 +675,9 @@ model Deal {
   description  String?
   lossReasonId String?
   lostReason   String?
+  // Valores dos campos personalizados definidos em CustomFieldDefinition —
+  // { [customFieldDefinitionId]: string | number | boolean }.
+  customFieldValues Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -757,6 +823,7 @@ enum AutomationAction {
   SEND_PUSH
   SEND_WHATSAPP
   SEND_EMAIL
+  SET_CUSTOM_FIELD
 }
 
 // ─── Integrações externas (API keys + webhooks de saída) ─────────────

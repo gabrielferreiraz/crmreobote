@@ -8,6 +8,7 @@ import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
+import type { CustomFieldDefinitionInput, CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { formatCurrency } from "@/lib/format";
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
@@ -34,11 +35,14 @@ type ContactFull = {
   company: string | null;
   jobTitle: string | null;
   tags: string[];
+  customFieldValues?: CustomFieldFormValues | null;
   deals: ContactDeal[];
 };
 
 export function ContactPreviewModal({ contactId, onClose }: { contactId: string; onClose: () => void }) {
   const [contact, setContact] = useState<ContactFull | null>(null);
+  const [sources, setSources] = useState<{ id: string; label: string }[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinitionInput[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,11 +51,19 @@ export function ContactPreviewModal({ contactId, onClose }: { contactId: string;
     setLoading(true);
     setError(null);
 
-    fetch(`/api/contacts/${contactId}`)
-      .then(async (res) => {
+    Promise.all([
+      fetch(`/api/contacts/${contactId}`).then((res) => {
         if (!res.ok) throw new Error();
-        const data = await res.json();
-        if (!cancelled) setContact(data);
+        return res.json();
+      }),
+      fetch("/api/lead-sources").then((res) => (res.ok ? res.json() : [])),
+      fetch("/api/custom-fields").then((res) => (res.ok ? res.json() : [])),
+    ])
+      .then(([contactData, sourcesData, fieldsData]) => {
+        if (cancelled) return;
+        setContact(contactData);
+        setSources(sourcesData);
+        setCustomFields(fieldsData.filter((f: CustomFieldDefinitionInput & { entityType: string }) => f.entityType === "CONTACT"));
       })
       .catch(() => {
         if (!cancelled) setError("Não foi possível carregar o contato");
@@ -89,7 +101,7 @@ export function ContactPreviewModal({ contactId, onClose }: { contactId: string;
                 </p>
               </div>
             </div>
-            <EditContactDialog contact={contact} />
+            <EditContactDialog contact={contact} sources={sources} customFields={customFields} />
           </div>
 
           <div className="space-y-2 text-sm">

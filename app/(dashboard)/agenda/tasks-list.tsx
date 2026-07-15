@@ -12,6 +12,7 @@ import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { TaskCalendar, type GoogleEvent } from "./task-calendar";
+import { GoogleCalendarBanner } from "./google-calendar-banner";
 
 export type Option = { id: string; name: string };
 
@@ -38,11 +39,15 @@ export function TasksList({
   deals,
   members,
   googleEvents,
+  isGoogleConnected,
+  googleParam,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
   googleEvents?: GoogleEvent[];
+  isGoogleConnected: boolean;
+  googleParam?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -102,6 +107,8 @@ export function TasksList({
 
   return (
     <div className="space-y-6">
+      <GoogleCalendarBanner isGoogleConnected={isGoogleConnected} googleParam={googleParam} />
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <button

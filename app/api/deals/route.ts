@@ -7,6 +7,7 @@ import { buildDealName } from "@/lib/deal-name";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { validateCustomFieldValues } from "@/lib/custom-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     creditType,
     description,
     expectedCloseAt,
+    customFieldValues,
   } = body as {
     pipelineId?: string;
     stageId?: string;
@@ -57,6 +59,7 @@ export async function POST(req: Request) {
     creditType?: string;
     description?: string;
     expectedCloseAt?: string;
+    customFieldValues?: Record<string, unknown>;
   };
 
   const { organizationId, userId } = await requireSession();
@@ -88,6 +91,16 @@ export async function POST(req: Request) {
 
     const resolvedOwnerId = ownerId || (await pickOwnerId(organizationId, userId));
 
+    const fieldDefs = await prisma.customFieldDefinition.findMany({
+      where: { organizationId, entityType: "DEAL" },
+    });
+    let cleanCustomFieldValues;
+    try {
+      cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    }
+
     const deal = await prisma.deal.create({
       data: {
         organizationId,
@@ -100,6 +113,7 @@ export async function POST(req: Request) {
         creditType: sanitizeCell(creditType),
         description: sanitizeCell(description),
         expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
+        customFieldValues: cleanCustomFieldValues,
       },
       include: { contact: true, owner: true, stage: true },
     });

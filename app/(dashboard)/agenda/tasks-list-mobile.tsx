@@ -9,6 +9,7 @@ import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { NewTaskDialog, type Option } from "./tasks-list";
+import { GoogleCalendarBanner } from "./google-calendar-banner";
 
 function groupTasks(tasks: Task[]) {
   const now = new Date();
@@ -39,11 +40,15 @@ export function TasksListMobile({
   deals,
   members,
   openNewTask,
+  isGoogleConnected,
+  googleParam,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
   openNewTask?: boolean;
+  isGoogleConnected: boolean;
+  googleParam?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -110,6 +115,8 @@ export function TasksListMobile({
 
   return (
     <div className="space-y-4">
+      <GoogleCalendarBanner isGoogleConnected={isGoogleConnected} googleParam={googleParam} />
+
       {!isEmpty && (
         <div className="flex items-center gap-2">
           <div className="relative flex-1">

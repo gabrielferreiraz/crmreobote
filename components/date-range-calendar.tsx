@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 
 const WEEKDAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MONTH_LABELS = [
@@ -180,6 +180,74 @@ export function DateRangeCalendar({
                 : `${fromDate.toLocaleDateString("pt-BR")} – ${toDate.toLocaleDateString("pt-BR")}`
               : "Selecione um período"}
           </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Campo recolhido (igual ao DatePicker de dia único) que só abre o
+ * DateRangeCalendar num dropdown ao clicar — pra não deixar o calendário
+ * sempre expandido ocupando a tela dentro de um popover de filtros.
+ */
+export function DateRangeField({
+  from,
+  to,
+  onSelect,
+  placeholder = "Selecionar período",
+  className = "",
+}: {
+  from: string;
+  to: string;
+  onSelect: (range: { from: string; to: string }) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const fromDate = parseISODate(from);
+  const toDate = parseISODate(to);
+  const label =
+    fromDate && toDate
+      ? isSameDay(fromDate, toDate)
+        ? fromDate.toLocaleDateString("pt-BR")
+        : `${fromDate.toLocaleDateString("pt-BR")} – ${toDate.toLocaleDateString("pt-BR")}`
+      : null;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`field-input flex items-center gap-1.5 text-left ${
+          open ? "border-neutral-400 ring-1 ring-neutral-400 dark:border-neutral-500 dark:ring-neutral-500" : ""
+        } ${className}`}
+      >
+        <CalendarIcon className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
+        <span className={`truncate ${label ? "" : "text-neutral-400 dark:text-neutral-500"}`}>{label ?? placeholder}</span>
+      </button>
+
+      {open && (
+        <div className="surface-glass absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
+          <DateRangeCalendar from={from} to={to} onSelect={onSelect} />
         </div>
       )}
     </div>

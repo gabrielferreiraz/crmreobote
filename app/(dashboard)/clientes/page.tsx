@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
+import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { ContactsTable } from "./contacts-table";
 
 export default async function ClientesPage() {
@@ -9,11 +10,18 @@ export default async function ClientesPage() {
   const isOwner = session!.user.role === "OWNER";
 
   return runWithTenant(organizationId, async () => {
-    const contacts = await prisma.contact.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "desc" },
-      include: { _count: { select: { deals: true } } },
-    });
+    const [contacts, sources, customFields] = await Promise.all([
+      prisma.contact.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: "desc" },
+        include: { _count: { select: { deals: true } } },
+      }),
+      prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+      prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "CONTACT" },
+        orderBy: { order: "asc" },
+      }),
+    ]);
 
     return (
       <div className="space-y-4">
@@ -23,7 +31,12 @@ export default async function ClientesPage() {
             {contacts.length} conta{contacts.length === 1 ? "" : "s"} ativa{contacts.length === 1 ? "" : "s"} na sua carteira
           </p>
         </div>
-        <ContactsTable initialContacts={contacts} isOwner={isOwner} />
+        <ContactsTable
+          initialContacts={contacts.map((c) => ({ ...c, customFieldValues: c.customFieldValues as CustomFieldFormValues | null }))}
+          isOwner={isOwner}
+          sources={sources}
+          customFields={customFields}
+        />
       </div>
     );
   });

@@ -7,6 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
+import { validateCustomFieldValues } from "@/lib/custom-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     lostReason,
     expectedCloseAt,
     ownerId,
+    customFieldValues,
   } = body as {
     name?: string;
     status?: "OPEN" | "WON" | "LOST";
@@ -59,6 +61,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     lostReason?: string | null;
     expectedCloseAt?: string | null;
     ownerId?: string;
+    customFieldValues?: Record<string, unknown>;
   };
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -117,6 +120,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const closedAt =
       status && status !== "OPEN" && existing.status === "OPEN" ? new Date() : undefined;
 
+    // Só valida/grava se o body de fato mandou customFieldValues — as outras
+    // chamadas a esse PUT (mudar status, valor, etc.) não mandam esse campo,
+    // e undefined no data do Prisma significa "não mexe", nunca "limpa".
+    let cleanCustomFieldValues;
+    if (customFieldValues !== undefined) {
+      const fieldDefs = await prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "DEAL" },
+      });
+      try {
+        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+      } catch (err) {
+        return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+      }
+    }
+
     const deal = await prisma.deal.update({
       where: { id },
       data: {
@@ -130,6 +148,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         ownerId,
         expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
         ...(closedAt ? { closedAt } : {}),
+        customFieldValues: cleanCustomFieldValues,
       },
       include: { contact: true, owner: true, stage: true, lossReason: true },
     });

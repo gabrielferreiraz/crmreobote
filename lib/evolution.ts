@@ -197,33 +197,67 @@ export type HistoryMessage = {
   messageTimestamp?: number | string;
 };
 
+// Confirmado em produção que este endpoint É paginado de verdade (uma conta
+// ativa chegou a reportar 467 páginas) — cada página só traz as mensagens
+// mais recentes de TODA a instância (grupo, canal, contato, tudo misturado),
+// então uma única página cobre muito pouco de qualquer contato específico.
+// Sem um teto, uma conta bem ativa levaria centenas de requisições
+// sequenciais (o Evolution tem timeout de resposta de webhook, e o import
+// manual também não pode ficar minutos girando) — por isso um limite fixo de
+// páginas, bem maior que 1 (o comportamento anterior), mas ainda bounded.
+const MAX_HISTORY_PAGES = 10;
+
+type FindMessagesPage = { records: HistoryMessage[]; totalPages: number };
+
+function parseFindMessagesPage(data: unknown): FindMessagesPage {
+  if (Array.isArray(data)) return { records: data as HistoryMessage[], totalPages: 1 };
+
+  const asRecord = data as Record<string, unknown> | null;
+  const messagesField = asRecord?.messages;
+  if (Array.isArray(messagesField)) return { records: messagesField as HistoryMessage[], totalPages: 1 };
+  if (messagesField && typeof messagesField === "object") {
+    const messagesObj = messagesField as Record<string, unknown>;
+    const records = Array.isArray(messagesObj.records) ? (messagesObj.records as HistoryMessage[]) : [];
+    const totalPages = typeof messagesObj.pages === "number" ? messagesObj.pages : 1;
+    return { records, totalPages };
+  }
+  if (Array.isArray(asRecord?.records)) {
+    const totalPages = typeof asRecord?.pages === "number" ? (asRecord.pages as number) : 1;
+    return { records: asRecord.records as HistoryMessage[], totalPages };
+  }
+  return { records: [], totalPages: 1 };
+}
+
 /**
  * Histórico de mensagens já sincronizado pelo Evolution (populado no
  * pareamento, quando a instância foi criada com `syncFullHistory: true`).
  * O filtro por `remoteJid` desse endpoint é conhecidamente instável entre
- * versões do Evolution — busca tudo de uma vez e filtra/agrupa por contato
- * do nosso lado (ver lib/whatsapp/events.ts) em vez de confiar nele.
- * A forma da resposta também varia (array puro, ou paginada em
- * `{ messages: { records } }` / `{ records }`) — trata as três.
+ * versões do Evolution — busca várias páginas (até MAX_HISTORY_PAGES) e
+ * filtra/agrupa por contato do nosso lado (ver lib/whatsapp/events.ts) em vez
+ * de confiar nele. A forma da resposta também varia (array puro, ou paginada
+ * em `{ messages: { records, pages } }` / `{ records, pages }`) — trata as
+ * três; quando a forma não informa `pages` (array puro/versão antiga),
+ * assume 1 página só e não insiste.
  */
 export async function findMessages(instanceName: string): Promise<HistoryMessage[]> {
-  const data = await request<unknown>(`/chat/findMessages/${encodeURIComponent(instanceName)}`, {
-    method: "POST",
-    body: JSON.stringify({ where: {} }),
-  });
+  const allMessages: HistoryMessage[] = [];
+  let page = 1;
+  let totalPages = 1;
 
-  if (Array.isArray(data)) return data as HistoryMessage[];
+  do {
+    const data = await request<unknown>(`/chat/findMessages/${encodeURIComponent(instanceName)}`, {
+      method: "POST",
+      body: JSON.stringify({ where: {}, page }),
+    });
 
-  const asRecord = data as Record<string, unknown> | null;
-  const messagesField = asRecord?.messages;
-  if (Array.isArray(messagesField)) return messagesField as HistoryMessage[];
-  if (messagesField && typeof messagesField === "object") {
-    const records = (messagesField as Record<string, unknown>).records;
-    if (Array.isArray(records)) return records as HistoryMessage[];
-  }
-  if (Array.isArray(asRecord?.records)) return asRecord.records as HistoryMessage[];
+    const parsed = parseFindMessagesPage(data);
+    if (parsed.records.length === 0) break; // nada nesta página — nada de novo esperar nas seguintes
+    allMessages.push(...parsed.records);
+    totalPages = parsed.totalPages;
+    page += 1;
+  } while (page <= totalPages && page <= MAX_HISTORY_PAGES);
 
-  return [];
+  return allMessages;
 }
 
 export async function logoutInstance(instanceName: string): Promise<void> {

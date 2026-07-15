@@ -16,6 +16,8 @@ import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
 import { ConfettiBurst } from "@/components/confetti-burst";
+import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
+import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -55,6 +57,7 @@ type Deal = {
   lossReasonId: string | null;
   lossReason: { id: string; label: string } | null;
   lostReason: string | null;
+  customFieldValues: CustomFieldFormValues | null;
 };
 
 type MemberOption = { id: string; name: string };
@@ -102,6 +105,7 @@ export function DealDetail({
   deal,
   members,
   lossReasons,
+  customFields,
   currentUserName,
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
@@ -111,6 +115,7 @@ export function DealDetail({
   deal: Deal;
   members: MemberOption[];
   lossReasons: LossReasonOption[];
+  customFields: CustomFieldDefinitionInput[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   hasUnreadWhatsApp?: boolean;
@@ -634,6 +639,14 @@ export function DealDetail({
             />
           </div>
 
+          <CustomFieldsCard
+            dealId={deal.id}
+            customFields={customFields}
+            values={deal.customFieldValues ?? {}}
+            editable={canEditDetails}
+            onSaved={() => router.refresh()}
+          />
+
           {deal.status === "LOST" && deal.lossReason && (
             <div className="card space-y-2 border-red-100 dark:border-red-900 bg-red-50/40 dark:bg-red-500/10 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Motivo da perda</h3>
@@ -863,6 +876,14 @@ export function DealDetail({
               onSave={(v) => saveDealField("description", v)}
             />
             </div>
+
+            <CustomFieldsCard
+              dealId={deal.id}
+              customFields={customFields}
+              values={deal.customFieldValues ?? {}}
+              editable={canEditDetails}
+              onSaved={() => router.refresh()}
+            />
 
             {deal.status === "LOST" && deal.lossReason && (
               <div className="card space-y-2 border-red-100 bg-red-50/40 p-4 text-sm dark:border-red-900 dark:bg-red-500/10">
@@ -1195,6 +1216,87 @@ function DealValueCard({
         </button>
       </div>
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+function CustomFieldsCard({
+  dealId,
+  customFields,
+  values,
+  editable,
+  onSaved,
+}: {
+  dealId: string;
+  customFields: CustomFieldDefinitionInput[];
+  values: CustomFieldFormValues;
+  editable: boolean;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<CustomFieldFormValues>(values);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (customFields.length === 0) return null;
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/deals/${dealId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customFieldValues: draft }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Erro ao salvar");
+      return;
+    }
+    setEditing(false);
+    onSaved();
+  }
+
+  return (
+    <div className="card space-y-2 p-4 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Campos personalizados</h3>
+        {editable && !editing && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(values);
+              setError(null);
+              setEditing(true);
+            }}
+            className="icon-btn h-5 w-5 shrink-0"
+            aria-label="Editar campos personalizados"
+          >
+            <Pencil className="h-3 w-3" strokeWidth={2} />
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <>
+          <CustomFieldsFieldset definitions={customFields} values={draft} onChange={setDraft} />
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setEditing(false)} disabled={saving} className="btn-ghost btn-sm">
+              Cancelar
+            </button>
+            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary btn-sm">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
+              Salvar
+            </button>
+          </div>
+        </>
+      ) : (
+        customFields.map((def) => (
+          <Row key={def.id} label={def.label} value={stringifyCustomFieldValue(def, (values[def.id] as CustomFieldValue) ?? null) || "—"} />
+        ))
+      )}
     </div>
   );
 }

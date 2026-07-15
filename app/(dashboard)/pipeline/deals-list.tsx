@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
-import { DateRangeCalendar } from "@/components/date-range-calendar";
+import { DateRangeField } from "@/components/date-range-calendar";
 import { buildQuickRanges } from "@/lib/date-ranges";
 import type { Deal } from "./kanban-board";
 
@@ -255,9 +255,10 @@ export function DealsList({
           )}
           <div className="space-y-1">
             <label className="field-label">Criado em</label>
-            <DateRangeCalendar
+            <DateRangeField
               from={dateFrom}
               to={dateTo}
+              className="w-full py-1.5 text-sm"
               onSelect={(r) => {
                 setDateFrom(r.from);
                 setDateTo(r.to);
@@ -280,9 +281,10 @@ export function DealsList({
                 </button>
               ))}
             </div>
-            <DateRangeCalendar
+            <DateRangeField
               from={closedFrom}
               to={closedTo}
+              className="w-full py-1.5 text-sm"
               onSelect={(r) => {
                 setClosedFrom(r.from);
                 setClosedTo(r.to);

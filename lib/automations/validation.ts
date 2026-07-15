@@ -6,6 +6,19 @@
 
 import { prisma } from "@/lib/prisma";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { coerceCustomFieldValue } from "@/lib/custom-fields";
+import type { CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
+
+/** Triggers cuja entidade principal é um Deal/Contact estável — únicos onde "condições de campo personalizado" fazem sentido. */
+export const CUSTOM_FIELD_CONDITION_ENTITY: Partial<Record<$Enums.AutomationTrigger, "DEAL" | "CONTACT">> = {
+  DEAL_STALE: "DEAL",
+  DEAL_CREATED: "DEAL",
+  DEAL_WON: "DEAL",
+  DEAL_LOST: "DEAL",
+  DEAL_STAGE_ENTERED: "DEAL",
+  DEAL_NO_OPEN_TASK: "DEAL",
+  CONTACT_NO_DEAL: "CONTACT",
+};
 
 export const VALID_TRIGGERS: $Enums.AutomationTrigger[] = [
   "DEAL_STALE",
@@ -27,6 +40,7 @@ export const VALID_ACTIONS: $Enums.AutomationAction[] = [
   "SEND_PUSH",
   "SEND_WHATSAPP",
   "SEND_EMAIL",
+  "SET_CUSTOM_FIELD",
 ];
 
 export async function validateTriggerConfig(
@@ -50,6 +64,26 @@ export async function validateTriggerConfig(
     });
     if (!member) return "Responsável inválido";
   }
+
+  const conditions = triggerConfig?.customFieldConditions as CustomFieldCondition[] | undefined;
+  if (conditions?.length) {
+    const entityType = CUSTOM_FIELD_CONDITION_ENTITY[trigger];
+    if (!entityType) return "Esse gatilho não suporta condições de campo personalizado";
+    for (const condition of conditions) {
+      if (!condition.fieldId) return "Selecione o campo da condição";
+      const def = await prisma.customFieldDefinition.findFirst({
+        where: { id: condition.fieldId, organizationId, entityType },
+      });
+      if (!def) return "Campo personalizado inválido na condição";
+      if (!["equals", "not_equals", "is_set", "is_not_set"].includes(condition.operator)) {
+        return "Operador de condição inválido";
+      }
+      if ((condition.operator === "equals" || condition.operator === "not_equals") && !condition.value) {
+        return `Preencha o valor da condição de "${def.label}"`;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -85,6 +119,17 @@ export async function validateActionConfig(
   if (action === "SEND_EMAIL") {
     if (!(actionConfig?.emailBody as string | undefined)?.trim()) return "Escreva o texto do e-mail";
     if (!(actionConfig?.emailRecipients as unknown[] | undefined)?.length) return "Selecione ao menos um destinatário";
+  }
+  if (action === "SET_CUSTOM_FIELD") {
+    const customFieldId = actionConfig?.customFieldId as string | undefined;
+    if (!customFieldId) return "Selecione o campo personalizado";
+    const def = await prisma.customFieldDefinition.findFirst({ where: { id: customFieldId, organizationId } });
+    if (!def) return "Campo personalizado inválido";
+    try {
+      coerceCustomFieldValue(def, (actionConfig?.customFieldValue as string | undefined) ?? "");
+    } catch (err) {
+      return (err as Error).message;
+    }
   }
   return null;
 }

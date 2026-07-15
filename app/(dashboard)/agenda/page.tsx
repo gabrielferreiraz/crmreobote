@@ -15,36 +15,43 @@ import type { GoogleEvent } from "./task-calendar";
  * API fora do ar) nunca derruba a página inteira: só a Agenda fica sem os
  * eventos do Google até a próxima carga.
  */
-async function loadGoogleEvents(userId: string): Promise<GoogleEvent[]> {
+async function loadGoogleEvents(userId: string): Promise<{ connected: boolean; events: GoogleEvent[] }> {
   try {
     const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId } });
-    if (!connection) return [];
+    if (!connection) return { connected: false, events: [] };
 
     const accessToken = await getValidGoogleAccessToken(connection);
     const timeMin = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
     const timeMax = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
     const events = await fetchGoogleCalendarEvents(accessToken, timeMin, timeMax);
-    return events.map((e) => ({ id: e.id, title: e.title, start: e.start.toISOString(), allDay: e.allDay, htmlLink: e.htmlLink }));
+    return {
+      connected: true,
+      events: events.map((e) => ({ id: e.id, title: e.title, start: e.start.toISOString(), allDay: e.allDay, htmlLink: e.htmlLink })),
+    };
   } catch (err) {
     console.error("[google-calendar] falha ao carregar eventos pra Agenda", err);
-    return [];
+    // Tinha conexão mas a chamada falhou (token revogado, API fora do ar) —
+    // ainda assim está "conectado" pro propósito do banner (não oferece
+    // reconectar à toa quando o problema é passageiro do lado do Google).
+    const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId }, select: { id: true } });
+    return { connected: !!connection, events: [] };
   }
 }
 
 export default async function AgendaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ novo?: string }>;
+  searchParams: Promise<{ novo?: string; google?: string }>;
 }) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
-  const { novo } = await searchParams;
+  const { novo, google } = await searchParams;
 
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
 
-    const [tasksRaw, membersRaw, deals, googleEvents] = await Promise.all([
+    const [tasksRaw, membersRaw, deals, googleResult] = await Promise.all([
       prisma.task.findMany({
         where: { organizationId, ...scopeWhere(scope) },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
@@ -109,10 +116,24 @@ export default async function AgendaPage({
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Reuniões, ligações e follow-ups do time</p>
         </div>
         <div className="hidden lg:block">
-          <TasksList initialTasks={tasks} deals={deals} members={members} googleEvents={googleEvents} />
+          <TasksList
+            initialTasks={tasks}
+            deals={deals}
+            members={members}
+            googleEvents={googleResult.events}
+            isGoogleConnected={googleResult.connected}
+            googleParam={google}
+          />
         </div>
         <div className="lg:hidden">
-          <TasksListMobile initialTasks={tasks} deals={deals} members={members} openNewTask={novo === "1"} />
+          <TasksListMobile
+            initialTasks={tasks}
+            deals={deals}
+            members={members}
+            openNewTask={novo === "1"}
+            isGoogleConnected={googleResult.connected}
+            googleParam={google}
+          />
         </div>
       </div>
     );

@@ -7,6 +7,7 @@ import { CurrencyInput } from "@/components/currency-input";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -15,6 +16,7 @@ export function NewDealDialog({
   pipelineId,
   firstStageId,
   members,
+  customFields,
   onCreated,
   open,
   onOpenChange,
@@ -23,6 +25,7 @@ export function NewDealDialog({
   pipelineId: string;
   firstStageId?: string;
   members: MemberOption[];
+  customFields: CustomFieldDefinitionInput[];
   onCreated: (deal: Deal) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -35,6 +38,7 @@ export function NewDealDialog({
   const [value, setValue] = useState("");
   const [creditType, setCreditType] = useState("");
   const [ownerId, setOwnerId] = useState("");
+  const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +59,7 @@ export function NewDealDialog({
           value: value ? Number(value) : undefined,
           creditType: creditType || undefined,
           ownerId: ownerId || undefined,
+          customFieldValues,
         }),
       });
 
@@ -70,6 +75,7 @@ export function NewDealDialog({
       setValue("");
       setCreditType("");
       setOwnerId("");
+      setCustomFieldValues({});
       onCreated({
         ...data,
         value: data.value != null ? Number(data.value) : null,
@@ -129,6 +135,7 @@ export function NewDealDialog({
                 ]}
               />
             </div>
+            <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

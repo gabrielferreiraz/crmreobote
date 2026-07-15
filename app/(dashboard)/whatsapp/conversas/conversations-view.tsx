@@ -33,6 +33,11 @@ export type ConversationTab = "crm" | "geral";
 
 export type NotificationPrefs = { notifyOnCrmMessage: boolean; notifyOnGeralMessage: boolean };
 
+const SIDEBAR_WIDTH_KEY = "wa-conversations-sidebar-width";
+const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MAX_WIDTH = 480;
+const SIDEBAR_DEFAULT_WIDTH = 320;
+
 const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] = [
   { limitMs: 60_000, divisorMs: 1, suffix: "agora" },
   { limitMs: 60 * 60_000, divisorMs: 60_000, suffix: "min" },
@@ -191,6 +196,46 @@ export function ConversationsView({
   const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
   const [notificationError, setNotificationError] = useState<string | null>(null);
 
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      if (saved >= SIDEBAR_MIN_WIDTH && saved <= SIDEBAR_MAX_WIDTH) setSidebarWidth(saved);
+    } catch {
+      // localStorage indisponível (modo privado etc.) — mantém a largura padrão.
+    }
+  }, []);
+
+  function startSidebarResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function onMove(ev: MouseEvent) {
+      const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, startWidth + (ev.clientX - startX)));
+      setSidebarWidth(next);
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSidebarWidth((w) => {
+        try {
+          localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+        } catch {
+          // localStorage indisponível — só não persiste, sem quebrar o resize.
+        }
+        return w;
+      });
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
   async function toggleNotifications(target: ConversationTab) {
     if (!notificationPrefs) return;
     const field = target === "crm" ? "notifyOnCrmMessage" : "notifyOnGeralMessage";
@@ -316,8 +361,8 @@ export function ConversationsView({
   }
 
   return (
-    <div className="hidden min-h-0 flex-1 gap-4 lg:flex">
-      <div className="card flex w-80 shrink-0 flex-col overflow-hidden">
+    <div className="hidden min-h-0 flex-1 lg:flex">
+      <div className="card flex shrink-0 flex-col overflow-hidden" style={{ width: sidebarWidth }}>
         <TabSwitcher
           tab={tab}
           onChange={setTab}
@@ -428,6 +473,25 @@ export function ConversationsView({
             ))
           )}
         </div>
+      </div>
+
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Redimensionar lista de conversas"
+        onMouseDown={startSidebarResize}
+        onDoubleClick={() => {
+          setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+          try {
+            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(SIDEBAR_DEFAULT_WIDTH));
+          } catch {
+            // localStorage indisponível — só não persiste o reset.
+          }
+        }}
+        title="Arraste pra redimensionar · duplo clique pra restaurar"
+        className="group flex w-4 shrink-0 cursor-col-resize items-center justify-center"
+      >
+        <div className="h-full w-px bg-neutral-200 transition-colors group-hover:bg-neutral-400 group-active:bg-neutral-500 dark:bg-neutral-800 dark:group-hover:bg-neutral-600 dark:group-active:bg-neutral-500" />
       </div>
 
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -9,6 +9,7 @@ import { NewDealDialog } from "./new-deal-dialog";
 import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
 import { PipelineMobile } from "./pipeline-mobile";
+import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fieldset";
 
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
@@ -24,6 +25,7 @@ export function PipelineView({
   members,
   allMembers,
   lossReasons,
+  customFields,
   isOwner,
   openNewDeal,
 }: {
@@ -34,6 +36,7 @@ export function PipelineView({
   members: MemberOption[];
   allMembers: MemberFilterOption[];
   lossReasons: LossReasonOption[];
+  customFields: CustomFieldDefinitionInput[];
   isOwner: boolean;
   openNewDeal?: boolean;
 }) {
@@ -129,6 +132,7 @@ export function PipelineView({
         pipelineId={pipelineId}
         firstStageId={stages[0]?.id}
         members={members}
+        customFields={customFields}
         onCreated={(deal) => setDeals((prev) => [deal, ...prev])}
         open={dealDialogOpen}
         onOpenChange={setDealDialogOpen}

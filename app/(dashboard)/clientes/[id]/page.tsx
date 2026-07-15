@@ -12,6 +12,7 @@ import { WhatsAppChat } from "@/components/whatsapp-chat";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
+import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
   OPEN: { label: "Em andamento", tone: "neutral" },
@@ -59,6 +60,15 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
 
   if (!contact) notFound();
 
+  const [sources, customFields] = await Promise.all([
+    prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+    prisma.customFieldDefinition.findMany({
+      where: { organizationId, entityType: "CONTACT" },
+      orderBy: { order: "asc" },
+    }),
+  ]);
+  const customFieldValues = (contact.customFieldValues as Record<string, CustomFieldValue>) ?? {};
+
   const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
   // Mesma regra do envio: a conversa aberta aqui é sempre a de quem está
@@ -97,7 +107,10 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
             state: contact.state,
             zipCode: contact.zipCode,
             tags: contact.tags,
+            customFieldValues,
           }}
+          sources={sources}
+          customFields={customFields}
         />
       </div>
 
@@ -141,6 +154,11 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
               <p className="text-right text-neutral-800 dark:text-neutral-200">{formatAddress(contact)}</p>
             </div>
           )}
+          {customFields.map((def) => {
+            const value = stringifyCustomFieldValue(def, customFieldValues[def.id] ?? null);
+            if (!value) return null;
+            return <Row key={def.id} label={def.label} value={value} />;
+          })}
           {contact.tags.length > 0 && (
             <div className="flex items-center justify-between gap-2">
               <span className="text-neutral-500 dark:text-neutral-400">Tags</span>

@@ -29,6 +29,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CRM",
   description: "CRM para equipes de vendas de consórcio",
+  appleWebApp: {
+    capable: true,
+    title: "CRM",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 // viewport-fit=cover é o que faz `env(safe-area-inset-*)` funcionar de

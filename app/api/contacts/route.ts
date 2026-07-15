@@ -8,6 +8,7 @@ import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
+import { validateCustomFieldValues } from "@/lib/custom-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
     state,
     zipCode,
     tags,
+    customFieldValues,
   } = body as {
     name?: string;
     email?: string;
@@ -75,6 +77,7 @@ export async function POST(req: Request) {
     state?: string;
     zipCode?: string;
     tags?: string[];
+    customFieldValues?: Record<string, unknown>;
   };
 
   const { organizationId } = await requireSession();
@@ -94,6 +97,16 @@ export async function POST(req: Request) {
     const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized);
     if (duplicate) {
       return NextResponse.json({ error: duplicate.message }, { status: 409 });
+    }
+
+    const fieldDefs = await prisma.customFieldDefinition.findMany({
+      where: { organizationId, entityType: "CONTACT" },
+    });
+    let cleanCustomFieldValues;
+    try {
+      cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
     }
 
     try {
@@ -117,6 +130,7 @@ export async function POST(req: Request) {
           tags: cleanTags,
           phoneNormalized,
           whatsappNormalized,
+          customFieldValues: cleanCustomFieldValues,
         },
       });
 

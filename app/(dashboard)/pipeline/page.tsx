@@ -127,6 +127,11 @@ export default async function PipelinePage({
     orderBy: { order: "asc" },
   });
 
+  const customFields = await prisma.customFieldDefinition.findMany({
+    where: { organizationId, entityType: "DEAL" },
+    orderBy: { order: "asc" },
+  });
+
   const isOwner = session!.user.role === "OWNER";
 
   return (
@@ -143,6 +148,7 @@ export default async function PipelinePage({
         members={members.map((m) => m.user)}
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}
+        customFields={customFields}
         isOwner={isOwner}
         openNewDeal={novo === "1"}
       />

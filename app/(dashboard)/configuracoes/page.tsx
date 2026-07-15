@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug } from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TestEmailButton } from "./test-email-button";
@@ -39,8 +39,9 @@ export default async function ConfiguracoesPage() {
           <Row href="/configuracoes/equipes" icon={UsersRound} title="Equipes" description="Agrupar vendedores sob um supervisor." />
           <Row href="/configuracoes/pipeline" icon={Kanban} title="Pipeline" description="Etapas, cores e regras do funil." />
           <Row href="/configuracoes/motivos-perda" icon={XCircle} title="Motivos de perda" description="Usados ao marcar um negócio como perdido." />
+          <Row href="/configuracoes/origens" icon={Tag} title="Origens" description="De onde vêm os leads (Facebook, Indicação...)." />
           <Row href="/automacoes" icon={Zap} title="Automações" description="Regras que disparam ação sozinhas (tarefa, e-mail, WhatsApp, push)." />
-          <Row icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
+          <Row href="/configuracoes/campos-personalizados" icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
         </Section>
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">

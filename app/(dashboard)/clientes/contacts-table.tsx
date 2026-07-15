@@ -12,21 +12,14 @@ import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { FilterPopover } from "@/components/filter-popover";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
-import { DateRangeCalendar } from "@/components/date-range-calendar";
+import { DateRangeField } from "@/components/date-range-calendar";
+import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { JOB_TITLE_OPTIONS } from "@/lib/job-titles";
 import { buildQuickRanges } from "@/lib/date-ranges";
 
 const QUICK_RANGES = buildQuickRanges();
 
 const NO_JOB_TITLE = "__NONE__";
-
-const SOURCE_OPTIONS = [
-  { value: "", label: "—" },
-  { value: "FACEBOOK", label: "Facebook" },
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "INDICAÇÃO", label: "Indicação" },
-  { value: "OUTROS", label: "Outros" },
-];
 
 const SOURCE_BADGE: Record<string, string> = {
   FACEBOOK:
@@ -63,15 +56,20 @@ type Contact = {
   zipCode: string | null;
   tags: string[];
   createdAt: string | Date;
+  customFieldValues: CustomFieldFormValues | null;
   _count: { deals: number };
 };
 
 export function ContactsTable({
   initialContacts,
   isOwner,
+  sources,
+  customFields,
 }: {
   initialContacts: Contact[];
   isOwner: boolean;
+  sources: { id: string; label: string }[];
+  customFields: CustomFieldDefinitionInput[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -91,6 +89,7 @@ export function ContactsTable({
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [tags, setTags] = useState("");
+  const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -181,6 +180,7 @@ export function ContactsTable({
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        customFieldValues,
       }),
     });
 
@@ -208,6 +208,7 @@ export function ContactsTable({
     setCity("");
     setState("");
     setTags("");
+    setCustomFieldValues({});
     router.refresh();
   }
 
@@ -299,9 +300,10 @@ export function ContactsTable({
                 </button>
               ))}
             </div>
-            <DateRangeCalendar
+            <DateRangeField
               from={registeredFrom}
               to={registeredTo}
+              className="w-full py-1.5 text-sm"
               onSelect={(r) => {
                 setRegisteredFrom(r.from);
                 setRegisteredTo(r.to);
@@ -341,7 +343,7 @@ export function ContactsTable({
                     <Avatar name={c.name} size="xs" />
                     <span className="truncate">{c.name}</span>
                   </Link>
-                  <EditContactDialog contact={c} />
+                  <EditContactDialog contact={c} sources={sources} customFields={customFields} />
                 </div>
                 <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
                   <p className="flex items-center gap-1.5 truncate">
@@ -462,7 +464,7 @@ export function ContactsTable({
                       {c._count.deals}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <EditContactDialog contact={c} />
+                      <EditContactDialog contact={c} sources={sources} customFields={customFields} />
                     </td>
                   </tr>
                 ))}
@@ -509,8 +511,13 @@ export function ContactsTable({
             <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
             <div className="space-y-1">
               <label className="field-label">Origem</label>
-              <Select value={source} onChange={setSource} options={SOURCE_OPTIONS} />
+              <Select
+                value={source}
+                onChange={setSource}
+                options={[{ value: "", label: "—" }, ...sources.map((s) => ({ value: s.label, label: s.label }))]}
+              />
             </div>
+            <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

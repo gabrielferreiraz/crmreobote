@@ -13,6 +13,8 @@ import { escapeHtmlValues } from "@/lib/security/html-escape";
 import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/lib/timezone";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
+import { matchesCustomFieldConditions, type CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
+import { coerceCustomFieldValue, type CustomFieldDefinitionLike } from "@/lib/custom-fields";
 
 type TriggerConfig = {
   days?: number;
@@ -24,6 +26,8 @@ type TriggerConfig = {
   dayOfMonth?: number;
   assigneeId?: string;
   minutesBefore?: number;
+  /** Só avaliado nos triggers cuja entidade principal é Deal ou Contact — ver findMatches. */
+  customFieldConditions?: CustomFieldCondition[];
 };
 type ActionConfig = {
   title?: string;
@@ -39,6 +43,9 @@ type ActionConfig = {
   emailSubject?: string;
   emailBody?: string;
   emailRecipients?: RecipientEntry[];
+  /** SET_CUSTOM_FIELD: id da CustomFieldDefinition e o valor (texto cru, coerido pro tipo do campo na hora de gravar). */
+  customFieldId?: string;
+  customFieldValue?: string;
 };
 
 type Entity = {
@@ -296,21 +303,56 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
     }
     return;
   }
+
+  if (rule.action === "SET_CUSTOM_FIELD") {
+    if (!actionConfig.customFieldId) return;
+    const def = await prisma.customFieldDefinition.findFirst({
+      where: { id: actionConfig.customFieldId, organizationId: entity.organizationId },
+    });
+    if (!def) return;
+
+    // Campo de Cliente só faz sentido se a entidade do evento tiver um
+    // contactId (idem Negócio/dealId) — em triggers onde não tem (ex.:
+    // SCHEDULED nunca tem dealId/contactId), pula em silêncio.
+    const targetId = def.entityType === "DEAL" ? entity.dealId : entity.contactId;
+    if (!targetId) return;
+
+    let coerced;
+    try {
+      coerced = coerceCustomFieldValue(def, actionConfig.customFieldValue ?? "");
+    } catch (err) {
+      console.error(`[automations] valor inválido pro campo "${def.label}" (regra "${rule.name}")`, err);
+      return;
+    }
+
+    if (def.entityType === "DEAL") {
+      const current = await prisma.deal.findUnique({ where: { id: targetId }, select: { customFieldValues: true } });
+      const merged = { ...((current?.customFieldValues as Record<string, string | number | boolean | null>) ?? {}), [def.id]: coerced };
+      await prisma.deal.update({ where: { id: targetId }, data: { customFieldValues: merged } });
+    } else {
+      const current = await prisma.contact.findUnique({ where: { id: targetId }, select: { customFieldValues: true } });
+      const merged = { ...((current?.customFieldValues as Record<string, string | number | boolean | null>) ?? {}), [def.id]: coerced };
+      await prisma.contact.update({ where: { id: targetId }, data: { customFieldValues: merged } });
+    }
+    return;
+  }
 }
 
-async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
+async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<Entity[]> {
   const triggerConfig = (rule.triggerConfig ?? {}) as TriggerConfig;
+  const conditions = triggerConfig.customFieldConditions;
+  const definitionsById = new Map(customFieldDefs.map((d) => [d.id, d]));
 
   if (rule.trigger === "DEAL_STALE") {
     const days = triggerConfig.days ?? STALE_DEAL_DAYS;
     const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const deals = await prisma.deal.findMany({
       where: { organizationId: rule.organizationId, status: "OPEN", stageEnteredAt: { lte: threshold } },
-      select: { id: true, contactId: true, ownerId: true },
+      select: { id: true, contactId: true, ownerId: true, customFieldValues: true },
     });
     const pending = await filterUnexecuted(rule.id, deals.map((d) => d.id));
     return deals
-      .filter((d) => pending.has(d.id))
+      .filter((d) => pending.has(d.id) && matchesCustomFieldConditions(d.customFieldValues as Record<string, unknown>, conditions, definitionsById))
       .map((d) => ({
         entityId: d.id,
         organizationId: rule.organizationId,
@@ -323,11 +365,11 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
   if (rule.trigger === "DEAL_CREATED") {
     const deals = await prisma.deal.findMany({
       where: { organizationId: rule.organizationId, createdAt: { gte: matchFloor(rule.createdAt) } },
-      select: { id: true, contactId: true, ownerId: true },
+      select: { id: true, contactId: true, ownerId: true, customFieldValues: true },
     });
     const pending = await filterUnexecuted(rule.id, deals.map((d) => d.id));
     return deals
-      .filter((d) => pending.has(d.id))
+      .filter((d) => pending.has(d.id) && matchesCustomFieldConditions(d.customFieldValues as Record<string, unknown>, conditions, definitionsById))
       .map((d) => ({
         entityId: d.id,
         organizationId: rule.organizationId,
@@ -341,11 +383,11 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
     const status = rule.trigger === "DEAL_WON" ? "WON" : "LOST";
     const deals = await prisma.deal.findMany({
       where: { organizationId: rule.organizationId, status, closedAt: { gte: matchFloor(rule.createdAt) } },
-      select: { id: true, contactId: true, ownerId: true },
+      select: { id: true, contactId: true, ownerId: true, customFieldValues: true },
     });
     const pending = await filterUnexecuted(rule.id, deals.map((d) => d.id));
     return deals
-      .filter((d) => pending.has(d.id))
+      .filter((d) => pending.has(d.id) && matchesCustomFieldConditions(d.customFieldValues as Record<string, unknown>, conditions, definitionsById))
       .map((d) => ({
         entityId: d.id,
         organizationId: rule.organizationId,
@@ -399,14 +441,14 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
     if (!stageId) return [];
     const deals = await prisma.deal.findMany({
       where: { organizationId: rule.organizationId, stageId, stageEnteredAt: { gte: matchFloor(rule.createdAt) } },
-      select: { id: true, contactId: true, ownerId: true, stageEnteredAt: true },
+      select: { id: true, contactId: true, ownerId: true, stageEnteredAt: true, customFieldValues: true },
     });
     // A entidade inclui o timestamp de entrada na etapa para permitir que a
     // mesma regra dispare de novo se o negócio sair e voltar a essa etapa.
     const keyed = deals.map((d) => ({ ...d, key: `${d.id}:${d.stageEnteredAt.getTime()}` }));
     const pending = await filterUnexecuted(rule.id, keyed.map((d) => d.key));
     return keyed
-      .filter((d) => pending.has(d.key))
+      .filter((d) => pending.has(d.key) && matchesCustomFieldConditions(d.customFieldValues as Record<string, unknown>, conditions, definitionsById))
       .map((d) => ({
         entityId: d.key,
         organizationId: rule.organizationId,
@@ -426,11 +468,11 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
         createdAt: { lte: threshold },
         tasks: { none: { completedAt: null } },
       },
-      select: { id: true, contactId: true, ownerId: true },
+      select: { id: true, contactId: true, ownerId: true, customFieldValues: true },
     });
     const pending = await filterUnexecuted(rule.id, deals.map((d) => d.id));
     return deals
-      .filter((d) => pending.has(d.id))
+      .filter((d) => pending.has(d.id) && matchesCustomFieldConditions(d.customFieldValues as Record<string, unknown>, conditions, definitionsById))
       .map((d) => ({
         entityId: d.id,
         organizationId: rule.organizationId,
@@ -445,10 +487,12 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
     const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const contacts = await prisma.contact.findMany({
       where: { organizationId: rule.organizationId, createdAt: { lte: threshold }, deals: { none: {} } },
-      select: { id: true },
+      select: { id: true, customFieldValues: true },
     });
     const pending = await filterUnexecuted(rule.id, contacts.map((c) => c.id));
-    const candidates = contacts.filter((c) => pending.has(c.id));
+    const candidates = contacts.filter(
+      (c) => pending.has(c.id) && matchesCustomFieldConditions(c.customFieldValues as Record<string, unknown>, conditions, definitionsById),
+    );
     if (candidates.length === 0) return [];
 
     const members = await prisma.organizationUser.findMany({
@@ -519,8 +563,8 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
   return [];
 }
 
-async function runRule(rule: RuleWithOrg): Promise<number> {
-  const matches = await findMatches(rule);
+async function runRule(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<number> {
+  const matches = await findMatches(rule, customFieldDefs);
 
   let fired = 0;
   for (const entity of matches) {
@@ -545,10 +589,11 @@ export async function runAutomations(): Promise<{ rulesEvaluated: number; action
   for (const org of organizations) {
     const orgResult = await runWithTenant(org.id, async () => {
       const rules = await prisma.automationRule.findMany({ where: { enabled: true } });
+      const customFieldDefs = await prisma.customFieldDefinition.findMany({ where: { organizationId: org.id } });
 
       let fired = 0;
       for (const rule of rules) {
-        const ruleFired = await runRule(rule);
+        const ruleFired = await runRule(rule, customFieldDefs);
         fired += ruleFired;
         if (ruleFired > 0) {
           await prisma.automationRule.update({

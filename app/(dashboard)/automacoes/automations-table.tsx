@@ -9,8 +9,33 @@ import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { DatePicker } from "@/components/date-picker";
 import { VariableInput } from "@/components/variable-input";
 import { RecipientPicker, type RecipientEntry } from "./recipient-picker";
+import { X } from "lucide-react";
+import { CUSTOM_FIELD_ENTITY_LABELS, type CustomFieldType, type CustomFieldEntity } from "@/lib/custom-fields";
+
+type CustomFieldOption = { id: string; entityType: CustomFieldEntity; label: string; type: CustomFieldType; options: string[] };
+type CustomFieldConditionOperator = "equals" | "not_equals" | "is_set" | "is_not_set";
+type CustomFieldConditionDraft = { fieldId: string; operator: CustomFieldConditionOperator; value: string };
+
+/** Triggers cuja entidade principal é um Deal/Contact estável — mesmo mapa de lib/automations/validation.ts (duplicado aqui pra não puxar código server-only pro bundle do client). */
+const CUSTOM_FIELD_CONDITION_TRIGGERS: Partial<Record<Trigger, CustomFieldEntity>> = {
+  DEAL_STALE: "DEAL",
+  DEAL_CREATED: "DEAL",
+  DEAL_WON: "DEAL",
+  DEAL_LOST: "DEAL",
+  DEAL_STAGE_ENTERED: "DEAL",
+  DEAL_NO_OPEN_TASK: "DEAL",
+  CONTACT_NO_DEAL: "CONTACT",
+};
+
+const OPERATOR_LABELS: Record<CustomFieldConditionOperator, string> = {
+  equals: "Igual a",
+  not_equals: "Diferente de",
+  is_set: "Preenchido",
+  is_not_set: "Vazio",
+};
 
 type Trigger =
   | "DEAL_STALE"
@@ -23,7 +48,7 @@ type Trigger =
   | "CONTACT_NO_DEAL"
   | "SCHEDULED"
   | "TASK_DUE_SOON";
-type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL";
+type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL" | "SET_CUSTOM_FIELD";
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -78,6 +103,7 @@ const ACTION_LABELS: Record<Action, string> = {
   SEND_PUSH: "Enviar notificação push",
   SEND_WHATSAPP: "Enviar mensagem de WhatsApp",
   SEND_EMAIL: "Enviar e-mail",
+  SET_CUSTOM_FIELD: "Definir campo personalizado",
 };
 
 export function AutomationsTable({
@@ -87,6 +113,7 @@ export function AutomationsTable({
   lossReasons,
   members,
   whatsappInstances,
+  customFields,
 }: {
   initialRules: Rule[];
   canManage: boolean;
@@ -94,6 +121,7 @@ export function AutomationsTable({
   lossReasons: LossReasonOption[];
   members: MemberOption[];
   whatsappInstances: WhatsappInstanceOption[];
+  customFields: CustomFieldOption[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -105,6 +133,7 @@ export function AutomationsTable({
   const stageById = new Map(pipelines.flatMap((p) => p.stages.map((s) => [s.id, `${s.name} (${p.name})`])));
   const lossReasonById = new Map(lossReasons.map((r) => [r.id, r.label]));
   const memberById = new Map(members.map((m) => [m.id, m.name]));
+  const customFieldById = new Map(customFields.map((f) => [f.id, f]));
 
   function describeTrigger(rule: Rule): string | null {
     const config = rule.triggerConfig ?? {};
@@ -131,6 +160,19 @@ export function AutomationsTable({
     return null;
   }
 
+  function describeConditions(rule: Rule): string | null {
+    const conditions = rule.triggerConfig?.customFieldConditions as CustomFieldConditionDraft[] | undefined;
+    if (!conditions?.length) return null;
+    return conditions
+      .map((c) => {
+        const def = customFieldById.get(c.fieldId);
+        const fieldLabel = def?.label ?? "campo removido";
+        if (c.operator === "is_set" || c.operator === "is_not_set") return `${fieldLabel} ${OPERATOR_LABELS[c.operator].toLowerCase()}`;
+        return `${fieldLabel} ${OPERATOR_LABELS[c.operator].toLowerCase()} "${c.value}"`;
+      })
+      .join(" e ");
+  }
+
   function describeAction(rule: Rule): string | null {
     const config = rule.actionConfig ?? {};
     if (rule.action === "MARK_LOST") {
@@ -147,6 +189,12 @@ export function AutomationsTable({
     if (rule.action === "SEND_EMAIL") {
       return (config.emailSubject as string | undefined) || null;
     }
+    if (rule.action === "SET_CUSTOM_FIELD") {
+      const fieldId = config.customFieldId as string | undefined;
+      const def = fieldId ? customFieldById.get(fieldId) : undefined;
+      const value = config.customFieldValue as string | undefined;
+      return def ? `${def.label} = "${value}"` : null;
+    }
     return null;
   }
 
@@ -157,8 +205,10 @@ export function AutomationsTable({
   /** Frase única resumindo gatilho + ação — o que a pessoa lê pra entender a regra sem abrir o modal. */
   function describeRule(rule: Rule): string {
     const triggerDetail = describeTrigger(rule);
+    const conditionsDetail = describeConditions(rule);
     const actionDetail = describeAction(rule);
-    const triggerPart = `${lowerFirst(TRIGGER_LABELS[rule.trigger])}${triggerDetail ? ` (${triggerDetail})` : ""}`;
+    const triggerBits = [triggerDetail, conditionsDetail].filter(Boolean);
+    const triggerPart = `${lowerFirst(TRIGGER_LABELS[rule.trigger])}${triggerBits.length ? ` (${triggerBits.join(" · ")})` : ""}`;
     const actionPart = `${lowerFirst(ACTION_LABELS[rule.action])}${actionDetail ? ` (${actionDetail})` : ""}`;
     return `Quando ${triggerPart} → ${actionPart}.`;
   }
@@ -294,6 +344,7 @@ export function AutomationsTable({
           lossReasons={lossReasons}
           members={members}
           whatsappInstances={whatsappInstances}
+          customFields={customFields}
           editRule={editRule}
           onClose={() => setOpen(false)}
           onSaved={() => {
@@ -392,6 +443,7 @@ function AutomationDialog({
   lossReasons,
   members,
   whatsappInstances,
+  customFields,
   editRule,
   onClose,
   onSaved,
@@ -400,6 +452,7 @@ function AutomationDialog({
   lossReasons: LossReasonOption[];
   members: MemberOption[];
   whatsappInstances: WhatsappInstanceOption[];
+  customFields: CustomFieldOption[];
   editRule: Rule | null;
   onClose: () => void;
   onSaved: () => void;
@@ -441,10 +494,18 @@ function AutomationDialog({
   const [emailRecipients, setEmailRecipients] = useState<RecipientEntry[]>(
     (ac.emailRecipients as RecipientEntry[] | undefined) ?? [{ type: "RESPONSIBLE" }],
   );
+  const [customFieldConditions, setCustomFieldConditions] = useState<CustomFieldConditionDraft[]>(
+    (tc.customFieldConditions as CustomFieldConditionDraft[] | undefined) ?? [],
+  );
+  const [setFieldId, setSetFieldId] = useState((ac.customFieldId as string | undefined) ?? "");
+  const [setFieldValue, setSetFieldValue] = useState((ac.customFieldValue as string | undefined) ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const noStages = pipelines.every((p) => p.stages.length === 0);
+  const conditionEntityType = CUSTOM_FIELD_CONDITION_TRIGGERS[trigger];
+  const conditionEligibleFields = customFields.filter((f) => f.entityType === conditionEntityType);
+  const setFieldDef = customFields.find((f) => f.id === setFieldId);
   // O recipient-picker mantém o tipo interno "ADMIN" (compatível com regras já
   // salvas), mas quem hoje ocupa esse papel na organização é o Gerente.
   const admins = members.filter((m) => m.role === "MANAGER");
@@ -456,7 +517,7 @@ function AutomationDialog({
     setLoading(true);
     setError(null);
 
-    const triggerConfig =
+    const triggerConfigBase =
       trigger === "DEAL_STALE"
         ? { days: Number(staleDays) || 3 }
         : trigger === "DEAL_STAGE_ENTERED"
@@ -475,7 +536,11 @@ function AutomationDialog({
                       dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
                       assigneeId,
                     }
-                  : undefined;
+                  : {};
+
+    const triggerConfig = conditionEntityType && customFieldConditions.length > 0
+      ? { ...triggerConfigBase, customFieldConditions }
+      : triggerConfigBase;
 
     const actionConfig =
       action === "CREATE_TASK"
@@ -488,7 +553,9 @@ function AutomationDialog({
               ? { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined }
               : action === "SEND_WHATSAPP"
                 ? { whatsappMessage, whatsappRecipients, whatsappSenderId: whatsappSenderId || undefined }
-                : { emailSubject: emailSubject || undefined, emailBody, emailRecipients };
+                : action === "SEND_EMAIL"
+                  ? { emailSubject: emailSubject || undefined, emailBody, emailRecipients }
+                  : { customFieldId: setFieldId, customFieldValue: setFieldValue };
 
     const res = await fetch(isEdit ? `/api/automations/${editRule!.id}` : "/api/automations", {
       method: isEdit ? "PATCH" : "POST",
@@ -511,9 +578,11 @@ function AutomationDialog({
     !!name.trim() &&
     (trigger !== "DEAL_STAGE_ENTERED" || !!stageId) &&
     (trigger !== "SCHEDULED" || !!assigneeId) &&
+    customFieldConditions.every((c) => !!c.fieldId && (c.operator === "is_set" || c.operator === "is_not_set" || !!c.value)) &&
     (action !== "MARK_LOST" || !!lossReasonId) &&
     (action !== "SEND_WHATSAPP" || (!!whatsappMessage.trim() && whatsappRecipients.length > 0)) &&
-    (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0));
+    (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0)) &&
+    (action !== "SET_CUSTOM_FIELD" || (!!setFieldId && !!setFieldValue));
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-3xl">
@@ -687,6 +756,78 @@ function AutomationDialog({
           </div>
         )}
 
+        {conditionEntityType && (
+          <div className="space-y-2 sm:col-span-2">
+            <label className="field-label">Condições adicionais (opcional)</label>
+            {conditionEligibleFields.length === 0 ? (
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Nenhum campo personalizado de {CUSTOM_FIELD_ENTITY_LABELS[conditionEntityType]} cadastrado ainda.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {customFieldConditions.map((condition, i) => {
+                  const def = conditionEligibleFields.find((f) => f.id === condition.fieldId);
+                  return (
+                    <div
+                      key={i}
+                      className="flex flex-wrap items-center gap-1.5 rounded-md border border-neutral-200 p-2 dark:border-neutral-800"
+                    >
+                      <Select
+                        value={condition.fieldId}
+                        onChange={(v) =>
+                          setCustomFieldConditions((prev) => prev.map((c, idx) => (idx === i ? { ...c, fieldId: v, value: "" } : c)))
+                        }
+                        options={conditionEligibleFields.map((f) => ({ value: f.id, label: f.label }))}
+                        className="w-40 py-1.5 text-sm"
+                      />
+                      <Select
+                        value={condition.operator}
+                        onChange={(v) =>
+                          setCustomFieldConditions((prev) =>
+                            prev.map((c, idx) => (idx === i ? { ...c, operator: v as CustomFieldConditionOperator } : c)),
+                          )
+                        }
+                        options={Object.entries(OPERATOR_LABELS).map(([value, label]) => ({ value, label }))}
+                        className="w-32 py-1.5 text-sm"
+                      />
+                      {(condition.operator === "equals" || condition.operator === "not_equals") && def && (
+                        <TypedValueInput
+                          type={def.type}
+                          options={def.options}
+                          value={condition.value}
+                          onChange={(v) => setCustomFieldConditions((prev) => prev.map((c, idx) => (idx === i ? { ...c, value: v } : c)))}
+                          className="w-32 py-1.5 text-sm"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setCustomFieldConditions((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="icon-btn h-6 w-6 shrink-0"
+                        aria-label="Remover condição"
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCustomFieldConditions((prev) => [
+                      ...prev,
+                      { fieldId: conditionEligibleFields[0]?.id ?? "", operator: "equals", value: "" },
+                    ])
+                  }
+                  className="btn-ghost btn-sm"
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  Adicionar condição
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-1 sm:col-span-2">
           <div className="h-px bg-neutral-100 dark:bg-neutral-800" />
         </div>
@@ -854,6 +995,39 @@ function AutomationDialog({
           </>
         )}
 
+        {action === "SET_CUSTOM_FIELD" && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Campo</label>
+              {customFields.length === 0 ? (
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  Cadastre campos personalizados em Configurações antes de usar essa ação.
+                </p>
+              ) : (
+                <Select
+                  value={setFieldId}
+                  onChange={(v) => {
+                    setSetFieldId(v);
+                    setSetFieldValue("");
+                  }}
+                  options={customFields.map((f) => ({ value: f.id, label: `${f.label} (${CUSTOM_FIELD_ENTITY_LABELS[f.entityType]})` }))}
+                />
+              )}
+            </div>
+            {setFieldDef && (
+              <div className="space-y-1">
+                <label className="field-label">Valor</label>
+                <TypedValueInput
+                  type={setFieldDef.type}
+                  options={setFieldDef.options}
+                  value={setFieldValue}
+                  onChange={setSetFieldValue}
+                />
+              </div>
+            )}
+          </>
+        )}
+
         {error && <p className="text-sm text-red-600 dark:text-red-400 sm:col-span-2">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
@@ -876,5 +1050,48 @@ function AutomationDialog({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** Input do valor de uma condição/ação de campo personalizado — muda de tipo conforme o campo escolhido. */
+function TypedValueInput({
+  type,
+  options,
+  value,
+  onChange,
+  className = "",
+}: {
+  type: CustomFieldType;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  if (type === "BOOLEAN") {
+    return (
+      <Select
+        value={value}
+        onChange={onChange}
+        options={[
+          { value: "true", label: "Sim" },
+          { value: "false", label: "Não" },
+        ]}
+        className={className}
+      />
+    );
+  }
+  if (type === "SELECT") {
+    return <Select value={value} onChange={onChange} options={options.map((o) => ({ value: o, label: o }))} className={className} />;
+  }
+  if (type === "DATE") {
+    return <DatePicker value={value} onChange={onChange} className={className} />;
+  }
+  return (
+    <input
+      type={type === "NUMBER" ? "number" : "text"}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`field-input ${className}`}
+    />
   );
 }

@@ -6,6 +6,7 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { validateCustomFieldValues } from "@/lib/custom-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     state,
     zipCode,
     tags,
+    customFieldValues,
   } = body as {
     name?: string;
     email?: string;
@@ -63,6 +65,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     state?: string;
     zipCode?: string;
     tags?: string[];
+    customFieldValues?: Record<string, unknown>;
   };
 
   const { organizationId } = await requireSession();
@@ -81,6 +84,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized, id);
     if (duplicate) {
       return NextResponse.json({ error: duplicate.message }, { status: 409 });
+    }
+
+    const fieldDefs = await prisma.customFieldDefinition.findMany({
+      where: { organizationId, entityType: "CONTACT" },
+    });
+    let cleanCustomFieldValues;
+    try {
+      cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
     }
 
     try {
@@ -104,6 +117,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
           phoneNormalized,
           whatsappNormalized,
+          customFieldValues: cleanCustomFieldValues,
         },
       });
       return NextResponse.json(contact);
