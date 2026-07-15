@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
@@ -34,7 +34,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = await req.json();
   const { type, activityBody } = body as { type?: string; activityBody?: string };
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   const { organizationId, userId } = access;
 

@@ -57,6 +57,18 @@ type RuleWithOrg = {
   createdAt: Date;
 };
 
+// DEAL_CREATED/DEAL_WON/DEAL_LOST/DEAL_STAGE_ENTERED usavam só rule.createdAt
+// como piso da busca — cada tick reprocessava TODO o histórico desde que a
+// regra existe, um conjunto que só cresce pra sempre. Generoso o bastante
+// pra tolerar o cron ficar fora do ar por um tempo, mas limitado o bastante
+// pra manter o custo da query ~constante conforme a base de negócios cresce.
+const MATCH_LOOKBACK_MS = 48 * 60 * 60 * 1000;
+
+function matchFloor(ruleCreatedAt: Date): Date {
+  const lookback = new Date(Date.now() - MATCH_LOOKBACK_MS);
+  return ruleCreatedAt > lookback ? ruleCreatedAt : lookback;
+}
+
 async function filterUnexecuted(ruleId: string, candidateIds: string[]): Promise<Set<string>> {
   if (candidateIds.length === 0) return new Set();
   const executed = await prisma.automationExecution.findMany({
@@ -291,7 +303,7 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
 
   if (rule.trigger === "DEAL_CREATED") {
     const deals = await prisma.deal.findMany({
-      where: { organizationId: rule.organizationId, createdAt: { gte: rule.createdAt } },
+      where: { organizationId: rule.organizationId, createdAt: { gte: matchFloor(rule.createdAt) } },
       select: { id: true, contactId: true, ownerId: true },
     });
     const pending = await filterUnexecuted(rule.id, deals.map((d) => d.id));
@@ -309,7 +321,7 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
   if (rule.trigger === "DEAL_WON" || rule.trigger === "DEAL_LOST") {
     const status = rule.trigger === "DEAL_WON" ? "WON" : "LOST";
     const deals = await prisma.deal.findMany({
-      where: { organizationId: rule.organizationId, status, closedAt: { gte: rule.createdAt } },
+      where: { organizationId: rule.organizationId, status, closedAt: { gte: matchFloor(rule.createdAt) } },
       select: { id: true, contactId: true, ownerId: true },
     });
     const pending = await filterUnexecuted(rule.id, deals.map((d) => d.id));
@@ -367,7 +379,7 @@ async function findMatches(rule: RuleWithOrg): Promise<Entity[]> {
     const stageId = triggerConfig.stageId;
     if (!stageId) return [];
     const deals = await prisma.deal.findMany({
-      where: { organizationId: rule.organizationId, stageId, stageEnteredAt: { gte: rule.createdAt } },
+      where: { organizationId: rule.organizationId, stageId, stageEnteredAt: { gte: matchFloor(rule.createdAt) } },
       select: { id: true, contactId: true, ownerId: true, stageEnteredAt: true },
     });
     // A entidade inclui o timestamp de entrada na etapa para permitir que a

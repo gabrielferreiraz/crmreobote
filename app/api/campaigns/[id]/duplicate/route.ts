@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {

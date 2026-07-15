@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     steps?: unknown;
   };
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   // Sem isso, uma chamada só podia carregar uma sequência arbitrariamente

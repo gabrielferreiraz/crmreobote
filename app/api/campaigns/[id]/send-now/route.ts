@@ -16,7 +16,7 @@ const REASON_MESSAGES: Record<string, string> = {
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const rateLimited = rateLimitOrResponse(`campaign-send-now:${access.organizationId}`, 20, 60_000);

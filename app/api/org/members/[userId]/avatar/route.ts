@@ -17,7 +17,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ userId:
   const { userId } = await params;
   const formData = await req.formData();
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   if (access.role !== "OWNER" && access.userId !== userId) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -64,7 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ userId:
 export async function DELETE(_req: Request, { params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   if (access.role !== "OWNER" && access.userId !== userId) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });

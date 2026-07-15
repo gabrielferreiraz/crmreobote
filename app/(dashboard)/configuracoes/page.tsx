@@ -10,7 +10,7 @@ type IconComponent = ComponentType<{ className?: string; strokeWidth?: number }>
 export default async function ConfiguracoesPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isAdmin = ["OWNER", "ADMIN"].includes(session!.user.role ?? "");
+  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
   const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
   const isOwner = session!.user.role === "OWNER";
@@ -33,7 +33,7 @@ export default async function ConfiguracoesPage() {
         />
       </Section>
 
-      {isAdmin ? (
+      {isManager ? (
         <Section title="Espaço de trabalho">
           <Row href="/configuracoes/usuarios" icon={Users} title="Usuários" description="Gerenciar time e permissões." />
           <Row href="/configuracoes/equipes" icon={UsersRound} title="Equipes" description="Agrupar vendedores sob um supervisor." />
@@ -44,7 +44,7 @@ export default async function ConfiguracoesPage() {
         </Section>
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos e administradores podem alterar configurações do time.
+          Apenas donos e gerentes podem alterar configurações do time.
         </p>
       )}
 

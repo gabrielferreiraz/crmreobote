@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   const pipelineId = searchParams.get("pipelineId");
   const status = searchParams.get("status");
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {

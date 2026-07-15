@@ -77,7 +77,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 pb-24 lg:p-8">
+      {/* scrollbar-gutter reserva o espaço da barra de rolagem o tempo todo —
+          sem isso, trocar o filtro de período no Relatórios (ou qualquer
+          outra navegação que mude a altura do conteúdo) faz a barra
+          aparecer/sumir e o conteúdo inteiro "pular" alguns pixels pro lado. */}
+      <main className="flex-1 overflow-y-auto p-4 pb-24 [scrollbar-gutter:stable] lg:p-8">
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
 

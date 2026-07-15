@@ -11,11 +11,15 @@ type MemberOption = { id: string; name: string };
 
 type RecipientType = RecipientEntry["type"];
 
+// O tipo interno "ADMIN" continua com esse nome (compatível com destinatários
+// já salvos em regras existentes — ver lib/automations/recipients.ts), mas o
+// papel que hoje corresponde a "uma pessoa específica com poder administrativo"
+// é o Gerente.
 const TYPE_LABELS: Record<RecipientType, string> = {
   CLIENT: "Cliente",
   RESPONSIBLE: "Responsável",
   SUPERVISOR: "Supervisor (líder da equipe)",
-  ADMIN: "Admin",
+  ADMIN: "Gerente",
   OWNER: "Dono",
   CUSTOM: "Personalizado",
 };
@@ -103,7 +107,7 @@ export function RecipientPicker({
           <Select
             value=""
             onChange={(v) => v && add({ type: "ADMIN", userId: v })}
-            placeholder="Escolha o admin"
+            placeholder="Escolha o gerente"
             options={admins.map((a) => ({ value: a.id, label: a.name }))}
           />
           <button type="button" onClick={() => setPickerMode(null)} className="icon-btn shrink-0" aria-label="Cancelar">

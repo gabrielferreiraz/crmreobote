@@ -11,13 +11,13 @@ export default async function NovoScriptPage({
   const { duplicate } = await searchParams;
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isManager = session!.user.role === "OWNER" || session!.user.role === "ADMIN";
+  const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
     if (!isManager) {
       return (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos e administradores podem gerenciar scripts.
+          Apenas donos e gerentes podem gerenciar scripts.
         </p>
       );
     }

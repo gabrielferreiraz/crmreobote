@@ -48,7 +48,8 @@ model User {
   dealsOwned               Deal[]
   tasksOwned               Task[]
   activities               Activity[]
-  teamsLed                 Team[]
+  teamsLed                 Team[]                     @relation("TeamLeader")
+  teamsManaged             Team[]                     @relation("TeamManager")
   pushSubscriptions        PushSubscription[]
   whatsappInstances        WhatsAppInstance[]
   campaignsCreated         Campaign[]
@@ -418,7 +419,8 @@ model OrganizationUser {
 
 enum OrgRole {
   OWNER
-  ADMIN
+  MANAGER
+  SUPERVISOR
   MEMBER
 }
 
@@ -428,11 +430,16 @@ model Team {
   id             String   @id @default(cuid())
   organizationId String
   name           String
+  // Líder = papel SUPERVISOR, gerencia só esta equipe (ver getDealScope).
   leaderId       String?
+  // Gerente = papel MANAGER, pode supervisionar várias equipes ao mesmo
+  // tempo (um User pode aparecer em teamsManaged de N Teams diferentes).
+  managerId      String?
   createdAt      DateTime @default(now())
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  leader       User?              @relation(fields: [leaderId], references: [id], onDelete: SetNull)
+  leader       User?              @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  manager      User?              @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
   members      OrganizationUser[]
 
   @@index([organizationId])
@@ -440,6 +447,7 @@ model Team {
   // requisição de API de negócios/tarefas (não só em carregamento de página),
   // então precisa ser indexado, não só o organizationId sozinho.
   @@index([organizationId, leaderId])
+  @@index([organizationId, managerId])
 }
 
 // ─── Auth.js (NextAuth v5) ───────────────────────────────────────────

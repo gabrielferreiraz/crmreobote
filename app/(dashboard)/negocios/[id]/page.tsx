@@ -4,17 +4,20 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { DealDetail } from "./deal-detail";
 
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
+  const userId = session!.user.id;
   const { id } = await params;
 
   return runWithTenant(organizationId, async () => {
+    const scope = await getDealScope(organizationId, userId, session!.user.role);
     const dealRaw = await prisma.deal.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...scopeWhere(scope) },
       include: {
         contact: true,
         owner: true,

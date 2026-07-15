@@ -6,7 +6,7 @@ import { PipelineManager } from "./pipeline-manager";
 
 export default async function PipelineSettingsPage() {
   const session = await auth();
-  if (!session?.user.role || !["OWNER", "ADMIN"].includes(session.user.role)) {
+  if (!session?.user.role || !["OWNER", "MANAGER"].includes(session.user.role)) {
     redirect("/configuracoes");
   }
 

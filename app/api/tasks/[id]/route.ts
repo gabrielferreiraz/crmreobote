@@ -16,7 +16,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     completed?: boolean;
   };
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
@@ -44,7 +44,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {

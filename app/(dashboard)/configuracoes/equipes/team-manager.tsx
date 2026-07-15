@@ -13,7 +13,7 @@ type MemberInfo = {
   id: string;
   name: string;
   email: string;
-  role: "OWNER" | "ADMIN" | "MEMBER";
+  role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
   teamId: string | null;
 };
 
@@ -22,6 +22,8 @@ type Team = {
   name: string;
   leaderId: string | null;
   leader: { id: string; name: string } | null;
+  managerId: string | null;
+  manager: { id: string; name: string } | null;
   members: {
     id: string;
     userId: string;
@@ -44,7 +46,8 @@ export function TeamManager({
   const [error, setError] = useState<string | null>(null);
   const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
 
-  const admins = members.filter((m) => m.role === "ADMIN");
+  const supervisors = members.filter((m) => m.role === "SUPERVISOR");
+  const managers = members.filter((m) => m.role === "MANAGER");
 
   async function createTeam(e: React.FormEvent) {
     e.preventDefault();
@@ -88,6 +91,15 @@ export function TeamManager({
     router.refresh();
   }
 
+  async function setManager(teamId: string, managerId: string) {
+    await fetch(`/api/teams/${teamId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ managerId: managerId || null }),
+    });
+    router.refresh();
+  }
+
   async function assignMember(userId: string, teamId: string | null) {
     await fetch(`/api/org/members/${userId}`, {
       method: "PATCH",
@@ -117,10 +129,12 @@ export function TeamManager({
               key={team.id}
               team={team}
               members={members}
-              admins={admins}
+              supervisors={supervisors}
+              managers={managers}
               isOwner={isOwner}
               onRename={renameTeam}
               onSetLeader={setLeader}
+              onSetManager={setManager}
               onAssignMember={assignMember}
               onDelete={() => setTeamToDelete(team)}
             />
@@ -166,19 +180,23 @@ export function TeamManager({
 function TeamCard({
   team,
   members,
-  admins,
+  supervisors,
+  managers,
   isOwner,
   onRename,
   onSetLeader,
+  onSetManager,
   onAssignMember,
   onDelete,
 }: {
   team: Team;
   members: MemberInfo[];
-  admins: MemberInfo[];
+  supervisors: MemberInfo[];
+  managers: MemberInfo[];
   isOwner: boolean;
   onRename: (teamId: string, name: string) => void;
   onSetLeader: (teamId: string, leaderId: string) => void;
+  onSetManager: (teamId: string, managerId: string) => void;
   onAssignMember: (userId: string, teamId: string | null) => void;
   onDelete: () => void;
 }) {
@@ -216,11 +234,28 @@ function TeamCard({
             className="w-auto py-1 text-xs"
             options={[
               { value: "", label: "Nenhum líder" },
-              ...admins.map((a) => ({ value: a.id, label: a.name })),
+              ...supervisors.map((s) => ({ value: s.id, label: s.name })),
             ]}
           />
         ) : (
           <Badge tone="accent">{team.leader?.name ?? "Nenhum líder"}</Badge>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-neutral-500 dark:text-neutral-400">Gerente</span>
+        {isOwner ? (
+          <Select
+            value={team.managerId ?? ""}
+            onChange={(v) => onSetManager(team.id, v)}
+            className="w-auto py-1 text-xs"
+            options={[
+              { value: "", label: "Nenhum gerente" },
+              ...managers.map((m) => ({ value: m.id, label: m.name })),
+            ]}
+          />
+        ) : (
+          <Badge tone="neutral">{team.manager?.name ?? "Nenhum gerente"}</Badge>
         )}
       </div>
 
@@ -233,6 +268,7 @@ function TeamCard({
             <Avatar name={m.user.name} src={m.user.photoUrl} size="xs" />
             <span className="flex-1 text-neutral-800 dark:text-neutral-200">{m.user.name}</span>
             {m.user.id === team.leaderId && <Badge tone="accent">Líder</Badge>}
+            {m.user.id === team.managerId && <Badge tone="neutral">Gerente</Badge>}
             {isOwner && (
               <button
                 onClick={() => onAssignMember(m.user.id, null)}

@@ -6,7 +6,7 @@ import { AutomationsTable } from "./automations-table";
 export default async function AutomacoesPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isManager = session!.user.role === "OWNER" || session!.user.role === "ADMIN";
+  const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
     const [rulesRaw, pipelines, lossReasons, membersRaw] = await Promise.all([

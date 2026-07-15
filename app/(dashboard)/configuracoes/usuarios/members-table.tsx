@@ -14,7 +14,7 @@ import { Select } from "@/components/select";
 
 type Member = {
   id: string;
-  role: "OWNER" | "ADMIN" | "MEMBER";
+  role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
   active: boolean;
   user: { id: string; name: string; email: string };
   team: { id: string; name: string } | null;
@@ -23,7 +23,8 @@ type Member = {
 
 const ROLE_LABELS: Record<Member["role"], string> = {
   OWNER: "Dono",
-  ADMIN: "Admin",
+  MANAGER: "Gerente",
+  SUPERVISOR: "Supervisor",
   MEMBER: "Membro",
 };
 
@@ -287,7 +288,8 @@ export function MembersTable({
                     className="min-w-[110px] py-1.5 text-xs"
                     options={[
                       { value: "OWNER", label: "Dono" },
-                      { value: "ADMIN", label: "Admin" },
+                      { value: "MANAGER", label: "Gerente" },
+                      { value: "SUPERVISOR", label: "Supervisor" },
                       { value: "MEMBER", label: "Membro" },
                     ]}
                   />
@@ -387,7 +389,8 @@ export function MembersTable({
                 onChange={(v) => setRole(v as Member["role"])}
                 options={[
                   { value: "MEMBER", label: "Membro" },
-                  { value: "ADMIN", label: "Admin" },
+                  { value: "SUPERVISOR", label: "Supervisor" },
+                  { value: "MANAGER", label: "Gerente" },
                   ...(isOwner ? [{ value: "OWNER", label: "Dono" }] : []),
                 ]}
               />

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const body = await req.json();
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   const filter = parseAudienceFilter(body?.audienceFilter);

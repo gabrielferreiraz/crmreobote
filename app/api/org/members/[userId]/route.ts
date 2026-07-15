@@ -14,7 +14,7 @@ export async function PATCH(
   const { userId } = await params;
   const body = await req.json();
   const { role, teamId, active, name } = body as {
-    role?: "OWNER" | "ADMIN" | "MEMBER";
+    role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
     name?: string;
@@ -62,7 +62,8 @@ export async function PATCH(
       if (!team) return NextResponse.json({ error: "Equipe inválida" }, { status: 400 });
     }
 
-    const clearsLeadership = (role && role !== "ADMIN") || active === false;
+    const clearsLeadership = (role && role !== "SUPERVISOR") || active === false;
+    const clearsManagement = (role && role !== "MANAGER") || active === false;
 
     const updated = await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, access.organizationId);
@@ -86,6 +87,13 @@ export async function PATCH(
         await tx.team.updateMany({
           where: { organizationId: access.organizationId, leaderId: userId },
           data: { leaderId: null },
+        });
+      }
+
+      if (clearsManagement) {
+        await tx.team.updateMany({
+          where: { organizationId: access.organizationId, managerId: userId },
+          data: { managerId: null },
         });
       }
 
@@ -141,6 +149,11 @@ export async function DELETE(
       await tx.team.updateMany({
         where: { organizationId: access.organizationId, leaderId: userId },
         data: { leaderId: null },
+      });
+
+      await tx.team.updateMany({
+        where: { organizationId: access.organizationId, managerId: userId },
+        data: { managerId: null },
       });
 
       await tx.organizationUser.delete({

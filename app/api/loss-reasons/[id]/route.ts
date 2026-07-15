@@ -10,7 +10,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json();
   const { label } = body as { label?: string };
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!label?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
@@ -33,7 +33,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { name, leaderId } = body as { name?: string; leaderId?: string | null };
+  const { name, leaderId, managerId } = body as { name?: string; leaderId?: string | null; managerId?: string | null };
 
   const access = await requireRole(["OWNER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -23,9 +23,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const membership = await prisma.organizationUser.findUnique({
         where: { organizationId_userId: { organizationId: access.organizationId, userId: leaderId } },
       });
-      if (!membership || membership.role !== "ADMIN") {
+      if (!membership || membership.role !== "SUPERVISOR") {
         return NextResponse.json(
-          { error: "O líder precisa ser um usuário com papel de supervisor (Admin)" },
+          { error: "O líder precisa ser um usuário com papel de Supervisor" },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (managerId) {
+      const membership = await prisma.organizationUser.findUnique({
+        where: { organizationId_userId: { organizationId: access.organizationId, userId: managerId } },
+      });
+      if (!membership || membership.role !== "MANAGER") {
+        return NextResponse.json(
+          { error: "O gerente precisa ser um usuário com papel de Gerente" },
           { status: 400 },
         );
       }
@@ -36,9 +48,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       data: {
         name: name?.trim() || undefined,
         leaderId: leaderId === undefined ? undefined : leaderId,
+        managerId: managerId === undefined ? undefined : managerId,
       },
       include: {
         leader: { select: { id: true, name: true } },
+        manager: { select: { id: true, name: true } },
         members: { include: { user: { select: { id: true, name: true, email: true } } } },
       },
     });

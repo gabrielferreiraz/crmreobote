@@ -11,7 +11,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = await req.json();
   const { name, color, requiredFields } = body as { name?: string; color?: string; requiredFields?: unknown };
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });

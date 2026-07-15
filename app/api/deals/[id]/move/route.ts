@@ -13,7 +13,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json();
   const { stageId, value } = body as { stageId?: string; value?: number | null };
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   const { organizationId, userId } = access;
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });

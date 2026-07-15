@@ -24,14 +24,14 @@ export async function GET(req: Request) {
   const status = searchParams.get("status");
   const queryScope = searchParams.get("scope") ?? "mine";
 
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
-    // scopeWhere já restringe MEMBER/ADMIN-líder-de-equipe ao que o cargo
+    // scopeWhere já restringe MEMBER/SUPERVISOR/MANAGER ao que o cargo
     // permite — o parâmetro scope=all do cliente só amplia dentro desse
     // limite (nunca além dele); scope=mine sempre estreita mais, mesmo pra
-    // quem tem acesso a tudo (OWNER/ADMIN sem equipe).
+    // quem tem acesso a tudo (OWNER).
     const dealScope = await getDealScope(access.organizationId, access.userId, access.role);
     const tasks = await prisma.task.findMany({
       where: {

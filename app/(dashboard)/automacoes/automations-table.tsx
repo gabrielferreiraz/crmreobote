@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Zap, Plus, Loader2, Trash2, Play, Pause, History } from "lucide-react";
+import { Zap, Plus, Loader2, Trash2, Play, Pause, History, Pencil } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -42,7 +42,7 @@ type Rule = {
 type StageOption = { id: string; name: string };
 type PipelineOption = { id: string; name: string; stages: StageOption[] };
 type LossReasonOption = { id: string; label: string };
-type MemberOption = { id: string; name: string; role?: "OWNER" | "ADMIN" | "MEMBER" };
+type MemberOption = { id: string; name: string; role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER" };
 
 const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STALE: "Negócio parado",
@@ -94,6 +94,7 @@ export function AutomationsTable({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [editRule, setEditRule] = useState<Rule | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<Rule | null>(null);
   const [historyRule, setHistoryRule] = useState<Rule | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -179,7 +180,13 @@ export function AutomationsTable({
     <div className="space-y-4">
       {canManage && (
         <div className="flex justify-end">
-          <button onClick={() => setOpen(true)} className="btn-primary">
+          <button
+            onClick={() => {
+              setEditRule(null);
+              setOpen(true);
+            }}
+            className="btn-primary"
+          >
             <Plus className="h-4 w-4" strokeWidth={2.5} />
             Nova automação
           </button>
@@ -252,6 +259,20 @@ export function AutomationsTable({
 
               {canManage && (
                 <button
+                  onClick={() => {
+                    setEditRule(rule);
+                    setOpen(true);
+                  }}
+                  className="icon-btn shrink-0"
+                  aria-label="Editar automação"
+                  title="Editar automação"
+                >
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              )}
+
+              {canManage && (
+                <button
                   onClick={() => setRuleToDelete(rule)}
                   className="icon-btn shrink-0"
                   aria-label="Excluir automação"
@@ -265,12 +286,13 @@ export function AutomationsTable({
       )}
 
       {open && (
-        <NewAutomationDialog
+        <AutomationDialog
           pipelines={pipelines}
           lossReasons={lossReasons}
           members={members}
+          editRule={editRule}
           onClose={() => setOpen(false)}
-          onCreated={() => {
+          onSaved={() => {
             setOpen(false);
             router.refresh();
           }}
@@ -361,48 +383,62 @@ function AutomationHistoryModal({ rule, onClose }: { rule: Rule; onClose: () => 
   );
 }
 
-function NewAutomationDialog({
+function AutomationDialog({
   pipelines,
   lossReasons,
   members,
+  editRule,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  editRule: Rule | null;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [trigger, setTrigger] = useState<Trigger>("DEAL_STALE");
-  const [action, setAction] = useState<Action>("CREATE_TASK");
-  const [staleDays, setStaleDays] = useState("3");
-  const [stageId, setStageId] = useState(pipelines[0]?.stages[0]?.id ?? "");
-  const [minHours, setMinHours] = useState("24");
-  const [minutesBefore, setMinutesBefore] = useState("15");
-  const [contactDays, setContactDays] = useState("2");
-  const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">("weekly");
-  const [scheduleTime, setScheduleTime] = useState("08:00");
-  const [dayOfWeek, setDayOfWeek] = useState("1");
-  const [dayOfMonth, setDayOfMonth] = useState("1");
-  const [assigneeId, setAssigneeId] = useState(members[0]?.id ?? "");
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskDueInDays, setTaskDueInDays] = useState("1");
-  const [note, setNote] = useState("");
-  const [lossReasonId, setLossReasonId] = useState(lossReasons[0]?.id ?? "");
-  const [pushTitle, setPushTitle] = useState("");
-  const [pushBody, setPushBody] = useState("");
-  const [whatsappMessage, setWhatsappMessage] = useState("");
-  const [whatsappRecipients, setWhatsappRecipients] = useState<RecipientEntry[]>([{ type: "CLIENT" }]);
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("");
-  const [emailRecipients, setEmailRecipients] = useState<RecipientEntry[]>([{ type: "RESPONSIBLE" }]);
+  const isEdit = !!editRule;
+  const tc = editRule?.triggerConfig ?? {};
+  const ac = editRule?.actionConfig ?? {};
+
+  const [name, setName] = useState(editRule?.name ?? "");
+  const [trigger, setTrigger] = useState<Trigger>(editRule?.trigger ?? "DEAL_STALE");
+  const [action, setAction] = useState<Action>(editRule?.action ?? "CREATE_TASK");
+  const [staleDays, setStaleDays] = useState(String((tc.days as number | undefined) ?? 3));
+  const [stageId, setStageId] = useState((tc.stageId as string | undefined) ?? pipelines[0]?.stages[0]?.id ?? "");
+  const [minHours, setMinHours] = useState(String((tc.minHours as number | undefined) ?? 24));
+  const [minutesBefore, setMinutesBefore] = useState(String((tc.minutesBefore as number | undefined) ?? 15));
+  const [contactDays, setContactDays] = useState(String((tc.days as number | undefined) ?? 2));
+  const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">(
+    (tc.frequency as "daily" | "weekly" | "monthly" | undefined) ?? "weekly",
+  );
+  const [scheduleTime, setScheduleTime] = useState((tc.time as string | undefined) ?? "08:00");
+  const [dayOfWeek, setDayOfWeek] = useState(String((tc.dayOfWeek as number | undefined) ?? 1));
+  const [dayOfMonth, setDayOfMonth] = useState(String((tc.dayOfMonth as number | undefined) ?? 1));
+  const [assigneeId, setAssigneeId] = useState((tc.assigneeId as string | undefined) ?? members[0]?.id ?? "");
+  const [taskTitle, setTaskTitle] = useState((ac.title as string | undefined) ?? "");
+  const [taskDueInDays, setTaskDueInDays] = useState(String((ac.dueInDays as number | undefined) ?? 1));
+  const [note, setNote] = useState((ac.note as string | undefined) ?? "");
+  const [lossReasonId, setLossReasonId] = useState((ac.lossReasonId as string | undefined) ?? lossReasons[0]?.id ?? "");
+  const [pushTitle, setPushTitle] = useState((ac.pushTitle as string | undefined) ?? "");
+  const [pushBody, setPushBody] = useState((ac.pushBody as string | undefined) ?? "");
+  const [whatsappMessage, setWhatsappMessage] = useState((ac.whatsappMessage as string | undefined) ?? "");
+  const [whatsappRecipients, setWhatsappRecipients] = useState<RecipientEntry[]>(
+    (ac.whatsappRecipients as RecipientEntry[] | undefined) ?? [{ type: "CLIENT" }],
+  );
+  const [emailSubject, setEmailSubject] = useState((ac.emailSubject as string | undefined) ?? "");
+  const [emailBody, setEmailBody] = useState((ac.emailBody as string | undefined) ?? "");
+  const [emailRecipients, setEmailRecipients] = useState<RecipientEntry[]>(
+    (ac.emailRecipients as RecipientEntry[] | undefined) ?? [{ type: "RESPONSIBLE" }],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const noStages = pipelines.every((p) => p.stages.length === 0);
-  const admins = members.filter((m) => m.role === "ADMIN");
+  // O recipient-picker mantém o tipo interno "ADMIN" (compatível com regras já
+  // salvas), mas quem hoje ocupa esse papel na organização é o Gerente.
+  const admins = members.filter((m) => m.role === "MANAGER");
   const owners = members.filter((m) => m.role === "OWNER");
   const memberById = new Map(members.map((m) => [m.id, m.name]));
 
@@ -445,8 +481,8 @@ function NewAutomationDialog({
                 ? { whatsappMessage, whatsappRecipients }
                 : { emailSubject: emailSubject || undefined, emailBody, emailRecipients };
 
-    const res = await fetch("/api/automations", {
-      method: "POST",
+    const res = await fetch(isEdit ? `/api/automations/${editRule!.id}` : "/api/automations", {
+      method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, trigger, triggerConfig, action, actionConfig }),
     });
@@ -455,11 +491,11 @@ function NewAutomationDialog({
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erro ao criar automação");
+      setError(data.error ?? (isEdit ? "Erro ao salvar automação" : "Erro ao criar automação"));
       return;
     }
 
-    onCreated();
+    onSaved();
   }
 
   const canSubmit =
@@ -472,7 +508,9 @@ function NewAutomationDialog({
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-3xl">
-      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Nova automação</h2>
+      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+        {isEdit ? "Editar automação" : "Nova automação"}
+      </h2>
       <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
           <label className="field-label">Nome</label>
@@ -800,9 +838,11 @@ function NewAutomationDialog({
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">
-                Criando
+                {isEdit ? "Salvando" : "Criando"}
                 <LoadingDots />
               </span>
+            ) : isEdit ? (
+              "Salvar alterações"
             ) : (
               "Criar"
             )}

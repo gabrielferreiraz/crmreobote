@@ -6,7 +6,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
@@ -15,6 +15,7 @@ export async function GET() {
       orderBy: { createdAt: "asc" },
       include: {
         leader: { select: { id: true, name: true } },
+        manager: { select: { id: true, name: true } },
         members: { include: { user: { select: { id: true, name: true, email: true } } } },
       },
     });
@@ -35,7 +36,11 @@ export async function POST(req: Request) {
   return runWithTenant(access.organizationId, async () => {
     const team = await prisma.team.create({
       data: { organizationId: access.organizationId, name: name.trim() },
-      include: { leader: { select: { id: true, name: true } }, members: true },
+      include: {
+        leader: { select: { id: true, name: true } },
+        manager: { select: { id: true, name: true } },
+        members: true,
+      },
     });
 
     return NextResponse.json(team, { status: 201 });

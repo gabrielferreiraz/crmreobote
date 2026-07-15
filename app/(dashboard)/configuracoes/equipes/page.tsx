@@ -7,7 +7,7 @@ import { TeamManager } from "./team-manager";
 
 export default async function EquipesSettingsPage() {
   const session = await auth();
-  if (!session?.user.role || !["OWNER", "ADMIN"].includes(session.user.role)) {
+  if (!session?.user.role || !["OWNER", "MANAGER"].includes(session.user.role)) {
     redirect("/configuracoes");
   }
 
@@ -19,6 +19,7 @@ export default async function EquipesSettingsPage() {
       orderBy: { createdAt: "asc" },
       include: {
         leader: { select: { id: true, name: true } },
+        manager: { select: { id: true, name: true } },
         members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
       },
     });

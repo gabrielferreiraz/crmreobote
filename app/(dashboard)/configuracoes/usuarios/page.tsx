@@ -7,7 +7,7 @@ import { MembersTable } from "./members-table";
 
 export default async function UsuariosSettingsPage() {
   const session = await auth();
-  if (!session?.user.role || !["OWNER", "ADMIN"].includes(session.user.role)) {
+  if (!session?.user.role || !["OWNER", "MANAGER"].includes(session.user.role)) {
     redirect("/configuracoes");
   }
 

@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 
-export async function requireRole(roles: Array<"OWNER" | "ADMIN" | "MEMBER">) {
+export async function requireRole(roles: Array<"OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER">) {
   const session = await auth();
   if (!session?.user?.organizationId || !session.user.role) {
     return { ok: false as const, session: null, organizationId: null };
@@ -30,7 +30,7 @@ export async function requireRole(roles: Array<"OWNER" | "ADMIN" | "MEMBER">) {
     return { ok: false as const, session: null, organizationId: null };
   }
 
-  if (!roles.includes(session.user.role as "OWNER" | "ADMIN" | "MEMBER")) {
+  if (!roles.includes(session.user.role as "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER")) {
     return { ok: false as const, session, organizationId: session.user.organizationId };
   }
 
@@ -39,6 +39,6 @@ export async function requireRole(roles: Array<"OWNER" | "ADMIN" | "MEMBER">) {
     session,
     organizationId: session.user.organizationId,
     userId: session.user.id,
-    role: session.user.role as "OWNER" | "ADMIN" | "MEMBER",
+    role: session.user.role as "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER",
   };
 }

@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   // Ler a biblioteca (pra usar num envio manual, ver "Enviar script" no chat)
   // é liberado pra qualquer membro ativo — só criar/editar/apagar continua
-  // restrito a dono/admin (ver POST abaixo e app/(dashboard)/whatsapp/scripts/page.tsx).
-  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  // restrito a dono/gerente (ver POST abaixo e app/(dashboard)/whatsapp/scripts/page.tsx).
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const body = await req.json();
   const { name, steps, tags } = body as { name?: string; steps?: unknown; tags?: string[] };
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });

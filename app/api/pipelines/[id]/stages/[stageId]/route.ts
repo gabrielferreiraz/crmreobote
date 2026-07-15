@@ -14,7 +14,7 @@ export async function PATCH(
   const body = await req.json();
   const { name, color, requiredFields } = body as { name?: string; color?: string; requiredFields?: unknown };
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
@@ -42,7 +42,7 @@ export async function DELETE(
 ) {
   const { id, stageId } = await params;
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {

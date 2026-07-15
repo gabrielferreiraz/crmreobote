@@ -408,6 +408,21 @@ export function DealDetail({
               {s === "OPEN" ? "Em andamento" : s === "WON" ? "Ganho" : "Perdido"}
             </button>
           ))}
+          {/* Sem isso, "Ganho"/"Perdido" não diz QUANDO — só pelo status dá pra
+              confundir "ontem à noite" com "hoje", principalmente pouco depois
+              da meia-noite. */}
+          {deal.status !== "OPEN" && deal.closedAt && (
+            <p className="w-full text-right text-xs text-neutral-400 dark:text-neutral-500">
+              {deal.status === "WON" ? "Ganho" : "Perdido"} em{" "}
+              {new Date(deal.closedAt).toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          )}
         </div>
       </div>
 

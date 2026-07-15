@@ -8,7 +8,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
@@ -27,10 +27,10 @@ export async function POST(req: Request) {
   const { name, email, role } = body as {
     name?: string;
     email?: string;
-    role?: "OWNER" | "ADMIN" | "MEMBER";
+    role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
   };
 
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!email || !role) {
