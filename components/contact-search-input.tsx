@@ -188,8 +188,8 @@ function QuickCreateContactModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
+    if (loading || !name.trim()) return;
     setLoading(true);
     setError(null);
 
@@ -220,10 +220,24 @@ function QuickCreateContactModal({
     }
   }
 
+  // Esse modal renderiza dentro de <Modal>, que não usa portal — o DOM real
+  // fica aninhado dentro do <form> de quem abriu a busca (negócio/tarefa).
+  // Um <form> aqui dentro seria HTML inválido (form dentro de form) e o
+  // submit por Enter/clique acabava também disparando o form de fora. Por
+  // isso isto é um <div> com envio manual (clique + Enter via onKeyDown),
+  // nunca um <form onSubmit>.
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      handleSubmit();
+    }
+  }
+
   return (
     <Modal onClose={onClose}>
       <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo contato</h2>
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <div onKeyDown={handleKeyDown} className="space-y-3">
         <div className="space-y-1">
           <label className="field-label">Nome</label>
           <input
@@ -264,7 +278,7 @@ function QuickCreateContactModal({
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={loading || !name.trim()} className="btn-primary">
+          <button type="button" onClick={handleSubmit} disabled={loading || !name.trim()} className="btn-primary">
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">
@@ -276,7 +290,7 @@ function QuickCreateContactModal({
             )}
           </button>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }

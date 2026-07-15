@@ -32,6 +32,7 @@ import {
   MoreVertical,
   FileText,
   Tag,
+  ArrowDown,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -320,6 +321,39 @@ export function ChatWindow({
   const [sendScriptOpen, setSendScriptOpen] = useState(false);
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Guarda se o usuário estava perto do fim ANTES da mensagem chegar — lido de
+  // forma síncrona (não é estado) porque o polling de 4s troca `messages` o
+  // tempo todo, e um re-render no meio do caminho não pode perder essa leitura.
+  const wasNearBottomRef = useRef(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // Reset do estado do botão ao trocar de conversa — ajuste de estado durante
+  // a renderização (padrão recomendado pelo React pra "resetar estado quando
+  // uma prop muda"), não dentro de um efeito. A ref (abaixo, num efeito
+  // separado) não pode ser tocada aqui — só é seguro mexer em ref fora da
+  // renderização (em efeito/handler), nunca durante o render em si.
+  const [renderedThreadId, setRenderedThreadId] = useState(threadId);
+  if (threadId !== renderedThreadId) {
+    setRenderedThreadId(threadId);
+    setShowScrollButton(false);
+  }
+
+  function isNearBottom(): boolean {
+    const el = messagesContainerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  function handleMessagesScroll() {
+    const near = isNearBottom();
+    wasNearBottomRef.current = near;
+    setShowScrollButton(!near);
+  }
+
+  function scrollToBottom(behavior: ScrollBehavior = "smooth") {
+    bottomRef.current?.scrollIntoView({ block: "end", behavior });
+  }
 
   async function load() {
     try {
@@ -359,7 +393,19 @@ export function ChatWindow({
   }, [threadId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "nearest" });
+    // Mutação de ref dentro de efeito é segura (diferente de durante o
+    // render) — reseta a "memória" de scroll ao trocar de conversa.
+    wasNearBottomRef.current = true;
+  }, [threadId]);
+
+  useEffect(() => {
+    // O polling de 4s troca `messages` mesmo sem mensagem nova (nova
+    // referência de array a cada fetch) — só desce a tela sozinho se o
+    // usuário já estava perto do fim; se ele subiu pra ler algo antigo,
+    // isso NUNCA deve puxar a tela de volta pra baixo.
+    if (wasNearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ block: "nearest" });
+    }
   }, [messages]);
 
   async function sendPayload(payload: Record<string, unknown>) {
@@ -377,6 +423,10 @@ export function ChatWindow({
         return false;
       }
       setReplyingTo(null);
+      // Mandar uma mensagem sempre desce a tela pro final, mesmo que a pessoa
+      // tivesse subido pra ler algo antigo — ela precisa ver o que acabou de mandar.
+      wasNearBottomRef.current = true;
+      setShowScrollButton(false);
       await load();
       return true;
     } catch {
@@ -445,30 +495,48 @@ export function ChatWindow({
         </div>
       </div>
 
-      <div className="chat-bg-dots scrollbar-thin flex-1 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-950/50">
-        {!messages ? (
-          <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={MessageCircle}
-              title="Nenhuma mensagem ainda"
-              description="Envie a primeira mensagem, uma imagem, um Pix ou outro tipo de conteúdo abaixo."
-            />
-          </div>
-        ) : (
-          messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              contactName={contactName}
-              currentUserName={currentUserName}
-              currentUserPhotoUrl={currentUserPhotoUrl}
-              onReply={setReplyingTo}
-            />
-          ))
-        )}
-        <div ref={bottomRef} />
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          className="chat-bg-dots scrollbar-thin h-full space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-950/50"
+        >
+          {!messages ? (
+            <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+          ) : messages.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <EmptyState
+                icon={MessageCircle}
+                title="Nenhuma mensagem ainda"
+                description="Envie a primeira mensagem, uma imagem, um Pix ou outro tipo de conteúdo abaixo."
+              />
+            </div>
+          ) : (
+            messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                contactName={contactName}
+                currentUserName={currentUserName}
+                currentUserPhotoUrl={currentUserPhotoUrl}
+                onReply={setReplyingTo}
+              />
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => scrollToBottom()}
+          aria-label="Ir para o final da conversa"
+          tabIndex={showScrollButton ? 0 : -1}
+          className={`absolute right-3 bottom-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-neutral-600 shadow-md ring-1 ring-black/5 transition-opacity duration-300 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-white/10 ${
+            showScrollButton ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <ArrowDown className="h-4 w-4" strokeWidth={2} />
+        </button>
       </div>
 
       {error && <p className="mt-1 shrink-0 text-xs text-red-600 dark:text-red-400">{error}</p>}
