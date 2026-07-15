@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, QrCode, Unplug } from "lucide-react";
+import { Loader2, QrCode, Unplug, History } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 
 type Status = "loading" | "disconnected" | "connecting" | "connected";
@@ -12,6 +12,8 @@ export function WhatsAppConnect() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importingHistory, setImportingHistory] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function refreshStatus() {
@@ -80,6 +82,32 @@ export function WhatsAppConnect() {
     }
   }
 
+  // O puxão automático de histórico (no momento do pareamento) depende do
+  // WhatsApp mandar o sync na hora certa — nem sempre acontece. Este botão
+  // deixa tentar de novo a qualquer momento, sem precisar desconectar e
+  // reconectar o número.
+  async function importHistory() {
+    setImportingHistory(true);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/whatsapp/instance/import-history", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setImportResult(data.error ?? "Erro ao importar histórico");
+        return;
+      }
+      setImportResult(
+        data.imported > 0
+          ? `${data.imported} mensagem${data.imported === 1 ? "" : "s"} importada${data.imported === 1 ? "" : "s"} de ${data.contacts} conversa${data.contacts === 1 ? "" : "s"}.`
+          : "Nenhuma mensagem encontrada pra importar ainda — o WhatsApp pode não ter sincronizado o histórico com o Evolution ainda. Tente de novo em alguns minutos.",
+      );
+    } catch {
+      setImportResult("Falha de conexão. Tente novamente.");
+    } finally {
+      setImportingHistory(false);
+    }
+  }
+
   if (status === "loading") {
     return <p className="text-sm text-neutral-400 dark:text-neutral-500">Verificando…</p>;
   }
@@ -102,10 +130,25 @@ export function WhatsAppConnect() {
         </div>
 
         {status === "connected" ? (
-          <button onClick={disconnect} disabled={busy} className="btn-secondary">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Unplug className="h-4 w-4" strokeWidth={2} />}
-            Desconectar
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={importHistory}
+              disabled={importingHistory}
+              className="btn-secondary"
+              title="Puxar de novo o histórico de conversas já sincronizado pelo Evolution"
+            >
+              {importingHistory ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+              ) : (
+                <History className="h-4 w-4" strokeWidth={2} />
+              )}
+              Importar histórico
+            </button>
+            <button onClick={disconnect} disabled={busy} className="btn-secondary">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Unplug className="h-4 w-4" strokeWidth={2} />}
+              Desconectar
+            </button>
+          </div>
         ) : (
           <button onClick={connect} disabled={busy || status === "connecting"} className="btn-primary">
             {busy ? (
@@ -128,6 +171,7 @@ export function WhatsAppConnect() {
         </div>
       )}
 
+      {importResult && <p className="text-sm text-neutral-500 dark:text-neutral-400">{importResult}</p>}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );

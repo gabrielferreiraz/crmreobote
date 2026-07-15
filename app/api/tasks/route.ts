@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 import type { $Enums } from "@/app/generated/prisma/client";
 
@@ -20,16 +22,22 @@ const VALID_TYPES: $Enums.TaskType[] = [
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
-  const scope = searchParams.get("scope") ?? "mine";
+  const queryScope = searchParams.get("scope") ?? "mine";
 
-  const { organizationId, userId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  return runWithTenant(organizationId, async () => {
+  return runWithTenant(access.organizationId, async () => {
+    // scopeWhere já restringe MEMBER/ADMIN-líder-de-equipe ao que o cargo
+    // permite — o parâmetro scope=all do cliente só amplia dentro desse
+    // limite (nunca além dele); scope=mine sempre estreita mais, mesmo pra
+    // quem tem acesso a tudo (OWNER/ADMIN sem equipe).
+    const dealScope = await getDealScope(access.organizationId, access.userId, access.role);
     const tasks = await prisma.task.findMany({
       where: {
-        organizationId,
-        ...(scope === "mine" ? { ownerId: userId } : {}),
+        organizationId: access.organizationId,
+        ...scopeWhere(dealScope),
+        ...(queryScope === "mine" ? { ownerId: access.userId } : {}),
         ...(status === "pending" ? { completedAt: null } : {}),
         ...(status === "done" ? { completedAt: { not: null } } : {}),
       },

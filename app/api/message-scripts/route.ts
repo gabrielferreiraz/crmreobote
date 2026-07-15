@@ -8,7 +8,10 @@ import type { Prisma } from "@/app/generated/prisma/client";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const access = await requireRole(["OWNER", "ADMIN"]);
+  // Ler a biblioteca (pra usar num envio manual, ver "Enviar script" no chat)
+  // é liberado pra qualquer membro ativo — só criar/editar/apagar continua
+  // restrito a dono/admin (ver POST abaixo e app/(dashboard)/whatsapp/scripts/page.tsx).
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {

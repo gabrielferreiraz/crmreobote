@@ -9,6 +9,7 @@ import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendEmail } from "@/lib/email";
 import { resolveEmailAddresses, resolveWhatsappRecipients, type RecipientEntry } from "@/lib/automations/recipients";
 import { interpolateAutomationTemplate } from "@/lib/automations/variables";
+import { escapeHtmlValues } from "@/lib/security/html-escape";
 import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/lib/timezone";
 import { formatCurrency, daysSince } from "@/lib/format";
 
@@ -247,11 +248,15 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
     if (addresses.size === 0) return;
 
     const templateValues = await resolveTemplateValues(entity);
+    // Assunto é texto puro (nunca vira HTML), então usa os valores crus; o
+    // corpo vira HTML de verdade (`<p>`), então precisa dos valores
+    // escapados — sem isso, um nome de contato/negócio com `<`/`>` virava
+    // HTML de verdade dentro de um e-mail "confiável" saído da automação.
     const subject = interpolateAutomationTemplate(
       actionConfig.emailSubject?.trim() || `Automação: ${rule.name}`,
       templateValues,
     );
-    const body = interpolateAutomationTemplate(rawBody, templateValues);
+    const body = interpolateAutomationTemplate(rawBody, escapeHtmlValues(templateValues));
     const html = `<p>${body.replace(/\n/g, "<br>")}</p>`;
 
     const result = await sendEmail({ to: Array.from(addresses.keys()), subject, html });

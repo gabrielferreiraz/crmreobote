@@ -156,6 +156,7 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
           {whatsappThread && (
             <WhatsAppChat
               threadId={whatsappThread.id}
+              contactId={contact.id}
               contactName={contact.name}
               contactPhone={contact.whatsapp || contact.phone}
               currentUserName={session!.user.name ?? undefined}

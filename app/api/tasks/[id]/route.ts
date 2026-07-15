@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +16,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     completed?: boolean;
   };
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  return runWithTenant(organizationId, async () => {
-    const existing = await prisma.task.findFirst({ where: { id, organizationId } });
+  return runWithTenant(access.organizationId, async () => {
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const existing = await prisma.task.findFirst({
+      where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
+    });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     const task = await prisma.task.update({
@@ -40,11 +44,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  return runWithTenant(organizationId, async () => {
-    const existing = await prisma.task.findFirst({ where: { id, organizationId } });
+  return runWithTenant(access.organizationId, async () => {
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const existing = await prisma.task.findFirst({
+      where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
+    });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     await prisma.task.delete({ where: { id } });

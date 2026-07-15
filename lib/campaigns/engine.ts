@@ -203,6 +203,46 @@ async function sendToRecipient(
   }
 }
 
+export type SendNowResult =
+  | { ok: true; outcome: "sent" | "failed" | "skipped"; kind: SendKind }
+  | { ok: false; reason: "not-running" | "outside-schedule" | "daily-cap-reached" | "no-pending" };
+
+/**
+ * Ação manual do botão "Enviar agora" na página da campanha — pula só o
+ * throttle de delay-desde-o-último-envio (shouldSendNow), que é o único
+ * limite que o pedido do usuário mencionou explicitamente. Janela de
+ * horário e teto diário continuam valendo, senão um clique fora do horário
+ * configurado furaria a régua que o próprio usuário definiu pra campanha.
+ */
+export async function sendCampaignRecipientNow(organizationId: string, campaignId: string): Promise<SendNowResult> {
+  return runWithTenant(organizationId, async () => {
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, organizationId } });
+    if (!campaign || campaign.status !== "RUNNING") return { ok: false, reason: "not-running" };
+    if (!isWithinSchedule(campaign)) return { ok: false, reason: "outside-schedule" };
+    if (await dailyCapReached(campaign)) return { ok: false, reason: "daily-cap-reached" };
+
+    const recipient = await prisma.campaignRecipient.findFirst({
+      where: { campaignId: campaign.id, status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      include: { contact: true },
+    });
+    if (recipient) {
+      const outcome = await sendToRecipient(organizationId, campaign, recipient, "initial");
+      return { ok: true, outcome, kind: "initial" };
+    }
+
+    if (campaign.followUpEnabled) {
+      const followUpCandidate = await findFollowUpCandidate(campaign);
+      if (followUpCandidate) {
+        const outcome = await sendToRecipient(organizationId, campaign, followUpCandidate, "followUp");
+        return { ok: true, outcome, kind: "followUp" };
+      }
+    }
+
+    return { ok: false, reason: "no-pending" };
+  });
+}
+
 export async function runCampaigns(): Promise<{ checked: number; sent: number; failed: number }> {
   // Organization não tem RLS — listar aqui é seguro; cada uma é processada
   // depois já com o tenant certo (mesmo padrão de runAutomations/health-check).

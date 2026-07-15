@@ -26,6 +26,7 @@ import {
   type MessageRef,
 } from "@/lib/evolution";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
+import { signMediaKey } from "@/lib/whatsapp/media-token";
 
 export class WhatsAppSendError extends Error {}
 
@@ -37,13 +38,16 @@ type ContactMetadata = { name?: string; phone?: string };
  * R2 aqui de propósito: o Evolution acrescenta um "?timestamp=" na URL antes
  * de baixar (visto no código-fonte dele), o que invalida a assinatura de uma
  * URL de query-string e o R2 responde 403 — por isso o proxy próprio em
- * app/api/whatsapp/media-file, que ignora qualquer query string extra.
+ * app/api/whatsapp/media-file. O token de acesso (signMediaKey) vai como
+ * segmento de PATH, não query string, pelo mesmo motivo — o "?timestamp="
+ * que o Evolution acrescenta no fim não interfere no path.
  */
 function buildEvolutionMediaUrl(mediaKey: string): string {
   if (!mediaKey.startsWith("whatsapp-media/")) return mediaKey; // já é uma URL externa
   const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
   if (!appUrl) throw new WhatsAppSendError("NEXTAUTH_URL não configurado");
-  return `${appUrl}/api/whatsapp/media-file/${mediaKey}`;
+  const token = signMediaKey(mediaKey);
+  return `${appUrl}/api/whatsapp/media-file/${token}/${mediaKey}`;
 }
 
 export type WhatsAppOutgoingMessage = {

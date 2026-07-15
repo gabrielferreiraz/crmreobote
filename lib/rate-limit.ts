@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 type Entry = { count: number; resetAt: number };
 
 /**
@@ -38,6 +40,20 @@ export function rateLimit(
 
 export function resetRateLimit(key: string) {
   store.delete(key);
+}
+
+/**
+ * Mesma checagem de rateLimit, mas já devolve a resposta 429 pronta (ou
+ * null se liberado) — evita repetir o boilerplate de status/Retry-After em
+ * cada rota que precisa disso.
+ */
+export function rateLimitOrResponse(key: string, limit: number, windowMs: number): NextResponse | null {
+  const { allowed, retryAfterMs } = rateLimit(key, limit, windowMs);
+  if (allowed) return null;
+  return NextResponse.json(
+    { error: "Muitas requisições. Tente novamente em alguns instantes." },
+    { status: 429, headers: { "Retry-After": String(Math.ceil(retryAfterMs / 1000)) } },
+  );
 }
 
 export function getClientIp(req: Request): string {

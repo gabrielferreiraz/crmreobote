@@ -13,6 +13,7 @@
 
 import { sendEmail } from "@/lib/email";
 import { resolveUserAndOrgOwners, type ResolvedRecipients } from "@/lib/notify-recipients";
+import { escapeHtml } from "@/lib/security/html-escape";
 
 type InstanceRef = {
   id: string;
@@ -44,10 +45,15 @@ export async function notifyInstanceConnected(instance: InstanceRef): Promise<vo
   const resolved = await resolveRecipients(instance);
   if (!resolved) return;
 
-  const phoneLabel = instance.phoneNumber ? ` (${instance.phoneNumber})` : "";
+  // resolved.name é User.name — editável pelo próprio usuário, então precisa
+  // ser escapado antes de virar HTML (o assunto do e-mail é texto puro, não
+  // precisa). Sem isso, alguém podia colocar `<a href="...">` no próprio
+  // nome e injetar link/HTML num e-mail que os OWNERs tratam como confiável.
+  const safeName = escapeHtml(resolved.name);
+  const phoneLabel = instance.phoneNumber ? ` (${escapeHtml(instance.phoneNumber)})` : "";
 
   const html = `
-    <p>O WhatsApp de <strong>${resolved.name}</strong>${phoneLabel} conectou ao CRM.</p>
+    <p>O WhatsApp de <strong>${safeName}</strong>${phoneLabel} conectou ao CRM.</p>
     <p>Mensagens já estão sendo enviadas e recebidas normalmente por esse número.</p>
   `;
 
@@ -60,10 +66,11 @@ export async function notifyInstanceDisconnected(instance: InstanceRef): Promise
 
   const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? "";
   const reconnectUrl = `${appUrl}/configuracoes`;
-  const phoneLabel = instance.phoneNumber ? ` (${instance.phoneNumber})` : "";
+  const safeName = escapeHtml(resolved.name);
+  const phoneLabel = instance.phoneNumber ? ` (${escapeHtml(instance.phoneNumber)})` : "";
 
   const html = `
-    <p>O WhatsApp de <strong>${resolved.name}</strong>${phoneLabel} desconectou do CRM.</p>
+    <p>O WhatsApp de <strong>${safeName}</strong>${phoneLabel} desconectou do CRM.</p>
     <p>Enquanto estiver desconectado, mensagens não são enviadas nem recebidas pelo CRM pra esse número.</p>
     <p><a href="${reconnectUrl}">Reconectar agora</a> (Configurações → Perfil → WhatsApp).</p>
   `;
@@ -87,11 +94,12 @@ export async function notifyInstanceStillDisconnected(instance: InstanceRef, day
 
   const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? "";
   const reconnectUrl = `${appUrl}/configuracoes`;
-  const phoneLabel = instance.phoneNumber ? ` (${instance.phoneNumber})` : "";
+  const safeName = escapeHtml(resolved.name);
+  const phoneLabel = instance.phoneNumber ? ` (${escapeHtml(instance.phoneNumber)})` : "";
   const copy = ESCALATION_COPY[days];
 
   const html = `
-    <p>O WhatsApp de <strong>${resolved.name}</strong>${phoneLabel} continua desconectado do CRM.</p>
+    <p>O WhatsApp de <strong>${safeName}</strong>${phoneLabel} continua desconectado do CRM.</p>
     <p>${copy.tone}</p>
     <p><a href="${reconnectUrl}">Reconectar agora</a> (Configurações → Perfil → WhatsApp).</p>
   `;

@@ -16,7 +16,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, formatBrazilianPhone, extractJidUser } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64, findMessages, type HistoryMessage } from "@/lib/evolution";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
@@ -112,7 +112,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     return;
   }
 
-  const rawNumber = remoteJid.split("@")[0];
+  const rawNumber = extractJidUser(remoteJid);
   const normalized = normalizePhoneNumber(rawNumber);
   if (!normalized) {
     console.log("[wa:webhook] ignorada: número não normalizável");
@@ -252,7 +252,7 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
   }
 }
 
-const HISTORY_MESSAGES_PER_CONTACT = 50;
+const HISTORY_MESSAGES_PER_CONTACT = 1000;
 
 /** Epoch do Baileys pode vir em segundos ou já em ms conforme a versão — abaixo de 10 bilhões só pode ser segundos (ms nessa faixa seria ano 1970). */
 function toEpochMs(ts: number | string | undefined): number {
@@ -314,6 +314,14 @@ export async function importHistoryMessages(instance: InstanceRef): Promise<{ im
  * Gatilho do evento MESSAGES_SET — roda a importação uma única vez por
  * pareamento (marca `historySyncedAt`), mesmo que o Evolution reenvie esse
  * evento mais de uma vez (acontece em sync grande, mandado em pedaços).
+ *
+ * Só marca `historySyncedAt` se de fato importou alguma mensagem — o
+ * WhatsApp decide quanto histórico manda nesse momento (às vezes nada, ou
+ * o Evolution ainda não tinha terminado de receber quando esse evento
+ * chegou); marcar como "concluído" numa tentativa que trouxe zero mensagens
+ * deixaria a importação pra sempre incompleta, sem nenhuma chance de tentar
+ * de novo num evento seguinte. Também dá pra puxar manualmente depois (ver
+ * app/api/whatsapp/instance/import-history/route.ts) pra quem já conectou.
  */
 export async function handleHistorySync(instance: InstanceRef): Promise<void> {
   if (instance.historySyncedAt) {
@@ -321,8 +329,12 @@ export async function handleHistorySync(instance: InstanceRef): Promise<void> {
     return;
   }
 
-  await importHistoryMessages(instance);
-  await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: { historySyncedAt: new Date() } });
+  const result = await importHistoryMessages(instance);
+  if (result.imported > 0) {
+    await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: { historySyncedAt: new Date() } });
+  } else {
+    console.log(`[wa:webhook] histórico de ${instance.instanceName}: 0 mensagem(ns) nesta tentativa — não marca como concluído`);
+  }
 }
 
 type BaileysCall = {
@@ -381,7 +393,7 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
         continue;
       }
 
-      const rawNumber = remoteJid.split("@")[0];
+      const rawNumber = extractJidUser(remoteJid);
       const normalized = normalizePhoneNumber(rawNumber);
       if (!normalized) {
         console.log("[wa:webhook] chamada ignorada: número não normalizável");
@@ -507,7 +519,7 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     const update = data as { state?: string; wuid?: string };
     const status: $Enums.WhatsAppInstanceStatus =
       update?.state === "open" ? "CONNECTED" : update?.state === "connecting" ? "CONNECTING" : "DISCONNECTED";
-    const phoneNumber = update?.wuid ? normalizePhoneNumber(update.wuid.split("@")[0]) : null;
+    const phoneNumber = update?.wuid ? normalizePhoneNumber(extractJidUser(update.wuid)) : null;
 
     // Dono não é mais membro ativo da organização — em vez de só marcar
     // desconectado e ficar esperando alguém reconectar (o que nunca vai

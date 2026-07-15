@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { buildDealName } from "@/lib/deal-name";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -13,13 +15,15 @@ export async function GET(req: Request) {
   const pipelineId = searchParams.get("pipelineId");
   const status = searchParams.get("status");
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  return runWithTenant(organizationId, async () => {
+  return runWithTenant(access.organizationId, async () => {
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
     const deals = await prisma.deal.findMany({
       where: {
-        organizationId,
+        organizationId: access.organizationId,
+        ...scopeWhere(scope),
         ...(pipelineId ? { pipelineId } : {}),
         ...(status ? { status: status as "OPEN" | "WON" | "LOST" } : {}),
       },

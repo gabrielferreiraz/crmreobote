@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
 import { sendEmail } from "@/lib/email";
+import { rateLimitOrResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,12 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const access = await requireRole(["OWNER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  // Sem isso, essa rota vira um "mandador de e-mail arbitrário" pra qualquer
+  // endereço via SMTP da empresa — não é IDOR (só OWNER chega aqui), mas
+  // ainda vale limitar o volume.
+  const rateLimited = rateLimitOrResponse(`test-email:${access.organizationId}`, 5, 60 * 60_000);
+  if (rateLimited) return rateLimited;
 
   const body = await req.json().catch(() => ({}));
   const to = (body as { to?: string }).to || access.session.user.email;

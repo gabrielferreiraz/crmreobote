@@ -5,6 +5,7 @@ import { parseSpreadsheet, normalizeHeader } from "@/lib/parse-spreadsheet";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
+import { rateLimitOrResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,11 @@ const TAGS_HEADERS = ["tags", "etiquetas"];
 export async function POST(req: Request) {
   const { organizationId } = await requireSession();
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  // Cada chamada pode criar até MAX_ROWS contatos — sem limite de quantas
+  // vezes por hora, dava pra inundar a organização de registros.
+  const rateLimited = rateLimitOrResponse(`import:${organizationId}`, 5, 60 * 60_000);
+  if (rateLimited) return rateLimited;
 
   const formData = await req.formData();
   const file = formData.get("file");

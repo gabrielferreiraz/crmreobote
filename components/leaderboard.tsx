@@ -14,10 +14,29 @@ const RANK_BADGE: Record<number, string> = {
   3: "bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400",
 };
 
+/** Linhas cinza semitransparentes na forma exata de uma linha real (selo + avatar + nome + valor) —
+ * preenche o mesmo espaço físico que o card teria com dados, em vez de deixar um card quase vazio
+ * com uma frase perdida no meio, sem quebrar o ritmo visual da página quando um filtro não bate dados. */
+function LeaderboardSkeleton({ emptyLabel }: { emptyLabel: string }) {
+  return (
+    <div className="space-y-0.5">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md px-1.5 py-2 opacity-50">
+          <span className="h-6 w-6 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800" />
+          <span className="h-6 w-6 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800" />
+          <span className="h-2.5 min-w-0 flex-1 rounded-full bg-neutral-100 dark:bg-neutral-800" style={{ maxWidth: `${70 - i * 15}%` }} />
+          <span className="h-2.5 w-10 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800" />
+        </div>
+      ))}
+      <p className="pt-2 text-center text-sm text-neutral-400 dark:text-neutral-500">{emptyLabel}</p>
+    </div>
+  );
+}
+
 /** Ranking numerado — top 3 ganham um selo discreto (ouro/prata/bronze), sem virar emoji de medalha. */
 export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry[]; emptyLabel: string }) {
   if (entries.length === 0) {
-    return <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{emptyLabel}</p>;
+    return <LeaderboardSkeleton emptyLabel={emptyLabel} />;
   }
 
   return (

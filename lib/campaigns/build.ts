@@ -44,11 +44,68 @@ export type ResolvedCampaign = {
   contactIds: string[];
 };
 
+// Faixas aceitas pro agendamento/throttle — sem isso, um valor absurdo (ex.:
+// delayMinSec: 0, windowStartHour: 99) desliga na prática a proteção
+// anti-ban do motor de campanhas (lib/campaigns/engine.ts), que confia
+// nesses números pra espaçar os envios.
+const MIN_DELAY_SEC = 10;
+const MAX_DELAY_SEC = 3600;
+const MAX_DAILY_CAP = 10_000;
+const MAX_FOLLOW_UP_DELAY_HOURS = 720; // 30 dias
+
+function validateScheduleAndThrottle(input: CampaignInput): string | null {
+  const delayMinSec = input.delayMinSec ?? 30;
+  const delayMaxSec = input.delayMaxSec ?? 90;
+  if (!Number.isInteger(delayMinSec) || delayMinSec < MIN_DELAY_SEC || delayMinSec > MAX_DELAY_SEC) {
+    return `Delay mínimo precisa estar entre ${MIN_DELAY_SEC} e ${MAX_DELAY_SEC} segundos`;
+  }
+  if (!Number.isInteger(delayMaxSec) || delayMaxSec < delayMinSec || delayMaxSec > MAX_DELAY_SEC) {
+    return "Delay máximo precisa ser maior ou igual ao mínimo (e no máximo 1h)";
+  }
+
+  if (input.dailyCap != null && (!Number.isInteger(input.dailyCap) || input.dailyCap < 1 || input.dailyCap > MAX_DAILY_CAP)) {
+    return `Teto diário precisa ser um número entre 1 e ${MAX_DAILY_CAP} (ou vazio, sem limite)`;
+  }
+
+  const allowedWeekdays = input.allowedWeekdays ?? [1, 2, 3, 4, 5];
+  if (
+    !Array.isArray(allowedWeekdays) ||
+    allowedWeekdays.length === 0 ||
+    allowedWeekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)
+  ) {
+    return "Selecione ao menos um dia da semana válido (0 a 6)";
+  }
+
+  const windowStartHour = input.windowStartHour ?? 9;
+  const windowEndHour = input.windowEndHour ?? 18;
+  if (!Number.isInteger(windowStartHour) || windowStartHour < 0 || windowStartHour > 23) {
+    return "Horário inicial precisa estar entre 0 e 23";
+  }
+  if (!Number.isInteger(windowEndHour) || windowEndHour < 0 || windowEndHour > 23) {
+    return "Horário final precisa estar entre 0 e 23";
+  }
+  if (windowEndHour <= windowStartHour) {
+    return "Horário final precisa ser depois do horário inicial";
+  }
+
+  if (input.followUpEnabled) {
+    const followUpDelayHours = input.followUpDelayHours ?? 24;
+    if (!Number.isInteger(followUpDelayHours) || followUpDelayHours < 1 || followUpDelayHours > MAX_FOLLOW_UP_DELAY_HOURS) {
+      return `Prazo do reenvio precisa ser entre 1 e ${MAX_FOLLOW_UP_DELAY_HOURS} horas`;
+    }
+  }
+
+  return null;
+}
+
 export async function resolveCampaignInput(
   organizationId: string,
   input: CampaignInput,
 ): Promise<{ ok: true; value: ResolvedCampaign } | { ok: false; error: string }> {
   if (!input.name?.trim()) return { ok: false, error: "Nome é obrigatório" };
+
+  const scheduleError = validateScheduleAndThrottle(input);
+  if (scheduleError) return { ok: false, error: scheduleError };
 
   const audienceFilter = parseAudienceFilter(input.audienceFilter);
   if (audienceFilterIsEmpty(audienceFilter)) {

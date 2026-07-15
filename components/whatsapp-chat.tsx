@@ -29,6 +29,9 @@ import {
   PhoneMissed,
   PhoneOff,
   Phone,
+  MoreVertical,
+  FileText,
+  Tag,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -145,12 +148,14 @@ async function uploadMedia(file: File): Promise<string> {
  */
 export function WhatsAppChat({
   threadId,
+  contactId,
   contactName,
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
 }: {
   threadId: string;
+  contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -171,6 +176,7 @@ export function WhatsAppChat({
       {open && (
         <WhatsAppChatModal
           threadId={threadId}
+          contactId={contactId}
           contactName={contactName}
           contactPhone={contactPhone}
           currentUserName={currentUserName}
@@ -215,6 +221,7 @@ export function WhatsAppPanelTrigger({ onOpen, hasUnread }: { onOpen: () => void
  */
 export function WhatsAppPanel({
   threadId,
+  contactId,
   contactName,
   contactPhone,
   currentUserName,
@@ -222,6 +229,7 @@ export function WhatsAppPanel({
   onClose,
 }: {
   threadId: string;
+  contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -232,6 +240,7 @@ export function WhatsAppPanel({
     <div className="surface-glass sticky top-4 hidden h-[calc(100vh-8rem)] w-[360px] shrink-0 flex-col overflow-hidden rounded-lg p-4 shadow-lg lg:flex">
       <ChatWindow
         threadId={threadId}
+        contactId={contactId}
         contactName={contactName}
         contactPhone={contactPhone}
         currentUserName={currentUserName}
@@ -245,6 +254,7 @@ export function WhatsAppPanel({
 
 function WhatsAppChatModal({
   threadId,
+  contactId,
   contactName,
   contactPhone,
   currentUserName,
@@ -252,6 +262,7 @@ function WhatsAppChatModal({
   onClose,
 }: {
   threadId: string;
+  contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -262,6 +273,7 @@ function WhatsAppChatModal({
     <Modal onClose={onClose} maxWidth="max-w-2xl">
       <ChatWindow
         threadId={threadId}
+        contactId={contactId}
         contactName={contactName}
         contactPhone={contactPhone}
         currentUserName={currentUserName}
@@ -275,6 +287,7 @@ function WhatsAppChatModal({
 
 export function ChatWindow({
   threadId,
+  contactId,
   contactName,
   contactPhone,
   currentUserName,
@@ -284,6 +297,7 @@ export function ChatWindow({
   backMode = false,
 }: {
   threadId: string;
+  contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -302,6 +316,9 @@ export function ChatWindow({
   const [pastedImage, setPastedImage] = useState<File | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [photoLightboxOpen, setPhotoLightboxOpen] = useState(false);
+  const [sendScriptOpen, setSendScriptOpen] = useState(false);
+  const [tagModalOpen, setTagModalOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -378,14 +395,21 @@ export function ChatWindow({
           : `flex min-h-0 flex-col ${className}`
       }
     >
-      <div className="mb-3 flex shrink-0 items-center justify-between border-b border-neutral-200/60 pb-3 dark:border-neutral-800/60">
+      <div className="mb-2 flex shrink-0 items-center justify-between border-b border-neutral-200/60 pb-2 dark:border-neutral-800/60">
         <div className="flex min-w-0 items-center gap-2.5">
           {backMode && (
             <button type="button" onClick={onClose} className="icon-btn -ml-1 shrink-0" aria-label="Voltar">
               <ArrowLeft className="h-4 w-4" strokeWidth={2} />
             </button>
           )}
-          <Avatar name={contactName ?? "?"} src={contactPhotoUrl} size="md" className="shrink-0" />
+          <button
+            type="button"
+            onClick={() => setPhotoLightboxOpen(true)}
+            className="shrink-0 rounded-full transition-opacity hover:opacity-80"
+            aria-label="Ver foto do contato"
+          >
+            <Avatar name={contactName ?? "?"} src={contactPhotoUrl} size="md" />
+          </button>
           <div className="min-w-0">
             <h2 className="flex items-center gap-1.5 truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               {contactName ?? "Conversa"}
@@ -395,6 +419,11 @@ export function ChatWindow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <MoreMenu
+            canTag={!!contactId}
+            onSendScript={() => setSendScriptOpen(true)}
+            onTag={() => setTagModalOpen(true)}
+          />
           <button
             type="button"
             onClick={() => withViewTransition(() => setExpanded((v) => !v))}
@@ -416,7 +445,7 @@ export function ChatWindow({
         </div>
       </div>
 
-      <div className="chat-bg-dots scrollbar-thin flex-1 space-y-2 overflow-y-auto rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950/50">
+      <div className="chat-bg-dots scrollbar-thin flex-1 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-950/50">
         {!messages ? (
           <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
         ) : messages.length === 0 ? (
@@ -465,7 +494,7 @@ export function ChatWindow({
         </div>
       )}
 
-      <div className="mt-3 shrink-0 border-t border-neutral-200/60 pt-3 dark:border-neutral-800/60">
+      <div className="mt-2 shrink-0 border-t border-neutral-200/60 pt-2 dark:border-neutral-800/60">
         {attachMode === null ? (
           <TextComposer
             sending={sending}
@@ -500,6 +529,20 @@ export function ChatWindow({
           />
         )}
       </div>
+
+      {photoLightboxOpen &&
+        createPortal(
+          <ContactPhotoLightbox
+            url={contactPhotoUrl}
+            onClose={() => setPhotoLightboxOpen(false)}
+          />,
+          document.body,
+        )}
+
+      {sendScriptOpen && <SendScriptModal threadId={threadId} onClose={() => setSendScriptOpen(false)} />}
+      {tagModalOpen && contactId && (
+        <TagContactModal contactId={contactId} onClose={() => setTagModalOpen(false)} />
+      )}
     </div>
   );
 
@@ -682,6 +725,291 @@ function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
         style={{ transformOrigin: origin }}
       />
     </div>
+  );
+}
+
+/** Foto do contato em tela cheia (clicando no avatar do cabeçalho) — sem foto cacheada, mostra um estado "perfil sem foto" em vez de abrir vazio. */
+function ContactPhotoLightbox({ url, onClose }: { url: string | null; onClose: () => void }) {
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4"
+      style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="icon-btn absolute top-3 right-3 text-white hover:bg-white/10 hover:text-white active:bg-white/10 active:text-white"
+        aria-label="Fechar"
+      >
+        <X className="h-5 w-5" strokeWidth={2} />
+      </button>
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-full max-w-full rounded-md object-contain"
+        />
+      ) : (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="flex flex-col items-center gap-3 rounded-2xl bg-neutral-900 px-12 py-10"
+        >
+          <span className="flex h-24 w-24 items-center justify-center rounded-full bg-neutral-800">
+            <User className="h-10 w-10 text-neutral-500" strokeWidth={1.5} />
+          </span>
+          <p className="text-sm text-neutral-400">Perfil sem foto</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Menu "..." do cabeçalho do chat — ações que não cabem como ícone fixo (enviar script, etiquetar). */
+function MoreMenu({
+  canTag,
+  onSendScript,
+  onTag,
+}: {
+  canTag: boolean;
+  onSendScript: () => void;
+  onTag: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="icon-btn" aria-label="Mais opções">
+        <MoreVertical className="h-4 w-4" strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="surface-glass absolute top-full right-0 z-30 mt-1 w-44 rounded-md p-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onSendScript();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 active:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:active:bg-neutral-800"
+          >
+            <FileText className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+            Enviar script
+          </button>
+          <button
+            type="button"
+            disabled={!canTag}
+            title={canTag ? undefined : "Vincule um contato do CRM primeiro"}
+            onClick={() => {
+              setOpen(false);
+              onTag();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-100 active:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-neutral-300 dark:hover:bg-neutral-800 dark:active:bg-neutral-800"
+          >
+            <Tag className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
+            Etiquetar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ScriptSummary = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
+
+/** Manda a sequência de um script salvo (ver Scripts) pra esta conversa — ver app/api/whatsapp/threads/[threadId]/send-script. */
+function SendScriptModal({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+  const [scripts, setScripts] = useState<ScriptSummary[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/message-scripts")
+      .then((res) => {
+        // Diferencia "sem scripts" de verdade de uma falha (permissão, rede
+        // etc.) — senão os dois casos mostravam a mesma frase "nenhum script
+        // cadastrado", escondendo um erro real.
+        if (!res.ok) {
+          setLoadError(true);
+          return [];
+        }
+        return res.json();
+      })
+      .then((data) => setScripts(data))
+      .catch(() => {
+        setLoadError(true);
+        setScripts([]);
+      });
+  }, []);
+
+  async function handleSend() {
+    if (!selectedId) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/whatsapp/threads/${threadId}/send-script`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scriptId: selectedId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Erro ao enviar script");
+        setSending(false);
+        return;
+      }
+      setSent(true);
+      setTimeout(onClose, 1200);
+    } catch {
+      setError("Falha de conexão ao enviar o script.");
+      setSending(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-md">
+      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Enviar script</h2>
+      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
+        Manda a sequência de mensagens do script escolhido pra esta conversa, respeitando o intervalo configurado entre elas.
+      </p>
+
+      {sent ? (
+        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+          Enviando — acompanhe as mensagens chegando na conversa.
+        </p>
+      ) : !scripts ? (
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando scripts…</p>
+      ) : loadError ? (
+        <p className="text-sm text-red-600 dark:text-red-400">Não foi possível carregar os scripts. Tente de novo.</p>
+      ) : scripts.length === 0 ? (
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">Nenhum script cadastrado ainda (Scripts, no menu do WhatsApp).</p>
+      ) : (
+        <div className="scrollbar-thin max-h-72 space-y-1 overflow-y-auto">
+          {scripts.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setSelectedId(s.id)}
+              className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                selectedId === s.id
+                  ? "border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-800"
+                  : "border-neutral-200 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              }`}
+            >
+              <p className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                {s.steps.length} mensage{s.steps.length === 1 ? "m" : "ns"}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      {!sent && (
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn-ghost">
+            Cancelar
+          </button>
+          <button type="button" disabled={!selectedId || sending} onClick={handleSend} className="btn-primary">
+            {sending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {sending ? "Enviando" : "Enviar"}
+          </button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Tags do Contact vinculado — só o campo tags (ver app/api/contacts/[id]/tags), nunca o resto do cadastro. */
+function TagContactModal({ contactId, onClose }: { contactId: string; onClose: () => void }) {
+  const [tagsInput, setTagsInput] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/contacts/${contactId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setTagsInput(((data?.tags ?? []) as string[]).join(", ")))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, [contactId]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    const tags = tagsInput
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    try {
+      const res = await fetch(`/api/contacts/${contactId}/tags`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Erro ao salvar etiquetas");
+        setSaving(false);
+        return;
+      }
+      onClose();
+    } catch {
+      setError("Falha de conexão ao salvar etiquetas.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-sm">
+      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Etiquetar contato</h2>
+      <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">Tags separadas por vírgula.</p>
+      {!loaded ? (
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+      ) : (
+        <input
+          autoFocus
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          placeholder="Ex.: quente, indeciso, sem resposta"
+          className="field-input"
+        />
+      )}
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className="btn-ghost">
+          Cancelar
+        </button>
+        <button type="button" disabled={!loaded || saving} onClick={handleSave} className="btn-primary">
+          {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+          {saving ? "Salvando" : "Salvar"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

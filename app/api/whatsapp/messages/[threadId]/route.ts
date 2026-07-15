@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { resolveChatMediaUrl } from "@/lib/r2";
 import { getDealScope } from "@/lib/team-scope";
+import { rateLimitOrResponse } from "@/lib/rate-limit";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
 
   const { session, organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  // Generoso o bastante pra não incomodar conversa manual de verdade (pessoa
+  // digitando), só freia um script/automação externa tentando disparar em
+  // rajada por essa rota.
+  const rateLimited = rateLimitOrResponse(`whatsapp-send:${userId}`, 60, 60_000);
+  if (rateLimited) return rateLimited;
+
   if (!text?.trim()) return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
   if (type && !VALID_TYPES.includes(type as $Enums.WhatsAppMessageType)) {
     return NextResponse.json({ error: "Tipo de mensagem inválido" }, { status: 400 });

@@ -7,6 +7,7 @@ import { buildDealName } from "@/lib/deal-name";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { rateLimitOrResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,11 @@ export async function POST(req: Request) {
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId)
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  // Cada chamada pode criar até MAX_ROWS negócios/contatos — sem limite de
+  // quantas vezes por hora, dava pra inundar a organização de registros.
+  const rateLimited = rateLimitOrResponse(`import:${organizationId}`, 5, 60 * 60_000);
+  if (rateLimited) return rateLimited;
 
   const formData = await req.formData();
   const file = formData.get("file");

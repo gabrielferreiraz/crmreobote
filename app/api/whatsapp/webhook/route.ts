@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithInstanceLookup, runWithTenant } from "@/lib/tenant-context";
+import { secureEqual } from "@/lib/security/secure-compare";
 import {
   handleIncomingMessage,
   handleStatusUpdate,
@@ -13,11 +14,13 @@ export const dynamic = "force-dynamic";
 
 // Chamado pelo Evolution API, não por um usuário logado — a autenticação é o
 // segredo compartilhado na própria URL (ver buildWebhookUrl em
-// app/api/whatsapp/instance/route.ts), não uma sessão.
+// app/api/whatsapp/instance/route.ts), não uma sessão. Comparação em tempo
+// constante (secureEqual) — `===` normal permite (em teoria) inferir o
+// segredo caractere a caractere medindo o tempo de resposta.
 function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.EVOLUTION_WEBHOOK_SECRET;
   const provided = req.nextUrl.searchParams.get("secret");
-  return !!secret && provided === secret;
+  return !!secret && !!provided && secureEqual(provided, secret);
 }
 
 export async function POST(req: NextRequest) {

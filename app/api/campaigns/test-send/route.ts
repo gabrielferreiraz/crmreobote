@@ -5,8 +5,12 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { validateSteps } from "@/lib/campaigns/scripts";
+import { rateLimitOrResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
+
+const MAX_TEST_STEPS = 20;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -22,19 +26,31 @@ function sleep(ms: number): Promise<void> {
  */
 export async function POST(req: Request) {
   const body = await req.json();
-  const { instanceId, phone, steps } = body as {
+  const { instanceId, phone, steps: rawSteps } = body as {
     instanceId?: string;
     phone?: string;
-    steps?: { text: string; delayAfterSec: number }[];
+    steps?: unknown;
   };
 
   const access = await requireRole(["OWNER", "ADMIN"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
+  // Sem isso, uma chamada só podia carregar uma sequência arbitrariamente
+  // grande de mensagens (delayAfterSec: 0 entre elas) e virar uma rajada de
+  // WhatsApp disfarçada de "teste" — nunca passou pela validação/corte que
+  // uma campanha de verdade tem em resolveCampaignInput.
+  const rateLimited = rateLimitOrResponse(`campaign-test-send:${access.organizationId}`, 20, 60_000);
+  if (rateLimited) return rateLimited;
+
   if (!instanceId) return NextResponse.json({ error: "Selecione de qual WhatsApp enviar" }, { status: 400 });
-  if (!steps?.length || steps.some((s) => !s.text.trim())) {
-    return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
+
+  const validated = validateSteps(rawSteps);
+  if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
+  if (validated.steps.length > MAX_TEST_STEPS) {
+    return NextResponse.json({ error: `Um teste aceita no máximo ${MAX_TEST_STEPS} mensagens na sequência` }, { status: 400 });
   }
+  const steps = validated.steps;
+
   const phoneNormalized = normalizePhoneNumber(phone);
   if (!phoneNormalized) return NextResponse.json({ error: "Número de teste inválido" }, { status: 400 });
 

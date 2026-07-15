@@ -436,6 +436,10 @@ model Team {
   members      OrganizationUser[]
 
   @@index([organizationId])
+  // Usado por getDealScope (lib/team-scope.ts) — passa a rodar em toda
+  // requisição de API de negócios/tarefas (não só em carregamento de página),
+  // então precisa ser indexado, não só o organizationId sozinho.
+  @@index([organizationId, leaderId])
 }
 
 // ─── Auth.js (NextAuth v5) ───────────────────────────────────────────

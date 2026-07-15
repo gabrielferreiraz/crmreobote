@@ -40,15 +40,19 @@ function formatDateTime(iso: string | null): string {
 export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RecipientStatus | "ALL">("ALL");
+  const [onlyReplied, setOnlyReplied] = useState(false);
+
+  const repliedCount = useMemo(() => recipients.filter((r) => r.repliedAt).length, [recipients]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return recipients.filter((r) => {
+      if (onlyReplied && !r.repliedAt) return false;
       if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
       if (term && !r.contactName.toLowerCase().includes(term) && !(r.contactPhone ?? "").includes(term)) return false;
       return true;
     });
-  }, [recipients, search, statusFilter]);
+  }, [recipients, search, statusFilter, onlyReplied]);
 
   return (
     <div className="space-y-3">
@@ -70,6 +74,17 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
           <option value="FAILED">Falhou</option>
           <option value="SKIPPED">Pulada</option>
         </select>
+        <button
+          type="button"
+          onClick={() => setOnlyReplied((v) => !v)}
+          className={`rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors ${
+            onlyReplied
+              ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+              : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          }`}
+        >
+          Só quem respondeu ({repliedCount})
+        </button>
       </div>
 
       <div className="card overflow-x-auto">

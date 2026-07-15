@@ -405,7 +405,7 @@ export function ConversationsView({
 
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         {selected ? (
-          <div className="flex h-full flex-col p-4">
+          <div className="flex h-full flex-col p-3">
             {selected.deal ? (
               <Link
                 href={`/negocios/${selected.deal.id}`}
@@ -427,6 +427,7 @@ export function ConversationsView({
             <ChatWindow
               key={selected.threadId}
               threadId={selected.threadId}
+              contactId={selected.contactId}
               contactName={selected.displayName}
               contactPhone={formatBrazilianPhone(selected.phoneNormalized)}
               currentUserName={currentUserName}

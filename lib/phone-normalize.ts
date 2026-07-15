@@ -29,6 +29,20 @@ export function normalizePhoneNumber(raw: string | null | undefined): string | n
 }
 
 /**
+ * Extrai a parte "usuário" de um JID do WhatsApp — ex.:
+ * "5511999998888:14@s.whatsapp.net" → "5511999998888". O ":14" é o id do
+ * aparelho (multi-device); mensagens normalmente chegam sem ele, mas
+ * eventos de CHAMADA do Baileys/Evolution costumam incluir, e passar isso
+ * direto pra normalizePhoneNumber (que só remove caractere não-dígito, sem
+ * saber o que é sufixo de aparelho) funde o id do aparelho no número —
+ * gerava uma conversa nova e mal formatada em vez de casar com a já
+ * existente. Sempre usar isso antes de normalizar um JID cru.
+ */
+export function extractJidUser(jid: string): string {
+  return jid.split("@")[0].split(":")[0];
+}
+
+/**
  * O JID que o WhatsApp manda numa mensagem recebida às vezes vem sem o 9º
  * dígito do celular (ex.: "6781783902", 10 dígitos), mesmo quando o número
  * de verdade — e o que está salvo no contato — tem os 11 (o 9 que virou

@@ -1,4 +1,6 @@
-type Point = { label: string; value: number };
+import { formatCurrency } from "@/lib/format";
+
+type Point = { label: string; value: number; tooltipLabel?: string };
 
 /**
  * Área/linha em SVG puro. Os pontos são renderizados como <span> HTML por
@@ -39,12 +41,18 @@ export function TrendAreaChart({ data }: { data: Point[] }) {
           />
         </svg>
         {points.map((p, i) => (
-          <span
+          <div
             key={i}
-            className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-900 dark:bg-neutral-100"
+            className="group absolute -translate-x-1/2 -translate-y-1/2"
             style={{ left: `${p.x}%`, top: `${p.y}%` }}
-            title={`${p.label}: ${p.value.toLocaleString("pt-BR")}`}
-          />
+          >
+            <span className="block h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-neutral-100" />
+            {/* Balão custom em vez do title nativo do navegador — aparece na hora
+                (o title nativo demora ~1s) e já vem formatado em reais. */}
+            <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 rounded-md bg-neutral-900 px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 dark:bg-white dark:text-neutral-900">
+              <span className="capitalize opacity-70">{p.tooltipLabel ?? p.label}</span> · {formatCurrency(p.value)}
+            </div>
+          </div>
         ))}
       </div>
       <div className="mt-2 flex">

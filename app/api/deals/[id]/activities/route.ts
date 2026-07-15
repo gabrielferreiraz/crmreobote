@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
@@ -8,11 +9,14 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  return runWithTenant(organizationId, async () => {
-    const deal = await prisma.deal.findFirst({ where: { id, organizationId } });
+  return runWithTenant(access.organizationId, async () => {
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const deal = await prisma.deal.findFirst({
+      where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
+    });
     if (!deal) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     const activities = await prisma.activity.findMany({
@@ -30,9 +34,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = await req.json();
   const { type, activityBody } = body as { type?: string; activityBody?: string };
 
-  const { organizationId, userId } = await requireSession();
-  if (!organizationId || !userId)
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = access;
 
   const validTypes = ["NOTE", "EMAIL", "CALL", "WHATSAPP", "PROPOSAL", "MEETING", "VISIT"];
   if (!type || !validTypes.includes(type)) {
@@ -40,7 +44,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   return runWithTenant(organizationId, async () => {
-    const deal = await prisma.deal.findFirst({ where: { id, organizationId } });
+    const scope = await getDealScope(organizationId, userId, access.role);
+    const deal = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!deal) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     const activity = await prisma.activity.create({

@@ -179,6 +179,7 @@ export function ConversationsMobile({
         <ChatWindow
           key={selected.threadId}
           threadId={selected.threadId}
+          contactId={selected.contactId}
           contactName={selected.displayName}
           contactPhone={selected.phoneNormalized}
           currentUserName={currentUserName}

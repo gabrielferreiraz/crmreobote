@@ -916,6 +916,7 @@ export function DealDetail({
         <>
           <WhatsAppPanel
             threadId={whatsappThreadId}
+            contactId={deal.contact.id}
             contactName={deal.contact.name}
             contactPhone={deal.contact.whatsapp || deal.contact.phone}
             currentUserName={currentUserName}
@@ -925,6 +926,7 @@ export function DealDetail({
           <div className="fixed inset-0 z-50 flex flex-col bg-white p-4 dark:bg-neutral-950 lg:hidden">
             <ChatWindow
               threadId={whatsappThreadId}
+              contactId={deal.contact.id}
               contactName={deal.contact.name}
               contactPhone={deal.contact.whatsapp || deal.contact.phone}
               currentUserName={currentUserName}

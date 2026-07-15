@@ -1,4 +1,4 @@
-import { BarChart3, Trophy, XCircle, CalendarCheck, Percent, UsersRound, Bot, Send, Reply, TrendingUp } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Bot, Send, Reply, TrendingUp } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
@@ -9,6 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { TrendAreaChart } from "@/components/charts/trend-area-chart";
+import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
 import { Leaderboard, type LeaderboardEntry } from "@/components/leaderboard";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
@@ -210,7 +211,6 @@ export default async function RelatoriosPage({
       value: match?._sum.value ? Number(match._sum.value) : 0,
     };
   });
-  const maxStageValue = Math.max(1, ...stageData.map((s) => s.value));
 
   // ─── Pessoas: junta quem tem negócio, quem registrou reunião e quem é
   // membro de organização, pra não deixar ninguém de fora do nome/avatar. ──
@@ -325,11 +325,16 @@ export default async function RelatoriosPage({
           month: d.getMonth(),
           day: d.getDate() as number | undefined,
           label: showLabel ? d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "",
+          // Sempre a data cheia, mesmo nos dias em que o eixo fica sem legenda
+          // (só um a cada 7 imprime `label`, senão o eixo vira poluição visual)
+          // — o tooltip do gráfico precisa saber de qual dia é o ponto de
+          // qualquer forma, independente do que aparece embaixo do gráfico.
+          tooltipLabel: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
           value: 0,
         };
       })
     : (() => {
-        const buckets: { year: number; month: number; day?: number; label: string; value: number }[] = [];
+        const buckets: { year: number; month: number; day?: number; label: string; tooltipLabel: string; value: number }[] = [];
         const cursor = new Date(trendStart.getFullYear(), trendStart.getMonth(), 1);
         const last = new Date(trendEnd.getFullYear(), trendEnd.getMonth(), 1);
         while (cursor <= last) {
@@ -337,6 +342,7 @@ export default async function RelatoriosPage({
             year: cursor.getFullYear(),
             month: cursor.getMonth(),
             label: cursor.toLocaleDateString("pt-BR", { month: "short" }),
+            tooltipLabel: cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
             value: 0,
           });
           cursor.setMonth(cursor.getMonth() + 1);
@@ -787,31 +793,17 @@ export default async function RelatoriosPage({
         <SectionHeading eyebrow="Funil" title="Onde o valor está parado e como evoluiu" />
         <div className="grid grid-cols-12 gap-5">
           <div className="card col-span-12 p-6 lg:col-span-7">
-            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Valor por etapa</h3>
+            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Funil por etapa</h3>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Negócios abertos agora, de etapa em etapa — veja onde mais se perde volume.</p>
             {stageData.length === 0 ? (
-              <EmptyState icon={BarChart3} title="Nenhum negócio em aberto" />
+              <div className="mt-6">
+                <FunnelSkeleton message="Nenhum negócio em aberto nesse período" />
+              </div>
             ) : (
-              <div className="mt-6 flex items-end gap-4">
-                {stageData.map((stage) => (
-                  <div key={stage.id} className="flex flex-1 flex-col items-center gap-2">
-                    <p className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {formatCurrency(stage.value)}
-                    </p>
-                    <div className="flex h-28 w-full items-end">
-                      <div
-                        className="w-full rounded-t-sm"
-                        style={{
-                          backgroundColor: stage.color ?? "#a3a3a3",
-                          height: `${Math.max(4, (stage.value / maxStageValue) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{stage.name}</p>
-                    <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                      {stage.count} negócio{stage.count === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                ))}
+              <div className="mt-6">
+                <FunnelChart
+                  stages={stageData.map((s) => ({ id: s.id, label: s.name, count: s.count, value: s.value, color: s.color }))}
+                />
               </div>
             )}
           </div>

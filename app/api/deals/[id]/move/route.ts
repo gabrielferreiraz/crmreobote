@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
@@ -12,12 +13,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json();
   const { stageId, value } = body as { stageId?: string; value?: number | null };
 
-  const { organizationId, userId } = await requireSession();
-  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "ADMIN", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = access;
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });
 
   return runWithTenant(organizationId, async () => {
-    const existing = await prisma.deal.findFirst({ where: { id, organizationId } });
+    const scope = await getDealScope(organizationId, userId, access.role);
+    const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     const stage = await prisma.pipelineStage.findFirst({

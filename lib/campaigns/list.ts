@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
 import { brazilDateKey } from "@/lib/timezone";
+import { estimateCampaignCompletion, type CompletionEstimate } from "@/lib/campaigns/estimate";
 
 export type CampaignSummary = {
   id: string;
@@ -100,7 +101,11 @@ export type CampaignRecipientRow = {
 /** Um ponto do gráfico do painel de métricas — um dia (calendário de Brasília), quantos envios e quantas respostas. */
 export type CampaignDailyMetric = { date: string; sent: number; replied: number };
 
-export type CampaignDetail = CampaignSummary & { recipients: CampaignRecipientRow[]; dailyMetrics: CampaignDailyMetric[] };
+export type CampaignDetail = CampaignSummary & {
+  recipients: CampaignRecipientRow[];
+  dailyMetrics: CampaignDailyMetric[];
+  completionEstimate: CompletionEstimate;
+};
 
 /** Usado pela tela de destinatários — uma linha por contato, com status individual, mais a série diária pro painel de métricas. */
 export async function getCampaignDetail(
@@ -148,6 +153,17 @@ export async function getCampaignDetail(
   }
 
   const audienceFilter = parseAudienceFilter(campaign.audienceFilter);
+  const completionEstimate = estimateCampaignCompletion(
+    {
+      delayMinSec: campaign.delayMinSec,
+      delayMaxSec: campaign.delayMaxSec,
+      dailyCap: campaign.dailyCap,
+      allowedWeekdays: campaign.allowedWeekdays,
+      windowStartHour: campaign.windowStartHour,
+      windowEndHour: campaign.windowEndHour,
+    },
+    counts.pending,
+  );
 
   return {
     id: campaign.id,
@@ -181,5 +197,6 @@ export async function getCampaignDetail(
       error: r.error ?? r.followUpError,
     })),
     dailyMetrics: Array.from(metricsByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    completionEstimate,
   };
 }
