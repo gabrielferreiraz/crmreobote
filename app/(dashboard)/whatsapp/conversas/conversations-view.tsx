@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff } from "lucide-react";
+import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff, WifiOff } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
@@ -141,12 +141,15 @@ export function ConversationsView({
   currentUserPhotoUrl,
   currentUserId,
   notificationPrefs: initialNotificationPrefs,
+  whatsappConnected = true,
 }: {
   initialConversations: Conversation[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   currentUserId?: string;
   notificationPrefs?: NotificationPrefs;
+  /** Sem instância própria conectada, o chat avisa isso no lugar do "Selecione uma conversa". */
+  whatsappConnected?: boolean;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
   const searchParams = useSearchParams();
@@ -470,6 +473,19 @@ export function ConversationsView({
                 onCreated={(result) => handleDealAdded(selected.threadId, result)}
               />
             )}
+          </div>
+        ) : !whatsappConnected ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <EmptyState
+              icon={WifiOff}
+              title="Seu WhatsApp está desconectado"
+              description="Você pode ver as conversas, mas não consegue enviar nem receber mensagens até reconectar."
+              action={
+                <Link href="/configuracoes/perfil" className="btn-secondary">
+                  Reconectar em Configurações → Perfil
+                </Link>
+              }
+            />
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">

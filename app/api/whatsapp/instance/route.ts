@@ -44,7 +44,13 @@ export async function GET() {
     try {
       const state = await getConnectionState(instance.instanceName);
       status = state === "open" ? "CONNECTED" : state === "connecting" ? "CONNECTING" : "DISCONNECTED";
-      if (status !== instance.status) {
+      // Não persiste "CONNECTING" por cima de um CONNECTED/DISCONNECTED já
+      // gravado — mesmo blip passageiro do Evolution que lib/whatsapp/events.ts
+      // já protege no webhook (ver comentário lá); aqui também precisa, senão
+      // esta tela sozinha já corrompe o status que a detecção de transição do
+      // webhook usa como base pro próximo evento. A resposta abaixo ainda
+      // reflete a leitura ao vivo, só não grava.
+      if (status !== "CONNECTING" && status !== instance.status) {
         await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: { status } });
       }
     } catch {

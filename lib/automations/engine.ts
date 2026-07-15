@@ -12,6 +12,7 @@ import { interpolateAutomationTemplate } from "@/lib/automations/variables";
 import { escapeHtmlValues } from "@/lib/security/html-escape";
 import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/lib/timezone";
 import { formatCurrency, daysSince } from "@/lib/format";
+import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 
 type TriggerConfig = {
   days?: number;
@@ -187,6 +188,16 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
           body: `[Automação: ${rule.name}] Negócio marcado como perdido automaticamente.`,
         },
       });
+
+      const dealForWebhook = await prisma.deal.findUnique({
+        where: { id: entity.dealId },
+        include: { contact: true, owner: true, stage: true, lossReason: true },
+      });
+      if (dealForWebhook) {
+        enqueueWebhookEvent(entity.organizationId, "deal.lost", buildDealWebhookPayload(dealForWebhook)).catch((err) =>
+          console.error("[webhooks] falha ao enfileirar deal.lost (automação)", err),
+        );
+      }
     }
     return;
   }

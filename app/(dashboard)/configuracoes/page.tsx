@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap } from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TestEmailButton } from "./test-email-button";
@@ -55,6 +55,14 @@ export default async function ConfiguracoesPage() {
           title="Google Agenda"
           description="Conecte sua conta pra ver seus eventos na Agenda do CRM."
         />
+        {isManager && (
+          <Row
+            href="/configuracoes/integracoes"
+            icon={Plug}
+            title="API e webhooks"
+            description="Chaves de API pra ingestão externa e webhooks de saída (negócio ganho/perdido, contato criado)."
+          />
+        )}
       </Section>
 
       {isOwner && (

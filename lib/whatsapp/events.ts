@@ -567,11 +567,29 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
           ? { disconnectedAt: new Date(), disconnectAlertLevel: 0 }
           : {};
 
+    // Nunca grava "CONNECTING" por cima de um CONNECTED/DISCONNECTED real —
+    // o Evolution manda esse estado à toa em vários momentos (comentário
+    // acima) mesmo com a sessão estável, e persistir isso apagava o status
+    // anterior de verdade que a detecção de transição (bloco acima) e o
+    // cron de saúde (lib/whatsapp/health-check.ts) dependem pra comparar no
+    // próximo evento — sem essa proteção, um blip desses podia silenciar o
+    // próximo e-mail de conectou/desconectou sem erro nenhum no log, e
+    // deixar a instância invisível pras duas rotinas do health-check (que só
+    // olham status CONNECTED ou DISCONNECTED). O "CONNECTING" inicial (na
+    // criação da instância) não passa por aqui, continua gravado normalmente.
+    const shouldPersistStatus = status !== "CONNECTING";
+
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },
-      data: { status, ...(phoneNumber ? { phoneNumber } : {}), ...escalationFields },
+      data: {
+        ...(shouldPersistStatus ? { status } : {}),
+        ...(phoneNumber ? { phoneNumber } : {}),
+        ...escalationFields,
+      },
     });
-    console.log(`[wa:webhook] instância ${instance.instanceName} → status=${status} phoneNumber=${phoneNumber}`);
+    console.log(
+      `[wa:webhook] instância ${instance.instanceName} → status=${status}${shouldPersistStatus ? "" : " (não persistido — blip passageiro)"} phoneNumber=${phoneNumber}`,
+    );
   } catch (err) {
     console.error("[wa:webhook] falha ao processar atualização de conexão", err);
   }

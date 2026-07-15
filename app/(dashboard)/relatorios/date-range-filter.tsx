@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Calendar as CalendarIcon } from "lucide-react";
-import { DatePicker } from "@/components/date-picker";
+import { DateRangeCalendar } from "@/components/date-range-calendar";
 import { buildQuickRanges } from "@/lib/date-ranges";
 
 const QUICK_RANGES = buildQuickRanges();
@@ -94,14 +94,14 @@ export function DateRangeFilter() {
 
         {customOpen && (
           <div className="surface-glass absolute right-0 z-30 mt-2 w-72 space-y-3 rounded-lg p-4 shadow-xl">
-            <div className="space-y-1">
-              <label className="field-label">De</label>
-              <DatePicker value={draftFrom} onChange={setDraftFrom} className="w-full" />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Até</label>
-              <DatePicker value={draftTo} onChange={setDraftTo} className="w-full" />
-            </div>
+            <DateRangeCalendar
+              from={draftFrom}
+              to={draftTo}
+              onSelect={(r) => {
+                setDraftFrom(r.from);
+                setDraftTo(r.to);
+              }}
+            />
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setCustomOpen(false)} className="btn-ghost btn-sm">
                 Cancelar

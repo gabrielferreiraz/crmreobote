@@ -137,15 +137,15 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar contato</h2>
           <form onSubmit={handleSubmit} className="space-y-3">
             <Field label="Nome" value={name} onChange={setName} required autoFocus />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="E-mail" value={email} onChange={setEmail} type="email" />
               <Field label="Celular" value={phone} onChange={setPhone} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
               <Field label="Empresa" value={company} onChange={setCompany} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className="field-label">Cargo *</label>
                 <Select
@@ -160,15 +160,15 @@ export function EditContactDialog({ contact }: { contact: Contact }) {
                 <Select value={source} onChange={setSource} options={SOURCE_OPTIONS} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="CEP" value={zipCode} onChange={setZipCode} />
               <Field label="Cidade" value={city} onChange={setCity} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Endereço" value={address} onChange={setAddress} />
               <Field label="Estado" value={state} onChange={setState} />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
               <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
               <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />

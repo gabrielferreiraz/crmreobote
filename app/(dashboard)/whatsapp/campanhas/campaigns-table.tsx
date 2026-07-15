@@ -154,108 +154,198 @@ export function CampaignsTable({
           />
         </div>
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
-                <th className="px-4 py-2 font-medium">Nome</th>
-                <th className="px-4 py-2 font-medium">Público</th>
-                <th className="px-4 py-2 font-medium">Envia por</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Progresso</th>
-                <th className="px-4 py-2 font-medium">Respostas</th>
-                <th className="px-4 py-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {initialCampaigns.map((c) => {
-                const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
-                return (
-                  <tr key={c.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
-                      <Link href={`/whatsapp/campanhas/${c.id}`} className="hover:underline">
-                        {c.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.audienceLabel}</td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.instanceName}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
-                        {STATUS_LABELS[c.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">
-                      {c.counts.sent}/{total}
+        <>
+          {/* Mobile: cards */}
+          <div className="space-y-2 lg:hidden">
+            {initialCampaigns.map((c) => {
+              const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
+              return (
+                <div key={c.id} className="card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link href={`/whatsapp/campanhas/${c.id}`} className="min-w-0 truncate font-medium text-neutral-900 hover:underline dark:text-neutral-100">
+                      {c.name}
+                    </Link>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
+                      {STATUS_LABELS[c.status]}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+                    <p>Público: {c.audienceLabel}</p>
+                    <p>Envia por: {c.instanceName}</p>
+                    <p className="tabular-nums">
+                      Progresso: {c.counts.sent}/{total}
                       {c.counts.failed > 0 && <span className="ml-1 text-red-500">({c.counts.failed} falhas)</span>}
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">{c.counts.replied}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {(c.status === "DRAFT" || c.status === "PAUSED") && (
-                          <button
-                            type="button"
-                            disabled={togglingId === c.id}
-                            onClick={() => setStatus(c, "RUNNING")}
-                            className="icon-btn"
-                            aria-label="Iniciar"
-                            title="Iniciar"
-                          >
-                            <Play className="h-3.5 w-3.5" strokeWidth={2} />
-                          </button>
-                        )}
-                        {c.status === "RUNNING" && (
-                          <button
-                            type="button"
-                            disabled={togglingId === c.id}
-                            onClick={() => setStatus(c, "PAUSED")}
-                            className="icon-btn"
-                            aria-label="Pausar"
-                            title="Pausar"
-                          >
-                            <Pause className="h-3.5 w-3.5" strokeWidth={2} />
-                          </button>
-                        )}
-                        {c.status === "DRAFT" && (
-                          <button
-                            type="button"
-                            disabled={loadingEditId === c.id}
-                            onClick={() => openEdit(c.id)}
-                            className="icon-btn"
-                            aria-label="Editar campanha"
-                            title="Editar campanha"
-                          >
-                            <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-                          </button>
-                        )}
-                        <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
-                          <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
+                    </p>
+                    <p className="tabular-nums">Respostas: {c.counts.replied}</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-neutral-100 pt-2 dark:border-neutral-800">
+                    {(c.status === "DRAFT" || c.status === "PAUSED") && (
+                      <button
+                        type="button"
+                        disabled={togglingId === c.id}
+                        onClick={() => setStatus(c, "RUNNING")}
+                        className="icon-btn"
+                        aria-label="Iniciar"
+                        title="Iniciar"
+                      >
+                        <Play className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    )}
+                    {c.status === "RUNNING" && (
+                      <button
+                        type="button"
+                        disabled={togglingId === c.id}
+                        onClick={() => setStatus(c, "PAUSED")}
+                        className="icon-btn"
+                        aria-label="Pausar"
+                        title="Pausar"
+                      >
+                        <Pause className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    )}
+                    {c.status === "DRAFT" && (
+                      <button
+                        type="button"
+                        disabled={loadingEditId === c.id}
+                        onClick={() => openEdit(c.id)}
+                        className="icon-btn"
+                        aria-label="Editar campanha"
+                        title="Editar campanha"
+                      >
+                        <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    )}
+                    <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
+                      <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
+                    </Link>
+                    <button
+                      type="button"
+                      disabled={duplicatingId === c.id}
+                      onClick={() => duplicateCampaign(c.id)}
+                      className="icon-btn"
+                      aria-label="Duplicar campanha"
+                      title="Duplicar campanha"
+                    >
+                      <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCampaignToDelete(c)}
+                      className="icon-btn"
+                      aria-label="Excluir campanha"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="card hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
+                  <th className="px-4 py-2 font-medium">Nome</th>
+                  <th className="px-4 py-2 font-medium">Público</th>
+                  <th className="px-4 py-2 font-medium">Envia por</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Progresso</th>
+                  <th className="px-4 py-2 font-medium">Respostas</th>
+                  <th className="px-4 py-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {initialCampaigns.map((c) => {
+                  const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
+                  return (
+                    <tr key={c.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
+                      <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
+                        <Link href={`/whatsapp/campanhas/${c.id}`} className="hover:underline">
+                          {c.name}
                         </Link>
-                        <button
-                          type="button"
-                          disabled={duplicatingId === c.id}
-                          onClick={() => duplicateCampaign(c.id)}
-                          className="icon-btn"
-                          aria-label="Duplicar campanha"
-                          title="Duplicar campanha"
-                        >
-                          <Copy className="h-3.5 w-3.5" strokeWidth={2} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCampaignToDelete(c)}
-                          className="icon-btn"
-                          aria-label="Excluir campanha"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.audienceLabel}</td>
+                      <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.instanceName}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
+                          {STATUS_LABELS[c.status]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">
+                        {c.counts.sent}/{total}
+                        {c.counts.failed > 0 && <span className="ml-1 text-red-500">({c.counts.failed} falhas)</span>}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">{c.counts.replied}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {(c.status === "DRAFT" || c.status === "PAUSED") && (
+                            <button
+                              type="button"
+                              disabled={togglingId === c.id}
+                              onClick={() => setStatus(c, "RUNNING")}
+                              className="icon-btn"
+                              aria-label="Iniciar"
+                              title="Iniciar"
+                            >
+                              <Play className="h-3.5 w-3.5" strokeWidth={2} />
+                            </button>
+                          )}
+                          {c.status === "RUNNING" && (
+                            <button
+                              type="button"
+                              disabled={togglingId === c.id}
+                              onClick={() => setStatus(c, "PAUSED")}
+                              className="icon-btn"
+                              aria-label="Pausar"
+                              title="Pausar"
+                            >
+                              <Pause className="h-3.5 w-3.5" strokeWidth={2} />
+                            </button>
+                          )}
+                          {c.status === "DRAFT" && (
+                            <button
+                              type="button"
+                              disabled={loadingEditId === c.id}
+                              onClick={() => openEdit(c.id)}
+                              className="icon-btn"
+                              aria-label="Editar campanha"
+                              title="Editar campanha"
+                            >
+                              <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                            </button>
+                          )}
+                          <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
+                            <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
+                          </Link>
+                          <button
+                            type="button"
+                            disabled={duplicatingId === c.id}
+                            onClick={() => duplicateCampaign(c.id)}
+                            className="icon-btn"
+                            aria-label="Duplicar campanha"
+                            title="Duplicar campanha"
+                          >
+                            <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCampaignToDelete(c)}
+                            className="icon-btn"
+                            aria-label="Excluir campanha"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {open && (
@@ -685,7 +775,7 @@ function CampaignDialog({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label className="field-label">Delay mínimo (segundos)</label>
             <input
@@ -740,7 +830,7 @@ function CampaignDialog({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <label className="field-label">Horário inicial</label>
             <input

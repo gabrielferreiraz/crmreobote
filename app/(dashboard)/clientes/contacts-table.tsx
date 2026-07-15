@@ -12,7 +12,11 @@ import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { FilterPopover } from "@/components/filter-popover";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { DateRangeCalendar } from "@/components/date-range-calendar";
 import { JOB_TITLE_OPTIONS } from "@/lib/job-titles";
+import { buildQuickRanges } from "@/lib/date-ranges";
+
+const QUICK_RANGES = buildQuickRanges();
 
 const NO_JOB_TITLE = "__NONE__";
 
@@ -58,6 +62,7 @@ type Contact = {
   state: string | null;
   zipCode: string | null;
   tags: string[];
+  createdAt: string | Date;
   _count: { deals: number };
 };
 
@@ -93,6 +98,8 @@ export function ContactsTable({
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [onlyWithDeals, setOnlyWithDeals] = useState(false);
+  const [registeredFrom, setRegisteredFrom] = useState("");
+  const [registeredTo, setRegisteredTo] = useState("");
 
   const sourceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -109,17 +116,22 @@ export function ContactsTable({
     return Array.from(set);
   }, [initialContacts]);
 
-  const hasFilters = !!search || !!sourceFilter || !!jobTitleFilter || onlyWithDeals;
+  const hasFilters =
+    !!search || !!sourceFilter || !!jobTitleFilter || onlyWithDeals || !!registeredFrom || !!registeredTo;
 
   function clearFilters() {
     setSearch("");
     setSourceFilter("");
     setJobTitleFilter("");
     setOnlyWithDeals(false);
+    setRegisteredFrom("");
+    setRegisteredTo("");
   }
 
   const filteredContacts = useMemo(() => {
     const term = search.trim().toLowerCase();
+    const from = registeredFrom ? new Date(registeredFrom) : null;
+    const to = registeredTo ? new Date(new Date(registeredTo).getTime() + 24 * 60 * 60 * 1000) : null;
     return initialContacts.filter((c) => {
       if (
         term &&
@@ -133,9 +145,14 @@ export function ContactsTable({
       if (jobTitleFilter === NO_JOB_TITLE && c.jobTitle) return false;
       if (jobTitleFilter && jobTitleFilter !== NO_JOB_TITLE && c.jobTitle !== jobTitleFilter) return false;
       if (onlyWithDeals && c._count.deals === 0) return false;
+      if (from || to) {
+        const createdAt = new Date(c.createdAt);
+        if (from && createdAt < from) return false;
+        if (to && createdAt >= to) return false;
+      }
       return true;
     });
-  }, [initialContacts, search, sourceFilter, jobTitleFilter, onlyWithDeals]);
+  }, [initialContacts, search, sourceFilter, jobTitleFilter, onlyWithDeals, registeredFrom, registeredTo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -214,7 +231,7 @@ export function ContactsTable({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div className="relative w-full sm:w-64">
           <Search
             className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
             strokeWidth={2}
@@ -223,7 +240,7 @@ export function ContactsTable({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por nome, e-mail ou celular"
-            className="field-input w-64 py-1.5 pl-8 text-sm"
+            className="field-input w-full py-1.5 pl-8 text-sm"
           />
         </div>
         <FilterPopover active={hasFilters} onClear={clearFilters}>
@@ -264,112 +281,196 @@ export function ContactsTable({
           >
             Só com negócios
           </button>
+          <div className="space-y-1.5 border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
+            <label className="field-label">Cadastrado em</label>
+            <div className="flex flex-wrap gap-1">
+              {QUICK_RANGES.map((q) => (
+                <button
+                  key={q.key}
+                  type="button"
+                  onClick={() => {
+                    const r = q.range();
+                    setRegisteredFrom(r.from);
+                    setRegisteredTo(r.to);
+                  }}
+                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+            <DateRangeCalendar
+              from={registeredFrom}
+              to={registeredTo}
+              onSelect={(r) => {
+                setRegisteredFrom(r.from);
+                setRegisteredTo(r.to);
+              }}
+            />
+          </div>
         </FilterPopover>
       </div>
 
-      <div className="card overflow-x-auto">
-        {initialContacts.length === 0 ? (
+      {initialContacts.length === 0 ? (
+        <div className="card">
           <EmptyState
             icon={Inbox}
             title="Nenhum contato cadastrado"
             description="Cadastre clientes para vincular a negócios e tarefas."
           />
-        ) : filteredContacts.length === 0 ? (
+        </div>
+      ) : filteredContacts.length === 0 ? (
+        <div className="card">
           <EmptyState
             icon={SearchX}
             title="Nenhum contato encontrado"
             description="Ajuste a busca ou limpe os filtros."
           />
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 bg-neutral-50/50 text-left text-xs font-medium text-neutral-400 dark:border-neutral-800 dark:bg-neutral-800/20 dark:text-neutral-500">
-                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                  <span className="inline-flex items-center gap-1.5">
-                    <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                    Nome
-                  </span>
-                </th>
-                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                    E-mail
-                  </span>
-                </th>
-                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Phone className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                    Celular
-                  </span>
-                </th>
-                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                  <span className="inline-flex items-center gap-1.5">
-                    <IdCard className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                    Cargo
-                  </span>
-                </th>
-                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Tag className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                    Origem
-                  </span>
-                </th>
-                <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                    Negócios
-                  </span>
-                </th>
-                <th className="px-4 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredContacts.map((c) => (
-                <tr key={c.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40">
-                  <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
-                    <Link
-                      href={`/clientes/${c.id}`}
-                      className="flex items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
-                    >
-                      <Avatar name={c.name} size="xs" />
-                      <span>{c.name}</span>
-                    </Link>
-                  </td>
-                  <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+        </div>
+      ) : (
+        <>
+          {/* Mobile: cards */}
+          <div className="space-y-2 lg:hidden">
+            {filteredContacts.map((c) => (
+              <div key={c.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <Link
+                    href={`/clientes/${c.id}`}
+                    className="flex min-w-0 items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                  >
+                    <Avatar name={c.name} size="xs" />
+                    <span className="truncate">{c.name}</span>
+                  </Link>
+                  <EditContactDialog contact={c} />
+                </div>
+                <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+                  <p className="flex items-center gap-1.5 truncate">
+                    <Mail className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
                     {c.email ?? "—"}
-                  </td>
-                  <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                  </p>
+                  <p className="flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
                     {c.phone ?? "—"}
-                  </td>
-                  <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                  </p>
+                  <p className="flex items-center gap-1.5">
+                    <IdCard className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
                     {c.jobTitle ?? "—"}
-                  </td>
-                  <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
-                    {c.source ? (
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
-                          SOURCE_BADGE[c.source] ?? SOURCE_BADGE_DEFAULT
-                        }`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full ${SOURCE_DOT[c.source] ?? SOURCE_DOT_DEFAULT}`} />
-                        {c.source}
-                      </span>
-                    ) : (
-                      <span className="text-neutral-400 dark:text-neutral-500">—</span>
-                    )}
-                  </td>
-                  <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                    {c._count.deals}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <EditContactDialog contact={c} />
-                  </td>
+                  </p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  {c.source ? (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
+                        SOURCE_BADGE[c.source] ?? SOURCE_BADGE_DEFAULT
+                      }`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${SOURCE_DOT[c.source] ?? SOURCE_DOT_DEFAULT}`} />
+                      {c.source}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-neutral-400 dark:text-neutral-500">Origem não informada</span>
+                  )}
+                  <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                    <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                    {c._count.deals} {c._count.deals === 1 ? "negócio" : "negócios"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="card hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 bg-neutral-50/50 text-left text-xs font-medium text-neutral-400 dark:border-neutral-800 dark:bg-neutral-800/20 dark:text-neutral-500">
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      Nome
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Mail className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      E-mail
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Phone className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      Celular
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <IdCard className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      Cargo
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Tag className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      Origem
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      Negócios
+                    </span>
+                  </th>
+                  <th className="px-4 py-2.5"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {filteredContacts.map((c) => (
+                  <tr key={c.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40">
+                    <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
+                      <Link
+                        href={`/clientes/${c.id}`}
+                        className="flex items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                      >
+                        <Avatar name={c.name} size="xs" />
+                        <span>{c.name}</span>
+                      </Link>
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      {c.email ?? "—"}
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      {c.phone ?? "—"}
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      {c.jobTitle ?? "—"}
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
+                      {c.source ? (
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
+                            SOURCE_BADGE[c.source] ?? SOURCE_BADGE_DEFAULT
+                          }`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${SOURCE_DOT[c.source] ?? SOURCE_DOT_DEFAULT}`} />
+                          {c.source}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-400 dark:text-neutral-500">—</span>
+                      )}
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      {c._count.deals}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <EditContactDialog contact={c} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {open && (
         <Modal onClose={() => setOpen(false)}>
@@ -392,15 +493,15 @@ export function ContactsTable({
                 Essencial pra achar o lead certo depois em filtros e relatórios.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="CEP" value={zipCode} onChange={setZipCode} />
               <Field label="Cidade" value={city} onChange={setCity} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Endereço" value={address} onChange={setAddress} />
               <Field label="Estado" value={state} onChange={setState} />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
               <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
               <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />

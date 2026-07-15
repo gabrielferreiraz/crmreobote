@@ -7,6 +7,7 @@ import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
+import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +126,17 @@ export async function POST(req: Request) {
       if (phoneNormalized || whatsappNormalized) {
         await linkOrphanThreadsForOrganization(organizationId);
       }
+
+      enqueueWebhookEvent(organizationId, "contact.created", {
+        id: contact.id,
+        name: contact.name,
+        email: contact.email,
+        phone: contact.phone,
+        whatsapp: contact.whatsapp,
+        source: contact.source,
+        tags: contact.tags,
+        createdAt: contact.createdAt,
+      }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.created", err));
 
       return NextResponse.json(contact, { status: 201 });
     } catch (err) {

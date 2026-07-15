@@ -101,8 +101,8 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-2 lg:col-span-2">
           <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Negócios</h2>
           {contact.deals.length === 0 ? (
             <div className="card">

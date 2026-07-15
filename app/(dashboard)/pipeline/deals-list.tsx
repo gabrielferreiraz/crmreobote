@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
-import { DatePicker } from "@/components/date-picker";
+import { DateRangeCalendar } from "@/components/date-range-calendar";
 import { buildQuickRanges } from "@/lib/date-ranges";
 import type { Deal } from "./kanban-board";
 
@@ -253,15 +253,16 @@ export function DealsList({
               />
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="field-label">Criado de</label>
-              <DatePicker value={dateFrom} onChange={setDateFrom} className="w-full py-1.5 text-sm" />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">até</label>
-              <DatePicker value={dateTo} onChange={setDateTo} className="w-full py-1.5 text-sm" />
-            </div>
+          <div className="space-y-1">
+            <label className="field-label">Criado em</label>
+            <DateRangeCalendar
+              from={dateFrom}
+              to={dateTo}
+              onSelect={(r) => {
+                setDateFrom(r.from);
+                setDateTo(r.to);
+              }}
+            />
           </div>
           <div className="space-y-1.5 border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
             <label className="field-label">
@@ -279,10 +280,14 @@ export function DealsList({
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <DatePicker value={closedFrom} onChange={setClosedFrom} className="w-full py-1.5 text-sm" />
-              <DatePicker value={closedTo} onChange={setClosedTo} className="w-full py-1.5 text-sm" />
-            </div>
+            <DateRangeCalendar
+              from={closedFrom}
+              to={closedTo}
+              onSelect={(r) => {
+                setClosedFrom(r.from);
+                setClosedTo(r.to);
+              }}
+            />
           </div>
         </FilterPopover>
       </div>

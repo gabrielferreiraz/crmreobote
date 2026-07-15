@@ -87,53 +87,83 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
         </button>
       </div>
 
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
-              <th className="px-4 py-2 font-medium">Contato</th>
-              <th className="px-4 py-2 font-medium">Cargo</th>
-              <th className="px-4 py-2 font-medium">Telefone</th>
-              <th className="px-4 py-2 font-medium">Script</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium">Enviada em</th>
-              <th className="px-4 py-2 font-medium">Respondeu em</th>
-              <th className="px-4 py-2 font-medium">Reenvio</th>
-            </tr>
-          </thead>
-          <tbody>
+      {filtered.length === 0 ? (
+        <div className="card px-4 py-6 text-center text-neutral-400 dark:text-neutral-500">
+          Nenhum destinatário encontrado.
+        </div>
+      ) : (
+        <>
+          {/* Mobile: cards */}
+          <div className="space-y-2 lg:hidden">
             {filtered.map((r) => (
-              <tr key={r.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{r.contactName}</td>
-                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactJobTitle ?? "—"}</td>
-                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactPhone ?? "—"}</td>
-                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
-                  {r.scriptName ?? "—"}
-                  {r.followUpScriptName && (
-                    <p className="text-xs text-neutral-400 dark:text-neutral-500">Reenvio: {r.followUpScriptName}</p>
-                  )}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[r.status]}`}>
+              <div key={r.id} className="card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{r.contactName}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[r.status]}`}>
                     {STATUS_LABELS[r.status]}
                   </span>
-                  {r.error && <p className="mt-0.5 text-xs text-red-500">{r.error}</p>}
-                </td>
-                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
-                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.repliedAt)}</td>
-                <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.followUpSentAt)}</td>
-              </tr>
+                </div>
+                {r.error && <p className="mt-0.5 text-xs text-red-500">{r.error}</p>}
+                <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+                  <p>Cargo: {r.contactJobTitle ?? "—"}</p>
+                  <p>Telefone: {r.contactPhone ?? "—"}</p>
+                  <p>
+                    Script: {r.scriptName ?? "—"}
+                    {r.followUpScriptName && (
+                      <span className="block text-xs text-neutral-400 dark:text-neutral-500">Reenvio: {r.followUpScriptName}</span>
+                    )}
+                  </p>
+                  <p>Enviada em: {formatDateTime(r.sentAt)}</p>
+                  <p>Respondeu em: {formatDateTime(r.repliedAt)}</p>
+                  <p>Reenvio em: {formatDateTime(r.followUpSentAt)}</p>
+                </div>
+              </div>
             ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-neutral-400 dark:text-neutral-500">
-                  Nenhum destinatário encontrado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          {/* Desktop: table */}
+          <div className="card hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
+                  <th className="px-4 py-2 font-medium">Contato</th>
+                  <th className="px-4 py-2 font-medium">Cargo</th>
+                  <th className="px-4 py-2 font-medium">Telefone</th>
+                  <th className="px-4 py-2 font-medium">Script</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Enviada em</th>
+                  <th className="px-4 py-2 font-medium">Respondeu em</th>
+                  <th className="px-4 py-2 font-medium">Reenvio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr key={r.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
+                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{r.contactName}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactJobTitle ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactPhone ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
+                      {r.scriptName ?? "—"}
+                      {r.followUpScriptName && (
+                        <p className="text-xs text-neutral-400 dark:text-neutral-500">Reenvio: {r.followUpScriptName}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[r.status]}`}>
+                        {STATUS_LABELS[r.status]}
+                      </span>
+                      {r.error && <p className="mt-0.5 text-xs text-red-500">{r.error}</p>}
+                    </td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.repliedAt)}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.followUpSentAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

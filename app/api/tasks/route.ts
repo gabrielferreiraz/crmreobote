@@ -81,6 +81,13 @@ export async function POST(req: Request) {
       if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
     }
 
+    if (ownerId) {
+      const membership = await prisma.organizationUser.findUnique({
+        where: { organizationId_userId: { organizationId, userId: ownerId } },
+      });
+      if (!membership) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
+    }
+
     const task = await prisma.task.create({
       data: {
         organizationId,

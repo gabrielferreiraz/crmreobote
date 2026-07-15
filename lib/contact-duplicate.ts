@@ -5,7 +5,7 @@ export async function findDuplicateContact(
   phoneNormalized: string | null,
   whatsappNormalized: string | null,
   excludeId?: string,
-): Promise<{ message: string } | null> {
+): Promise<{ message: string; contactId: string } | null> {
   if (!phoneNormalized && !whatsappNormalized) return null;
 
   const existing = await prisma.contact.findFirst({
@@ -22,7 +22,7 @@ export async function findDuplicateContact(
   if (!existing) return null;
 
   if (phoneNormalized && existing.phoneNormalized === phoneNormalized) {
-    return { message: `Já existe um contato com esse telefone: ${existing.name}.` };
+    return { message: `Já existe um contato com esse telefone: ${existing.name}.`, contactId: existing.id };
   }
-  return { message: `Já existe um contato com esse WhatsApp: ${existing.name}.` };
+  return { message: `Já existe um contato com esse WhatsApp: ${existing.name}.`, contactId: existing.id };
 }

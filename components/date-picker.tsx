@@ -154,7 +154,11 @@ export function DatePicker({
                         : inMonth
                           ? "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                           : "text-neutral-300 hover:bg-neutral-50 dark:text-neutral-700 dark:hover:bg-neutral-800/50"
-                    } ${isToday && !isSelected ? "font-semibold" : ""}`}
+                    } ${
+                      isToday && !isSelected
+                        ? "font-semibold text-neutral-900 ring-1 ring-inset ring-neutral-900 dark:text-neutral-100 dark:ring-white"
+                        : ""
+                    }`}
                   >
                     {day.getDate()}
                   </button>

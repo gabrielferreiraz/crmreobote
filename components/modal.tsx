@@ -23,7 +23,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 dark:bg-neutral-950/60 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 p-4 dark:bg-neutral-950/60 backdrop-blur-md"
       style={{ animation: "modal-backdrop-in 150ms ease-out" }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();

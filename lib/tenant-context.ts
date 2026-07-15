@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Prisma } from "@/app/generated/prisma/client";
 
-type TenantStore = { organizationId?: string; userId?: string; instanceName?: string };
+type TenantStore = { organizationId?: string; userId?: string; instanceName?: string; apiKeyHash?: string };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
 // o Next.js pode empacotar este módulo mais de uma vez em contextos diferentes
@@ -24,6 +24,10 @@ export function getCurrentUserId(): string | undefined {
 
 export function getCurrentInstanceName(): string | undefined {
   return storage.getStore()?.instanceName;
+}
+
+export function getCurrentApiKeyHash(): string | undefined {
+  return storage.getStore()?.apiKeyHash;
 }
 
 /**
@@ -63,6 +67,19 @@ export function runWithTenantUser<T>(userId: string, fn: () => Promise<T>): Prom
  */
 export function runWithInstanceLookup<T>(instanceName: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ instanceName }, async () => await fn());
+}
+
+/**
+ * Mesma ideia, mas pra autenticação por API key (lib/require-api-key.ts):
+ * a requisição de um integrador externo só traz a chave (convertida em hash
+ * antes de chegar aqui — nunca guardamos/comparamos a chave em texto puro),
+ * o organizationId ainda precisa ser descoberto a partir dela. A policy de
+ * RLS de ApiKey permite achar a própria linha por keyHash, mesmo sem
+ * organizationId definido — igual ao WhatsAppInstance permite achar a
+ * própria linha por instanceName.
+ */
+export function runWithApiKeyLookup<T>(keyHash: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ apiKeyHash: keyHash }, async () => await fn());
 }
 
 /**

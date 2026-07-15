@@ -29,6 +29,9 @@ model Organization {
   whatsappMessages  WhatsAppMessage[]
   campaigns         Campaign[]
   messageScripts    MessageScript[]
+  apiKeys           ApiKey[]
+  webhookSubscriptions WebhookSubscription[]
+  webhookDeliveries WebhookDelivery[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -55,6 +58,8 @@ model User {
   campaignsCreated         Campaign[]
   messageScripts           MessageScript[]
   googleCalendarConnection GoogleCalendarConnection?
+  apiKeysCreated           ApiKey[]
+  webhookSubscriptionsCreated WebhookSubscription[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -548,6 +553,10 @@ model Contact {
   state              String?
   zipCode            String?
   tags               String[] @default([])
+  // Dado livre vindo de integração externa (/api/v1/contacts) que não mapeia
+  // pra nenhum campo conhecido — guardado como veio, só exibido, sem UI de
+  // gestão de schema por organização (fora de escopo).
+  customFields       Json?
   createdAt          DateTime @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -748,4 +757,60 @@ enum AutomationAction {
   SEND_PUSH
   SEND_WHATSAPP
   SEND_EMAIL
+}
+
+// ─── Integrações externas (API keys + webhooks de saída) ─────────────
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  keyPrefix      String
+  keyHash        String    @unique
+  createdById    String
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id])
+
+  @@index([organizationId])
+}
+
+model WebhookSubscription {
+  id             String   @id @default(cuid())
+  organizationId String
+  url            String
+  secret         String
+  events         String[]
+  active         Boolean  @default(true)
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User              @relation(fields: [createdById], references: [id])
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId])
+}
+
+model WebhookDelivery {
+  id             String   @id @default(cuid())
+  organizationId String
+  subscriptionId String
+  event          String
+  payload        Json
+  status         String   @default("PENDING")
+  attempts       Int      @default(0)
+  nextAttemptAt  DateTime @default(now())
+  responseStatus Int?
+  responseBody   String?
+  createdAt      DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, subscriptionId])
+  @@index([status, nextAttemptAt])
 }

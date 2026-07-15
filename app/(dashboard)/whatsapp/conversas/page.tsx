@@ -21,9 +21,13 @@ export default async function ConversasPage() {
     // próprias mensagens) — sem WhatsApp conectado não tem o que configurar.
     const myInstance = await prisma.whatsAppInstance.findUnique({
       where: { organizationId_userId: { organizationId, userId } },
-      select: { notifyOnCrmMessage: true, notifyOnGeralMessage: true },
+      select: { notifyOnCrmMessage: true, notifyOnGeralMessage: true, status: true },
     });
     const notificationPrefs = myInstance ?? { notifyOnCrmMessage: true, notifyOnGeralMessage: true };
+    // Sem instância própria conectada, quem está vendo a tela não consegue
+    // mandar mensagem nenhuma — a área de chat avisa isso no lugar de
+    // "Selecione uma conversa" (ver ConversationsView).
+    const myWhatsappConnected = myInstance?.status === "CONNECTED";
 
     return (
       <div className="flex h-full flex-col gap-4">
@@ -33,6 +37,7 @@ export default async function ConversasPage() {
           currentUserPhotoUrl={currentUserPhotoUrl}
           currentUserId={userId}
           notificationPrefs={notificationPrefs}
+          whatsappConnected={myWhatsappConnected}
         />
         <div className="min-h-0 flex-1 lg:hidden">
           <ConversationsMobile

@@ -1,6 +1,11 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { getCurrentOrganizationId, getCurrentUserId, getCurrentInstanceName } from "@/lib/tenant-context";
+import {
+  getCurrentOrganizationId,
+  getCurrentUserId,
+  getCurrentInstanceName,
+  getCurrentApiKeyHash,
+} from "@/lib/tenant-context";
 
 function createBaseClient() {
   const adapter = new PrismaPg(
@@ -40,6 +45,11 @@ function createBaseClient() {
  * do Evolution API (lib/whatsapp/webhook.ts): a requisição só traz o
  * instanceName, e a policy de WhatsAppInstance permite achar a própria linha
  * por ele antes de conhecer o organizationId.
+ *
+ * `app.current_api_key_hash` é o mesmo tipo de bootstrap, só que pra
+ * autenticação de integração externa (lib/require-api-key.ts): a requisição
+ * só traz o hash da API key, e a policy de ApiKey permite achar a própria
+ * linha por ele antes de conhecer o organizationId.
  */
 function withTenantRls(client: PrismaClient) {
   return client.$extends({
@@ -50,7 +60,8 @@ function withTenantRls(client: PrismaClient) {
           const organizationId = getCurrentOrganizationId();
           const userId = getCurrentUserId();
           const instanceName = getCurrentInstanceName();
-          if (!organizationId && !userId && !instanceName) return query(args);
+          const apiKeyHash = getCurrentApiKeyHash();
+          if (!organizationId && !userId && !instanceName && !apiKeyHash) return query(args);
 
           // Importante: tem que ser a forma em array do $transaction, não
           // `$transaction(async (tx) => ...)`. Na forma de callback, `query(args)`
@@ -65,11 +76,12 @@ function withTenantRls(client: PrismaClient) {
           // folga, várias consultas em paralelo (ex.: a Home, que dispara ~9 de
           // uma vez) estouram o prazo padrão logo após o dev server reiniciar,
           // com o pool ainda frio.
-          const [, , , result] = await client.$transaction(
+          const [, , , , result] = await client.$transaction(
             [
               client.$executeRaw`SELECT set_config('app.current_organization_id', ${organizationId ?? ""}, true)`,
               client.$executeRaw`SELECT set_config('app.current_user_id', ${userId ?? ""}, true)`,
               client.$executeRaw`SELECT set_config('app.current_instance_name', ${instanceName ?? ""}, true)`,
+              client.$executeRaw`SELECT set_config('app.current_api_key_hash', ${apiKeyHash ?? ""}, true)`,
               query(args),
             ],
             { maxWait: 10_000, timeout: 15_000 },

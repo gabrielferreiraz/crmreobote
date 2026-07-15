@@ -36,8 +36,12 @@ export async function POST(req: Request) {
   if (!email || !role) {
     return NextResponse.json({ error: "email e role são obrigatórios" }, { status: 400 });
   }
-  if (role === "OWNER" && access.role !== "OWNER") {
-    return NextResponse.json({ error: "Apenas o dono pode promover a dono" }, { status: 403 });
+  // Gerente convida só papéis abaixo do próprio (Supervisor/Consultor) — sem
+  // isso, um Gerente podia se auto-promover em dobro criando outro Gerente
+  // (ou até um Dono) via convite, contornando a regra que a edição de papel
+  // existente já aplica (PATCH em [userId]/route.ts é OWNER-only).
+  if ((role === "OWNER" || role === "MANAGER") && access.role !== "OWNER") {
+    return NextResponse.json({ error: "Apenas o dono pode convidar com esse papel" }, { status: 403 });
   }
 
   return runWithTenant(access.organizationId, async () => {

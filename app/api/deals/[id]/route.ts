@@ -6,6 +6,7 @@ import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
+import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -140,9 +141,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (status === "WON") {
         const valueSuffix = deal.value != null ? ` · ${formatCurrency(Number(deal.value))}` : "";
         systemBodies.push(`marcou o negócio como ganho${valueSuffix}`);
+        enqueueWebhookEvent(organizationId, "deal.won", buildDealWebhookPayload(deal)).catch((err) =>
+          console.error("[webhooks] falha ao enfileirar deal.won", err),
+        );
       } else if (status === "LOST") {
         const reasonSuffix = lossReasonLabel ? ` · ${lossReasonLabel}` : "";
         systemBodies.push(`marcou o negócio como perdido${reasonSuffix}`);
+        enqueueWebhookEvent(organizationId, "deal.lost", buildDealWebhookPayload(deal)).catch((err) =>
+          console.error("[webhooks] falha ao enfileirar deal.lost", err),
+        );
       } else if (status === "OPEN") {
         systemBodies.push("reabriu o negócio");
       }
