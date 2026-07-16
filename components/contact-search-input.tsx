@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Search, X, UserPlus, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
+import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
 type ContactOption = { id: string; name: string; email?: string | null; phone?: string | null };
 
@@ -35,15 +37,16 @@ export function ContactSearchInput({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [quickCreateQuery, setQuickCreateQuery] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dropdownOpen = open && !!query.trim();
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const coords = useFloatingDropdown({
+    open: dropdownOpen,
+    onClose: () => setOpen(false),
+    triggerRef,
+    panelRef,
+  });
 
   useEffect(() => {
     if (!query.trim()) return;
@@ -98,7 +101,7 @@ export function ContactSearchInput({
   }
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={triggerRef} className="relative">
       <Search
         className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
         strokeWidth={2}
@@ -119,43 +122,53 @@ export function ContactSearchInput({
         className="field-input pl-8"
       />
 
-      {open && query.trim() && (
-        <div className="surface-glass animate-pop-in scrollbar-thin absolute z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-md shadow-lg">
-          {loading ? (
-            <p className="px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">Buscando...</p>
-          ) : (
-            <>
-              {results.length === 0 ? (
-                <p className="px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">Nenhum contato encontrado.</p>
-              ) : (
-                results.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => select(c)}
-                    className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                  >
-                    <span className="truncate font-medium text-neutral-900 dark:text-neutral-100">{c.name}</span>
-                    {(c.email || c.phone) && (
-                      <span className="truncate text-xs text-neutral-400 dark:text-neutral-500">
-                        {c.email ?? c.phone}
-                      </span>
-                    )}
-                  </button>
-                ))
-              )}
-              <button
-                type="button"
-                onClick={() => setQuickCreateQuery(query.trim())}
-                className="flex w-full items-center gap-2 border-t border-neutral-200 dark:border-neutral-800 px-3 py-2 text-left text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-              >
-                <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                <span className="truncate">Adicionar &quot;{query.trim()}&quot;</span>
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {dropdownOpen &&
+        coords &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="surface-glass animate-pop-in scrollbar-thin fixed z-40 max-h-56 overflow-y-auto rounded-md shadow-lg"
+            style={{ top: coords.top, left: coords.left, width: coords.width }}
+          >
+            {loading ? (
+              <p className="px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">Buscando...</p>
+            ) : (
+              <>
+                {results.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">
+                    Nenhum contato encontrado.
+                  </p>
+                ) : (
+                  results.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => select(c)}
+                      className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                    >
+                      <span className="truncate font-medium text-neutral-900 dark:text-neutral-100">{c.name}</span>
+                      {(c.email || c.phone) && (
+                        <span className="truncate text-xs text-neutral-400 dark:text-neutral-500">
+                          {c.email ?? c.phone}
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )}
+                <button
+                  type="button"
+                  onClick={() => setQuickCreateQuery(query.trim())}
+                  className="flex w-full items-center gap-2 border-t border-neutral-200 dark:border-neutral-800 px-3 py-2 text-left text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                >
+                  <UserPlus className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                  <span className="truncate">Adicionar &quot;{query.trim()}&quot;</span>
+                </button>
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
 
       {quickCreateQuery !== null && (
         <QuickCreateContactModal

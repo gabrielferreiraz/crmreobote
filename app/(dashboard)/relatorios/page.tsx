@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -639,14 +640,16 @@ export default async function RelatoriosPage({
 
   const whatsappStats = whatsappInstances.map((inst) => {
     const sent = sentByInstance.find((s) => s.instanceId === inst.id)?._count ?? 0;
-    // Contatos únicos abordados/que responderam — não mensagens. "sent" acima
-    // conta linha de mensagem (várias por contato, se houver follow-up); usar
-    // esse número como denominador da taxa de resposta subestimava a taxa
-    // pra qualquer vendedor que manda mais de uma mensagem por lead. Taxa de
-    // resposta e conversão precisam do mesmo universo (contato contatado).
-    const contactedContacts = new Set(
-      outboundPairs
-        .filter((p) => p.instanceId === inst.id)
+    const outboundForInst = outboundPairs.filter((p) => p.instanceId === inst.id);
+    // Denominador da taxa de resposta "Geral" precisa do MESMO universo do
+    // numerador (inboundPairs, que exclui thread de negócio — ver
+    // generalThreadIds acima) e de "sent" (sentByInstance, idem) — usar
+    // outboundPairs inteiro aqui (que de propósito INCLUI thread de negócio,
+    // pra alimentar conversão) infla o denominador com contato que nunca
+    // pode aparecer no numerador, subestimando a taxa de resposta.
+    const generalContactedContacts = new Set(
+      outboundForInst
+        .filter((p) => !dealThreadIdSet.has(p.threadId))
         .map((p) => contactIdByThread.get(p.threadId))
         .filter((id): id is string => !!id),
     );
@@ -656,10 +659,17 @@ export default async function RelatoriosPage({
         .map((p) => contactIdByThread.get(p.threadId))
         .filter((id): id is string => !!id),
     ).size;
-    const replyRate = contactedContacts.size > 0 ? Math.round((repliedContacts / contactedContacts.size) * 100) : 0;
-    const convertedForInst = Array.from(contactedContacts).filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
+    const replyRate =
+      generalContactedContacts.size > 0 ? Math.round((repliedContacts / generalContactedContacts.size) * 100) : 0;
+    // Conversão em venda propositalmente olha TODO contato abordado
+    // organicamente (inclusive quem já é thread de negócio) — ver comentário
+    // na query de organicOutboundPairs.
+    const allContactedContacts = new Set(
+      outboundForInst.map((p) => contactIdByThread.get(p.threadId)).filter((id): id is string => !!id),
+    );
+    const convertedForInst = Array.from(allContactedContacts).filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
     const conversionRate =
-      contactedContacts.size > 0 ? Math.round((convertedForInst / contactedContacts.size) * 100) : 0;
+      allContactedContacts.size > 0 ? Math.round((convertedForInst / allContactedContacts.size) * 100) : 0;
     const campaignStats = campaignStatsByInstance.get(inst.id) ?? { sent: 0, replied: 0 };
     const campaignReplyRate =
       campaignStats.sent > 0 ? Math.round((campaignStats.replied / campaignStats.sent) * 100) : 0;
@@ -672,7 +682,7 @@ export default async function RelatoriosPage({
       name: inst.user.name,
       connected: inst.status === "CONNECTED",
       sent,
-      contacted: contactedContacts.size,
+      contacted: generalContactedContacts.size,
       replied: repliedContacts,
       replyRate,
       conversionRate,
@@ -1018,7 +1028,7 @@ export default async function RelatoriosPage({
             description="Geral (fora de negócio), prospecção fria (campanhas), prospecção manual (1ª mensagem sua pra um lead novo) e conversas de negócio — cada mensagem conta numa categoria só."
           />
 
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {sellerWhatsappCards.map((w) => (
               <div key={w.userId} className="card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1026,53 +1036,62 @@ export default async function RelatoriosPage({
                     <Avatar name={w.name} size="sm" />
                     <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{w.name}</h3>
                   </div>
-                  <span
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      w.connected
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                        : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-                    }`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${w.connected ? "bg-emerald-500" : "bg-neutral-400"}`} />
-                    {w.connected ? "Conectado" : "Desconectado"}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {/* Métrica de resultado (venda fechada), não de atividade — por isso fica
+                        no cabeçalho do card, fora dos painéis abaixo (que são só volume de
+                        mensagem por categoria). Ela soma contato de qualquer categoria, então
+                        dentro de um painel específico ia parecer que só aquela categoria conta. */}
+                    <span className="inline-flex items-baseline gap-1.5 text-sm" title="% dos contatos abordados organicamente que fecharam negócio no período">
+                      <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{w.conversionRate}%</span>
+                      <span className="text-xs text-neutral-400 dark:text-neutral-500">conversão em venda</span>
+                    </span>
+                    <span className="h-4 w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        w.connected
+                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                          : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                      }`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${w.connected ? "bg-emerald-500" : "bg-neutral-400"}`} />
+                      {w.connected ? "Conectado" : "Desconectado"}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="mt-2.5 flex flex-wrap items-baseline gap-x-5 gap-y-1.5">
-                  <StatItem value={w.sent} label="enviadas" />
-                  <StatItem value={w.replied} label={`responderam${w.contacted > 0 ? ` · ${w.replyRate}%` : ""}`} />
-                  <StatItem value={`${w.conversionRate}%`} label="conversão em venda" accent="emerald" />
+                <div className="mt-3 flex flex-wrap gap-2.5">
+                  <SellerStatPanel title="Geral" dot="neutral">
+                    <MiniStat value={w.sent} label="enviadas" />
+                    <MiniStat value={`${w.replyRate}%`} label="resposta" />
+                  </SellerStatPanel>
 
                   {w.campaignSent > 0 && (
-                    <>
-                      <StatDivider />
-                      <StatItem value={w.campaignSent} label="prospecção fria (campanha)" accent="violet" />
-                      <StatItem value={`${w.campaignReplyRate}%`} label="resposta" accent="violet" />
-                    </>
+                    <SellerStatPanel title="Prospecção fria" dot="violet">
+                      <MiniStat value={w.campaignSent} label="enviadas" />
+                      <MiniStat value={`${w.campaignReplyRate}%`} label="resposta" />
+                    </SellerStatPanel>
                   )}
 
                   {w.manualProspectSent > 0 && (
-                    <>
-                      <StatDivider />
-                      <StatItem value={w.manualProspectSent} label="prospecção manual" accent="amber" />
-                      <StatItem value={`${w.manualProspectReplyRate}%`} label="resposta" accent="amber" />
-                    </>
+                    <SellerStatPanel title="Prospecção manual" dot="amber">
+                      <MiniStat value={w.manualProspectSent} label="enviadas" />
+                      <MiniStat value={`${w.manualProspectReplyRate}%`} label="resposta" />
+                    </SellerStatPanel>
                   )}
 
                   {w.deal && (
-                    <>
-                      <StatDivider />
-                      <StatItem value={w.deal.conversations} label="conversas de negócio" />
-                      <StatItem value={w.deal.responseRate === null ? "—" : `${w.deal.responseRate}%`} label="resposta" />
+                    <SellerStatPanel title="Conversas de negócio" dot="emerald">
+                      <MiniStat value={w.deal.conversations} label="conversas" />
+                      <MiniStat value={w.deal.responseRate === null ? "—" : `${w.deal.responseRate}%`} label="resposta" />
                       {w.deal.avgFirstResponseMs !== null && (
-                        <StatItem value={formatDuration(w.deal.avgFirstResponseMs)} label="1ª resposta" />
+                        <MiniStat value={formatDuration(w.deal.avgFirstResponseMs)} label="1ª resposta" />
                       )}
-                      {w.deal.avgDurationMs !== null && <StatItem value={formatDuration(w.deal.avgDurationMs)} label="duração" />}
-                      <StatItem
+                      {w.deal.avgDurationMs !== null && <MiniStat value={formatDuration(w.deal.avgDurationMs)} label="duração" />}
+                      <MiniStat
                         value={w.deal.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
                         label="msgs/dia"
                       />
-                    </>
+                    </SellerStatPanel>
                   )}
                 </div>
               </div>
@@ -1170,32 +1189,46 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-const STAT_ITEM_ACCENT: Record<"neutral" | "emerald" | "violet" | "amber", string> = {
-  neutral: "text-neutral-900 dark:text-neutral-100",
-  emerald: "text-emerald-600 dark:text-emerald-400",
-  violet: "text-violet-600 dark:text-violet-400",
-  amber: "text-amber-600 dark:text-amber-400",
+const PANEL_DOT: Record<"neutral" | "emerald" | "violet" | "amber", string> = {
+  neutral: "bg-neutral-400 dark:bg-neutral-500",
+  emerald: "bg-emerald-500",
+  violet: "bg-violet-500",
+  amber: "bg-amber-500",
 };
 
-/** "234 enviadas" — número em destaque seguido do rótulo, tudo numa linha só (ver "Atividade por vendedor"). */
-function StatItem({
-  value,
-  label,
-  accent = "neutral",
+/**
+ * Agrupa as estatísticas de uma categoria (Geral / Prospecção fria /
+ * Prospecção manual / Conversas de negócio) num bloco próprio — a cor entra
+ * só como um "chip" ao lado do título (identidade da categoria), nunca
+ * tingindo o número: um texto colorido é mais difícil de ler e a mesma cor
+ * usada em várias categorias diferentes deixa de significar algo único.
+ */
+function SellerStatPanel({
+  title,
+  dot,
+  children,
 }: {
-  value: string | number;
-  label: string;
-  accent?: "neutral" | "emerald" | "violet" | "amber";
+  title: string;
+  dot: "neutral" | "emerald" | "violet" | "amber";
+  children: ReactNode;
 }) {
   return (
-    <span className="inline-flex items-baseline gap-1.5 text-sm">
-      <span className={`font-semibold tabular-nums ${STAT_ITEM_ACCENT[accent]}`}>{value}</span>
-      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
-    </span>
+    <div className="min-w-[168px] flex-1 basis-[168px] rounded-lg border border-neutral-100 p-3 dark:border-neutral-800">
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PANEL_DOT[dot]}`} />
+        <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">{title}</p>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">{children}</div>
+    </div>
   );
 }
 
-/** Separa grupos de estatísticas (geral / prospecção fria / conversas de negócio) na mesma linha. */
-function StatDivider() {
-  return <span className="hidden h-4 w-px bg-neutral-200 sm:block dark:bg-neutral-800" />;
+/** "234 enviadas" — número em destaque seguido do rótulo, dentro de um SellerStatPanel. */
+function MiniStat({ value, label }: { value: string | number; label: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5 text-sm">
+      <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</span>
+      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+    </span>
+  );
 }

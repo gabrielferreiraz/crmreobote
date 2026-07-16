@@ -36,7 +36,7 @@ export function UserMenu({
       </button>
 
       {open && (
-        <div className="surface-glass animate-pop-in absolute right-0 z-40 mt-2 w-56 rounded-lg p-1 shadow-xl">
+        <div className="surface-glass-panel animate-pop-in absolute right-0 z-40 mt-2 w-56 rounded-lg p-1">
           <div className="flex items-center gap-2.5 px-2.5 py-2">
             <Avatar name={name} src={photoUrl} size="md" />
             <div className="min-w-0 flex-1">

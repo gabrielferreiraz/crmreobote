@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
 export type SelectOption = { value: string; label: string; disabled?: boolean };
 
@@ -23,28 +25,21 @@ export function Select({
   autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.value === value);
 
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingDropdown({
+    open,
+    onClose: () => setOpen(false),
+    triggerRef,
+    panelRef,
+  });
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         autoFocus={autoFocus}
@@ -66,34 +61,40 @@ export function Select({
         />
       </button>
 
-      {open && (
-        <div
-          role="listbox"
-          className="surface-glass animate-pop-in scrollbar-thin absolute z-30 mt-1 max-h-56 min-w-full overflow-y-auto rounded-md p-1 shadow-lg"
-        >
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              role="option"
-              aria-selected={opt.value === value}
-              disabled={opt.disabled}
-              onClick={() => {
-                onChange(opt.value);
-                setOpen(false);
-              }}
-              className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                opt.value === value
-                  ? "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
-                  : "text-neutral-600 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800/60"
-              }`}
-            >
-              <span className="truncate">{opt.label}</span>
-              {opt.value === value && <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      {open &&
+        coords &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="listbox"
+            className="surface-glass animate-pop-in scrollbar-thin fixed z-50 max-h-56 overflow-y-auto rounded-md p-1 shadow-lg"
+            style={{ top: coords.top, left: coords.left, width: coords.width }}
+          >
+            {options.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={opt.value === value}
+                disabled={opt.disabled}
+                onClick={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  opt.value === value
+                    ? "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+                    : "text-neutral-600 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800/60"
+                }`}
+              >
+                <span className="truncate">{opt.label}</span>
+                {opt.value === value && <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

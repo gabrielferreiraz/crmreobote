@@ -51,7 +51,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex h-screen flex-col overflow-hidden bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <MobileHeader photoUrl={photoUrl} name={session.user.name ?? session.user.email ?? "?"} />
 
-      <header className="surface-glass hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
+      <header className="surface-glass relative z-30 hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-sm font-semibold text-white dark:bg-white dark:text-neutral-900">
             C

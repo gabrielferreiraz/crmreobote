@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
+import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
 const TIME_STEP_MINUTES = 15;
 
@@ -31,24 +33,16 @@ export function TimePicker({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingDropdown({
+    open,
+    onClose: () => setOpen(false),
+    triggerRef,
+    panelRef,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -70,8 +64,9 @@ export function TimePicker({
   }
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
@@ -85,46 +80,54 @@ export function TimePicker({
         </span>
       </button>
 
-      {open && (
-        <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-32 rounded-md p-1 shadow-lg">
-          <div ref={listRef} className="scrollbar-thin max-h-48 overflow-y-auto">
-            {TIMES.map((t) => (
+      {open &&
+        coords &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="surface-glass animate-pop-in fixed z-50 w-32 rounded-md p-1 shadow-lg"
+            style={{ top: coords.top, left: coords.left }}
+          >
+            <div ref={listRef} className="scrollbar-thin max-h-48 overflow-y-auto">
+              {TIMES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  data-selected={t === value}
+                  onClick={() => selectTime(t)}
+                  className={`w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
+                    t === value
+                      ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                      : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="mt-1 flex items-center justify-between border-t border-neutral-200/60 pt-1 text-xs dark:border-neutral-800/60">
               <button
-                key={t}
                 type="button"
-                data-selected={t === value}
-                onClick={() => selectTime(t)}
-                className={`w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
-                  t === value
-                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                    : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                }`}
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+                className="px-1.5 py-1 font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
               >
-                {t}
+                Limpar
               </button>
-            ))}
-          </div>
-          <div className="mt-1 flex items-center justify-between border-t border-neutral-200/60 pt-1 text-xs dark:border-neutral-800/60">
-            <button
-              type="button"
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              className="px-1.5 py-1 font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Limpar
-            </button>
-            <button
-              type="button"
-              onClick={selectNow}
-              className="px-1.5 py-1 font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Agora
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+              <button
+                type="button"
+                onClick={selectNow}
+                className="px-1.5 py-1 font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+              >
+                Agora
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

@@ -10,7 +10,7 @@ import { Avatar } from "@/components/avatar";
  */
 export function MobileHeader({ photoUrl, name }: { photoUrl: string | null; name: string }) {
   return (
-    <header className="surface-glass flex h-14 shrink-0 items-center gap-2 border-x-0 border-t-0 px-4 lg:hidden">
+    <header className="surface-glass relative z-30 flex h-14 shrink-0 items-center gap-2 border-x-0 border-t-0 px-4 lg:hidden">
       <Link href="/" className="flex shrink-0 items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-sm font-semibold text-white dark:bg-white dark:text-neutral-900">
           C
