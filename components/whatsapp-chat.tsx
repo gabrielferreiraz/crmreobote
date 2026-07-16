@@ -69,6 +69,33 @@ type Message = {
   replyTo?: QuotedMessage | null;
 };
 
+type ThreadPresence = {
+  status: "available" | "unavailable" | "composing" | "recording" | "paused" | null;
+  updatedAt: string | null;
+  lastSeenAt: string | null;
+};
+
+/**
+ * Rótulo de presença pro cabeçalho do chat — só existe quando já recebemos
+ * pelo menos 1 atualização real (ver handlePresenceUpdate em
+ * lib/whatsapp/events.ts); antes disso, ou se o contato tiver privacidade
+ * restrita, nunca chega nada e o cabeçalho cai no telefone/"WhatsApp" de
+ * sempre (ver chamador). "Visto por último" é aproximado (quando passou pra
+ * "unavailable"), quase nunca é o horário oficial do WhatsApp — ver
+ * comentário no schema.
+ */
+function presenceLabel(presence: ThreadPresence | null): { text: string; online: boolean } | null {
+  if (!presence?.status) return null;
+  if (presence.status === "composing") return { text: "digitando…", online: true };
+  if (presence.status === "recording") return { text: "gravando áudio…", online: true };
+  if (presence.status === "available") return { text: "online", online: true };
+
+  const seenAt = presence.lastSeenAt ?? presence.updatedAt;
+  if (!seenAt) return null;
+  const time = new Date(seenAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return { text: `visto por último às ${time}`, online: false };
+}
+
 const QUOTE_PREVIEW_FALLBACK: Record<string, string> = {
   IMAGE: "📷 Imagem",
   AUDIO: "🎵 Áudio",
@@ -309,6 +336,7 @@ export function ChatWindow({
   backMode?: boolean;
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
+  const [presence, setPresence] = useState<ThreadPresence | null>(null);
   const [contactPhotoUrl, setContactPhotoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -358,7 +386,11 @@ export function ChatWindow({
   async function load() {
     try {
       const res = await fetch(`/api/whatsapp/messages/${threadId}`);
-      if (res.ok) setMessages(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.messages);
+        setPresence(data.presence);
+      }
     } catch {
       // Silencioso: se a conversa não carregar, o componente simplesmente não aparece.
     }
@@ -465,7 +497,18 @@ export function ChatWindow({
               {contactName ?? "Conversa"}
               <WhatsAppIcon className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
             </h2>
-            <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>
+            {(() => {
+              const label = presenceLabel(presence);
+              if (!label) {
+                return <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>;
+              }
+              return (
+                <p className="flex items-center gap-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                  {label.online && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
+                  {label.text}
+                </p>
+              );
+            })()}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">

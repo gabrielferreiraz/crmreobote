@@ -8,6 +8,7 @@ import {
   handleConnectionUpdate,
   handleIncomingCall,
   handleHistorySync,
+  handlePresenceUpdate,
 } from "@/lib/whatsapp/events";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +69,8 @@ export async function POST(req: NextRequest) {
       // histórico direto (ver lib/whatsapp/events.ts) em vez de confiar no
       // formato deste payload, que pode vir em pedaços num sync grande.
       await handleHistorySync(instance);
+    } else if (event === "presence.update") {
+      await handlePresenceUpdate(instance, data);
     } else {
       console.log(`[wa:webhook] evento "${event}" recebido mas não tratado (nenhum handler pra ele ainda)`);
     }

@@ -179,6 +179,18 @@ model WhatsAppThread {
   profilePicUrl       String?
   profilePicFetchedAt DateTime?
 
+  // Presença (online/digitando/visto por último) — só chega via webhook
+  // depois que a gente se inscreve (ver lib/evolution.ts's sendPresence e
+  // app/api/whatsapp/messages/[threadId]/route.ts, que renova a inscrição
+  // periodicamente enquanto o chat está aberto). presenceStatus é um de
+  // "available"/"unavailable"/"composing"/"recording"/"paused"; lastSeenAt
+  // raramente vem preenchido (depende da privacidade de quem está do outro
+  // lado) — na prática "visto por último" é aproximado por presenceUpdatedAt.
+  presenceStatus       String?
+  presenceUpdatedAt    DateTime?
+  lastSeenAt           DateTime?
+  presenceSubscribedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

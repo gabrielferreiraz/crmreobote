@@ -18,7 +18,14 @@
 // após escanear o QR Code (o WhatsApp manda esse histórico de propósito
 // nesse momento, via protocolo multi-device) — usado como gatilho pra
 // importar as conversas anteriores (ver lib/whatsapp/events.ts).
-export const WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "MESSAGES_SET", "CONNECTION_UPDATE", "CALL"];
+export const WEBHOOK_EVENTS = [
+  "MESSAGES_UPSERT",
+  "MESSAGES_UPDATE",
+  "MESSAGES_SET",
+  "CONNECTION_UPDATE",
+  "CALL",
+  "PRESENCE_UPDATE",
+];
 
 export class EvolutionApiError extends Error {
   constructor(
@@ -164,6 +171,25 @@ export async function getConnectionState(instanceName: string): Promise<Connecti
   const state = data.instance?.state;
   if (state === "open" || state === "connecting") return state;
   return "close";
+}
+
+/**
+ * O efeito que a gente quer aqui não é "mandar presença" em si — é o
+ * colateral: chamar este endpoint inscreve a instância pra receber as
+ * atualizações de presença DESSE número via o evento de webhook
+ * PRESENCE_UPDATE daqui em diante (confirmado no código-fonte do serviço
+ * Baileys do próprio Evolution: o handler de sendPresence chama
+ * `presenceSubscribe` antes de mandar a atualização). Não existe endpoint
+ * separado só de "assinar" — e a inscrição não é permanente, por isso quem
+ * chama isso (ver app/api/whatsapp/messages/[threadId]/route.ts) precisa
+ * renovar periodicamente enquanto o chat estiver aberto. Sempre usamos
+ * `presence: "available"` do nosso lado — nunca fingimos estar digitando.
+ */
+export async function sendPresence(instanceName: string, number: string): Promise<void> {
+  await request(`/chat/sendPresence/${encodeURIComponent(instanceName)}`, {
+    method: "POST",
+    body: JSON.stringify({ number, presence: "available" }),
+  });
 }
 
 /**

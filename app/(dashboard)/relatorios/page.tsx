@@ -1,4 +1,4 @@
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Bot, Send, Reply, TrendingUp } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
@@ -922,16 +922,16 @@ export default async function RelatoriosPage({
             description="Envio geral, prospecção fria (campanhas em listas importadas) e conversas já vinculadas a negócio."
           />
 
-          <div className="space-y-4">
+          <div className="space-y-2.5">
             {sellerWhatsappCards.map((w) => (
-              <div key={w.userId} className="card p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
+              <div key={w.userId} className="card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
                     <Avatar name={w.name} size="sm" />
                     <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{w.name}</h3>
                   </div>
                   <span
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       w.connected
                         ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
                         : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
@@ -942,67 +942,35 @@ export default async function RelatoriosPage({
                   </span>
                 </div>
 
-                <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <MetricTile icon={Send} label="Mensagens enviadas" value={String(w.sent)} />
-                  <MetricTile
-                    icon={Reply}
-                    label="Responderam"
-                    value={String(w.replied)}
-                    progress={w.sent > 0 ? (w.replied / w.sent) * 100 : 0}
-                  />
-                  <MetricTile icon={TrendingUp} label="Conversão em venda" value={`${w.conversionRate}%`} accent="emerald" />
-                </div>
+                <div className="mt-2.5 flex flex-wrap items-baseline gap-x-5 gap-y-1.5">
+                  <StatItem value={w.sent} label="enviadas" />
+                  <StatItem value={w.replied} label={`responderam${w.sent > 0 ? ` · ${Math.round((w.replied / w.sent) * 100)}%` : ""}`} />
+                  <StatItem value={`${w.conversionRate}%`} label="conversão em venda" accent="emerald" />
 
-                <div className="mt-4 rounded-lg bg-violet-50/60 p-3.5 dark:bg-violet-500/[0.06]">
-                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-400">
-                    <Bot className="h-3.5 w-3.5" strokeWidth={2} />
-                    Prospecção fria · campanhas em listas importadas
-                  </p>
-                  {w.campaignSent > 0 ? (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <MetricTile icon={Send} label="Enviadas" value={String(w.campaignSent)} accent="violet" />
-                      <MetricTile
-                        icon={Reply}
-                        label="Responderam"
-                        value={String(w.campaignReplied)}
-                        accent="violet"
-                        progress={w.campaignReplyRate}
+                  {w.campaignSent > 0 && (
+                    <>
+                      <StatDivider />
+                      <StatItem value={w.campaignSent} label="prospecção enviada" accent="violet" />
+                      <StatItem value={`${w.campaignReplyRate}%`} label="resposta na prospecção" accent="violet" />
+                    </>
+                  )}
+
+                  {w.deal && (
+                    <>
+                      <StatDivider />
+                      <StatItem value={w.deal.conversations} label="conversas de negócio" />
+                      <StatItem value={w.deal.responseRate === null ? "—" : `${w.deal.responseRate}%`} label="resposta" />
+                      {w.deal.avgFirstResponseMs !== null && (
+                        <StatItem value={formatDuration(w.deal.avgFirstResponseMs)} label="1ª resposta" />
+                      )}
+                      {w.deal.avgDurationMs !== null && <StatItem value={formatDuration(w.deal.avgDurationMs)} label="duração" />}
+                      <StatItem
+                        value={w.deal.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                        label="msgs/dia"
                       />
-                      <MetricTile icon={Percent} label="Taxa de resposta" value={`${w.campaignReplyRate}%`} accent="violet" />
-                    </div>
-                  ) : (
-                    <p className="text-sm text-violet-700/70 dark:text-violet-400/70">
-                      Nenhuma campanha disparada por esse número no período.
-                    </p>
+                    </>
                   )}
                 </div>
-
-                {w.deal && (
-                  <div className="mt-4 border-t border-neutral-100 pt-3.5 dark:border-neutral-800">
-                    <p className="mb-2 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
-                      Conversas de negócio
-                    </p>
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-                      <MiniStat label="Conversas" value={String(w.deal.conversations)} small />
-                      <MiniStat label="Resposta" value={w.deal.responseRate === null ? "—" : `${w.deal.responseRate}%`} small />
-                      <MiniStat
-                        label="1ª resposta"
-                        value={w.deal.avgFirstResponseMs === null ? "—" : formatDuration(w.deal.avgFirstResponseMs)}
-                        small
-                      />
-                      <MiniStat
-                        label="Duração"
-                        value={w.deal.avgDurationMs === null ? "—" : formatDuration(w.deal.avgDurationMs)}
-                        small
-                      />
-                      <MiniStat
-                        label="Msgs/dia"
-                        value={w.deal.messagesPerDay.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-                        small
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
           </div>
@@ -1093,64 +1061,31 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-const METRIC_TILE_ACCENT: Record<"neutral" | "emerald" | "violet", { chip: string; bar: string }> = {
-  neutral: {
-    chip: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
-    bar: "bg-neutral-900 dark:bg-white",
-  },
-  emerald: {
-    chip: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
-    bar: "bg-emerald-500",
-  },
-  violet: {
-    chip: "bg-white text-violet-600 dark:bg-violet-500/10 dark:text-violet-400",
-    bar: "bg-violet-500",
-  },
+const STAT_ITEM_ACCENT: Record<"neutral" | "emerald" | "violet", string> = {
+  neutral: "text-neutral-900 dark:text-neutral-100",
+  emerald: "text-emerald-600 dark:text-emerald-400",
+  violet: "text-violet-600 dark:text-violet-400",
 };
 
-/** Ícone + número grande + rótulo, com barrinha opcional mostrando a proporção (ex.: respondidas sobre enviadas). */
-function MetricTile({
-  icon: Icon,
-  label,
+/** "234 enviadas" — número em destaque seguido do rótulo, tudo numa linha só (ver "Atividade por vendedor"). */
+function StatItem({
   value,
+  label,
   accent = "neutral",
-  progress,
 }: {
-  icon: typeof Send;
+  value: string | number;
   label: string;
-  value: string;
   accent?: "neutral" | "emerald" | "violet";
-  progress?: number;
 }) {
-  const { chip, bar } = METRIC_TILE_ACCENT[accent];
   return (
-    <div className="flex items-start gap-3">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${chip}`}>
-        <Icon className="h-4 w-4" strokeWidth={2} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
-        {progress !== undefined && (
-          <div className="mt-1.5 h-1 w-full max-w-24 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-            <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
-          </div>
-        )}
-      </div>
-    </div>
+    <span className="inline-flex items-baseline gap-1.5 text-sm">
+      <span className={`font-semibold tabular-nums ${STAT_ITEM_ACCENT[accent]}`}>{value}</span>
+      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+    </span>
   );
 }
 
-function MiniStat({ label, value, hint, small }: { label: string; value: string; hint?: string; small?: boolean }) {
-  return (
-    <div>
-      <p className={`text-neutral-500 dark:text-neutral-400 ${small ? "text-xs" : "text-sm"}`}>{label}</p>
-      <p
-        className={`mt-1 font-semibold tabular-nums text-neutral-900 dark:text-neutral-100 ${small ? "text-base" : "text-xl"}`}
-      >
-        {value}
-        {hint && <span className="ml-1 text-xs font-normal text-neutral-400 dark:text-neutral-500">({hint})</span>}
-      </p>
-    </div>
-  );
+/** Separa grupos de estatísticas (geral / prospecção fria / conversas de negócio) na mesma linha. */
+function StatDivider() {
+  return <span className="hidden h-4 w-px bg-neutral-200 sm:block dark:bg-neutral-800" />;
 }

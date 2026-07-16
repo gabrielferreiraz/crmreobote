@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
+import { sendPresence } from "@/lib/evolution";
 import { resolveChatMediaUrl } from "@/lib/r2";
 import { getDealScope } from "@/lib/team-scope";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
@@ -15,11 +16,17 @@ export const dynamic = "force-dynamic";
 // embora mensagens antigas com esse type continuem existindo no histórico.
 const VALID_TYPES: $Enums.WhatsAppMessageType[] = ["TEXT", "IMAGE", "AUDIO", "CONTACT", "PIX"];
 
+// A inscrição de presença (ver lib/evolution.ts's sendPresence) não é
+// permanente — renova nesse intervalo enquanto o chat fica aberto, meio
+// segundo de folga a menos que o poll de 4s do frontend (ver
+// components/whatsapp-chat.tsx) pra nunca ficar sem inscrição ativa.
+const PRESENCE_RESUBSCRIBE_MS = 55_000;
+
 /** Garante que a conversa é da própria organização e está dentro do escopo de quem pediu (mesma regra do Pipeline). */
 async function loadAuthorizedThread(threadId: string, organizationId: string, userId: string, role: string | undefined) {
   const thread = await prisma.whatsAppThread.findFirst({
     where: { id: threadId, organizationId },
-    include: { instance: { select: { userId: true } } },
+    include: { instance: { select: { userId: true, instanceName: true, status: true } } },
   });
   if (!thread) return { thread: null, forbidden: false };
 
@@ -77,7 +84,27 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       })),
     );
 
-    return NextResponse.json(resolved);
+    // Renova a inscrição de presença enquanto o chat fica aberto (o
+    // frontend chama esta rota a cada 4s — ver components/whatsapp-chat.tsx).
+    // Nunca aguarda nem falha a resposta principal por causa disso: é um
+    // efeito colateral best-effort (ver lib/evolution.ts's sendPresence).
+    const needsResubscribe =
+      !thread.presenceSubscribedAt || Date.now() - thread.presenceSubscribedAt.getTime() > PRESENCE_RESUBSCRIBE_MS;
+    if (thread.instance.status === "CONNECTED" && needsResubscribe) {
+      const fullNumber = `55${thread.phoneNormalized}`;
+      sendPresence(thread.instance.instanceName, fullNumber)
+        .then(() => prisma.whatsAppThread.update({ where: { id: thread.id }, data: { presenceSubscribedAt: new Date() } }))
+        .catch((err) => console.error("[wa:presence] falha ao renovar inscrição de presença", err));
+    }
+
+    return NextResponse.json({
+      messages: resolved,
+      presence: {
+        status: thread.presenceStatus,
+        updatedAt: thread.presenceUpdatedAt,
+        lastSeenAt: thread.lastSeenAt,
+      },
+    });
   });
 }
 

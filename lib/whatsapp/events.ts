@@ -477,6 +477,47 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
   }
 }
 
+const VALID_PRESENCE_STATUSES = new Set(["available", "unavailable", "composing", "recording", "paused"]);
+
+/**
+ * Presença (online/digitando/gravando áudio) — só chega depois que a gente
+ * se inscreve nesse número (ver lib/evolution.ts's sendPresence, chamado
+ * por app/api/whatsapp/messages/[threadId]/route.ts enquanto o chat está
+ * aberto). Payload cru do Baileys: `{ id: remoteJid, presences: { [jid]:
+ * { lastKnownPresence, lastSeen? } } }` — numa conversa 1:1 só tem 1
+ * participante mesmo, então pega a 1ª entrada sem procurar pelo jid exato.
+ */
+export async function handlePresenceUpdate(instance: InstanceRef, data: unknown): Promise<void> {
+  try {
+    const update = data as { id?: string; presences?: Record<string, { lastKnownPresence?: string; lastSeen?: number }> };
+    const remoteJid = update?.id;
+    if (!remoteJid || remoteJid.endsWith("@g.us")) return; // presença de grupo não nos interessa
+
+    const rawNumber = extractJidUser(remoteJid);
+    const phoneNormalized = normalizePhoneNumber(rawNumber);
+    if (!phoneNormalized) return;
+
+    const presenceInfo = Object.values(update.presences ?? {})[0];
+    if (!presenceInfo?.lastKnownPresence || !VALID_PRESENCE_STATUSES.has(presenceInfo.lastKnownPresence)) return;
+
+    const thread = await prisma.whatsAppThread.findUnique({
+      where: { instanceId_phoneNormalized: { instanceId: instance.id, phoneNormalized } },
+    });
+    if (!thread) return; // presença de alguém que nunca trocou mensagem com a gente — nada pra atualizar
+
+    await prisma.whatsAppThread.update({
+      where: { id: thread.id },
+      data: {
+        presenceStatus: presenceInfo.lastKnownPresence,
+        presenceUpdatedAt: new Date(),
+        ...(presenceInfo.lastSeen ? { lastSeenAt: new Date(presenceInfo.lastSeen * 1000) } : {}),
+      },
+    });
+  } catch (err) {
+    console.error("[wa:webhook] falha ao processar presence.update", err);
+  }
+}
+
 const ACK_STATUS_MAP: Record<string, $Enums.WhatsAppMessageStatus> = {
   "0": "FAILED",
   "1": "SENT",
