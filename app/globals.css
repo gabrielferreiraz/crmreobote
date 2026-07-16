@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* Touch/stylus (tablet) tem :hover só depois de tocar, então botões que só
+   aparecem no hover (editar, etc.) ficavam invisíveis e inalcançáveis nesses
+   dispositivos — este variant os mantém sempre visíveis em ponteiros grossos. */
+@custom-variant coarse (@media (pointer: coarse));
 
 :root {
   --background: #f9fafb;

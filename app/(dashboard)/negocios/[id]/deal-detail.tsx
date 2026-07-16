@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES } from "@/lib/activity-icons";
@@ -373,6 +374,14 @@ export function DealDetail({
     <div className="flex items-start gap-4">
       {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
       <div className="min-w-0 flex-1 space-y-6">
+      <Link
+        href="/pipeline"
+        className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
+        Pipeline
+      </Link>
+
       <div className="flex flex-col items-start justify-between gap-3 lg:flex-row">
         <div className="flex items-start gap-3">
           <Avatar name={deal.contact.name} size="lg" />
@@ -584,7 +593,7 @@ export function DealDetail({
                     <button
                       type="button"
                       onClick={() => setEditingTask(task)}
-                      className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
                       aria-label="Editar tarefa"
                     >
                       <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -824,7 +833,7 @@ export function DealDetail({
                       <button
                         type="button"
                         onClick={() => setEditingTask(task)}
-                        className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
                         aria-label="Editar tarefa"
                       >
                         <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -1161,7 +1170,7 @@ function DealValueCard({
                 setError(null);
                 setEditing(true);
               }}
-              className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
               aria-label="Editar valor do negócio"
             >
               <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -1268,7 +1277,7 @@ function CustomFieldsCard({
               setError(null);
               setEditing(true);
             }}
-            className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
             aria-label="Editar campos personalizados"
           >
             <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -1364,7 +1373,7 @@ function EditableRow({
         >
           <span className="truncate text-neutral-800 dark:text-neutral-200">{displayValue ?? (value || "—")}</span>
           <Pencil
-            className="h-3 w-3 shrink-0 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible/field:opacity-100 dark:text-neutral-500"
+            className="h-3 w-3 shrink-0 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible/field:opacity-100 coarse:opacity-100 dark:text-neutral-500"
             strokeWidth={2}
           />
         </button>

@@ -690,7 +690,7 @@ function MessageBubble({
     <button
       type="button"
       onClick={() => onReply(message)}
-      className="icon-btn h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-100"
+      className="icon-btn h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 coarse:opacity-100 max-lg:opacity-100"
       aria-label="Responder"
       title="Responder"
     >

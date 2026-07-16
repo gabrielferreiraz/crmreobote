@@ -260,7 +260,7 @@ export function MembersTable({
                     disabled={uploadingId === m.user.id}
                   >
                     <Avatar name={m.user.name} src={m.photoUrl} size="sm" />
-                    <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                    <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 coarse:opacity-100">
                       {uploadingId === m.user.id ? (
                         <Loader2 className="h-3 w-3 animate-spin text-white" strokeWidth={2} />
                       ) : (

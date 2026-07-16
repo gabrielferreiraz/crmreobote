@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
+import { SettingsBackLink } from "../configuracoes/settings-back-link";
 import { AutomationsTable } from "./automations-table";
 
 export default async function AutomacoesPage() {
@@ -58,6 +59,7 @@ export default async function AutomacoesPage() {
 
     return (
       <div className="space-y-4">
+        <SettingsBackLink />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Automações</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Regras simples que economizam horas do time</p>
