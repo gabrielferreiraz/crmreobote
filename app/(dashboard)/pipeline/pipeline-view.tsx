@@ -14,6 +14,7 @@ import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fiel
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
 type LossReasonOption = { id: string; label: string };
+type CreditTypeOption = { id: string; label: string };
 type Stage = { id: string; name: string; color: string | null; order: number };
 type PipelineOption = { id: string; name: string };
 
@@ -26,6 +27,7 @@ export function PipelineView({
   allMembers,
   lossReasons,
   customFields,
+  creditTypes,
   isOwner,
   openNewDeal,
 }: {
@@ -37,6 +39,7 @@ export function PipelineView({
   allMembers: MemberFilterOption[];
   lossReasons: LossReasonOption[];
   customFields: CustomFieldDefinitionInput[];
+  creditTypes: CreditTypeOption[];
   isOwner: boolean;
   openNewDeal?: boolean;
 }) {
@@ -133,6 +136,7 @@ export function PipelineView({
         firstStageId={stages[0]?.id}
         members={members}
         customFields={customFields}
+        creditTypes={creditTypes}
         onCreated={(deal) => setDeals((prev) => [deal, ...prev])}
         open={dealDialogOpen}
         onOpenChange={setDealDialogOpen}

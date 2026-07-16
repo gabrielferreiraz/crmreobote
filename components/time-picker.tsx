@@ -86,7 +86,7 @@ export function TimePicker({
       </button>
 
       {open && (
-        <div className="surface-glass absolute z-30 mt-1 w-32 rounded-md p-1 shadow-lg">
+        <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-32 rounded-md p-1 shadow-lg">
           <div ref={listRef} className="scrollbar-thin max-h-48 overflow-y-auto">
             {TIMES.map((t) => (
               <button

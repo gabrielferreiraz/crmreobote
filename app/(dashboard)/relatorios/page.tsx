@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
+import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, getBrazilParts } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { TrendAreaChart } from "@/components/charts/trend-area-chart";
@@ -64,8 +65,13 @@ export default async function RelatoriosPage({
   // Período do relatório — só afeta negócios DECIDIDOS (ganhos/perdidos),
   // reuniões e WhatsApp. O pipeline em aberto continua sempre "agora": não
   // faz sentido dizer que um negócio ainda aberto "é de março".
-  const rangeFrom = fromParam ? new Date(`${fromParam}T00:00:00`) : null;
-  const rangeTo = toParam ? new Date(`${toParam}T23:59:59.999`) : null;
+  // fromParam/toParam são dias civis de Brasília (calculados no navegador do
+  // usuário, ver date-range-filter.tsx) — o servidor roda em UTC (ver
+  // lib/timezone.ts), então `new Date("YYYY-MM-DDT00:00:00")` direto
+  // interpretaria como meia-noite UTC, 3h adiantada da meia-noite real de
+  // Brasília, deslocando o filtro inteiro.
+  const rangeFrom = fromParam ? brazilDateStringToUTC(fromParam) : null;
+  const rangeTo = toParam ? brazilEndOfDayUTC(toParam) : null;
   const dateWhere = (field: "closedAt" | "createdAt" | "sentAt") =>
     rangeFrom || rangeTo
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
@@ -89,10 +95,12 @@ export default async function RelatoriosPage({
   const trendStart =
     rangeFrom ??
     (() => {
-      const d = new Date(trendEnd);
-      d.setDate(1);
-      d.setMonth(d.getMonth() - 5);
-      d.setHours(0, 0, 0, 0);
+      // Dia 1 do mês (em Brasília) 5 meses antes do fim da janela — como o
+      // resultado de brazilStartOfMonth já é sempre dia 1 (sem ambiguidade
+      // de "dia inexistente" ao subtrair mês), dá pra usar setUTCMonth
+      // direto, sem reintroduzir o problema de fuso.
+      const d = brazilStartOfMonth(trendEnd);
+      d.setUTCMonth(d.getUTCMonth() - 5);
       return d;
     })();
 
@@ -165,7 +173,6 @@ export default async function RelatoriosPage({
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
   const lostCount = lostByOwner.reduce((sum, l) => sum + l._count, 0);
-  const totalDeals = openCount + wonCount + lostCount;
   // Só conta negócio já decidido (ganho ou perdido) — um negócio ainda em
   // aberto não é nem acerto nem erro, incluir ele no denominador penaliza
   // artificialmente times com pipeline saudável e cheio de negócio recente.
@@ -315,48 +322,62 @@ export default async function RelatoriosPage({
   const trendSpanDays = Math.max(1, Math.round((trendEnd.getTime() - trendStart.getTime()) / 86_400_000));
   const bucketDaily = trendSpanDays <= 31;
 
+  // Todo agrupamento por dia/mês abaixo usa o calendário de Brasília
+  // (getBrazilParts), não os getters locais do servidor (UTC) — senão um
+  // negócio fechado depois das 21h de Brasília "vaza" pro dia/mês seguinte
+  // no gráfico. trendStart já é um instante alinhado à meia-noite de
+  // Brasília (brazilDateStringToUTC/brazilStartOfMonth), então somar
+  // múltiplos de 24h nele sempre cai em outra meia-noite de Brasília (sem
+  // horário de verão no Brasil desde 2019, o offset é fixo).
   const monthTrend = bucketDaily
     ? Array.from({ length: trendSpanDays + 1 }, (_, i) => {
-        const d = new Date(trendStart);
-        d.setDate(d.getDate() + i);
+        const instant = new Date(trendStart.getTime() + i * 86_400_000);
+        const { year, month, day } = getBrazilParts(instant);
         const showLabel = i === 0 || i === trendSpanDays || i % 7 === 0;
+        const labelDate = new Date(Date.UTC(year, month, day));
         return {
-          year: d.getFullYear(),
-          month: d.getMonth(),
-          day: d.getDate() as number | undefined,
-          label: showLabel ? d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "",
+          year,
+          month,
+          day: day as number | undefined,
+          label: showLabel ? labelDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" }) : "",
           // Sempre a data cheia, mesmo nos dias em que o eixo fica sem legenda
           // (só um a cada 7 imprime `label`, senão o eixo vira poluição visual)
           // — o tooltip do gráfico precisa saber de qual dia é o ponto de
           // qualquer forma, independente do que aparece embaixo do gráfico.
-          tooltipLabel: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
+          tooltipLabel: labelDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "UTC" }),
           value: 0,
         };
       })
     : (() => {
         const buckets: { year: number; month: number; day?: number; label: string; tooltipLabel: string; value: number }[] = [];
-        const cursor = new Date(trendStart.getFullYear(), trendStart.getMonth(), 1);
-        const last = new Date(trendEnd.getFullYear(), trendEnd.getMonth(), 1);
-        while (cursor <= last) {
+        const startParts = getBrazilParts(trendStart);
+        const endParts = getBrazilParts(trendEnd);
+        let year = startParts.year;
+        let month = startParts.month;
+        while (year < endParts.year || (year === endParts.year && month <= endParts.month)) {
+          const labelDate = new Date(Date.UTC(year, month, 1));
           buckets.push({
-            year: cursor.getFullYear(),
-            month: cursor.getMonth(),
-            label: cursor.toLocaleDateString("pt-BR", { month: "short" }),
-            tooltipLabel: cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
+            year,
+            month,
+            label: labelDate.toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" }),
+            tooltipLabel: labelDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }),
             value: 0,
           });
-          cursor.setMonth(cursor.getMonth() + 1);
+          month += 1;
+          if (month > 11) {
+            month = 0;
+            year += 1;
+          }
         }
         return buckets;
       })();
 
   for (const deal of wonDealsForTrend) {
     if (!deal.closedAt) continue;
+    const parts = getBrazilParts(deal.closedAt);
     const bucket = bucketDaily
-      ? monthTrend.find(
-          (b) => b.year === deal.closedAt!.getFullYear() && b.month === deal.closedAt!.getMonth() && b.day === deal.closedAt!.getDate(),
-        )
-      : monthTrend.find((b) => b.year === deal.closedAt!.getFullYear() && b.month === deal.closedAt!.getMonth());
+      ? monthTrend.find((b) => b.year === parts.year && b.month === parts.month && b.day === parts.day)
+      : monthTrend.find((b) => b.year === parts.year && b.month === parts.month);
     if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
   }
 
@@ -412,9 +433,64 @@ export default async function RelatoriosPage({
 
   // ─── WhatsApp: enviadas, responderam e conversão por vendedor ──────────
   // "Geral" nunca conta mensagem de disparo de lista fria (campaignId
-  // setado por lib/campaigns/engine.ts) — sem essa exclusão, qualquer
-  // campanha inflava "mensagens enviadas"/"responderam" junto com conversa
-  // manual/automação, misturando prospecção fria com atividade orgânica.
+  // setado por lib/campaigns/engine.ts) nem mensagem de thread já vinculada a
+  // negócio (essa vira "Conversas de negócio"/"Prospecção manual" abaixo) —
+  // sem essas exclusões, a mesma mensagem aparecia contada em mais de uma
+  // categoria ao mesmo tempo.
+
+  // ─── WhatsApp dos negócios: threads de contato que já viraram negócio
+  // (aberto, ganho ou perdido) — precisa vir ANTES do bloco "Geral" abaixo,
+  // que usa dealThreadIds pra excluir essas threads da contagem geral.
+  const dealContacts = await prisma.deal.findMany({
+    where: { organizationId, ...scopeWhere(effectiveScope) },
+    select: { contactId: true },
+    distinct: ["contactId"],
+  });
+  const dealContactIds = dealContacts.map((d) => d.contactId);
+
+  const dealThreads = dealContactIds.length
+    ? await prisma.whatsAppThread.findMany({
+        where: { organizationId, contactId: { in: dealContactIds }, ...whatsappScopeWhere(effectiveScope) },
+        select: { id: true, instanceId: true, contactId: true },
+      })
+    : [];
+  const dealThreadIds = dealThreads.map((t) => t.id);
+
+  // Prospecção manual: a mensagem de ABERTURA (a 1ª de toda a thread, sem
+  // limite de período — precisa saber quem falou primeiro na história toda,
+  // não só dentro do filtro de data) foi mandada pelo vendedor, não pelo
+  // lead, numa thread que hoje tem negócio — abordagem fria feita na mão,
+  // fora do motor de Campanhas. Só a mensagem de abertura conta aqui; o
+  // resto da conversa (depois que o lead responde) é "Conversas de negócio".
+  const dealThreadFirstMessages = dealThreadIds.length
+    ? await prisma.whatsAppMessage.findMany({
+        where: { organizationId, threadId: { in: dealThreadIds } },
+        orderBy: { createdAt: "asc" },
+        distinct: ["threadId"],
+        select: { threadId: true, instanceId: true, direction: true, campaignId: true, createdAt: true },
+      })
+    : [];
+  const inRange = (d: Date) => (!rangeFrom || d >= rangeFrom) && (!rangeTo || d <= rangeTo);
+  const manualProspectOpeners = dealThreadFirstMessages.filter(
+    (m) => m.direction === "OUTBOUND" && !m.campaignId && inRange(m.createdAt),
+  );
+  const manualOpenerThreadIds = manualProspectOpeners.map((m) => m.threadId);
+  const manualOpenerReplies = manualOpenerThreadIds.length
+    ? await prisma.whatsAppMessage.findMany({
+        where: { organizationId, threadId: { in: manualOpenerThreadIds }, direction: "INBOUND" },
+        select: { threadId: true },
+        distinct: ["threadId"],
+      })
+    : [];
+  const manualOpenerRepliedSet = new Set(manualOpenerReplies.map((m) => m.threadId));
+  const manualProspectByInstance = new Map<string, { sent: number; replied: number }>();
+  for (const m of manualProspectOpeners) {
+    if (!manualProspectByInstance.has(m.instanceId)) manualProspectByInstance.set(m.instanceId, { sent: 0, replied: 0 });
+    const stat = manualProspectByInstance.get(m.instanceId)!;
+    stat.sent += 1;
+    if (manualOpenerRepliedSet.has(m.threadId)) stat.replied += 1;
+  }
+
   const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
     prisma.whatsAppInstance.findMany({
       where: { organizationId, ...(effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {}) },
@@ -426,11 +502,16 @@ export default async function RelatoriosPage({
         organizationId,
         direction: "OUTBOUND",
         campaignId: null,
+        threadId: { notIn: dealThreadIds },
         ...whatsappScopeWhere(effectiveScope),
         ...dateWhere("createdAt"),
       },
       _count: true,
     }),
+    // Amplo de propósito (inclui thread de negócio) — alimenta "conversão em
+    // venda", que precisa olhar todo contato abordado organicamente, não só
+    // quem caiu no balde "Geral". A contagem de "enviadas" exibida usa
+    // sentByInstance (acima), que já exclui thread de negócio.
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId", "threadId"],
       where: {
@@ -460,18 +541,20 @@ export default async function RelatoriosPage({
   ]);
   const outboundPairs = organicOutboundPairs;
 
-  // Resposta "geral" só conta se o thread também teve pelo menos uma
-  // mensagem orgânica (não-campanha) enviada — uma resposta a um disparo de
-  // lista fria puro (sem nenhum contato manual depois) já está contada em
-  // "prospecção fria" via CampaignRecipient.repliedAt, não deve duplicar aqui.
+  // Resposta "geral" — mesma exclusão de thread de negócio que "enviadas"
+  // acima, senão uma resposta numa conversa de negócio contava em dobro
+  // (aqui e em "Conversas de negócio"). Também não conta resposta a disparo
+  // de lista fria puro, já contada em "prospecção fria" via CampaignRecipient.repliedAt.
+  const dealThreadIdSet = new Set(dealThreadIds);
   const organicThreadIds = Array.from(new Set(organicOutboundPairs.map((p) => p.threadId)));
-  const inboundPairs = organicThreadIds.length
+  const generalThreadIds = organicThreadIds.filter((id) => !dealThreadIdSet.has(id));
+  const inboundPairs = generalThreadIds.length
     ? await prisma.whatsAppMessage.groupBy({
         by: ["instanceId", "threadId"],
         where: {
           organizationId,
           direction: "INBOUND",
-          threadId: { in: organicThreadIds },
+          threadId: { in: generalThreadIds },
           ...whatsappScopeWhere(effectiveScope),
           ...dateWhere("createdAt"),
         },
@@ -544,7 +627,7 @@ export default async function RelatoriosPage({
   // mensagem avulsa levaria crédito por venda fechada por outro colega.
   const wonDeals = contactedContactIds.length
     ? await prisma.deal.findMany({
-        where: { organizationId, status: "WON", contactId: { in: contactedContactIds } },
+        where: { organizationId, status: "WON", contactId: { in: contactedContactIds }, ...dateWhere("closedAt") },
         select: { contactId: true, ownerId: true },
       })
     : [];
@@ -556,54 +639,57 @@ export default async function RelatoriosPage({
 
   const whatsappStats = whatsappInstances.map((inst) => {
     const sent = sentByInstance.find((s) => s.instanceId === inst.id)?._count ?? 0;
+    // Contatos únicos abordados/que responderam — não mensagens. "sent" acima
+    // conta linha de mensagem (várias por contato, se houver follow-up); usar
+    // esse número como denominador da taxa de resposta subestimava a taxa
+    // pra qualquer vendedor que manda mais de uma mensagem por lead. Taxa de
+    // resposta e conversão precisam do mesmo universo (contato contatado).
+    const contactedContacts = new Set(
+      outboundPairs
+        .filter((p) => p.instanceId === inst.id)
+        .map((p) => contactIdByThread.get(p.threadId))
+        .filter((id): id is string => !!id),
+    );
     const repliedContacts = new Set(
       inboundPairs
         .filter((p) => p.instanceId === inst.id)
         .map((p) => contactIdByThread.get(p.threadId))
         .filter((id): id is string => !!id),
     ).size;
-    const contactedForInst = outboundPairs
-      .filter((p) => p.instanceId === inst.id)
-      .map((p) => contactIdByThread.get(p.threadId))
-      .filter((id): id is string => !!id);
-    const convertedForInst = contactedForInst.filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
+    const replyRate = contactedContacts.size > 0 ? Math.round((repliedContacts / contactedContacts.size) * 100) : 0;
+    const convertedForInst = Array.from(contactedContacts).filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
     const conversionRate =
-      contactedForInst.length > 0 ? Math.round((convertedForInst / contactedForInst.length) * 100) : 0;
+      contactedContacts.size > 0 ? Math.round((convertedForInst / contactedContacts.size) * 100) : 0;
     const campaignStats = campaignStatsByInstance.get(inst.id) ?? { sent: 0, replied: 0 };
     const campaignReplyRate =
       campaignStats.sent > 0 ? Math.round((campaignStats.replied / campaignStats.sent) * 100) : 0;
+    const manualProspectStats = manualProspectByInstance.get(inst.id) ?? { sent: 0, replied: 0 };
+    const manualProspectReplyRate =
+      manualProspectStats.sent > 0 ? Math.round((manualProspectStats.replied / manualProspectStats.sent) * 100) : 0;
 
     return {
       userId: inst.userId,
       name: inst.user.name,
       connected: inst.status === "CONNECTED",
       sent,
+      contacted: contactedContacts.size,
       replied: repliedContacts,
+      replyRate,
       conversionRate,
       campaignSent: campaignStats.sent,
       campaignReplied: campaignStats.replied,
       campaignReplyRate,
+      manualProspectSent: manualProspectStats.sent,
+      manualProspectReplied: manualProspectStats.replied,
+      manualProspectReplyRate,
     };
   });
 
   // ─── WhatsApp dos negócios: só conversa de contato que já virou negócio
   // (aberto, ganho ou perdido) — exclui "WhatsApp Geral". Aqui entram
   // métricas de tempo, que exigem olhar as mensagens em ordem, não só contar.
-  const dealContacts = await prisma.deal.findMany({
-    where: { organizationId, ...scopeWhere(effectiveScope) },
-    select: { contactId: true },
-    distinct: ["contactId"],
-  });
-  const dealContactIds = dealContacts.map((d) => d.contactId);
-
-  const dealThreads = dealContactIds.length
-    ? await prisma.whatsAppThread.findMany({
-        where: { organizationId, contactId: { in: dealContactIds }, ...whatsappScopeWhere(effectiveScope) },
-        select: { id: true, instanceId: true, contactId: true },
-      })
-    : [];
-  const dealThreadIds = dealThreads.map((t) => t.id);
-
+  // dealContactIds/dealThreads/dealThreadIds já calculados lá em cima (o
+  // bloco "Geral" precisa deles pra excluir thread de negócio da contagem).
   const dealMessages = dealThreadIds.length
     ? await prisma.whatsAppMessage.findMany({
         where: { organizationId, threadId: { in: dealThreadIds }, ...dateWhere("createdAt") },
@@ -640,6 +726,12 @@ export default async function RelatoriosPage({
     return { instanceId: t.instanceId, contactId: t.contactId, contacted, responded, firstResponseMs, durationMs };
   });
 
+  // Teto do período pra "msgs/dia": o fim do filtro selecionado, não "agora"
+  // — senão filtrar um período passado (ex.: um mês já fechado) dilui a
+  // média dividindo por "dias até hoje" em vez de pelos dias do próprio
+  // período, subestimando a métrica.
+  const messagesPerDayPeriodEnd = new Date(Math.min(rangeTo?.getTime() ?? Date.now(), Date.now()));
+
   const dealWhatsappStats = whatsappInstances
     .map((inst) => {
       const instThreads = dealThreadStats.filter((t) => t.instanceId === inst.id);
@@ -666,7 +758,7 @@ export default async function RelatoriosPage({
         sentInScope.length > 0
           ? sentInScope.reduce((min, m) => (m.createdAt < min ? m.createdAt : min), sentInScope[0].createdAt)
           : null;
-      const activeDays = firstSentAt ? daysSince(firstSentAt) + 1 : 1;
+      const activeDays = firstSentAt ? daysSince(firstSentAt, messagesPerDayPeriodEnd) + 1 : 1;
       const messagesPerDay = sentInScope.length > 0 ? sentInScope.length / activeDays : 0;
 
       return {
@@ -722,7 +814,11 @@ export default async function RelatoriosPage({
             </div>
           </div>
           <div className="col-span-12 grid grid-cols-2 gap-5 lg:col-span-7">
-            <Stat label="Total de negócios" value={String(totalDeals)} />
+            <Stat
+              label="Negócios decididos"
+              value={String(closedCount)}
+              hint={`${wonCount} ganho${wonCount === 1 ? "" : "s"} · ${lostCount} perdido${lostCount === 1 ? "" : "s"} no período`}
+            />
             <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
             <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
             <Stat
@@ -919,7 +1015,7 @@ export default async function RelatoriosPage({
           <SectionHeading
             eyebrow="WhatsApp"
             title="Atividade por vendedor"
-            description="Envio geral, prospecção fria (campanhas em listas importadas) e conversas já vinculadas a negócio."
+            description="Geral (fora de negócio), prospecção fria (campanhas), prospecção manual (1ª mensagem sua pra um lead novo) e conversas de negócio — cada mensagem conta numa categoria só."
           />
 
           <div className="space-y-2.5">
@@ -944,14 +1040,22 @@ export default async function RelatoriosPage({
 
                 <div className="mt-2.5 flex flex-wrap items-baseline gap-x-5 gap-y-1.5">
                   <StatItem value={w.sent} label="enviadas" />
-                  <StatItem value={w.replied} label={`responderam${w.sent > 0 ? ` · ${Math.round((w.replied / w.sent) * 100)}%` : ""}`} />
+                  <StatItem value={w.replied} label={`responderam${w.contacted > 0 ? ` · ${w.replyRate}%` : ""}`} />
                   <StatItem value={`${w.conversionRate}%`} label="conversão em venda" accent="emerald" />
 
                   {w.campaignSent > 0 && (
                     <>
                       <StatDivider />
-                      <StatItem value={w.campaignSent} label="prospecção enviada" accent="violet" />
-                      <StatItem value={`${w.campaignReplyRate}%`} label="resposta na prospecção" accent="violet" />
+                      <StatItem value={w.campaignSent} label="prospecção fria (campanha)" accent="violet" />
+                      <StatItem value={`${w.campaignReplyRate}%`} label="resposta" accent="violet" />
+                    </>
+                  )}
+
+                  {w.manualProspectSent > 0 && (
+                    <>
+                      <StatDivider />
+                      <StatItem value={w.manualProspectSent} label="prospecção manual" accent="amber" />
+                      <StatItem value={`${w.manualProspectReplyRate}%`} label="resposta" accent="amber" />
                     </>
                   )}
 
@@ -1027,10 +1131,15 @@ export default async function RelatoriosPage({
           )}
 
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Conversão em venda = % dos contatos que receberam WhatsApp e fecharam negócio (ganho), sem contar disparo
-            de campanha. Prospecção fria = envios de campanha (lista importada), sempre separado da atividade geral —
-            uma mensagem nunca conta nos dois ao mesmo tempo. Conversas de negócio = só contatos já vinculados a um
-            negócio; resposta = % que o lead respondeu; 1ª resposta e duração são médias de tempo.
+            Conversão em venda = % dos contatos organicamente contatados (qualquer categoria) que fecharam negócio
+            (ganho) dentro do período do filtro — nunca é "essa mensagem virou venda", é o resultado final do contato.
+            Geral = conversa fora de negócio. Prospecção fria = disparo em massa via Campanhas. Prospecção manual = a
+            1ª mensagem de uma thread nova foi sua (não do lead) e ela hoje tem negócio — abordagem fria feita na mão.
+            Conversas de negócio = toda a troca (inclusive a de abertura, se for o caso) de contato já vinculado a um
+            negócio. Geral, prospecção fria e prospecção manual nunca compartilham mensagem entre si; conversas de
+            negócio é a única exceção — repete a troca inteira, incluindo a mensagem de abertura já contada em
+            prospecção manual quando for o caso, porque precisa da conversa completa pra calcular tempo de resposta e
+            duração. Resposta = % que o lead respondeu; 1ª resposta e duração são médias de tempo.
           </p>
         </section>
       )}
@@ -1061,10 +1170,11 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-const STAT_ITEM_ACCENT: Record<"neutral" | "emerald" | "violet", string> = {
+const STAT_ITEM_ACCENT: Record<"neutral" | "emerald" | "violet" | "amber", string> = {
   neutral: "text-neutral-900 dark:text-neutral-100",
   emerald: "text-emerald-600 dark:text-emerald-400",
   violet: "text-violet-600 dark:text-violet-400",
+  amber: "text-amber-600 dark:text-amber-400",
 };
 
 /** "234 enviadas" — número em destaque seguido do rótulo, tudo numa linha só (ver "Atividade por vendedor"). */
@@ -1075,7 +1185,7 @@ function StatItem({
 }: {
   value: string | number;
   label: string;
-  accent?: "neutral" | "emerald" | "violet";
+  accent?: "neutral" | "emerald" | "violet" | "amber";
 }) {
   return (
     <span className="inline-flex items-baseline gap-1.5 text-sm">

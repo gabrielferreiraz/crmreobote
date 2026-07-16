@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
+import { matchesFileSignature } from "@/lib/file-signature";
 
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const BUCKET_NAME = process.env.R2_BUCKET_NAME;
@@ -20,12 +21,18 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
 
 export class AvatarUploadError extends Error {}
 
-export function assertValidAvatar(contentType: string, size: number) {
+export function assertValidAvatar(contentType: string, size: number, buffer: Buffer) {
   if (!ALLOWED_TYPES.has(contentType)) {
     throw new AvatarUploadError("Formato inválido. Envie um JPEG, PNG ou WebP.");
   }
   if (size > MAX_SIZE) {
     throw new AvatarUploadError("Arquivo maior que 10MB.");
+  }
+  // `contentType` é só o que o cliente declarou (metadado, não garante nada
+  // sobre o conteúdo) — confere os bytes de verdade contra a assinatura do
+  // formato antes de aceitar.
+  if (!matchesFileSignature(buffer, contentType)) {
+    throw new AvatarUploadError("O conteúdo do arquivo não corresponde ao formato declarado.");
   }
 }
 
@@ -104,12 +111,18 @@ function baseContentType(contentType: string): string {
   return contentType.split(";")[0].trim();
 }
 
-export function assertValidChatMedia(contentType: string, size: number) {
-  if (!(baseContentType(contentType) in CHAT_MEDIA_ALLOWED_TYPES)) {
+export function assertValidChatMedia(contentType: string, size: number, buffer: Buffer) {
+  const base = baseContentType(contentType);
+  if (!(base in CHAT_MEDIA_ALLOWED_TYPES)) {
     throw new ChatMediaUploadError(`Formato "${contentType}" não suportado.`);
   }
   if (size > CHAT_MEDIA_MAX_SIZE) {
     throw new ChatMediaUploadError("Arquivo maior que 16MB.");
+  }
+  // Mesma ideia do assertValidAvatar: contentType é só o que o cliente
+  // declarou, confere contra os bytes reais antes de aceitar.
+  if (!matchesFileSignature(buffer, base)) {
+    throw new ChatMediaUploadError("O conteúdo do arquivo não corresponde ao formato declarado.");
   }
 }
 

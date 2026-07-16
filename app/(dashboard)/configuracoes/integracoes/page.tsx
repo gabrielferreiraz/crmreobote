@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -51,9 +52,16 @@ export default async function IntegracoesSettingsPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Integrações</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Conecte geradores de leads, listas frias, outros CRMs ou automações (Make/Zapier) — ver{" "}
-            <code className="rounded bg-neutral-100 px-1 py-0.5 text-xs dark:bg-neutral-800">docs/integracoes-api.md</code> pra
-            exemplos completos de payload.
+            Conecte geradores de leads, listas frias, outros CRMs ou automações (Make/Zapier) — ver a{" "}
+            <Link
+              href="/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900 dark:text-neutral-300 dark:decoration-neutral-600 dark:hover:text-neutral-100"
+            >
+              documentação da API
+            </Link>{" "}
+            pra exemplos completos de payload.
           </p>
         </div>
 

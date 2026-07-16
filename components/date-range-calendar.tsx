@@ -246,7 +246,7 @@ export function DateRangeField({
       </button>
 
       {open && (
-        <div className="surface-glass absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
+        <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
           <DateRangeCalendar from={from} to={to} onSelect={onSelect} />
         </div>
       )}

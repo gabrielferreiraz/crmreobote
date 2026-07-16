@@ -160,7 +160,7 @@ export function RecipientPicker({
             Adicionar destinatário
           </button>
           {addMenuOpen && (
-            <div className="surface-glass absolute z-30 mt-1 w-56 rounded-md p-1 shadow-lg">
+            <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-56 rounded-md p-1 shadow-lg">
               {availableTypes.includes("CLIENT") && !hasClient && (
                 <button
                   type="button"

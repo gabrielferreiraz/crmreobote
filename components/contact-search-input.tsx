@@ -120,7 +120,7 @@ export function ContactSearchInput({
       />
 
       {open && query.trim() && (
-        <div className="surface-glass scrollbar-thin absolute z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-md shadow-lg">
+        <div className="surface-glass animate-pop-in scrollbar-thin absolute z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-md shadow-lg">
           {loading ? (
             <p className="px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">Buscando...</p>
           ) : (

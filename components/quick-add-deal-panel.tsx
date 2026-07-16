@@ -9,6 +9,7 @@ import { LoadingDots } from "@/components/loading-dots";
 
 type Stage = { id: string; name: string; order: number };
 type Pipeline = { id: string; name: string; isDefault: boolean; stages: Stage[] };
+type CreditTypeOption = { id: string; label: string };
 
 /**
  * Cadastro rápido de contato + negócio a partir de uma conversa de WhatsApp
@@ -36,6 +37,7 @@ export function QuickAddDealPanel({
 }) {
   const [pipelines, setPipelines] = useState<Pipeline[] | null>(null);
   const [pipelineId, setPipelineId] = useState("");
+  const [creditTypes, setCreditTypes] = useState<CreditTypeOption[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [name, setName] = useState(suggestedName);
@@ -57,6 +59,23 @@ export function QuickAddDealPanel({
         if (preferred) setPipelineId(preferred.id);
       } catch {
         if (!cancelled) setLoadError("Não foi possível carregar os funis.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/credit-types");
+        if (!res.ok) return;
+        const data: CreditTypeOption[] = await res.json();
+        if (!cancelled) setCreditTypes(data);
+      } catch {
+        // lista vazia é um degrau aceitável aqui — o campo continua opcional
       }
     })();
     return () => {
@@ -152,9 +171,7 @@ export function QuickAddDealPanel({
             onChange={setCreditType}
             options={[
               { value: "", label: "—" },
-              { value: "IMÓVEL", label: "Imóvel" },
-              { value: "VEÍCULO", label: "Veículo" },
-              { value: "OUTROS", label: "Outros" },
+              ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
             ]}
           />
         </div>

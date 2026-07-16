@@ -132,6 +132,11 @@ export default async function PipelinePage({
     orderBy: { order: "asc" },
   });
 
+  const creditTypes = await prisma.creditType.findMany({
+    where: { organizationId },
+    orderBy: { order: "asc" },
+  });
+
   const isOwner = session!.user.role === "OWNER";
 
   return (
@@ -149,6 +154,7 @@ export default async function PipelinePage({
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}
         customFields={customFields}
+        creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
         isOwner={isOwner}
         openNewDeal={novo === "1"}
       />

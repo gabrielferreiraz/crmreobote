@@ -104,7 +104,7 @@ export function DatePicker({
       </button>
 
       {open && (
-        <div className="surface-glass absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
+        <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               {MONTH_LABELS[viewDate.getMonth()]} de {viewDate.getFullYear()}

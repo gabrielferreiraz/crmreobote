@@ -20,7 +20,7 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Sat: 6,
 };
 
-function getBrazilParts(date: Date) {
+export function getBrazilParts(date: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: BRAZIL_TZ,
     year: "numeric",
@@ -85,4 +85,21 @@ export function brazilStartOfMonth(date: Date = new Date()): Date {
 export function brazilStartOfDay(date: Date = new Date()): Date {
   const { year, month, day } = getBrazilParts(date);
   return new Date(Date.UTC(year, month, day, 3, 0, 0, 0));
+}
+
+/**
+ * Meia-noite (Brasília) do dia "YYYY-MM-DD" recebido, como instante UTC —
+ * usar para converter um filtro de data vindo da URL/UI (que representa um
+ * dia civil de Brasília) no limite inferior de uma busca no banco. `new
+ * Date("YYYY-MM-DDT00:00:00")` sem isso vira meia-noite UTC (server roda em
+ * UTC), 3h adiantada em relação à meia-noite real de Brasília.
+ */
+export function brazilDateStringToUTC(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 3, 0, 0, 0));
+}
+
+/** Fim do dia (23:59:59.999 em Brasília) do dia "YYYY-MM-DD" recebido, como instante UTC — usar como limite superior de um filtro de período. */
+export function brazilEndOfDayUTC(dateStr: string): Date {
+  return new Date(brazilDateStringToUTC(dateStr).getTime() + 86_400_000 - 1);
 }

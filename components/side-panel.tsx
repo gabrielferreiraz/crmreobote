@@ -23,14 +23,14 @@ export function SidePanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-neutral-900/40 backdrop-blur-md dark:bg-neutral-950/60"
+      className="fixed inset-0 z-50 flex justify-end bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
       style={{ animation: "modal-backdrop-in 150ms ease-out" }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="animate-sheet-right scrollbar-thin flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-neutral-200/60 bg-white p-5 shadow-xl dark:border-neutral-800/60 dark:bg-neutral-900"
+        className="surface-glass-panel animate-sheet-right scrollbar-thin flex h-full w-full max-w-md flex-col overflow-y-auto border-y-0 border-r-0 p-5"
       >
         <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>

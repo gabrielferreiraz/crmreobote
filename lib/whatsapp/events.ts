@@ -163,7 +163,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     } else {
       try {
         const buffer = Buffer.from(media.base64, "base64");
-        assertValidChatMedia(media.mimetype, buffer.length);
+        assertValidChatMedia(media.mimetype, buffer.length, buffer);
         const key = buildChatMediaKey(instance.organizationId, media.mimetype);
         await uploadChatMedia(key, buffer, media.mimetype);
         type = mediaKind;

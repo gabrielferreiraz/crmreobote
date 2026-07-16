@@ -362,7 +362,7 @@ export function ConversationsView({
 
   return (
     <div className="hidden min-h-0 flex-1 lg:flex">
-      <div className="card flex shrink-0 flex-col overflow-hidden" style={{ width: sidebarWidth }}>
+      <div className="surface-glass-panel flex shrink-0 flex-col overflow-hidden rounded-lg" style={{ width: sidebarWidth }}>
         <TabSwitcher
           tab={tab}
           onChange={setTab}
@@ -494,7 +494,7 @@ export function ConversationsView({
         <div className="h-full w-px bg-neutral-200 transition-colors group-hover:bg-neutral-400 group-active:bg-neutral-500 dark:bg-neutral-800 dark:group-hover:bg-neutral-600 dark:group-active:bg-neutral-500" />
       </div>
 
-      <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="surface-glass-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
         {selected ? (
           <div className="flex h-full flex-col p-3">
             {selected.deal ? (

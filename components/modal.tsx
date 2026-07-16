@@ -23,7 +23,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 p-4 dark:bg-neutral-950/60 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 p-4 backdrop-blur-lg dark:bg-neutral-950/60"
       style={{ animation: "modal-backdrop-in 150ms ease-out" }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -32,7 +32,7 @@ export function Modal({
       <div
         ref={panelRef}
         style={{ animation: "modal-panel-in 150ms ease-out" }}
-        className={`scrollbar-thin w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-lg border border-neutral-200/60 dark:border-neutral-800/60 bg-white dark:bg-neutral-900 p-5 shadow-xl`}
+        className={`surface-glass-panel scrollbar-thin w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl p-5`}
       >
         {children}
       </div>

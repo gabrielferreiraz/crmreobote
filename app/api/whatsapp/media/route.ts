@@ -20,8 +20,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Envie um arquivo" }, { status: 400 });
   }
 
+  const buffer = Buffer.from(await file.arrayBuffer());
+
   try {
-    assertValidChatMedia(file.type, file.size);
+    assertValidChatMedia(file.type, file.size, buffer);
   } catch (err) {
     if (err instanceof ChatMediaUploadError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
@@ -29,7 +31,6 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
   const key = buildChatMediaKey(organizationId, file.type);
   await uploadChatMedia(key, buffer, file.type);
 

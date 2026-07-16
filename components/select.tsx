@@ -69,7 +69,7 @@ export function Select({
       {open && (
         <div
           role="listbox"
-          className="surface-glass scrollbar-thin absolute z-30 mt-1 max-h-56 min-w-full overflow-y-auto rounded-md p-1 shadow-lg"
+          className="surface-glass animate-pop-in scrollbar-thin absolute z-30 mt-1 max-h-56 min-w-full overflow-y-auto rounded-md p-1 shadow-lg"
         >
           {options.map((opt) => (
             <button

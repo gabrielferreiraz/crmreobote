@@ -274,7 +274,7 @@ function StageRow({
         />
         {showColors && (
           <div
-            className="surface-glass absolute top-6 left-0 z-10 flex flex-wrap gap-1 rounded-md p-2 shadow-lg"
+            className="surface-glass animate-pop-in absolute top-6 left-0 z-10 flex flex-wrap gap-1 rounded-md p-2 shadow-lg"
             style={{ width: 120 }}
           >
             {COLOR_PRESETS.map((c) => (
@@ -313,7 +313,7 @@ function StageRow({
         </button>
         {showRequiredFields && (
           <div
-            className="surface-glass absolute top-7 right-0 z-10 w-56 space-y-0.5 rounded-md p-2 shadow-lg"
+            className="surface-glass animate-pop-in absolute top-7 right-0 z-10 w-56 space-y-0.5 rounded-md p-2 shadow-lg"
           >
             <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
               Exigir antes de entrar

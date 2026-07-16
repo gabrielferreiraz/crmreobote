@@ -27,6 +27,14 @@ const STATUS_LABELS: Record<ScriptUsage["status"], string> = {
   DONE: "Concluída",
 };
 
+// Só pro preview do card — troca qualquer variável ({nome}, {primeiro_nome},
+// {cargo} etc., não importa qual) por um nome fictício, pra não mostrar a
+// sintaxe crua da chave. O `(?!\[)` deixa o spintax ({[opção 1|opção 2]})
+// intacto — só entra em jogo quando o `{` não é seguido de `[`.
+function withFakeVariables(text: string): string {
+  return text.replace(/\{(?!\[)[^{}]+\}/g, "Maria");
+}
+
 export function ScriptsTable({ initialScripts }: { initialScripts: Script[] }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -158,7 +166,7 @@ export function ScriptsTable({ initialScripts }: { initialScripts: Script[] }) {
                 )}
 
                 <p className="line-clamp-2 whitespace-pre-wrap text-neutral-500 dark:text-neutral-400">
-                  {s.steps[0]?.text}
+                  {s.steps[0] ? withFakeVariables(s.steps[0].text) : ""}
                 </p>
                 <div className="flex items-center gap-3 text-xs text-neutral-400 dark:text-neutral-500">
                   {s.steps.length > 1 && (

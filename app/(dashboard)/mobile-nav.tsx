@@ -44,14 +44,14 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
       {fab && (
         <Link
           href={fab.href}
-          className="fixed right-4 bottom-20 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg active:scale-95 dark:bg-white dark:text-neutral-900 lg:hidden"
+          className="fixed right-4 bottom-20 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-neutral-900/25 active:scale-95 dark:bg-white dark:text-neutral-900 dark:shadow-none lg:hidden"
           aria-label={fab.label}
         >
           <Plus className="h-6 w-6" strokeWidth={2.5} />
         </Link>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95 lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-200/60 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg dark:border-white/10 dark:bg-neutral-900/80 lg:hidden">
         {PRIMARY_ITEMS.map((item) => {
           const isActive = item.exact
             ? pathname === item.href
@@ -96,12 +96,12 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
       {sheetOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
-            className="absolute inset-0 bg-neutral-900/40 dark:bg-neutral-950/60"
+            className="absolute inset-0 bg-neutral-900/40 backdrop-blur-md dark:bg-neutral-950/60"
             style={{ animation: "modal-backdrop-in 150ms ease-out" }}
             onClick={() => setSheetOpen(false)}
           />
           <div
-            className="animate-sheet-up absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-neutral-200 bg-white pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
+            className="surface-glass-panel animate-sheet-up absolute inset-x-0 bottom-0 rounded-t-2xl border-b-0 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-center pt-2.5 pb-1">

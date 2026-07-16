@@ -265,7 +265,7 @@ export function WhatsAppPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="surface-glass sticky top-4 hidden h-[calc(100vh-8rem)] w-[360px] shrink-0 flex-col overflow-hidden rounded-lg p-4 shadow-lg lg:flex">
+    <div className="surface-glass-panel sticky top-4 hidden h-[calc(100vh-8rem)] w-[360px] shrink-0 flex-col overflow-hidden rounded-lg p-4 lg:flex">
       <ChatWindow
         threadId={threadId}
         contactId={contactId}
@@ -913,7 +913,7 @@ function MoreMenu({
         <MoreVertical className="h-4 w-4" strokeWidth={2} />
       </button>
       {open && (
-        <div className="surface-glass absolute top-full right-0 z-30 mt-1 w-44 rounded-md p-1 shadow-lg">
+        <div className="surface-glass animate-pop-in absolute top-full right-0 z-30 mt-1 w-44 rounded-md p-1 shadow-lg">
           <button
             type="button"
             onClick={() => {
@@ -1284,7 +1284,7 @@ function EmojiMenu({ onPick }: { onPick: (emoji: string) => void }) {
         <Smile className="h-4 w-4" strokeWidth={2} />
       </button>
       {open && (
-        <div className="surface-glass scrollbar-thin absolute bottom-full left-0 z-30 mb-2 max-h-64 w-64 space-y-2 overflow-y-auto rounded-md p-2 shadow-lg">
+        <div className="surface-glass animate-pop-in-bottom scrollbar-thin absolute bottom-full left-0 z-30 mb-2 max-h-64 w-64 space-y-2 overflow-y-auto rounded-md p-2 shadow-lg">
           {EMOJI_GROUPS.map((group) => (
             <div key={group.label}>
               <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
@@ -1438,7 +1438,7 @@ function TextComposer({
               <Paperclip className="h-3.5 w-3.5" strokeWidth={2} />
             </button>
             {menuOpen && (
-              <div className="surface-glass absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
+              <div className="surface-glass animate-pop-in-bottom absolute bottom-full left-0 z-30 mb-2 w-40 rounded-md p-1 shadow-lg">
                 {PAPERCLIP_MENU_OPTIONS.map((opt) => (
                   <button
                     key={opt.mode}

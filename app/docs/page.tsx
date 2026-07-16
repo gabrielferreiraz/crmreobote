@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CodeBlock } from "./code-block";
+import { DocsSidebar, DocsMobileNav } from "./docs-nav";
 
 export const metadata: Metadata = {
   title: "Documentação da API — CRM",
@@ -8,12 +10,13 @@ export const metadata: Metadata = {
 };
 
 const NAV_ITEMS = [
+  { id: "visao-geral", label: "Visão geral" },
   { id: "autenticacao", label: "Autenticação" },
   { id: "limites", label: "Limites" },
   { id: "resposta", label: "Formato de resposta" },
-  { id: "contatos", label: "POST /api/v1/contacts" },
-  { id: "contatos-lote", label: "POST /api/v1/contacts/bulk" },
-  { id: "negocios", label: "POST /api/v1/deals" },
+  { id: "contatos", label: "Contatos" },
+  { id: "contatos-lote", label: "Contatos (lote)" },
+  { id: "negocios", label: "Negócios" },
   { id: "webhooks", label: "Webhooks de saída" },
   { id: "assinatura", label: "Validando a assinatura" },
 ];
@@ -21,7 +24,7 @@ const NAV_ITEMS = [
 export default function DocsPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950">
-      <header className="sticky top-0 z-10 border-b border-neutral-200/60 bg-white/80 backdrop-blur-md dark:border-neutral-800/60 dark:bg-neutral-950/80">
+      <header className="sticky top-0 z-20 border-b border-neutral-200/60 bg-white/80 backdrop-blur-md dark:border-neutral-800/60 dark:bg-neutral-950/80">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-xs font-semibold text-white dark:bg-white dark:text-neutral-900">
@@ -42,20 +45,10 @@ export default function DocsPage() {
         </div>
       </header>
 
+      <DocsMobileNav items={NAV_ITEMS} />
+
       <div className="mx-auto flex max-w-6xl gap-8 px-4 py-8 sm:px-6">
-        <nav className="hidden w-56 shrink-0 lg:block">
-          <div className="sticky top-20 space-y-1">
-            {NAV_ITEMS.map((item) => (
-              <a
-                key={item.id}
-                href={`#${item.id}`}
-                className="block rounded-md px-2.5 py-1.5 text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-100"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </nav>
+        <DocsSidebar items={NAV_ITEMS} />
 
         <main className="min-w-0 flex-1 space-y-10 pb-24">
           <div>
@@ -72,11 +65,31 @@ export default function DocsPage() {
             </p>
           </div>
 
+          <Section id="visao-geral" title="Visão geral">
+            <P>Três peças, independentes uma da outra — use só o que precisar:</P>
+            <ol className="list-decimal space-y-2 pl-5 text-sm text-neutral-600 dark:text-neutral-300">
+              <li>
+                <strong className="font-medium text-neutral-800 dark:text-neutral-200">Entrada de dados</strong> —
+                sua ferramenta manda contatos/negócios pra cá via <Code>POST /api/v1/*</Code>, autenticado por chave
+                de API.
+              </li>
+              <li>
+                <strong className="font-medium text-neutral-800 dark:text-neutral-200">Saída de eventos</strong> —
+                o CRM avisa sua URL via webhook quando um negócio é ganho/perdido ou um contato é criado.
+              </li>
+              <li>
+                <strong className="font-medium text-neutral-800 dark:text-neutral-200">Ambos</strong> — ex.: um lead
+                cai por <Code>POST /api/v1/deals</Code> e, quando fecha venda, você recebe o webhook{" "}
+                <Code>deal.won</Code> de volta.
+              </li>
+            </ol>
+          </Section>
+
           <Section id="autenticacao" title="Autenticação">
             <P>
               Toda rota <Code>/api/v1/*</Code> exige uma API key da organização no header:
             </P>
-            <CodeBlock>{`Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
+            <CodeBlock lang="http">{`Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
             <P>
               A chave é mostrada <strong className="font-medium">uma única vez</strong> na criação — se perder,
               revogue e crie outra. Não existe recuperação.
@@ -103,8 +116,8 @@ export default function DocsPage() {
 
           <Section id="resposta" title="Formato de resposta">
             <P>Toda resposta de /api/v1 segue o mesmo envelope:</P>
-            <CodeBlock>{`{ "success": true, "data": { ... } }`}</CodeBlock>
-            <CodeBlock>{`{ "success": false, "error": "mensagem em português", "details": [ "opcional" ] }`}</CodeBlock>
+            <CodeBlock lang="json">{`{ "success": true, "data": { ... } }`}</CodeBlock>
+            <CodeBlock lang="json">{`{ "success": false, "error": "mensagem em português", "details": [ "opcional" ] }`}</CodeBlock>
             <P>
               Status HTTP usados: <Code>200</Code>/<Code>201</Code> sucesso, <Code>400</Code> validação,{" "}
               <Code>401</Code> chave inválida/revogada, <Code>404</Code> recurso referenciado não existe,{" "}
@@ -112,7 +125,7 @@ export default function DocsPage() {
             </P>
           </Section>
 
-          <Section id="contatos" title="POST /api/v1/contacts">
+          <Section id="contatos" title="Contatos" endpoint={{ method: "POST", path: "/api/v1/contacts" }}>
             <P>
               Cria um contato novo ou <strong className="font-medium">atualiza</strong> um já existente com o mesmo
               telefone/WhatsApp (nunca retorna erro de duplicata — pensado pra reenvio repetido do mesmo lead). Só{" "}
@@ -120,7 +133,7 @@ export default function DocsPage() {
               que não veio na chamada não é apagado).
             </P>
             <SubHeading>Request</SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "name": "Maria Silva",
   "email": "maria@exemplo.com",
   "phone": "67991234567",
@@ -139,7 +152,7 @@ export default function DocsPage() {
             <SubHeading>
               Response (<Code>201</Code> se criou, <Code>200</Code> se atualizou)
             </SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "success": true,
   "data": {
     "id": "cm...",
@@ -152,13 +165,17 @@ export default function DocsPage() {
 }`}</CodeBlock>
           </Section>
 
-          <Section id="contatos-lote" title="POST /api/v1/contacts/bulk">
+          <Section
+            id="contatos-lote"
+            title="Contatos (lote)"
+            endpoint={{ method: "POST", path: "/api/v1/contacts/bulk" }}
+          >
             <P>
               Mesmo formato de contato acima, em lote (até 500 por chamada). Processa e reporta item a item — um
               contato inválido não derruba os outros.
             </P>
             <SubHeading>Request</SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "contacts": [
     { "name": "Maria Silva", "phone": "67991234567", "source": "Lista fria - Julho" },
     { "name": "João Souza", "phone": "67998887777", "source": "Lista fria - Julho" },
@@ -166,7 +183,7 @@ export default function DocsPage() {
   ]
 }`}</CodeBlock>
             <SubHeading>Response</SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "success": true,
   "data": {
     "summary": { "total": 3, "created": 2, "updated": 0, "errors": 1 },
@@ -179,7 +196,7 @@ export default function DocsPage() {
 }`}</CodeBlock>
           </Section>
 
-          <Section id="negocios" title="POST /api/v1/deals">
+          <Section id="negocios" title="Negócios" endpoint={{ method: "POST", path: "/api/v1/deals" }}>
             <P>
               Cria um negócio. Aceita <Code>contactId</Code> (contato já existente) <strong className="font-medium">ou</strong>{" "}
               <Code>contact</Code> (mesmo formato de <Code>/api/v1/contacts</Code> — cria/atualiza o contato na mesma
@@ -188,13 +205,13 @@ export default function DocsPage() {
               automaticamente ao vendedor com menos negócios abertos no momento.
             </P>
             <SubHeading>Request (contato novo, direto na mesma chamada)</SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "contact": { "name": "Maria Silva", "phone": "67991234567", "source": "Facebook Ads" },
   "value": 350000,
   "creditType": "Imóvel"
 }`}</CodeBlock>
             <SubHeading>Request (contato já existente)</SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "contactId": "cm...",
   "pipelineId": "cm...",
   "stageId": "cm...",
@@ -203,7 +220,7 @@ export default function DocsPage() {
             <SubHeading>
               Response (<Code>201</Code>)
             </SubHeading>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "success": true,
   "data": {
     "id": "cm...",
@@ -240,12 +257,12 @@ export default function DocsPage() {
               tentativas).
             </P>
             <SubHeading>Requisição que você recebe</SubHeading>
-            <CodeBlock>{`POST <sua URL>
+            <CodeBlock lang="http">{`POST <sua URL>
 Content-Type: application/json
 X-CRM-Event: deal.won
 X-CRM-Delivery: cm...
 X-CRM-Signature: sha256=<hmac hex>`}</CodeBlock>
-            <CodeBlock>{`{
+            <CodeBlock lang="json">{`{
   "event": "deal.won",
   "timestamp": "2026-07-17T14:32:00.000Z",
   "data": {
@@ -268,7 +285,7 @@ X-CRM-Signature: sha256=<hmac hex>`}</CodeBlock>
 
           <Section id="assinatura" title="Validando a assinatura (Node.js)">
             <P>O secret é mostrado uma única vez na criação do webhook — guarde-o.</P>
-            <CodeBlock>{`const crypto = require("crypto");
+            <CodeBlock lang="js">{`const crypto = require("crypto");
 
 function isValid(rawBody, signatureHeader, secret) {
   const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
@@ -287,12 +304,38 @@ function isValid(rawBody, signatureHeader, secret) {
   );
 }
 
-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+function Section({
+  id,
+  title,
+  endpoint,
+  children,
+}: {
+  id: string;
+  title: string;
+  endpoint?: { method: string; path: string };
+  children: React.ReactNode;
+}) {
   return (
-    <section id={id} className="scroll-mt-20 space-y-3">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
+    <section id={id} className="scroll-mt-32 space-y-3 lg:scroll-mt-20">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
+        {endpoint && (
+          <div className="flex items-center gap-1.5 font-mono text-[13px]">
+            <MethodBadge method={endpoint.method} />
+            <span className="text-neutral-500 dark:text-neutral-400">{endpoint.path}</span>
+          </div>
+        )}
+      </div>
       {children}
     </section>
+  );
+}
+
+function MethodBadge({ method }: { method: string }) {
+  return (
+    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+      {method}
+    </span>
   );
 }
 
@@ -309,13 +352,5 @@ function Code({ children }: { children: React.ReactNode }) {
     <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[13px] text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">
       {children}
     </code>
-  );
-}
-
-function CodeBlock({ children }: { children: string }) {
-  return (
-    <pre className="scrollbar-thin overflow-x-auto rounded-lg border border-neutral-200 bg-neutral-50 p-3.5 text-[13px] leading-relaxed text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
-      <code className="font-mono">{children}</code>
-    </pre>
   );
 }

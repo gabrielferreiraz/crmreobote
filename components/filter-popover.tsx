@@ -43,7 +43,7 @@ export function FilterPopover({
       </button>
 
       {open && (
-        <div className="surface-glass absolute right-0 z-40 mt-2 w-72 space-y-3 rounded-lg p-3 shadow-xl">
+        <div className="surface-glass animate-pop-in absolute right-0 z-40 mt-2 w-72 space-y-3 rounded-lg p-3 shadow-xl">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Filtros</p>
             {active && onClear && (

@@ -28,8 +28,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ userId:
     return NextResponse.json({ error: "Envie uma imagem" }, { status: 400 });
   }
 
+  const buffer = Buffer.from(await file.arrayBuffer());
+
   try {
-    assertValidAvatar(file.type, file.size);
+    assertValidAvatar(file.type, file.size, buffer);
   } catch (err) {
     if (err instanceof AvatarUploadError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
@@ -46,7 +48,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ userId:
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { image: true } });
     const previousKey = user?.image?.startsWith("avatars/") ? user.image : null;
 
-    const buffer = Buffer.from(await file.arrayBuffer());
     const key = buildAvatarKey(userId, file.type);
     await uploadAvatar(key, buffer, file.type);
 

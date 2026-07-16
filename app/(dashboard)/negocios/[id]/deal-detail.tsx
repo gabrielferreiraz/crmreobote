@@ -106,6 +106,7 @@ export function DealDetail({
   members,
   lossReasons,
   customFields,
+  creditTypes,
   currentUserName,
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
@@ -116,6 +117,7 @@ export function DealDetail({
   members: MemberOption[];
   lossReasons: LossReasonOption[];
   customFields: CustomFieldDefinitionInput[];
+  creditTypes: { id: string; label: string }[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   hasUnreadWhatsApp?: boolean;
@@ -558,7 +560,7 @@ export function DealDetail({
                 <div
                   key={task.id}
                   id={`task-${task.id}`}
-                  className={`-mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
+                  className={`group -mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
                     highlightedTaskId === task.id ? "animate-highlight-once" : ""
                   }`}
                 >
@@ -582,7 +584,7 @@ export function DealDetail({
                     <button
                       type="button"
                       onClick={() => setEditingTask(task)}
-                      className="icon-btn h-5 w-5 shrink-0"
+                      className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                       aria-label="Editar tarefa"
                     >
                       <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -624,9 +626,7 @@ export function DealDetail({
                 className="py-1 text-xs"
                 options={[
                   { value: "", label: "—" },
-                  { value: "IMÓVEL", label: "Imóvel" },
-                  { value: "VEÍCULO", label: "Veículo" },
-                  { value: "OUTROS", label: "Outros" },
+                  ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
                 ]}
               />
             </div>
@@ -800,7 +800,7 @@ export function DealDetail({
                   <div
                     key={task.id}
                     id={`task-${task.id}`}
-                    className={`-mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
+                    className={`group -mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
                       highlightedTaskId === task.id ? "animate-highlight-once" : ""
                     }`}
                   >
@@ -824,7 +824,7 @@ export function DealDetail({
                       <button
                         type="button"
                         onClick={() => setEditingTask(task)}
-                        className="icon-btn h-5 w-5 shrink-0"
+                        className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                         aria-label="Editar tarefa"
                       >
                         <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -862,9 +862,7 @@ export function DealDetail({
                   className="py-1 text-xs"
                   options={[
                     { value: "", label: "—" },
-                    { value: "IMÓVEL", label: "Imóvel" },
-                    { value: "VEÍCULO", label: "Veículo" },
-                    { value: "OUTROS", label: "Outros" },
+                    ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
                   ]}
                 />
               </div>
@@ -1152,7 +1150,7 @@ function DealValueCard({
 
   if (!editing) {
     return (
-      <div className="card p-4 text-sm">
+      <div className="card group p-4 text-sm">
         <div className="flex items-center justify-between gap-2">
           <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
           {editable && (
@@ -1163,7 +1161,7 @@ function DealValueCard({
                 setError(null);
                 setEditing(true);
               }}
-              className="icon-btn h-5 w-5 shrink-0"
+              className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
               aria-label="Editar valor do negócio"
             >
               <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -1259,7 +1257,7 @@ function CustomFieldsCard({
   }
 
   return (
-    <div className="card space-y-2 p-4 text-sm">
+    <div className="card group space-y-2 p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Campos personalizados</h3>
         {editable && !editing && (
@@ -1270,7 +1268,7 @@ function CustomFieldsCard({
               setError(null);
               setEditing(true);
             }}
-            className="icon-btn h-5 w-5 shrink-0"
+            className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             aria-label="Editar campos personalizados"
           >
             <Pencil className="h-3 w-3" strokeWidth={2} />
@@ -1353,7 +1351,7 @@ function EditableRow({
 
   if (!editing) {
     return (
-      <div className="flex items-center justify-between gap-2">
+      <div className="group flex items-center justify-between gap-2">
         <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
         <button
           type="button"
@@ -1362,11 +1360,11 @@ function EditableRow({
             setError(null);
             setEditing(true);
           }}
-          className="group flex min-w-0 items-center gap-1 text-right"
+          className="group/field flex min-w-0 items-center gap-1 text-right"
         >
           <span className="truncate text-neutral-800 dark:text-neutral-200">{displayValue ?? (value || "—")}</span>
           <Pencil
-            className="h-3 w-3 shrink-0 text-neutral-300 group-hover:text-neutral-600 dark:text-neutral-600 dark:group-hover:text-neutral-300"
+            className="h-3 w-3 shrink-0 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible/field:opacity-100 dark:text-neutral-500"
             strokeWidth={2}
           />
         </button>

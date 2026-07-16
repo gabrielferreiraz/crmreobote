@@ -11,12 +11,14 @@ import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomField
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
+type CreditTypeOption = { id: string; label: string };
 
 export function NewDealDialog({
   pipelineId,
   firstStageId,
   members,
   customFields,
+  creditTypes,
   onCreated,
   open,
   onOpenChange,
@@ -26,6 +28,7 @@ export function NewDealDialog({
   firstStageId?: string;
   members: MemberOption[];
   customFields: CustomFieldDefinitionInput[];
+  creditTypes: CreditTypeOption[];
   onCreated: (deal: Deal) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -118,9 +121,7 @@ export function NewDealDialog({
                 onChange={setCreditType}
                 options={[
                   { value: "", label: "—" },
-                  { value: "IMÓVEL", label: "Imóvel" },
-                  { value: "VEÍCULO", label: "Veículo" },
-                  { value: "OUTROS", label: "Outros" },
+                  ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
                 ]}
               />
             </div>

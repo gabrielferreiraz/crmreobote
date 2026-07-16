@@ -97,6 +97,35 @@ body {
   }
 }
 
+/* Entrada padrão de qualquer menu/dropdown/popover pequeno (Select,
+   DatePicker, FilterPopover, UserMenu, NotificationBell...) — mesmo espírito
+   do modal-panel-in acima, só que mais sutil (dropdown é pequeno e fica perto
+   do gatilho, não precisa do mesmo deslocamento). */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+}
+
+/* Mesma entrada, pro raro menu que abre pra CIMA a partir da borda inferior
+   esquerda do gatilho (ex.: emoji/anexo do composer de WhatsApp, que fica
+   colado na barra de digitar embaixo da tela). */
+.animate-pop-in-bottom {
+  animation: pop-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: bottom left;
+}
+
 @keyframes sheet-up-in {
   from {
     transform: translateY(100%);
@@ -233,8 +262,23 @@ body {
       0 24px 40px -16px rgba(0, 0, 0, 0.08);
   }
 
+  /* Vidro leve — menus/dropdowns pequenos (Select, DatePicker, popovers de
+     filtro). No claro a borda cinza discreta já lê bem; no escuro uma borda
+     cinza-sobre-cinza (neutral-800 num fundo neutral-900) some — o segredo
+     pra "vidro lapidado" de verdade é um fio de luz branca bem fraca
+     (white/10), não outro tom de cinza. É essa borda que faz o painel
+     parecer ter espessura/refração em vez de só "escurecido". */
   .surface-glass {
-    @apply border border-neutral-200/60 bg-white/80 backdrop-blur-md dark:border-neutral-800/60 dark:bg-neutral-900/80;
+    @apply border border-neutral-200/60 bg-white/80 backdrop-blur-md dark:border-white/10 dark:bg-neutral-900/80;
+  }
+
+  /* Vidro "pesado" — superfícies grandes de overlay (modal, painel lateral,
+     bottom sheet, sidebar de conversas) que precisam de mais opacidade pra
+     manter texto/dados legíveis por cima do conteúdo desfocado atrás. Sombra
+     em camadas suaves só no claro (sombra escura borrada no escuro fica com
+     "cara de IA" — ali só a borda iluminada de 1px já entrega profundidade). */
+  .surface-glass-panel {
+    @apply border border-neutral-200/60 bg-white/90 backdrop-blur-lg shadow-2xl shadow-neutral-900/10 dark:border-white/10 dark:bg-neutral-900/85 dark:shadow-none;
   }
 
   .icon-btn {

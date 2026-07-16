@@ -33,6 +33,7 @@ model Organization {
   webhookSubscriptions WebhookSubscription[]
   webhookDeliveries WebhookDelivery[]
   leadSources       LeadSource[]
+  creditTypes       CreditType[]
   customFieldDefinitions CustomFieldDefinition[]
 }
 
@@ -614,6 +615,26 @@ model LossReason {
 // contatos que já usavam o nome antigo.
 
 model LeadSource {
+  id             String   @id @default(cuid())
+  organizationId String
+  label          String
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ─── Tipos de crédito (lista editável, alimenta o Select de "Tipo de
+// crédito" do negócio) ──────────────────────────────────────────────
+//
+// Mesmo raciocínio do LeadSource acima: de propósito NÃO é FK do
+// Deal.creditType (que continua String livre) — importação e a API externa
+// /api/v1/deals continuam aceitando texto livre. Renomear aqui não retroage
+// sobre negócios que já usavam o nome antigo.
+
+model CreditType {
   id             String   @id @default(cuid())
   organizationId String
   label          String
