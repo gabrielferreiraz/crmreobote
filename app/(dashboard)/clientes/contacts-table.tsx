@@ -33,10 +33,10 @@ import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomField
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 
-const QUICK_RANGES = buildQuickRanges();
+const QUICK_RANGES = buildListQuickRanges();
 
 const NO_JOB_TITLE = "__NONE__";
 const NO_RESPONSAVEL = "__NONE__";

@@ -13,10 +13,10 @@ import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { SelectionBar } from "@/components/selection-bar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildListQuickRanges } from "@/lib/date-ranges";
 import type { Deal } from "./kanban-board";
 
-const QUICK_RANGES = buildQuickRanges();
+const QUICK_RANGES = buildListQuickRanges();
 
 type MemberOption = { id: string; name: string; active: boolean };
 type Stage = { id: string; name: string; color: string | null };

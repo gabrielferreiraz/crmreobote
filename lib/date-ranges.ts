@@ -23,19 +23,32 @@ function monthRange(monthsAgo: number): { from: string; to: string } {
   };
 }
 
+/** 1º de janeiro a 31 de dezembro do ano corrente. */
+function yearRange(): { from: string; to: string } {
+  const now = new Date();
+  return { from: toISODate(new Date(now.getFullYear(), 0, 1)), to: toISODate(new Date(now.getFullYear(), 11, 31)) };
+}
+
+/** Usado em Relatórios — janela mais larga, útil pra comparar meses recentes. */
 export function buildQuickRanges(): QuickRange[] {
   return [
     { key: "this-month", label: "Este mês", range: () => monthRange(0) },
     { key: "last-month", label: "Mês passado", range: () => monthRange(1) },
     { key: "2-months-ago", label: "Há 2 meses", range: () => monthRange(2) },
     { key: "3-months-ago", label: "Há 3 meses", range: () => monthRange(3) },
-    {
-      key: "this-year",
-      label: "Este ano",
-      range: () => {
-        const now = new Date();
-        return { from: toISODate(new Date(now.getFullYear(), 0, 1)), to: toISODate(new Date(now.getFullYear(), 11, 31)) };
-      },
-    },
+    { key: "this-year", label: "Este ano", range: yearRange },
+  ];
+}
+
+/** Usado nos filtros de "Cadastrado em"/"Criado em" de Clientes e Negócios —
+ * atalhos mais curtos, pensados pra triagem do dia a dia (não comparação de
+ * meses). O calendário personalizado (DateRangeField) cobre qualquer período
+ * fora desses atalhos. */
+export function buildListQuickRanges(): QuickRange[] {
+  return [
+    { key: "today", label: "Hoje", range: () => ({ from: toISODate(new Date()), to: toISODate(new Date()) }) },
+    { key: "this-month", label: "Este mês", range: () => monthRange(0) },
+    { key: "last-month", label: "Mês passado", range: () => monthRange(1) },
+    { key: "this-year", label: "Este ano", range: yearRange },
   ];
 }
