@@ -71,15 +71,30 @@ export async function upsertContactFromIntegration(
   }
   if ("ownerId" in input) {
     const ownerId = typeof input.ownerId === "string" ? input.ownerId : null;
-    if (ownerId) {
+    const currentResponsavelId = duplicate?.responsavelId ?? null;
+
+    // Responsável é "grudento" depois da primeira atribuição — um reenvio
+    // externo do mesmo lead (de outra lista, ou por engano com outro
+    // ownerId) nunca deve trocar quem já está cuidando dele. Só entra aqui
+    // se o contato ainda não tinha responsável, ou se o ownerId mandado é
+    // exatamente o mesmo que já está atribuído (não muda nada de qualquer
+    // jeito). Trocar responsável depois disso é uma ação deliberada, feita
+    // no próprio CRM (ou na ação em massa "Trocar responsável").
+    if (currentResponsavelId && ownerId !== currentResponsavelId) {
+      warnings.push(
+        "ownerId enviado foi ignorado — este contato já tem um responsável atribuído; reenvio externo não troca quem já está responsável (altere pelo CRM se for intencional).",
+      );
+    } else if (ownerId) {
       const membership = await prisma.organizationUser.findUnique({
         where: { organizationId_userId: { organizationId, userId: ownerId } },
       });
       // Responsável é só informativo — nunca vale a pena perder o lead inteiro
-      // por causa de um ownerId errado/desconhecido. Avisa e segue sem
-      // atribuir, em vez de rejeitar a chamada inteira.
+      // por causa de um ownerId errado/desconhecido/inativo. Avisa e segue
+      // sem atribuir, em vez de rejeitar a chamada inteira.
       if (!membership) {
         warnings.push(`ownerId "${ownerId}" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído.`);
+      } else if (!membership.active) {
+        warnings.push(`ownerId "${ownerId}" corresponde a um usuário inativo desta organização — contato salvo sem responsável atribuído.`);
       } else {
         data.responsavelId = ownerId;
       }

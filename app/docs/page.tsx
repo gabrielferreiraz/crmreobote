@@ -178,7 +178,11 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
               </li>
               <li>
                 <Code>active</Code>: <Code>false</Code> quando o usuário foi desativado (desligado do time) — ainda
-                aparece na lista pra manter negócios antigos legíveis, mas não deve receber novas atribuições.
+                aparece na lista pra manter negócios antigos legíveis, mas{" "}
+                <strong className="font-medium">filtre por active: true na sua interface</strong> antes de deixar
+                escolher um responsável. Mandar o <Code>id</Code> de um membro inativo em <Code>ownerId</Code> não
+                quebra a chamada, mas o CRM ignora e devolve um aviso em <Code>warnings</Code> — melhor nem oferecer
+                essa opção pra começo de conversa.
               </li>
               <li>
                 <Code>team</Code>: <Code>null</Code> quando o membro não está em nenhuma equipe.
@@ -200,10 +204,24 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
             </P>
             <P>
               <Code>ownerId</Code> (opcional) atribui um responsável ao contato — precisa ser o <Code>id</Code> de um
-              usuário que já faz parte da organização. Enviar <Code>ownerId: null</Code> remove o responsável atual.
-              Um <Code>ownerId</Code> que não existe <strong className="font-medium">não derruba a chamada</strong> —
-              o contato é criado/atualizado do mesmo jeito, sem responsável, e a resposta avisa em{" "}
-              <Code>warnings</Code>. <Code>name</Code> é o único campo que de fato bloqueia a criação se faltar.
+              usuário <strong className="font-medium">ativo</strong> que já faz parte da organização. Um{" "}
+              <Code>ownerId</Code> que não existe ou pertence a um usuário{" "}
+              <strong className="font-medium">inativo</strong> (desligado do time){" "}
+              <strong className="font-medium">não derruba a chamada</strong> — o contato é criado/atualizado do
+              mesmo jeito, sem responsável, e a resposta avisa em <Code>warnings</Code>. <Code>name</Code> é o único
+              campo que de fato bloqueia a criação se faltar.
+            </P>
+            <P>
+              <strong className="font-medium">Responsável é &quot;grudento&quot; depois da primeira atribuição.</strong>{" "}
+              Se o contato já existe e já tem um responsável (seja porque uma chamada anterior atribuiu, seja porque
+              alguém atribuiu manualmente no CRM), um reenvio externo com outro <Code>ownerId</Code> (ou com{" "}
+              <Code>ownerId: null</Code>) <strong className="font-medium">não troca quem já está responsável</strong>{" "}
+              — o resto dos dados é atualizado normalmente, só essa parte é ignorada, com aviso em{" "}
+              <Code>warnings</Code>. Isso existe pra um reenvio do mesmo lead (de outra lista, por engano, ou de um
+              sistema diferente) nunca &quot;roubar&quot; um lead que já está com outro vendedor sem ninguém
+              perceber. Só dá pra trocar o responsável de um contato que já tem um pelo próprio CRM (ou pela ação em
+              massa &quot;Trocar responsável&quot; na tela de Clientes). <Code>ownerId</Code> só &quot;pega&quot; em
+              duas situações: contato novo, ou contato existente que ainda não tinha responsável nenhum.
             </P>
             <SubHeading>Request</SubHeading>
             <CodeBlock lang="json">{`{
@@ -252,12 +270,14 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
   }
 }`}</CodeBlock>
             <P>
-              Se o <Code>ownerId</Code> enviado não existir, o contato é criado do mesmo jeito, só que assim:
+              Exemplos de <Code>warnings</Code> — a chamada sempre continua, só o <Code>ownerId</Code> é ignorado:
             </P>
-            <CodeBlock lang="json">{`"ownerId": null,
-"warnings": [
-  "ownerId \\"xyz\\" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído."
-]`}</CodeBlock>
+            <CodeBlock lang="json">{`// ownerId não existe nesta organização
+"warnings": ["ownerId \\"xyz\\" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído."]`}</CodeBlock>
+            <CodeBlock lang="json">{`// ownerId existe, mas é de um usuário desativado
+"warnings": ["ownerId \\"xyz\\" corresponde a um usuário inativo desta organização — contato salvo sem responsável atribuído."]`}</CodeBlock>
+            <CodeBlock lang="json">{`// contato já existia e já tinha responsável — ownerId novo foi ignorado de propósito
+"warnings": ["ownerId enviado foi ignorado — este contato já tem um responsável atribuído; reenvio externo não troca quem já está responsável (altere pelo CRM se for intencional)."]`}</CodeBlock>
           </Section>
 
           <Section
@@ -310,9 +330,12 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
               primeira etapa dela; mandar só um dos dois é ignorado (o outro também) e a resposta avisa em{" "}
               <Code>warnings</Code>. <Code>stageId</Code> também precisa pertencer de fato à{" "}
               <Code>pipelineId</Code> informada, senão a chamada é rejeitada (<Code>400</Code>).{" "}
-              <Code>ownerId</Code> opcional: sem ele (ou se o <Code>ownerId</Code> enviado não existir), atribui
-              automaticamente ao vendedor com menos negócios abertos no momento — nesse segundo caso a resposta vem
-              com um aviso em <Code>warnings</Code>, mas o negócio é criado do mesmo jeito.
+              <Code>ownerId</Code> opcional: sem ele (ou se o <Code>ownerId</Code> enviado não existir, ou pertencer
+              a um usuário inativo), atribui automaticamente ao vendedor com menos negócios abertos no momento —
+              nesses casos a resposta vem com um aviso em <Code>warnings</Code>, mas o negócio é criado do mesmo
+              jeito. Diferente de contato, negócio é sempre criado do zero (nunca &quot;atualiza&quot; um existente),
+              então não existe a regra de responsável &quot;grudento&quot; aqui — cada chamada decide o{" "}
+              <Code>ownerId</Code> daquele negócio novo, sem herdar nada de negócios anteriores.
             </P>
             <P>
               <Code>value</Code>, <Code>name</Code>, <Code>creditType</Code>, <Code>description</Code> e{" "}

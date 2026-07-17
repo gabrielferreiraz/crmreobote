@@ -94,7 +94,7 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 - `role`: `OWNER` (dono), `MANAGER` (gerente), `SUPERVISOR` (supervisor de uma equipe) ou `MEMBER` (consultor/vendedor).
-- `active`: `false` quando o usuário foi desativado (desligado do time) — ainda aparece na lista pra manter negócios antigos legíveis, mas não deve receber novas atribuições.
+- `active`: `false` quando o usuário foi desativado (desligado do time) — ainda aparece na lista pra manter negócios antigos legíveis, mas **filtre por `active: true` na sua interface** antes de deixar escolher um responsável. Mandar o `id` de um membro inativo em `ownerId` não quebra a chamada, mas o CRM ignora e devolve um aviso em `warnings` — melhor nem oferecer essa opção pra começo de conversa.
 - `team`: `null` quando o membro não está em nenhuma equipe.
 - `photoUrl`: `null` quando não tem foto cadastrada. Quando vem preenchido, é uma URL assinada que **expira em 1 hora** — não guarde/cacheie por muito tempo, busque de novo se precisar depois.
 
@@ -106,11 +106,25 @@ mesmo lead). Só `name` é obrigatório pra criar; numa atualização, só os
 campos enviados são alterados (o que não veio na chamada não é apagado).
 
 `ownerId` (opcional) atribui um responsável ao contato — precisa ser o `id`
-de um usuário que já faz parte da organização (veja em Configurações →
-Usuários). Enviar `ownerId: null` remove o responsável atual. Um `ownerId`
-que não existe **não derruba a chamada** — o contato é criado/atualizado do
-mesmo jeito, sem responsável, e a resposta avisa em `warnings` (veja abaixo).
-`name` é o **único** campo que de fato bloqueia a criação se faltar.
+de um usuário **ativo** que já faz parte da organização (veja em
+Configurações → Usuários). Um `ownerId` que não existe ou pertence a um
+usuário **inativo** (desligado do time) **não derruba a chamada** — o
+contato é criado/atualizado do mesmo jeito, sem responsável, e a resposta
+avisa em `warnings` (veja abaixo). `name` é o **único** campo que de fato
+bloqueia a criação se faltar.
+
+**Responsável é "grudento" depois da primeira atribuição.** Isso é
+intencional: se o contato já existe e já tem um responsável (seja porque
+uma chamada anterior atribuiu, seja porque alguém atribuiu manualmente no
+CRM), um reenvio externo com outro `ownerId` (ou com `ownerId: null`) **não
+troca quem já está responsável** — a chamada segue criando/atualizando o
+resto dos dados normalmente, só ignora essa parte, e avisa em `warnings`.
+Isso existe pra um reenvio do mesmo lead (de outra lista, por engano, ou de
+um sistema diferente) nunca "roubar" um lead que já está com outro vendedor
+sem ninguém perceber. Só dá pra trocar o responsável de um contato que já
+tem um pelo próprio CRM (ou pela ação em massa "Trocar responsável" na tela
+de Clientes). `ownerId` só "pega" em duas situações: contato novo, ou
+contato existente que ainda não tinha responsável nenhum.
 
 **Request**
 
@@ -168,11 +182,21 @@ sem impedir a criação:
 }
 ```
 
-Se o `ownerId` enviado não existir, a mesma chamada continua criando o
-contato normalmente (`outcome: "created"`), só que com `ownerId: null` e:
+Exemplos de `warnings` — a chamada sempre continua, só o `ownerId` é ignorado:
 
 ```json
+// ownerId não existe nesta organização
 "warnings": ["ownerId \"xyz\" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído."]
+```
+
+```json
+// ownerId existe, mas é de um usuário desativado
+"warnings": ["ownerId \"xyz\" corresponde a um usuário inativo desta organização — contato salvo sem responsável atribuído."]
+```
+
+```json
+// contato já existia e já tinha responsável — ownerId novo foi ignorado de propósito
+"warnings": ["ownerId enviado foi ignorado — este contato já tem um responsável atribuído; reenvio externo não troca quem já está responsável (altere pelo CRM se for intencional)."]
 ```
 
 ## `POST /api/v1/contacts/bulk`
@@ -227,10 +251,14 @@ sem os dois, usa a pipeline padrão da organização e a primeira etapa dela;
 mandar só um dos dois é tratado como se nenhum tivesse vindo (o outro é
 ignorado) e a resposta avisa em `warnings`. `stageId` também precisa
 pertencer de fato à `pipelineId` informada, senão a chamada é rejeitada
-(`400`). `ownerId` opcional: sem ele (ou se o `ownerId` enviado não existir),
-atribui automaticamente ao vendedor com menos negócios abertos no momento —
-nesse segundo caso a resposta vem com um aviso em `warnings`, mas o negócio
-é criado do mesmo jeito.
+(`400`). `ownerId` opcional: sem ele (ou se o `ownerId` enviado não existir,
+ou pertencer a um usuário inativo), atribui automaticamente ao vendedor com
+menos negócios abertos no momento — nesses casos a resposta vem com um
+aviso em `warnings`, mas o negócio é criado do mesmo jeito. Diferente de
+contato, negócio é sempre criado do zero (nunca "atualiza" um existente),
+então não existe a regra de responsável "grudento" aqui — cada chamada
+decide o `ownerId` daquele negócio novo, sem herdar nada de negócios
+anteriores.
 
 `value`, `name`, `creditType`, `description` e `source`, quando enviados,
 precisam ser do tipo certo (`value` número; os demais, texto) — um tipo

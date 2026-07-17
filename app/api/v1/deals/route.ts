@@ -140,11 +140,14 @@ export async function POST(req: Request) {
       const membership = await prisma.organizationUser.findUnique({
         where: { organizationId_userId: { organizationId: access.organizationId, userId: ownerId } },
       });
-      // Um ownerId errado não pode derrubar o negócio inteiro — cai pra
-      // atribuição automática (mesmo fallback de quando ownerId não vem) e
-      // avisa no lugar de rejeitar a chamada.
+      // Um ownerId errado/inativo não pode derrubar o negócio inteiro — cai
+      // pra atribuição automática (mesmo fallback de quando ownerId não vem)
+      // e avisa no lugar de rejeitar a chamada.
       if (!membership) {
         warnings.push(`ownerId "${ownerId}" não corresponde a nenhum usuário desta organização — atribuído automaticamente.`);
+        ownerId = undefined;
+      } else if (!membership.active) {
+        warnings.push(`ownerId "${ownerId}" corresponde a um usuário inativo desta organização — atribuído automaticamente.`);
         ownerId = undefined;
       }
     }
