@@ -8,20 +8,41 @@ export default async function ClientesPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const isOwner = session!.user.role === "OWNER";
+  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
   return runWithTenant(organizationId, async () => {
-    const [contacts, sources, customFields] = await Promise.all([
+    const [contactsRaw, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
       prisma.contact.findMany({
         where: { organizationId },
         orderBy: { createdAt: "desc" },
-        include: { _count: { select: { deals: true } } },
+        include: { _count: { select: { deals: true } }, responsavel: { select: { id: true, name: true } } },
       }),
       prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+      prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.customFieldDefinition.findMany({
         where: { organizationId, entityType: "CONTACT" },
         orderBy: { order: "asc" },
       }),
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true } } },
+      }),
+      prisma.pipeline.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        include: { stages: { orderBy: { order: "asc" }, take: 1 } },
+      }),
     ]);
+
+    const contacts = contactsRaw.map((c) => ({
+      ...c,
+      customFieldValues: c.customFieldValues as CustomFieldFormValues | null,
+    }));
+    const members = membersRaw.map((m) => m.user);
+    const pipelines = pipelinesRaw
+      .filter((p) => p.stages.length > 0)
+      .map((p) => ({ id: p.id, name: p.name, isDefault: p.isDefault, firstStageId: p.stages[0].id }));
 
     return (
       <div className="space-y-4">
@@ -32,9 +53,13 @@ export default async function ClientesPage() {
           </p>
         </div>
         <ContactsTable
-          initialContacts={contacts.map((c) => ({ ...c, customFieldValues: c.customFieldValues as CustomFieldFormValues | null }))}
+          initialContacts={contacts}
           isOwner={isOwner}
+          isManager={isManager}
           sources={sources}
+          jobTitles={jobTitles}
+          members={members}
+          pipelines={pipelines}
           customFields={customFields}
         />
       </div>

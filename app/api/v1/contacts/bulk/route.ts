@@ -30,7 +30,13 @@ export async function POST(req: Request) {
   }
 
   return runWithTenant(access.organizationId, async () => {
-    const results: { index: number; status: "created" | "updated" | "error"; id?: string; error?: string }[] = [];
+    const results: {
+      index: number;
+      status: "created" | "updated" | "error";
+      id?: string;
+      error?: string;
+      warnings?: string[];
+    }[] = [];
 
     for (let index = 0; index < contacts.length; index++) {
       const item = contacts[index];
@@ -42,7 +48,12 @@ export async function POST(req: Request) {
       if (!result.ok) {
         results.push({ index, status: "error", error: result.error });
       } else {
-        results.push({ index, status: result.outcome, id: result.contact.id });
+        results.push({
+          index,
+          status: result.outcome,
+          id: result.contact.id,
+          ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+        });
       }
     }
 
@@ -51,6 +62,7 @@ export async function POST(req: Request) {
       created: results.filter((r) => r.status === "created").length,
       updated: results.filter((r) => r.status === "updated").length,
       errors: results.filter((r) => r.status === "error").length,
+      warnings: results.filter((r) => (r.warnings?.length ?? 0) > 0).length,
     };
 
     return apiSuccess({ summary, results });

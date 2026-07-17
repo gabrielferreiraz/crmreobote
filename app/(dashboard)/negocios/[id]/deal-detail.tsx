@@ -943,7 +943,7 @@ export function DealDetail({
       )}
 
       {contactModalOpen && (
-        <ContactPreviewModal contactId={deal.contact.id} onClose={() => setContactModalOpen(false)} />
+        <ContactPreviewModal contactId={deal.contact.id} members={members} onClose={() => setContactModalOpen(false)} />
       )}
 
       {editingTask && (

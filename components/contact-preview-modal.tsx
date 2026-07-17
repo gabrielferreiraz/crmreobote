@@ -34,14 +34,24 @@ type ContactFull = {
   source: string | null;
   company: string | null;
   jobTitle: string | null;
+  responsavelId: string | null;
   tags: string[];
   customFieldValues?: CustomFieldFormValues | null;
   deals: ContactDeal[];
 };
 
-export function ContactPreviewModal({ contactId, onClose }: { contactId: string; onClose: () => void }) {
+export function ContactPreviewModal({
+  contactId,
+  members,
+  onClose,
+}: {
+  contactId: string;
+  members: { id: string; name: string }[];
+  onClose: () => void;
+}) {
   const [contact, setContact] = useState<ContactFull | null>(null);
   const [sources, setSources] = useState<{ id: string; label: string }[]>([]);
+  const [jobTitles, setJobTitles] = useState<{ id: string; label: string }[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinitionInput[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,12 +67,14 @@ export function ContactPreviewModal({ contactId, onClose }: { contactId: string;
         return res.json();
       }),
       fetch("/api/lead-sources").then((res) => (res.ok ? res.json() : [])),
+      fetch("/api/job-titles").then((res) => (res.ok ? res.json() : [])),
       fetch("/api/custom-fields").then((res) => (res.ok ? res.json() : [])),
     ])
-      .then(([contactData, sourcesData, fieldsData]) => {
+      .then(([contactData, sourcesData, jobTitlesData, fieldsData]) => {
         if (cancelled) return;
         setContact(contactData);
         setSources(sourcesData);
+        setJobTitles(jobTitlesData);
         setCustomFields(fieldsData.filter((f: CustomFieldDefinitionInput & { entityType: string }) => f.entityType === "CONTACT"));
       })
       .catch(() => {
@@ -101,7 +113,7 @@ export function ContactPreviewModal({ contactId, onClose }: { contactId: string;
                 </p>
               </div>
             </div>
-            <EditContactDialog contact={contact} sources={sources} customFields={customFields} />
+            <EditContactDialog contact={contact} sources={sources} jobTitles={jobTitles} members={members} customFields={customFields} />
           </div>
 
           <div className="space-y-2 text-sm">

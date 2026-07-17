@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { id: "autenticacao", label: "Autenticação" },
   { id: "limites", label: "Limites" },
   { id: "resposta", label: "Formato de resposta" },
+  { id: "membros", label: "Membros do time" },
   { id: "contatos", label: "Contatos" },
   { id: "contatos-lote", label: "Contatos (lote)" },
   { id: "negocios", label: "Negócios" },
@@ -99,6 +100,9 @@ export default function DocsPage() {
           <Section id="limites" title="Limites">
             <ul className="list-disc space-y-1.5 pl-5 text-sm text-neutral-600 dark:text-neutral-300">
               <li>
+                <Code>GET /api/v1/members</Code>: 60 requisições/minuto por chave.
+              </li>
+              <li>
                 <Code>POST /api/v1/contacts</Code>: 60 requisições/minuto por chave.
               </li>
               <li>
@@ -125,12 +129,81 @@ export default function DocsPage() {
             </P>
           </Section>
 
+          <Section id="membros" title="Membros do time" endpoint={{ method: "GET", path: "/api/v1/members" }}>
+            <P>
+              Lista os membros do time da organização — pensado pra você montar, no seu próprio sistema, um seletor
+              de &quot;responsável&quot; sem precisar abrir o CRM. Só leitura, sem corpo de requisição. Devolve tudo
+              que é seguro mostrar fora daqui (nunca senha nem nada de autenticação) — pegue só os campos que
+              interessam pro seu caso, ignore o resto.
+            </P>
+            <P>
+              O <Code>id</Code> de cada membro é exatamente o valor que você usa em <Code>ownerId</Code> ao
+              criar/atualizar um contato ou um negócio.
+            </P>
+            <SubHeading>Request</SubHeading>
+            <CodeBlock lang="http">{`GET /api/v1/members
+Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
+            <SubHeading>Response</SubHeading>
+            <CodeBlock lang="json">{`{
+  "success": true,
+  "data": {
+    "members": [
+      {
+        "id": "cm...",
+        "name": "Vendedor Escolhido",
+        "email": "vendedor@empresa.com",
+        "role": "MEMBER",
+        "active": true,
+        "team": { "id": "cm...", "name": "Equipe Centro" },
+        "photoUrl": "https://.../avatars/....jpg?X-Amz-Signature=...",
+        "memberSince": "2026-01-10T12:00:00.000Z"
+      },
+      {
+        "id": "cm...",
+        "name": "Gerente da Conta",
+        "email": "gerente@empresa.com",
+        "role": "MANAGER",
+        "active": true,
+        "team": null,
+        "photoUrl": null,
+        "memberSince": "2025-11-02T09:00:00.000Z"
+      }
+    ]
+  }
+}`}</CodeBlock>
+            <ul className="list-disc space-y-1.5 pl-5 text-sm text-neutral-600 dark:text-neutral-300">
+              <li>
+                <Code>role</Code>: <Code>OWNER</Code> (dono), <Code>MANAGER</Code> (gerente), <Code>SUPERVISOR</Code>{" "}
+                (supervisor de uma equipe) ou <Code>MEMBER</Code> (consultor/vendedor).
+              </li>
+              <li>
+                <Code>active</Code>: <Code>false</Code> quando o usuário foi desativado (desligado do time) — ainda
+                aparece na lista pra manter negócios antigos legíveis, mas não deve receber novas atribuições.
+              </li>
+              <li>
+                <Code>team</Code>: <Code>null</Code> quando o membro não está em nenhuma equipe.
+              </li>
+              <li>
+                <Code>photoUrl</Code>: <Code>null</Code> quando não tem foto cadastrada. Quando vem preenchido, é uma
+                URL assinada que <strong className="font-medium">expira em 1 hora</strong> — não guarde/cacheie por
+                muito tempo, busque de novo se precisar depois.
+              </li>
+            </ul>
+          </Section>
+
           <Section id="contatos" title="Contatos" endpoint={{ method: "POST", path: "/api/v1/contacts" }}>
             <P>
               Cria um contato novo ou <strong className="font-medium">atualiza</strong> um já existente com o mesmo
               telefone/WhatsApp (nunca retorna erro de duplicata — pensado pra reenvio repetido do mesmo lead). Só{" "}
               <Code>name</Code> é obrigatório pra criar; numa atualização, só os campos enviados são alterados (o
               que não veio na chamada não é apagado).
+            </P>
+            <P>
+              <Code>ownerId</Code> (opcional) atribui um responsável ao contato — precisa ser o <Code>id</Code> de um
+              usuário que já faz parte da organização. Enviar <Code>ownerId: null</Code> remove o responsável atual.
+              Um <Code>ownerId</Code> que não existe <strong className="font-medium">não derruba a chamada</strong> —
+              o contato é criado/atualizado do mesmo jeito, sem responsável, e a resposta avisa em{" "}
+              <Code>warnings</Code>. <Code>name</Code> é o único campo que de fato bloqueia a criação se faltar.
             </P>
             <SubHeading>Request</SubHeading>
             <CodeBlock lang="json">{`{
@@ -144,6 +217,7 @@ export default function DocsPage() {
   "city": "Campo Grande",
   "state": "MS",
   "tags": ["lead-quente", "facebook"],
+  "ownerId": "cm...",
   "customFields": {
     "campanha_id": "abc123",
     "orcamento_estimado": 5000
@@ -152,6 +226,10 @@ export default function DocsPage() {
             <SubHeading>
               Response (<Code>201</Code> se criou, <Code>200</Code> se atualizou)
             </SubHeading>
+            <P>
+              Devolve o registro completo salvo, pra confirmar exatamente o que ficou gravado, mais{" "}
+              <Code>warnings</Code> (lista vazia quando está tudo certo).
+            </P>
             <CodeBlock lang="json">{`{
   "success": true,
   "data": {
@@ -160,9 +238,26 @@ export default function DocsPage() {
     "email": "maria@exemplo.com",
     "phone": "67991234567",
     "whatsapp": "67991234567",
-    "outcome": "created"
+    "source": "Facebook Ads",
+    "company": "Empresa X",
+    "jobTitle": "Gerente",
+    "city": "Campo Grande",
+    "state": "MS",
+    "tags": ["lead-quente", "facebook"],
+    "ownerId": "cm...",
+    "customFields": { "campanha_id": "abc123", "orcamento_estimado": 5000 },
+    "createdAt": "2026-07-17T14:32:00.000Z",
+    "outcome": "created",
+    "warnings": []
   }
 }`}</CodeBlock>
+            <P>
+              Se o <Code>ownerId</Code> enviado não existir, o contato é criado do mesmo jeito, só que assim:
+            </P>
+            <CodeBlock lang="json">{`"ownerId": null,
+"warnings": [
+  "ownerId \\"xyz\\" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído."
+]`}</CodeBlock>
           </Section>
 
           <Section
@@ -171,14 +266,15 @@ export default function DocsPage() {
             endpoint={{ method: "POST", path: "/api/v1/contacts/bulk" }}
           >
             <P>
-              Mesmo formato de contato acima, em lote (até 500 por chamada). Processa e reporta item a item — um
-              contato inválido não derruba os outros.
+              Mesmo formato de contato acima (incluindo <Code>ownerId</Code>) em lote, até 500 por chamada. Processa
+              e reporta item a item — um contato inválido não derruba os outros, e cada item traz exatamente o que
+              aconteceu com ele.
             </P>
             <SubHeading>Request</SubHeading>
             <CodeBlock lang="json">{`{
   "contacts": [
     { "name": "Maria Silva", "phone": "67991234567", "source": "Lista fria - Julho" },
-    { "name": "João Souza", "phone": "67998887777", "source": "Lista fria - Julho" },
+    { "name": "João Souza", "phone": "67998887777", "source": "Lista fria - Julho", "ownerId": "id-que-nao-existe" },
     { "phone": "67900000000" }
   ]
 }`}</CodeBlock>
@@ -186,23 +282,42 @@ export default function DocsPage() {
             <CodeBlock lang="json">{`{
   "success": true,
   "data": {
-    "summary": { "total": 3, "created": 2, "updated": 0, "errors": 1 },
+    "summary": { "total": 3, "created": 2, "updated": 0, "errors": 1, "warnings": 1 },
     "results": [
       { "index": 0, "status": "created", "id": "cm..." },
-      { "index": 1, "status": "created", "id": "cm..." },
+      {
+        "index": 1,
+        "status": "created",
+        "id": "cm...",
+        "warnings": ["ownerId \\"id-que-nao-existe\\" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído."]
+      },
       { "index": 2, "status": "error", "error": "Campo 'name' é obrigatório para criar um contato novo" }
     ]
   }
 }`}</CodeBlock>
+            <P>
+              <Code>summary.warnings</Code> conta quantos itens tiveram algum aviso (mesmo tendo sido criados com
+              sucesso) — use isso pra saber quantos leads precisam de uma olhada, mesmo sem erro nenhum.
+            </P>
           </Section>
 
           <Section id="negocios" title="Negócios" endpoint={{ method: "POST", path: "/api/v1/deals" }}>
             <P>
               Cria um negócio. Aceita <Code>contactId</Code> (contato já existente) <strong className="font-medium">ou</strong>{" "}
               <Code>contact</Code> (mesmo formato de <Code>/api/v1/contacts</Code> — cria/atualiza o contato na mesma
-              chamada). <Code>pipelineId</Code>/<Code>stageId</Code> são opcionais: sem eles, usa a pipeline padrão
-              da organização e a primeira etapa dela. <Code>ownerId</Code> opcional: sem ele, atribui
-              automaticamente ao vendedor com menos negócios abertos no momento.
+              chamada). <Code>pipelineId</Code>/<Code>stageId</Code> são opcionais, mas precisam vir{" "}
+              <strong className="font-medium">juntos</strong>: sem os dois, usa a pipeline padrão da organização e a
+              primeira etapa dela; mandar só um dos dois é ignorado (o outro também) e a resposta avisa em{" "}
+              <Code>warnings</Code>. <Code>stageId</Code> também precisa pertencer de fato à{" "}
+              <Code>pipelineId</Code> informada, senão a chamada é rejeitada (<Code>400</Code>).{" "}
+              <Code>ownerId</Code> opcional: sem ele (ou se o <Code>ownerId</Code> enviado não existir), atribui
+              automaticamente ao vendedor com menos negócios abertos no momento — nesse segundo caso a resposta vem
+              com um aviso em <Code>warnings</Code>, mas o negócio é criado do mesmo jeito.
+            </P>
+            <P>
+              <Code>value</Code>, <Code>name</Code>, <Code>creditType</Code>, <Code>description</Code> e{" "}
+              <Code>source</Code>, quando enviados, precisam ser do tipo certo (<Code>value</Code> número; os
+              demais, texto) — tipo errado é rejeitado com <Code>400</Code>, nunca vira erro genérico.
             </P>
             <SubHeading>Request (contato novo, direto na mesma chamada)</SubHeading>
             <CodeBlock lang="json">{`{
@@ -227,7 +342,12 @@ export default function DocsPage() {
     "name": "07/26 - Maria Silva FACEBOOK ADS",
     "status": "OPEN",
     "value": 350000,
-    "contact": { "id": "cm...", "name": "Maria Silva" },
+    "creditType": "Imóvel",
+    "description": null,
+    "pipelineId": "cm...",
+    "createdAt": "2026-07-17T14:32:00.000Z",
+    "warnings": [],
+    "contact": { "id": "cm...", "name": "Maria Silva", "phone": "67991234567", "whatsapp": null },
     "owner": { "id": "cm...", "name": "Vendedor Escolhido" },
     "stage": { "id": "cm...", "name": "Novo lead" }
   }
@@ -332,8 +452,15 @@ function Section({
 }
 
 function MethodBadge({ method }: { method: string }) {
+  const isGet = method === "GET";
   return (
-    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+    <span
+      className={
+        isGet
+          ? "rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-400"
+          : "rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+      }
+    >
       {method}
     </span>
   );

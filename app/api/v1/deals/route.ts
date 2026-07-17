@@ -57,7 +57,28 @@ export async function POST(req: Request) {
     return apiError("Envie 'contactId' (contato existente) ou 'contact' (dados pra criar/atualizar)", 400);
   }
 
+  // Campos soltos vêm de fora sem garantia nenhuma de tipo (o `as {...}` acima
+  // é só uma anotação do TypeScript, não valida nada em runtime) — sem isso,
+  // um `value` string ou um `name` objeto chegava direto no Prisma e estourava
+  // um erro não tratado, fora do envelope {success:false,...} documentado.
+  if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
+    return apiError("'value' precisa ser um número", 400);
+  }
+  if (name !== undefined && typeof name !== "string") {
+    return apiError("'name' precisa ser uma string", 400);
+  }
+  if (creditType !== undefined && typeof creditType !== "string") {
+    return apiError("'creditType' precisa ser uma string", 400);
+  }
+  if (description !== undefined && typeof description !== "string") {
+    return apiError("'description' precisa ser uma string", 400);
+  }
+  if (source !== undefined && typeof source !== "string") {
+    return apiError("'source' precisa ser uma string", 400);
+  }
+
   return runWithTenant(access.organizationId, async () => {
+    const warnings: string[] = [];
     let contact: { id: string; name: string; source: string | null };
 
     if (contactInput) {
@@ -67,6 +88,7 @@ export async function POST(req: Request) {
       });
       if (!result.ok) return apiError(result.error, 400);
       contact = result.contact;
+      warnings.push(...result.warnings);
     } else {
       const found = await prisma.contact.findFirst({
         where: { id: givenContactId, organizationId: access.organizationId },
@@ -78,6 +100,19 @@ export async function POST(req: Request) {
 
     let pipelineId = givenPipelineId;
     let stageId = givenStageId;
+
+    // pipelineId e stageId só fazem sentido juntos (a etapa pertence a uma
+    // pipeline específica) — antes, mandar só um dos dois fazia o outro ser
+    // ignorado em silêncio e a chamada cair na pipeline padrão, sem aviso
+    // nenhum. Agora avisa e usa o padrão, igual ao tratamento de ownerId.
+    if (pipelineId && !stageId) {
+      warnings.push(`pipelineId "${pipelineId}" informado sem stageId — ignorado, usando a pipeline padrão da organização.`);
+      pipelineId = undefined;
+    } else if (stageId && !pipelineId) {
+      warnings.push(`stageId "${stageId}" informado sem pipelineId — ignorado, usando a pipeline padrão da organização.`);
+      stageId = undefined;
+    }
+
     if (!pipelineId || !stageId) {
       const defaultPipeline = await prisma.pipeline.findFirst({
         where: { organizationId: access.organizationId },
@@ -90,10 +125,14 @@ export async function POST(req: Request) {
       pipelineId = pipelineId ?? defaultPipeline.id;
       stageId = stageId ?? defaultPipeline.stages[0].id;
     } else {
+      // Confere que a etapa pertence de fato à pipeline informada (não só à
+      // organização) — sem isso dava pra criar um negócio com pipelineId e
+      // stageId de pipelines diferentes, uma combinação inconsistente que
+      // nunca deveria existir.
       const stage = await prisma.pipelineStage.findFirst({
-        where: { id: stageId, pipeline: { organizationId: access.organizationId } },
+        where: { id: stageId, pipelineId, pipeline: { organizationId: access.organizationId } },
       });
-      if (!stage) return apiError("stageId inválido", 400);
+      if (!stage) return apiError("stageId inválido para a pipelineId informada", 400);
     }
 
     let ownerId = givenOwnerId;
@@ -101,8 +140,15 @@ export async function POST(req: Request) {
       const membership = await prisma.organizationUser.findUnique({
         where: { organizationId_userId: { organizationId: access.organizationId, userId: ownerId } },
       });
-      if (!membership) return apiError("ownerId inválido", 400);
-    } else {
+      // Um ownerId errado não pode derrubar o negócio inteiro — cai pra
+      // atribuição automática (mesmo fallback de quando ownerId não vem) e
+      // avisa no lugar de rejeitar a chamada.
+      if (!membership) {
+        warnings.push(`ownerId "${ownerId}" não corresponde a nenhum usuário desta organização — atribuído automaticamente.`);
+        ownerId = undefined;
+      }
+    }
+    if (!ownerId) {
       const anyMember = await prisma.organizationUser.findFirst({
         where: { organizationId: access.organizationId, active: true },
         orderBy: { createdAt: "asc" },
@@ -133,9 +179,14 @@ export async function POST(req: Request) {
         name: deal.name,
         status: deal.status,
         value: deal.value != null ? Number(deal.value) : null,
-        contact: { id: deal.contact.id, name: deal.contact.name },
+        creditType: deal.creditType,
+        description: deal.description,
+        pipelineId: deal.pipelineId,
+        contact: { id: deal.contact.id, name: deal.contact.name, phone: deal.contact.phone, whatsapp: deal.contact.whatsapp },
         owner: { id: deal.owner.id, name: deal.owner.name },
         stage: { id: deal.stage.id, name: deal.stage.name },
+        createdAt: deal.createdAt,
+        warnings,
       },
       201,
     );

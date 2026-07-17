@@ -8,6 +8,7 @@
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { signPayload } from "@/lib/webhooks/sign";
+import { isUrlSafeToFetch } from "@/lib/webhooks/url-safety";
 
 const MAX_ATTEMPTS = 5;
 // Backoff exponencial: 1min, 5min, 30min, 2h, 6h — depois disso desiste (status FAILED).
@@ -56,6 +57,20 @@ export async function runWebhookDeliveries(): Promise<{ checked: number; deliver
             where: { id: delivery.id },
             data: { status: "FAILED", responseBody: "Assinatura desativada" },
           });
+          continue;
+        }
+
+        // Re-resolve na hora da entrega, não só no cadastro (POST
+        // /api/webhook-subscriptions já confere isso) — um domínio podia
+        // apontar pra um IP público quando foi cadastrado e ser repontado pra
+        // rede interna depois (DNS rebinding). Falha permanente, não entra
+        // no backoff — a URL em si é que está errada, tentar de novo não muda isso.
+        if (!(await isUrlSafeToFetch(delivery.subscription.url))) {
+          await prisma.webhookDelivery.update({
+            where: { id: delivery.id },
+            data: { status: "FAILED", responseBody: "URL de destino não é mais um host público válido" },
+          });
+          failed += 1;
           continue;
         }
 

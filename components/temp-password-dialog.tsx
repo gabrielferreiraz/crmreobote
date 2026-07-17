@@ -27,9 +27,9 @@ export function TempPasswordDialog({
     <Modal onClose={onClose}>
       <h2 className="mb-2 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
       <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">{description}</p>
-      <div className="flex items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 px-3 py-2">
-        <p className="flex-1 font-mono text-sm text-neutral-900 dark:text-neutral-100">{password}</p>
-        <button type="button" onClick={copy} className="icon-btn" aria-label="Copiar senha">
+      <div className="flex items-start gap-2 rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 px-3 py-2">
+        <p className="min-w-0 flex-1 break-all font-mono text-sm text-neutral-900 dark:text-neutral-100">{password}</p>
+        <button type="button" onClick={copy} className="icon-btn shrink-0" aria-label="Copiar senha">
           {copied ? (
             <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
           ) : (

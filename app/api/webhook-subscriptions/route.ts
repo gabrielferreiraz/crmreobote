@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { generateWebhookSecret } from "@/lib/webhooks/sign";
 import { VALID_WEBHOOK_EVENTS } from "@/lib/webhooks/enqueue";
+import { isUrlSafeToFetch } from "@/lib/webhooks/url-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,12 @@ export async function POST(req: Request) {
   }
   if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
     return NextResponse.json({ error: "URL precisa ser http(s)" }, { status: 400 });
+  }
+  // Servidor é quem faz o fetch de verdade na entrega (lib/webhooks/engine.ts)
+  // — bloqueia URL apontando pra rede interna/loopback/metadados de nuvem,
+  // senão vira um SSRF a partir do próprio servidor.
+  if (!(await isUrlSafeToFetch(parsedUrl.toString()))) {
+    return NextResponse.json({ error: "URL não permitida — precisa apontar pra um host público" }, { status: 400 });
   }
 
   const cleanEvents = (events ?? []).filter((e) => VALID_WEBHOOK_EVENTS.includes(e as (typeof VALID_WEBHOOK_EVENTS)[number]));

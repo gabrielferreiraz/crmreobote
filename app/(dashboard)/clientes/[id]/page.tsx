@@ -55,18 +55,26 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
     where: { id, organizationId },
     include: {
       deals: { include: { stage: true }, orderBy: { createdAt: "desc" } },
+      responsavel: { select: { id: true, name: true } },
     },
   });
 
   if (!contact) notFound();
 
-  const [sources, customFields] = await Promise.all([
+  const [sources, jobTitles, customFields, membersRaw] = await Promise.all([
     prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+    prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
     prisma.customFieldDefinition.findMany({
       where: { organizationId, entityType: "CONTACT" },
       orderBy: { order: "asc" },
     }),
+    prisma.organizationUser.findMany({
+      where: { organizationId, active: true },
+      orderBy: { createdAt: "asc" },
+      include: { user: { select: { id: true, name: true } } },
+    }),
   ]);
+  const members = membersRaw.map((m) => m.user);
   const customFieldValues = (contact.customFieldValues as Record<string, CustomFieldValue>) ?? {};
 
   const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
@@ -107,9 +115,12 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
             state: contact.state,
             zipCode: contact.zipCode,
             tags: contact.tags,
+            responsavelId: contact.responsavelId,
             customFieldValues,
           }}
           sources={sources}
+          jobTitles={jobTitles}
+          members={members}
           customFields={customFields}
         />
       </div>
@@ -147,7 +158,9 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
           <Row label="Celular" value={contact.phone ?? "—"} />
           <Row label="WhatsApp" value={contact.whatsapp ?? "—"} />
           <Row label="Empresa" value={contact.company ?? "—"} />
+          <Row label="Cargo" value={contact.jobTitle ?? "—"} />
           <Row label="Origem" value={contact.source ?? "—"} />
+          <Row label="Responsável" value={contact.responsavel?.name ?? "—"} />
           {formatAddress(contact) && (
             <div className="space-y-0.5">
               <span className="text-neutral-500 dark:text-neutral-400">Endereço</span>

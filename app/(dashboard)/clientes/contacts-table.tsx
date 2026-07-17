@@ -3,7 +3,23 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Inbox, Loader2, Upload, Download, Search, SearchX, User, Mail, Phone, Tag, Briefcase, IdCard } from "lucide-react";
+import {
+  Plus,
+  Inbox,
+  Loader2,
+  Upload,
+  Download,
+  Search,
+  SearchX,
+  User,
+  Mail,
+  Phone,
+  Tag,
+  Tags,
+  Briefcase,
+  IdCard,
+  Trash2,
+} from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
@@ -14,12 +30,16 @@ import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
-import { JOB_TITLE_OPTIONS } from "@/lib/job-titles";
+import { SelectionBar } from "@/components/selection-bar";
+import { BulkActionPopover } from "@/components/bulk-action-popover";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildQuickRanges } from "@/lib/date-ranges";
+import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 
 const QUICK_RANGES = buildQuickRanges();
 
 const NO_JOB_TITLE = "__NONE__";
+const NO_RESPONSAVEL = "__NONE__";
 
 const SOURCE_BADGE: Record<string, string> = {
   FACEBOOK:
@@ -55,20 +75,34 @@ type Contact = {
   state: string | null;
   zipCode: string | null;
   tags: string[];
+  responsavelId: string | null;
+  responsavel: { id: string; name: string } | null;
   createdAt: string | Date;
   customFieldValues: CustomFieldFormValues | null;
   _count: { deals: number };
 };
 
+type MemberOption = { id: string; name: string };
+
+type PipelineOption = { id: string; name: string; isDefault: boolean; firstStageId: string };
+
 export function ContactsTable({
   initialContacts,
   isOwner,
+  isManager,
   sources,
+  jobTitles,
+  members,
+  pipelines,
   customFields,
 }: {
   initialContacts: Contact[];
   isOwner: boolean;
+  isManager: boolean;
   sources: { id: string; label: string }[];
+  jobTitles: { id: string; label: string }[];
+  members: MemberOption[];
+  pipelines: PipelineOption[];
   customFields: CustomFieldDefinitionInput[];
 }) {
   const router = useRouter();
@@ -89,6 +123,7 @@ export function ContactsTable({
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [tags, setTags] = useState("");
+  const [responsavelId, setResponsavelId] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,9 +131,15 @@ export function ContactsTable({
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
+  const [responsavelFilter, setResponsavelFilter] = useState("");
   const [onlyWithDeals, setOnlyWithDeals] = useState(false);
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const sourceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -106,22 +147,29 @@ export function ContactsTable({
     return Array.from(set).sort();
   }, [initialContacts]);
 
-  // Junta a lista fixa com qualquer valor "antigo" (texto livre de antes
-  // dessa lista existir) que ainda esteja em uso — senão o filtro não
-  // encontraria contatos com cargo cadastrado fora do padrão novo.
+  // Junta a lista editável (Configurações → Cargos) com qualquer valor
+  // "antigo" (texto livre de antes dessa lista existir) que ainda esteja em
+  // uso — senão o filtro não encontraria contatos com cargo fora da lista.
   const jobTitleOptions = useMemo(() => {
-    const set = new Set(JOB_TITLE_OPTIONS);
+    const set = new Set(jobTitles.map((j) => j.label));
     for (const c of initialContacts) if (c.jobTitle) set.add(c.jobTitle);
     return Array.from(set);
-  }, [initialContacts]);
+  }, [initialContacts, jobTitles]);
 
   const hasFilters =
-    !!search || !!sourceFilter || !!jobTitleFilter || onlyWithDeals || !!registeredFrom || !!registeredTo;
+    !!search ||
+    !!sourceFilter ||
+    !!jobTitleFilter ||
+    !!responsavelFilter ||
+    onlyWithDeals ||
+    !!registeredFrom ||
+    !!registeredTo;
 
   function clearFilters() {
     setSearch("");
     setSourceFilter("");
     setJobTitleFilter("");
+    setResponsavelFilter("");
     setOnlyWithDeals(false);
     setRegisteredFrom("");
     setRegisteredTo("");
@@ -129,8 +177,8 @@ export function ContactsTable({
 
   const filteredContacts = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const from = registeredFrom ? new Date(registeredFrom) : null;
-    const to = registeredTo ? new Date(new Date(registeredTo).getTime() + 24 * 60 * 60 * 1000) : null;
+    const from = registeredFrom ? brazilDateStringToUTC(registeredFrom) : null;
+    const to = registeredTo ? brazilEndOfDayUTC(registeredTo) : null;
     return initialContacts.filter((c) => {
       if (
         term &&
@@ -143,15 +191,154 @@ export function ContactsTable({
       if (sourceFilter && c.source !== sourceFilter) return false;
       if (jobTitleFilter === NO_JOB_TITLE && c.jobTitle) return false;
       if (jobTitleFilter && jobTitleFilter !== NO_JOB_TITLE && c.jobTitle !== jobTitleFilter) return false;
+      if (responsavelFilter === NO_RESPONSAVEL && c.responsavelId) return false;
+      if (responsavelFilter && responsavelFilter !== NO_RESPONSAVEL && c.responsavelId !== responsavelFilter) return false;
       if (onlyWithDeals && c._count.deals === 0) return false;
       if (from || to) {
         const createdAt = new Date(c.createdAt);
         if (from && createdAt < from) return false;
-        if (to && createdAt >= to) return false;
+        if (to && createdAt > to) return false;
       }
       return true;
     });
-  }, [initialContacts, search, sourceFilter, jobTitleFilter, onlyWithDeals, registeredFrom, registeredTo]);
+  }, [
+    initialContacts,
+    search,
+    sourceFilter,
+    jobTitleFilter,
+    responsavelFilter,
+    onlyWithDeals,
+    registeredFrom,
+    registeredTo,
+  ]);
+
+  const selectedContactIds = useMemo(
+    () => filteredContacts.filter((c) => selectedIds.has(c.id)).map((c) => c.id),
+    [filteredContacts, selectedIds],
+  );
+  const allFilteredSelected = filteredContacts.length > 0 && filteredContacts.every((c) => selectedIds.has(c.id));
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      if (allFilteredSelected) {
+        const next = new Set(prev);
+        for (const c of filteredContacts) next.delete(c.id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const c of filteredContacts) next.add(c.id);
+      return next;
+    });
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setBulkError(null);
+  }
+
+  async function applyBulkField(field: "jobTitle" | "source" | "responsavelId", value: string) {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const results = await Promise.all(
+        selectedContactIds.map((id) =>
+          fetch(`/api/contacts/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ [field]: field === "responsavelId" ? value || null : value }),
+          }),
+        ),
+      );
+      if (results.some((r) => !r.ok)) {
+        setBulkError("Alguns contatos não puderam ser atualizados.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function applyBulkTag(tag: string) {
+    const clean = tag.trim();
+    if (!clean) return;
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const results = await Promise.all(
+        filteredContacts
+          .filter((c) => selectedIds.has(c.id))
+          .map((c) =>
+            fetch(`/api/contacts/${c.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tags: c.tags.includes(clean) ? c.tags : [...c.tags, clean] }),
+            }),
+          ),
+      );
+      if (results.some((r) => !r.ok)) {
+        setBulkError("Alguns contatos não puderam ser atualizados.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function bulkDelete() {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const results = await Promise.all(
+        selectedContactIds.map((id) => fetch(`/api/contacts/${id}`, { method: "DELETE" })),
+      );
+      if (results.some((r) => !r.ok)) {
+        setBulkError("Alguns contatos não puderam ser apagados.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // Um negócio por contato selecionado, na primeira etapa do funil escolhido —
+  // sem responsável/valor (fica pra editar depois), mesmo comportamento de
+  // "Atribuição automática" do NewDealDialog (ownerId omitido = auto-assign).
+  async function applyCreateDeals(pipelineId: string) {
+    const pipeline = pipelines.find((p) => p.id === pipelineId);
+    if (!pipeline) return;
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const results = await Promise.all(
+        selectedContactIds.map((id) =>
+          fetch("/api/deals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pipelineId, stageId: pipeline.firstStageId, contactId: id }),
+          }),
+        ),
+      );
+      if (results.some((r) => !r.ok)) {
+        setBulkError("Alguns negócios não puderam ser criados.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -180,6 +367,7 @@ export function ContactsTable({
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        responsavelId: responsavelId || undefined,
         customFieldValues,
       }),
     });
@@ -208,6 +396,7 @@ export function ContactsTable({
     setCity("");
     setState("");
     setTags("");
+    setResponsavelId("");
     setCustomFieldValues({});
     router.refresh();
   }
@@ -272,6 +461,19 @@ export function ContactsTable({
               ]}
             />
           </div>
+          <div className="space-y-1">
+            <label className="field-label">Responsável</label>
+            <Select
+              value={responsavelFilter}
+              onChange={setResponsavelFilter}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Todos os responsáveis" },
+                { value: NO_RESPONSAVEL, label: "Sem responsável" },
+                ...members.map((m) => ({ value: m.id, label: m.name })),
+              ]}
+            />
+          </div>
           <button
             onClick={() => setOnlyWithDeals((v) => !v)}
             className={`w-full rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -313,6 +515,73 @@ export function ContactsTable({
         </FilterPopover>
       </div>
 
+      {hasFilters && (
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          {filteredContacts.length} de {initialContacts.length} contatos
+        </p>
+      )}
+
+      {selectedIds.size > 0 && (
+        <SelectionBar count={selectedIds.size} onClear={clearSelection}>
+          <BulkActionPopover icon={Tags} label="Etiquetar">
+            {(close) => <TagPopoverBody busy={bulkBusy} onApply={async (v) => { await applyBulkTag(v); close(); }} />}
+          </BulkActionPopover>
+          <BulkActionPopover icon={IdCard} label="Cargo">
+            {(close) => (
+              <SelectPopoverBody
+                busy={bulkBusy}
+                options={jobTitleOptions.map((j) => ({ value: j, label: j }))}
+                onApply={async (v) => { await applyBulkField("jobTitle", v); close(); }}
+              />
+            )}
+          </BulkActionPopover>
+          <BulkActionPopover icon={Tag} label="Origem">
+            {(close) => (
+              <SelectPopoverBody
+                busy={bulkBusy}
+                options={sources.map((s) => ({ value: s.label, label: s.label }))}
+                onApply={async (v) => { await applyBulkField("source", v); close(); }}
+              />
+            )}
+          </BulkActionPopover>
+          <BulkActionPopover icon={User} label="Responsável">
+            {(close) => (
+              <SelectPopoverBody
+                busy={bulkBusy}
+                allowEmpty
+                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                onApply={async (v) => { await applyBulkField("responsavelId", v); close(); }}
+              />
+            )}
+          </BulkActionPopover>
+          {pipelines.length > 0 && (
+            <BulkActionPopover icon={Plus} label="Criar negócio">
+              {(close) => (
+                <SelectPopoverBody
+                  busy={bulkBusy}
+                  initialValue={(pipelines.find((p) => p.isDefault) ?? pipelines[0]).id}
+                  applyLabel="Criar"
+                  options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+                  onApply={async (v) => { await applyCreateDeals(v); close(); }}
+                />
+              )}
+            </BulkActionPopover>
+          )}
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+              Apagar
+            </button>
+          )}
+        </SelectionBar>
+      )}
+      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
+
       {initialContacts.length === 0 ? (
         <div className="card">
           <EmptyState
@@ -334,16 +603,26 @@ export function ContactsTable({
           {/* Mobile: cards */}
           <div className="space-y-2 lg:hidden">
             {filteredContacts.map((c) => (
-              <div key={c.id} className="card p-3">
+              <div key={c.id} className="group card p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <Link
-                    href={`/clientes/${c.id}`}
-                    className="flex min-w-0 items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
-                  >
-                    <Avatar name={c.name} size="xs" />
-                    <span className="truncate">{c.name}</span>
-                  </Link>
-                  <EditContactDialog contact={c} sources={sources} customFields={customFields} />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(c.id)}
+                      onChange={() => toggleSelect(c.id)}
+                      className={`accent-neutral-900 dark:accent-white ${
+                        selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100"
+                      }`}
+                    />
+                    <Link
+                      href={`/clientes/${c.id}`}
+                      className="flex min-w-0 items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                    >
+                      <Avatar name={c.name} size="xs" />
+                      <span className="truncate">{c.name}</span>
+                    </Link>
+                  </div>
+                  <EditContactDialog contact={c} sources={sources} jobTitles={jobTitles} members={members} customFields={customFields} />
                 </div>
                 <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
                   <p className="flex items-center gap-1.5 truncate">
@@ -377,6 +656,12 @@ export function ContactsTable({
                     {c._count.deals} {c._count.deals === 1 ? "negócio" : "negócios"}
                   </span>
                 </div>
+                {c.responsavel && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                    <Avatar name={c.responsavel.name} size="xs" />
+                    {c.responsavel.name}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -386,6 +671,15 @@ export function ContactsTable({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50/50 text-left text-xs font-medium text-neutral-400 dark:border-neutral-800 dark:bg-neutral-800/20 dark:text-neutral-500">
+                  <th className="border-r border-neutral-100 px-3 py-2.5 dark:border-neutral-800">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={toggleSelectAll}
+                      className="accent-neutral-900 dark:accent-white"
+                      aria-label="Selecionar todos"
+                    />
+                  </th>
                   <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
                     <span className="inline-flex items-center gap-1.5">
                       <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
@@ -418,6 +712,12 @@ export function ContactsTable({
                   </th>
                   <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
                     <span className="inline-flex items-center gap-1.5">
+                      <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      Responsável
+                    </span>
+                  </th>
+                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex items-center gap-1.5">
                       <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
                       Negócios
                     </span>
@@ -427,7 +727,17 @@ export function ContactsTable({
               </thead>
               <tbody>
                 {filteredContacts.map((c) => (
-                  <tr key={c.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40">
+                  <tr key={c.id} className="group border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40">
+                    <td className="border-r border-neutral-100 px-3 py-3 dark:border-neutral-800">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(c.id)}
+                        onChange={() => toggleSelect(c.id)}
+                        className={`accent-neutral-900 dark:accent-white ${
+                          selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100"
+                        }`}
+                      />
+                    </td>
                     <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
                       <Link
                         href={`/clientes/${c.id}`}
@@ -461,10 +771,20 @@ export function ContactsTable({
                       )}
                     </td>
                     <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      {c.responsavel ? (
+                        <span className="flex items-center gap-1.5">
+                          <Avatar name={c.responsavel.name} size="xs" />
+                          {c.responsavel.name}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                       {c._count.deals}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <EditContactDialog contact={c} sources={sources} customFields={customFields} />
+                      <EditContactDialog contact={c} sources={sources} jobTitles={jobTitles} members={members} customFields={customFields} />
                     </td>
                   </tr>
                 ))}
@@ -472,6 +792,19 @@ export function ContactsTable({
             </table>
           </div>
         </>
+      )}
+
+      {confirmBulkDelete && (
+        <ConfirmDialog
+          title={`Apagar ${selectedIds.size} contato${selectedIds.size === 1 ? "" : "s"}?`}
+          description="Essa ação não pode ser desfeita."
+          confirmLabel="Apagar"
+          onClose={() => setConfirmBulkDelete(false)}
+          onConfirm={async () => {
+            await bulkDelete();
+            setConfirmBulkDelete(false);
+          }}
+        />
       )}
 
       {open && (
@@ -489,11 +822,19 @@ export function ContactsTable({
                 value={jobTitle}
                 onChange={setJobTitle}
                 placeholder="Selecione o cargo"
-                options={JOB_TITLE_OPTIONS.map((v) => ({ value: v, label: v }))}
+                options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
               />
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 Essencial pra achar o lead certo depois em filtros e relatórios.
               </p>
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Responsável</label>
+              <Select
+                value={responsavelId}
+                onChange={setResponsavelId}
+                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+              />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="CEP" value={zipCode} onChange={setZipCode} />
@@ -585,6 +926,67 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         className="field-input"
       />
+    </div>
+  );
+}
+
+/** Corpo do popover de "Etiquetar" em massa — texto livre + aplicar (adiciona a tag, não substitui as existentes). */
+function TagPopoverBody({ busy, onApply }: { busy: boolean; onApply: (value: string) => Promise<void> }) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="space-y-2">
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Nome da tag"
+        className="field-input w-full py-1.5 text-sm"
+      />
+      <button
+        type="button"
+        disabled={busy || !value.trim()}
+        onClick={() => onApply(value)}
+        className="btn-primary w-full py-1.5 text-xs"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : "Aplicar"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Corpo do popover de trocar cargo/origem/responsável em massa — Select +
+ * aplicar. `allowEmpty` deixa aplicar com o valor "" (usado só em
+ * Responsável, onde "" = "Ninguém" é uma escolha válida) — nos outros casos,
+ * "" é só o placeholder de "nada selecionado ainda" e não deve aplicar.
+ */
+function SelectPopoverBody({
+  busy,
+  options,
+  onApply,
+  allowEmpty = false,
+  initialValue = "",
+  applyLabel = "Aplicar",
+}: {
+  busy: boolean;
+  options: { value: string; label: string }[];
+  onApply: (value: string) => Promise<void>;
+  allowEmpty?: boolean;
+  initialValue?: string;
+  applyLabel?: string;
+}) {
+  const [value, setValue] = useState(initialValue);
+  return (
+    <div className="space-y-2">
+      <Select value={value} onChange={setValue} className="w-full py-1.5 text-sm" options={options} />
+      <button
+        type="button"
+        disabled={busy || (!allowEmpty && !value)}
+        onClick={() => onApply(value)}
+        className="btn-primary w-full py-1.5 text-xs"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : applyLabel}
+      </button>
     </div>
   );
 }

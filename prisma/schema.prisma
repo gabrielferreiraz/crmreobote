@@ -34,6 +34,7 @@ model Organization {
   webhookDeliveries WebhookDelivery[]
   leadSources       LeadSource[]
   creditTypes       CreditType[]
+  jobTitles         JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
 }
 
@@ -63,6 +64,7 @@ model User {
   googleCalendarConnection GoogleCalendarConnection?
   apiKeysCreated           ApiKey[]
   webhookSubscriptionsCreated WebhookSubscription[]
+  contactsResponsible      Contact[]                  @relation("ContactResponsavel")
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -567,6 +569,7 @@ model Contact {
   city               String?
   state              String?
   zipCode            String?
+  responsavelId      String?
   tags               String[] @default([])
   // Dado livre vindo de integração externa (/api/v1/contacts) que não mapeia
   // pra nenhum campo conhecido — guardado como veio, só exibido, sem UI de
@@ -579,6 +582,7 @@ model Contact {
   createdAt          DateTime @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  responsavel        User?               @relation("ContactResponsavel", fields: [responsavelId], references: [id])
   deals              Deal[]
   tasks              Task[]
   activities         Activity[]
@@ -589,6 +593,7 @@ model Contact {
   @@unique([organizationId, whatsappNormalized])
   @@index([organizationId])
   @@index([organizationId, phone])
+  @@index([organizationId, responsavelId])
 }
 
 // ─── Motivos de perda ────────────────────────────────────────────────
@@ -635,6 +640,26 @@ model LeadSource {
 // sobre negócios que já usavam o nome antigo.
 
 model CreditType {
+  id             String   @id @default(cuid())
+  organizationId String
+  label          String
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ─── Cargos (lista editável, alimenta o Select de "Cargo" do contato)
+// ──────────────────────────────────────────────────────────────────
+//
+// Mesmo raciocínio do LeadSource/CreditType: de propósito NÃO é FK do
+// Contact.jobTitle (que continua String livre) — importação e contatos
+// antigos com valor livre continuam funcionando. Renomear aqui não retroage
+// sobre contatos que já usavam o nome antigo.
+
+model JobTitle {
   id             String   @id @default(cuid())
   organizationId String
   label          String

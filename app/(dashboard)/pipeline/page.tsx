@@ -138,6 +138,7 @@ export default async function PipelinePage({
   });
 
   const isOwner = session!.user.role === "OWNER";
+  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -156,6 +157,7 @@ export default async function PipelinePage({
         customFields={customFields}
         creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
         isOwner={isOwner}
+        canBulkDelete={isManager}
         openNewDeal={novo === "1"}
       />
     </div>

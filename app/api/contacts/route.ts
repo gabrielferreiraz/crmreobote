@@ -60,6 +60,7 @@ export async function POST(req: Request) {
     state,
     zipCode,
     tags,
+    responsavelId,
     customFieldValues,
   } = body as {
     name?: string;
@@ -77,6 +78,7 @@ export async function POST(req: Request) {
     state?: string;
     zipCode?: string;
     tags?: string[];
+    responsavelId?: string | null;
     customFieldValues?: Record<string, unknown>;
   };
 
@@ -128,6 +130,7 @@ export async function POST(req: Request) {
           state: sanitizeCell(state),
           zipCode: sanitizeCell(zipCode),
           tags: cleanTags,
+          responsavelId: responsavelId || null,
           phoneNormalized,
           whatsappNormalized,
           customFieldValues: cleanCustomFieldValues,

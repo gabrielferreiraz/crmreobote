@@ -29,6 +29,7 @@ export function PipelineView({
   customFields,
   creditTypes,
   isOwner,
+  canBulkDelete,
   openNewDeal,
 }: {
   pipelineId: string;
@@ -41,6 +42,7 @@ export function PipelineView({
   customFields: CustomFieldDefinitionInput[];
   creditTypes: CreditTypeOption[];
   isOwner: boolean;
+  canBulkDelete: boolean;
   openNewDeal?: boolean;
 }) {
   const router = useRouter();
@@ -122,7 +124,13 @@ export function PipelineView({
         {view === "kanban" ? (
           <KanbanBoard stages={stages} deals={deals} onDealsChange={setDeals} members={members} />
         ) : (
-          <DealsList deals={deals} members={allMembers} stages={stages} lossReasons={lossReasons} />
+          <DealsList
+            deals={deals}
+            members={allMembers}
+            stages={stages}
+            lossReasons={lossReasons}
+            canBulkDelete={canBulkDelete}
+          />
         )}
       </div>
 

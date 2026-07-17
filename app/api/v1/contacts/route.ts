@@ -28,14 +28,30 @@ export async function POST(req: Request) {
     const result = await upsertContactFromIntegration(access.organizationId, body as Record<string, unknown>);
     if (!result.ok) return apiError(result.error, 400);
 
+    const c = result.contact;
     return apiSuccess(
       {
-        id: result.contact.id,
-        name: result.contact.name,
-        email: result.contact.email,
-        phone: result.contact.phone,
-        whatsapp: result.contact.whatsapp,
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        whatsapp: c.whatsapp,
+        source: c.source,
+        company: c.company,
+        jobTitle: c.jobTitle,
+        address: c.address,
+        addressNumber: c.addressNumber,
+        addressComplement: c.addressComplement,
+        neighborhood: c.neighborhood,
+        city: c.city,
+        state: c.state,
+        zipCode: c.zipCode,
+        tags: c.tags,
+        ownerId: c.responsavelId,
+        customFields: c.customFields,
+        createdAt: c.createdAt,
         outcome: result.outcome,
+        warnings: result.warnings,
       },
       result.outcome === "created" ? 201 : 200,
     );

@@ -27,12 +27,23 @@ const STATUS_LABELS: Record<ScriptUsage["status"], string> = {
   DONE: "Concluída",
 };
 
-// Só pro preview do card — troca qualquer variável ({nome}, {primeiro_nome},
-// {cargo} etc., não importa qual) por um nome fictício, pra não mostrar a
-// sintaxe crua da chave. O `(?!\[)` deixa o spintax ({[opção 1|opção 2]})
-// intacto — só entra em jogo quando o `{` não é seguido de `[`.
+// Só pro preview do card — troca cada variável conhecida (ver
+// lib/campaigns/spintax.ts) por um valor fictício condizente com o que ela
+// representa ({saudacao} vira "Boa tarde", não "Maria"); variável
+// desconhecida cai no fallback genérico. O `(?!\[)` deixa o spintax
+// ({[opção 1|opção 2]}) intacto — só entra em jogo quando o `{` não é
+// seguido de `[`.
+const FAKE_VARIABLE_VALUES: Record<string, string> = {
+  nome: "Maria Silva",
+  primeiro_nome: "Maria",
+  cargo: "Gerente",
+  empresa: "Empresa Exemplo",
+  cidade: "Campo Grande",
+  saudacao: "Boa tarde",
+};
+
 function withFakeVariables(text: string): string {
-  return text.replace(/\{(?!\[)[^{}]+\}/g, "Maria");
+  return text.replace(/\{(?!\[)([^{}]+)\}/g, (_, key: string) => FAKE_VARIABLE_VALUES[key.trim()] ?? "Maria");
 }
 
 export function ScriptsTable({ initialScripts }: { initialScripts: Script[] }) {

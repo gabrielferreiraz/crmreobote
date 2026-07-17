@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard } from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TestEmailButton } from "./test-email-button";
@@ -41,6 +41,7 @@ export default async function ConfiguracoesPage() {
           <Row href="/configuracoes/motivos-perda" icon={XCircle} title="Motivos de perda" description="Usados ao marcar um negócio como perdido." />
           <Row href="/configuracoes/origens" icon={Tag} title="Origens" description="De onde vêm os leads (Facebook, Indicação...)." />
           <Row href="/configuracoes/tipos-de-credito" icon={CreditCard} title="Tipos de crédito" description="Imóvel, veículo e outras categorias do negócio." />
+          <Row href="/configuracoes/cargos" icon={Briefcase} title="Cargos" description="Profissão/ocupação usada no cadastro de clientes." />
           <Row href="/automacoes" icon={Zap} title="Automações" description="Regras que disparam ação sozinhas (tarefa, e-mail, WhatsApp, push)." />
           <Row href="/configuracoes/campos-personalizados" icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
         </Section>

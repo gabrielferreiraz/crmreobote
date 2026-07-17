@@ -36,13 +36,14 @@ const TEXT_FIELDS = [
 ] as const;
 
 export type ContactUpsertOutcome =
-  | { ok: true; outcome: "created" | "updated"; contact: Prisma.ContactGetPayload<object> }
+  | { ok: true; outcome: "created" | "updated"; contact: Prisma.ContactGetPayload<object>; warnings: string[] }
   | { ok: false; error: string };
 
 export async function upsertContactFromIntegration(
   organizationId: string,
   input: Record<string, unknown>,
 ): Promise<ContactUpsertOutcome> {
+  const warnings: string[] = [];
   const phone = typeof input.phone === "string" ? input.phone : undefined;
   const whatsapp = typeof input.whatsapp === "string" ? input.whatsapp : undefined;
   const phoneNormalized = normalizePhoneNumber(phone);
@@ -68,6 +69,24 @@ export async function upsertContactFromIntegration(
   if ("customFields" in input && input.customFields && typeof input.customFields === "object") {
     data.customFields = input.customFields as Prisma.InputJsonValue;
   }
+  if ("ownerId" in input) {
+    const ownerId = typeof input.ownerId === "string" ? input.ownerId : null;
+    if (ownerId) {
+      const membership = await prisma.organizationUser.findUnique({
+        where: { organizationId_userId: { organizationId, userId: ownerId } },
+      });
+      // Responsável é só informativo — nunca vale a pena perder o lead inteiro
+      // por causa de um ownerId errado/desconhecido. Avisa e segue sem
+      // atribuir, em vez de rejeitar a chamada inteira.
+      if (!membership) {
+        warnings.push(`ownerId "${ownerId}" não corresponde a nenhum usuário desta organização — contato salvo sem responsável atribuído.`);
+      } else {
+        data.responsavelId = ownerId;
+      }
+    } else {
+      data.responsavelId = null;
+    }
+  }
 
   if (duplicate) {
     if ("name" in input && typeof input.name === "string" && input.name.trim()) {
@@ -77,7 +96,7 @@ export async function upsertContactFromIntegration(
       where: { id: duplicate.contactId },
       data: data as Prisma.ContactUpdateInput,
     });
-    return { ok: true, outcome: "updated", contact };
+    return { ok: true, outcome: "updated", contact, warnings };
   }
 
   const name = typeof input.name === "string" ? input.name.trim() : "";
@@ -108,7 +127,7 @@ export async function upsertContactFromIntegration(
       createdAt: contact.createdAt,
     }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.created", err));
 
-    return { ok: true, outcome: "created", contact };
+    return { ok: true, outcome: "created", contact, warnings };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return { ok: false, error: "Conflito ao criar contato — tente novamente" };

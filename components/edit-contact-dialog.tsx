@@ -7,7 +7,6 @@ import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
-import { jobTitleSelectOptions } from "@/lib/job-titles";
 
 type Contact = {
   id: string;
@@ -26,16 +25,32 @@ type Contact = {
   state?: string | null;
   zipCode?: string | null;
   tags?: string[];
+  responsavelId?: string | null;
   customFieldValues?: CustomFieldFormValues | null;
 };
+
+/** Opções do Select incluindo o valor atual como item extra ("antigo") quando ele
+ * não bate com nenhuma opção da lista — pra nunca esconder um valor já cadastrado
+ * em texto livre antes de existir uma lista editável (mesma ideia já usada pra Origem). */
+function optionsWithLegacyValue(list: { label: string }[], currentValue?: string | null) {
+  const options = list.map((v) => ({ value: v.label, label: v.label }));
+  if (currentValue && !list.some((v) => v.label === currentValue)) {
+    return [{ value: currentValue, label: `${currentValue} (antigo)` }, ...options];
+  }
+  return options;
+}
 
 export function EditContactDialog({
   contact,
   sources,
+  jobTitles,
+  members,
   customFields,
 }: {
   contact: Contact;
   sources: { id: string; label: string }[];
+  jobTitles: { id: string; label: string }[];
+  members: { id: string; name: string }[];
   customFields: CustomFieldDefinitionInput[];
 }) {
   const router = useRouter();
@@ -55,6 +70,7 @@ export function EditContactDialog({
   const [city, setCity] = useState(contact.city ?? "");
   const [state, setState] = useState(contact.state ?? "");
   const [tags, setTags] = useState((contact.tags ?? []).join(", "));
+  const [responsavelId, setResponsavelId] = useState(contact.responsavelId ?? "");
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +91,7 @@ export function EditContactDialog({
     setCity(contact.city ?? "");
     setState(contact.state ?? "");
     setTags((contact.tags ?? []).join(", "));
+    setResponsavelId(contact.responsavelId ?? "");
     setCustomFieldValues(contact.customFieldValues ?? {});
     setError(null);
     setOpen(true);
@@ -107,6 +124,7 @@ export function EditContactDialog({
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        responsavelId: responsavelId || null,
         customFieldValues,
       }),
     });
@@ -157,7 +175,7 @@ export function EditContactDialog({
                   value={jobTitle}
                   onChange={setJobTitle}
                   placeholder="Selecione o cargo"
-                  options={jobTitleSelectOptions(contact.jobTitle)}
+                  options={optionsWithLegacyValue(jobTitles, contact.jobTitle)}
                 />
               </div>
               <div className="space-y-1">
@@ -168,6 +186,14 @@ export function EditContactDialog({
                   options={[{ value: "", label: "—" }, ...sources.map((s) => ({ value: s.label, label: s.label }))]}
                 />
               </div>
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Responsável</label>
+              <Select
+                value={responsavelId}
+                onChange={setResponsavelId}
+                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+              />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="CEP" value={zipCode} onChange={setZipCode} />

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -48,6 +49,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     state,
     zipCode,
     tags,
+    responsavelId,
     customFieldValues,
   } = body as {
     name?: string;
@@ -65,6 +67,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     state?: string;
     zipCode?: string;
     tags?: string[];
+    responsavelId?: string | null;
     customFieldValues?: Record<string, unknown>;
   };
 
@@ -75,25 +78,32 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const existing = await prisma.contact.findFirst({ where: { id, organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-    const phoneNormalized = normalizePhoneNumber(phone);
-    const whatsappNormalized = normalizePhoneNumber(whatsapp);
+    // Só recalcula/valida o que de fato veio no corpo — uma chamada parcial
+    // (ex.: ações em massa, que mandam só o campo que está mudando) não pode
+    // apagar telefone normalizado nem campos personalizados que não vieram.
+    const phoneNormalized = "phone" in body ? normalizePhoneNumber(phone) : undefined;
+    const whatsappNormalized = "whatsapp" in body ? normalizePhoneNumber(whatsapp) : undefined;
     const cleanTags = Array.isArray(tags)
       ? tags.map((t) => sanitizeCell(t.trim())).filter(Boolean)
       : undefined;
 
-    const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized, id);
-    if (duplicate) {
-      return NextResponse.json({ error: duplicate.message }, { status: 409 });
+    if (phoneNormalized !== undefined || whatsappNormalized !== undefined) {
+      const duplicate = await findDuplicateContact(organizationId, phoneNormalized ?? null, whatsappNormalized ?? null, id);
+      if (duplicate) {
+        return NextResponse.json({ error: duplicate.message }, { status: 409 });
+      }
     }
 
-    const fieldDefs = await prisma.customFieldDefinition.findMany({
-      where: { organizationId, entityType: "CONTACT" },
-    });
     let cleanCustomFieldValues;
-    try {
-      cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
-    } catch (err) {
-      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    if ("customFieldValues" in body) {
+      const fieldDefs = await prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "CONTACT" },
+      });
+      try {
+        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+      } catch (err) {
+        return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+      }
     }
 
     try {
@@ -115,9 +125,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           state: sanitizeCell(state),
           zipCode: sanitizeCell(zipCode),
           ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
+          ...("responsavelId" in body ? { responsavelId: responsavelId || null } : {}),
           phoneNormalized,
           whatsappNormalized,
-          customFieldValues: cleanCustomFieldValues,
+          ...(cleanCustomFieldValues !== undefined ? { customFieldValues: cleanCustomFieldValues } : {}),
         },
       });
       return NextResponse.json(contact);
@@ -136,11 +147,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "MANAGER"]);
+  if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  return runWithTenant(organizationId, async () => {
-    const existing = await prisma.contact.findFirst({ where: { id, organizationId } });
+  return runWithTenant(access.organizationId, async () => {
+    const existing = await prisma.contact.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     await prisma.contact.delete({ where: { id } });

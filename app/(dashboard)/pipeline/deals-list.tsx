@@ -1,14 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox } from "lucide-react";
+import { Search, SearchX, Inbox, Trash2 } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
+import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
+import { SelectionBar } from "@/components/selection-bar";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildQuickRanges } from "@/lib/date-ranges";
 import type { Deal } from "./kanban-board";
 
@@ -29,12 +33,15 @@ export function DealsList({
   members,
   stages,
   lossReasons,
+  canBulkDelete,
 }: {
   deals: Deal[];
   members: MemberOption[];
   stages: Stage[];
   lossReasons: LossReasonOption[];
+  canBulkDelete: boolean;
 }) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">("OPEN");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -96,10 +103,10 @@ export function DealsList({
 
   const filteredDeals = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const from = dateFrom ? new Date(dateFrom) : null;
-    const to = dateTo ? new Date(new Date(dateTo).getTime() + 24 * 60 * 60 * 1000) : null;
-    const closedFromDate = closedFrom ? new Date(closedFrom) : null;
-    const closedToDate = closedTo ? new Date(new Date(closedTo).getTime() + 24 * 60 * 60 * 1000) : null;
+    const from = dateFrom ? brazilDateStringToUTC(dateFrom) : null;
+    const to = dateTo ? brazilEndOfDayUTC(dateTo) : null;
+    const closedFromDate = closedFrom ? brazilDateStringToUTC(closedFrom) : null;
+    const closedToDate = closedTo ? brazilEndOfDayUTC(closedTo) : null;
 
     return deals.filter((d) => {
       if (term && !d.name.toLowerCase().includes(term) && !d.contact.name.toLowerCase().includes(term)) {
@@ -118,12 +125,12 @@ export function DealsList({
       if (originFilter && d.contact.source !== originFilter) return false;
       const createdAt = new Date(d.createdAt);
       if (from && createdAt < from) return false;
-      if (to && createdAt >= to) return false;
+      if (to && createdAt > to) return false;
       if (closedFromDate || closedToDate) {
         if (!d.closedAt) return false;
         const closedAt = new Date(d.closedAt);
         if (closedFromDate && closedAt < closedFromDate) return false;
-        if (closedToDate && closedAt >= closedToDate) return false;
+        if (closedToDate && closedAt > closedToDate) return false;
       }
       return true;
     });
@@ -143,6 +150,65 @@ export function DealsList({
     closedFrom,
     closedTo,
   ]);
+
+  const wonSum = useMemo(
+    () => filteredDeals.filter((d) => d.status === "WON" && d.value != null).reduce((sum, d) => sum + d.value!, 0),
+    [filteredDeals],
+  );
+  const lostSum = useMemo(
+    () => filteredDeals.filter((d) => d.status === "LOST" && d.value != null).reduce((sum, d) => sum + d.value!, 0),
+    [filteredDeals],
+  );
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  const allFilteredSelected = filteredDeals.length > 0 && filteredDeals.every((d) => selectedIds.has(d.id));
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const d of filteredDeals) next.delete(d.id);
+      } else {
+        for (const d of filteredDeals) next.add(d.id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setBulkError(null);
+  }
+
+  async function bulkDelete() {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const results = await Promise.all(
+        Array.from(selectedIds).map((id) => fetch(`/api/deals/${id}`, { method: "DELETE" })),
+      );
+      if (results.some((r) => !r.ok)) {
+        setBulkError("Alguns negócios não puderam ser apagados.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -294,6 +360,28 @@ export function DealsList({
         </FilterPopover>
       </div>
 
+      <p className="text-xs text-neutral-400 dark:text-neutral-500">
+        Ganhos: <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(wonSum)}</span> · Perdidos:{" "}
+        <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(lostSum)}</span>
+      </p>
+
+      {selectedIds.size > 0 && (
+        <SelectionBar count={selectedIds.size} onClear={clearSelection}>
+          {canBulkDelete && (
+            <button
+              type="button"
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+              Apagar
+            </button>
+          )}
+        </SelectionBar>
+      )}
+      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
+
       <div className="card overflow-x-auto">
         {deals.length === 0 ? (
           <EmptyState icon={Inbox} title="Nenhum negócio cadastrado" description="Crie o primeiro negócio para começar a preencher o funil." />
@@ -303,6 +391,15 @@ export function DealsList({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
+                <th className="px-3 py-2.5 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAll}
+                    className="accent-neutral-900 dark:accent-white"
+                    aria-label="Selecionar todos"
+                  />
+                </th>
                 <th className="px-4 py-2.5 font-medium">Negócio</th>
                 <th className="px-4 py-2.5 font-medium">Cliente</th>
                 <th className="px-4 py-2.5 font-medium">Etapa</th>
@@ -318,8 +415,18 @@ export function DealsList({
               {filteredDeals.map((deal) => (
                 <tr
                   key={deal.id}
-                  className="border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  className="group border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(deal.id)}
+                      onChange={() => toggleSelect(deal.id)}
+                      className={`accent-neutral-900 dark:accent-white ${
+                        selectedIds.has(deal.id) ? "" : "opacity-0 group-hover:opacity-100"
+                      }`}
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <Link
                       href={`/negocios/${deal.id}`}
@@ -377,6 +484,19 @@ export function DealsList({
           </table>
         )}
       </div>
+
+      {confirmBulkDelete && (
+        <ConfirmDialog
+          title={`Apagar ${selectedIds.size} negócio${selectedIds.size === 1 ? "" : "s"}?`}
+          description="Essa ação não pode ser desfeita."
+          confirmLabel="Apagar"
+          onClose={() => setConfirmBulkDelete(false)}
+          onConfirm={async () => {
+            await bulkDelete();
+            setConfirmBulkDelete(false);
+          }}
+        />
+      )}
     </div>
   );
 }
