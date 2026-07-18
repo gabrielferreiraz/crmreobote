@@ -9,7 +9,6 @@ import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES } from "@/lib/activity-icons";
 import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
-import { ContactPreviewModal } from "@/components/contact-preview-modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CurrencyInput } from "@/components/currency-input";
@@ -49,7 +48,7 @@ type Deal = {
   expectedCloseAt: string | Date | null;
   stageId: string;
   stageEnteredAt: string | Date;
-  contact: { id: string; name: string; email: string | null; phone: string | null; whatsapp: string | null };
+  contact: { id: string; name: string; email: string | null; phone: string | null; whatsapp: string | null; jobTitle: string | null };
   owner: { id: string; name: string; photoUrl: string | null };
   stage: Stage;
   pipeline: { stages: Stage[] };
@@ -108,6 +107,7 @@ export function DealDetail({
   lossReasons,
   customFields,
   creditTypes,
+  jobTitles,
   currentUserName,
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
@@ -119,6 +119,7 @@ export function DealDetail({
   lossReasons: LossReasonOption[];
   customFields: CustomFieldDefinitionInput[];
   creditTypes: { id: string; label: string }[];
+  jobTitles: { id: string; label: string }[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   hasUnreadWhatsApp?: boolean;
@@ -139,7 +140,6 @@ export function DealDetail({
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
-  const [contactModalOpen, setContactModalOpen] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<DealTask | null>(null);
@@ -246,7 +246,7 @@ export function DealDetail({
   // PUT (não é um PATCH parcial) — manda sempre os quatro, só trocando o
   // campo editado, senão os que ficarem de fora são apagados sem querer.
   async function saveContactField(
-    field: "name" | "email" | "phone" | "whatsapp",
+    field: "name" | "email" | "phone" | "whatsapp" | "jobTitle",
     value: string,
   ): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch(`/api/contacts/${deal.contact.id}`, {
@@ -267,6 +267,16 @@ export function DealDetail({
     router.refresh();
     return { ok: true };
   }
+
+  // Mesma ideia de "sempre incluir o valor atual" usada no Select de Cargo
+  // do EditContactDialog — se o cargo já salvo não bate com nenhum item da
+  // lista (cadastro antigo, cargo renomeado/excluído depois), ele aparece
+  // como opção extra marcada "(antigo)" em vez de sumir da tela.
+  const jobTitleOptions = jobTitles.some((j) => j.label === deal.contact.jobTitle)
+    ? jobTitles.map((j) => ({ value: j.label, label: j.label }))
+    : deal.contact.jobTitle
+      ? [{ value: deal.contact.jobTitle, label: `${deal.contact.jobTitle} (antigo)` }, ...jobTitles.map((j) => ({ value: j.label, label: j.label }))]
+      : jobTitles.map((j) => ({ value: j.label, label: j.label }));
 
   async function saveDealValue(value: string): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch(`/api/deals/${deal.id}`, {
@@ -388,13 +398,12 @@ export function DealDetail({
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{deal.name}</h1>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-              <button
-                type="button"
-                onClick={() => setContactModalOpen(true)}
+              <Link
+                href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
                 className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
               >
                 {deal.contact.name}
-              </button>
+              </Link>
               {" · "}Responsável: {deal.owner.name}
             </p>
           </div>
@@ -691,6 +700,14 @@ export function DealDetail({
               editable={canEditDetails}
               onSave={(v) => saveContactField("whatsapp", v)}
             />
+            <EditableRow
+              label="Cargo"
+              value={deal.contact.jobTitle ?? ""}
+              type="select"
+              options={jobTitleOptions}
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("jobTitle", v)}
+            />
           </div>
         </div>
       </div>
@@ -927,6 +944,14 @@ export function DealDetail({
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("whatsapp", v)}
               />
+              <EditableRow
+                label="Cargo"
+                value={deal.contact.jobTitle ?? ""}
+                type="select"
+                options={jobTitleOptions}
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("jobTitle", v)}
+              />
             </div>
           </div>
         )}
@@ -940,10 +965,6 @@ export function DealDetail({
           onClose={() => setLossDialogOpen(false)}
           onConfirm={confirmLoss}
         />
-      )}
-
-      {contactModalOpen && (
-        <ContactPreviewModal contactId={deal.contact.id} members={members} onClose={() => setContactModalOpen(false)} />
       )}
 
       {editingTask && (
@@ -1341,6 +1362,7 @@ function EditableRow({
   displayValue,
   onSave,
   type = "text",
+  options,
   editable,
 }: {
   label: string;
@@ -1348,7 +1370,9 @@ function EditableRow({
   /** Como mostrar o valor fora do modo edição, se diferente do value bruto (ex.: data formatada). */
   displayValue?: string;
   onSave: (value: string) => Promise<{ ok: boolean; error?: string }>;
-  type?: "text" | "email" | "textarea" | "date";
+  type?: "text" | "email" | "textarea" | "date" | "select";
+  /** Só usado quando type="select" — lista de opções fixas (ex.: cargo). */
+  options?: { value: string; label: string }[];
   editable: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -1405,6 +1429,8 @@ function EditableRow({
             rows={2}
             className="field-input text-xs"
           />
+        ) : type === "select" ? (
+          <Select value={draft} onChange={setDraft} options={options ?? []} autoFocus className="text-xs" />
         ) : (
           <input
             autoFocus

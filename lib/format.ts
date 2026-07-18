@@ -1,3 +1,37 @@
+/**
+ * Converte texto de planilha em número — decide o separador decimal pela
+ * ÚLTIMA ocorrência entre "," e "." em vez de assumir vírgula sempre. Sem
+ * isso, "R$ 1.234,56" (formato padrão de moeda em pt-BR, o mesmo que
+ * formatCurrency usa pra EXIBIR) virava "1.234.56" → NaN — o valor sumia em
+ * silêncio em qualquer importação com separador de milhar.
+ */
+export function parseBrazilianCurrency(raw: string): number | undefined {
+  const stripped = raw.replace(/[^\d,.-]/g, "").trim();
+  if (!stripped) return undefined;
+
+  const hasComma = stripped.includes(",");
+  const hasDot = stripped.includes(".");
+
+  let normalized: string;
+  if (hasComma && hasDot) {
+    normalized =
+      stripped.lastIndexOf(",") > stripped.lastIndexOf(".")
+        ? stripped.replace(/\./g, "").replace(",", ".")
+        : stripped.replace(/,/g, "");
+  } else if (hasComma) {
+    normalized = stripped.replace(",", ".");
+  } else if (hasDot) {
+    const parts = stripped.split(".");
+    const looksLikeThousands = parts.length > 2 || (parts.length === 2 && parts[1].length === 3);
+    normalized = looksLikeThousands ? stripped.replace(/\./g, "") : stripped;
+  } else {
+    normalized = stripped;
+  }
+
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 export function formatCurrency(value: number | string | null | undefined) {
   if (value === null || value === undefined) return "—";
   const num = typeof value === "string" ? Number(value) : value;

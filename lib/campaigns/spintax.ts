@@ -21,12 +21,16 @@ export type CampaignVariables = {
   cargo?: string | null;
   empresa?: string | null;
   cidade?: string | null;
+  // Nome do responsável pelo contato (owner do negócio, no envio em massa do
+  // Pipeline; senão o responsável cadastrado no Contact) — ver buildVariables
+  // em lib/campaigns/engine.ts.
+  consultor?: string | null;
 };
 
 /**
- * Substitui `{nome}`, `{primeiro_nome}`, `{cargo}`, `{empresa}`, `{cidade}`
- * e `{saudacao}` (bom dia/boa tarde/boa noite, já no fuso certo — ver
- * lib/timezone.ts) no texto, depois de expandir o spintax.
+ * Substitui `{nome}`, `{primeiro_nome}`, `{cargo}`, `{empresa}`, `{cidade}`,
+ * `{consultor}` e `{saudacao}` (bom dia/boa tarde/boa noite, já no fuso
+ * certo — ver lib/timezone.ts) no texto, depois de expandir o spintax.
  */
 export function renderTemplate(template: string, vars: CampaignVariables, greeting: string): string {
   const expanded = expandSpintax(template);
@@ -36,6 +40,7 @@ export function renderTemplate(template: string, vars: CampaignVariables, greeti
     .replaceAll("{cargo}", vars.cargo ?? "")
     .replaceAll("{empresa}", vars.empresa ?? "")
     .replaceAll("{cidade}", vars.cidade ?? "")
+    .replaceAll("{consultor}", vars.consultor ?? "")
     .replaceAll("{saudacao}", greeting);
 }
 

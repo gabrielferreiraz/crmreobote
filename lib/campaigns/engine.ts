@@ -20,6 +20,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// responsavel: fallback de {consultor} pra campanha MANUAL (ver buildVariables).
+// instance.user: nome de quem enviou, quando o destinatário tem instanceId
+// própria (campanha PIPELINE_BULK) — ver sendToRecipient.
+const RECIPIENT_INCLUDE = {
+  contact: { include: { responsavel: { select: { name: true } } } },
+  instance: { select: { user: { select: { name: true } } } },
+} as const;
+
 type CampaignRow = {
   id: string;
   instanceId: string;
@@ -111,7 +119,7 @@ async function findFollowUpCandidate(campaign: CampaignRow) {
       sentAt: { lte: cutoff },
     },
     orderBy: { sentAt: "asc" },
-    include: { contact: true },
+    include: RECIPIENT_INCLUDE,
   });
 }
 
@@ -123,16 +131,34 @@ async function hasPendingFollowUps(campaignId: string): Promise<boolean> {
   return count > 0;
 }
 
-function buildVariables(contact: Contact) {
-  return { nome: contact.name, cargo: contact.jobTitle, empresa: contact.company, cidade: contact.city };
+/**
+ * consultorName vem de recipient.instanceId (campanhas PIPELINE_BULK — ver
+ * sendToRecipient) quando setado; senão cai pro responsável cadastrado no
+ * próprio Contact (campanhas MANUAL, o caso de sempre).
+ */
+function buildVariables(contact: Contact & { responsavel?: { name: string } | null }, consultorName?: string | null) {
+  return {
+    nome: contact.name,
+    cargo: contact.jobTitle,
+    empresa: contact.company,
+    cidade: contact.city,
+    consultor: consultorName ?? contact.responsavel?.name ?? null,
+  };
 }
 
 type SendKind = "initial" | "followUp";
 
+type RecipientRow = {
+  id: string;
+  contact: Contact & { responsavel?: { name: string } | null };
+  instanceId: string | null;
+  instance?: { user: { name: string } } | null;
+};
+
 async function sendToRecipient(
   organizationId: string,
   campaign: CampaignRow,
-  recipient: { id: string; contact: Contact },
+  recipient: RecipientRow,
   kind: SendKind,
 ): Promise<"sent" | "failed" | "skipped"> {
   const phoneNormalized = normalizePhoneNumber(recipient.contact.whatsapp || recipient.contact.phone);
@@ -156,22 +182,29 @@ async function sendToRecipient(
       kind === "followUp" && campaign.followUpTemplates ? campaign.followUpTemplates : campaign.messageTemplates
     ) as unknown as WeightedScript[];
     const chosen = pickWeighted(templates);
-    const steps = renderSteps(chosen.steps, buildVariables(recipient.contact), brazilGreeting());
+    const consultorName = recipient.instanceId ? (recipient.instance?.user.name ?? null) : null;
+    const steps = renderSteps(chosen.steps, buildVariables(recipient.contact, consultorName), brazilGreeting());
 
-    const thread = await getOrCreateThread({ organizationId, instanceId: campaign.instanceId, phoneNormalized });
-    // Manda a sequência do script inteira numa tacada só, com o delay real
-    // configurado entre as partes — é o que faz o script de várias mensagens
-    // parecer alguém digitando em seguida, não disparos avulsos minutos
-    // depois (o delay ENTRE destinatários continua sendo o do cron/shouldSendNow).
-    // campaignId vai em toda mensagem enviada por aqui — é o que separa
-    // prospecção fria de conversa manual/automação nos relatórios, sem
-    // precisar adivinhar pelo conteúdo ou pelo horário.
-    for (let i = 0; i < steps.length; i++) {
-      await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[i].text, campaignId: campaign.id });
-      if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
-        await sleep(steps[i].delayAfterSec * 1000);
-      }
-    }
+    // Campanha PIPELINE_BULK: cada destinatário pode ter sua própria
+    // instância (o responsável do negócio que originou o envio) — ver
+    // Campaign.source/CampaignRecipient.instanceId. Campanha MANUAL (o caso
+    // de sempre): recipient.instanceId é sempre null, cai no fallback de
+    // sempre, comportamento idêntico ao de antes desse campo existir.
+    const thread = await getOrCreateThread({
+      organizationId,
+      instanceId: recipient.instanceId ?? campaign.instanceId,
+      phoneNormalized,
+    });
+
+    // Manda só o 1º passo antes de marcar o destinatário como enviado — é o
+    // único envio que decide sucesso/falha daqui. Isso importa porque os
+    // passos seguintes têm delay REAL (sleep) entre eles, então o processo
+    // pode ser encerrado por timeout de plataforma no meio da sequência; se
+    // só marcássemos "enviado" depois do loop inteiro (como era antes), um
+    // corte nesse meio-tempo deixava o destinatário como PENDING e o
+    // próximo tick do cron reenviava a sequência INTEIRA do zero pro mesmo
+    // lead — duplicando a 1ª mensagem, que já tinha sido entregue de verdade.
+    await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[0].text, campaignId: campaign.id });
 
     if (kind === "initial") {
       await prisma.campaignRecipient.update({
@@ -184,6 +217,24 @@ async function sendToRecipient(
         data: { followUpSentAt: new Date(), followUpScriptId: chosen.scriptId },
       });
     }
+
+    // Passos restantes (se houver) são melhor-esforço: o destinatário já
+    // está marcado como enviado, então uma falha aqui nunca deve reverter
+    // esse status nem contar como falha do envio — só fica registrada no
+    // log, sem acionar pauseIfFailing.
+    for (let i = 0; i < steps.length - 1; i++) {
+      try {
+        if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
+        await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[i + 1].text, campaignId: campaign.id });
+      } catch (err) {
+        console.error(
+          `[campaigns] falha ao enviar passo ${i + 2}/${steps.length} do script pro destinatário ${recipient.id} (já marcado como enviado, 1º passo entregue)`,
+          err,
+        );
+        break;
+      }
+    }
+
     return "sent";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -224,7 +275,7 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
     const recipient = await prisma.campaignRecipient.findFirst({
       where: { campaignId: campaign.id, status: "PENDING" },
       orderBy: { createdAt: "asc" },
-      include: { contact: true },
+      include: RECIPIENT_INCLUDE,
     });
     if (recipient) {
       const outcome = await sendToRecipient(organizationId, campaign, recipient, "initial");
@@ -265,7 +316,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
         const recipient = await prisma.campaignRecipient.findFirst({
           where: { campaignId: campaign.id, status: "PENDING" },
           orderBy: { createdAt: "asc" },
-          include: { contact: true },
+          include: RECIPIENT_INCLUDE,
         });
 
         if (recipient) {

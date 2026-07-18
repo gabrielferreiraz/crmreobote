@@ -15,28 +15,28 @@ model Organization {
   slug      String   @unique
   createdAt DateTime @default(now())
 
-  users             OrganizationUser[]
-  pipelines         Pipeline[]
-  contacts          Contact[]
-  deals             Deal[]
-  tasks             Task[]
-  activities        Activity[]
-  lossReasons       LossReason[]
-  teams             Team[]
-  automationRules   AutomationRule[]
-  whatsappInstances WhatsAppInstance[]
-  whatsappThreads   WhatsAppThread[]
-  whatsappMessages  WhatsAppMessage[]
-  campaigns         Campaign[]
-  messageScripts    MessageScript[]
-  apiKeys           ApiKey[]
-  webhookSubscriptions WebhookSubscription[]
-  webhookDeliveries WebhookDelivery[]
-  leadSources       LeadSource[]
-  creditTypes       CreditType[]
-  jobTitles         JobTitle[]
+  users                  OrganizationUser[]
+  pipelines              Pipeline[]
+  contacts               Contact[]
+  deals                  Deal[]
+  tasks                  Task[]
+  activities             Activity[]
+  lossReasons            LossReason[]
+  teams                  Team[]
+  automationRules        AutomationRule[]
+  whatsappInstances      WhatsAppInstance[]
+  whatsappThreads        WhatsAppThread[]
+  whatsappMessages       WhatsAppMessage[]
+  campaigns              Campaign[]
+  messageScripts         MessageScript[]
+  apiKeys                ApiKey[]
+  webhookSubscriptions   WebhookSubscription[]
+  webhookDeliveries      WebhookDelivery[]
+  leadSources            LeadSource[]
+  creditTypes            CreditType[]
+  jobTitles              JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
-  userDailyActivities UserDailyActivity[]
+  userDailyActivities    UserDailyActivity[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -50,23 +50,23 @@ model User {
   password      String?
   createdAt     DateTime  @default(now())
 
-  accounts                 Account[]
-  sessions                 Session[]
-  orgs                     OrganizationUser[]
-  dealsOwned               Deal[]
-  tasksOwned               Task[]
-  activities               Activity[]
-  teamsLed                 Team[]                     @relation("TeamLeader")
-  teamsManaged             Team[]                     @relation("TeamManager")
-  pushSubscriptions        PushSubscription[]
-  whatsappInstances        WhatsAppInstance[]
-  campaignsCreated         Campaign[]
-  messageScripts           MessageScript[]
-  googleCalendarConnection GoogleCalendarConnection?
-  apiKeysCreated           ApiKey[]
+  accounts                    Account[]
+  sessions                    Session[]
+  orgs                        OrganizationUser[]
+  dealsOwned                  Deal[]
+  tasksOwned                  Task[]
+  activities                  Activity[]
+  teamsLed                    Team[]                    @relation("TeamLeader")
+  teamsManaged                Team[]                    @relation("TeamManager")
+  pushSubscriptions           PushSubscription[]
+  whatsappInstances           WhatsAppInstance[]
+  campaignsCreated            Campaign[]
+  messageScripts              MessageScript[]
+  googleCalendarConnection    GoogleCalendarConnection?
+  apiKeysCreated              ApiKey[]
   webhookSubscriptionsCreated WebhookSubscription[]
-  contactsResponsible      Contact[]                  @relation("ContactResponsavel")
-  dailyActivities          UserDailyActivity[]
+  contactsResponsible         Contact[]                 @relation("ContactResponsavel")
+  dailyActivities             UserDailyActivity[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -148,11 +148,12 @@ model WhatsAppInstance {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  threads      WhatsAppThread[]
-  messages     WhatsAppMessage[]
-  campaigns    Campaign[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threads            WhatsAppThread[]
+  messages           WhatsAppMessage[]
+  campaigns          Campaign[]
+  campaignRecipients CampaignRecipient[]
 
   @@unique([organizationId, userId])
   @@index([organizationId])
@@ -326,6 +327,11 @@ model Campaign {
   organizationId String
   name           String
   status         CampaignStatus @default(DRAFT)
+  // MANUAL = fluxo de hoje (público por filtro de cargo/tag/cidade).
+  // PIPELINE_BULK = negócios selecionados em Pipeline → Lista → "Enviar
+  // mensagem em massa" — cada CampaignRecipient carrega sua própria
+  // instanceId (ver abaixo) em vez de usar a instanceId única da campanha.
+  source         CampaignSource @default(MANUAL)
 
   // Variantes de mensagem (snapshot do script na hora da criação, nunca
   // reconsultado depois): [{ steps: [{text, delayAfterSec}], weight: 1,
@@ -381,6 +387,11 @@ enum CampaignStatus {
   DONE
 }
 
+enum CampaignSource {
+  MANUAL
+  PIPELINE_BULK
+}
+
 model CampaignRecipient {
   id         String                  @id @default(cuid())
   campaignId String
@@ -406,15 +417,29 @@ model CampaignRecipient {
   followUpSentAt DateTime?
   followUpError  String?
 
+  // Só preenchidos em campanhas PIPELINE_BULK (ver Campaign.source) — de
+  // qual negócio esse destinatário veio, e de qual WhatsApp ESTE
+  // destinatário específico deve ser enviado (o do responsável do
+  // negócio), já que um envio em massa do Pipeline pode juntar negócios de
+  // vários consultores diferentes numa mesma campanha. null (campanha
+  // MANUAL, o caso de sempre) = usa a instanceId única da campanha, sem
+  // nenhuma mudança de comportamento (ver lib/campaigns/engine.ts).
+  dealId     String?
+  instanceId String?
+
   createdAt DateTime @default(now())
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact  Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  thread   WhatsAppThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  campaign Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  thread   WhatsAppThread?   @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  deal     Deal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  instance WhatsAppInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
 
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
   @@index([threadId])
+  @@index([dealId])
+  @@index([instanceId])
 }
 
 enum CampaignRecipientStatus {
@@ -736,23 +761,24 @@ model Deal {
   closedAt        DateTime?
   stageEnteredAt  DateTime  @default(now())
 
-  description  String?
-  lossReasonId String?
-  lostReason   String?
+  description       String?
+  lossReasonId      String?
+  lostReason        String?
   // Valores dos campos personalizados definidos em CustomFieldDefinition —
   // { [customFieldDefinitionId]: string | number | boolean }.
   customFieldValues Json?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pipeline     Pipeline      @relation(fields: [pipelineId], references: [id])
-  stage        PipelineStage @relation(fields: [stageId], references: [id])
-  contact      Contact       @relation(fields: [contactId], references: [id])
-  owner        User          @relation(fields: [ownerId], references: [id])
-  lossReason   LossReason?   @relation(fields: [lossReasonId], references: [id])
-  tasks        Task[]
-  activities   Activity[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline           Pipeline            @relation(fields: [pipelineId], references: [id])
+  stage              PipelineStage       @relation(fields: [stageId], references: [id])
+  contact            Contact             @relation(fields: [contactId], references: [id])
+  owner              User                @relation(fields: [ownerId], references: [id])
+  lossReason         LossReason?         @relation(fields: [lossReasonId], references: [id])
+  tasks              Task[]
+  activities         Activity[]
+  campaignRecipients CampaignRecipient[]
 
   @@index([organizationId, pipelineId, stageId])
   @@index([organizationId, status])
@@ -885,9 +911,13 @@ model AutomationExecution {
   id        String   @id @default(cuid())
   ruleId    String
   entityId  String
-  /** Se a ação realmente aconteceu (mensagem enviada, tarefa criada...) ou falhou — ver lib/automations/engine.ts. */
+  /**
+   * Se a ação realmente aconteceu (mensagem enviada, tarefa criada...) ou falhou — ver lib/automations/engine.ts.
+   */
   success   Boolean  @default(true)
-  /** Resumo curto e legível do que aconteceu, pra exibir no "Ver detalhes" do histórico. */
+  /**
+   * Resumo curto e legível do que aconteceu, pra exibir no "Ver detalhes" do histórico.
+   */
   detail    String?
   createdAt DateTime @default(now())
 

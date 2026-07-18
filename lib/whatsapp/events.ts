@@ -13,11 +13,28 @@
  * de decisão (contato achado/não achado, mensagem duplicada, etc.) — de
  * propósito, pra diagnosticar sem precisar reproduzir o problema às cegas.
  * Procure por "[wa:webhook]" nos logs do container.
+ *
+ * Os logs que carregam conteúdo (payload bruto do Baileys, texto de
+ * mensagem, nome/telefone do lead) passam por `debugLog`, não
+ * `console.log` direto — em produção ficam desligados por padrão (só
+ * metadado sem PII: tipo de evento, ids, contagens), porque texto de
+ * mensagem e telefone são PII de verdade (LGPD) e não deveriam ir pra um
+ * agregador de log com retenção/acesso diferente do banco por padrão. Ligue
+ * com WHATSAPP_WEBHOOK_DEBUG_LOG=true pra depurar um problema específico em
+ * produção sem precisar reproduzir às cegas — mesma motivação de sempre,
+ * só que opt-in em vez de sempre-ligado.
  */
 
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneNumber, formatBrazilianPhone, extractJidUser } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64, findMessages, type HistoryMessage } from "@/lib/evolution";
+
+const DEBUG_LOG_ENABLED = process.env.WHATSAPP_WEBHOOK_DEBUG_LOG === "true" || process.env.NODE_ENV !== "production";
+
+/** Log com conteúdo potencialmente sensível (payload bruto, texto de mensagem, nome/telefone) — ver nota no header do arquivo. */
+function debugLog(...args: unknown[]): void {
+  if (DEBUG_LOG_ENABLED) console.log(...args);
+}
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
@@ -104,7 +121,7 @@ type SaveMessageOptions = {
 async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, options: SaveMessageOptions): Promise<void> {
   const remoteJid = msg.key?.remoteJid;
   if (!remoteJid) {
-    console.log("[wa:webhook] ignorada: sem key.remoteJid", JSON.stringify(msg));
+    debugLog("[wa:webhook] ignorada: sem key.remoteJid", JSON.stringify(msg));
     return;
   }
   if (remoteJid.endsWith("@g.us")) {
@@ -137,7 +154,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     phoneNormalized: normalized,
     whatsappName: direction === "INBOUND" ? msg.pushName : undefined,
   });
-  console.log(
+  debugLog(
     `[wa:webhook] remoteJid=${remoteJid} → normalizado=${normalized} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
   );
 
@@ -208,7 +225,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
       ...(options.createdAt ? { createdAt: options.createdAt } : {}),
     },
   });
-  console.log(
+  debugLog(
     `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
   );
 
@@ -238,7 +255,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
 }
 
 export async function handleIncomingMessage(instance: InstanceRef, data: unknown): Promise<void> {
-  console.log(`[wa:webhook] messages.upsert instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
+  debugLog(`[wa:webhook] messages.upsert instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
 
   const messages = extractMessages(data);
   console.log(`[wa:webhook] ${messages.length} mensagem(ns) extraída(s) do payload`);
@@ -376,7 +393,7 @@ const CALL_STATUS_MAP: Record<string, "RINGING" | "MISSED" | "REJECTED" | "ACCEP
  * coisas.
  */
 export async function handleIncomingCall(instance: InstanceRef, data: unknown): Promise<void> {
-  console.log(`[wa:webhook] call instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
+  debugLog(`[wa:webhook] call instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
 
   const calls = extractCalls(data);
   console.log(`[wa:webhook] ${calls.length} chamada(s) extraída(s) do payload`);
@@ -385,7 +402,7 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
     try {
       const remoteJid = call.from;
       if (!remoteJid) {
-        console.log("[wa:webhook] chamada ignorada: sem campo 'from'", JSON.stringify(call));
+        debugLog("[wa:webhook] chamada ignorada: sem campo 'from'", JSON.stringify(call));
         continue;
       }
       if (remoteJid.endsWith("@g.us")) {
@@ -532,7 +549,7 @@ const ACK_STATUS_MAP: Record<string, $Enums.WhatsAppMessageStatus> = {
 };
 
 export async function handleStatusUpdate(instance: InstanceRef, data: unknown): Promise<void> {
-  console.log(`[wa:webhook] messages.update instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
+  debugLog(`[wa:webhook] messages.update instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
   try {
     const update = data as { key?: { id?: string }; keyId?: string; status?: string | number };
     const externalId = update?.key?.id ?? update?.keyId;
@@ -555,7 +572,7 @@ export async function handleStatusUpdate(instance: InstanceRef, data: unknown): 
 }
 
 export async function handleConnectionUpdate(instance: InstanceRef, data: unknown): Promise<void> {
-  console.log(`[wa:webhook] connection.update instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
+  debugLog(`[wa:webhook] connection.update instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
   try {
     const update = data as { state?: string; wuid?: string };
     const status: $Enums.WhatsAppInstanceStatus =

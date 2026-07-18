@@ -8,7 +8,8 @@ import {
   useDroppable,
   type DragEndEvent,
   type DragStartEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -68,7 +69,14 @@ export function KanbanBoard({
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  // Mouse: começa a arrastar assim que o ponteiro se move um pouco (não
+  // precisa segurar). Toque: precisa segurar ~escondido uns 250ms parado —
+  // senão TODO arrastar de dedo (inclusive um simples scroll da lista pro
+  // lado) virava início de drag, e dava pra rolar o funil no celular.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
+  );
 
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -377,7 +385,10 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
   if (overlay) return content;
 
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes} className="touch-none">
+    // touch-manipulation (não touch-none): deixa o navegador rolar
+    // normalmente ao arrastar o dedo — o TouchSensor com delay acima é quem
+    // decide se virou um drag de verdade (dedo parado ~250ms) ou só um scroll.
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes} className="touch-manipulation">
       <Link href={`/negocios/${deal.id}`} onClick={(e) => isDragging && e.preventDefault()}>
         {content}
       </Link>

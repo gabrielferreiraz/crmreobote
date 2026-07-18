@@ -6,18 +6,23 @@ import { ScriptEditor } from "../script-editor";
 export default async function NovoScriptPage({
   searchParams,
 }: {
-  searchParams: Promise<{ duplicate?: string }>;
+  searchParams: Promise<{ duplicate?: string; returnTo?: string }>;
 }) {
-  const { duplicate } = await searchParams;
+  const { duplicate, returnTo } = await searchParams;
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
+  // SUPERVISOR incluído pro fluxo de "Enviar mensagem em massa" (Pipeline →
+  // Lista → "+Criar Script", chega aqui com ?returnTo=...) — a listagem
+  // (../page.tsx) e a edição (../[id]) continuam só dono/gerente, então um
+  // supervisor nunca vê a biblioteca inteira da organização, só cria a
+  // própria (ver POST /api/message-scripts e GET ?mine=true).
+  const canCreate = ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "");
 
   return runWithTenant(organizationId, async () => {
-    if (!isManager) {
+    if (!canCreate) {
       return (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos e gerentes podem gerenciar scripts.
+          Apenas donos, gerentes e supervisores podem criar scripts.
         </p>
       );
     }
@@ -40,6 +45,9 @@ export default async function NovoScriptPage({
         initialSteps={duplicateFrom ? (duplicateFrom.steps as { text: string; delayAfterSec: number }[]) : undefined}
         initialTags={duplicateFrom?.tags}
         existingTags={existingTags}
+        {...(returnTo
+          ? { redirectTo: returnTo, backLabel: "Envio em massa", defaultStepDelayRange: [10, 25] as [number, number] }
+          : {})}
       />
     );
   });

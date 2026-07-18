@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { encryptSecret, decryptSecret } from "@/lib/security/secret-crypto";
 
 /**
  * OAuth de verdade com o Google (token, refresh, ler eventos) — separado de
@@ -103,16 +104,23 @@ export async function fetchGoogleUserEmail(accessToken: string): Promise<string 
 
 type GoogleConnection = { id: string; accessToken: string; refreshToken: string; expiresAt: Date };
 
-/** Renova o access token se estiver perto de expirar, já salvando o novo no banco — quem chama nunca lida com token vencido. */
+/**
+ * Renova o access token se estiver perto de expirar, já salvando o novo no
+ * banco — quem chama nunca lida com token vencido. `accessToken`/
+ * `refreshToken` chegam cifrados do banco (ver encryptSecret em
+ * app/api/google-calendar/callback/route.ts); decryptSecret devolve o valor
+ * como está se for uma linha legada gravada antes da cifra existir.
+ */
 export async function getValidGoogleAccessToken(connection: GoogleConnection): Promise<string> {
   const isExpiringSoon = connection.expiresAt.getTime() - 60_000 < Date.now();
-  if (!isExpiringSoon) return connection.accessToken;
+  if (!isExpiringSoon) return decryptSecret(connection.accessToken);
 
-  const refreshed = await refreshGoogleAccessToken(connection.refreshToken);
+  const refreshToken = decryptSecret(connection.refreshToken);
+  const refreshed = await refreshGoogleAccessToken(refreshToken);
   const expiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
   await prisma.googleCalendarConnection.update({
     where: { id: connection.id },
-    data: { accessToken: refreshed.access_token, expiresAt },
+    data: { accessToken: encryptSecret(refreshed.access_token), expiresAt },
   });
   return refreshed.access_token;
 }

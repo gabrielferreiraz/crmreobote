@@ -4,7 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 
 export async function requireRole(roles: Array<"OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER">) {
   const session = await auth();
-  if (!session?.user?.organizationId || !session.user.role) {
+  if (!session?.user?.organizationId) {
     return { ok: false as const, session: null, organizationId: null };
   }
 
@@ -13,8 +13,12 @@ export async function requireRole(roles: Array<"OWNER" | "MANAGER" | "SUPERVISOR
   // esta consulta ser de fato executada, o que já causou checagens de "está
   // ativo?" falharem silenciosamente (RLS bloqueia tudo sem contexto).
   //
-  // Verifica direto no banco (não confia só no JWT) para que uma desativação
-  // tenha efeito imediato, mesmo com uma sessão já emitida.
+  // Busca `active` E `role` direto no banco (não confia no JWT pra nenhum dos
+  // dois) — a sessão JWT só é atualizada no login (ver callback jwt() em
+  // lib/auth.ts), então um papel trocado (ex.: rebaixar um MANAGER pra
+  // MEMBER via PATCH /api/org/members/[userId]) só valeria na próxima vez
+  // que a pessoa logasse de novo, até 30 dias depois (maxAge padrão do
+  // NextAuth), se a checagem confiasse em session.user.role.
   const membership = await runWithTenant(session.user.organizationId, () =>
     prisma.organizationUser.findUnique({
       where: {
@@ -23,14 +27,14 @@ export async function requireRole(roles: Array<"OWNER" | "MANAGER" | "SUPERVISOR
           userId: session.user.id,
         },
       },
-      select: { active: true },
+      select: { active: true, role: true },
     }),
   );
   if (!membership?.active) {
     return { ok: false as const, session: null, organizationId: null };
   }
 
-  if (!roles.includes(session.user.role as "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER")) {
+  if (!roles.includes(membership.role)) {
     return { ok: false as const, session, organizationId: session.user.organizationId };
   }
 
@@ -39,6 +43,6 @@ export async function requireRole(roles: Array<"OWNER" | "MANAGER" | "SUPERVISOR
     session,
     organizationId: session.user.organizationId,
     userId: session.user.id,
-    role: session.user.role as "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER",
+    role: membership.role,
   };
 }

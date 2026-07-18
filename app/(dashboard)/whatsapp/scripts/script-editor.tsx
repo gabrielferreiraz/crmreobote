@@ -19,6 +19,7 @@ const TOKEN_LABEL = new Map<string, string>([
   ["cargo", "Cargo"],
   ["empresa", "Empresa"],
   ["cidade", "Cidade"],
+  ["consultor", "Consultor"],
   ["saudacao", "Saudação"],
 ]);
 // Casa só os tokens de variável conhecidos (ex.: "{cargo}") — de propósito não
@@ -78,23 +79,44 @@ function ensureFocusInsideEditor(el: HTMLElement) {
   }
 }
 
+/** Sorteia um valor dentro de [min, max] — usado só quando defaultStepDelayRange é passado. */
+function randomInRange([min, max]: [number, number]): number {
+  return Math.round(min + Math.random() * (max - min));
+}
+
 export function ScriptEditor({
   scriptId,
   initialName = "",
   initialSteps,
   initialTags = [],
   existingTags,
+  redirectTo = "/whatsapp/scripts",
+  backLabel = "Scripts",
+  defaultStepDelayRange,
 }: {
   scriptId?: string;
   initialName?: string;
   initialSteps?: Step[];
   initialTags?: string[];
   existingTags: string[];
+  /** Pra onde ir depois de salvar, e o destino do link "Voltar"/"Cancelar". */
+  redirectTo?: string;
+  /** Texto do link "Voltar" no topo. */
+  backLabel?: string;
+  /**
+   * Quando setado (ex.: [10, 25]), a 1ª mensagem e cada "Adicionar outra
+   * mensagem" preenchem o delay com um valor aleatório nessa faixa em vez do
+   * fixo 0/2 de hoje — só o valor inicial muda, continua editável depois
+   * como qualquer campo (ver app/api/deals/bulk-send-message).
+   */
+  defaultStepDelayRange?: [number, number];
 }) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [steps, setSteps] = useState<Step[]>(
-    initialSteps?.length ? initialSteps : [{ text: "", delayAfterSec: 0 }],
+    initialSteps?.length
+      ? initialSteps
+      : [{ text: "", delayAfterSec: defaultStepDelayRange ? randomInRange(defaultStepDelayRange) : 0 }],
   );
   // Chave estável por mensagem, independente da posição no array — sem isso,
   // remover a mensagem 1 faria a mensagem 2 "herdar" o DOM (e o innerHTML já
@@ -130,7 +152,8 @@ export function ScriptEditor({
   }
 
   function addStep() {
-    setSteps((prev) => [...prev, { text: "", delayAfterSec: 2 }]);
+    const delayAfterSec = defaultStepDelayRange ? randomInRange(defaultStepDelayRange) : 2;
+    setSteps((prev) => [...prev, { text: "", delayAfterSec }]);
     setStepKeys((prev) => [...prev, newStepKey()]);
     setFocusedStepIndex(steps.length);
   }
@@ -219,18 +242,18 @@ export function ScriptEditor({
       return;
     }
 
-    router.push("/whatsapp/scripts");
+    router.push(redirectTo);
     router.refresh();
   }
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <Link
-        href="/whatsapp/scripts"
+        href={redirectTo}
         className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
       >
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
-        Scripts
+        {backLabel}
       </Link>
 
       <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
@@ -387,7 +410,7 @@ export function ScriptEditor({
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <div className="flex justify-end gap-2 pb-4">
-          <Link href="/whatsapp/scripts" className="btn-ghost">
+          <Link href={redirectTo} className="btn-ghost">
             Cancelar
           </Link>
           <button type="submit" disabled={loading || !canSubmit} className="btn-primary">

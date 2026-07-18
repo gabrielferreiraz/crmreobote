@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { exchangeGoogleCode, fetchGoogleUserEmail } from "@/lib/google-calendar-oauth";
+import { encryptSecret } from "@/lib/security/secret-crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -49,20 +50,22 @@ export async function GET(req: NextRequest) {
 
     const email = await fetchGoogleUserEmail(tokens.access_token);
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+    const encryptedAccessToken = encryptSecret(tokens.access_token);
+    const encryptedRefreshToken = encryptSecret(tokens.refresh_token!);
 
     await runWithTenant(organizationId, () =>
       prisma.googleCalendarConnection.upsert({
         where: { userId },
         create: {
           userId,
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token!,
+          accessToken: encryptedAccessToken,
+          refreshToken: encryptedRefreshToken,
           expiresAt,
           calendarEmail: email,
         },
         update: {
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token!,
+          accessToken: encryptedAccessToken,
+          refreshToken: encryptedRefreshToken,
           expiresAt,
           calendarEmail: email,
         },

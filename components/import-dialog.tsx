@@ -5,7 +5,15 @@ import { Loader2, FileSpreadsheet, CheckCircle2 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 
-type ImportResult = { total: number; created: number; skipped: number };
+type ImportResult = {
+  total: number;
+  created: number;
+  skipped: number;
+  withoutJobTitle?: number;
+  stageFallbacks?: number;
+  ownerFallbacks?: number;
+  valueParseFailures?: number;
+};
 
 export function ImportDialog({
   title,
@@ -100,7 +108,7 @@ export function ImportDialog({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept=".csv,.xlsx"
             className="hidden"
             onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
           />

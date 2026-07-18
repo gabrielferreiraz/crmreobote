@@ -488,26 +488,11 @@ export function ContactsTable({
           </button>
           <div className="space-y-1.5 border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
             <label className="field-label">Cadastrado em</label>
-            <div className="flex flex-wrap gap-1">
-              {QUICK_RANGES.map((q) => (
-                <button
-                  key={q.key}
-                  type="button"
-                  onClick={() => {
-                    const r = q.range();
-                    setRegisteredFrom(r.from);
-                    setRegisteredTo(r.to);
-                  }}
-                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                >
-                  {q.label}
-                </button>
-              ))}
-            </div>
             <DateRangeField
               from={registeredFrom}
               to={registeredTo}
               className="w-full py-1.5 text-sm"
+              quickRanges={QUICK_RANGES}
               onSelect={(r) => {
                 setRegisteredFrom(r.from);
                 setRegisteredTo(r.to);
@@ -889,15 +874,18 @@ export function ContactsTable({
       {importOpen && (
         <ImportDialog
           title="Importar contatos"
-          hint="Arquivo .csv ou .xlsx com colunas: nome (obrigatório), email, whatsapp, celular (número 2, usado se o WhatsApp não funcionar), origem, empresa, cargo, tags."
+          hint="Arquivo .csv ou .xlsx com colunas: nome (obrigatório), cargo (obrigatório), email, whatsapp, celular (número 2, usado se o WhatsApp não funcionar), origem, empresa, tags."
           endpoint="/api/contacts/import"
           onClose={() => setImportOpen(false)}
           onImported={() => router.refresh()}
-          renderSummary={(r) =>
-            `${r.created} de ${r.total} contatos importados.${
-              r.skipped > 0 ? ` ${r.skipped} ignorados por já existirem (celular duplicado).` : ""
-            }`
-          }
+          renderSummary={(r) => {
+            const withoutJobTitle = r.withoutJobTitle ?? 0;
+            const otherSkipped = r.skipped - withoutJobTitle;
+            const parts: string[] = [];
+            if (otherSkipped > 0) parts.push(`${otherSkipped} ignorados por já existirem (celular duplicado)`);
+            if (withoutJobTitle > 0) parts.push(`${withoutJobTitle} ignorados por não terem cargo preenchido`);
+            return `${r.created} de ${r.total} contatos importados.${parts.length > 0 ? ` ${parts.join("; ")}.` : ""}`;
+          }}
         />
       )}
     </div>

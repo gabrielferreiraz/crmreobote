@@ -75,6 +75,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
+  // Só bloqueia quando o corpo tenta de fato apagar o cargo (campo presente
+  // e vazio) — uma chamada parcial que nem toca em jobTitle (ex.: ação em
+  // massa mudando só responsável/origem) não pode ser barrada por isso.
+  if ("jobTitle" in body && !jobTitle) {
+    return NextResponse.json({ error: "Cargo é obrigatório" }, { status: 400 });
+  }
+
   return runWithTenant(organizationId, async () => {
     const existing = await prisma.contact.findFirst({ where: { id, organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });

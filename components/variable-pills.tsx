@@ -6,6 +6,7 @@ const VARIABLES: { token: string; label: string }[] = [
   { token: "{cargo}", label: "Cargo" },
   { token: "{empresa}", label: "Empresa" },
   { token: "{cidade}", label: "Cidade" },
+  { token: "{consultor}", label: "Consultor" },
   { token: "{saudacao}", label: "Saudação" },
 ];
 

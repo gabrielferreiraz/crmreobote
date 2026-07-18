@@ -6,7 +6,7 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
-import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
+import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
@@ -89,6 +89,9 @@ export async function POST(req: Request) {
   if (!name) {
     return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
   }
+  if (!jobTitle) {
+    return NextResponse.json({ error: "Cargo é obrigatório" }, { status: 400 });
+  }
 
   return runWithTenant(organizationId, async () => {
     const phoneNormalized = normalizePhoneNumber(phone);
@@ -142,7 +145,7 @@ export async function POST(req: Request) {
       // conversa estava em "WhatsApp Geral" — promove pra "WhatsApp CRM" na
       // hora, sem esperar a próxima mensagem chegar.
       if (phoneNormalized || whatsappNormalized) {
-        await linkOrphanThreadsForOrganization(organizationId);
+        await linkOrphanThreadsForContact(organizationId, contact.id, [phoneNormalized, whatsappNormalized]);
       }
 
       enqueueWebhookEvent(organizationId, "contact.created", {

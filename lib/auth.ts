@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/lib/auth.config";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
-import { runWithTenantUser } from "@/lib/tenant-context";
+import { runWithTenant, runWithTenantUser } from "@/lib/tenant-context";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -75,6 +75,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         );
         if (membership) {
           token.organizationId = membership.organizationId;
+          token.role = membership.role;
+        }
+      } else if (token.id && token.organizationId) {
+        // Sem `user` (toda requisição depois do login) — refresca só o papel
+        // dentro da MESMA organização já fixada no token, nunca troca de
+        // organização sozinho aqui. Sem isso, um papel trocado (ex.: rebaixar
+        // um MANAGER pra MEMBER em PATCH /api/org/members/[userId]) só valia
+        // depois de relogar — o JWT (30 dias por padrão) mantinha o papel
+        // antigo, e isso alimentava getDealScope (lib/team-scope.ts) com
+        // escopo de acesso desatualizado em toda página que lê session.user.role
+        // direto (pipeline, tarefas, relatórios etc.), não só nas rotas que já
+        // revalidavam via requireRole/requireSession.
+        const membership = await runWithTenant(token.organizationId as string, () =>
+          prisma.organizationUser.findUnique({
+            where: {
+              organizationId_userId: {
+                organizationId: token.organizationId as string,
+                userId: token.id as string,
+              },
+            },
+            select: { role: true, active: true },
+          }),
+        );
+        if (membership?.active) {
           token.role = membership.role;
         }
       }

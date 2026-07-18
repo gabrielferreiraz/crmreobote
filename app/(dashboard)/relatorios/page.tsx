@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
-import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, brazilDateKey, getBrazilParts } from "@/lib/timezone";
+import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, brazilStartOfDay, brazilDateKey, getBrazilParts } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { TrendAreaChart } from "@/components/charts/trend-area-chart";
@@ -411,7 +411,22 @@ export default async function RelatoriosPage({
 
   // ─── Evolução: valor ganho ao longo do período escolhido — por dia se o
   // período for curto (cabe uns 30 pontos legíveis), por mês se for longo.
-  const trendSpanDays = Math.max(1, Math.round((trendEnd.getTime() - trendStart.getTime()) / 86_400_000));
+  //
+  // trendEnd pode ser fim de dia (23:59:59.999, ver brazilEndOfDayUTC acima)
+  // — usar ele cru aqui contaria quase um dia inteiro a mais do que os dias
+  // de calendário reais do período (ex.: "Este mês" em julho batia 31 em vez
+  // de 30, e o array final (trendSpanDays + 1) saía com 32 baldes pra um mês
+  // de 31 dias — o balde extra, 1º de agosto, sempre ficava zerado e
+  // aparecia como o ÚLTIMO ponto do gráfico, parecendo uma queda pra zero
+  // fora do período de verdade). brazilStartOfDay normaliza pro início do
+  // dia de trendEnd antes de contar a diferença, então o resultado já é a
+  // contagem exata de dias de calendário entre início de trendStart e início
+  // do dia de trendEnd — o "+1" abaixo (fencepost, inclusivo dos dois
+  // extremos) só precisa ser aplicado uma vez.
+  const trendSpanDays = Math.max(
+    0,
+    Math.round((brazilStartOfDay(trendEnd).getTime() - trendStart.getTime()) / 86_400_000),
+  );
   const bucketDaily = trendSpanDays <= 31;
 
   // Todo agrupamento por dia/mês abaixo usa o calendário de Brasília
@@ -475,13 +490,28 @@ export default async function RelatoriosPage({
 
   // Clona os buckets de monthTrend (mesmas datas/rótulos) pra uma segunda
   // série independente — tempo ativo da equipe em vez de valor ganho.
-  const teamActivityTrend = monthTrend.map((b) => ({ ...b, value: 0 }));
+  const teamActivityTrend = monthTrend.map((b) => ({ ...b, value: 0, breakdown: [] as { label: string; value: number }[] }));
+  // Por bucket, soma separado por consultor — vira o detalhamento do balão ao
+  // passar o mouse (sem isso o gráfico só mostra o total do dia/mês, sem dar
+  // pra saber quem puxou aquele número).
+  const activityBreakdownByBucket = new Map<number, Map<string, number>>();
   for (const row of dailyActivityRaw) {
     const [y, m, d] = row.date.split("-").map(Number);
-    const bucket = bucketDaily
-      ? teamActivityTrend.find((b) => b.year === y && b.month === m - 1 && b.day === d)
-      : teamActivityTrend.find((b) => b.year === y && b.month === m - 1);
-    if (bucket) bucket.value += row.activeSeconds;
+    const bucketIndex = bucketDaily
+      ? teamActivityTrend.findIndex((b) => b.year === y && b.month === m - 1 && b.day === d)
+      : teamActivityTrend.findIndex((b) => b.year === y && b.month === m - 1);
+    if (bucketIndex === -1) continue;
+    teamActivityTrend[bucketIndex].value += row.activeSeconds;
+    if (row.activeSeconds > 0) {
+      const perUser = activityBreakdownByBucket.get(bucketIndex) ?? new Map<string, number>();
+      perUser.set(row.userId, (perUser.get(row.userId) ?? 0) + row.activeSeconds);
+      activityBreakdownByBucket.set(bucketIndex, perUser);
+    }
+  }
+  for (const [bucketIndex, perUser] of activityBreakdownByBucket) {
+    teamActivityTrend[bucketIndex].breakdown = Array.from(perUser.entries())
+      .map(([userId, seconds]) => ({ label: personName(userId), value: seconds }))
+      .sort((a, b) => b.value - a.value);
   }
 
   const statusSlices = [
@@ -1072,13 +1102,13 @@ export default async function RelatoriosPage({
           <SectionHeading
             eyebrow="Equipe"
             title="Atividade da equipe"
-            description="Quanto tempo cada pessoa passou no CRM e quantas alterações fez no período — visível só pra Dono e Gerente."
+            description="Tempo com a aba do CRM em primeiro plano e quantidade de alterações no período — visível só pra Dono e Gerente. Mede a aba aberta, não clique/teclado: não exige foco da janela no sistema, então uma aba deixada aberta sem uso ainda soma tempo."
           />
           <div className="grid grid-cols-12 gap-5">
             <div className="card col-span-12 p-6 md:col-span-6">
               <div className="mb-1 flex items-center gap-2">
                 <Clock className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo no CRM</h3>
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo com o CRM aberto</h3>
               </div>
               <Leaderboard entries={crmTimeRanking} emptyLabel="Sem uso registrado nesse período" />
             </div>
@@ -1353,7 +1383,7 @@ function SellerStatPanel({
   children: ReactNode;
 }) {
   return (
-    <div className="min-w-[168px] flex-1 basis-[168px] rounded-lg border border-neutral-100 p-3 dark:border-neutral-800">
+    <div className="min-w-[168px] flex-1 basis-[168px] rounded-lg border border-neutral-100 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/40">
       <div className="mb-2 flex items-center gap-1.5">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PANEL_DOT[dot]}`} />
         <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">{title}</p>

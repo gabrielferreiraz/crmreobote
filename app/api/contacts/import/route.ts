@@ -57,13 +57,33 @@ export async function POST(req: Request) {
   let rows: string[][];
   try {
     rows = await parseSpreadsheet(buffer, file.name);
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === "XLS_NOT_SUPPORTED") {
+      return NextResponse.json(
+        { error: "Arquivo .xls (Excel 97-2003) não é suportado — salve como .xlsx e tente de novo" },
+        { status: 400 },
+      );
+    }
     return NextResponse.json({ error: "Não foi possível ler o arquivo" }, { status: 400 });
   }
 
   if (rows.length < 2) {
     return NextResponse.json(
       { error: "Arquivo vazio ou sem linhas de dados" },
+      { status: 400 },
+    );
+  }
+
+  const totalDataRows = rows.length - 1;
+  if (totalDataRows > MAX_ROWS) {
+    // Antes cortava em silêncio (só as primeiras MAX_ROWS entravam, sem
+    // avisar) — quem mandasse 8.000 linhas achava que importou tudo e só ia
+    // notar depois, contando os contatos um por um. Recusa e deixa claro
+    // quanto precisa cortar, em vez de importar uma fração sem dizer.
+    return NextResponse.json(
+      {
+        error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_ROWS}. Divida em arquivos menores e importe em partes.`,
+      },
       { status: 400 },
     );
   }
@@ -110,13 +130,24 @@ export async function POST(req: Request) {
     }))
     .filter((r) => r.name);
 
-  if (parsed.length === 0) {
-    return NextResponse.json({ error: "Nenhum contato válido encontrado" }, { status: 400 });
+  // Cargo é obrigatório no cadastro manual (ver POST /api/contacts) — a
+  // importação em massa precisa da mesma regra, senão vira uma porta de
+  // entrada pra centenas de contatos sem cargo passando por trás da
+  // validação da UI (cargo é usado em variável de personalização de
+  // campanha de WhatsApp, entre outras coisas).
+  const withoutJobTitle = parsed.filter((r) => !r.jobTitle).length;
+  const validParsed = parsed.filter((r) => r.jobTitle);
+
+  if (validParsed.length === 0) {
+    return NextResponse.json(
+      { error: "Nenhum contato válido encontrado — confira se as colunas 'nome' e 'cargo' estão preenchidas" },
+      { status: 400 },
+    );
   }
 
   return runWithTenant(organizationId, async () => {
     const result = await prisma.contact.createMany({
-      data: parsed.map((c) => ({
+      data: validParsed.map((c) => ({
         organizationId,
         ...c,
         phoneNormalized: normalizePhoneNumber(c.phone),
@@ -137,6 +168,7 @@ export async function POST(req: Request) {
       total: parsed.length,
       created: result.count,
       skipped: parsed.length - result.count,
+      withoutJobTitle,
     });
   });
 }

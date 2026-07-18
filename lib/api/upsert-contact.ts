@@ -16,7 +16,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
-import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
+import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 
 const TEXT_FIELDS = [
@@ -128,7 +128,7 @@ export async function upsertContactFromIntegration(
     });
 
     if (phoneNormalized || whatsappNormalized) {
-      await linkOrphanThreadsForOrganization(organizationId);
+      await linkOrphanThreadsForContact(organizationId, contact.id, [phoneNormalized, whatsappNormalized]);
     }
 
     enqueueWebhookEvent(organizationId, "contact.created", {

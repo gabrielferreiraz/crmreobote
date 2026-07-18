@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import type { QuickRange } from "@/lib/date-ranges";
 
 const WEEKDAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MONTH_LABELS = [
@@ -197,12 +198,16 @@ export function DateRangeField({
   onSelect,
   placeholder = "Selecionar período",
   className = "",
+  quickRanges,
 }: {
   from: string;
   to: string;
   onSelect: (range: { from: string; to: string }) => void;
   placeholder?: string;
   className?: string;
+  /** Atalhos ("Hoje", "Mês passado"...) mostrados dentro do dropdown, junto do
+   * calendário — só aparecem quando o campo é aberto, não antes. */
+  quickRanges?: QuickRange[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -247,6 +252,23 @@ export function DateRangeField({
 
       {open && (
         <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
+          {quickRanges && quickRanges.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1 border-b border-neutral-200/60 pb-2 dark:border-neutral-800/60">
+              {quickRanges.map((q) => (
+                <button
+                  key={q.key}
+                  type="button"
+                  onClick={() => {
+                    onSelect(q.range());
+                    setOpen(false);
+                  }}
+                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+          )}
           <DateRangeCalendar from={from} to={to} onSelect={onSelect} />
         </div>
       )}

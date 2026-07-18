@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, Trash2, GitBranch, Layers, User } from "lucide-react";
+import { Search, SearchX, Inbox, Trash2, GitBranch, Layers, User, Send } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { EmptyState } from "@/components/empty-state";
@@ -15,8 +15,10 @@ import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { BulkSendMessageDialog } from "@/components/bulk-send-message-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
+import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import type { Deal } from "./kanban-board";
 
 const QUICK_RANGES = buildListQuickRanges();
@@ -40,6 +42,8 @@ export function DealsList({
   pipelines,
   lossReasons,
   canBulkDelete,
+  canBulkMessage,
+  restoredDraft,
 }: {
   deals: Deal[];
   members: MemberOption[];
@@ -48,6 +52,8 @@ export function DealsList({
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   canBulkDelete: boolean;
+  canBulkMessage: boolean;
+  restoredDraft: BulkSendDraft | null;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -107,6 +113,41 @@ export function DealsList({
   function applyClosedQuickRange(range: { from: string; to: string }) {
     setClosedFrom(range.from);
     setClosedTo(range.to);
+  }
+
+  // Pra ida-e-volta de "+ Criar script" (ver components/bulk-send-message-dialog.tsx
+  // e lib/pipeline-bulk-send-draft.ts) — captura tudo que precisa sobreviver
+  // à navegação e restaura de volta.
+  function captureFilters(): Record<string, string> {
+    return {
+      search,
+      statusFilter,
+      ownerFilter,
+      ownerStatusFilter,
+      stageFilter,
+      lossReasonFilter,
+      jobTitleFilter,
+      originFilter,
+      dateFrom,
+      dateTo,
+      closedFrom,
+      closedTo,
+    };
+  }
+
+  function restoreFilters(f: Record<string, string>) {
+    if (f.search !== undefined) setSearch(f.search);
+    if (f.statusFilter !== undefined) setStatusFilter(f.statusFilter as Deal["status"] | "");
+    if (f.ownerFilter !== undefined) setOwnerFilter(f.ownerFilter);
+    if (f.ownerStatusFilter !== undefined) setOwnerStatusFilter(f.ownerStatusFilter as "" | "active" | "inactive");
+    if (f.stageFilter !== undefined) setStageFilter(f.stageFilter);
+    if (f.lossReasonFilter !== undefined) setLossReasonFilter(f.lossReasonFilter);
+    if (f.jobTitleFilter !== undefined) setJobTitleFilter(f.jobTitleFilter);
+    if (f.originFilter !== undefined) setOriginFilter(f.originFilter);
+    if (f.dateFrom !== undefined) setDateFrom(f.dateFrom);
+    if (f.dateTo !== undefined) setDateTo(f.dateTo);
+    if (f.closedFrom !== undefined) setClosedFrom(f.closedFrom);
+    if (f.closedTo !== undefined) setClosedTo(f.closedTo);
   }
 
   const filteredDeals = useMemo(() => {
@@ -176,6 +217,25 @@ export function DealsList({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkSendOpen, setBulkSendOpen] = useState(false);
+
+  // Restaura filtro/seleção depois de voltar de "+ Criar script" e reabre o
+  // diálogo de envio sozinho — o script recém-criado já aparece no picker
+  // (busca de novo ao abrir, ver BulkSendMessageDialog). restoredDraft só
+  // muda uma vez (pipeline-view.tsx faz um pop de uso único), então isso
+  // roda no máximo uma vez por sessão de navegação, não em todo re-render.
+  useEffect(() => {
+    if (!restoredDraft) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    restoreFilters(restoredDraft.filters);
+    setSelectedIds(new Set(restoredDraft.selectedIds));
+    setBulkSendOpen(true);
+  }, [restoredDraft]);
+
+  function handleCreateScript() {
+    saveBulkSendDraft({ filters: captureFilters(), selectedIds: Array.from(selectedIds) });
+    router.push(`/whatsapp/scripts/novo?returnTo=${encodeURIComponent("/pipeline")}`);
+  }
 
   const allFilteredSelected = filteredDeals.length > 0 && filteredDeals.every((d) => selectedIds.has(d.id));
 
@@ -410,26 +470,11 @@ export function DealsList({
           )}
           <div className="space-y-1">
             <label className="field-label">Criado em</label>
-            <div className="flex flex-wrap gap-1">
-              {QUICK_RANGES.map((q) => (
-                <button
-                  key={q.key}
-                  type="button"
-                  onClick={() => {
-                    const r = q.range();
-                    setDateFrom(r.from);
-                    setDateTo(r.to);
-                  }}
-                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                >
-                  {q.label}
-                </button>
-              ))}
-            </div>
             <DateRangeField
               from={dateFrom}
               to={dateTo}
               className="w-full py-1.5 text-sm"
+              quickRanges={QUICK_RANGES}
               onSelect={(r) => {
                 setDateFrom(r.from);
                 setDateTo(r.to);
@@ -440,26 +485,12 @@ export function DealsList({
             <label className="field-label">
               Concluído em <span className="font-normal normal-case text-neutral-400">(ganhos/perdidos)</span>
             </label>
-            <div className="flex flex-wrap gap-1">
-              {QUICK_RANGES.map((q) => (
-                <button
-                  key={q.key}
-                  type="button"
-                  onClick={() => applyClosedQuickRange(q.range())}
-                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                >
-                  {q.label}
-                </button>
-              ))}
-            </div>
             <DateRangeField
               from={closedFrom}
               to={closedTo}
               className="w-full py-1.5 text-sm"
-              onSelect={(r) => {
-                setClosedFrom(r.from);
-                setClosedTo(r.to);
-              }}
+              quickRanges={QUICK_RANGES}
+              onSelect={applyClosedQuickRange}
             />
           </div>
         </FilterPopover>
@@ -495,6 +526,17 @@ export function DealsList({
                   />
                 )}
               </BulkActionPopover>
+              {canBulkMessage && (
+                <button
+                  type="button"
+                  onClick={() => setBulkSendOpen(true)}
+                  disabled={bulkBusy}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  <Send className="h-3.5 w-3.5" strokeWidth={2} />
+                  Enviar mensagem em massa
+                </button>
+              )}
               {canBulkDelete && (
                 <button
                   type="button"
@@ -641,6 +683,18 @@ export function DealsList({
             await bulkDelete();
             setConfirmBulkDelete(false);
           }}
+        />
+      )}
+
+      {bulkSendOpen && (
+        <BulkSendMessageDialog
+          dealIds={Array.from(selectedIds)}
+          onClose={() => setBulkSendOpen(false)}
+          onSent={() => {
+            clearSelection();
+            router.refresh();
+          }}
+          onCreateScript={handleCreateScript}
         />
       )}
     </div>

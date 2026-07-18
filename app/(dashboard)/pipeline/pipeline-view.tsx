@@ -8,7 +8,7 @@ import { Select } from "@/components/select";
 import { NewDealDialog } from "./new-deal-dialog";
 import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
-import { PipelineMobile } from "./pipeline-mobile";
+import { popBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fieldset";
 
 type MemberOption = { id: string; name: string };
@@ -30,6 +30,7 @@ export function PipelineView({
   creditTypes,
   isOwner,
   canBulkDelete,
+  canBulkMessage,
   openNewDeal,
 }: {
   pipelineId: string;
@@ -43,6 +44,7 @@ export function PipelineView({
   creditTypes: CreditTypeOption[];
   isOwner: boolean;
   canBulkDelete: boolean;
+  canBulkMessage: boolean;
   openNewDeal?: boolean;
 }) {
   const router = useRouter();
@@ -50,6 +52,7 @@ export function PipelineView({
   const [deals, setDeals] = useState(initialDeals);
   const [importOpen, setImportOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
+  const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
 
   useEffect(() => {
     setDeals(initialDeals);
@@ -63,12 +66,24 @@ export function PipelineView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewDeal]);
 
+  // Volta de "+ Criar script" (ver components/bulk-send-message-dialog.tsx) —
+  // restaura a view Lista e repassa filtro/seleção pra deals-list.tsx
+  // restaurar e reabrir o diálogo de envio sozinho. Não dá pra virar um
+  // useState(() => ...) lazy: sessionStorage não existe durante a
+  // renderização no servidor, só depois de montado no cliente.
+  useEffect(() => {
+    const draft = popBulkSendDraft();
+    if (draft) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setView("lista");
+      setRestoredDraft(draft);
+    }
+  }, []);
+
   return (
     <div className="flex h-full flex-col gap-3">
-      {/* Versão desktop — inalterada, só passou a ficar atrás de lg: */}
-      <div className="hidden h-full flex-col gap-3 lg:flex">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {pipelines.length > 1 && (
             <Select
               value={pipelineId}
@@ -101,45 +116,41 @@ export function PipelineView({
               Lista
             </button>
           </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setDealDialogOpen(true)} className="btn-primary">
-              <Plus className="h-4 w-4" strokeWidth={2.5} />
-              Novo negócio
-            </button>
-            <button onClick={() => setImportOpen(true)} className="btn-secondary">
-              <Upload className="h-4 w-4" strokeWidth={2} />
-              Importar
-            </button>
-            {isOwner && (
-              <a href="/api/deals/export" className="btn-secondary">
-                <Download className="h-4 w-4" strokeWidth={2} />
-                Exportar
-              </a>
-            )}
-          </div>
         </div>
 
-        {view === "kanban" ? (
-          <KanbanBoard stages={stages} deals={deals} onDealsChange={setDeals} members={members} />
-        ) : (
-          <DealsList
-            deals={deals}
-            members={allMembers}
-            stages={stages}
-            pipelineId={pipelineId}
-            pipelines={pipelines}
-            lossReasons={lossReasons}
-            canBulkDelete={canBulkDelete}
-          />
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setDealDialogOpen(true)} className="btn-primary">
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
+            Novo negócio
+          </button>
+          <button onClick={() => setImportOpen(true)} className="btn-secondary">
+            <Upload className="h-4 w-4" strokeWidth={2} />
+            Importar
+          </button>
+          {isOwner && (
+            <a href="/api/deals/export" className="btn-secondary">
+              <Download className="h-4 w-4" strokeWidth={2} />
+              Exportar
+            </a>
+          )}
+        </div>
       </div>
 
-      {/* Versão mobile — telas separadas, feitas pro toque (ver pipeline-mobile.tsx) */}
-      <div className="flex-1 lg:hidden">
-        <PipelineMobile stages={stages} deals={deals} />
-      </div>
+      {view === "kanban" ? (
+        <KanbanBoard stages={stages} deals={deals} onDealsChange={setDeals} members={members} />
+      ) : (
+        <DealsList
+          deals={deals}
+          members={allMembers}
+          stages={stages}
+          pipelineId={pipelineId}
+          pipelines={pipelines}
+          lossReasons={lossReasons}
+          canBulkDelete={canBulkDelete}
+          canBulkMessage={canBulkMessage}
+          restoredDraft={restoredDraft}
+        />
+      )}
 
       <NewDealDialog
         pipelineId={pipelineId}
@@ -161,11 +172,14 @@ export function PipelineView({
           extraFields={{ pipelineId }}
           onClose={() => setImportOpen(false)}
           onImported={() => router.refresh()}
-          renderSummary={(r) =>
-            `${r.created} de ${r.total} negócios importados.${
-              r.skipped > 0 ? ` ${r.skipped} linhas ignoradas por falta de contato.` : ""
-            }`
-          }
+          renderSummary={(r) => {
+            const parts: string[] = [];
+            if (r.skipped > 0) parts.push(`${r.skipped} linhas ignoradas por falta de contato`);
+            if (r.stageFallbacks) parts.push(`${r.stageFallbacks} caíram na etapa padrão (texto da coluna 'etapa' não encontrado)`);
+            if (r.ownerFallbacks) parts.push(`${r.ownerFallbacks} caíram em responsável automático (texto da coluna 'responsavel' não encontrado)`);
+            if (r.valueParseFailures) parts.push(`${r.valueParseFailures} ficaram sem valor (não consegui ler o número)`);
+            return `${r.created} de ${r.total} negócios importados.${parts.length > 0 ? ` ${parts.join("; ")}.` : ""}`;
+          }}
         />
       )}
     </div>

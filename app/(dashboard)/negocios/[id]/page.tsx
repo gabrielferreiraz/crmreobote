@@ -85,6 +85,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       orderBy: { order: "asc" },
     });
 
+    const jobTitles = await prisma.jobTitle.findMany({
+      where: { organizationId },
+      orderBy: { order: "asc" },
+    });
+
     // Não lida: soma de qualquer conversa deste contato, não só a de quem
     // está vendo a página agora (o lead pode ter respondido pra outro
     // vendedor que já trocou mensagem com ele antes).
@@ -119,6 +124,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           lossReasons={lossReasons}
           customFields={customFields}
           creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
+          jobTitles={jobTitles.map((j) => ({ id: j.id, label: j.label }))}
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}

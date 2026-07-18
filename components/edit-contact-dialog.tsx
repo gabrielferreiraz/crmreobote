@@ -40,21 +40,29 @@ function optionsWithLegacyValue(list: { label: string }[], currentValue?: string
   return options;
 }
 
-export function EditContactDialog({
+/**
+ * Só o formulário, sem <Modal> próprio — pra poder ser usado tanto dentro de
+ * um Modal dedicado (EditContactDialog, abaixo) quanto substituindo o
+ * conteúdo de um Modal que já esteja aberto em outro lugar, sem precisar
+ * empilhar dois Modal (dois fundos escurecidos/borrados um sobre o outro).
+ */
+export function ContactEditForm({
   contact,
   sources,
   jobTitles,
   members,
   customFields,
+  onCancel,
+  onSaved,
 }: {
   contact: Contact;
   sources: { id: string; label: string }[];
   jobTitles: { id: string; label: string }[];
   members: { id: string; name: string }[];
   customFields: CustomFieldDefinitionInput[];
+  onCancel: () => void;
+  onSaved: () => void;
 }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState(contact.name);
   const [email, setEmail] = useState(contact.email ?? "");
   const [phone, setPhone] = useState(contact.phone ?? "");
@@ -74,28 +82,6 @@ export function EditContactDialog({
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function openDialog() {
-    setName(contact.name);
-    setEmail(contact.email ?? "");
-    setPhone(contact.phone ?? "");
-    setWhatsapp(contact.whatsapp ?? "");
-    setSource(contact.source ?? "");
-    setCompany(contact.company ?? "");
-    setJobTitle(contact.jobTitle ?? "");
-    setZipCode(contact.zipCode ?? "");
-    setAddress(contact.address ?? "");
-    setAddressNumber(contact.addressNumber ?? "");
-    setAddressComplement(contact.addressComplement ?? "");
-    setNeighborhood(contact.neighborhood ?? "");
-    setCity(contact.city ?? "");
-    setState(contact.state ?? "");
-    setTags((contact.tags ?? []).join(", "));
-    setResponsavelId(contact.responsavelId ?? "");
-    setCustomFieldValues(contact.customFieldValues ?? {});
-    setError(null);
-    setOpen(true);
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -137,9 +123,104 @@ export function EditContactDialog({
       return;
     }
 
-    setOpen(false);
-    router.refresh();
+    onSaved();
   }
+
+  return (
+    <>
+      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar contato</h2>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <Field label="Nome" value={name} onChange={setName} required autoFocus />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="E-mail" value={email} onChange={setEmail} type="email" />
+          <Field label="Celular" value={phone} onChange={setPhone} />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
+          <Field label="Empresa" value={company} onChange={setCompany} />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label className="field-label">Cargo *</label>
+            <Select
+              value={jobTitle}
+              onChange={setJobTitle}
+              placeholder="Selecione o cargo"
+              options={optionsWithLegacyValue(jobTitles, contact.jobTitle)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Origem</label>
+            <Select
+              value={source}
+              onChange={setSource}
+              options={[{ value: "", label: "—" }, ...sources.map((s) => ({ value: s.label, label: s.label }))]}
+            />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="field-label">Responsável</label>
+          <Select
+            value={responsavelId}
+            onChange={setResponsavelId}
+            options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="CEP" value={zipCode} onChange={setZipCode} />
+          <Field label="Cidade" value={city} onChange={setCity} />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Endereço" value={address} onChange={setAddress} />
+          <Field label="Estado" value={state} onChange={setState} />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
+          <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
+          <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
+        </div>
+        <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
+        <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onCancel} className="btn-ghost">
+            Cancelar
+          </button>
+          <button type="submit" disabled={loading || !name.trim() || !jobTitle} className="btn-primary">
+            {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {loading ? (
+              <span className="inline-flex items-center gap-1">
+                Salvando
+                <LoadingDots />
+              </span>
+            ) : (
+              "Salvar"
+            )}
+          </button>
+        </div>
+      </form>
+    </>
+  );
+}
+
+/** Botão de lápis + Modal próprio — uso "solto" (não dentro de outro Modal já aberto). */
+export function EditContactDialog({
+  contact,
+  sources,
+  jobTitles,
+  members,
+  customFields,
+}: {
+  contact: Contact;
+  sources: { id: string; label: string }[];
+  jobTitles: { id: string; label: string }[];
+  members: { id: string; name: string }[];
+  customFields: CustomFieldDefinitionInput[];
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
 
   return (
     <>
@@ -147,7 +228,7 @@ export function EditContactDialog({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          openDialog();
+          setOpen(true);
         }}
         className="icon-btn"
         aria-label="Editar contato"
@@ -157,79 +238,18 @@ export function EditContactDialog({
 
       {open && (
         <Modal onClose={() => setOpen(false)}>
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar contato</h2>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <Field label="Nome" value={name} onChange={setName} required autoFocus />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="E-mail" value={email} onChange={setEmail} type="email" />
-              <Field label="Celular" value={phone} onChange={setPhone} />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
-              <Field label="Empresa" value={company} onChange={setCompany} />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="field-label">Cargo *</label>
-                <Select
-                  value={jobTitle}
-                  onChange={setJobTitle}
-                  placeholder="Selecione o cargo"
-                  options={optionsWithLegacyValue(jobTitles, contact.jobTitle)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="field-label">Origem</label>
-                <Select
-                  value={source}
-                  onChange={setSource}
-                  options={[{ value: "", label: "—" }, ...sources.map((s) => ({ value: s.label, label: s.label }))]}
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Responsável</label>
-              <Select
-                value={responsavelId}
-                onChange={setResponsavelId}
-                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="CEP" value={zipCode} onChange={setZipCode} />
-              <Field label="Cidade" value={city} onChange={setCity} />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Endereço" value={address} onChange={setAddress} />
-              <Field label="Estado" value={state} onChange={setState} />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
-              <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
-              <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
-            </div>
-            <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
-            <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
-
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
-                Cancelar
-              </button>
-              <button type="submit" disabled={loading || !name.trim() || !jobTitle} className="btn-primary">
-                {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-                {loading ? (
-                  <span className="inline-flex items-center gap-1">
-                    Salvando
-                    <LoadingDots />
-                  </span>
-                ) : (
-                  "Salvar"
-                )}
-              </button>
-            </div>
-          </form>
+          <ContactEditForm
+            contact={contact}
+            sources={sources}
+            jobTitles={jobTitles}
+            members={members}
+            customFields={customFields}
+            onCancel={() => setOpen(false)}
+            onSaved={() => {
+              setOpen(false);
+              router.refresh();
+            }}
+          />
         </Modal>
       )}
     </>

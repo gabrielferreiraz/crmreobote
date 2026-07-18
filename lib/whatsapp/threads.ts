@@ -85,11 +85,13 @@ export async function getOrCreateThread(params: GetOrCreateThreadParams) {
  * Depois que um Contact é criado (manual ou importado), re-checa toda
  * conversa avulsa desta organização (thread sem Contact vinculado) contra a
  * tabela de Contact — promove na hora pra aba "WhatsApp CRM" quem bater, em
- * vez de esperar a próxima mensagem chegar pra fazer essa ligação. Sempre
- * re-checa tudo (não só o Contact recém-criado) porque o volume de
- * conversas avulsas de verdade tende a ser pequeno — é mais simples e
- * barato do que tentar acompanhar exatamente qual criação afetou qual
- * conversa, principalmente numa importação em lote.
+ * vez de esperar a próxima mensagem chegar pra fazer essa ligação.
+ *
+ * Só para uso em lote de verdade (importação em massa, ver
+ * app/api/contacts/import/route.ts) — é O(órfãos), varre e resolve uma a
+ * uma. Pra criar/upsertar UM contato por vez (cadastro manual, API externa),
+ * use `linkOrphanThreadsForContact`, que é O(1) indexado em vez de
+ * rescanear a organização inteira a cada chamada.
  */
 export async function linkOrphanThreadsForOrganization(organizationId: string): Promise<number> {
   const orphans = await prisma.whatsAppThread.findMany({
@@ -107,6 +109,34 @@ export async function linkOrphanThreadsForOrganization(organizationId: string): 
     }
   }
   return linked;
+}
+
+/**
+ * Mesma promoção de `linkOrphanThreadsForOrganization`, mas dirigida a UM
+ * contato recém-criado/atualizado: busca direto (indexado por
+ * phoneNormalized, que já é @unique) as threads órfãs que batem com os
+ * números dele, em vez de rescanear toda a organização. Chamada em todo
+ * cadastro manual e em todo upsert da API externa (/api/v1/contacts) — um
+ * rescan completo nesses pontos degradava com o volume de conversas avulsas
+ * acumuladas, principalmente na integração externa, pensada pra alto volume.
+ */
+export async function linkOrphanThreadsForContact(
+  organizationId: string,
+  contactId: string,
+  normalizedNumbers: Array<string | null | undefined>,
+): Promise<number> {
+  const variants = new Set(
+    normalizedNumbers
+      .filter((n): n is string => !!n)
+      .flatMap((n) => brazilianMobileVariants(n)),
+  );
+  if (variants.size === 0) return 0;
+
+  const { count } = await prisma.whatsAppThread.updateMany({
+    where: { organizationId, contactId: null, phoneNormalized: { in: Array.from(variants) } },
+    data: { contactId },
+  });
+  return count;
 }
 
 type GetOrCreateThreadForContactParams = {

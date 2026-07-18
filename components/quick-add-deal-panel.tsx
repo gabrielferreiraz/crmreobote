@@ -10,6 +10,7 @@ import { LoadingDots } from "@/components/loading-dots";
 type Stage = { id: string; name: string; order: number };
 type Pipeline = { id: string; name: string; isDefault: boolean; stages: Stage[] };
 type CreditTypeOption = { id: string; label: string };
+type JobTitleOption = { id: string; label: string };
 
 /**
  * Cadastro rápido de contato + negócio a partir de uma conversa de WhatsApp
@@ -43,6 +44,8 @@ export function QuickAddDealPanel({
   const [name, setName] = useState(suggestedName);
   const [value, setValue] = useState("");
   const [creditType, setCreditType] = useState("");
+  const [jobTitles, setJobTitles] = useState<JobTitleOption[]>([]);
+  const [jobTitle, setJobTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,6 +86,24 @@ export function QuickAddDealPanel({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/job-titles");
+        if (!res.ok) return;
+        const data: JobTitleOption[] = await res.json();
+        if (!cancelled) setJobTitles(data);
+      } catch {
+        // sem lista carregada, o Select some vazio — POST /api/contacts ainda
+        // barra no servidor se o cargo não vier preenchido
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId) ?? null;
   const firstStage = selectedPipeline?.stages.slice().sort((a, b) => a.order - b.order)[0] ?? null;
 
@@ -96,7 +117,7 @@ export function QuickAddDealPanel({
       const contactRes = await fetch("/api/contacts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, whatsapp: phoneFormatted }),
+        body: JSON.stringify({ name, whatsapp: phoneFormatted, jobTitle }),
       });
       const contact = await contactRes.json().catch(() => ({}));
       if (!contactRes.ok) {
@@ -148,6 +169,15 @@ export function QuickAddDealPanel({
           <label className="field-label">WhatsApp</label>
           <input value={phoneFormatted} disabled className="field-input opacity-70" />
         </div>
+        <div className="space-y-1">
+          <label className="field-label">Cargo *</label>
+          <Select
+            value={jobTitle}
+            onChange={setJobTitle}
+            placeholder="Selecione o cargo"
+            options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
+          />
+        </div>
 
         {pipelines && pipelines.length > 1 && (
           <div className="space-y-1">
@@ -186,7 +216,7 @@ export function QuickAddDealPanel({
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={submitting || !name.trim() || !firstStage} className="btn-primary">
+          <button type="submit" disabled={submitting || !name.trim() || !jobTitle || !firstStage} className="btn-primary">
             {submitting && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {submitting ? (
               <span className="inline-flex items-center gap-1">

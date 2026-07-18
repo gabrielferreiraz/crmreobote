@@ -139,6 +139,10 @@ export default async function PipelinePage({
 
   const isOwner = session!.user.role === "OWNER";
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
+  // Liberado a partir de Supervisor por enquanto (ver app/api/deals/bulk-send-message) —
+  // pode abrir pra Membro/consultor mais pra frente, então fica isolado do
+  // resto dos gates em vez de reaproveitar isManager.
+  const canBulkMessage = ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "");
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -162,6 +166,7 @@ export default async function PipelinePage({
         creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
         isOwner={isOwner}
         canBulkDelete={isManager}
+        canBulkMessage={canBulkMessage}
         openNewDeal={novo === "1"}
       />
     </div>

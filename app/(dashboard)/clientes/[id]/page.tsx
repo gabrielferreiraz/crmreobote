@@ -1,24 +1,15 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Inbox } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency } from "@/lib/format";
 import { Avatar } from "@/components/avatar";
-import { Badge } from "@/components/badge";
-import { EmptyState } from "@/components/empty-state";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
-import { WhatsAppChat } from "@/components/whatsapp-chat";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
-
-const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
-  OPEN: { label: "Em andamento", tone: "neutral" },
-  WON: { label: "Ganho", tone: "success" },
-  LOST: { label: "Perdido", tone: "danger" },
-};
+import { ContactTabs } from "./contact-tabs";
 
 function formatAddress(contact: {
   address: string | null;
@@ -45,10 +36,17 @@ function formatAddress(contact: {
   return lines.length > 0 ? lines.join(" · ") : null;
 }
 
-export default async function ContactPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ContactPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ fromDeal?: string }>;
+}) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const { id } = await params;
+  const { fromDeal } = await searchParams;
 
   return runWithTenant(organizationId, async () => {
   const contact = await prisma.contact.findFirst({
@@ -91,6 +89,14 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
+      <Link
+        href={fromDeal ? `/negocios/${fromDeal}` : "/clientes"}
+        className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
+        {fromDeal ? "Negócio" : "Clientes"}
+      </Link>
+
       <div className="flex items-center gap-3">
         <Avatar name={contact.name} size="lg" />
         <div className="min-w-0 flex-1">
@@ -125,91 +131,42 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-2 lg:col-span-2">
-          <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Negócios</h2>
-          {contact.deals.length === 0 ? (
-            <div className="card">
-              <EmptyState icon={Inbox} title="Nenhum negócio vinculado" />
-            </div>
-          ) : (
-            contact.deals.map((deal) => (
-              <Link
-                key={deal.id}
-                href={`/negocios/${deal.id}`}
-                className="card block p-3 text-sm hover:border-neutral-300 dark:hover:border-neutral-700"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{deal.name}</span>
-                  <Badge tone={STATUS_LABEL[deal.status].tone} className="shrink-0">
-                    {STATUS_LABEL[deal.status].label}
-                  </Badge>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span className="min-w-0 truncate">{deal.stage.name}</span>
-                  <span className="shrink-0 whitespace-nowrap tabular-nums">
-                    {formatCurrency(deal.value ? Number(deal.value) : null)}
-                  </span>
-                </div>
-              </Link>
-            ))
-          )}
-        </div>
-
-        <div className="card space-y-2 p-4 text-sm">
-          <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados de contato</h3>
-          <Row label="E-mail" value={contact.email ?? "—"} />
-          <Row label="Celular" value={contact.phone ?? "—"} />
-          <Row label="WhatsApp" value={contact.whatsapp ?? "—"} />
-          <Row label="Empresa" value={contact.company ?? "—"} />
-          <Row label="Cargo" value={contact.jobTitle ?? "—"} />
-          <Row label="Origem" value={contact.source ?? "—"} />
-          <Row label="Responsável" value={contact.responsavel?.name ?? "—"} />
-          {formatAddress(contact) && (
-            <div className="space-y-0.5">
-              <span className="text-neutral-500 dark:text-neutral-400">Endereço</span>
-              <p className="text-right text-neutral-800 dark:text-neutral-200">{formatAddress(contact)}</p>
-            </div>
-          )}
-          {customFields.map((def) => {
-            const value = stringifyCustomFieldValue(def, customFieldValues[def.id] ?? null);
-            if (!value) return null;
-            return <Row key={def.id} label={def.label} value={value} />;
-          })}
-          {contact.tags.length > 0 && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-neutral-500 dark:text-neutral-400">Tags</span>
-              <div className="flex flex-wrap justify-end gap-1">
-                {contact.tags.map((tag) => (
-                  <Badge key={tag} tone="neutral">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {whatsappThread && (
-            <WhatsAppChat
-              threadId={whatsappThread.id}
-              contactId={contact.id}
-              contactName={contact.name}
-              contactPhone={contact.whatsapp || contact.phone}
-              currentUserName={session!.user.name ?? undefined}
-              currentUserPhotoUrl={currentUserPhotoUrl}
-            />
-          )}
-        </div>
-      </div>
+      <ContactTabs
+        deals={contact.deals.map((deal) => ({
+          id: deal.id,
+          name: deal.name,
+          status: deal.status,
+          value: deal.value ? Number(deal.value) : null,
+          stageName: deal.stage.name,
+        }))}
+        infoRows={[
+          { label: "E-mail", value: contact.email ?? "—" },
+          { label: "Celular", value: contact.phone ?? "—" },
+          { label: "WhatsApp", value: contact.whatsapp ?? "—" },
+          { label: "Empresa", value: contact.company ?? "—" },
+          { label: "Cargo", value: contact.jobTitle ?? "—" },
+          { label: "Origem", value: contact.source ?? "—" },
+          { label: "Responsável", value: contact.responsavel?.name ?? "—" },
+          ...customFields
+            .map((def) => ({ label: def.label, value: stringifyCustomFieldValue(def, customFieldValues[def.id] ?? null) }))
+            .filter((row) => row.value),
+        ]}
+        addressLines={formatAddress(contact)}
+        tags={contact.tags}
+        whatsapp={
+          whatsappThread
+            ? {
+                threadId: whatsappThread.id,
+                contactId: contact.id,
+                contactName: contact.name,
+                contactPhone: contact.whatsapp || contact.phone,
+                currentUserName: session!.user.name ?? undefined,
+                currentUserPhotoUrl,
+              }
+            : null
+        }
+      />
     </div>
   );
   });
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
-      <span className="text-right text-neutral-800 dark:text-neutral-200">{value}</span>
-    </div>
-  );
 }
