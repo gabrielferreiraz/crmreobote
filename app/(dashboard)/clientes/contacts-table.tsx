@@ -32,9 +32,11 @@ import { DateRangeField } from "@/components/date-range-calendar";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
+import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
+import { countBulkFailures } from "@/lib/bulk-fetch";
 
 const QUICK_RANGES = buildListQuickRanges();
 
@@ -249,7 +251,7 @@ export function ContactsTable({
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const results = await Promise.all(
+      const failures = await countBulkFailures(
         selectedContactIds.map((id) =>
           fetch(`/api/contacts/${id}`, {
             method: "PUT",
@@ -258,7 +260,7 @@ export function ContactsTable({
           }),
         ),
       );
-      if (results.some((r) => !r.ok)) {
+      if (failures > 0) {
         setBulkError("Alguns contatos não puderam ser atualizados.");
       }
       clearSelection();
@@ -274,7 +276,7 @@ export function ContactsTable({
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const results = await Promise.all(
+      const failures = await countBulkFailures(
         filteredContacts
           .filter((c) => selectedIds.has(c.id))
           .map((c) =>
@@ -285,7 +287,7 @@ export function ContactsTable({
             }),
           ),
       );
-      if (results.some((r) => !r.ok)) {
+      if (failures > 0) {
         setBulkError("Alguns contatos não puderam ser atualizados.");
       }
       clearSelection();
@@ -299,10 +301,10 @@ export function ContactsTable({
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const results = await Promise.all(
+      const failures = await countBulkFailures(
         selectedContactIds.map((id) => fetch(`/api/contacts/${id}`, { method: "DELETE" })),
       );
-      if (results.some((r) => !r.ok)) {
+      if (failures > 0) {
         setBulkError("Alguns contatos não puderam ser apagados.");
       }
       clearSelection();
@@ -321,7 +323,7 @@ export function ContactsTable({
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const results = await Promise.all(
+      const failures = await countBulkFailures(
         selectedContactIds.map((id) =>
           fetch("/api/deals", {
             method: "POST",
@@ -330,7 +332,7 @@ export function ContactsTable({
           }),
         ),
       );
-      if (results.some((r) => !r.ok)) {
+      if (failures > 0) {
         setBulkError("Alguns negócios não puderam ser criados.");
       }
       clearSelection();
@@ -513,7 +515,69 @@ export function ContactsTable({
             />
           </div>
         </FilterPopover>
+        {selectedIds.size > 0 && (
+          <div className="ml-auto">
+            <SelectionBar count={selectedIds.size} onClear={clearSelection}>
+              <BulkActionPopover icon={Tags} label="Etiquetar">
+                {(close) => <TagPopoverBody busy={bulkBusy} onApply={async (v) => { await applyBulkTag(v); close(); }} />}
+              </BulkActionPopover>
+              <BulkActionPopover icon={IdCard} label="Cargo">
+                {(close) => (
+                  <SelectPopoverBody
+                    busy={bulkBusy}
+                    options={jobTitleOptions.map((j) => ({ value: j, label: j }))}
+                    onApply={async (v) => { await applyBulkField("jobTitle", v); close(); }}
+                  />
+                )}
+              </BulkActionPopover>
+              <BulkActionPopover icon={Tag} label="Origem">
+                {(close) => (
+                  <SelectPopoverBody
+                    busy={bulkBusy}
+                    options={sources.map((s) => ({ value: s.label, label: s.label }))}
+                    onApply={async (v) => { await applyBulkField("source", v); close(); }}
+                  />
+                )}
+              </BulkActionPopover>
+              <BulkActionPopover icon={User} label="Responsável">
+                {(close) => (
+                  <SelectPopoverBody
+                    busy={bulkBusy}
+                    allowEmpty
+                    options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                    onApply={async (v) => { await applyBulkField("responsavelId", v); close(); }}
+                  />
+                )}
+              </BulkActionPopover>
+              {pipelines.length > 0 && (
+                <BulkActionPopover icon={Plus} label="Criar negócio">
+                  {(close) => (
+                    <SelectPopoverBody
+                      busy={bulkBusy}
+                      initialValue={(pipelines.find((p) => p.isDefault) ?? pipelines[0]).id}
+                      applyLabel="Criar"
+                      options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+                      onApply={async (v) => { await applyCreateDeals(v); close(); }}
+                    />
+                  )}
+                </BulkActionPopover>
+              )}
+              {isManager && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmBulkDelete(true)}
+                  disabled={bulkBusy}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  Apagar
+                </button>
+              )}
+            </SelectionBar>
+          </div>
+        )}
       </div>
+      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
       {hasFilters && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
@@ -521,66 +585,6 @@ export function ContactsTable({
         </p>
       )}
 
-      {selectedIds.size > 0 && (
-        <SelectionBar count={selectedIds.size} onClear={clearSelection}>
-          <BulkActionPopover icon={Tags} label="Etiquetar">
-            {(close) => <TagPopoverBody busy={bulkBusy} onApply={async (v) => { await applyBulkTag(v); close(); }} />}
-          </BulkActionPopover>
-          <BulkActionPopover icon={IdCard} label="Cargo">
-            {(close) => (
-              <SelectPopoverBody
-                busy={bulkBusy}
-                options={jobTitleOptions.map((j) => ({ value: j, label: j }))}
-                onApply={async (v) => { await applyBulkField("jobTitle", v); close(); }}
-              />
-            )}
-          </BulkActionPopover>
-          <BulkActionPopover icon={Tag} label="Origem">
-            {(close) => (
-              <SelectPopoverBody
-                busy={bulkBusy}
-                options={sources.map((s) => ({ value: s.label, label: s.label }))}
-                onApply={async (v) => { await applyBulkField("source", v); close(); }}
-              />
-            )}
-          </BulkActionPopover>
-          <BulkActionPopover icon={User} label="Responsável">
-            {(close) => (
-              <SelectPopoverBody
-                busy={bulkBusy}
-                allowEmpty
-                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-                onApply={async (v) => { await applyBulkField("responsavelId", v); close(); }}
-              />
-            )}
-          </BulkActionPopover>
-          {pipelines.length > 0 && (
-            <BulkActionPopover icon={Plus} label="Criar negócio">
-              {(close) => (
-                <SelectPopoverBody
-                  busy={bulkBusy}
-                  initialValue={(pipelines.find((p) => p.isDefault) ?? pipelines[0]).id}
-                  applyLabel="Criar"
-                  options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
-                  onApply={async (v) => { await applyCreateDeals(v); close(); }}
-                />
-              )}
-            </BulkActionPopover>
-          )}
-          {isManager && (
-            <button
-              type="button"
-              onClick={() => setConfirmBulkDelete(true)}
-              disabled={bulkBusy}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-            >
-              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-              Apagar
-            </button>
-          )}
-        </SelectionBar>
-      )}
-      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
       {initialContacts.length === 0 ? (
         <div className="card">
@@ -954,39 +958,3 @@ function TagPopoverBody({ busy, onApply }: { busy: boolean; onApply: (value: str
   );
 }
 
-/**
- * Corpo do popover de trocar cargo/origem/responsável em massa — Select +
- * aplicar. `allowEmpty` deixa aplicar com o valor "" (usado só em
- * Responsável, onde "" = "Ninguém" é uma escolha válida) — nos outros casos,
- * "" é só o placeholder de "nada selecionado ainda" e não deve aplicar.
- */
-function SelectPopoverBody({
-  busy,
-  options,
-  onApply,
-  allowEmpty = false,
-  initialValue = "",
-  applyLabel = "Aplicar",
-}: {
-  busy: boolean;
-  options: { value: string; label: string }[];
-  onApply: (value: string) => Promise<void>;
-  allowEmpty?: boolean;
-  initialValue?: string;
-  applyLabel?: string;
-}) {
-  const [value, setValue] = useState(initialValue);
-  return (
-    <div className="space-y-2">
-      <Select value={value} onChange={setValue} className="w-full py-1.5 text-sm" options={options} />
-      <button
-        type="button"
-        disabled={busy || (!allowEmpty && !value)}
-        onClick={() => onApply(value)}
-        className="btn-primary w-full py-1.5 text-xs"
-      >
-        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : applyLabel}
-      </button>
-    </div>
-  );
-}

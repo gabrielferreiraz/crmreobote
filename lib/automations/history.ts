@@ -15,6 +15,8 @@ export type AutomationHistoryEntry = {
   executedAt: Date;
   label: string;
   href: string | null;
+  success: boolean;
+  detail: string | null;
 };
 
 const EXECUTION_LIMIT = 50;
@@ -35,7 +37,7 @@ export async function getAutomationHistory(
     where: { ruleId: rule.id },
     orderBy: { createdAt: "desc" },
     take: EXECUTION_LIMIT,
-    select: { id: true, entityId: true, createdAt: true },
+    select: { id: true, entityId: true, createdAt: true, success: true, detail: true },
   });
   if (executions.length === 0) return [];
 
@@ -45,6 +47,8 @@ export async function getAutomationHistory(
       executedAt: e.createdAt,
       label: `Disparo agendado — ${formatScheduledOccurrence(e.entityId)}`,
       href: null,
+      success: e.success,
+      detail: e.detail,
     }));
   }
 
@@ -61,6 +65,8 @@ export async function getAutomationHistory(
         executedAt: e.createdAt,
         label: t ? `Tarefa: ${t.title}` : "Tarefa removida",
         href: t?.dealId ? `/negocios/${t.dealId}` : null,
+        success: e.success,
+        detail: e.detail,
       };
     });
   }
@@ -78,6 +84,8 @@ export async function getAutomationHistory(
         executedAt: e.createdAt,
         label: c ? `Contato: ${c.name}` : "Contato removido",
         href: c ? `/clientes/${e.entityId}` : null,
+        success: e.success,
+        detail: e.detail,
       };
     });
   }
@@ -99,6 +107,8 @@ export async function getAutomationHistory(
       executedAt: e.createdAt,
       label: d ? `Negócio: ${d.name}` : "Negócio removido",
       href: d ? `/negocios/${dealId}` : null,
+      success: e.success,
+      detail: e.detail,
     };
   });
 }

@@ -17,7 +17,14 @@ export function FilterPopover({
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement;
+      // O <Select> de dentro do filtro renderiza a lista de opções via portal
+      // direto no document.body (pra não ficar cortado por um ancestral com
+      // overflow) — sem essa checagem, o clique numa opção conta como "fora"
+      // daqui, fecha o FilterPopover antes do onChange do Select disparar, e
+      // o filtro nunca é aplicado de verdade.
+      if (target.closest('[role="listbox"]')) return;
+      if (containerRef.current && !containerRef.current.contains(target)) {
         setOpen(false);
       }
     }

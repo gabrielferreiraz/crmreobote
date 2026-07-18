@@ -148,7 +148,11 @@ export default async function PipelinePage({
       </div>
       <PipelineView
         pipelineId={activePipeline.id}
-        pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))}
+        pipelines={pipelines.map((p) => ({
+          id: p.id,
+          name: p.name,
+          stages: p.stages.map((s) => ({ id: s.id, name: s.name })),
+        }))}
         stages={activePipeline.stages}
         initialDeals={deals}
         members={members.map((m) => m.user)}

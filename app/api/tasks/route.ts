@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
+import { recordUserChange } from "@/lib/user-activity";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,10 @@ export async function POST(req: Request) {
       },
       include: { deal: true, contact: true, owner: true },
     });
+
+    recordUserChange(organizationId, userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
 
     return NextResponse.json(task, { status: 201 });
   });

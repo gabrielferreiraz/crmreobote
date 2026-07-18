@@ -190,38 +190,45 @@ body {
   animation: loading-fade-in 0.08s ease-out both;
 }
 
-.scrollbar-thin {
+/* Barra de rolagem — fina, em forma de pílula, discreta em qualquer tema.
+   Global de propósito (não só em elementos com uma classe específica) — pra
+   nunca mais sobrar um cantinho do sistema com a barra branca/quadrada
+   padrão do navegador quebrando o visual escuro do CRM. `.scrollbar-thin`
+   continua existindo nos componentes que já usavam (inofensivo, mesmo
+   resultado) — não precisa tirar de lá. */
+* {
   scrollbar-width: thin;
   scrollbar-color: #d4d4d4 transparent;
 }
 
-.scrollbar-thin::-webkit-scrollbar {
-  height: 8px;
+*::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
-.scrollbar-thin::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.scrollbar-thin::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background-color: #d4d4d4;
   border-radius: 9999px;
+  transition: background-color 150ms ease;
 }
 
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background-color: #a3a3a3;
 }
 
-.dark .scrollbar-thin {
+.dark * {
   scrollbar-color: #525252 transparent;
 }
 
-.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+.dark *::-webkit-scrollbar-thumb {
   background-color: #525252;
 }
 
-.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+.dark *::-webkit-scrollbar-thumb:hover {
   background-color: #737373;
 }
 

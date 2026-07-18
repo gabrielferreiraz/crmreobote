@@ -8,6 +8,7 @@ import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
+import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
@@ -71,8 +72,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     customFieldValues?: Record<string, unknown>;
   };
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
     const existing = await prisma.contact.findFirst({ where: { id, organizationId } });
@@ -131,6 +132,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           ...(cleanCustomFieldValues !== undefined ? { customFieldValues: cleanCustomFieldValues } : {}),
         },
       });
+      recordUserChange(organizationId, userId).catch((err) =>
+        console.error("[user-activity] falha ao registrar alteração", err),
+      );
       return NextResponse.json(contact);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -155,6 +159,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     await prisma.contact.delete({ where: { id } });
+    recordUserChange(access.organizationId, access.userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
     return NextResponse.json({ ok: true });
   });
 }

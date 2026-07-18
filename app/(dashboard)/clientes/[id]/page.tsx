@@ -93,9 +93,9 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Avatar name={contact.name} size="lg" />
-        <div className="flex-1">
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{contact.name}</h1>
-          <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{contact.source ?? "Origem não informada"}</p>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{contact.name}</h1>
+          <p className="mt-0.5 truncate text-sm text-neutral-500 dark:text-neutral-400">{contact.source ?? "Origem não informada"}</p>
         </div>
         <EditContactDialog
           contact={{
@@ -139,13 +139,17 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
                 href={`/negocios/${deal.id}`}
                 className="card block p-3 text-sm hover:border-neutral-300 dark:hover:border-neutral-700"
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-neutral-900 dark:text-neutral-100">{deal.name}</span>
-                  <Badge tone={STATUS_LABEL[deal.status].tone}>{STATUS_LABEL[deal.status].label}</Badge>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{deal.name}</span>
+                  <Badge tone={STATUS_LABEL[deal.status].tone} className="shrink-0">
+                    {STATUS_LABEL[deal.status].label}
+                  </Badge>
                 </div>
-                <div className="mt-1 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
-                  <span>{deal.stage.name}</span>
-                  <span className="tabular-nums">{formatCurrency(deal.value ? Number(deal.value) : null)}</span>
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="min-w-0 truncate">{deal.stage.name}</span>
+                  <span className="shrink-0 whitespace-nowrap tabular-nums">
+                    {formatCurrency(deal.value ? Number(deal.value) : null)}
+                  </span>
                 </div>
               </Link>
             ))

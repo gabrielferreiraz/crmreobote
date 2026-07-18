@@ -9,6 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
+import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
@@ -82,8 +83,8 @@ export async function POST(req: Request) {
     customFieldValues?: Record<string, unknown>;
   };
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   if (!name) {
     return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
@@ -154,6 +155,10 @@ export async function POST(req: Request) {
         tags: contact.tags,
         createdAt: contact.createdAt,
       }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.created", err));
+
+      recordUserChange(organizationId, userId).catch((err) =>
+        console.error("[user-activity] falha ao registrar alteração", err),
+      );
 
       return NextResponse.json(contact, { status: 201 });
     } catch (err) {

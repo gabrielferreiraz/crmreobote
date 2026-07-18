@@ -8,6 +8,7 @@ import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-requ
 import { formatCurrency } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
+import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
@@ -190,6 +191,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       });
     }
 
+    recordUserChange(organizationId, userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
+
     return NextResponse.json(deal);
   });
 }
@@ -208,6 +213,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     await prisma.deal.delete({ where: { id } });
+    recordUserChange(access.organizationId, access.userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
     return NextResponse.json({ ok: true });
   });
 }

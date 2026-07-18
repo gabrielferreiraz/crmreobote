@@ -73,9 +73,10 @@ export function FunnelChart({ stages }: { stages: FunnelStage[] }) {
                   }}
                 />
               </div>
-              <p className="w-32 shrink-0 text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
-                {stage.count} neg. · {formatCurrency(stage.value)}
-              </p>
+              <div className="w-24 shrink-0 text-right text-xs tabular-nums whitespace-nowrap text-neutral-500 dark:text-neutral-400 sm:w-32">
+                <p>{stage.count} neg.</p>
+                <p>{formatCurrency(stage.value)}</p>
+              </div>
             </div>
           </div>
         );

@@ -36,6 +36,7 @@ model Organization {
   creditTypes       CreditType[]
   jobTitles         JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
+  userDailyActivities UserDailyActivity[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ model User {
   apiKeysCreated           ApiKey[]
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible      Contact[]                  @relation("ContactResponsavel")
+  dailyActivities          UserDailyActivity[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -423,13 +425,17 @@ enum CampaignRecipientStatus {
 }
 
 model OrganizationUser {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   userId         String
-  role           OrgRole  @default(MEMBER)
+  role           OrgRole   @default(MEMBER)
   teamId         String?
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  // Último heartbeat (ver lib/user-activity.ts) — só pra status "online
+  // agora" (Configurações → Usuários). Sem relação com atividade/tempo no
+  // CRM, isso vive em UserDailyActivity.
+  lastActiveAt   DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -829,6 +835,31 @@ enum ActivityType {
   SYSTEM
 }
 
+// ─── Atividade diária por usuário (tempo no CRM + nº de alterações) ────
+//
+// Rollup por dia, não um log de eventos — cada heartbeat do navegador (ver
+// lib/user-activity.ts) soma segundos aqui em vez de gravar uma linha por
+// heartbeat, e cada mutação de Cliente/Negócio/Tarefa incrementa
+// changeCount. Alimenta tanto "está online agora" (lastActiveAt em
+// OrganizationUser, não aqui) quanto o relatório "Atividade da equipe".
+
+model UserDailyActivity {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  date           String // "YYYY-MM-DD" em Brasília — mesma convenção de brazilDateKey (lib/timezone.ts)
+  activeSeconds  Int      @default(0)
+  changeCount    Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, date])
+  @@index([organizationId, date])
+}
+
 // ─── Automações ──────────────────────────────────────────────────────
 
 model AutomationRule {
@@ -854,6 +885,10 @@ model AutomationExecution {
   id        String   @id @default(cuid())
   ruleId    String
   entityId  String
+  /** Se a ação realmente aconteceu (mensagem enviada, tarefa criada...) ou falhou — ver lib/automations/engine.ts. */
+  success   Boolean  @default(true)
+  /** Resumo curto e legível do que aconteceu, pra exibir no "Ver detalhes" do histórico. */
+  detail    String?
   createdAt DateTime @default(now())
 
   rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)

@@ -13,6 +13,7 @@ import { UserMenu } from "@/components/user-menu";
 import { MobileHeader } from "./mobile-header";
 import { MobileNav } from "./mobile-nav";
 import { InstallPwaPrompt } from "@/components/install-pwa-prompt";
+import { PresenceHeartbeat } from "@/components/presence-heartbeat";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -88,6 +89,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <MobileNav signOutAction={handleSignOut} />
       <InstallPwaPrompt />
+      <PresenceHeartbeat />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { pickOwnerId } from "@/lib/auto-assign";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
+import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,10 @@ export async function POST(req: Request) {
       },
       include: { contact: true, owner: true, stage: true },
     });
+
+    recordUserChange(organizationId, userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
 
     return NextResponse.json(deal, { status: 201 });
   });

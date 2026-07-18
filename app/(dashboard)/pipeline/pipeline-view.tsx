@@ -16,7 +16,7 @@ type MemberFilterOption = { id: string; name: string; active: boolean };
 type LossReasonOption = { id: string; label: string };
 type CreditTypeOption = { id: string; label: string };
 type Stage = { id: string; name: string; color: string | null; order: number };
-type PipelineOption = { id: string; name: string };
+type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 
 export function PipelineView({
   pipelineId,
@@ -128,6 +128,8 @@ export function PipelineView({
             deals={deals}
             members={allMembers}
             stages={stages}
+            pipelineId={pipelineId}
+            pipelines={pipelines}
             lossReasons={lossReasons}
             canBulkDelete={canBulkDelete}
           />

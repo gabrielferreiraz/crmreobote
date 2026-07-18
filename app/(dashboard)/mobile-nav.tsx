@@ -44,7 +44,7 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
       {fab && (
         <Link
           href={fab.href}
-          className="fixed right-4 bottom-20 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-neutral-900/25 active:scale-95 dark:bg-white dark:text-neutral-900 dark:shadow-none lg:hidden"
+          className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-neutral-900/25 active:scale-95 dark:bg-white dark:text-neutral-900 dark:shadow-none lg:hidden"
           aria-label={fab.label}
         >
           <Plus className="h-6 w-6" strokeWidth={2.5} />

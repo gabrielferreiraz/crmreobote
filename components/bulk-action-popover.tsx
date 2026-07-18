@@ -24,7 +24,13 @@ export function BulkActionPopover({
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement;
+      // Mesmo motivo do FilterPopover: o <Select> usado dentro do popover
+      // (Cargo/Origem/Responsável/Funil/Etapa) renderiza sua lista via portal
+      // no document.body — sem essa checagem, escolher uma opção fecha este
+      // popover antes do onChange disparar.
+      if (target.closest('[role="listbox"]')) return;
+      if (containerRef.current && !containerRef.current.contains(target)) {
         setOpen(false);
       }
     }

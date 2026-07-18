@@ -1,18 +1,20 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
+import { formatCurrency, formatCurrencyCompact, daysSince, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
-import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, getBrazilParts } from "@/lib/timezone";
+import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, brazilDateKey, getBrazilParts } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { TrendAreaChart } from "@/components/charts/trend-area-chart";
 import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
 import { Leaderboard, type LeaderboardEntry } from "@/components/leaderboard";
+import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
+import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
@@ -36,7 +38,13 @@ export default async function RelatoriosPage({
   // a mais gente do que o papel do usuário já permite.
   const visibleMembers = await prisma.organizationUser.findMany({
     where: { organizationId, active: true, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
-    select: { userId: true, teamId: true, team: { select: { id: true, name: true } }, user: { select: { name: true } } },
+    select: {
+      userId: true,
+      teamId: true,
+      team: { select: { id: true, name: true } },
+      user: { select: { name: true } },
+      lastActiveAt: true,
+    },
   });
   const teamFilterOptions = Array.from(
     new Map(visibleMembers.filter((m) => m.teamId && m.team).map((m) => [m.teamId!, m.team!.name])),
@@ -62,6 +70,11 @@ export default async function RelatoriosPage({
   // só veria a própria equipe sozinha (não é comparação de verdade), e um
   // filtro ativo (equipe/pessoa específica) já não faz sentido comparar times.
   const showTeamRanking = scope.type === "all" && !filterTeamId && !filterOwnerId;
+
+  // Tempo no CRM e contagem de alterações são dados sensíveis de desempenho —
+  // só Dono/Gerente vê (reaproveita os papéis existentes, sem tela de
+  // permissão nova por pessoa).
+  const showTeamActivity = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   // Período do relatório — só afeta negócios DECIDIDOS (ganhos/perdidos),
   // reuniões e WhatsApp. O pipeline em aberto continua sempre "agora": não
@@ -105,6 +118,13 @@ export default async function RelatoriosPage({
       return d;
     })();
 
+  // UserDailyActivity.date é string "YYYY-MM-DD" em Brasília — usa a mesma
+  // janela trendStart/trendEnd do gráfico de evolução (convertida pra chave
+  // de dia), pra "Atividade da equipe" ficar no mesmo período do resto da
+  // página em vez de uma janela solta e inconsistente.
+  const activityFrom = brazilDateKey(trendStart);
+  const activityTo = brazilDateKey(trendEnd);
+
   const [
     openCount,
     stageValues,
@@ -116,6 +136,7 @@ export default async function RelatoriosPage({
     meetingsByOwner,
     wonDealsForTrend,
     wonByCreditType,
+    dailyActivityRaw,
   ] = await Promise.all([
     prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope) } }),
     activePipeline
@@ -170,6 +191,12 @@ export default async function RelatoriosPage({
       _count: true,
       _sum: { value: true },
     }),
+    showTeamActivity
+      ? prisma.userDailyActivity.findMany({
+          where: { organizationId, date: { gte: activityFrom, lte: activityTo }, ...ownerScopeWhere },
+          select: { userId: true, date: true, activeSeconds: true, changeCount: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
@@ -240,6 +267,18 @@ export default async function RelatoriosPage({
     return image ? (avatarMap.get(image) ?? null) : null;
   };
 
+  // Soma por usuário os rollups diários de UserDailyActivity dentro da janela
+  // — activeDayCount conta só dias com uso de verdade (activeSeconds > 0),
+  // não dias em que só uma alteração via API bateu sem heartbeat nenhum.
+  const activityByUser = new Map<string, { activeSeconds: number; changeCount: number; activeDayCount: number }>();
+  for (const row of dailyActivityRaw) {
+    const prev = activityByUser.get(row.userId) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
+    prev.activeSeconds += row.activeSeconds;
+    prev.changeCount += row.changeCount;
+    if (row.activeSeconds > 0) prev.activeDayCount += 1;
+    activityByUser.set(row.userId, prev);
+  }
+
   const ownerStats = peopleIds.map((id) => {
     const wonCountForOwner = wonByOwner.find((w) => w.ownerId === id)?._count ?? 0;
     const wonValueForOwner = wonByOwner.find((w) => w.ownerId === id)?._sum.value
@@ -247,6 +286,7 @@ export default async function RelatoriosPage({
       : 0;
     const lostCountForOwner = lostByOwner.find((l) => l.ownerId === id)?._count ?? 0;
     const closedForOwner = wonCountForOwner + lostCountForOwner;
+    const activity = activityByUser.get(id) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
     return {
       id,
       name: personName(id),
@@ -256,6 +296,11 @@ export default async function RelatoriosPage({
       lostCount: lostCountForOwner,
       winRate: closedForOwner > 0 ? Math.round((wonCountForOwner / closedForOwner) * 100) : null,
       meetingsCount: meetingsByOwner.find((m) => m.userId === id)?._count ?? 0,
+      activeSeconds: activity.activeSeconds,
+      changeCount: activity.changeCount,
+      activeDayCount: activity.activeDayCount,
+      avgSecondsPerActiveDay:
+        activity.activeDayCount > 0 ? Math.round(activity.activeSeconds / activity.activeDayCount) : 0,
     };
   });
 
@@ -293,6 +338,52 @@ export default async function RelatoriosPage({
       primaryValue: `${o.winRate}%`,
       secondaryValue: `${o.wonCount + o.lostCount} decidido${o.wonCount + o.lostCount === 1 ? "" : "s"}`,
     }));
+
+  const crmTimeRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => o.activeSeconds > 0)
+    .sort((a, b) => b.activeSeconds - a.activeSeconds)
+    .slice(0, 8)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: formatDuration(o.activeSeconds * 1000),
+      secondaryValue: `Média ${formatDuration(o.avgSecondsPerActiveDay * 1000)}/dia`,
+    }));
+
+  const crmChangesRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => o.changeCount > 0)
+    .sort((a, b) => b.changeCount - a.changeCount)
+    .slice(0, 8)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: `${o.changeCount} alteraç${o.changeCount === 1 ? "ão" : "ões"}`,
+      secondaryValue: `${o.activeDayCount} dia${o.activeDayCount === 1 ? "" : "s"} ativo${o.activeDayCount === 1 ? "" : "s"}`,
+    }));
+
+  // Listagem completa (não só o top 8 dos rankings acima) de quem está de
+  // fato cadastrado na organização — só membros ativos, mesmo os sem
+  // nenhuma atividade no período aparecem aqui (o card fica recolhido por
+  // padrão, ver team-activity-list.tsx).
+  const lastActiveAtByUser = new Map(visibleMembers.map((m) => [m.userId, m.lastActiveAt]));
+  const teamActivityList = showTeamActivity
+    ? ownerStats
+        .filter((o) => lastActiveAtByUser.has(o.id))
+        .map((o) => {
+          const lastActiveAt = lastActiveAtByUser.get(o.id) ?? null;
+          return {
+            id: o.id,
+            name: o.name,
+            photoUrl: o.photoUrl,
+            online: lastActiveAt ? Date.now() - lastActiveAt.getTime() < ONLINE_THRESHOLD_MS : false,
+            lastActiveAt,
+            avgSecondsPerActiveDay: o.avgSecondsPerActiveDay,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+    : [];
 
   const teamGroups = new Map<string, { name: string; memberIds: string[] }>();
   for (const m of showTeamRanking ? visibleMembers : []) {
@@ -380,6 +471,17 @@ export default async function RelatoriosPage({
       ? monthTrend.find((b) => b.year === parts.year && b.month === parts.month && b.day === parts.day)
       : monthTrend.find((b) => b.year === parts.year && b.month === parts.month);
     if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
+  }
+
+  // Clona os buckets de monthTrend (mesmas datas/rótulos) pra uma segunda
+  // série independente — tempo ativo da equipe em vez de valor ganho.
+  const teamActivityTrend = monthTrend.map((b) => ({ ...b, value: 0 }));
+  for (const row of dailyActivityRaw) {
+    const [y, m, d] = row.date.split("-").map(Number);
+    const bucket = bucketDaily
+      ? teamActivityTrend.find((b) => b.year === y && b.month === m - 1 && b.day === d)
+      : teamActivityTrend.find((b) => b.year === y && b.month === m - 1);
+    if (bucket) bucket.value += row.activeSeconds;
   }
 
   const statusSlices = [
@@ -823,17 +925,17 @@ export default async function RelatoriosPage({
               <DonutChart slices={statusSlices} centerValue={`${winRate}%`} centerLabel="conversão" />
             </div>
           </div>
-          <div className="col-span-12 grid grid-cols-2 gap-5 lg:col-span-7">
+          <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-7">
             <Stat
               label="Negócios decididos"
               value={String(closedCount)}
               hint={`${wonCount} ganho${wonCount === 1 ? "" : "s"} · ${lostCount} perdido${lostCount === 1 ? "" : "s"} no período`}
             />
-            <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
-            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
+            <Stat label="Pipeline em aberto" value={formatCurrencyCompact(openTotalValue)} hint={`${openCount} negócios · agora`} />
+            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrencyCompact(avgWonValue) : "—"} />
             <Stat
               label="Total ganho"
-              value={formatCurrency(wonTotalValue)}
+              value={formatCurrencyCompact(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
             />
           </div>
@@ -963,6 +1065,44 @@ export default async function RelatoriosPage({
           </div>
         )}
       </section>
+
+      {/* ─── Atividade da equipe (só Dono/Gerente) ─────────────────────── */}
+      {showTeamActivity && (
+        <section className="space-y-6">
+          <SectionHeading
+            eyebrow="Equipe"
+            title="Atividade da equipe"
+            description="Quanto tempo cada pessoa passou no CRM e quantas alterações fez no período — visível só pra Dono e Gerente."
+          />
+          <div className="grid grid-cols-12 gap-5">
+            <div className="card col-span-12 p-6 md:col-span-6">
+              <div className="mb-1 flex items-center gap-2">
+                <Clock className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo no CRM</h3>
+              </div>
+              <Leaderboard entries={crmTimeRanking} emptyLabel="Sem uso registrado nesse período" />
+            </div>
+            <div className="card col-span-12 p-6 md:col-span-6">
+              <div className="mb-1 flex items-center gap-2">
+                <Activity className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Mais alterações</h3>
+              </div>
+              <Leaderboard entries={crmChangesRanking} emptyLabel="Nenhuma alteração registrada nesse período" />
+            </div>
+            <div className="card col-span-12 p-6">
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo ativo da equipe por dia</h3>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Soma do tempo com a aba do CRM em primeiro plano, todo mundo junto, dia a dia.
+              </p>
+              <div className="mt-6">
+                <TrendAreaChart data={teamActivityTrend} formatValue={(v) => formatDuration(v * 1000)} />
+              </div>
+            </div>
+          </div>
+
+          <TeamActivityList members={teamActivityList} />
+        </section>
+      )}
 
       {/* ─── Cargo do lead ──────────────────────────────────────────── */}
       {jobTitleBreakdown.length > 0 && (

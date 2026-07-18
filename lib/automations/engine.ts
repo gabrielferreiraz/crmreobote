@@ -14,7 +14,10 @@ import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/li
 import { formatCurrency, daysSince } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { matchesCustomFieldConditions, type CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
-import { coerceCustomFieldValue, type CustomFieldDefinitionLike } from "@/lib/custom-fields";
+import { coerceCustomFieldValue, stringifyCustomFieldValue, type CustomFieldDefinitionLike } from "@/lib/custom-fields";
+
+/** Resultado de uma ação executada — vira o `success`/`detail` gravados em AutomationExecution, exibidos no "Ver detalhes" do histórico. */
+type ActionResult = { success: boolean; detail: string };
 
 type TriggerConfig = {
   days?: number;
@@ -89,13 +92,13 @@ async function filterUnexecuted(ruleId: string, candidateIds: string[]): Promise
   return new Set(candidateIds.filter((id) => !executedSet.has(id)));
 }
 
-async function recordExecution(ruleId: string, entityId: string): Promise<boolean> {
+async function recordExecution(ruleId: string, entityId: string): Promise<string | null> {
   try {
-    await prisma.automationExecution.create({ data: { ruleId, entityId } });
-    return true;
+    const execution = await prisma.automationExecution.create({ data: { ruleId, entityId } });
+    return execution.id;
   } catch (err) {
     // P2002: outra execução concorrente já registrou esse par (ruleId, entityId) primeiro.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return false;
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return null;
     throw err;
   }
 }
@@ -145,11 +148,12 @@ async function resolveTemplateValues(entity: Entity): Promise<Record<string, str
   return values;
 }
 
-async function performAction(rule: RuleWithOrg, entity: Entity) {
+async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionResult> {
   const actionConfig = (rule.actionConfig ?? {}) as ActionConfig;
 
   if (rule.action === "CREATE_TASK") {
     const dueInDays = actionConfig.dueInDays ?? 1;
+    const title = actionConfig.title?.trim() || `Automação: ${rule.name}`;
     await prisma.task.create({
       data: {
         organizationId: entity.organizationId,
@@ -157,11 +161,11 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
         contactId: entity.contactId,
         ownerId: entity.ownerId,
         type: "OTHER",
-        title: actionConfig.title?.trim() || `Automação: ${rule.name}`,
+        title,
         dueAt: new Date(Date.now() + dueInDays * 24 * 60 * 60 * 1000),
       },
     });
-    return;
+    return { success: true, detail: `Tarefa criada: "${title}".` };
   }
 
   if (rule.action === "ADD_NOTE") {
@@ -175,38 +179,42 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
         body: `[Automação: ${rule.name}] ${actionConfig.note?.trim() || ""}`.trim(),
       },
     });
-    return;
+    return { success: true, detail: "Nota registrada." };
   }
 
   if (rule.action === "MARK_LOST") {
-    if (!entity.dealId || !actionConfig.lossReasonId) return;
+    if (!entity.dealId || !actionConfig.lossReasonId) {
+      return { success: false, detail: "Configuração inválida: falta negócio ou motivo de perda." };
+    }
     const updated = await prisma.deal.updateMany({
       where: { id: entity.dealId, organizationId: entity.organizationId, status: "OPEN" },
       data: { status: "LOST", closedAt: new Date(), lossReasonId: actionConfig.lossReasonId },
     });
-    if (updated.count > 0) {
-      await prisma.activity.create({
-        data: {
-          organizationId: entity.organizationId,
-          dealId: entity.dealId,
-          contactId: entity.contactId,
-          userId: entity.ownerId,
-          type: "NOTE",
-          body: `[Automação: ${rule.name}] Negócio marcado como perdido automaticamente.`,
-        },
-      });
-
-      const dealForWebhook = await prisma.deal.findUnique({
-        where: { id: entity.dealId },
-        include: { contact: true, owner: true, stage: true, lossReason: true },
-      });
-      if (dealForWebhook) {
-        enqueueWebhookEvent(entity.organizationId, "deal.lost", buildDealWebhookPayload(dealForWebhook)).catch((err) =>
-          console.error("[webhooks] falha ao enfileirar deal.lost (automação)", err),
-        );
-      }
+    if (updated.count === 0) {
+      return { success: false, detail: "Negócio já não estava aberto — nada foi alterado." };
     }
-    return;
+
+    await prisma.activity.create({
+      data: {
+        organizationId: entity.organizationId,
+        dealId: entity.dealId,
+        contactId: entity.contactId,
+        userId: entity.ownerId,
+        type: "NOTE",
+        body: `[Automação: ${rule.name}] Negócio marcado como perdido automaticamente.`,
+      },
+    });
+
+    const dealForWebhook = await prisma.deal.findUnique({
+      where: { id: entity.dealId },
+      include: { contact: true, owner: true, stage: true, lossReason: true },
+    });
+    if (dealForWebhook) {
+      enqueueWebhookEvent(entity.organizationId, "deal.lost", buildDealWebhookPayload(dealForWebhook)).catch((err) =>
+        console.error("[webhooks] falha ao enfileirar deal.lost (automação)", err),
+      );
+    }
+    return { success: true, detail: "Negócio marcado como perdido." };
   }
 
   if (rule.action === "SEND_PUSH") {
@@ -215,17 +223,22 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       : entity.contactId
         ? `/clientes/${entity.contactId}`
         : "/";
-    await sendPushToUser(entity.ownerId, {
+    const { sent, total } = await sendPushToUser(entity.ownerId, {
       title: actionConfig.pushTitle?.trim() || `Automação: ${rule.name}`,
       body: actionConfig.pushBody?.trim() || undefined,
       url,
     });
-    return;
+    if (total === 0) return { success: false, detail: "Responsável não tem notificações push ativadas." };
+    if (sent === 0) return { success: false, detail: "Falha ao entregar a notificação push." };
+    return {
+      success: true,
+      detail: `Notificação push enviada${total > 1 ? ` (${sent}/${total} dispositivos)` : ""}.`,
+    };
   }
 
   if (rule.action === "SEND_WHATSAPP") {
     const rawMessage = actionConfig.whatsappMessage?.trim();
-    if (!rawMessage) return;
+    if (!rawMessage) return { success: false, detail: "Mensagem vazia — nada foi enviado." };
     const templateValues = await resolveTemplateValues(entity);
     const message = interpolateAutomationTemplate(rawMessage, templateValues);
 
@@ -237,10 +250,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       where: { organizationId_userId: { organizationId: entity.organizationId, userId: senderId } },
     });
     if (!instance || instance.status !== "CONNECTED") {
-      console.warn(
-        `[automations] WhatsApp do remetente (${senderId}) não está conectado (regra "${rule.name}") — pulando envio.`,
-      );
-      return;
+      return { success: false, detail: "WhatsApp do remetente não está conectado." };
     }
 
     const recipientConfig = actionConfig.whatsappRecipients?.length
@@ -250,7 +260,9 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
       recipientConfig,
     );
+    if (targets.length === 0) return { success: false, detail: "Nenhum destinatário resolvido para o envio." };
 
+    let sent = 0;
     for (const target of targets) {
       try {
         const thread = await getOrCreateThread({
@@ -259,6 +271,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
           phoneNormalized: target.phoneNormalized,
         });
         await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: message });
+        sent += 1;
       } catch (err) {
         // Falha de envio (ex.: WhatsApp desconectado) não deve travar o
         // resto da automação nem os outros destinatários — só fica
@@ -269,12 +282,16 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
         );
       }
     }
-    return;
+    const failed = targets.length - sent;
+    return {
+      success: sent > 0,
+      detail: `WhatsApp enviado para ${sent}/${targets.length} destinatário(s).${failed > 0 ? ` ${failed} falharam.` : ""}`,
+    };
   }
 
   if (rule.action === "SEND_EMAIL") {
     const rawBody = actionConfig.emailBody?.trim() ?? "";
-    if (!rawBody) return;
+    if (!rawBody) return { success: false, detail: "Corpo do e-mail vazio — nada foi enviado." };
 
     const recipientConfig = actionConfig.emailRecipients?.length
       ? actionConfig.emailRecipients
@@ -283,7 +300,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
       recipientConfig,
     );
-    if (addresses.size === 0) return;
+    if (addresses.size === 0) return { success: false, detail: "Nenhum destinatário de e-mail resolvido." };
 
     const templateValues = await resolveTemplateValues(entity);
     // Assunto é texto puro (nunca vira HTML), então usa os valores crus; o
@@ -299,30 +316,35 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
 
     const result = await sendEmail({ to: Array.from(addresses.keys()), subject, html });
     if (!result.ok) {
-      console.error(`[automations] falha ao enviar e-mail (regra "${rule.name}"): ${result.error}`);
+      return { success: false, detail: `Falha ao enviar e-mail: ${result.error}` };
     }
-    return;
+    return { success: true, detail: `E-mail enviado para ${addresses.size} destinatário(s).` };
   }
 
   if (rule.action === "SET_CUSTOM_FIELD") {
-    if (!actionConfig.customFieldId) return;
+    if (!actionConfig.customFieldId) return { success: false, detail: "Nenhum campo selecionado." };
     const def = await prisma.customFieldDefinition.findFirst({
       where: { id: actionConfig.customFieldId, organizationId: entity.organizationId },
     });
-    if (!def) return;
+    if (!def) return { success: false, detail: "Campo personalizado não encontrado (pode ter sido excluído)." };
 
     // Campo de Cliente só faz sentido se a entidade do evento tiver um
     // contactId (idem Negócio/dealId) — em triggers onde não tem (ex.:
     // SCHEDULED nunca tem dealId/contactId), pula em silêncio.
     const targetId = def.entityType === "DEAL" ? entity.dealId : entity.contactId;
-    if (!targetId) return;
+    if (!targetId) {
+      return {
+        success: false,
+        detail: `Sem ${def.entityType === "DEAL" ? "negócio" : "contato"} associado a este evento — campo não definido.`,
+      };
+    }
 
     let coerced;
     try {
       coerced = coerceCustomFieldValue(def, actionConfig.customFieldValue ?? "");
     } catch (err) {
-      console.error(`[automations] valor inválido pro campo "${def.label}" (regra "${rule.name}")`, err);
-      return;
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, detail: `Valor inválido para "${def.label}": ${message}` };
     }
 
     if (def.entityType === "DEAL") {
@@ -334,8 +356,10 @@ async function performAction(rule: RuleWithOrg, entity: Entity) {
       const merged = { ...((current?.customFieldValues as Record<string, string | number | boolean | null>) ?? {}), [def.id]: coerced };
       await prisma.contact.update({ where: { id: targetId }, data: { customFieldValues: merged } });
     }
-    return;
+    return { success: true, detail: `Campo "${def.label}" definido para "${stringifyCustomFieldValue(def, coerced)}".` };
   }
+
+  return { success: false, detail: "Ação desconhecida." };
 }
 
 async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<Entity[]> {
@@ -568,9 +592,21 @@ async function runRule(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinition
 
   let fired = 0;
   for (const entity of matches) {
-    const recorded = await recordExecution(rule.id, entity.entityId);
-    if (!recorded) continue;
-    await performAction(rule, entity);
+    const executionId = await recordExecution(rule.id, entity.entityId);
+    if (!executionId) continue;
+
+    let result: ActionResult;
+    try {
+      result = await performAction(rule, entity);
+    } catch (err) {
+      console.error(`[automations] erro inesperado ao executar ação (regra "${rule.name}")`, err);
+      result = { success: false, detail: `Erro inesperado: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    await prisma.automationExecution.update({
+      where: { id: executionId },
+      data: { success: result.success, detail: result.detail },
+    });
     fired += 1;
   }
   return fired;

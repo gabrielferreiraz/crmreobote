@@ -161,11 +161,11 @@ function MobileDealCard({ deal }: { deal: Deal }) {
             <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" strokeWidth={2} />
           )}
         </div>
-        <span className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+        <span className="shrink-0 text-xs font-medium whitespace-nowrap tabular-nums text-neutral-700 dark:text-neutral-300">
           {formatCurrency(deal.value)}
         </span>
         <span
-          className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+          className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-medium ${
             stale ? "text-amber-600 dark:text-amber-500" : "text-neutral-400 dark:text-neutral-500"
           }`}
         >

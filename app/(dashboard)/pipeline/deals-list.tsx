@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, Trash2 } from "lucide-react";
+import { Search, SearchX, Inbox, Trash2, GitBranch, Layers, User } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { EmptyState } from "@/components/empty-state";
@@ -12,8 +12,11 @@ import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { SelectionBar } from "@/components/selection-bar";
+import { BulkActionPopover } from "@/components/bulk-action-popover";
+import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
+import { countBulkFailures } from "@/lib/bulk-fetch";
 import type { Deal } from "./kanban-board";
 
 const QUICK_RANGES = buildListQuickRanges();
@@ -21,6 +24,7 @@ const QUICK_RANGES = buildListQuickRanges();
 type MemberOption = { id: string; name: string; active: boolean };
 type Stage = { id: string; name: string; color: string | null };
 type LossReasonOption = { id: string; label: string };
+type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
   OPEN: "Em andamento",
@@ -32,12 +36,16 @@ export function DealsList({
   deals,
   members,
   stages,
+  pipelineId,
+  pipelines,
   lossReasons,
   canBulkDelete,
 }: {
   deals: Deal[];
   members: MemberOption[];
   stages: Stage[];
+  pipelineId: string;
+  pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   canBulkDelete: boolean;
 }) {
@@ -159,6 +167,10 @@ export function DealsList({
     () => filteredDeals.filter((d) => d.status === "LOST" && d.value != null).reduce((sum, d) => sum + d.value!, 0),
     [filteredDeals],
   );
+  const totalFilteredValue = useMemo(
+    () => filteredDeals.filter((d) => d.value != null).reduce((sum, d) => sum + d.value!, 0),
+    [filteredDeals],
+  );
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -197,11 +209,88 @@ export function DealsList({
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const results = await Promise.all(
+      const failures = await countBulkFailures(
         Array.from(selectedIds).map((id) => fetch(`/api/deals/${id}`, { method: "DELETE" })),
       );
-      if (results.some((r) => !r.ok)) {
+      if (failures > 0) {
         setBulkError("Alguns negócios não puderam ser apagados.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // Move pra outra pipeline, sempre na primeira etapa dela — trocar de
+  // funil E escolher uma etapa específica na mesma ação ficaria complexo
+  // demais pro popover; dá pra reposicionar a etapa depois normalmente.
+  async function applyBulkPipelineChange(newPipelineId: string) {
+    const pipeline = pipelines.find((p) => p.id === newPipelineId);
+    if (!pipeline || pipeline.stages.length === 0) return;
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const failures = await countBulkFailures(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/deals/${id}/move`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pipelineId: newPipelineId, stageId: pipeline.stages[0].id }),
+          }),
+        ),
+      );
+      if (failures > 0) {
+        setBulkError("Alguns negócios não puderam ser movidos de funil.");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // Etapa dentro da mesma pipeline — pode falhar por negócio (etapa de
+  // destino exige valor/tipo de crédito/previsão que aquele negócio ainda
+  // não tem), por isso reporta como "alguns" em vez de tudo ou nada.
+  async function applyBulkStageChange(newStageId: string) {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const failures = await countBulkFailures(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/deals/${id}/move`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stageId: newStageId }),
+          }),
+        ),
+      );
+      if (failures > 0) {
+        setBulkError("Alguns negócios não puderam mudar de etapa (a etapa de destino pode exigir algum campo que falta preencher).");
+      }
+      clearSelection();
+      router.refresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function applyBulkOwnerChange(newOwnerId: string) {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const failures = await countBulkFailures(
+        Array.from(selectedIds).map((id) =>
+          fetch(`/api/deals/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ownerId: newOwnerId }),
+          }),
+        ),
+      );
+      if (failures > 0) {
+        setBulkError("Alguns negócios não puderam trocar de responsável.");
       }
       clearSelection();
       router.refresh();
@@ -321,6 +410,22 @@ export function DealsList({
           )}
           <div className="space-y-1">
             <label className="field-label">Criado em</label>
+            <div className="flex flex-wrap gap-1">
+              {QUICK_RANGES.map((q) => (
+                <button
+                  key={q.key}
+                  type="button"
+                  onClick={() => {
+                    const r = q.range();
+                    setDateFrom(r.from);
+                    setDateTo(r.to);
+                  }}
+                  className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
             <DateRangeField
               from={dateFrom}
               to={dateTo}
@@ -358,29 +463,59 @@ export function DealsList({
             />
           </div>
         </FilterPopover>
+        {selectedIds.size > 0 && (
+          <div className="ml-auto">
+            <SelectionBar count={selectedIds.size} onClear={clearSelection}>
+              {pipelines.filter((p) => p.id !== pipelineId).length > 0 && (
+                <BulkActionPopover icon={GitBranch} label="Trocar de funil">
+                  {(close) => (
+                    <SelectPopoverBody
+                      busy={bulkBusy}
+                      options={pipelines.filter((p) => p.id !== pipelineId).map((p) => ({ value: p.id, label: p.name }))}
+                      onApply={async (v) => { await applyBulkPipelineChange(v); close(); }}
+                    />
+                  )}
+                </BulkActionPopover>
+              )}
+              <BulkActionPopover icon={Layers} label="Trocar de etapa">
+                {(close) => (
+                  <SelectPopoverBody
+                    busy={bulkBusy}
+                    options={stages.map((s) => ({ value: s.id, label: s.name }))}
+                    onApply={async (v) => { await applyBulkStageChange(v); close(); }}
+                  />
+                )}
+              </BulkActionPopover>
+              <BulkActionPopover icon={User} label="Responsável">
+                {(close) => (
+                  <SelectPopoverBody
+                    busy={bulkBusy}
+                    options={members.filter((m) => m.active).map((m) => ({ value: m.id, label: m.name }))}
+                    onApply={async (v) => { await applyBulkOwnerChange(v); close(); }}
+                  />
+                )}
+              </BulkActionPopover>
+              {canBulkDelete && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmBulkDelete(true)}
+                  disabled={bulkBusy}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  Apagar
+                </button>
+              )}
+            </SelectionBar>
+          </div>
+        )}
       </div>
+      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
         Ganhos: <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(wonSum)}</span> · Perdidos:{" "}
         <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(lostSum)}</span>
       </p>
-
-      {selectedIds.size > 0 && (
-        <SelectionBar count={selectedIds.size} onClear={clearSelection}>
-          {canBulkDelete && (
-            <button
-              type="button"
-              onClick={() => setConfirmBulkDelete(true)}
-              disabled={bulkBusy}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-            >
-              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-              Apagar
-            </button>
-          )}
-        </SelectionBar>
-      )}
-      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
       <div className="card overflow-x-auto">
         {deals.length === 0 ? (
@@ -391,7 +526,7 @@ export function DealsList({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
-                <th className="px-3 py-2.5 font-medium">
+                <th className="px-3 py-2 font-medium">
                   <input
                     type="checkbox"
                     checked={allFilteredSelected}
@@ -400,15 +535,15 @@ export function DealsList({
                     aria-label="Selecionar todos"
                   />
                 </th>
-                <th className="px-4 py-2.5 font-medium">Negócio</th>
-                <th className="px-4 py-2.5 font-medium">Cliente</th>
-                <th className="px-4 py-2.5 font-medium">Etapa</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Responsável</th>
-                <th className="px-4 py-2.5 font-medium">Próx. atividade</th>
-                <th className="px-4 py-2.5 font-medium">Data</th>
-                <th className="px-4 py-2.5 text-right font-medium">Valor</th>
-                <th className="px-4 py-2.5 text-right font-medium">Parado</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Negócio</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Cliente</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Etapa</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Status</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Responsável</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Próx. atividade</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Data</th>
+                <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Valor</th>
+                <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Parado</th>
               </tr>
             </thead>
             <tbody>
@@ -417,7 +552,7 @@ export function DealsList({
                   key={deal.id}
                   className="group border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-1.5">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(deal.id)}
@@ -427,7 +562,7 @@ export function DealsList({
                       }`}
                     />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5 whitespace-nowrap">
                     <Link
                       href={`/negocios/${deal.id}`}
                       className="flex items-center gap-1.5 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
@@ -438,49 +573,60 @@ export function DealsList({
                           <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
                         </span>
                       )}
-                      <span className="truncate">{deal.name}</span>
+                      <span>{deal.name}</span>
+                      {deal.creditType && (
+                        <span className="font-normal text-neutral-400 dark:text-neutral-500">· {deal.creditType}</span>
+                      )}
                     </Link>
-                    {deal.creditType && (
-                      <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{deal.creditType}</p>
-                    )}
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="text-neutral-800 dark:text-neutral-200">{deal.contact.name}</p>
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    <span className="text-neutral-800 dark:text-neutral-200">{deal.contact.name}</span>
                     {deal.contact.source && (
-                      <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{deal.contact.source}</p>
+                      <span className="text-neutral-400 dark:text-neutral-500"> · {deal.contact.source}</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-1.5 whitespace-nowrap">
                     <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: deal.stage.color ?? "#999" }} />
                       {deal.stage.name}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
                     {STATUS_LABELS[deal.status]}
                     {deal.status === "LOST" && deal.lossReason && (
-                      <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{deal.lossReason.label}</p>
+                      <span className="text-neutral-400 dark:text-neutral-500"> · {deal.lossReason.label}</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
                     <span className="flex items-center gap-1.5">
                       <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
                       {deal.owner.name}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">{deal.nextActivity ?? "—"}</td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">{deal.nextActivity ?? "—"}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
                     {new Date(deal.status === "OPEN" ? deal.createdAt : (deal.closedAt ?? deal.createdAt)).toLocaleDateString("pt-BR")}
                   </td>
-                  <td className="px-4 py-3 text-right font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
                     {formatCurrency(deal.value)}
                   </td>
-                  <td className="px-4 py-3 text-right text-neutral-500 dark:text-neutral-400">
+                  <td className="px-3 py-1.5 text-right whitespace-nowrap text-neutral-500 dark:text-neutral-400">
                     {deal.status !== "OPEN" ? "—" : daysSince(deal.stageEnteredAt) === 0 ? "hoje" : `${daysSince(deal.stageEnteredAt)} dias`}
                   </td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="border-t border-neutral-200 dark:border-neutral-800">
+                <td colSpan={8} className="px-3 py-2 text-right text-xs font-medium text-neutral-400 dark:text-neutral-500">
+                  Total filtrado
+                </td>
+                <td className="px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
+                  {formatCurrency(totalFilteredValue)}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>

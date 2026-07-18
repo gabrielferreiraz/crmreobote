@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil } from "lucide-react";
 import { Avatar } from "@/components/avatar";
@@ -19,6 +19,7 @@ type Member = {
   user: { id: string; name: string; email: string };
   team: { id: string; name: string } | null;
   photoUrl: string | null;
+  lastActiveAt: Date | string | null;
 };
 
 const ROLE_LABELS: Record<Member["role"], string> = {
@@ -27,6 +28,28 @@ const ROLE_LABELS: Record<Member["role"], string> = {
   SUPERVISOR: "Supervisor",
   MEMBER: "Membro",
 };
+
+// Espelha ONLINE_THRESHOLD_MS de lib/user-activity.ts — não importa direto
+// de lá porque esse módulo puxa o client do Prisma, que não pode entrar no
+// bundle do navegador.
+const ONLINE_THRESHOLD_MS = 2 * 60_000;
+
+function isOnline(lastActiveAt: Member["lastActiveAt"]) {
+  if (!lastActiveAt) return false;
+  return Date.now() - new Date(lastActiveAt).getTime() < ONLINE_THRESHOLD_MS;
+}
+
+/** "17/07/2026 14:32" — data/hora cheia do último heartbeat, pra "Acessado pela última vez em". */
+function lastSeenFull(lastActiveAt: Member["lastActiveAt"]) {
+  if (!lastActiveAt) return null;
+  return new Date(lastActiveAt).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function MembersTable({
   initialMembers,
@@ -61,6 +84,32 @@ export function MembersTable({
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetId = useRef<string | null>(null);
+  const [presence, setPresence] = useState<Record<string, string | null>>({});
+
+  // Atualiza os pontinhos de "online" sozinho, sem re-render da página
+  // inteira (router.refresh() re-buscaria tudo do servidor à toa).
+  useEffect(() => {
+    let cancelled = false;
+
+    async function poll() {
+      const res = await fetch("/api/presence/status");
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (cancelled || !data?.members) return;
+      const next: Record<string, string | null> = {};
+      for (const m of data.members as { userId: string; lastActiveAt: string | null }[]) {
+        next[m.userId] = m.lastActiveAt;
+      }
+      setPresence(next);
+    }
+
+    poll();
+    const interval = setInterval(poll, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const activeMembers = useMemo(() => initialMembers.filter((m) => m.active), [initialMembers]);
   const inactiveMembers = useMemo(() => initialMembers.filter((m) => !m.active), [initialMembers]);
@@ -246,7 +295,12 @@ export function MembersTable({
         </div>
       ) : (
         <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
-          {visibleMembers.map((m) => (
+          {visibleMembers.map((m) => {
+            const effectiveLastActiveAt = m.user.id in presence ? presence[m.user.id] : m.lastActiveAt;
+            const online = isOnline(effectiveLastActiveAt);
+            const seenFull = lastSeenFull(effectiveLastActiveAt);
+
+            return (
             <div
               key={m.id}
               className={`flex flex-wrap items-center gap-x-4 gap-y-2 p-4 ${!m.active ? "opacity-60" : ""}`}
@@ -275,8 +329,22 @@ export function MembersTable({
                   <p className="flex items-center gap-2 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
                     {m.user.name}
                     {!m.active && <Badge tone="neutral">Inativo</Badge>}
+                    {m.active && (
+                      <Badge tone={online ? "success" : "neutral"} dot>
+                        {online ? "Online" : "Offline"}
+                      </Badge>
+                    )}
                   </p>
                   <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{m.user.email}</p>
+                  {m.active && (
+                    <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
+                      {online
+                        ? "Online agora"
+                        : seenFull
+                          ? `Acessado pela última vez em ${seenFull}`
+                          : "Ainda não acessou"}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -359,7 +427,8 @@ export function MembersTable({
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

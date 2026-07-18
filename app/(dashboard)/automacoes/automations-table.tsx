@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Zap, Plus, Loader2, Trash2, Play, Pause, History, Pencil } from "lucide-react";
+import { Zap, Plus, Loader2, Trash2, Play, Pause, History, Pencil, ChevronDown, CheckCircle2, XCircle } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -127,8 +127,32 @@ export function AutomationsTable({
   const [open, setOpen] = useState(false);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<Rule | null>(null);
-  const [historyRule, setHistoryRule] = useState<Rule | null>(null);
+  const [expandedRuleIds, setExpandedRuleIds] = useState<Set<string>>(new Set());
+  const [historyByRuleId, setHistoryByRuleId] = useState<Record<string, HistoryEntry[] | "loading" | "error">>({});
+  const [detailEntry, setDetailEntry] = useState<{ entry: HistoryEntry; ruleName: string } | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  async function toggleHistory(rule: Rule) {
+    setExpandedRuleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rule.id)) {
+        next.delete(rule.id);
+      } else {
+        next.add(rule.id);
+      }
+      return next;
+    });
+
+    if (rule.runCount === 0 || historyByRuleId[rule.id]) return;
+    setHistoryByRuleId((prev) => ({ ...prev, [rule.id]: "loading" }));
+    const res = await fetch(`/api/automations/${rule.id}/history`);
+    if (!res.ok) {
+      setHistoryByRuleId((prev) => ({ ...prev, [rule.id]: "error" }));
+      return;
+    }
+    const entries = await res.json();
+    setHistoryByRuleId((prev) => ({ ...prev, [rule.id]: entries }));
+  }
 
   const stageById = new Map(pipelines.flatMap((p) => p.stages.map((s) => [s.id, `${s.name} (${p.name})`])));
   const lossReasonById = new Map(lossReasons.map((r) => [r.id, r.label]));
@@ -256,85 +280,136 @@ export function AutomationsTable({
         </div>
       ) : (
         <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
-          {initialRules.map((rule) => (
-            <div
-              key={rule.id}
-              className={`automation-row first:rounded-t-lg last:rounded-b-lg flex items-center gap-3 p-4 ${
-                rule.enabled ? "" : "opacity-60"
-              }`}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
-                <Zap className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
-              </span>
+          {initialRules.map((rule) => {
+            const isExpanded = expandedRuleIds.has(rule.id);
+            const history = historyByRuleId[rule.id];
+            return (
+              <div key={rule.id} className="first:rounded-t-lg last:rounded-b-lg">
+                <div className={`automation-row flex items-center gap-3 p-4 ${rule.enabled ? "" : "opacity-60"}`}>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
+                    <Zap className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                  </span>
 
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</p>
-                <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{describeRule(rule)}</p>
-              </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</p>
+                    <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{describeRule(rule)}</p>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => setHistoryRule(rule)}
-                disabled={rule.runCount === 0}
-                className="hidden shrink-0 text-right transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:hover:opacity-100 sm:block"
-                title="Ver histórico de execuções"
-              >
-                <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">
-                  {rule.runCount} execuç{rule.runCount === 1 ? "ão" : "ões"}
-                </p>
-                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                  {rule.lastRunAt ? `última ${new Date(rule.lastRunAt).toLocaleDateString("pt-BR")}` : "nunca rodou"}
-                </p>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleHistory(rule)}
+                    disabled={rule.runCount === 0}
+                    aria-expanded={isExpanded}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800"
+                    title="Ver histórico de execuções"
+                  >
+                    <History className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                    <span className="hidden text-right sm:block">
+                      <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-300">
+                        {rule.runCount} execuç{rule.runCount === 1 ? "ão" : "ões"}
+                      </p>
+                      <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                        {rule.lastRunAt ? `última ${new Date(rule.lastRunAt).toLocaleDateString("pt-BR")}` : "nunca rodou"}
+                      </p>
+                    </span>
+                    {rule.runCount > 0 && (
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 dark:text-neutral-500 ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                        strokeWidth={2}
+                      />
+                    )}
+                  </button>
 
-              <button
-                disabled={!canManage || togglingId === rule.id}
-                onClick={() => toggleEnabled(rule)}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              >
-                {togglingId === rule.id ? (
-                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
-                ) : rule.enabled ? (
-                  <Pause className="h-3 w-3" strokeWidth={2} />
-                ) : (
-                  <Play className="h-3 w-3" strokeWidth={2} />
+                  <button
+                    disabled={!canManage || togglingId === rule.id}
+                    onClick={() => toggleEnabled(rule)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    {togglingId === rule.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                    ) : rule.enabled ? (
+                      <Pause className="h-3 w-3" strokeWidth={2} />
+                    ) : (
+                      <Play className="h-3 w-3" strokeWidth={2} />
+                    )}
+                    {rule.enabled ? "Pausar" : "Ativar"}
+                  </button>
+
+                  {canManage && (
+                    <button
+                      onClick={() => {
+                        setEditRule(rule);
+                        setOpen(true);
+                      }}
+                      className="icon-btn shrink-0"
+                      aria-label="Editar automação"
+                      title="Editar automação"
+                    >
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  )}
+
+                  {canManage && (
+                    <button
+                      onClick={() => setRuleToDelete(rule)}
+                      className="icon-btn shrink-0"
+                      aria-label="Excluir automação"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+
+                {isExpanded && (
+                  <div className="animate-pop-in border-t border-neutral-100 bg-neutral-50/60 px-4 py-2 dark:border-neutral-800 dark:bg-neutral-900/30">
+                    {history === "loading" && (
+                      <p className="py-2 text-sm text-neutral-500 dark:text-neutral-400">Carregando…</p>
+                    )}
+                    {history === "error" && (
+                      <p className="py-2 text-sm text-red-600 dark:text-red-400">Não foi possível carregar o histórico.</p>
+                    )}
+                    {Array.isArray(history) && history.length === 0 && (
+                      <p className="py-2 text-sm text-neutral-500 dark:text-neutral-400">Essa automação ainda não rodou.</p>
+                    )}
+                    {Array.isArray(history) && history.length > 0 && (
+                      <div className="scrollbar-thin max-h-72 divide-y divide-neutral-100 overflow-y-auto dark:divide-neutral-800/60">
+                        {history.map((e) => (
+                          <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+                            {e.success ? (
+                              <CheckCircle2
+                                className="h-3.5 w-3.5 shrink-0 text-emerald-500 dark:text-emerald-400"
+                                strokeWidth={2}
+                              />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 shrink-0 text-red-500 dark:text-red-400" strokeWidth={2} />
+                            )}
+                            <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">{e.label}</span>
+                            <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+                              {new Date(e.executedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDetailEntry({ entry: e, ruleName: rule.name })}
+                              className="shrink-0 text-xs font-medium text-neutral-500 hover:text-neutral-900 hover:underline dark:text-neutral-400 dark:hover:text-neutral-100"
+                            >
+                              Ver detalhes
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {Array.isArray(history) && history.length >= 50 && (
+                      <p className="pt-2 text-xs text-neutral-400 dark:text-neutral-500">
+                        Mostrando as 50 execuções mais recentes.
+                      </p>
+                    )}
+                  </div>
                 )}
-                {rule.enabled ? "Pausar" : "Ativar"}
-              </button>
-
-              <button
-                onClick={() => setHistoryRule(rule)}
-                className="icon-btn shrink-0 sm:hidden"
-                aria-label="Ver histórico de execuções"
-              >
-                <History className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-
-              {canManage && (
-                <button
-                  onClick={() => {
-                    setEditRule(rule);
-                    setOpen(true);
-                  }}
-                  className="icon-btn shrink-0"
-                  aria-label="Editar automação"
-                  title="Editar automação"
-                >
-                  <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-              )}
-
-              {canManage && (
-                <button
-                  onClick={() => setRuleToDelete(rule)}
-                  className="icon-btn shrink-0"
-                  aria-label="Excluir automação"
-                >
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-              )}
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -367,73 +442,82 @@ export function AutomationsTable({
         />
       )}
 
-      {historyRule && <AutomationHistoryModal rule={historyRule} onClose={() => setHistoryRule(null)} />}
+      {detailEntry && (
+        <AutomationExecutionDetailModal
+          entry={detailEntry.entry}
+          ruleName={detailEntry.ruleName}
+          onClose={() => setDetailEntry(null)}
+        />
+      )}
     </div>
   );
 }
 
-type HistoryEntry = { id: string; executedAt: string; label: string; href: string | null };
+type HistoryEntry = {
+  id: string;
+  executedAt: string;
+  label: string;
+  href: string | null;
+  success: boolean;
+  detail: string | null;
+};
 
-function AutomationHistoryModal({ rule, onClose }: { rule: Rule; onClose: () => void }) {
-  const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const res = await fetch(`/api/automations/${rule.id}/history`);
-      if (cancelled) return;
-      if (!res.ok) {
-        setError("Não foi possível carregar o histórico.");
-        return;
-      }
-      setEntries(await res.json());
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [rule.id]);
-
+function AutomationExecutionDetailModal({
+  entry,
+  ruleName,
+  onClose,
+}: {
+  entry: HistoryEntry;
+  ruleName: string;
+  onClose: () => void;
+}) {
   return (
-    <Modal onClose={onClose} maxWidth="max-w-md">
-      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Histórico de execuções</h2>
-      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">{rule.name}</p>
+    <Modal onClose={onClose} maxWidth="max-w-sm">
+      <div className="mb-3 flex items-center gap-2">
+        {entry.success ? (
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500 dark:text-emerald-400" strokeWidth={2} />
+        ) : (
+          <XCircle className="h-5 w-5 shrink-0 text-red-500 dark:text-red-400" strokeWidth={2} />
+        )}
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          {entry.success ? "Executada com sucesso" : "Falha na execução"}
+        </h2>
+      </div>
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-      {!error && entries === null && (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Carregando…</p>
-      )}
-
-      {entries?.length === 0 && (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Essa automação ainda não rodou.</p>
-      )}
-
-      {entries && entries.length > 0 && (
-        <div className="scrollbar-thin max-h-96 space-y-1 overflow-y-auto">
-          {entries.map((e) => (
-            <div
-              key={e.id}
-              className="flex items-center justify-between gap-3 rounded-md px-2 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-            >
-              {e.href ? (
-                <Link href={e.href} onClick={onClose} className="min-w-0 truncate text-neutral-800 hover:underline dark:text-neutral-200">
-                  {e.label}
-                </Link>
-              ) : (
-                <span className="min-w-0 truncate text-neutral-800 dark:text-neutral-200">{e.label}</span>
-              )}
-              <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                {new Date(e.executedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
-              </span>
-            </div>
-          ))}
+      <div className="space-y-3 text-sm">
+        <div>
+          <p className="field-label">Automação</p>
+          <p className="text-neutral-800 dark:text-neutral-200">{ruleName}</p>
         </div>
-      )}
+        <div>
+          <p className="field-label">Entidade</p>
+          {entry.href ? (
+            <Link href={entry.href} onClick={onClose} className="text-neutral-800 hover:underline dark:text-neutral-200">
+              {entry.label}
+            </Link>
+          ) : (
+            <p className="text-neutral-800 dark:text-neutral-200">{entry.label}</p>
+          )}
+        </div>
+        <div>
+          <p className="field-label">Quando</p>
+          <p className="text-neutral-800 dark:text-neutral-200">
+            {new Date(entry.executedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+          </p>
+        </div>
+        {entry.detail && (
+          <div>
+            <p className="field-label">O que aconteceu</p>
+            <p className="text-neutral-800 dark:text-neutral-200">{entry.detail}</p>
+          </div>
+        )}
+      </div>
 
-      {entries && entries.length >= 50 && (
-        <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">Mostrando as 50 execuções mais recentes.</p>
-      )}
+      <div className="mt-4 flex justify-end">
+        <button onClick={onClose} className="btn-primary">
+          Fechar
+        </button>
+      </div>
     </Modal>
   );
 }

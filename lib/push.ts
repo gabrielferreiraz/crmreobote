@@ -19,28 +19,32 @@ function ensureConfigured(): boolean {
 export async function sendPushToUser(
   userId: string,
   payload: { title: string; body?: string; url?: string },
-): Promise<void> {
-  if (!ensureConfigured()) return;
+): Promise<{ sent: number; total: number }> {
+  if (!ensureConfigured()) return { sent: 0, total: 0 };
 
   const subscriptions = await prisma.pushSubscription.findMany({ where: { userId } });
-  if (subscriptions.length === 0) return;
+  if (subscriptions.length === 0) return { sent: 0, total: 0 };
 
   const message = JSON.stringify(payload);
 
-  await Promise.all(
+  const results = await Promise.all(
     subscriptions.map(async (sub) => {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           message,
         );
+        return true;
       } catch (err) {
         // 404/410 = inscrição expirada ou revogada no navegador — não vale mais a pena manter.
         const statusCode = (err as { statusCode?: number })?.statusCode;
         if (statusCode === 404 || statusCode === 410) {
           await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
         }
+        return false;
       }
     }),
   );
+
+  return { sent: results.filter(Boolean).length, total: subscriptions.length };
 }

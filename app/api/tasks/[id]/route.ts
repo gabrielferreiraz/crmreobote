@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
+import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       include: { deal: true, contact: true, owner: true },
     });
 
+    recordUserChange(access.organizationId, access.userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
+
     return NextResponse.json(task);
   });
 }
@@ -55,6 +60,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     await prisma.task.delete({ where: { id } });
+    recordUserChange(access.organizationId, access.userId).catch((err) =>
+      console.error("[user-activity] falha ao registrar alteração", err),
+    );
     return NextResponse.json({ ok: true });
   });
 }
