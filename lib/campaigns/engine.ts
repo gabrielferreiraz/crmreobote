@@ -14,6 +14,8 @@ import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { renderSteps, pickWeighted, type WeightedScript } from "@/lib/campaigns/spintax";
+import { warmupDailyCap } from "@/lib/whatsapp/warmup";
+import { getSuppressionReason, suppressionMessage } from "@/lib/campaigns/engagement";
 import type { $Enums, Contact } from "@/app/generated/prisma/client";
 
 function sleep(ms: number): Promise<void> {
@@ -50,12 +52,51 @@ function isWithinSchedule(campaign: CampaignRow): boolean {
   return hour >= campaign.windowStartHour && hour < campaign.windowEndHour;
 }
 
+/**
+ * Teto efetivo é o MENOR entre o configurado na campanha e o permitido pelo
+ * aquecimento do número (ver lib/whatsapp/warmup.ts) — mesmo uma campanha
+ * configurada sem teto (dailyCap null) fica presa à rampa enquanto o número
+ * ainda está esfriando os primeiros dias. Usa sempre o instanceId "principal"
+ * da campanha (mesma simplificação que a contagem de SENT já fazia antes:
+ * conta todo envio do dia, mesmo os que uma campanha PIPELINE_BULK despachou
+ * por uma instância diferente por destinatário).
+ */
 async function dailyCapReached(campaign: CampaignRow): Promise<boolean> {
-  if (campaign.dailyCap == null) return false;
   const count = await prisma.campaignRecipient.count({
     where: { campaignId: campaign.id, status: "SENT", sentAt: { gte: brazilStartOfDay() } },
   });
-  return count >= campaign.dailyCap;
+
+  const instance = await prisma.whatsAppInstance.findUnique({
+    where: { id: campaign.instanceId },
+    select: { provider: true, firstConnectedAt: true },
+  });
+  const warmupCap = instance?.provider === "EVOLUTION" ? warmupDailyCap(instance.firstConnectedAt) : null;
+
+  const caps = [campaign.dailyCap, warmupCap].filter((c): c is number => c != null);
+  if (caps.length === 0) return false;
+  return count >= Math.min(...caps);
+}
+
+/**
+ * Amostra de uma distribuição gaussiana (Box-Muller) centrada no meio da
+ * faixa, sempre recortada de volta pra dentro de [min, max] — um intervalo
+ * uniforme entre mensagens é, ele mesmo, um padrão estatístico reconhecível
+ * (muitos valores "no limite" mín/máx); gaussiana concentra a maioria dos
+ * envios perto do meio da faixa, com caudas mais raras nos extremos, mais
+ * parecido com o ritmo irregular de uma pessoa de verdade.
+ */
+function gaussianDelaySample(minSec: number, maxSec: number): number {
+  if (maxSec <= minSec) return minSec;
+  const mean = (minSec + maxSec) / 2;
+  const stdDev = (maxSec - minSec) / 4; // ±2 desvios cobre a faixa inteira
+
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+
+  return Math.min(maxSec, Math.max(minSec, mean + z * stdDev));
 }
 
 /**
@@ -91,7 +132,7 @@ async function shouldSendNow(campaign: CampaignRow): Promise<boolean> {
   const elapsedSec = (Date.now() - lastAt.getTime()) / 1000;
   if (elapsedSec < campaign.delayMinSec) return false;
 
-  const threshold = campaign.delayMinSec + Math.random() * (campaign.delayMaxSec - campaign.delayMinSec);
+  const threshold = gaussianDelaySample(campaign.delayMinSec, campaign.delayMaxSec);
   return elapsedSec >= threshold;
 }
 
@@ -177,6 +218,24 @@ async function sendToRecipient(
     return "skipped";
   }
 
+  // Opt-out ou "cold streak" (ver lib/campaigns/engagement.ts) — checado a
+  // cada envio (não só na criação da lista) porque um contato pode virar
+  // suprimido DEPOIS de já estar na lista de destinatários (respondeu opt-out
+  // numa campanha anterior, por exemplo).
+  const suppression = await getSuppressionReason(recipient.contact.id);
+  if (suppression) {
+    const message = suppressionMessage(suppression);
+    if (kind === "initial") {
+      await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "SKIPPED", error: message } });
+    } else {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { followUpSentAt: new Date(), followUpError: message },
+      });
+    }
+    return "skipped";
+  }
+
   try {
     const templates = (
       kind === "followUp" && campaign.followUpTemplates ? campaign.followUpTemplates : campaign.messageTemplates
@@ -204,7 +263,13 @@ async function sendToRecipient(
     // corte nesse meio-tempo deixava o destinatário como PENDING e o
     // próximo tick do cron reenviava a sequência INTEIRA do zero pro mesmo
     // lead — duplicando a 1ª mensagem, que já tinha sido entregue de verdade.
-    await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[0].text, campaignId: campaign.id });
+    await sendWhatsAppMessage({
+      organizationId,
+      threadId: thread.id,
+      text: steps[0].text,
+      campaignId: campaign.id,
+      simulateTypingFirst: true,
+    });
 
     if (kind === "initial") {
       await prisma.campaignRecipient.update({
@@ -225,7 +290,13 @@ async function sendToRecipient(
     for (let i = 0; i < steps.length - 1; i++) {
       try {
         if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
-        await sendWhatsAppMessage({ organizationId, threadId: thread.id, text: steps[i + 1].text, campaignId: campaign.id });
+        await sendWhatsAppMessage({
+          organizationId,
+          threadId: thread.id,
+          text: steps[i + 1].text,
+          campaignId: campaign.id,
+          simulateTypingFirst: true,
+        });
       } catch (err) {
         console.error(
           `[campaigns] falha ao enviar passo ${i + 2}/${steps.length} do script pro destinatário ${recipient.id} (já marcado como enviado, 1º passo entregue)`,

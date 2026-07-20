@@ -16,6 +16,7 @@ import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
 import { ConfettiBurst } from "@/components/confetti-burst";
+import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 
@@ -32,6 +33,7 @@ type Activity = {
 type DealTask = {
   id: string;
   title: string;
+  type: string;
   dueAt: string | Date | null;
   completedAt: string | Date | null;
 };
@@ -112,6 +114,7 @@ export function DealDetail({
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
   whatsappThreadId,
+  isWhatsAppConnected,
   canEditDetails,
 }: {
   deal: Deal;
@@ -125,6 +128,8 @@ export function DealDetail({
   hasUnreadWhatsApp?: boolean;
   /** null quando o contato não tem WhatsApp/celular cadastrado — não dá pra conversar. */
   whatsappThreadId: string | null;
+  /** WhatsApp do responsável pelo negócio conectado — condição pro convite de reunião oferecer "enviar" (ver MeetingInviteDialog). */
+  isWhatsAppConnected: boolean;
   /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
   canEditDetails: boolean;
 }) {
@@ -143,6 +148,9 @@ export function DealDetail({
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<DealTask | null>(null);
+  // Setado depois de criar/reagendar uma tarefa Reunião com data definida —
+  // abre o MeetingInviteDialog por cima (ver submitActivity/saveTask).
+  const [meetingInviteTask, setMeetingInviteTask] = useState<MeetingInviteTask | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
   const [showConfetti, setShowConfetti] = useState(false);
@@ -360,7 +368,7 @@ export function DealDetail({
     });
 
     if (dueDate) {
-      await fetch("/api/tasks", {
+      const taskRes = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -371,6 +379,16 @@ export function DealDetail({
           contactId: deal.contact.id,
         }),
       });
+      if (activeTab === "MEETING" && taskRes.ok) {
+        const created = await taskRes.json();
+        setMeetingInviteTask({
+          id: created.id,
+          title: created.title,
+          dueAt: created.dueAt,
+          contact: { id: deal.contact.id, name: deal.contact.name, phone: deal.contact.phone, whatsapp: deal.contact.whatsapp },
+          owner: { name: deal.owner.name },
+        });
+      }
     }
 
     setBody("");
@@ -971,7 +989,29 @@ export function DealDetail({
         <EditTaskModal
           task={editingTask}
           onClose={() => setEditingTask(null)}
-          onSave={(fields) => saveTask(editingTask.id, fields)}
+          onSave={async (fields) => {
+            const result = await saveTask(editingTask.id, fields);
+            // Reagendou uma Reunião com data definida — mesmo convite
+            // oferecido na criação, agora pro novo horário.
+            if (result.ok && editingTask.type === "MEETING" && fields.dueAt) {
+              setMeetingInviteTask({
+                id: editingTask.id,
+                title: fields.title,
+                dueAt: fields.dueAt,
+                contact: { id: deal.contact.id, name: deal.contact.name, phone: deal.contact.phone, whatsapp: deal.contact.whatsapp },
+                owner: { name: deal.owner.name },
+              });
+            }
+            return result;
+          }}
+        />
+      )}
+
+      {meetingInviteTask && (
+        <MeetingInviteDialog
+          task={meetingInviteTask}
+          isWhatsAppConnected={isWhatsAppConnected}
+          onClose={() => setMeetingInviteTask(null)}
         />
       )}
       </div>

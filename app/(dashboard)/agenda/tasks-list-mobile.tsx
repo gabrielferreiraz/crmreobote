@@ -10,6 +10,8 @@ import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { NewTaskDialog, type Option } from "./tasks-list";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
+import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
+import { CompactMonthCalendar } from "./compact-month-calendar";
 
 function groupTasks(tasks: Task[]) {
   const now = new Date();
@@ -41,6 +43,7 @@ export function TasksListMobile({
   members,
   openNewTask,
   isGoogleConnected,
+  isWhatsAppConnected,
   googleParam,
 }: {
   initialTasks: Task[];
@@ -48,6 +51,7 @@ export function TasksListMobile({
   members: Option[];
   openNewTask?: boolean;
   isGoogleConnected: boolean;
+  isWhatsAppConnected: boolean;
   googleParam?: string;
 }) {
   const router = useRouter();
@@ -116,6 +120,10 @@ export function TasksListMobile({
   return (
     <div className="space-y-4">
       <GoogleCalendarBanner isGoogleConnected={isGoogleConnected} googleParam={googleParam} />
+
+      <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} />
+
+      {!isEmpty && <CompactMonthCalendar tasks={initialTasks} onToggle={toggleComplete} showOwner={showOwner} />}
 
       {!isEmpty && (
         <div className="flex items-center gap-2">
@@ -199,6 +207,7 @@ export function TasksListMobile({
       {open && (
         <NewTaskDialog
           deals={deals}
+          isWhatsAppConnected={isWhatsAppConnected}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);

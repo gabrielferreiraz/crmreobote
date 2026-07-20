@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
@@ -5,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { ApiKeysManager } from "./api-keys-manager";
 import { WebhooksManager } from "./webhooks-manager";
+import { MetaAdsConnect } from "@/components/meta-ads-connect";
 
 export default async function IntegracoesSettingsPage() {
   const session = await auth();
@@ -84,6 +86,19 @@ export default async function IntegracoesSettingsPage() {
             </p>
           </div>
           <WebhooksManager initialWebhooks={webhooks} />
+        </section>
+
+        <section className="space-y-3 border-t border-neutral-100 pt-6 dark:border-neutral-800">
+          <div>
+            <h2 className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Meta Ads</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Lead recebido pelo formulário nativo do Facebook/Instagram já cai como Contato (e um Negócio na pipeline
+              padrão) automaticamente, marcado com qual campanha/anúncio gerou ele.
+            </p>
+          </div>
+          <Suspense fallback={<p className="text-sm text-neutral-400 dark:text-neutral-500">Verificando…</p>}>
+            <MetaAdsConnect />
+          </Suspense>
         </section>
       </div>
     );

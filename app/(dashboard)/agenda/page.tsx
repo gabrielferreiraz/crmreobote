@@ -4,6 +4,7 @@ import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getValidGoogleAccessToken, fetchGoogleCalendarEvents } from "@/lib/google-calendar-oauth";
+import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { TasksList } from "./tasks-list";
 import { TasksListMobile } from "./tasks-list-mobile";
 import type { GoogleEvent } from "./task-calendar";
@@ -51,7 +52,7 @@ export default async function AgendaPage({
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
 
-    const [tasksRaw, membersRaw, deals, googleResult] = await Promise.all([
+    const [tasksRaw, membersRaw, deals, googleResult, whatsappInstance] = await Promise.all([
       prisma.task.findMany({
         where: { organizationId, ...scopeWhere(scope) },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
@@ -76,7 +77,12 @@ export default async function AgendaPage({
         select: { id: true, name: true },
       }),
       loadGoogleEvents(userId),
+      resolveConnectedInstance(organizationId, userId),
     ]);
+    // Se meu WhatsApp não está conectado, o convite de reunião (ver
+    // MeetingInviteDialog) nem oferece a opção de enviar — só o botão de
+    // agenda Google continua disponível.
+    const isWhatsAppConnected = !!whatsappInstance;
 
     const avatarMap = await resolveAvatarUrlMap(tasksRaw.map((t) => t.owner.image));
     const tasks = tasksRaw.map((task) => ({
@@ -122,6 +128,7 @@ export default async function AgendaPage({
             members={members}
             googleEvents={googleResult.events}
             isGoogleConnected={googleResult.connected}
+            isWhatsAppConnected={isWhatsAppConnected}
             googleParam={google}
           />
         </div>
@@ -132,6 +139,7 @@ export default async function AgendaPage({
             members={members}
             openNewTask={novo === "1"}
             isGoogleConnected={googleResult.connected}
+            isWhatsAppConnected={isWhatsAppConnected}
             googleParam={google}
           />
         </div>

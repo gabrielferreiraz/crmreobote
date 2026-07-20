@@ -24,8 +24,10 @@ export async function POST() {
   if (rateLimited) return rateLimited;
 
   return runWithTenant(organizationId, async () => {
+    // Importação de histórico só existe no Evolution — a API oficial da Meta
+    // não tem endpoint equivalente (ver WhatsAppInstance.provider).
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ error: "Nenhum WhatsApp conectado" }, { status: 404 });
     if (instance.status !== "CONNECTED") {

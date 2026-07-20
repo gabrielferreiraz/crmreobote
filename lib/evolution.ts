@@ -129,12 +129,27 @@ function toSendResult(data: { key?: { id?: string }; message?: unknown }): SendR
   return { externalId: data.key.id, ref: { key: data.key, message: data.message } };
 }
 
+export type EvolutionProxyConfig = {
+  host: string;
+  port: string;
+  protocol: string;
+  username?: string;
+  password?: string;
+};
+
 /**
  * Cria a instância já com o webhook configurado (mensagem recebida, status de
  * entrega/leitura e mudança de conexão tudo indo pro mesmo endpoint — o
  * receptor differencia pelo campo `event` do payload).
+ *
+ * `proxy` (opcional — ver lib/whatsapp/proxy.ts): campos flat
+ * proxyHost/proxyPort/proxyProtocol/proxyUsername/proxyPassword na raiz do
+ * corpo, conforme documentação pública do Evolution API — não testado contra
+ * uma instância real neste ambiente (sem servidor de dev disponível); se o
+ * proxy não for aplicado na prática, é o primeiro lugar a revisar contra a
+ * versão exata implantada.
  */
-export async function createInstance(instanceName: string, webhookUrl: string): Promise<void> {
+export async function createInstance(instanceName: string, webhookUrl: string, proxy?: EvolutionProxyConfig): Promise<void> {
   await request("/instance/create", {
     method: "POST",
     body: JSON.stringify({
@@ -152,6 +167,15 @@ export async function createInstance(instanceName: string, webhookUrl: string): 
         base64: false,
         events: WEBHOOK_EVENTS,
       },
+      ...(proxy
+        ? {
+            proxyHost: proxy.host,
+            proxyPort: proxy.port,
+            proxyProtocol: proxy.protocol,
+            ...(proxy.username ? { proxyUsername: proxy.username } : {}),
+            ...(proxy.password ? { proxyPassword: proxy.password } : {}),
+          }
+        : {}),
     }),
   });
 }
@@ -173,23 +197,53 @@ export async function getConnectionState(instanceName: string): Promise<Connecti
   return "close";
 }
 
+export type PresenceState = "available" | "unavailable" | "composing" | "recording" | "paused";
+
 /**
- * O efeito que a gente quer aqui não é "mandar presença" em si — é o
- * colateral: chamar este endpoint inscreve a instância pra receber as
- * atualizações de presença DESSE número via o evento de webhook
- * PRESENCE_UPDATE daqui em diante (confirmado no código-fonte do serviço
- * Baileys do próprio Evolution: o handler de sendPresence chama
- * `presenceSubscribe` antes de mandar a atualização). Não existe endpoint
- * separado só de "assinar" — e a inscrição não é permanente, por isso quem
- * chama isso (ver app/api/whatsapp/messages/[threadId]/route.ts) precisa
- * renovar periodicamente enquanto o chat estiver aberto. Sempre usamos
- * `presence: "available"` do nosso lado — nunca fingimos estar digitando.
+ * O efeito que a gente quer aqui — quando chamado com `presence: "available"`
+ * (uso original, ver app/api/whatsapp/messages/[threadId]/route.ts) — não é
+ * "mandar presença" em si, é o colateral: chamar este endpoint inscreve a
+ * instância pra receber as atualizações de presença DESSE número via o
+ * evento de webhook PRESENCE_UPDATE daqui em diante (confirmado no
+ * código-fonte do serviço Baileys do próprio Evolution: o handler de
+ * sendPresence chama `presenceSubscribe` antes de mandar a atualização). Não
+ * existe endpoint separado só de "assinar" — e a inscrição não é permanente,
+ * por isso quem chama isso pra esse fim precisa renovar periodicamente
+ * enquanto o chat estiver aberto.
+ *
+ * `presence: "composing"` (ver simulateTyping abaixo) é o outro uso: simula
+ * "digitando…" de verdade antes de uma mensagem de campanha, pro padrão de
+ * envio se parecer mais com alguém digitando do que com um disparo instantâneo.
  */
-export async function sendPresence(instanceName: string, number: string): Promise<void> {
+export async function sendPresence(instanceName: string, number: string, presence: PresenceState = "available"): Promise<void> {
   await request(`/chat/sendPresence/${encodeURIComponent(instanceName)}`, {
     method: "POST",
-    body: JSON.stringify({ number, presence: "available" }),
+    body: JSON.stringify({ number, presence }),
   });
+}
+
+const TYPING_WPM = 45; // palavras por minuto — média de digitação em celular, mesma ordem de grandeza usada por middlewares anti-ban públicos (ex.: baileys-antiban)
+const MIN_TYPING_MS = 800;
+const MAX_TYPING_MS = 6_000;
+
+/**
+ * "Digita" antes de mandar — chama sendPresence(..., "composing"), espera um
+ * tempo proporcional ao tamanho do texto (~45 palavras/min, uma palavra ~=5
+ * caracteres), e retorna. Quem chama despacha a mensagem de verdade depois.
+ * Nunca lança: falha aqui (instância não aceita presença, timeout) nunca pode
+ * bloquear o envio real, que é o que importa de verdade.
+ */
+export async function simulateTyping(instanceName: string, number: string, textLength: number): Promise<void> {
+  const charsPerSecond = (TYPING_WPM * 5) / 60;
+  const estimatedMs = (textLength / charsPerSecond) * 1000;
+  const waitMs = Math.min(MAX_TYPING_MS, Math.max(MIN_TYPING_MS, estimatedMs));
+
+  try {
+    await sendPresence(instanceName, number, "composing");
+  } catch (err) {
+    console.error(`[evolution] falha ao simular digitação pra ${number} (seguindo com o envio normalmente)`, err);
+  }
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
 }
 
 /**

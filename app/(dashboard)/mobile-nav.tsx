@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const PRIMARY_ITEMS = [
@@ -129,6 +129,19 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
                     <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
                   </Link>
                 ))}
+                <a
+                  href="/api/simulador-sso"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setSheetOpen(false)}
+                  className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
+                    <Calculator className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                  </span>
+                  <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Simulador</span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+                </a>
               </div>
 
               <div className="card mt-2 flex items-center gap-3 p-3 text-sm">

@@ -4,8 +4,13 @@
  * função pura. Evita mandar a mesma frase exata pra centenas de contatos,
  * o que é um padrão fácil de reconhecer como disparo automático.
  */
+// O corpo de cada opção pode conter tokens de variável de chave simples
+// (ex.: "Oi {primeiro_nome}!") — só "[" e "]" ficam de fora, já que esses
+// dois são os únicos caracteres que de fato delimitam o bloco de variação
+// em si. Sem isso, uma opção com "{cargo}" dentro nunca era reconhecida
+// como variação (a chave "quebrava" o match) e ia pro envio sem expandir.
 export function expandSpintax(text: string): string {
-  return text.replace(/\{\[([^{}]+)\]\}/g, (_, options: string) => {
+  return text.replace(/\{\[([^[\]]+)\]\}/g, (_, options: string) => {
     const choices = options.split("|");
     return choices[Math.floor(Math.random() * choices.length)];
   });

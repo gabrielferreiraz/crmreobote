@@ -6,6 +6,7 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
+import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { DealDetail } from "./deal-detail";
 
@@ -103,9 +104,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // vendedor, é isso que deixa ver e ajudar na conversa mesmo sem ter um
     // WhatsApp próprio conectado. Sem instância conectada, não tem como
     // abrir chat aqui.
-    const ownerInstance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId: dealRaw.ownerId } },
-    });
+    const ownerInstance = await resolveConnectedInstance(organizationId, dealRaw.ownerId);
     const whatsappThread =
       ownerInstance?.status === "CONNECTED"
         ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
@@ -129,6 +128,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}
           whatsappThreadId={whatsappThread?.id ?? null}
+          isWhatsAppConnected={ownerInstance?.status === "CONNECTED"}
           canEditDetails={canEditDetails}
         />
       </Suspense>

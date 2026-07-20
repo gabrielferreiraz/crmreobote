@@ -48,7 +48,7 @@ type Trigger =
   | "CONTACT_NO_DEAL"
   | "SCHEDULED"
   | "TASK_DUE_SOON";
-type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL" | "SET_CUSTOM_FIELD";
+type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL" | "SET_CUSTOM_FIELD" | "SEND_SCRIPT";
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -69,6 +69,7 @@ type PipelineOption = { id: string; name: string; stages: StageOption[] };
 type LossReasonOption = { id: string; label: string };
 type MemberOption = { id: string; name: string; role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER" };
 type WhatsappInstanceOption = { userId: string; label: string };
+type ScriptOption = { id: string; name: string };
 
 const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STALE: "Negócio parado",
@@ -104,6 +105,7 @@ const ACTION_LABELS: Record<Action, string> = {
   SEND_WHATSAPP: "Enviar mensagem de WhatsApp",
   SEND_EMAIL: "Enviar e-mail",
   SET_CUSTOM_FIELD: "Definir campo personalizado",
+  SEND_SCRIPT: "Enviar script",
 };
 
 export function AutomationsTable({
@@ -114,6 +116,7 @@ export function AutomationsTable({
   members,
   whatsappInstances,
   customFields,
+  scripts,
 }: {
   initialRules: Rule[];
   canManage: boolean;
@@ -122,6 +125,7 @@ export function AutomationsTable({
   members: MemberOption[];
   whatsappInstances: WhatsappInstanceOption[];
   customFields: CustomFieldOption[];
+  scripts: ScriptOption[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -158,6 +162,7 @@ export function AutomationsTable({
   const lossReasonById = new Map(lossReasons.map((r) => [r.id, r.label]));
   const memberById = new Map(members.map((m) => [m.id, m.name]));
   const customFieldById = new Map(customFields.map((f) => [f.id, f]));
+  const scriptById = new Map(scripts.map((s) => [s.id, s]));
 
   function describeTrigger(rule: Rule): string | null {
     const config = rule.triggerConfig ?? {};
@@ -218,6 +223,10 @@ export function AutomationsTable({
       const def = fieldId ? customFieldById.get(fieldId) : undefined;
       const value = config.customFieldValue as string | undefined;
       return def ? `${def.label} = "${value}"` : null;
+    }
+    if (rule.action === "SEND_SCRIPT") {
+      const scriptId = config.scriptId as string | undefined;
+      return scriptId ? (scriptById.get(scriptId)?.name ?? "script removido") : null;
     }
     return null;
   }
@@ -420,6 +429,7 @@ export function AutomationsTable({
           members={members}
           whatsappInstances={whatsappInstances}
           customFields={customFields}
+          scripts={scripts}
           editRule={editRule}
           onClose={() => setOpen(false)}
           onSaved={() => {
@@ -528,6 +538,7 @@ function AutomationDialog({
   members,
   whatsappInstances,
   customFields,
+  scripts,
   editRule,
   onClose,
   onSaved,
@@ -537,6 +548,7 @@ function AutomationDialog({
   members: MemberOption[];
   whatsappInstances: WhatsappInstanceOption[];
   customFields: CustomFieldOption[];
+  scripts: ScriptOption[];
   editRule: Rule | null;
   onClose: () => void;
   onSaved: () => void;
@@ -573,6 +585,11 @@ function AutomationDialog({
   const [whatsappSenderId, setWhatsappSenderId] = useState(
     (ac.whatsappSenderId as string | undefined) ?? "",
   );
+  const [scriptId, setScriptId] = useState((ac.scriptId as string | undefined) ?? scripts[0]?.id ?? "");
+  const [scriptRecipients, setScriptRecipients] = useState<RecipientEntry[]>(
+    (ac.scriptRecipients as RecipientEntry[] | undefined) ?? [{ type: "CLIENT" }],
+  );
+  const [scriptSenderId, setScriptSenderId] = useState((ac.scriptSenderId as string | undefined) ?? "");
   const [emailSubject, setEmailSubject] = useState((ac.emailSubject as string | undefined) ?? "");
   const [emailBody, setEmailBody] = useState((ac.emailBody as string | undefined) ?? "");
   const [emailRecipients, setEmailRecipients] = useState<RecipientEntry[]>(
@@ -639,7 +656,9 @@ function AutomationDialog({
                 ? { whatsappMessage, whatsappRecipients, whatsappSenderId: whatsappSenderId || undefined }
                 : action === "SEND_EMAIL"
                   ? { emailSubject: emailSubject || undefined, emailBody, emailRecipients }
-                  : { customFieldId: setFieldId, customFieldValue: setFieldValue };
+                  : action === "SEND_SCRIPT"
+                    ? { scriptId, scriptRecipients, scriptSenderId: scriptSenderId || undefined }
+                    : { customFieldId: setFieldId, customFieldValue: setFieldValue };
 
     const res = await fetch(isEdit ? `/api/automations/${editRule!.id}` : "/api/automations", {
       method: isEdit ? "PATCH" : "POST",
@@ -666,6 +685,7 @@ function AutomationDialog({
     (action !== "MARK_LOST" || !!lossReasonId) &&
     (action !== "SEND_WHATSAPP" || (!!whatsappMessage.trim() && whatsappRecipients.length > 0)) &&
     (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0)) &&
+    (action !== "SEND_SCRIPT" || (!!scriptId && scriptRecipients.length > 0)) &&
     (action !== "SET_CUSTOM_FIELD" || (!!setFieldId && !!setFieldValue));
 
   return (
@@ -1043,6 +1063,55 @@ function AutomationDialog({
               <RecipientPicker
                 recipients={whatsappRecipients}
                 onChange={setWhatsappRecipients}
+                availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+                admins={admins}
+                owners={owners}
+                memberById={memberById}
+                customLabel="Número personalizado"
+                customPlaceholder="Ex.: 67991234567"
+              />
+            </div>
+          </>
+        )}
+
+        {action === "SEND_SCRIPT" && (
+          <>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="field-label">Script</label>
+              {scripts.length === 0 ? (
+                <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400">
+                  Nenhum script salvo ainda. Crie um em WhatsApp → Scripts antes de usar essa ação.
+                </p>
+              ) : (
+                <Select value={scriptId} onChange={setScriptId} options={scripts.map((s) => ({ value: s.id, label: s.name }))} />
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="field-label">Enviar de</label>
+              {whatsappInstances.length === 0 ? (
+                <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400">
+                  Nenhum WhatsApp conectado. Conecte um número em Configurações → Perfil.
+                </p>
+              ) : (
+                <Select
+                  value={scriptSenderId}
+                  onChange={setScriptSenderId}
+                  options={[
+                    { value: "", label: "Responsável pelo negócio (padrão)" },
+                    ...whatsappInstances.map((inst) => ({ value: inst.userId, label: inst.label })),
+                  ]}
+                />
+              )}
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Escolha um número fixo para enviar o script desta automação. Deixe em branco para usar o número do responsável pelo negócio.
+              </p>
+            </div>
+
+            <div className="sm:col-span-2">
+              <RecipientPicker
+                recipients={scriptRecipients}
+                onChange={setScriptRecipients}
                 availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
                 admins={admins}
                 owners={owners}

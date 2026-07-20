@@ -13,6 +13,7 @@ import {
   deleteInstance,
   WEBHOOK_EVENTS,
 } from "@/lib/evolution";
+import { validateProxyInput, buildEvolutionProxyPayload, type ProxyInput } from "@/lib/whatsapp/proxy";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export async function GET() {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ connected: false, status: "DISCONNECTED", phoneNumber: null });
 
@@ -103,7 +104,7 @@ export async function PATCH(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ error: "Nenhum WhatsApp conectado" }, { status: 404 });
 
@@ -122,13 +123,20 @@ export async function PATCH(req: Request) {
   });
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
+  // proxy é opcional — só usado se a instância ainda não existir (aplicado
+  // na criação; trocar depois exige desconectar e reconectar, ver
+  // lib/whatsapp/proxy.ts).
+  const body = await req.json().catch(() => ({}));
+  const proxyValidation = validateProxyInput((body as { proxy?: ProxyInput }).proxy);
+  if (!proxyValidation.ok) return NextResponse.json({ error: proxyValidation.error }, { status: 400 });
+
   return runWithTenant(organizationId, async () => {
     let instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
     });
 
     if (!instance) {
@@ -137,11 +145,18 @@ export async function POST() {
       // olhar pra ele.
       const instanceName = `wa_${randomUUID()}`;
       instance = await prisma.whatsAppInstance.create({
-        data: { organizationId, userId, instanceName, status: "CONNECTING" },
+        data: {
+          organizationId,
+          userId,
+          provider: "EVOLUTION",
+          instanceName,
+          status: "CONNECTING",
+          ...proxyValidation.data,
+        },
       });
 
       try {
-        await createInstance(instance.instanceName, buildWebhookUrl());
+        await createInstance(instance.instanceName, buildWebhookUrl(), buildEvolutionProxyPayload(instance));
       } catch {
         await prisma.whatsAppInstance.delete({ where: { id: instance.id } });
         return NextResponse.json(
@@ -166,7 +181,7 @@ export async function DELETE() {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
+      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ ok: true });
 

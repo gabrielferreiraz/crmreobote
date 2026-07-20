@@ -1,7 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Prisma } from "@/app/generated/prisma/client";
 
-type TenantStore = { organizationId?: string; userId?: string; instanceName?: string; apiKeyHash?: string };
+type TenantStore = {
+  organizationId?: string;
+  userId?: string;
+  instanceName?: string;
+  apiKeyHash?: string;
+  metaPageId?: string;
+};
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
 // o Next.js pode empacotar este módulo mais de uma vez em contextos diferentes
@@ -28,6 +34,10 @@ export function getCurrentInstanceName(): string | undefined {
 
 export function getCurrentApiKeyHash(): string | undefined {
   return storage.getStore()?.apiKeyHash;
+}
+
+export function getCurrentMetaPageId(): string | undefined {
+  return storage.getStore()?.metaPageId;
 }
 
 /**
@@ -80,6 +90,18 @@ export function runWithInstanceLookup<T>(instanceName: string, fn: () => Promise
  */
 export function runWithApiKeyLookup<T>(keyHash: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ apiKeyHash: keyHash }, async () => await fn());
+}
+
+/**
+ * Mesma ideia, mas pro webhook de Lead Ads da Meta (app/api/meta-ads/webhook):
+ * a requisição só traz o pageId (dono da página, não a organização), o
+ * organizationId ainda precisa ser descoberto a partir dele. A policy de RLS
+ * de MetaAdsConnection permite achar a própria linha por pageId, mesmo sem
+ * organizationId definido — igual ao WhatsAppInstance permite achar a
+ * própria linha por instanceName.
+ */
+export function runWithMetaPageLookup<T>(pageId: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ metaPageId: pageId }, async () => await fn());
 }
 
 /**

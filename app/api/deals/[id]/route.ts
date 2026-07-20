@@ -7,6 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
+import { notifyMetaConversionWon } from "@/lib/meta-ads/conversions";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 
@@ -164,6 +165,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         enqueueWebhookEvent(organizationId, "deal.won", buildDealWebhookPayload(deal)).catch((err) =>
           console.error("[webhooks] falha ao enfileirar deal.won", err),
         );
+        notifyMetaConversionWon(organizationId, {
+          id: deal.id,
+          value: deal.value != null ? Number(deal.value) : null,
+          contact: deal.contact,
+        }).catch((err) => console.error("[meta-ads] falha ao mandar evento de conversão", err));
       } else if (status === "LOST") {
         const reasonSuffix = lossReasonLabel ? ` · ${lossReasonLabel}` : "";
         systemBodies.push(`marcou o negócio como perdido${reasonSuffix}`);

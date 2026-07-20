@@ -41,6 +41,8 @@ import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/in
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
+import { isOptOutMessage } from "@/lib/whatsapp/opt-out";
+import { shouldResetWarmup } from "@/lib/whatsapp/warmup";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
@@ -53,6 +55,8 @@ type InstanceRef = {
   notifyOnCrmMessage: boolean;
   notifyOnGeralMessage: boolean;
   historySyncedAt: Date | null;
+  disconnectedAt: Date | null;
+  firstConnectedAt: Date | null;
 };
 
 type ContextInfo = { stanzaId?: string };
@@ -251,6 +255,16 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>
       console.error("[wa:webhook] falha ao processar resposta de campanha", err),
     );
+
+    // Opt-out (ver lib/whatsapp/opt-out.ts) só faz sentido pra quem já é um
+    // Contact — "WhatsApp Geral" (número sem cadastro) não tem o que
+    // suspender de campanha nenhuma ainda.
+    if (thread.contactId && isOptOutMessage(body)) {
+      await prisma.contact
+        .update({ where: { id: thread.contactId }, data: { whatsappOptOutAt: new Date() } })
+        .then(() => console.log(`[wa:webhook] opt-out detectado — contato ${thread.contactId} suspenso de disparos em massa`))
+        .catch((err) => console.error("[wa:webhook] falha ao gravar opt-out", err));
+    }
   }
 }
 
@@ -584,7 +598,9 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     // acontecer), remove a instância de vez. Nunca faz isso pra quem
     // continua ativo, mesmo desconectado.
     if (status === "DISCONNECTED" && !(await isActiveMember(instance.organizationId, instance.userId))) {
-      await deleteInstanceForInactiveUser(instance);
+      // connection.update só existe no Evolution (é conceito de sessão
+      // Baileys) — este handler nunca é chamado pelo webhook da Meta.
+      await deleteInstanceForInactiveUser({ ...instance, provider: "EVOLUTION" });
       console.log(`[wa:webhook] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
       return;
     }
@@ -637,12 +653,23 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     // criação da instância) não passa por aqui, continua gravado normalmente.
     const shouldPersistStatus = status !== "CONNECTING";
 
+    // Base do aquecimento gradual (ver lib/whatsapp/warmup.ts): grava na
+    // 1ª conexão de verdade, ou reinicia do zero se ficou >=72h desconectada
+    // antes de reconectar (chip "esfriou" — mesmo critério que
+    // baileys-antiban usa publicamente). Reconexão rápida (blip, queda
+    // breve) nunca reinicia a rampa.
+    const warmupFields =
+      status === "CONNECTED" && (!instance.firstConnectedAt || shouldResetWarmup(instance.disconnectedAt))
+        ? { firstConnectedAt: new Date() }
+        : {};
+
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },
       data: {
         ...(shouldPersistStatus ? { status } : {}),
         ...(phoneNumber ? { phoneNumber } : {}),
         ...escalationFields,
+        ...warmupFields,
       },
     });
     console.log(

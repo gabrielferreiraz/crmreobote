@@ -37,6 +37,8 @@ model Organization {
   jobTitles              JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
   userDailyActivities    UserDailyActivity[]
+  monthlyGoals           MonthlyGoal[]
+  metaAdsConnection      MetaAdsConnection?
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -67,6 +69,8 @@ model User {
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
   dailyActivities             UserDailyActivity[]
+  monthlyGoalsUpdated         MonthlyGoal[]
+  metaAdsConnectionsCreated   MetaAdsConnection[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -90,6 +94,32 @@ model GoogleCalendarConnection {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// ─── Meta Ads (Lead Ads + Conversions API) ───────────────────────────
+//
+// Uma conexão por ORGANIZAÇÃO (não por vendedor, ao contrário do
+// WhatsAppInstance) — Lead Ads pertence a uma Página do Facebook, que
+// representa o negócio, não uma pessoa. `pageAccessTokenEncrypted` vem de um
+// token de usuário de longa duração trocado no login OAuth (ver
+// lib/meta-ads.ts) com escopos leads_retrieval (ler os leads que chegam) e
+// ads_management (mandar evento de conversão) — token de página derivado de
+// token de usuário de longa duração não expira sozinho enquanto o acesso não
+// for revogado. `pixelId` é colado manualmente (Events Manager): pertence a
+// uma Ad Account, não faz parte do fluxo de login de Página.
+model MetaAdsConnection {
+  id                       String   @id @default(cuid())
+  organizationId           String   @unique
+  pageId                   String   @unique
+  pageName                 String
+  pageAccessTokenEncrypted String
+  pixelId                  String?
+  connectedById            String
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectedBy  User         @relation(fields: [connectedById], references: [id])
+}
+
 // ─── Notificações push (Web Push) ───────────────────────────────────
 
 model PushSubscription {
@@ -105,20 +135,40 @@ model PushSubscription {
   @@index([userId])
 }
 
-// ─── WhatsApp (Evolution API) ───────────────────────────────────────
+// ─── WhatsApp (Evolution API + API oficial da Meta) ──────────────────
 //
 // Uma instância (número de WhatsApp) por vendedor — nunca por organização
 // inteira, pra não depender de um único número compartilhado. `instanceName`
 // é o identificador que o Evolution API usa; nunca exposto ao frontend fora
 // do necessário pra exibir o QR Code de pareamento.
+//
+// `provider` distingue as duas formas de conexão que convivem lado a lado:
+// EVOLUTION (QR Code/Baileys, não-oficial, gateway único compartilhado via
+// env) e META_CLOUD (API oficial via Embedded Signup, credencial própria
+// por linha — ver metaAccessToken/metaPhoneNumberId/metaWabaId abaixo).
+// Um vendedor pode ter até uma linha de cada tipo (@@unique inclui
+// provider), mas nunca duas do mesmo tipo.
 
 model WhatsAppInstance {
   id                     String                 @id @default(cuid())
   organizationId         String
   userId                 String
+  provider               WhatsAppProvider       @default(EVOLUTION)
   instanceName           String                 @unique
   phoneNumber            String?
   status                 WhatsAppInstanceStatus @default(DISCONNECTED)
+  // Só preenchidos quando provider = META_CLOUD. metaAccessToken é gravado
+  // cifrado (ver lib/security/secret-crypto.ts — mesma função já usada pro
+  // token OAuth do Google Calendar, reaproveitada aqui em vez de uma chave
+  // nova só pra isso). metaPhoneNumberId é a chave que o webhook da Meta usa
+  // pra achar a instância (metadata.phone_number_id no payload — nada a ver
+  // com instanceName, que é conceito só do Evolution). Token de longa
+  // duração dura ~60 dias; metaTokenExpiresAt alimenta o aviso por e-mail
+  // antes de vencer (não há renovação automática nessa entrega).
+  metaAccessToken        String?
+  metaPhoneNumberId      String?                @unique
+  metaWabaId             String?
+  metaTokenExpiresAt     DateTime?
   // Quando ficou desconectado pela primeira vez nesta "queda" (null quando
   // conectado) — usado pra escalar o alerta por e-mail (1, 2, 3 dias). Zera
   // quando reconecta.
@@ -145,6 +195,31 @@ model WhatsAppInstance {
   // a cada webhook repetido. Instâncias que já existiam antes desse recurso
   // nunca disparam esse evento de novo sozinhas, então nunca são afetadas.
   historySyncedAt        DateTime?
+  // Só provider = EVOLUTION (sessão WhatsApp Web/Baileys por trás do
+  // Evolution API) — IP de datacenter é um dos sinais que a própria WhatsApp
+  // usa pra identificar sessão automatizada; isso deixa pronto pra usar um
+  // proxy residencial/móvel assim que a organização tiver um (nunca
+  // preenchido automaticamente — ver lib/whatsapp/proxy.ts). proxyPassword é
+  // gravado cifrado (ver lib/security/secret-crypto.ts, mesma função do
+  // token do Google/Meta).
+  proxyHost              String?
+  proxyPort              Int?
+  proxyProtocol          String?
+  proxyUsername          String?
+  proxyPasswordEncrypted String?
+  // Quando a instância CONECTOU pela primeira vez (ou pela primeira vez após
+  // ficar >=72h desconectada — reset de "chip novo") — base do aquecimento
+  // gradual de volume (ver lib/whatsapp/warmup.ts). Instância que já existia
+  // antes deste campo é tratada como já aquecida (backfill na migração), pra
+  // nunca derrubar de repente o volume de quem já operava normalmente.
+  firstConnectedAt       DateTime?
+  // Quantas vezes caiu dentro da janela de risco atual (ver
+  // lib/whatsapp/health-check.ts) — reseta quando a janela expira (7 dias).
+  // Instabilidade repetida é sinal de que o número está sob suspeita da
+  // própria WhatsApp; acima do limite, pausa campanhas que usam essa
+  // instância em vez de continuar insistindo.
+  recentDisconnectCount  Int                    @default(0)
+  riskWindowStartedAt    DateTime?
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
@@ -155,8 +230,13 @@ model WhatsAppInstance {
   campaigns          Campaign[]
   campaignRecipients CampaignRecipient[]
 
-  @@unique([organizationId, userId])
+  @@unique([organizationId, userId, provider])
   @@index([organizationId])
+}
+
+enum WhatsAppProvider {
+  EVOLUTION
+  META_CLOUD
 }
 
 enum WhatsAppInstanceStatus {
@@ -461,6 +541,12 @@ model OrganizationUser {
   // agora" (Configurações → Usuários). Sem relação com atividade/tempo no
   // CRM, isso vive em UserDailyActivity.
   lastActiveAt   DateTime?
+  // Texto do convite de reunião mandado pro WhatsApp do cliente (ver
+  // lib/meeting-invite.ts) — por vendedor, não por organização: cada um
+  // manda pelo próprio número, então cada um tem seu próprio jeito de
+  // escrever. null usa o template padrão (DEFAULT_MEETING_INVITE_TEMPLATE)
+  // até a pessoa editar pela 1ª vez, quando salva automaticamente.
+  meetingInviteTemplate String?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -610,6 +696,25 @@ model Contact {
   // { [customFieldDefinitionId]: string | number | boolean }. Separado do
   // customFields acima de propósito (esse é write-only da ingestão externa).
   customFieldValues  Json?
+  // Pediu pra parar de receber mensagem de campanha/script (detectado por
+  // palavra-chave numa resposta INBOUND — ver lib/whatsapp/opt-out.ts, ou
+  // marcado manualmente). Uma vez setado, nunca mais entra em audiência de
+  // campanha nem recebe follow-up automático — mensagem manual avulsa
+  // (vendedor respondendo o próprio contato) continua permitida, isso só
+  // bloqueia disparo em massa.
+  whatsappOptOutAt   DateTime?
+  // Atribuição de Lead Ads da Meta (Facebook/Instagram) — preenchido só
+  // quando o contato chegou via formulário nativo de anúncio (ver
+  // lib/meta-ads/leads.ts), nunca preenchido manualmente. metaLeadgenId
+  // existe pra dedup: a Meta reenvia o mesmo webhook de leadgen mais de uma
+  // vez às vezes, e não pode virar dois contatos/negócios duplicados.
+  // metaCampaignName é o que os relatórios de conversão por origem agrupam.
+  metaLeadgenId      String?  @unique
+  metaAdId           String?
+  metaAdSetId        String?
+  metaCampaignId     String?
+  metaCampaignName   String?
+  metaFormId         String?
   createdAt          DateTime @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -625,6 +730,9 @@ model Contact {
   @@index([organizationId])
   @@index([organizationId, phone])
   @@index([organizationId, responsavelId])
+  // Usado pelo relatório de conversão por campanha (agrupa Deal via Contact
+  // por metaCampaignId) — ver app/api/reports/meta-ads-attribution.
+  @@index([organizationId, metaCampaignId])
 }
 
 // ─── Motivos de perda ────────────────────────────────────────────────
@@ -639,6 +747,29 @@ model LossReason {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deals        Deal[]
 
+  @@index([organizationId])
+}
+
+// ─── Meta mensal de vendas ──────────────────────────────────────────
+//
+// Uma meta (valor em R$) por organização por mês — só Dono edita (ver
+// requireRole(["OWNER"]) em app/api/goals/current/route.ts); qualquer papel
+// enxerga o card em Relatórios, comparando com o total ganho no mês
+// corrente. Histórico de meses passados fica guardado (não é só "a meta
+// atual"), então dá pra olhar um mês antigo depois e ver se bateu.
+model MonthlyGoal {
+  id             String   @id @default(cuid())
+  organizationId String
+  year           Int
+  month          Int // 1-12
+  value          Decimal  @db.Decimal(14, 2)
+  updatedAt      DateTime @updatedAt
+  updatedById    String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedBy    User         @relation(fields: [updatedById], references: [id])
+
+  @@unique([organizationId, year, month])
   @@index([organizationId])
 }
 
@@ -805,6 +936,11 @@ model Task {
   description    String?
   dueAt          DateTime?
   completedAt    DateTime?
+  // Quando o convite da reunião (link de "adicionar ao calendário" pro
+  // cliente) foi mandado pro WhatsApp dele — null enquanto não mandado.
+  // Nunca reseta sozinho num reagendamento; a tela pergunta de novo e quem
+  // manda decide se reenvia.
+  meetingInviteSentAt DateTime?
   createdAt      DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -947,6 +1083,7 @@ enum AutomationAction {
   SEND_WHATSAPP
   SEND_EMAIL
   SET_CUSTOM_FIELD
+  SEND_SCRIPT
 }
 
 // ─── Integrações externas (API keys + webhooks de saída) ─────────────

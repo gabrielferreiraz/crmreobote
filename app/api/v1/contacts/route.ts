@@ -49,6 +49,13 @@ export async function POST(req: Request) {
         tags: c.tags,
         ownerId: c.responsavelId,
         customFields: c.customFields,
+        adAttribution: {
+          campaignId: c.metaCampaignId,
+          campaignName: c.metaCampaignName,
+          adId: c.metaAdId,
+          adSetId: c.metaAdSetId,
+          formId: c.metaFormId,
+        },
         createdAt: c.createdAt,
         outcome: result.outcome,
         warnings: result.warnings,

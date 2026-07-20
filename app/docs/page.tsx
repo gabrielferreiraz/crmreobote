@@ -223,6 +223,14 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
               massa &quot;Trocar responsável&quot; na tela de Clientes). <Code>ownerId</Code> só &quot;pega&quot; em
               duas situações: contato novo, ou contato existente que ainda não tinha responsável nenhum.
             </P>
+            <P>
+              <Code>adAttribution</Code> (opcional, objeto) — de qual anúncio/campanha esse lead veio, pra alimentar
+              o relatório de conversão por campanha (Relatórios → Meta Ads). Genérico: não é exclusivo do webhook
+              direto da Meta — se você usa N8N, Make, Zapier ou qualquer automação pra puxar o lead (do Facebook,
+              Google Ads, TikTok Ads, o que for) e mandar pra cá, é só preencher esses campos que o relatório
+              funciona igual. Todos os subcampos são opcionais e livres (texto): <Code>campaignId</Code>,{" "}
+              <Code>campaignName</Code>, <Code>adId</Code>, <Code>adSetId</Code>, <Code>formId</Code>.
+            </P>
             <SubHeading>Request</SubHeading>
             <CodeBlock lang="json">{`{
   "name": "Maria Silva",
@@ -236,6 +244,11 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
   "state": "MS",
   "tags": ["lead-quente", "facebook"],
   "ownerId": "cm...",
+  "adAttribution": {
+    "campaignId": "1234567890",
+    "campaignName": "Campanha Setembro - Consórcio",
+    "adId": "9876543210"
+  },
   "customFields": {
     "campanha_id": "abc123",
     "orcamento_estimado": 5000
@@ -264,6 +277,13 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
     "tags": ["lead-quente", "facebook"],
     "ownerId": "cm...",
     "customFields": { "campanha_id": "abc123", "orcamento_estimado": 5000 },
+    "adAttribution": {
+      "campaignId": "1234567890",
+      "campaignName": "Campanha Setembro - Consórcio",
+      "adId": "9876543210",
+      "adSetId": null,
+      "formId": null
+    },
     "createdAt": "2026-07-17T14:32:00.000Z",
     "outcome": "created",
     "warnings": []
@@ -341,6 +361,14 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
               <Code>value</Code>, <Code>name</Code>, <Code>creditType</Code>, <Code>description</Code> e{" "}
               <Code>source</Code>, quando enviados, precisam ser do tipo certo (<Code>value</Code> número; os
               demais, texto) — tipo errado é rejeitado com <Code>400</Code>, nunca vira erro genérico.
+            </P>
+            <P>
+              Mandando <Code>contact</Code> (contato novo), o <Code>adAttribution</Code> descrito em{" "}
+              <a href="#contatos" className="underline underline-offset-2">
+                Contatos
+              </a>{" "}
+              funciona igual aqui dentro do objeto <Code>contact</Code> — já cria o negócio com o Contato marcado de
+              qual anúncio ele veio, tudo numa chamada só.
             </P>
             <SubHeading>Request (contato novo, direto na mesma chamada)</SubHeading>
             <CodeBlock lang="json">{`{

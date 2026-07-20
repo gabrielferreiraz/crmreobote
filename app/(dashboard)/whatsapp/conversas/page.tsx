@@ -18,16 +18,22 @@ export default async function ConversasPage() {
     const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
     // Preferência de notificação é por instância (cada um só recebe push das
-    // próprias mensagens) — sem WhatsApp conectado não tem o que configurar.
-    const myInstance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
-      select: { notifyOnCrmMessage: true, notifyOnGeralMessage: true, status: true },
+    // próprias mensagens) — mostrada mesmo se a instância estiver
+    // desconectada no momento (é uma preferência salva, não algo que só
+    // existe enquanto conectado). Pode ter até duas linhas agora (uma por
+    // provider — ver WhatsAppInstance.provider); prefere a Meta pra exibir
+    // se as duas existirem.
+    const myInstances = await prisma.whatsAppInstance.findMany({
+      where: { organizationId, userId },
+      select: { provider: true, notifyOnCrmMessage: true, notifyOnGeralMessage: true, status: true },
     });
+    const myInstance =
+      myInstances.find((i) => i.provider === "META_CLOUD") ?? myInstances.find((i) => i.provider === "EVOLUTION");
     const notificationPrefs = myInstance ?? { notifyOnCrmMessage: true, notifyOnGeralMessage: true };
-    // Sem instância própria conectada, quem está vendo a tela não consegue
-    // mandar mensagem nenhuma — a área de chat avisa isso no lugar de
-    // "Selecione uma conversa" (ver ConversationsView).
-    const myWhatsappConnected = myInstance?.status === "CONNECTED";
+    // Sem NENHUMA instância própria conectada, quem está vendo a tela não
+    // consegue mandar mensagem nenhuma — a área de chat avisa isso no lugar
+    // de "Selecione uma conversa" (ver ConversationsView).
+    const myWhatsappConnected = myInstances.some((i) => i.status === "CONNECTED");
 
     return (
       <div className="flex h-full flex-col gap-4">

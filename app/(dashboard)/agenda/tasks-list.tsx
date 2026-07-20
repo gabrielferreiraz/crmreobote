@@ -7,12 +7,14 @@ import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { FilterPopover } from "@/components/filter-popover";
 import { ContactSearchInput } from "@/components/contact-search-input";
+import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { TaskCalendar, type GoogleEvent } from "./task-calendar";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
+import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
 
 export type Option = { id: string; name: string };
 
@@ -40,6 +42,7 @@ export function TasksList({
   members,
   googleEvents,
   isGoogleConnected,
+  isWhatsAppConnected,
   googleParam,
 }: {
   initialTasks: Task[];
@@ -47,6 +50,7 @@ export function TasksList({
   members: Option[];
   googleEvents?: GoogleEvent[];
   isGoogleConnected: boolean;
+  isWhatsAppConnected: boolean;
   googleParam?: string;
 }) {
   const router = useRouter();
@@ -109,6 +113,8 @@ export function TasksList({
     <div className="space-y-6">
       <GoogleCalendarBanner isGoogleConnected={isGoogleConnected} googleParam={googleParam} />
 
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_300px] xl:items-start">
+      <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <button
@@ -225,10 +231,17 @@ export function TasksList({
           <TaskGroup title="Concluídas" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
         </div>
       )}
+      </div>
+
+      <div className="xl:sticky xl:top-4">
+        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} />
+      </div>
+      </div>
 
       {open && (
         <NewTaskDialog
           deals={deals}
+          isWhatsAppConnected={isWhatsAppConnected}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);
@@ -277,10 +290,13 @@ function TaskGroup({
 
 export function NewTaskDialog({
   deals,
+  isWhatsAppConnected,
   onClose,
   onCreated,
 }: {
   deals: Option[];
+  /** Sem isso, o passo de convite (ver meetingInviteTask abaixo) nem oferece a opção de enviar. */
+  isWhatsAppConnected?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -292,6 +308,10 @@ export function NewTaskDialog({
   const [dealId, setDealId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Setado só quando a tarefa recém-criada é uma Reunião com data e cliente
+  // vinculado — troca o formulário pelo MeetingInviteDialog em vez de fechar
+  // na hora (ver render abaixo).
+  const [meetingInviteTask, setMeetingInviteTask] = useState<MeetingInviteTask | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -319,7 +339,29 @@ export function NewTaskDialog({
       return;
     }
 
+    const created = await res.json();
+    if (created.type === "MEETING" && created.dueAt && created.contact) {
+      setMeetingInviteTask({
+        id: created.id,
+        title: created.title,
+        dueAt: created.dueAt,
+        contact: { id: created.contact.id, name: created.contact.name, phone: created.contact.phone, whatsapp: created.contact.whatsapp },
+        owner: { name: created.owner.name },
+      });
+      return;
+    }
+
     onCreated();
+  }
+
+  if (meetingInviteTask) {
+    return (
+      <MeetingInviteDialog
+        task={meetingInviteTask}
+        isWhatsAppConnected={!!isWhatsAppConnected}
+        onClose={onCreated}
+      />
+    );
   }
 
   return (

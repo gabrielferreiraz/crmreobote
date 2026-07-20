@@ -313,6 +313,7 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
 
+  const hasTasks = deal.taskTypes.length > 0;
   const stale = isStale(deal.stageEnteredAt);
 
   const content = (
@@ -351,7 +352,7 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
         )}
       </div>
       <div className="mt-1.5 flex items-center gap-1.5">
-        {deal.taskTypes.length > 0 ? (
+        {hasTasks ? (
           deal.taskTypes.map((type) => {
             const Icon = TASK_TYPE_ICON[type] ?? TASK_TYPE_ICON.OTHER;
             return (
@@ -361,8 +362,12 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
             );
           })
         ) : (
-          <span title="Sem atividade agendada">
-            <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" strokeWidth={2} />
+          <span
+            className="inline-flex items-center gap-1 rounded bg-red-100/70 dark:bg-red-950/30 px-1.5 py-0.5 text-[10px] font-bold text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-900/30 uppercase tracking-wide animate-pulse"
+            title="Sem tarefa agendada! Crie uma tarefa."
+          >
+            <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" strokeWidth={2.5} />
+            Sem tarefa!
           </span>
         )}
       </div>

@@ -10,7 +10,7 @@ export default async function AutomacoesPage() {
   const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
-    const [rulesRaw, pipelines, lossReasons, membersRaw, connectedInstances, customFields] = await Promise.all([
+    const [rulesRaw, pipelines, lossReasons, membersRaw, connectedInstances, customFields, scripts] = await Promise.all([
       prisma.automationRule.findMany({
         where: { organizationId },
         orderBy: { createdAt: "desc" },
@@ -40,6 +40,12 @@ export default async function AutomacoesPage() {
         where: { organizationId },
         orderBy: [{ entityType: "asc" }, { order: "asc" }],
         select: { id: true, entityType: true, label: true, type: true, options: true },
+      }),
+      // Biblioteca de Scripts — usada no picker da ação "Enviar script".
+      prisma.messageScript.findMany({
+        where: { organizationId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
       }),
     ]);
 
@@ -72,6 +78,7 @@ export default async function AutomacoesPage() {
           members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name, role: m.role }))}
           whatsappInstances={whatsappInstances}
           customFields={customFields}
+          scripts={scripts}
         />
       </div>
     );

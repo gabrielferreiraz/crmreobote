@@ -92,7 +92,7 @@ export default async function HomePage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
         <StatTile icon={Briefcase} label="Negócios abertos" value={openDeals} />
         <StatTile
           icon={ArrowUpRight}

@@ -8,6 +8,7 @@ import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
+import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 import { ContactTabs } from "./contact-tabs";
 
@@ -79,9 +80,7 @@ export default async function ContactPage({
 
   // Mesma regra do envio: a conversa aberta aqui é sempre a de quem está
   // logado (cada um manda pelo próprio número conectado).
-  const myInstance = await prisma.whatsAppInstance.findUnique({
-    where: { organizationId_userId: { organizationId, userId: session!.user.id } },
-  });
+  const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
   const whatsappThread =
     myInstance?.status === "CONNECTED"
       ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact })

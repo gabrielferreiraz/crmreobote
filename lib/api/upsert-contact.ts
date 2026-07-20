@@ -69,6 +69,19 @@ export async function upsertContactFromIntegration(
   if ("customFields" in input && input.customFields && typeof input.customFields === "object") {
     data.customFields = input.customFields as Prisma.InputJsonValue;
   }
+  // Atribuição de anúncio — genérica (qualquer plataforma/automação: Meta
+  // via N8N/Make/Zapier, Google Ads, etc.), não só o webhook direto da Meta
+  // (ver lib/meta-ads/leads.ts, que grava essas mesmas colunas). Alimenta o
+  // relatório de conversão por campanha (lib/meta-ads/attribution.ts).
+  if ("adAttribution" in input && input.adAttribution && typeof input.adAttribution === "object") {
+    const attribution = input.adAttribution as Record<string, unknown>;
+    const pick = (key: string) => (typeof attribution[key] === "string" ? sanitizeCell(attribution[key] as string) : null);
+    if ("campaignId" in attribution) data.metaCampaignId = pick("campaignId");
+    if ("campaignName" in attribution) data.metaCampaignName = pick("campaignName");
+    if ("adId" in attribution) data.metaAdId = pick("adId");
+    if ("adSetId" in attribution) data.metaAdSetId = pick("adSetId");
+    if ("formId" in attribution) data.metaFormId = pick("formId");
+  }
   if ("ownerId" in input) {
     const ownerId = typeof input.ownerId === "string" ? input.ownerId : null;
     const currentResponsavelId = duplicate?.responsavelId ?? null;

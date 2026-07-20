@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency, formatCurrencyCompact, daysSince, formatDuration } from "@/lib/format";
+import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
@@ -18,6 +18,7 @@ import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
+import { GoalCard } from "./goal-card";
 
 export default async function RelatoriosPage({
   searchParams,
@@ -925,6 +926,36 @@ export default async function RelatoriosPage({
     deal: dealWhatsappStats.find((d) => d.userId === w.userId) ?? null,
   }));
 
+  // ─── Meta mensal ────────────────────────────────────────────────────
+  // Sempre o mês corrente (calendário de Brasília), independente do filtro
+  // de período do resto do relatório acima — meta é "como estamos indo
+  // agora", não uma pergunta sobre um período arbitrário escolhido. Também
+  // sempre a organização inteira (ignora o filtro de equipe/responsável):
+  // é uma meta só, do time todo, não uma por pessoa.
+  const isOwner = session!.user.role === "OWNER";
+  const nowParts = getBrazilParts(new Date());
+  const currentMonthLabel = brazilStartOfMonth().toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const [monthlyGoal, goalWonAgg] = await Promise.all([
+    prisma.monthlyGoal.findUnique({
+      where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
+    }),
+    prisma.deal.aggregate({
+      where: { organizationId, status: "WON", closedAt: { gte: brazilStartOfMonth() } },
+      _sum: { value: true },
+    }),
+  ]);
+  const goalValue = monthlyGoal ? Number(monthlyGoal.value) : null;
+  const goalAchievedValue = goalWonAgg._sum.value ? Number(goalWonAgg._sum.value) : 0;
+  // Pro marcador de ritmo no GoalCard — "dia X de Y do mês", sempre em
+  // calendário de Brasília (nowParts já é isso), nunca no fuso do navegador
+  // de quem está vendo a tela.
+  const goalDaysElapsed = nowParts.day;
+  const goalDaysInMonth = new Date(Date.UTC(nowParts.year, nowParts.month + 1, 0)).getUTCDate();
+
   return (
     <div className="space-y-16 pb-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -945,6 +976,17 @@ export default async function RelatoriosPage({
         </div>
       </div>
 
+      {(isOwner || goalValue !== null) && (
+        <GoalCard
+          monthLabel={currentMonthLabel}
+          goalValue={goalValue}
+          achievedValue={goalAchievedValue}
+          isOwner={isOwner}
+          daysElapsed={goalDaysElapsed}
+          daysInMonth={goalDaysInMonth}
+        />
+      )}
+
       {/* ─── Visão geral ────────────────────────────────────────────── */}
       <section className="space-y-6">
         <SectionHeading eyebrow="Visão geral" title="Como o funil está hoje" />
@@ -961,11 +1003,11 @@ export default async function RelatoriosPage({
               value={String(closedCount)}
               hint={`${wonCount} ganho${wonCount === 1 ? "" : "s"} · ${lostCount} perdido${lostCount === 1 ? "" : "s"} no período`}
             />
-            <Stat label="Pipeline em aberto" value={formatCurrencyCompact(openTotalValue)} hint={`${openCount} negócios · agora`} />
-            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrencyCompact(avgWonValue) : "—"} />
+            <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
+            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
             <Stat
               label="Total ganho"
-              value={formatCurrencyCompact(wonTotalValue)}
+              value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
             />
           </div>

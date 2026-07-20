@@ -99,11 +99,16 @@ export async function resolveWhatsappRecipients(
     if (!userId) continue;
     // O único "número pessoal" que o sistema conhece de um usuário é o
     // telefone da própria instância de WhatsApp dele — se não tiver
-    // conectado, não tem como mandar mensagem pra ele por aqui.
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId: entity.organizationId, userId } },
-      select: { phoneNumber: true },
+    // conectado, não tem como mandar mensagem pra ele por aqui. Pode ter até
+    // duas linhas agora (uma por provider); prefere a conectada, entre as
+    // duas conectadas prefere a Meta (mesmo critério de resolveConnectedInstance).
+    const instances = await prisma.whatsAppInstance.findMany({
+      where: { organizationId: entity.organizationId, userId },
+      select: { provider: true, status: true, phoneNumber: true },
     });
+    const instance =
+      instances.find((i) => i.provider === "META_CLOUD" && i.status === "CONNECTED") ??
+      instances.find((i) => i.provider === "EVOLUTION" && i.status === "CONNECTED");
     const normalized = normalizePhoneNumber(instance?.phoneNumber);
     if (normalized) result.push({ phoneNormalized: normalized });
   }

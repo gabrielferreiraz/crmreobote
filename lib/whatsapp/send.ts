@@ -23,12 +23,31 @@ import {
   sendMediaMessage,
   sendAudioMessage,
   sendContactMessage,
+  simulateTyping,
   type MessageRef,
 } from "@/lib/evolution";
+import * as metaWhatsApp from "@/lib/meta-whatsapp";
+import { decryptSecret } from "@/lib/security/secret-crypto";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { signMediaKey } from "@/lib/whatsapp/media-token";
 
 export class WhatsAppSendError extends Error {}
+
+/**
+ * Um usuário pode ter até duas linhas de WhatsAppInstance agora (uma por
+ * provider — ver WhatsAppInstance.provider) — acha a que está CONECTADA;
+ * entre as duas conectadas ao mesmo tempo (raro), prefere a API oficial da
+ * Meta. Usado sempre que o código só conhece "de quem é o WhatsApp",
+ * não uma conversa já aberta (que já fixa a instância pelo threadId).
+ */
+export async function resolveConnectedInstance(organizationId: string, userId: string) {
+  const instances = await prisma.whatsAppInstance.findMany({ where: { organizationId, userId } });
+  return (
+    instances.find((i) => i.provider === "META_CLOUD" && i.status === "CONNECTED") ??
+    instances.find((i) => i.provider === "EVOLUTION" && i.status === "CONNECTED") ??
+    null
+  );
+}
 
 type ContactMetadata = { name?: string; phone?: string };
 
@@ -62,10 +81,18 @@ export type WhatsAppOutgoingMessage = {
   replyToId?: string;
   /** Só o motor de campanhas preenche isso — marca a mensagem como disparo de lista fria (ver relatórios). */
   campaignId?: string;
+  /**
+   * Só o motor de campanhas (lib/campaigns/engine.ts) preenche isso — simula
+   * "digitando…" antes de mandar (ver simulateTyping em lib/evolution.ts).
+   * Nunca usado em mensagem manual (o vendedor já está digitando de verdade)
+   * nem em automação isolada (latência extra sem benefício de padrão, já que
+   * é uma mensagem só, não uma sequência de disparo em massa).
+   */
+  simulateTypingFirst?: boolean;
 };
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
-  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId } = params;
+  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId, simulateTypingFirst } = params;
 
   const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
   if (!thread) throw new WhatsAppSendError("Conversa não encontrada");
@@ -75,77 +102,145 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     throw new WhatsAppSendError("O WhatsApp desta conversa não está conectado no CRM");
   }
 
-  let quoted: MessageRef | undefined;
+  let quoted: MessageRef | undefined; // formato Evolution/Baileys (key+message)
+  let replyToWamid: string | undefined; // formato Meta (só o id da mensagem)
   if (replyToId) {
     // Só permite citar mensagem da mesma conversa — nunca aceita um id de
     // outra conversa/organização vindo do cliente.
     const quotedMessage = await prisma.whatsAppMessage.findFirst({
       where: { id: replyToId, organizationId, threadId },
-      select: { rawPayload: true },
+      select: { rawPayload: true, externalId: true },
     });
-    if (!quotedMessage?.rawPayload) throw new WhatsAppSendError("Mensagem original não encontrada pra responder");
-    quoted = quotedMessage.rawPayload as MessageRef;
+    if (instance.provider === "META_CLOUD") {
+      if (!quotedMessage?.externalId) throw new WhatsAppSendError("Mensagem original não encontrada pra responder");
+      replyToWamid = quotedMessage.externalId;
+    } else {
+      if (!quotedMessage?.rawPayload) throw new WhatsAppSendError("Mensagem original não encontrada pra responder");
+      quoted = quotedMessage.rawPayload as MessageRef;
+    }
   }
 
   const fullNumber = `55${thread.phoneNormalized}`;
+
+  // Só EVOLUTION (sessão WhatsApp Web/Baileys) — a Cloud API oficial da Meta
+  // não tem conceito de "presença"/digitando pra mensagem iniciada por nós.
+  if (simulateTypingFirst && instance.provider !== "META_CLOUD") {
+    await simulateTyping(instance.instanceName, fullNumber, text.length);
+  }
+
   let externalId: string | undefined;
   let rawPayload: MessageRef | undefined;
 
   try {
-    switch (type) {
-      case "IMAGE": {
-        if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
-        const result = await sendMediaMessage(
-          instance.instanceName,
-          fullNumber,
-          { mediatype: "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
-          quoted,
-        );
-        externalId = result.externalId;
-        rawPayload = result.ref;
-        break;
+    if (instance.provider === "META_CLOUD") {
+      if (!instance.metaPhoneNumberId || !instance.metaAccessToken) {
+        throw new WhatsAppSendError("Conexão com a API oficial da Meta incompleta — reconecte em Configurações");
       }
-      case "AUDIO": {
-        if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
-        const result = await sendAudioMessage(
-          instance.instanceName,
-          fullNumber,
-          buildEvolutionMediaUrl(mediaUrl),
-          quoted,
-        );
-        externalId = result.externalId;
-        rawPayload = result.ref;
-        break;
+      const accessToken = decryptSecret(instance.metaAccessToken);
+      const phoneNumberId = instance.metaPhoneNumberId;
+
+      switch (type) {
+        case "IMAGE": {
+          if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
+          const result = await metaWhatsApp.sendMediaMessage(
+            phoneNumberId,
+            accessToken,
+            fullNumber,
+            { mediatype: "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
+            replyToWamid,
+          );
+          externalId = result.externalId;
+          break;
+        }
+        case "AUDIO": {
+          if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
+          const result = await metaWhatsApp.sendAudioMessage(
+            phoneNumberId,
+            accessToken,
+            fullNumber,
+            buildEvolutionMediaUrl(mediaUrl),
+            replyToWamid,
+          );
+          externalId = result.externalId;
+          break;
+        }
+        case "CONTACT": {
+          const meta = metadata as ContactMetadata | undefined;
+          if (!meta?.name || !meta?.phone) throw new WhatsAppSendError("Nome e telefone do contato são obrigatórios");
+          const result = await metaWhatsApp.sendContactMessage(
+            phoneNumberId,
+            accessToken,
+            fullNumber,
+            { name: meta.name, phone: meta.phone },
+            replyToWamid,
+          );
+          externalId = result.externalId;
+          break;
+        }
+        case "PIX":
+        case "TEXT":
+        default: {
+          const result = await metaWhatsApp.sendTextMessage(phoneNumberId, accessToken, fullNumber, text, replyToWamid);
+          externalId = result.externalId;
+          break;
+        }
       }
-      case "CONTACT": {
-        const meta = metadata as ContactMetadata | undefined;
-        if (!meta?.name || !meta?.phone) throw new WhatsAppSendError("Nome e telefone do contato são obrigatórios");
-        const result = await sendContactMessage(
-          instance.instanceName,
-          fullNumber,
-          { name: meta.name, phone: meta.phone },
-          quoted,
-        );
-        externalId = result.externalId;
-        rawPayload = result.ref;
-        break;
-      }
-      case "PIX":
-      case "TEXT":
-      default: {
-        // BUTTONS/LIST não são mais enviáveis (removido: o Baileys simula
-        // isso via truque não-oficial que a Meta não garante entregar/
-        // renderizar — confirmado em produção que não chegava ao
-        // destinatário). Se algum dado antigo ainda vier com esse type,
-        // cai aqui e manda como texto normal.
-        // Pix não tem integração real com provedor de pagamento ainda (é
-        // decisão de produto, não só técnica) — envia como texto formatado
-        // mesmo; o cartão visual rico continua aparecendo no CRM via
-        // type + metadata salvos abaixo.
-        const result = await sendTextMessage(instance.instanceName, fullNumber, text, quoted);
-        externalId = result.externalId;
-        rawPayload = result.ref;
-        break;
+    } else {
+      switch (type) {
+        case "IMAGE": {
+          if (!mediaUrl) throw new WhatsAppSendError("Imagem é obrigatória");
+          const result = await sendMediaMessage(
+            instance.instanceName,
+            fullNumber,
+            { mediatype: "image", media: buildEvolutionMediaUrl(mediaUrl), caption: text },
+            quoted,
+          );
+          externalId = result.externalId;
+          rawPayload = result.ref;
+          break;
+        }
+        case "AUDIO": {
+          if (!mediaUrl) throw new WhatsAppSendError("Áudio é obrigatório");
+          const result = await sendAudioMessage(
+            instance.instanceName,
+            fullNumber,
+            buildEvolutionMediaUrl(mediaUrl),
+            quoted,
+          );
+          externalId = result.externalId;
+          rawPayload = result.ref;
+          break;
+        }
+        case "CONTACT": {
+          const meta = metadata as ContactMetadata | undefined;
+          if (!meta?.name || !meta?.phone) throw new WhatsAppSendError("Nome e telefone do contato são obrigatórios");
+          const result = await sendContactMessage(
+            instance.instanceName,
+            fullNumber,
+            { name: meta.name, phone: meta.phone },
+            quoted,
+          );
+          externalId = result.externalId;
+          rawPayload = result.ref;
+          break;
+        }
+        case "PIX":
+        case "TEXT":
+        default: {
+          // BUTTONS/LIST não são mais enviáveis (removido: o Baileys simula
+          // isso via truque não-oficial que a Meta não garante entregar/
+          // renderizar — confirmado em produção que não chegava ao
+          // destinatário). Se algum dado antigo ainda vier com esse type,
+          // cai aqui e manda como texto normal.
+          // Pix não tem integração real com provedor de pagamento ainda (é
+          // decisão de produto, não só técnica) — envia como texto formatado
+          // mesmo; o cartão visual rico continua aparecendo no CRM via
+          // type + metadata salvos abaixo.
+          const result = await sendTextMessage(instance.instanceName, fullNumber, text, quoted);
+          externalId = result.externalId;
+          rawPayload = result.ref;
+          break;
+        }
       }
     }
   } catch (err) {
@@ -192,10 +287,8 @@ export async function sendWhatsAppMessageToContact(
   const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
   if (!contact) throw new WhatsAppSendError("Contato não encontrado");
 
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: { organizationId_userId: { organizationId, userId: ownerId } },
-  });
-  if (!instance || instance.status !== "CONNECTED") {
+  const instance = await resolveConnectedInstance(organizationId, ownerId);
+  if (!instance) {
     throw new WhatsAppSendError("O responsável por este contato não tem WhatsApp conectado no CRM");
   }
 

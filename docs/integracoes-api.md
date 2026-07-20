@@ -126,6 +126,24 @@ tem um pelo próprio CRM (ou pela ação em massa "Trocar responsável" na tela
 de Clientes). `ownerId` só "pega" em duas situações: contato novo, ou
 contato existente que ainda não tinha responsável nenhum.
 
+`adAttribution` (opcional, objeto) — de qual anúncio/campanha esse lead
+veio, pra alimentar o relatório de conversão por campanha (Relatórios →
+Meta Ads). Genérico: não é exclusivo do webhook direto da Meta — se você
+usa N8N, Make, Zapier ou qualquer automação pra puxar o lead (do Facebook,
+Google Ads, TikTok Ads, o que for) e mandar pra cá, é só preencher esses
+campos que o relatório funciona igual. Todos os subcampos são opcionais e
+livres (string) — mande só o que fizer sentido pra sua automação:
+
+```json
+"adAttribution": {
+  "campaignId": "1234567890",
+  "campaignName": "Campanha Setembro - Consórcio",
+  "adId": "9876543210",
+  "adSetId": "5555555555",
+  "formId": "1111111111"
+}
+```
+
 **Request**
 
 ```json
@@ -141,6 +159,11 @@ contato existente que ainda não tinha responsável nenhum.
   "state": "MS",
   "tags": ["lead-quente", "facebook"],
   "ownerId": "cm...",
+  "adAttribution": {
+    "campaignId": "1234567890",
+    "campaignName": "Campanha Setembro - Consórcio",
+    "adId": "9876543210"
+  },
   "customFields": {
     "campanha_id": "abc123",
     "orcamento_estimado": 5000
@@ -175,6 +198,13 @@ sem impedir a criação:
     "tags": ["lead-quente", "facebook"],
     "ownerId": "cm...",
     "customFields": { "campanha_id": "abc123", "orcamento_estimado": 5000 },
+    "adAttribution": {
+      "campaignId": "1234567890",
+      "campaignName": "Campanha Setembro - Consórcio",
+      "adId": "9876543210",
+      "adSetId": null,
+      "formId": null
+    },
     "createdAt": "2026-07-17T14:32:00.000Z",
     "outcome": "created",
     "warnings": []
@@ -263,6 +293,11 @@ anteriores.
 `value`, `name`, `creditType`, `description` e `source`, quando enviados,
 precisam ser do tipo certo (`value` número; os demais, texto) — um tipo
 errado é rejeitado com `400`, não vira erro genérico.
+
+Mandando `contact` (contato novo), o `adAttribution` descrito em
+`POST /api/v1/contacts` funciona igual aqui dentro do objeto `contact` — é
+o jeito de já criar o negócio com o Contato marcado de qual anúncio ele
+veio, tudo numa chamada só.
 
 **Request** (contato novo, direto na mesma chamada)
 

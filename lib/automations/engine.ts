@@ -4,13 +4,14 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendPushToUser } from "@/lib/push";
-import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
+import { sendWhatsAppMessage, resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
 import { sendEmail } from "@/lib/email";
 import { resolveEmailAddresses, resolveWhatsappRecipients, type RecipientEntry } from "@/lib/automations/recipients";
 import { interpolateAutomationTemplate } from "@/lib/automations/variables";
 import { escapeHtmlValues } from "@/lib/security/html-escape";
-import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey } from "@/lib/timezone";
+import { brazilHour, brazilWeekday, brazilDayOfMonth, brazilDateKey, brazilGreeting } from "@/lib/timezone";
+import { renderSteps } from "@/lib/campaigns/spintax";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { matchesCustomFieldConditions, type CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
@@ -49,7 +50,16 @@ type ActionConfig = {
   /** SET_CUSTOM_FIELD: id da CustomFieldDefinition e o valor (texto cru, coerido pro tipo do campo na hora de gravar). */
   customFieldId?: string;
   customFieldValue?: string;
+  /** SEND_SCRIPT: id do MessageScript salvo (biblioteca de Scripts). */
+  scriptId?: string;
+  scriptRecipients?: RecipientEntry[];
+  /** userId do remetente fixo — mesmo raciocínio de whatsappSenderId acima. */
+  scriptSenderId?: string;
 };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type Entity = {
   entityId: string;
@@ -246,10 +256,8 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
     // desse usuário. Caso contrário, cai no comportamento padrão: a instância
     // do responsável pela entidade (deal/contact/tarefa).
     const senderId = actionConfig.whatsappSenderId ?? entity.ownerId;
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId: { organizationId: entity.organizationId, userId: senderId } },
-    });
-    if (!instance || instance.status !== "CONNECTED") {
+    const instance = await resolveConnectedInstance(entity.organizationId, senderId);
+    if (!instance) {
       return { success: false, detail: "WhatsApp do remetente não está conectado." };
     }
 
@@ -286,6 +294,93 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
     return {
       success: sent > 0,
       detail: `WhatsApp enviado para ${sent}/${targets.length} destinatário(s).${failed > 0 ? ` ${failed} falharam.` : ""}`,
+    };
+  }
+
+  if (rule.action === "SEND_SCRIPT") {
+    const scriptId = actionConfig.scriptId;
+    if (!scriptId) return { success: false, detail: "Nenhum script selecionado." };
+    const script = await prisma.messageScript.findFirst({
+      where: { id: scriptId, organizationId: entity.organizationId },
+    });
+    if (!script) return { success: false, detail: "Script não encontrado (pode ter sido excluído)." };
+
+    // Mesmo raciocínio do SEND_WHATSAPP acima: remetente fixo se configurado, senão a instância do responsável pela entidade.
+    const senderId = actionConfig.scriptSenderId ?? entity.ownerId;
+    const instance = await resolveConnectedInstance(entity.organizationId, senderId);
+    if (!instance) {
+      return { success: false, detail: "WhatsApp do remetente não está conectado." };
+    }
+
+    const recipientConfig = actionConfig.scriptRecipients?.length
+      ? actionConfig.scriptRecipients
+      : [{ type: "CLIENT" as const }];
+    const targets = await resolveWhatsappRecipients(
+      { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
+      recipientConfig,
+    );
+    if (targets.length === 0) return { success: false, detail: "Nenhum destinatário resolvido para o envio." };
+
+    let sent = 0;
+    for (const target of targets) {
+      try {
+        // Variáveis do script ({nome}/{cargo}/{empresa}/{cidade} + spintax)
+        // exigem o Contact de cada destinatário — resolveWhatsappRecipients
+        // só devolve o telefone normalizado, então busca o Contact
+        // correspondente (mesmo padrão do envio manual em
+        // app/api/whatsapp/threads/[threadId]/send-script/route.ts).
+        const contact = await prisma.contact.findFirst({
+          where: {
+            organizationId: entity.organizationId,
+            OR: [{ phoneNormalized: target.phoneNormalized }, { whatsappNormalized: target.phoneNormalized }],
+          },
+        });
+        const steps = renderSteps(
+          script.steps as { text: string; delayAfterSec: number }[],
+          { nome: contact?.name ?? "", cargo: contact?.jobTitle, empresa: contact?.company, cidade: contact?.city },
+          brazilGreeting(),
+        );
+        if (steps.length === 0) continue;
+
+        const thread = await getOrCreateThread({
+          organizationId: entity.organizationId,
+          instanceId: instance.id,
+          phoneNormalized: target.phoneNormalized,
+        });
+
+        // Só o 1º passo decide sucesso/falha aqui — os seguintes (com delay
+        // real entre eles) seguem em segundo plano, sem bloquear o cron de
+        // automações (mesmo ajuste já feito no motor de campanhas, ver
+        // lib/campaigns/engine.ts): uma regra que dispara pra várias
+        // entidades no mesmo tick não deve ficar presa atrás de um único
+        // script de várias mensagens.
+        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[0].text });
+        sent += 1;
+
+        if (steps.length > 1) {
+          void (async () => {
+            for (let i = 0; i < steps.length - 1; i++) {
+              if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
+              try {
+                await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[i + 1].text });
+              } catch (err) {
+                console.error(
+                  `[automations] falha ao enviar passo ${i + 2}/${steps.length} do script (regra "${rule.name}")`,
+                  err,
+                );
+                break;
+              }
+            }
+          })();
+        }
+      } catch (err) {
+        console.error(`[automations] falha ao enviar script pra ${target.phoneNormalized} (regra "${rule.name}")`, err);
+      }
+    }
+    const failed = targets.length - sent;
+    return {
+      success: sent > 0,
+      detail: `Script enviado para ${sent}/${targets.length} destinatário(s).${failed > 0 ? ` ${failed} falharam.` : ""}`,
     };
   }
 

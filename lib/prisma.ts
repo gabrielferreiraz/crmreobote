@@ -5,6 +5,7 @@ import {
   getCurrentUserId,
   getCurrentInstanceName,
   getCurrentApiKeyHash,
+  getCurrentMetaPageId,
 } from "@/lib/tenant-context";
 
 function createBaseClient() {
@@ -50,6 +51,11 @@ function createBaseClient() {
  * autenticação de integração externa (lib/require-api-key.ts): a requisição
  * só traz o hash da API key, e a policy de ApiKey permite achar a própria
  * linha por ele antes de conhecer o organizationId.
+ *
+ * `app.current_meta_page_id` é o mesmo tipo de bootstrap, só que pro webhook
+ * de Lead Ads da Meta (lib/tenant-context.ts's runWithMetaPageLookup): a
+ * requisição só traz o pageId, e a policy de MetaAdsConnection permite achar
+ * a própria linha por ele antes de conhecer o organizationId.
  */
 function withTenantRls(client: PrismaClient) {
   return client.$extends({
@@ -61,7 +67,8 @@ function withTenantRls(client: PrismaClient) {
           const userId = getCurrentUserId();
           const instanceName = getCurrentInstanceName();
           const apiKeyHash = getCurrentApiKeyHash();
-          if (!organizationId && !userId && !instanceName && !apiKeyHash) return query(args);
+          const metaPageId = getCurrentMetaPageId();
+          if (!organizationId && !userId && !instanceName && !apiKeyHash && !metaPageId) return query(args);
 
           // Importante: tem que ser a forma em array do $transaction, não
           // `$transaction(async (tx) => ...)`. Na forma de callback, `query(args)`
@@ -76,12 +83,13 @@ function withTenantRls(client: PrismaClient) {
           // folga, várias consultas em paralelo (ex.: a Home, que dispara ~9 de
           // uma vez) estouram o prazo padrão logo após o dev server reiniciar,
           // com o pool ainda frio.
-          const [, , , , result] = await client.$transaction(
+          const [, , , , , result] = await client.$transaction(
             [
               client.$executeRaw`SELECT set_config('app.current_organization_id', ${organizationId ?? ""}, true)`,
               client.$executeRaw`SELECT set_config('app.current_user_id', ${userId ?? ""}, true)`,
               client.$executeRaw`SELECT set_config('app.current_instance_name', ${instanceName ?? ""}, true)`,
               client.$executeRaw`SELECT set_config('app.current_api_key_hash', ${apiKeyHash ?? ""}, true)`,
+              client.$executeRaw`SELECT set_config('app.current_meta_page_id', ${metaPageId ?? ""}, true)`,
               query(args),
             ],
             { maxWait: 10_000, timeout: 15_000 },

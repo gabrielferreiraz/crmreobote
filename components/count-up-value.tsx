@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatCurrencyCompact } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
@@ -28,5 +28,5 @@ export function CountUpValue({ value, format = "number" }: { value: number; form
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  return <>{format === "currency" ? formatCurrencyCompact(display) : display.toLocaleString("pt-BR")}</>;
+  return <>{format === "currency" ? formatCurrency(display) : display.toLocaleString("pt-BR")}</>;
 }

@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { coerceCustomFieldValue } from "@/lib/custom-fields";
+import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import type { CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
 
 /** Triggers cuja entidade principal é um Deal/Contact estável — únicos onde "condições de campo personalizado" fazem sentido. */
@@ -41,6 +42,7 @@ export const VALID_ACTIONS: $Enums.AutomationAction[] = [
   "SEND_WHATSAPP",
   "SEND_EMAIL",
   "SET_CUSTOM_FIELD",
+  "SEND_SCRIPT",
 ];
 
 export async function validateTriggerConfig(
@@ -107,11 +109,26 @@ export async function validateActionConfig(
         where: { organizationId, userId: senderId, active: true },
       });
       if (!member) return "Remetente inválido — o usuário não é membro ativo desta organização";
-      const instance = await prisma.whatsAppInstance.findUnique({
-        where: { organizationId_userId: { organizationId, userId: senderId } },
-        select: { status: true },
+      const instance = await resolveConnectedInstance(organizationId, senderId);
+      if (!instance) {
+        return "O número WhatsApp do remetente selecionado não está conectado";
+      }
+    }
+  }
+  if (action === "SEND_SCRIPT") {
+    const scriptId = actionConfig?.scriptId as string | undefined;
+    if (!scriptId) return "Selecione o script";
+    const script = await prisma.messageScript.findFirst({ where: { id: scriptId, organizationId } });
+    if (!script) return "Script inválido";
+    if (!(actionConfig?.scriptRecipients as unknown[] | undefined)?.length) return "Selecione ao menos um destinatário";
+    const senderId = actionConfig?.scriptSenderId as string | undefined;
+    if (senderId) {
+      const member = await prisma.organizationUser.findFirst({
+        where: { organizationId, userId: senderId, active: true },
       });
-      if (!instance || instance.status !== "CONNECTED") {
+      if (!member) return "Remetente inválido — o usuário não é membro ativo desta organização";
+      const instance = await resolveConnectedInstance(organizationId, senderId);
+      if (!instance) {
         return "O número WhatsApp do remetente selecionado não está conectado";
       }
     }

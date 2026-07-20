@@ -139,6 +139,7 @@ export function ContactsTable({
   const [registeredTo, setRegisteredTo] = useState("");
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -233,17 +234,48 @@ export function ContactsTable({
     });
   }
 
-  function toggleSelect(id: string) {
+  function toggleSelect(id: string, shiftKey?: boolean) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const isSelecting = !next.has(id);
+
+      if (isSelecting) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+
+      if (shiftKey && lastSelectedId && lastSelectedId !== id) {
+        const lastIndex = filteredContacts.findIndex((c) => c.id === lastSelectedId);
+        const currentIndex = filteredContacts.findIndex((c) => c.id === id);
+        if (lastIndex !== -1 && currentIndex !== -1) {
+          const start = Math.min(lastIndex, currentIndex);
+          const end = Math.max(lastIndex, currentIndex);
+          
+          for (let i = start; i <= end; i++) {
+            const contactId = filteredContacts[i].id;
+            if (isSelecting) {
+              next.add(contactId);
+            } else {
+              next.delete(contactId);
+            }
+          }
+        }
+      }
+
+      if (isSelecting) {
+        setLastSelectedId(id);
+      } else if (lastSelectedId === id) {
+        setLastSelectedId(null);
+      }
+
       return next;
     });
   }
 
   function clearSelection() {
     setSelectedIds(new Set());
+    setLastSelectedId(null);
     setBulkError(null);
   }
 
@@ -598,7 +630,8 @@ export function ContactsTable({
                     <input
                       type="checkbox"
                       checked={selectedIds.has(c.id)}
-                      onChange={() => toggleSelect(c.id)}
+                      onClick={(e) => toggleSelect(c.id, e.shiftKey)}
+                      onChange={() => {}}
                       className={`accent-neutral-900 dark:accent-white ${
                         selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100"
                       }`}
@@ -721,7 +754,8 @@ export function ContactsTable({
                       <input
                         type="checkbox"
                         checked={selectedIds.has(c.id)}
-                        onChange={() => toggleSelect(c.id)}
+                        onClick={(e) => toggleSelect(c.id, e.shiftKey)}
+                        onChange={() => {}}
                         className={`accent-neutral-900 dark:accent-white ${
                           selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100"
                         }`}

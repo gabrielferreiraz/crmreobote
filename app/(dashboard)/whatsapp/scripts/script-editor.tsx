@@ -1,11 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, Loader2, ArrowLeft, X } from "lucide-react";
+import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle } from "lucide-react";
 import { VariablePills } from "@/components/variable-pills";
 import { LoadingDots } from "@/components/loading-dots";
+import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
+import { MessageVariationEditor } from "@/components/message-variation-editor";
 import { renderTemplate } from "@/lib/campaigns/spintax";
 
 type Step = { text: string; delayAfterSec: number };
@@ -22,40 +24,67 @@ const TOKEN_LABEL = new Map<string, string>([
   ["consultor", "Consultor"],
   ["saudacao", "Saudação"],
 ]);
-// Casa só os tokens de variável conhecidos (ex.: "{cargo}") — de propósito não
-// casa "{[opção 1|opção 2]}" (sintaxe de spintax, ver lib/campaigns/spintax.ts),
-// que deve continuar como texto puro editável, não virar pílula.
-const TOKEN_RE = new RegExp(`(\\{(?:${Array.from(TOKEN_LABEL.keys()).join("|")})\\})`, "g");
+// Casa tokens de variável conhecidos (ex.: "{cargo}") E blocos de variação
+// "{[opção 1|opção 2]}" (sintaxe spintax, ver lib/campaigns/spintax.ts) —
+// ambos viram pílula no editor, nunca ficam como chave/colchete cru na tela.
+// O corpo da variação aceita "{token}" dentro (só "[" e "]" ficam de fora —
+// mesma regra de lib/campaigns/spintax.ts), pra permitir variável dentro de
+// uma opção (ex.: "Oi {primeiro_nome}!" como uma das frases alternativas).
+const VARIATION_GROUP_RE = "\\{\\[[^\\[\\]]+\\]\\}";
+const TOKEN_RE = new RegExp(`(\\{(?:${Array.from(TOKEN_LABEL.keys()).join("|")})\\}|${VARIATION_GROUP_RE})`, "g");
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
 function buildChipHtml(token: string): string {
   const label = TOKEN_LABEL.get(token) ?? token;
   return `<span contenteditable="false" data-token="${token}" class="variable-pill variable-pill--clickable" title="Clique para remover">${label}</span> `;
 }
 
-/** DOM do editor → string com `{token}` (mesmo formato que sempre foi salvo/renderizado). */
+/** Pílula de variação — guarda as opções em data-variation-options (JSON) pra reabrir o editor visual depois. */
+function buildVariationChipHtml(options: string[]): string {
+  const encoded = encodeURIComponent(JSON.stringify(options));
+  const label = escapeHtml(options.join(" / "));
+  return `<span contenteditable="false" data-variation-options="${encoded}" class="variation-pill" title="Clique para editar as opções">🔀 ${label}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span></span> `;
+}
+
+/** DOM do editor → string com `{token}`/`{[a|b]}` (mesmo formato que sempre foi salvo/renderizado). */
 function serializeEditor(root: HTMLElement): string {
   let out = "";
   for (const node of Array.from(root.childNodes)) {
     if (node.nodeType === Node.TEXT_NODE) {
       out += node.textContent ?? "";
     } else if (node instanceof HTMLElement) {
-      if (node.dataset.token) out += `{${node.dataset.token}}`;
-      else if (node.tagName === "BR") out += "\n";
-      else out += node.textContent ?? "";
+      if (node.dataset.variationOptions) {
+        const options: string[] = JSON.parse(decodeURIComponent(node.dataset.variationOptions));
+        out += `{[${options.join("|")}]}`;
+      } else if (node.dataset.token) {
+        out += `{${node.dataset.token}}`;
+      } else if (node.tagName === "BR") {
+        out += "\n";
+      } else {
+        out += node.textContent ?? "";
+      }
     }
   }
   return out;
 }
 
-/** string com `{token}` → DOM (pílulas + texto) — só roda uma vez, no mount de cada editor. */
+/** string com `{token}`/`{[a|b]}` → DOM (pílulas + texto) — só roda uma vez, no mount de cada editor. */
 function deserializeIntoEditor(root: HTMLElement, value: string) {
   root.innerHTML = "";
   const parts = value.split(TOKEN_RE);
   for (const part of parts) {
-    const match = part.match(/^\{(\w+)\}$/);
-    if (match && TOKEN_LABEL.has(match[1])) {
+    const tokenMatch = part.match(/^\{(\w+)\}$/);
+    const variationMatch = part.match(/^\{\[([^[\]]+)\]\}$/);
+    if (tokenMatch && TOKEN_LABEL.has(tokenMatch[1])) {
       const wrapper = document.createElement("span");
-      wrapper.innerHTML = buildChipHtml(match[1]);
+      wrapper.innerHTML = buildChipHtml(tokenMatch[1]);
+      while (wrapper.firstChild) root.appendChild(wrapper.firstChild);
+    } else if (variationMatch) {
+      const wrapper = document.createElement("span");
+      wrapper.innerHTML = buildVariationChipHtml(variationMatch[1].split("|"));
       while (wrapper.firstChild) root.appendChild(wrapper.firstChild);
     } else if (part) {
       part.split("\n").forEach((line, i) => {
@@ -130,6 +159,15 @@ export function ScriptEditor({
   const [focusedStepIndex, setFocusedStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Editor inline de variação de mensagem (não é modal — aparece embutido
+  // no card "Inserir em") — editingChip aponta pra pílula real no DOM quando
+  // é edição (reabrindo com as opções atuais); null quando é uma variação
+  // nova, ainda sem pílula nenhuma.
+  const [variationDialog, setVariationDialog] = useState<{
+    stepIdx: number;
+    options: string[];
+    editingChip: HTMLElement | null;
+  } | null>(null);
 
   const editorRefs = useRef<(HTMLDivElement | null)[]>([]);
   const initializedSteps = useRef<Set<number>>(new Set());
@@ -183,12 +221,29 @@ export function ScriptEditor({
     document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
   }
 
-  /** Clique numa pílula inserida no texto a remove — sem precisar posicionar o cursor e apagar. */
+  /** Clique numa pílula: variável remove direto; variação abre o editor visual (ou remove, se foi no "×"). */
   function handleEditorClick(e: React.MouseEvent<HTMLDivElement>, idx: number) {
-    const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-token]");
-    if (!chip) return;
-    chip.remove();
-    handleEditorInput(idx);
+    const target = e.target as HTMLElement;
+
+    const removeBtn = target.closest<HTMLElement>("[data-variation-remove]");
+    if (removeBtn) {
+      removeBtn.closest<HTMLElement>("[data-variation-options]")?.remove();
+      handleEditorInput(idx);
+      return;
+    }
+
+    const variationChip = target.closest<HTMLElement>("[data-variation-options]");
+    if (variationChip) {
+      const options: string[] = JSON.parse(decodeURIComponent(variationChip.dataset.variationOptions!));
+      setVariationDialog({ stepIdx: idx, options, editingChip: variationChip });
+      return;
+    }
+
+    const tokenChip = target.closest<HTMLElement>("[data-token]");
+    if (tokenChip) {
+      tokenChip.remove();
+      handleEditorInput(idx);
+    }
   }
 
   /** Insere a pílula da variável no editor que estava com foco por último, na posição do cursor. */
@@ -200,6 +255,33 @@ export function ScriptEditor({
     ensureFocusInsideEditor(el);
     document.execCommand("insertHTML", false, buildChipHtml(token));
     handleEditorInput(idx);
+  }
+
+  /** Abre o editor visual de variação vazio, pra inserir uma pílula nova na mensagem com foco. */
+  function openNewVariationDialog() {
+    setVariationDialog({ stepIdx: focusedStepIndex, options: ["", ""], editingChip: null });
+  }
+
+  /** Confirma o editor inline: atualiza a pílula existente no DOM, ou insere uma nova no cursor. */
+  function saveVariationDialog(options: string[]) {
+    if (!variationDialog) return;
+    const { stepIdx, editingChip } = variationDialog;
+    const el = editorRefs.current[stepIdx];
+    if (!el) {
+      setVariationDialog(null);
+      return;
+    }
+
+    if (editingChip && el.contains(editingChip)) {
+      const encoded = encodeURIComponent(JSON.stringify(options));
+      editingChip.setAttribute("data-variation-options", encoded);
+      editingChip.innerHTML = `🔀 ${escapeHtml(options.join(" / "))}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span>`;
+    } else {
+      ensureFocusInsideEditor(el);
+      document.execCommand("insertHTML", false, buildVariationChipHtml(options));
+    }
+    handleEditorInput(stepIdx);
+    setVariationDialog(null);
   }
 
   function addTag(raw: string) {
@@ -216,10 +298,22 @@ export function ScriptEditor({
     setTags((prev) => prev.filter((t) => t !== tag));
   }
 
-  const previewSteps = steps.map((s) => ({
-    text: s.text.trim() ? renderTemplate(s.text, SAMPLE_VARS, "Boa tarde") : "",
-    delayAfterSec: s.delayAfterSec,
-  }));
+  // Memoizado pela chave dos textos crus, não recalculado a cada render: como
+  // a variação sorteia uma opção ao acaso (expandSpintax), recalcular à toa
+  // (ex.: digitando em outro campo qualquer) reiniciaria a animação do
+  // celular sem a mensagem ter mudado de verdade.
+  const rawStepsKey = steps.map((s) => s.text).join("");
+  const [variationSeed, setVariationSeed] = useState(0);
+  const hasVariation = steps.some((s) => /\{\[[^[\]]+\]\}/.test(s.text));
+  const previewSteps = useMemo(
+    () =>
+      steps.map((s) => ({
+        text: s.text.trim() ? renderTemplate(s.text, SAMPLE_VARS, "Boa tarde") : "",
+        delayAfterSec: s.delayAfterSec,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawStepsKey, variationSeed],
+  );
   const totalChars = steps.reduce((sum, s) => sum + s.text.length, 0);
   const canSubmit = !!name.trim() && steps.length > 0 && steps.every((s) => s.text.trim().length > 0);
 
@@ -352,7 +446,7 @@ export function ScriptEditor({
                   />
                   {!step.text && (
                     <span className="pointer-events-none absolute top-2 left-3 text-sm text-neutral-400 dark:text-neutral-500">
-                      Ex.: {"{saudacao} {primeiro_nome}"}! {"{[Tudo bem|Como vai]}"}? Vi que você atua como {"{cargo}"}...
+                      Ex.: {"{saudacao} {primeiro_nome}"}! Vi que você atua como {"{cargo}"}...
                     </span>
                   )}
                 </div>
@@ -378,9 +472,31 @@ export function ScriptEditor({
 
             <div className="card space-y-2 p-3">
               <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Inserir variável em: <span className="font-medium text-neutral-600 dark:text-neutral-300">Mensagem {focusedStepIndex + 1}</span>
+                Inserir em: <span className="font-medium text-neutral-600 dark:text-neutral-300">Mensagem {focusedStepIndex + 1}</span>
               </p>
               <VariablePills onInsert={insertVariable} />
+
+              {variationDialog ? (
+                <MessageVariationEditor
+                  initialOptions={variationDialog.options}
+                  onCancel={() => setVariationDialog(null)}
+                  onSave={saveVariationDialog}
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={openNewVariationDialog}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                  >
+                    <Shuffle className="h-3 w-3" strokeWidth={2.5} />
+                    Adicionar variação
+                  </button>
+                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                    Variação = frases alternativas que o sistema escolhe ao acaso, pra não mandar sempre o mesmo texto.
+                  </p>
+                </>
+              )}
             </div>
 
             <button type="button" onClick={addStep} className="btn-ghost w-full justify-center">
@@ -389,21 +505,20 @@ export function ScriptEditor({
             </button>
           </div>
 
-          <div className="card space-y-2 p-4 lg:sticky lg:top-4 lg:col-span-5">
-            <p className="field-label">Prévia (com dados de exemplo)</p>
-            <div className="space-y-1.5">
-              {previewSteps.map((s, i) => (
-                <div
-                  key={i}
-                  className="max-w-[85%] rounded-lg bg-emerald-50 px-3 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200"
-                >
-                  {s.text || <span className="text-neutral-400 dark:text-neutral-500">(vazio)</span>}
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              {totalChars} caracteres no total · <code>{"{[opção 1|opção 2]}"}</code> varia trechos
-            </p>
+          <div className="card space-y-3 p-4 lg:sticky lg:top-4 lg:col-span-5">
+            <p className="field-label text-center">Prévia (com dados de exemplo)</p>
+            <WhatsAppPhonePreview steps={previewSteps} contactName={SAMPLE_VARS.nome} />
+            {hasVariation && (
+              <button
+                type="button"
+                onClick={() => setVariationSeed((s) => s + 1)}
+                className="mx-auto flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
+              >
+                <Shuffle className="h-3 w-3" strokeWidth={2.5} />
+                Ver outra variação
+              </button>
+            )}
+            <p className="text-center text-xs text-neutral-400 dark:text-neutral-500">{totalChars} caracteres no total</p>
           </div>
         </div>
 

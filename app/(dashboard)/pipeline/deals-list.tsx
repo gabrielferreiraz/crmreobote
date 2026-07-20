@@ -214,6 +214,7 @@ export function DealsList({
   );
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -251,17 +252,47 @@ export function DealsList({
     });
   }
 
-  function toggleSelect(id: string) {
+  function toggleSelect(id: string, shiftKey?: boolean) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const isSelecting = !next.has(id);
+
+      if (isSelecting) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+
+      if (shiftKey && lastSelectedId && lastSelectedId !== id) {
+        const lastIndex = filteredDeals.findIndex((d) => d.id === lastSelectedId);
+        const currentIndex = filteredDeals.findIndex((d) => d.id === id);
+        if (lastIndex !== -1 && currentIndex !== -1) {
+          const start = Math.min(lastIndex, currentIndex);
+          const end = Math.max(lastIndex, currentIndex);
+          for (let i = start; i <= end; i++) {
+            const dealId = filteredDeals[i].id;
+            if (isSelecting) {
+              next.add(dealId);
+            } else {
+              next.delete(dealId);
+            }
+          }
+        }
+      }
+
+      if (isSelecting) {
+        setLastSelectedId(id);
+      } else if (lastSelectedId === id) {
+        setLastSelectedId(null);
+      }
+
       return next;
     });
   }
 
   function clearSelection() {
     setSelectedIds(new Set());
+    setLastSelectedId(null);
     setBulkError(null);
   }
 
@@ -598,7 +629,8 @@ export function DealsList({
                     <input
                       type="checkbox"
                       checked={selectedIds.has(deal.id)}
-                      onChange={() => toggleSelect(deal.id)}
+                      onClick={(e) => toggleSelect(deal.id, e.shiftKey)}
+                      onChange={() => {}}
                       className={`accent-neutral-900 dark:accent-white ${
                         selectedIds.has(deal.id) ? "" : "opacity-0 group-hover:opacity-100"
                       }`}

@@ -39,18 +39,6 @@ export function formatCurrency(value: number | string | null | undefined) {
   return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-/** Versão curta pra tiles de KPI (dashboard) — "R$ 1,2 mi" em vez de "R$ 1.234.567,89", pra nunca precisar truncar em telas estreitas. */
-export function formatCurrencyCompact(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) {
-    return `R$ ${(value / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
-  }
-  if (abs >= 100_000) {
-    return `R$ ${(value / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} mil`;
-  }
-  return formatCurrency(value);
-}
-
 export function daysSince(date: Date | string, referenceDate: Date = new Date()) {
   const d = typeof date === "string" ? new Date(date) : date;
   const diffMs = referenceDate.getTime() - d.getTime();

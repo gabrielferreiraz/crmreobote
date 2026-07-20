@@ -1,7 +1,7 @@
 import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Calculator } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -14,6 +14,7 @@ import { MobileHeader } from "./mobile-header";
 import { MobileNav } from "./mobile-nav";
 import { InstallPwaPrompt } from "@/components/install-pwa-prompt";
 import { PresenceHeartbeat } from "@/components/presence-heartbeat";
+import { PushNotificationsPrompt } from "@/components/push-notifications-prompt";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -64,6 +65,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <CommandPalette />
+          <a href="/api/simulador-sso" target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm">
+            <Calculator className="h-3.5 w-3.5" strokeWidth={2} />
+            Simulador
+          </a>
           <Link href="/pipeline?novo=1" className="btn-primary btn-sm">
             <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
             Novo negócio
@@ -90,6 +95,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <MobileNav signOutAction={handleSignOut} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
+      <PushNotificationsPrompt />
     </div>
   );
 }
