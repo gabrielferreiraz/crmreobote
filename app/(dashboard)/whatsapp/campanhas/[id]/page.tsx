@@ -7,6 +7,7 @@ import { getCampaignDetail } from "@/lib/campaigns/list";
 import { RecipientsTable } from "./recipients-table";
 import { CampaignMetricsChart } from "./metrics-chart";
 import { CampaignActions } from "./campaign-actions";
+import { NextSendCountdown } from "./next-send-countdown";
 
 function formatHours(hours: number): string {
   if (hours <= 0) return "0h";
@@ -88,20 +89,25 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </div>
 
         {campaign.counts.pending > 0 && (
-          <div className="card flex flex-wrap items-center gap-2 p-3 text-sm text-neutral-600 dark:text-neutral-300">
-            <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-            <span className="font-medium">Estimativa de conclusão:</span>
-            {completionEstimate.completionAt ? (
-              <span>
-                {new Date(completionEstimate.completionAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+          <div className="card space-y-2 p-3 text-sm text-neutral-600 dark:text-neutral-300">
+            <div className="flex flex-wrap items-center gap-2">
+              <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <span className="font-medium">Estimativa de conclusão:</span>
+              {completionEstimate.completionAt ? (
+                <span>
+                  {new Date(completionEstimate.completionAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                </span>
+              ) : (
+                <span className="text-neutral-400 dark:text-neutral-500">Não foi possível estimar (config. de horário/dias inválida)</span>
+              )}
+              <span className="text-neutral-400 dark:text-neutral-500">
+                · ~{Math.max(1, Math.round(completionEstimate.leadsPerDay))} leads/dia · janela de {formatHours(completionEstimate.windowHoursPerDay)}/dia ·
+                delay médio de {formatDelay(completionEstimate.avgDelaySec)}
               </span>
-            ) : (
-              <span className="text-neutral-400 dark:text-neutral-500">Não foi possível estimar (config. de horário/dias inválida)</span>
+            </div>
+            {campaign.nextSendEstimateAt && (
+              <NextSendCountdown targetAt={campaign.nextSendEstimateAt.toISOString()} />
             )}
-            <span className="text-neutral-400 dark:text-neutral-500">
-              · ~{Math.max(1, Math.round(completionEstimate.leadsPerDay))} leads/dia · janela de {formatHours(completionEstimate.windowHoursPerDay)}/dia ·
-              delay médio de {formatDelay(completionEstimate.avgDelaySec)}
-            </span>
           </div>
         )}
 

@@ -89,10 +89,17 @@ export type WhatsAppOutgoingMessage = {
    * é uma mensagem só, não uma sequência de disparo em massa).
    */
   simulateTypingFirst?: boolean;
+  /**
+   * Preenchido só quando quem está mandando (sessão logada) não é o dono da
+   * instância dessa conversa — ex.: Dono usando "enviar como consultor" na
+   * página de Cliente/Negócio. Puramente auditoria interna, nunca é
+   * transmitido ao WhatsApp em si (ver WhatsAppMessage.sentByUserId).
+   */
+  sentByUserId?: string;
 };
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
-  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId, simulateTypingFirst } = params;
+  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId, simulateTypingFirst, sentByUserId } = params;
 
   const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
   if (!thread) throw new WhatsAppSendError("Conversa não encontrada");
@@ -263,6 +270,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       replyToId,
       status: "SENT",
       campaignId,
+      sentByUserId: sentByUserId && sentByUserId !== instance.userId ? sentByUserId : undefined,
     },
   });
 

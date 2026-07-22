@@ -12,12 +12,20 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { CountUpValue } from "@/components/count-up-value";
+import { getCurrentUserArea } from "@/lib/user-area";
+import { HomeAdministrativo } from "./home-administrativo";
 
 export default async function HomePage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
   const firstName = (session!.user.name ?? "").split(" ")[0] || "";
+
+  // Administrativo (pós-venda) tem um início próprio — sem funil/metas de
+  // vendas, que não fazem sentido pra quem não vende (ver conversa que
+  // definiu o módulo de Processos).
+  const area = await getCurrentUserArea();
+  if (area === "ADMINISTRATIVO") return <HomeAdministrativo />;
 
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);

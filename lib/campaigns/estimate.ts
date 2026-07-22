@@ -7,7 +7,7 @@
  * já que falhas/respostas/pausas mudam o ritmo real.
  */
 
-import { brazilStartOfDay, brazilWeekday } from "@/lib/timezone";
+import { brazilStartOfDay, brazilWeekday, getBrazilParts } from "@/lib/timezone";
 
 export type CampaignScheduleConfig = {
   delayMinSec: number;
@@ -72,4 +72,37 @@ export function estimateCampaignCompletion(
   const completionAt = new Date(cursor.getTime() + completionHour * 60 * 60 * 1000);
 
   return { avgDelaySec, windowHoursPerDay, leadsPerDay, completionAt };
+}
+
+export type CampaignWindowConfig = Pick<CampaignScheduleConfig, "allowedWeekdays" | "windowStartHour" | "windowEndHour">;
+
+const MAX_DAYS_SEARCHED = 14; // trava de segurança — nunca deveria precisar olhar mais de 1 semana à frente
+
+/**
+ * Empurra `from` pra frente até o próximo instante em que a campanha
+ * realmente PODE mandar mensagem (dia da semana permitido + dentro da janela
+ * de horário) — sem isso, uma estimativa de "próximo envio" calculada só
+ * com o delay médio mostra "a qualquer momento" mesmo quando a campanha está
+ * fora do horário configurado (ex.: depois das 18h) e só volta a mandar no
+ * próximo dia útil de manhã.
+ */
+export function nextAllowedSendWindow(campaign: CampaignWindowConfig, from: Date): Date {
+  if (campaign.allowedWeekdays.length === 0) return from;
+
+  for (let dayOffset = 0; dayOffset < MAX_DAYS_SEARCHED; dayOffset++) {
+    const candidateDay = new Date(from.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const { year, month, day, weekday } = getBrazilParts(candidateDay);
+    if (!campaign.allowedWeekdays.includes(weekday)) continue;
+
+    // Meia-noite em Brasília (UTC-3, fixo) é 03:00 UTC do mesmo dia civil —
+    // mesma conta de brazilStartOfMonth/brazilStartOfDay em lib/timezone.ts.
+    const windowStart = new Date(Date.UTC(year, month, day, campaign.windowStartHour + 3, 0, 0));
+    const windowEnd = new Date(Date.UTC(year, month, day, campaign.windowEndHour + 3, 0, 0));
+
+    if (from.getTime() < windowStart.getTime()) return windowStart;
+    if (from.getTime() < windowEnd.getTime()) return from;
+    // Já passou da janela de hoje — tenta o próximo dia permitido.
+  }
+
+  return from; // segurança: não deveria chegar aqui com allowedWeekdays não-vazio
 }

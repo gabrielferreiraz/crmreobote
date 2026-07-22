@@ -16,6 +16,8 @@ type Member = {
   id: string;
   role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
   active: boolean;
+  canManageProcesses: boolean;
+  area: "VENDAS" | "ADMINISTRATIVO";
   user: { id: string; name: string; email: string };
   team: { id: string; name: string } | null;
   photoUrl: string | null;
@@ -66,6 +68,7 @@ export function MembersTable({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Member["role"]>("MEMBER");
+  const [area, setNewMemberArea] = useState<Member["area"]>("VENDAS");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -123,7 +126,7 @@ export function MembersTable({
     const res = await fetch("/api/org/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, role }),
+      body: JSON.stringify({ name, email, role, area }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -142,6 +145,7 @@ export function MembersTable({
     setName("");
     setEmail("");
     setRole("MEMBER");
+    setNewMemberArea("VENDAS");
     router.refresh();
   }
 
@@ -164,6 +168,24 @@ export function MembersTable({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active }),
+    });
+    if (res.ok) router.refresh();
+  }
+
+  async function setCanManageProcesses(userId: string, canManageProcesses: boolean) {
+    const res = await fetch(`/api/org/members/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ canManageProcesses }),
+    });
+    if (res.ok) router.refresh();
+  }
+
+  async function setArea(userId: string, area: Member["area"]) {
+    const res = await fetch(`/api/org/members/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ area }),
     });
     if (res.ok) router.refresh();
   }
@@ -370,6 +392,37 @@ export function MembersTable({
                 {m.team?.name ?? "—"}
               </p>
 
+              {isOwner && m.role !== "OWNER" ? (
+                <div className="shrink-0" title="Área de atuação — Administrativo troca a tela inicial e os relatórios pra pós-venda e tira o acesso ao CRM de vendas">
+                  <Select
+                    value={m.area}
+                    onChange={(v) => setArea(m.user.id, v as Member["area"])}
+                    className="min-w-[130px] py-1.5 text-xs"
+                    options={[
+                      { value: "VENDAS", label: "Vendas" },
+                      { value: "ADMINISTRATIVO", label: "Administrativo" },
+                    ]}
+                  />
+                </div>
+              ) : (
+                m.area === "ADMINISTRATIVO" && <Badge tone="accent">Administrativo</Badge>
+              )}
+
+              {isOwner && m.role !== "OWNER" && (
+                <label
+                  className="hidden shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 md:flex"
+                  title="Acesso administrativo ao Processos (pós-venda) — edita etapas e move cards, independente do cargo de vendas"
+                >
+                  <input
+                    type="checkbox"
+                    checked={m.canManageProcesses}
+                    onChange={(e) => setCanManageProcesses(m.user.id, e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
+                  />
+                  Processos
+                </label>
+              )}
+
               {isOwner && (
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <button
@@ -464,6 +517,19 @@ export function MembersTable({
                 ]}
               />
             </div>
+            {role !== "OWNER" && (
+              <div className="space-y-1">
+                <label className="field-label">Área</label>
+                <Select
+                  value={area}
+                  onChange={(v) => setNewMemberArea(v as Member["area"])}
+                  options={[
+                    { value: "VENDAS", label: "Vendas" },
+                    { value: "ADMINISTRATIVO", label: "Administrativo (pós-venda)" },
+                  ]}
+                />
+              </div>
+            )}
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

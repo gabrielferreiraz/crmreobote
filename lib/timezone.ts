@@ -103,3 +103,16 @@ export function brazilDateStringToUTC(dateStr: string): Date {
 export function brazilEndOfDayUTC(dateStr: string): Date {
   return new Date(brazilDateStringToUTC(dateStr).getTime() + 86_400_000 - 1);
 }
+
+/**
+ * Combina o dia "YYYY-MM-DD" (calendário de Brasília) escolhido pelo usuário
+ * com a hora/minuto/segundo ATUAIS (também em Brasília) — usado quando a UI só
+ * deixa escolher o dia (ex.: "quando esse negócio foi ganho/perdido?"), mas o
+ * timestamp gravado ainda precisa de uma hora plausível em vez de meia-noite
+ * (que faria um negócio "ganho hoje" parecer ganho às 00:00).
+ */
+export function brazilDateStringWithNowTimeToUTC(dateStr: string, now: Date = new Date()): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const { hour, minute } = getBrazilParts(now);
+  return new Date(Date.UTC(year, month - 1, day, hour + 3, minute, now.getUTCSeconds(), now.getUTCMilliseconds()));
+}

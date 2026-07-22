@@ -215,10 +215,24 @@ export type PresenceState = "available" | "unavailable" | "composing" | "recordi
  * "digitando…" de verdade antes de uma mensagem de campanha, pro padrão de
  * envio se parecer mais com alguém digitando do que com um disparo instantâneo.
  */
-export async function sendPresence(instanceName: string, number: string, presence: PresenceState = "available"): Promise<void> {
+/**
+ * `delayMs` é obrigatório pro Evolution (400 "instance requires property
+ * \"delay\"" sem ele) — é quanto tempo (ms) o Baileys mantém essa presença
+ * antes de voltar sozinho pro estado anterior. Pra `composing`, é natural
+ * passar o mesmo tempo que a gente já espera em simulateTyping antes de
+ * mandar a mensagem de verdade; pro uso de inscrição (`available`, ver
+ * app/api/whatsapp/messages/[threadId]/route.ts) o valor não tem efeito
+ * prático, só precisa existir.
+ */
+export async function sendPresence(
+  instanceName: string,
+  number: string,
+  presence: PresenceState = "available",
+  delayMs: number = 1000,
+): Promise<void> {
   await request(`/chat/sendPresence/${encodeURIComponent(instanceName)}`, {
     method: "POST",
-    body: JSON.stringify({ number, presence }),
+    body: JSON.stringify({ number, presence, delay: delayMs }),
   });
 }
 
@@ -239,7 +253,7 @@ export async function simulateTyping(instanceName: string, number: string, textL
   const waitMs = Math.min(MAX_TYPING_MS, Math.max(MIN_TYPING_MS, estimatedMs));
 
   try {
-    await sendPresence(instanceName, number, "composing");
+    await sendPresence(instanceName, number, "composing", Math.round(waitMs));
   } catch (err) {
     console.error(`[evolution] falha ao simular digitação pra ${number} (seguindo com o envio normalmente)`, err);
   }
@@ -280,11 +294,14 @@ export type HistoryMessage = {
 // Confirmado em produção que este endpoint É paginado de verdade (uma conta
 // ativa chegou a reportar 467 páginas) — cada página só traz as mensagens
 // mais recentes de TODA a instância (grupo, canal, contato, tudo misturado),
-// então uma única página cobre muito pouco de qualquer contato específico.
-// Sem um teto, uma conta bem ativa levaria centenas de requisições
-// sequenciais (o Evolution tem timeout de resposta de webhook, e o import
-// manual também não pode ficar minutos girando) — por isso um limite fixo de
-// páginas, bem maior que 1 (o comportamento anterior), mas ainda bounded.
+// então uma única página cobre muito pouco de qualquer contato específico:
+// com muitos contatos, um teto baixo de páginas se espalha tão fino que boa
+// parte deles fica só com a última mensagem. Esse é o teto padrão, usado
+// pelo gatilho automático do webhook (MESSAGES_SET) — ele precisa responder
+// rápido pro Evolution não reenviar o evento à toa, então fica conservador.
+// O import manual (botão "Importar histórico") passa um teto bem maior via
+// o parâmetro `maxPages` de findMessages, já que ali não tem esse limite de
+// tempo — é só esse caminho que de fato busca profundidade por contato.
 const MAX_HISTORY_PAGES = 10;
 
 type FindMessagesPage = { records: HistoryMessage[]; totalPages: number };
@@ -319,7 +336,7 @@ function parseFindMessagesPage(data: unknown): FindMessagesPage {
  * três; quando a forma não informa `pages` (array puro/versão antiga),
  * assume 1 página só e não insiste.
  */
-export async function findMessages(instanceName: string): Promise<HistoryMessage[]> {
+export async function findMessages(instanceName: string, maxPages: number = MAX_HISTORY_PAGES): Promise<HistoryMessage[]> {
   const allMessages: HistoryMessage[] = [];
   let page = 1;
   let totalPages = 1;
@@ -335,7 +352,7 @@ export async function findMessages(instanceName: string): Promise<HistoryMessage
     allMessages.push(...parsed.records);
     totalPages = parsed.totalPages;
     page += 1;
-  } while (page <= totalPages && page <= MAX_HISTORY_PAGES);
+  } while (page <= totalPages && page <= maxPages);
 
   return allMessages;
 }

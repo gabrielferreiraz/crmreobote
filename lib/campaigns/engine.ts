@@ -32,11 +32,14 @@ const RECIPIENT_INCLUDE = {
 
 type CampaignRow = {
   id: string;
+  source: $Enums.CampaignSource;
   instanceId: string;
   messageTemplates: unknown;
   followUpEnabled: boolean;
   followUpDelayHours: number;
   followUpTemplates: unknown;
+  rmktWaves: unknown;
+  noReplyDays: number | null;
   delayMinSec: number;
   delayMaxSec: number;
   dailyCap: number | null;
@@ -44,6 +47,13 @@ type CampaignRow = {
   windowStartHour: number;
   windowEndHour: number;
 };
+
+/** Uma onda de RMKT — dayOffset conta a partir do envio INICIAL, não da onda anterior (ver Campaign.rmktWaves). */
+type RmktWave = { dayOffset: number; templates: WeightedScript[] };
+
+function parseRmktWaves(raw: unknown): RmktWave[] {
+  return Array.isArray(raw) ? (raw as RmktWave[]) : [];
+}
 
 function isWithinSchedule(campaign: CampaignRow): boolean {
   const now = new Date();
@@ -173,6 +183,59 @@ async function hasPendingFollowUps(campaignId: string): Promise<boolean> {
 }
 
 /**
+ * Só LEAD_CAPTURE (ver Campaign.rmktWaves) — acha o próximo destinatário com
+ * uma onda de RMKT vencida (dayOffset contado a partir do envio INICIAL,
+ * `sentAt`) que ainda não respondeu nem converteu em negócio. Busca os
+ * candidatos elegíveis (nextWaveIndex ainda dentro do array) e filtra em
+ * memória quem já venceu, porque o prazo de cada um depende de EM QUE onda
+ * ele está — não dá pra expressar isso num único `where` do Prisma.
+ */
+async function findNextWaveCandidate(
+  campaign: CampaignRow,
+): Promise<{ recipient: RecipientRow; wave: RmktWave; waveIndex: number } | null> {
+  const waves = parseRmktWaves(campaign.rmktWaves);
+  if (waves.length === 0) return null;
+
+  const candidates = await prisma.campaignRecipient.findMany({
+    where: {
+      campaignId: campaign.id,
+      status: "SENT",
+      repliedAt: null,
+      dealId: null,
+      nextWaveIndex: { lt: waves.length },
+    },
+    orderBy: { sentAt: "asc" },
+    include: RECIPIENT_INCLUDE,
+  });
+
+  const now = Date.now();
+  for (const recipient of candidates) {
+    const wave = waves[recipient.nextWaveIndex];
+    if (!wave || !recipient.sentAt) continue;
+    const dueAt = recipient.sentAt.getTime() + wave.dayOffset * 24 * 60 * 60 * 1000;
+    if (now >= dueAt) return { recipient, wave, waveIndex: recipient.nextWaveIndex };
+  }
+  return null;
+}
+
+/** Só LEAD_CAPTURE — quem passou de Campaign.noReplyDays sem responder nem converter vira FAILED ("Não respondeu"), não importa se ainda tinha onda de RMKT programada. */
+async function findExpiredLeadCaptureRecipient(campaign: CampaignRow) {
+  if (campaign.noReplyDays == null) return null;
+  const cutoff = new Date(Date.now() - campaign.noReplyDays * 24 * 60 * 60 * 1000);
+  return prisma.campaignRecipient.findFirst({
+    where: { campaignId: campaign.id, status: "SENT", repliedAt: null, dealId: null, sentAt: { lte: cutoff } },
+  });
+}
+
+/** Ainda há destinatário enviado, sem resposta e sem ter convertido em negócio — a campanha não pode ser marcada DONE enquanto existir algum (esperando onda ou prazo de expiração). */
+async function hasUnresolvedLeadCaptureRecipients(campaignId: string): Promise<boolean> {
+  const count = await prisma.campaignRecipient.count({
+    where: { campaignId, status: "SENT", repliedAt: null, dealId: null },
+  });
+  return count > 0;
+}
+
+/**
  * consultorName vem de recipient.instanceId (campanhas PIPELINE_BULK — ver
  * sendToRecipient) quando setado; senão cai pro responsável cadastrado no
  * próprio Contact (campanhas MANUAL, o caso de sempre).
@@ -187,33 +250,52 @@ function buildVariables(contact: Contact & { responsavel?: { name: string } | nu
   };
 }
 
-type SendKind = "initial" | "followUp";
+type SendKind = "initial" | "followUp" | "wave";
 
 type RecipientRow = {
   id: string;
   contact: Contact & { responsavel?: { name: string } | null };
   instanceId: string | null;
   instance?: { user: { name: string } } | null;
+  nextWaveIndex: number;
 };
+
+/** Registra que uma tentativa não-inicial (reenvio ou onda de RMKT) foi feita — sucesso ou falha, nunca fica "pendente" de novo, senão reenviaria em loop a cada tick. */
+async function markNonInitialAttempt(
+  recipientId: string,
+  kind: "followUp" | "wave",
+  data: { waveIndex?: number; scriptId?: string; error?: string },
+) {
+  if (kind === "followUp") {
+    await prisma.campaignRecipient.update({
+      where: { id: recipientId },
+      data: { followUpSentAt: new Date(), followUpScriptId: data.scriptId, followUpError: data.error },
+    });
+  } else {
+    // Reaproveita followUpScriptId/followUpError pra guardar a onda MAIS
+    // RECENTE (não um histórico completo por onda) — mesmo nível de detalhe
+    // que o reenvio único já tinha, só generalizado pra várias tentativas.
+    await prisma.campaignRecipient.update({
+      where: { id: recipientId },
+      data: { nextWaveIndex: (data.waveIndex ?? 0) + 1, followUpScriptId: data.scriptId, followUpError: data.error },
+    });
+  }
+}
 
 async function sendToRecipient(
   organizationId: string,
   campaign: CampaignRow,
   recipient: RecipientRow,
   kind: SendKind,
+  wave?: RmktWave,
 ): Promise<"sent" | "failed" | "skipped"> {
   const phoneNormalized = normalizePhoneNumber(recipient.contact.whatsapp || recipient.contact.phone);
   if (!phoneNormalized) {
+    const message = "Contato sem WhatsApp/celular cadastrado";
     if (kind === "initial") {
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { status: "SKIPPED", error: "Contato sem WhatsApp/celular cadastrado" },
-      });
+      await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "SKIPPED", error: message } });
     } else {
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { followUpSentAt: new Date(), followUpError: "Contato sem WhatsApp/celular cadastrado" },
-      });
+      await markNonInitialAttempt(recipient.id, kind, { waveIndex: recipient.nextWaveIndex, error: message });
     }
     return "skipped";
   }
@@ -228,17 +310,18 @@ async function sendToRecipient(
     if (kind === "initial") {
       await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: "SKIPPED", error: message } });
     } else {
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { followUpSentAt: new Date(), followUpError: message },
-      });
+      await markNonInitialAttempt(recipient.id, kind, { waveIndex: recipient.nextWaveIndex, error: message });
     }
     return "skipped";
   }
 
   try {
     const templates = (
-      kind === "followUp" && campaign.followUpTemplates ? campaign.followUpTemplates : campaign.messageTemplates
+      kind === "wave" && wave
+        ? wave.templates
+        : kind === "followUp" && campaign.followUpTemplates
+          ? campaign.followUpTemplates
+          : campaign.messageTemplates
     ) as unknown as WeightedScript[];
     const chosen = pickWeighted(templates);
     const consultorName = recipient.instanceId ? (recipient.instance?.user.name ?? null) : null;
@@ -246,9 +329,9 @@ async function sendToRecipient(
 
     // Campanha PIPELINE_BULK: cada destinatário pode ter sua própria
     // instância (o responsável do negócio que originou o envio) — ver
-    // Campaign.source/CampaignRecipient.instanceId. Campanha MANUAL (o caso
-    // de sempre): recipient.instanceId é sempre null, cai no fallback de
-    // sempre, comportamento idêntico ao de antes desse campo existir.
+    // Campaign.source/CampaignRecipient.instanceId. Campanha MANUAL/
+    // LEAD_CAPTURE (recipient.instanceId sempre null): cai no fallback de
+    // sempre, um único WhatsApp pra campanha inteira.
     const thread = await getOrCreateThread({
       organizationId,
       instanceId: recipient.instanceId ?? campaign.instanceId,
@@ -277,10 +360,7 @@ async function sendToRecipient(
         data: { status: "SENT", sentAt: new Date(), threadId: thread.id, scriptId: chosen.scriptId },
       });
     } else {
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { followUpSentAt: new Date(), followUpScriptId: chosen.scriptId },
-      });
+      await markNonInitialAttempt(recipient.id, kind, { waveIndex: recipient.nextWaveIndex, scriptId: chosen.scriptId });
     }
 
     // Passos restantes (se houver) são melhor-esforço: o destinatário já
@@ -316,10 +396,7 @@ async function sendToRecipient(
       });
       await pauseIfFailing(campaign.id);
     } else {
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { followUpSentAt: new Date(), followUpError: message },
-      });
+      await markNonInitialAttempt(recipient.id, kind, { waveIndex: recipient.nextWaveIndex, error: message });
     }
     return "failed";
   }
@@ -358,6 +435,14 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
       if (followUpCandidate) {
         const outcome = await sendToRecipient(organizationId, campaign, followUpCandidate, "followUp");
         return { ok: true, outcome, kind: "followUp" };
+      }
+    }
+
+    if (campaign.source === "LEAD_CAPTURE") {
+      const waveCandidate = await findNextWaveCandidate(campaign);
+      if (waveCandidate) {
+        const outcome = await sendToRecipient(organizationId, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
+        return { ok: true, outcome, kind: "wave" };
       }
     }
 
@@ -409,6 +494,31 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             continue;
           }
           if (await hasPendingFollowUps(campaign.id)) continue; // ainda dentro do prazo de espera
+        }
+
+        // LEAD_CAPTURE: manda a próxima onda de RMKT vencida, ou expira
+        // (FAILED "Não respondeu") quem passou de noReplyDays — nessa ordem,
+        // então uma onda que já venceu tem prioridade sobre a expiração de
+        // OUTRO destinatário no mesmo tick (o expirado espera o próximo).
+        if (campaign.source === "LEAD_CAPTURE") {
+          const waveCandidate = await findNextWaveCandidate(campaign);
+          if (waveCandidate) {
+            const outcome = await sendToRecipient(org.id, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
+            if (outcome === "sent") sent += 1;
+            if (outcome === "failed") failed += 1;
+            continue;
+          }
+
+          const expired = await findExpiredLeadCaptureRecipient(campaign);
+          if (expired) {
+            await prisma.campaignRecipient.update({
+              where: { id: expired.id },
+              data: { status: "FAILED", error: "Não respondeu" },
+            });
+            continue;
+          }
+
+          if (await hasUnresolvedLeadCaptureRecipients(campaign.id)) continue; // ainda esperando onda/prazo
         }
 
         await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "DONE" } });

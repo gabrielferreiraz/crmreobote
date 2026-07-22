@@ -357,7 +357,7 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
             const Icon = TASK_TYPE_ICON[type] ?? TASK_TYPE_ICON.OTHER;
             return (
               <span key={type} title={TASK_TYPE_LABELS[type] ?? type}>
-                <Icon className="h-3 w-3 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <Icon className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-400" strokeWidth={2} />
               </span>
             );
           })

@@ -8,6 +8,7 @@ import { Modal } from "@/components/modal";
 import { FilterPopover } from "@/components/filter-popover";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
+import { VoiceInputButton } from "@/components/voice-input-button";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
@@ -369,7 +370,10 @@ export function NewTaskDialog({
       <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Nova atividade</h2>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1">
-          <label className="field-label">Título</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="field-label">Título</label>
+            <VoiceInputButton onResult={(text) => setTitle((prev) => (prev ? `${prev} ${text}` : text))} />
+          </div>
           <input
             autoFocus
             required
@@ -408,7 +412,10 @@ export function NewTaskDialog({
           <ContactSearchInput value={contactId} onChange={(id) => setContactId(id)} />
         </div>
         <div className="space-y-1">
-          <label className="field-label">Descrição</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="field-label">Descrição</label>
+            <VoiceInputButton onResult={(text) => setDescription((prev) => (prev ? `${prev} ${text}` : text))} />
+          </div>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}

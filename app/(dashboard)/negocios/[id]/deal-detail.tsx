@@ -17,8 +17,10 @@ import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
 import { ConfettiBurst } from "@/components/confetti-burst";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
+import { VoiceInputButton } from "@/components/voice-input-button";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
+import { brazilDateKey } from "@/lib/timezone";
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -115,6 +117,7 @@ export function DealDetail({
   hasUnreadWhatsApp,
   whatsappThreadId,
   isWhatsAppConnected,
+  sendAsAlternate,
   canEditDetails,
 }: {
   deal: Deal;
@@ -130,6 +133,8 @@ export function DealDetail({
   whatsappThreadId: string | null;
   /** WhatsApp do responsável pelo negócio conectado — condição pro convite de reunião oferecer "enviar" (ver MeetingInviteDialog). */
   isWhatsAppConnected: boolean;
+  /** Só pro Dono vendo o negócio de outro consultor com WhatsApp próprio conectado — deixa trocar pra enviar como o responsável do negócio. */
+  sendAsAlternate?: { threadId: string; label: string } | null;
   /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
   canEditDetails: boolean;
 }) {
@@ -145,6 +150,7 @@ export function DealDetail({
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
+  const [wonDialogOpen, setWonDialogOpen] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<DealTask | null>(null);
@@ -195,21 +201,35 @@ export function DealDetail({
       setLossDialogOpen(true);
       return;
     }
-    const wasWon = deal.status === "WON";
+    if (status === "WON") {
+      setWonDialogOpen(true);
+      return;
+    }
     await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    if (status === "WON" && !wasWon) setShowConfetti(true);
     router.refresh();
   }
 
-  async function confirmLoss(lossReasonId: string, note: string) {
+  async function confirmWon(closedAt: string) {
+    const wasWon = deal.status === "WON";
     await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "LOST", lossReasonId, lostReason: note || undefined }),
+      body: JSON.stringify({ status: "WON", closedAt }),
+    });
+    setWonDialogOpen(false);
+    if (!wasWon) setShowConfetti(true);
+    router.refresh();
+  }
+
+  async function confirmLoss(lossReasonId: string, note: string, closedAt: string) {
+    await fetch(`/api/deals/${deal.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "LOST", lossReasonId, lostReason: note || undefined, closedAt }),
     });
     setLossDialogOpen(false);
     router.refresh();
@@ -530,13 +550,19 @@ export function DealDetail({
               />
             </div>
             <form onSubmit={submitActivity} className="space-y-2">
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                placeholder="O que foi feito e qual o próximo passo?"
-                rows={3}
-                className="field-input"
-              />
+              <div className="relative">
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="O que foi feito e qual o próximo passo?"
+                  rows={3}
+                  className="field-input pr-9"
+                />
+                <VoiceInputButton
+                  onResult={(text) => setBody((prev) => (prev ? `${prev} ${text}` : text))}
+                  className="absolute top-1.5 right-1.5"
+                />
+              </div>
               <div className="flex items-end justify-between gap-3">
                 <div className="flex gap-2">
                   <div className="space-y-1">
@@ -780,13 +806,19 @@ export function DealDetail({
                 ))}
               </div>
               <form onSubmit={submitActivity} className="space-y-2">
-                <textarea
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  placeholder="O que foi feito e qual o próximo passo?"
-                  rows={3}
-                  className="field-input"
-                />
+                <div className="relative">
+                  <textarea
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    placeholder="O que foi feito e qual o próximo passo?"
+                    rows={3}
+                    className="field-input pr-9"
+                  />
+                  <VoiceInputButton
+                    onResult={(text) => setBody((prev) => (prev ? `${prev} ${text}` : text))}
+                    className="absolute top-1.5 right-1.5"
+                  />
+                </div>
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="space-y-1">
                     <label className="text-xs text-neutral-500 dark:text-neutral-400">Prazo</label>
@@ -975,6 +1007,16 @@ export function DealDetail({
         )}
       </div>
 
+      {wonDialogOpen && (
+        <ClosedAtDialog
+          title="Quando foi ganho?"
+          confirmLabel="Marcar como ganho"
+          confirmClassName="btn-primary"
+          onClose={() => setWonDialogOpen(false)}
+          onConfirm={confirmWon}
+        />
+      )}
+
       {lossDialogOpen && (
         <LossReasonDialog
           lossReasons={lossReasons}
@@ -1025,6 +1067,7 @@ export function DealDetail({
             contactPhone={deal.contact.whatsapp || deal.contact.phone}
             currentUserName={currentUserName}
             currentUserPhotoUrl={currentUserPhotoUrl}
+            sendAsAlternate={sendAsAlternate}
             onClose={() => setChatOpen(false)}
           />
           <div className="fixed inset-0 z-50 flex flex-col bg-white p-4 dark:bg-neutral-950 lg:hidden">
@@ -1035,6 +1078,7 @@ export function DealDetail({
               contactPhone={deal.contact.whatsapp || deal.contact.phone}
               currentUserName={currentUserName}
               currentUserPhotoUrl={currentUserPhotoUrl}
+              sendAsAlternate={sendAsAlternate}
               onClose={() => setChatOpen(false)}
               backMode
               className="h-full"
@@ -1043,6 +1087,59 @@ export function DealDetail({
         </>
       )}
     </div>
+  );
+}
+
+function ClosedAtDialog({
+  title,
+  confirmLabel,
+  confirmClassName,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  confirmLabel: string;
+  confirmClassName: string;
+  onClose: () => void;
+  onConfirm: (closedAt: string) => Promise<void>;
+}) {
+  const [closedAt, setClosedAt] = useState(brazilDateKey());
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    await onConfirm(closedAt);
+    setLoading(false);
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="space-y-1">
+          <label className="field-label">Data</label>
+          <DatePicker value={closedAt} onChange={setClosedAt} />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="btn-ghost">
+            Cancelar
+          </button>
+          <button type="submit" disabled={loading || !closedAt} className={confirmClassName}>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {loading ? (
+              <span className="inline-flex items-center gap-1">
+                Salvando
+                <LoadingDots />
+              </span>
+            ) : (
+              confirmLabel
+            )}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1057,10 +1154,11 @@ function LossReasonDialog({
   initialReasonId: string | null;
   initialNote: string | null;
   onClose: () => void;
-  onConfirm: (lossReasonId: string, note: string) => Promise<void>;
+  onConfirm: (lossReasonId: string, note: string, closedAt: string) => Promise<void>;
 }) {
   const [reasonId, setReasonId] = useState(initialReasonId ?? "");
   const [note, setNote] = useState(initialNote ?? "");
+  const [closedAt, setClosedAt] = useState(brazilDateKey());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1072,7 +1170,7 @@ function LossReasonDialog({
     }
     setLoading(true);
     setError(null);
-    await onConfirm(reasonId, note);
+    await onConfirm(reasonId, note, closedAt);
     setLoading(false);
   }
 
@@ -1100,6 +1198,10 @@ function LossReasonDialog({
             rows={2}
             className="field-input"
           />
+        </div>
+        <div className="space-y-1">
+          <label className="field-label">Quando foi perdido?</label>
+          <DatePicker value={closedAt} onChange={setClosedAt} />
         </div>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

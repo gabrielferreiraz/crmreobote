@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase } from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase, ClipboardList } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireProcessAccess } from "@/lib/processes/access";
 import { TestEmailButton } from "./test-email-button";
 
 type IconComponent = ComponentType<{ className?: string; strokeWidth?: number }>;
@@ -14,6 +15,8 @@ export default async function ConfiguracoesPage() {
 
   const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
   const isOwner = session!.user.role === "OWNER";
+  const processAccess = await requireProcessAccess();
+  const canManageProcesses = processAccess.ok && processAccess.isAdmin;
 
   return (
     <div className="max-w-2xl space-y-8">
@@ -44,6 +47,9 @@ export default async function ConfiguracoesPage() {
           <Row href="/configuracoes/cargos" icon={Briefcase} title="Cargos" description="Profissão/ocupação usada no cadastro de clientes." />
           <Row href="/automacoes" icon={Zap} title="Automações" description="Regras que disparam ação sozinhas (tarefa, e-mail, WhatsApp, push)." />
           <Row href="/configuracoes/campos-personalizados" icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
+          {canManageProcesses && (
+            <Row href="/configuracoes/processos" icon={ClipboardList} title="Processos (pós-venda)" description="Etapas do Kanban administrativo de pós-venda." />
+          )}
         </Section>
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">

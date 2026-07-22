@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Target, Pencil, Check, X, Loader2, PartyPopper } from "lucide-react";
+import { Target, Pencil, Check, X, Loader2 } from "lucide-react";
 import { CurrencyInput } from "@/components/currency-input";
 import { formatCurrency } from "@/lib/format";
 
@@ -154,35 +154,43 @@ export function GoalCard({
             : "O dono ainda não definiu uma meta pra este mês."}
         </p>
       ) : (
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 space-y-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-              {formatCurrency(achievedValue)}
-              <span className="ml-1.5 text-sm font-normal text-neutral-400 dark:text-neutral-500">
+            <div>
+              <span className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                {formatCurrency(achievedValue)}
+              </span>
+              <span className="ml-2 text-xs font-medium text-neutral-400 dark:text-neutral-500">
                 de {formatCurrency(goalValue)}
               </span>
-            </p>
-            <p
-              className={`text-lg font-semibold tabular-nums ${
-                exceeded ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-700 dark:text-neutral-300"
-              }`}
-            >
-              {pct}%
-            </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {!exceeded && (
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${PACE_BADGE[paceStatus]}`}
+                  title={`Meta batida: ${pct}% · Mês decorrido: ${pacePct}%`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${PACE_DOT[paceStatus]}`} />
+                  {PACE_LABEL[paceStatus]}
+                </span>
+              )}
+              <span
+                className={`text-xl font-bold tabular-nums ${
+                  exceeded ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-900 dark:text-neutral-100"
+                }`}
+              >
+                {pct}%
+              </span>
+            </div>
           </div>
 
           <div className="relative">
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+            <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
               <div
                 className={`h-full rounded-full transition-all ${exceeded ? "bg-emerald-500" : "bg-neutral-900 dark:bg-white"}`}
                 style={{ width: `${barPct}%` }}
               />
             </div>
-            {/* Marcador de ritmo: onde a meta "deveria" estar hoje, se o mês
-                inteiro fosse batido em ritmo constante — deixa claro à
-                primeira vista se o preenchimento está antes ou depois dele,
-                sem precisar fazer conta de cabeça. Some quando a meta já
-                estourou (não faz mais sentido comparar ritmo). */}
             {!exceeded && pacePct > 0 && pacePct < 100 && (
               <div
                 className="absolute -top-0.5 -bottom-0.5 w-0.5 -translate-x-1/2 rounded-full bg-amber-500"
@@ -192,39 +200,26 @@ export function GoalCard({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {exceeded ? (
-                <span className="inline-flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
-                  <PartyPopper className="h-3.5 w-3.5" strokeWidth={2} />
-                  Meta batida! {formatCurrency(exceededBy)} acima do previsto.
-                </span>
-              ) : (
-                <>
-                  Faltam <span className="font-medium text-neutral-700 dark:text-neutral-300">{formatCurrency(remaining)}</span>{" "}
-                  pra bater a meta.
-                </>
-              )}
-            </p>
-
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 pt-1">
+            <div className="rounded-md border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-900/40 p-2.5">
+              <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+                {exceeded ? "Excedente" : "Falta pra meta"}
+              </p>
+              <p className="mt-0.5 text-sm font-semibold text-neutral-800 dark:text-neutral-200 tabular-nums">
+                {exceeded ? formatCurrency(exceededBy) : formatCurrency(remaining)}
+              </p>
+            </div>
             {!exceeded && (
-              <span
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${PACE_BADGE[paceStatus]}`}
-                title={`Meta batida: ${pct}% · Mês decorrido: ${pacePct}%`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${PACE_DOT[paceStatus]}`} />
-                {PACE_LABEL[paceStatus]}
-              </span>
+              <div className="rounded-md border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-900/40 p-2.5">
+                <p className="text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+                  Projeção no ritmo atual
+                </p>
+                <p className="mt-0.5 text-sm font-semibold text-neutral-800 dark:text-neutral-200 tabular-nums">
+                  {formatCurrency(projectedValue)}
+                </p>
+              </div>
             )}
           </div>
-
-          {!exceeded && (
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Projeção no ritmo atual:{" "}
-              <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(projectedValue)}</span> até o
-              fim do mês.
-            </p>
-          )}
         </div>
       )}
     </div>

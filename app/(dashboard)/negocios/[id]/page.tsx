@@ -105,10 +105,28 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // WhatsApp próprio conectado. Sem instância conectada, não tem como
     // abrir chat aqui.
     const ownerInstance = await resolveConnectedInstance(organizationId, dealRaw.ownerId);
-    const whatsappThread =
+    const dealOwnerThread =
       ownerInstance?.status === "CONNECTED"
         ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
         : null;
+
+    // "Enviar como consultor": só pro Dono, e só quando o próprio Dono TEM
+    // WhatsApp conectado — sem isso não haveria pra onde "voltar" no toggle,
+    // então mantém o fallback automático de sempre (dealOwnerThread acima)
+    // como única opção, igual já era antes desse recurso existir.
+    let whatsappThread = dealOwnerThread;
+    let sendAsAlternate: { threadId: string; label: string } | null = null;
+    if (session!.user.role === "OWNER" && dealRaw.ownerId !== session!.user.id) {
+      const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
+      const myThread =
+        myInstance?.status === "CONNECTED"
+          ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact: dealRaw.contact })
+          : null;
+      if (myThread && dealOwnerThread) {
+        whatsappThread = myThread;
+        sendAsAlternate = { threadId: dealOwnerThread.id, label: dealRaw.owner.name };
+      }
+    }
 
     // Edição inline (lápis) dos campos do negócio/contato: só quem é dono do
     // negócio (o vendedor responsável) ou dono da conta (OWNER) pode editar
@@ -128,7 +146,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}
           whatsappThreadId={whatsappThread?.id ?? null}
-          isWhatsAppConnected={ownerInstance?.status === "CONNECTED"}
+          isWhatsAppConnected={!!whatsappThread}
+          sendAsAlternate={sendAsAlternate}
           canEditDetails={canEditDetails}
         />
       </Suspense>

@@ -3,17 +3,41 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const PRIMARY_ITEMS = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof Home;
+  exact?: boolean;
+  alsoActiveOn?: string[];
+};
+
+const PRIMARY_ITEMS_VENDAS: NavItem[] = [
   { href: "/", label: "Início", icon: Home, exact: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban, alsoActiveOn: ["/negocios"] },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
 ];
 
-const OVERFLOW_ITEMS = [
+// Administrativo não vê Pipeline/Negócios — Processos ocupa o lugar dele
+// como atalho principal, já que é a tela que ele de fato usa todo dia.
+const PRIMARY_ITEMS_ADMINISTRATIVO: NavItem[] = [
+  { href: "/", label: "Início", icon: Home, exact: true },
+  { href: "/processos", label: "Processos", icon: ClipboardList },
+  { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { href: "/agenda", label: "Agenda", icon: CalendarDays },
+];
+
+const OVERFLOW_ITEMS_VENDAS: NavItem[] = [
+  { href: "/clientes", label: "Clientes", icon: Users },
+  { href: "/processos", label: "Processos", icon: ClipboardList },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/configuracoes", label: "Configurações", icon: Settings },
+];
+
+const OVERFLOW_ITEMS_ADMINISTRATIVO: NavItem[] = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
@@ -32,11 +56,19 @@ const FAB_BY_SECTION: { match: (pathname: string) => boolean; href: string; labe
   { match: (p) => p.startsWith("/agenda"), href: "/agenda?novo=1", label: "Nova atividade" },
 ];
 
-export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void> }) {
+export function MobileNav({
+  signOutAction,
+  isAdministrativo,
+}: {
+  signOutAction: () => Promise<void>;
+  isAdministrativo: boolean;
+}) {
   const pathname = usePathname();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
+  const overflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
 
-  const isOverflowActive = OVERFLOW_ITEMS.some((i) => pathname.startsWith(i.href)) || pathname.startsWith("/automacoes");
+  const isOverflowActive = overflowItems.some((i) => pathname.startsWith(i.href)) || pathname.startsWith("/automacoes");
   const fab = FAB_BY_SECTION.find((f) => f.match(pathname));
 
   return (
@@ -52,7 +84,7 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
       )}
 
       <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-200/60 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg dark:border-white/10 dark:bg-neutral-900/80 lg:hidden">
-        {PRIMARY_ITEMS.map((item) => {
+        {primaryItems.map((item) => {
           const isActive = item.exact
             ? pathname === item.href
             : pathname.startsWith(item.href) || item.alsoActiveOn?.some((p) => pathname.startsWith(p));
@@ -115,7 +147,7 @@ export function MobileNav({ signOutAction }: { signOutAction: () => Promise<void
                 </button>
               </div>
               <div className="card divide-y divide-neutral-100 overflow-hidden dark:divide-neutral-800">
-                {OVERFLOW_ITEMS.map((item) => (
+                {overflowItems.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}

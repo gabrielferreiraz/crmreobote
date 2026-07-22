@@ -4,6 +4,7 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
 import { DEFAULT_PIPELINE_NAME, DEFAULT_STAGES } from "@/lib/default-pipeline";
 import { DEFAULT_LOSS_REASONS } from "@/lib/default-loss-reasons";
+import { DEFAULT_PROCESS_PIPELINE_NAME, DEFAULT_PROCESS_STAGES } from "@/lib/default-process-pipeline";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { setTenantOnTx } from "@/lib/tenant-context";
 
@@ -101,6 +102,29 @@ export async function POST(req: Request) {
         organizationId: organization.id,
         label,
         order: index,
+      })),
+    });
+
+    // Pipeline de pós-venda (Processos) — mesma ideia do pipeline de vendas
+    // acima, só que pro módulo administrativo (ver lib/processes/create.ts,
+    // que também cria isso sob demanda se uma organização mais antiga ainda
+    // não tiver).
+    const processPipeline = await tx.processPipeline.create({
+      data: {
+        organizationId: organization.id,
+        name: DEFAULT_PROCESS_PIPELINE_NAME,
+        isDefault: true,
+        order: 0,
+      },
+    });
+
+    await tx.processStage.createMany({
+      data: DEFAULT_PROCESS_STAGES.map((stage) => ({
+        pipelineId: processPipeline.id,
+        name: stage.name,
+        order: stage.order,
+        color: stage.color,
+        isFinal: stage.isFinal,
       })),
     });
 

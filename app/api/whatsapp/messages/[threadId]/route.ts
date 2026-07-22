@@ -65,6 +65,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
         createdAt: true,
         replyToId: true,
         replyTo: { select: { id: true, type: true, body: true, direction: true } },
+        sentBy: { select: { name: true } },
       },
     });
 
@@ -147,6 +148,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
         mediaUrl,
         metadata,
         replyToId,
+        sentByUserId: userId,
       });
       return NextResponse.json(message, { status: 201 });
     } catch (err) {

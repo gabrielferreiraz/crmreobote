@@ -19,12 +19,19 @@ import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
 import { GoalCard } from "./goal-card";
+import { getCurrentUserArea } from "@/lib/user-area";
+import { AdminReportsView } from "./admin-reports-view";
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
   searchParams: Promise<{ pipelineId?: string; from?: string; to?: string; who?: string }>;
 }) {
+  // Administrativo (pós-venda) vê um relatório próprio — funil/metas de
+  // vendas não fazem sentido pra quem não vende.
+  const area = await getCurrentUserArea();
+  if (area === "ADMINISTRATIVO") return <AdminReportsView />;
+
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
@@ -134,7 +141,7 @@ export default async function RelatoriosPage({
     wonByOwner,
     lostByOwner,
     lostByReason,
-    meetingsByOwner,
+    meetingsAndVisitsByOwner,
     wonDealsForTrend,
     wonByCreditType,
     dailyActivityRaw,
@@ -174,10 +181,13 @@ export default async function RelatoriosPage({
       where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
       _count: true,
     }),
-    // Ranking de reuniões: quem mais registrou atividade do tipo "Reunião".
+    // Ranking de reuniões + visitas: as duas são "foi falar com o lead direto"
+    // (reunião = online, visita = presencial), então o ranking soma as duas —
+    // mas agrupado por type também, pra manter o detalhamento de quantas
+    // foram de cada tipo (ver breakdown no card).
     prisma.activity.groupBy({
-      by: ["userId"],
-      where: { organizationId, type: "MEETING", ...ownerScopeWhere, ...dateWhere("createdAt") },
+      by: ["userId", "type"],
+      where: { organizationId, type: { in: ["MEETING", "VISIT"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
       _count: true,
     }),
     prisma.deal.findMany({
@@ -253,7 +263,7 @@ export default async function RelatoriosPage({
   const peopleIds = Array.from(
     new Set([
       ...allByOwner.map((o) => o.ownerId),
-      ...meetingsByOwner.map((m) => m.userId),
+      ...meetingsAndVisitsByOwner.map((m) => m.userId),
       ...visibleMembers.map((m) => m.userId),
     ]),
   );
@@ -280,6 +290,18 @@ export default async function RelatoriosPage({
     activityByUser.set(row.userId, prev);
   }
 
+  // Reunião (online) e visita (presencial) contam junto no ranking — quem
+  // mais foi falar com o lead direto, não importa o meio — mas cada tipo
+  // continua contado à parte pra alimentar o "40 visitas e 10 reuniões" no
+  // detalhamento do card.
+  const meetingVisitByUser = new Map<string, { meetingCount: number; visitCount: number }>();
+  for (const row of meetingsAndVisitsByOwner) {
+    const prev = meetingVisitByUser.get(row.userId) ?? { meetingCount: 0, visitCount: 0 };
+    if (row.type === "MEETING") prev.meetingCount += row._count;
+    else if (row.type === "VISIT") prev.visitCount += row._count;
+    meetingVisitByUser.set(row.userId, prev);
+  }
+
   const ownerStats = peopleIds.map((id) => {
     const wonCountForOwner = wonByOwner.find((w) => w.ownerId === id)?._count ?? 0;
     const wonValueForOwner = wonByOwner.find((w) => w.ownerId === id)?._sum.value
@@ -288,6 +310,7 @@ export default async function RelatoriosPage({
     const lostCountForOwner = lostByOwner.find((l) => l.ownerId === id)?._count ?? 0;
     const closedForOwner = wonCountForOwner + lostCountForOwner;
     const activity = activityByUser.get(id) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
+    const meetingVisit = meetingVisitByUser.get(id) ?? { meetingCount: 0, visitCount: 0 };
     return {
       id,
       name: personName(id),
@@ -296,7 +319,9 @@ export default async function RelatoriosPage({
       wonValue: wonValueForOwner,
       lostCount: lostCountForOwner,
       winRate: closedForOwner > 0 ? Math.round((wonCountForOwner / closedForOwner) * 100) : null,
-      meetingsCount: meetingsByOwner.find((m) => m.userId === id)?._count ?? 0,
+      meetingCount: meetingVisit.meetingCount,
+      visitCount: meetingVisit.visitCount,
+      meetingsAndVisitsCount: meetingVisit.meetingCount + meetingVisit.visitCount,
       activeSeconds: activity.activeSeconds,
       changeCount: activity.changeCount,
       activeDayCount: activity.activeDayCount,
@@ -318,14 +343,15 @@ export default async function RelatoriosPage({
     }));
 
   const meetingsRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.meetingsCount > 0)
-    .sort((a, b) => b.meetingsCount - a.meetingsCount)
+    .filter((o) => o.meetingsAndVisitsCount > 0)
+    .sort((a, b) => b.meetingsAndVisitsCount - a.meetingsAndVisitsCount)
     .slice(0, 8)
     .map((o) => ({
       id: o.id,
       name: o.name,
       photoUrl: o.photoUrl,
-      primaryValue: `${o.meetingsCount} ${o.meetingsCount === 1 ? "reunião" : "reuniões"}`,
+      primaryValue: `${o.meetingsAndVisitsCount} ${o.meetingsAndVisitsCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
+      secondaryValue: `${o.visitCount} visita${o.visitCount === 1 ? "" : "s"} e ${o.meetingCount} reuni${o.meetingCount === 1 ? "ão" : "ões"}`,
     }));
 
   const conversionRanking: LeaderboardEntry[] = ownerStats
@@ -668,12 +694,57 @@ export default async function RelatoriosPage({
       select: {
         repliedAt: true,
         scriptId: true,
+        threadId: true,
         campaign: { select: { instanceId: true } },
         contact: { select: { jobTitle: true } },
       },
     }),
   ]);
   const outboundPairs = organicOutboundPairs;
+
+  // Possíveis negociações de lista fria: lead abordado por disparo em massa
+  // (a mesma base de "prospecção fria" acima) cuja conversa já passou de 5
+  // mensagens DELE — sinal de que não é só um "oi" isolado, virou uma
+  // conversa de verdade que vale olhar como oportunidade. Não usa
+  // dateWhere aqui de propósito (mesmo padrão de manualOpenerReplies acima):
+  // o que é limitado ao período é o ENVIO que originou o lead, não quantas
+  // respostas ele já mandou desde então.
+  const coldThreadIds = Array.from(
+    new Set(campaignRecipients.map((r) => r.threadId).filter((id): id is string => !!id)),
+  );
+  const COLD_POSSIBLE_DEAL_MIN_REPLIES = 5;
+  // type != CALL: chamada perdida/recusada também vira WhatsAppMessage
+  // INBOUND (ver lib/whatsapp/events.ts:handleIncomingCall) — não é
+  // "mensagem do cliente" no sentido que importa aqui, e contar isso infla
+  // o número sem o lead ter escrito nada de verdade.
+  const [coldThreadReplyCounts, coldThreads] = coldThreadIds.length
+    ? await Promise.all([
+        prisma.whatsAppMessage.groupBy({
+          by: ["threadId"],
+          where: { organizationId, direction: "INBOUND", type: { not: "CALL" }, threadId: { in: coldThreadIds } },
+          _count: true,
+        }),
+        // Fonte da verdade de qual instância (vendedor) é dona da conversa —
+        // de propósito NÃO usa campaign.instanceId nem
+        // CampaignRecipient.instanceId pra isso: numa campanha PIPELINE_BULK
+        // (envio em massa do Pipeline) cada destinatário pode ter sido
+        // mandado por uma instância diferente da instanceId "principal" da
+        // campanha (ver comentário em Campaign.source no schema) — a própria
+        // thread nunca erra sobre isso.
+        prisma.whatsAppThread.findMany({ where: { id: { in: coldThreadIds } }, select: { id: true, instanceId: true } }),
+      ])
+    : [[], []];
+  const coldThreadInstanceId = new Map(coldThreads.map((t) => [t.id, t.instanceId]));
+  const possibleColdDealThreadIds = new Set(
+    coldThreadReplyCounts.filter((t) => t._count > COLD_POSSIBLE_DEAL_MIN_REPLIES).map((t) => t.threadId),
+  );
+  const possibleColdDealsByInstance = new Map<string, Set<string>>();
+  for (const threadId of possibleColdDealThreadIds) {
+    const instanceId = coldThreadInstanceId.get(threadId);
+    if (!instanceId) continue; // thread não encontrada (ex.: apagada) — não deveria acontecer, mas não é motivo pra quebrar o relatório
+    if (!possibleColdDealsByInstance.has(instanceId)) possibleColdDealsByInstance.set(instanceId, new Set());
+    possibleColdDealsByInstance.get(instanceId)!.add(threadId);
+  }
 
   // Resposta "geral" — mesma exclusão de thread de negócio que "enviadas"
   // acima, senão uma resposta numa conversa de negócio contava em dobro
@@ -809,6 +880,7 @@ export default async function RelatoriosPage({
     const manualProspectStats = manualProspectByInstance.get(inst.id) ?? { sent: 0, replied: 0 };
     const manualProspectReplyRate =
       manualProspectStats.sent > 0 ? Math.round((manualProspectStats.replied / manualProspectStats.sent) * 100) : 0;
+    const possibleColdDeals = possibleColdDealsByInstance.get(inst.id)?.size ?? 0;
 
     return {
       userId: inst.userId,
@@ -825,6 +897,7 @@ export default async function RelatoriosPage({
       manualProspectSent: manualProspectStats.sent,
       manualProspectReplied: manualProspectStats.replied,
       manualProspectReplyRate,
+      possibleColdDeals,
     };
   });
 
@@ -1101,7 +1174,7 @@ export default async function RelatoriosPage({
         <SectionHeading
           eyebrow="Time"
           title="Ranking do time"
-          description="Quem mais fechou negócio, quem mais fez reunião e quem converte melhor."
+          description="Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita) e quem converte melhor."
         />
         <div className="grid grid-cols-12 gap-5">
           <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
@@ -1114,9 +1187,9 @@ export default async function RelatoriosPage({
           <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
             <div className="mb-1 flex items-center gap-2">
               <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões realizadas</h3>
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas</h3>
             </div>
-            <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião registrada ainda" />
+            <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita registrada ainda" />
           </div>
           <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
             <div className="mb-1 flex items-center gap-2">
@@ -1281,6 +1354,10 @@ export default async function RelatoriosPage({
                     <SellerStatPanel title="Prospecção fria" dot="violet">
                       <MiniStat value={w.campaignSent} label="enviadas" />
                       <MiniStat value={`${w.campaignReplyRate}%`} label="resposta" />
+                      <MiniStat
+                        value={w.possibleColdDeals}
+                        label={w.possibleColdDeals === 1 ? "possível negociação" : "possíveis negociações"}
+                      />
                     </SellerStatPanel>
                   )}
 
@@ -1364,7 +1441,9 @@ export default async function RelatoriosPage({
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
             Conversão em venda = % dos contatos organicamente contatados (qualquer categoria) que fecharam negócio
             (ganho) dentro do período do filtro — nunca é "essa mensagem virou venda", é o resultado final do contato.
-            Geral = conversa fora de negócio. Prospecção fria = disparo em massa via Campanhas. Prospecção manual = a
+            Geral = conversa fora de negócio. Prospecção fria = disparo em massa via Campanhas — dentro dela,
+            “possível negociação” é o lead que já respondeu mais de {COLD_POSSIBLE_DEAL_MIN_REPLIES} mensagens
+            desde o disparo (não é contagem do período, é a conversa toda). Prospecção manual = a
             1ª mensagem de uma thread nova foi sua (não do lead) e ela hoje tem negócio — abordagem fria feita na mão.
             Conversas de negócio = toda a troca (inclusive a de abertura, se for o caso) de contato já vinculado a um
             negócio. Geral, prospecção fria e prospecção manual nunca compartilham mensagem entre si; conversas de

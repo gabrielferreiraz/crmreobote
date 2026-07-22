@@ -67,6 +67,8 @@ type Message = {
   createdAt: string;
   replyToId?: string | null;
   replyTo?: QuotedMessage | null;
+  /** Só preenchido quando quem mandou não é o dono do WhatsApp da conversa (ver WhatsAppMessage.sentByUserId) — rastro interno, nunca vai pro WhatsApp em si. */
+  sentBy?: { name: string } | null;
 };
 
 type ThreadPresence = {
@@ -181,6 +183,7 @@ export function WhatsAppChat({
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
+  sendAsAlternate = null,
 }: {
   threadId: string;
   contactId?: string | null;
@@ -188,6 +191,7 @@ export function WhatsAppChat({
   contactPhone?: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  sendAsAlternate?: { threadId: string; label: string } | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -209,6 +213,7 @@ export function WhatsAppChat({
           contactPhone={contactPhone}
           currentUserName={currentUserName}
           currentUserPhotoUrl={currentUserPhotoUrl}
+          sendAsAlternate={sendAsAlternate}
           onClose={() => withViewTransition(() => setOpen(false))}
         />
       )}
@@ -254,6 +259,7 @@ export function WhatsAppPanel({
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
+  sendAsAlternate = null,
   onClose,
 }: {
   threadId: string;
@@ -262,6 +268,7 @@ export function WhatsAppPanel({
   contactPhone?: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  sendAsAlternate?: { threadId: string; label: string } | null;
   onClose: () => void;
 }) {
   return (
@@ -273,6 +280,7 @@ export function WhatsAppPanel({
         contactPhone={contactPhone}
         currentUserName={currentUserName}
         currentUserPhotoUrl={currentUserPhotoUrl}
+        sendAsAlternate={sendAsAlternate}
         onClose={() => withViewTransition(onClose)}
         className="h-full"
       />
@@ -287,6 +295,7 @@ function WhatsAppChatModal({
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
+  sendAsAlternate = null,
   onClose,
 }: {
   threadId: string;
@@ -295,6 +304,7 @@ function WhatsAppChatModal({
   contactPhone?: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  sendAsAlternate?: { threadId: string; label: string } | null;
   onClose: () => void;
 }) {
   return (
@@ -306,6 +316,7 @@ function WhatsAppChatModal({
         contactPhone={contactPhone}
         currentUserName={currentUserName}
         currentUserPhotoUrl={currentUserPhotoUrl}
+        sendAsAlternate={sendAsAlternate}
         onClose={onClose}
         className="h-[75vh] max-h-[42rem] min-h-[28rem]"
       />
@@ -320,12 +331,20 @@ export function ChatWindow({
   contactPhone,
   currentUserName,
   currentUserPhotoUrl,
+  sendAsAlternate = null,
   onClose,
   className = "",
   backMode = false,
 }: {
   threadId: string;
   contactId?: string | null;
+  /**
+   * Quando quem está vendo o chat pode alternar entre a própria conversa
+   * (`threadId`, o padrão) e a conversa que roda pelo WhatsApp de outra
+   * pessoa (ex.: Dono "enviando como" o consultor responsável) — ver
+   * lib/whatsapp/send.ts's sentByUserId pra como isso fica registrado.
+   */
+  sendAsAlternate?: { threadId: string; label: string } | null;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -356,15 +375,28 @@ export function ChatWindow({
   const wasNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
+  // "Enviar como {consultor}" — troca a conversa exibida/usada pra enviar
+  // pela do WhatsApp de outra pessoa (ver sendAsAlternate acima). Reseta pro
+  // padrão sempre que o `threadId` de base muda (ex.: Dono navega pra outro
+  // negócio/cliente) — sem isso ficaria "grudado" no modo alternativo ao
+  // trocar de conversa.
+  const [usingAlternate, setUsingAlternate] = useState(false);
+  const activeThreadId = usingAlternate && sendAsAlternate ? sendAsAlternate.threadId : threadId;
+
   // Reset do estado do botão ao trocar de conversa — ajuste de estado durante
   // a renderização (padrão recomendado pelo React pra "resetar estado quando
   // uma prop muda"), não dentro de um efeito. A ref (abaixo, num efeito
   // separado) não pode ser tocada aqui — só é seguro mexer em ref fora da
   // renderização (em efeito/handler), nunca durante o render em si.
-  const [renderedThreadId, setRenderedThreadId] = useState(threadId);
-  if (threadId !== renderedThreadId) {
-    setRenderedThreadId(threadId);
+  const [renderedThreadId, setRenderedThreadId] = useState(activeThreadId);
+  if (activeThreadId !== renderedThreadId) {
+    setRenderedThreadId(activeThreadId);
     setShowScrollButton(false);
+  }
+  const [renderedBaseThreadId, setRenderedBaseThreadId] = useState(threadId);
+  if (threadId !== renderedBaseThreadId) {
+    setRenderedBaseThreadId(threadId);
+    setUsingAlternate(false);
   }
 
   function isNearBottom(): boolean {
@@ -385,7 +417,7 @@ export function ChatWindow({
 
   async function load() {
     try {
-      const res = await fetch(`/api/whatsapp/messages/${threadId}`);
+      const res = await fetch(`/api/whatsapp/messages/${activeThreadId}`);
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages);
@@ -404,14 +436,14 @@ export function ChatWindow({
     const interval = setInterval(load, 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId]);
+  }, [activeThreadId]);
 
   useEffect(() => {
     // Só uma vez por troca de conversa (não entra no polling de 4s) — a rota
     // já cacheia no banco, mas evita repetir a requisição HTTP toda hora.
     setContactPhotoUrl(null);
     let cancelled = false;
-    fetch(`/api/whatsapp/threads/${threadId}/photo`)
+    fetch(`/api/whatsapp/threads/${activeThreadId}/photo`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!cancelled && data?.url) setContactPhotoUrl(data.url);
@@ -422,13 +454,13 @@ export function ChatWindow({
     return () => {
       cancelled = true;
     };
-  }, [threadId]);
+  }, [activeThreadId]);
 
   useEffect(() => {
     // Mutação de ref dentro de efeito é segura (diferente de durante o
     // render) — reseta a "memória" de scroll ao trocar de conversa.
     wasNearBottomRef.current = true;
-  }, [threadId]);
+  }, [activeThreadId]);
 
   useEffect(() => {
     // O polling de 4s troca `messages` mesmo sem mensagem nova (nova
@@ -444,7 +476,7 @@ export function ChatWindow({
     setSending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/whatsapp/messages/${threadId}`, {
+      const res = await fetch(`/api/whatsapp/messages/${activeThreadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, replyToId: replyingTo?.id }),
@@ -537,6 +569,25 @@ export function ChatWindow({
           )}
         </div>
       </div>
+
+      {sendAsAlternate && (
+        <div className="mt-2 flex shrink-0 items-center justify-between gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-xs dark:border-neutral-800 dark:bg-neutral-800/40">
+          <span className="text-neutral-500 dark:text-neutral-400">
+            {usingAlternate ? (
+              <>Enviando como <span className="font-medium text-neutral-800 dark:text-neutral-200">{sendAsAlternate.label}</span></>
+            ) : (
+              "Enviando como você"
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setUsingAlternate((v) => !v)}
+            className="font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+          >
+            {usingAlternate ? "Voltar a enviar como você" : `Enviar como ${sendAsAlternate.label}`}
+          </button>
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1">
         <div
@@ -650,7 +701,7 @@ export function ChatWindow({
           document.body,
         )}
 
-      {sendScriptOpen && <SendScriptModal threadId={threadId} onClose={() => setSendScriptOpen(false)} />}
+      {sendScriptOpen && <SendScriptModal threadId={activeThreadId} onClose={() => setSendScriptOpen(false)} />}
       {tagModalOpen && contactId && (
         <TagContactModal contactId={contactId} onClose={() => setTagModalOpen(false)} />
       )}
@@ -730,6 +781,9 @@ function MessageBubble({
           </div>
         )}
         <MessageContent message={message} />
+        {isOut && message.sentBy && (
+          <p className="mt-0.5 text-[10px] opacity-60">enviado por {message.sentBy.name}</p>
+        )}
         <p
           className={
             isSticker

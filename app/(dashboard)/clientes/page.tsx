@@ -2,9 +2,14 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
+import { getCurrentUserArea } from "@/lib/user-area";
 import { ContactsTable } from "./contacts-table";
+import { AdminClientsView } from "./admin-clients-view";
 
 export default async function ClientesPage() {
+  const area = await getCurrentUserArea();
+  if (area === "ADMINISTRATIVO") return <AdminClientsView />;
+
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const isOwner = session!.user.role === "OWNER";

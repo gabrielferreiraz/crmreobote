@@ -36,13 +36,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
               userId: session.user.id,
             },
           },
-          select: { active: true, user: { select: { image: true } } },
+          select: { active: true, area: true, user: { select: { image: true } } },
         }),
       )
     : null;
   if (!membership?.active) redirect("/api/auth/deactivated");
 
   const photoUrl = await resolveAvatarUrl(membership.user.image);
+  const isAdministrativo = membership.area === "ADMINISTRATIVO";
 
   async function handleSignOut() {
     "use server";
@@ -61,7 +62,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
         </Link>
 
-        <TopNavLinks />
+        <TopNavLinks isAdministrativo={isAdministrativo} />
 
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <CommandPalette />
@@ -69,10 +70,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <Calculator className="h-3.5 w-3.5" strokeWidth={2} />
             Simulador
           </a>
-          <Link href="/pipeline?novo=1" className="btn-primary btn-sm">
-            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-            Novo negócio
-          </Link>
+          {!isAdministrativo && (
+            <Link href="/pipeline?novo=1" className="btn-primary btn-sm">
+              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Novo negócio
+            </Link>
+          )}
           <NotificationBell />
           <ThemeToggle />
           <UserMenu
@@ -92,7 +95,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
 
-      <MobileNav signOutAction={handleSignOut} />
+      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />

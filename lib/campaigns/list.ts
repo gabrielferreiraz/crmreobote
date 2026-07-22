@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
 import { brazilDateKey } from "@/lib/timezone";
-import { estimateCampaignCompletion, type CompletionEstimate } from "@/lib/campaigns/estimate";
+import { estimateCampaignCompletion, nextAllowedSendWindow, type CompletionEstimate } from "@/lib/campaigns/estimate";
 
 export type CampaignSummary = {
   id: string;
@@ -105,6 +105,15 @@ export type CampaignDetail = CampaignSummary & {
   recipients: CampaignRecipientRow[];
   dailyMetrics: CampaignDailyMetric[];
   completionEstimate: CompletionEstimate;
+  /**
+   * Estimativa de quando o próximo envio deve acontecer — último envio (ou
+   * reenvio) + o delay médio configurado. É só uma expectativa: o motor real
+   * (lib/campaigns/engine.ts's shouldSendNow) sorteia um novo limiar dentro
+   * da faixa min/max a cada checagem do cron, então o disparo de verdade pode
+   * acontecer um pouco antes ou depois deste instante. null quando não há
+   * envio em andamento pra estimar (campanha não RUNNING, ou sem pendentes).
+   */
+  nextSendEstimateAt: Date | null;
 };
 
 /** Usado pela tela de destinatários — uma linha por contato, com status individual, mais a série diária pro painel de métricas. */
@@ -134,6 +143,7 @@ export async function getCampaignDetail(
   const scriptNameById = new Map(scripts.map((s) => [s.id, s.name]));
 
   const counts = { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 };
+  let lastAt: Date | null = null;
   const metricsByDay = new Map<string, CampaignDailyMetric>();
   const bump = (date: Date, field: "sent" | "replied") => {
     const key = brazilDateKey(date);
@@ -150,6 +160,10 @@ export async function getCampaignDetail(
     if (r.repliedAt) counts.replied += 1;
     if (r.sentAt) bump(r.sentAt, "sent");
     if (r.repliedAt) bump(r.repliedAt, "replied");
+    // Mesmo "último evento" que shouldSendNow usa em engine.ts — precisa do
+    // maior timestamp entre envio inicial e reenvio, não só um dos dois.
+    if (r.sentAt && (!lastAt || r.sentAt > lastAt)) lastAt = r.sentAt;
+    if (r.followUpSentAt && (!lastAt || r.followUpSentAt > lastAt)) lastAt = r.followUpSentAt;
   }
 
   const audienceFilter = parseAudienceFilter(campaign.audienceFilter);
@@ -164,6 +178,20 @@ export async function getCampaignDetail(
     },
     counts.pending,
   );
+
+  // Sem nenhum envio ainda (lastAt null), o motor manda no próximo tick sem
+  // exigir delay nenhum (ver shouldSendNow em lib/campaigns/engine.ts) — só
+  // soma o delay médio quando já existe um envio anterior pra contar a partir dele.
+  // Sempre empurrado pra dentro da janela de horário/dias permitida — sem
+  // isso, uma campanha fora do horário (ex.: depois das 18h) mostrava "a
+  // qualquer momento" mesmo não podendo mandar nada até o próximo dia útil.
+  const nextSendEstimateAt =
+    campaign.status === "RUNNING" && counts.pending > 0
+      ? nextAllowedSendWindow(
+          campaign,
+          lastAt ? new Date(lastAt.getTime() + completionEstimate.avgDelaySec * 1000) : new Date(),
+        )
+      : null;
 
   return {
     id: campaign.id,
@@ -198,5 +226,6 @@ export async function getCampaignDetail(
     })),
     dailyMetrics: Array.from(metricsByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
     completionEstimate,
+    nextSendEstimateAt,
   };
 }

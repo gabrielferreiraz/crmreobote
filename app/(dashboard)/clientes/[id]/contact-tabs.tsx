@@ -23,6 +23,7 @@ type WhatsAppInfo = {
   contactPhone: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
+  sendAsAlternate?: { threadId: string; label: string } | null;
 };
 
 /**
@@ -131,6 +132,7 @@ export function ContactTabs({
               contactPhone={whatsapp.contactPhone}
               currentUserName={whatsapp.currentUserName}
               currentUserPhotoUrl={whatsapp.currentUserPhotoUrl}
+              sendAsAlternate={whatsapp.sendAsAlternate}
             />
           )}
         </div>

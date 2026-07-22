@@ -72,7 +72,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     void (async () => {
       for (let i = 0; i < steps.length; i++) {
         try {
-          await sendWhatsAppMessage({ organizationId, threadId, text: steps[i].text, type: "TEXT" });
+          await sendWhatsAppMessage({ organizationId, threadId, text: steps[i].text, type: "TEXT", sentByUserId: userId });
         } catch (err) {
           console.error(`[send-script] falha ao enviar etapa ${i + 1}/${steps.length} do script ${scriptId} na conversa ${threadId}`, err);
         }

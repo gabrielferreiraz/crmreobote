@@ -284,6 +284,13 @@ export async function handleIncomingMessage(instance: InstanceRef, data: unknown
 }
 
 const HISTORY_MESSAGES_PER_CONTACT = 1000;
+// Teto de páginas usado pelo import MANUAL (botão "Importar histórico") —
+// bem maior que o padrão do gatilho automático (ver MAX_HISTORY_PAGES em
+// lib/evolution.ts) porque esse caminho não responde a um webhook (sem
+// risco de o Evolution reenviar o evento por demora) e existe justamente
+// pra buscar profundidade de verdade por contato (pedido: pelo menos ~50
+// mensagens anteriores por contato, não só a última).
+export const MANUAL_HISTORY_IMPORT_MAX_PAGES = 40;
 
 /** Epoch do Baileys pode vir em segundos ou já em ms conforme a versão — abaixo de 10 bilhões só pode ser segundos (ms nessa faixa seria ano 1970). */
 function toEpochMs(ts: number | string | undefined): number {
@@ -300,10 +307,13 @@ function toEpochMs(ts: number | string | undefined): number {
  * cada um, preservando o horário real de cada mensagem (`createdAt`
  * explícito) pra a conversa aparecer na ordem certa.
  */
-export async function importHistoryMessages(instance: InstanceRef): Promise<{ imported: number; contacts: number }> {
+export async function importHistoryMessages(
+  instance: InstanceRef,
+  opts?: { maxPages?: number },
+): Promise<{ imported: number; contacts: number }> {
   let raw: HistoryMessage[];
   try {
-    raw = await findMessages(instance.instanceName);
+    raw = await findMessages(instance.instanceName, opts?.maxPages);
   } catch (err) {
     console.error(`[wa:webhook] falha ao buscar histórico de ${instance.instanceName}`, err);
     return { imported: 0, contacts: 0 };

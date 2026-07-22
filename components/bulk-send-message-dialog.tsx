@@ -17,14 +17,18 @@ type SendResult = {
   skippedDuplicateContact: number;
 };
 
-const DEFAULT_DELAY_MIN = 50;
+const DEFAULT_DELAY_MIN = 80;
 const DEFAULT_DELAY_MAX = 120;
-// A trilha do slider vai só até 5min — a API aceita até 1h (ver campos numéricos
-// abaixo dela, que continuam aceitando até 3600), mas arrastar uma bolinha
-// numa trilha de 1h inteira deixaria a faixa útil (dezenas a poucas centenas
-// de segundos) espremida em poucos pixels, difícil de acertar.
-const SLIDER_MIN_SEC = 10;
-const SLIDER_MAX_SEC = 300;
+// Faixa selecionável na UI — a API em si aceita até 1h (ver MAX_DELAY_SEC em
+// app/api/deals/bulk-send-message/route.ts), mas 80s–2000s (~1,3–33,3min) é
+// a faixa que faz sentido oferecer por padrão pra esse tipo de disparo.
+const SLIDER_MIN_SEC = 80;
+const SLIDER_MAX_SEC = 2000;
+
+/** "80" -> "1,3 min" — exibido ao lado de cada campo em segundos. */
+function toMinutesLabel(sec: number): string {
+  return `${(sec / 60).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} min`;
+}
 
 /**
  * Diálogo (não popover — tem campo demais pro padrão BulkActionPopover já
@@ -143,7 +147,7 @@ export function BulkSendMessageDialog({
   }
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} maxWidth="max-w-md">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Enviar mensagem em massa</h2>
       <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
         {dealIds.length} negócio{dealIds.length === 1 ? "" : "s"} selecionado{dealIds.length === 1 ? "" : "s"}.
@@ -235,31 +239,35 @@ export function BulkSendMessageDialog({
                 }}
               />
               <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
-                De
+                <span className="shrink-0">De</span>
                 <input
                   type="number"
-                  min={10}
-                  max={3600}
+                  min={SLIDER_MIN_SEC}
+                  max={SLIDER_MAX_SEC}
                   value={delayMinSec}
                   onChange={(e) => setDelayMinSec(Number(e.target.value))}
-                  className="field-input w-20 px-2 py-1 text-center"
+                  className="field-input w-20 shrink-0 px-2 py-1 text-center"
                 />
-                a
+                <span className="shrink-0">a</span>
                 <input
                   type="number"
-                  min={10}
-                  max={3600}
+                  min={SLIDER_MIN_SEC}
+                  max={SLIDER_MAX_SEC}
                   value={delayMaxSec}
                   onChange={(e) => setDelayMaxSec(Number(e.target.value))}
-                  className="field-input w-20 px-2 py-1 text-center"
+                  className="field-input w-20 shrink-0 px-2 py-1 text-center"
                 />
-                segundos
+                <span className="shrink-0">segundos</span>
               </div>
+              <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                {toMinutesLabel(delayMinSec)} a {toMinutesLabel(delayMaxSec)}
+              </p>
             </div>
           ) : (
             <p className="pl-6 text-xs text-neutral-400 dark:text-neutral-500">
-              Um tempo aleatório entre {DEFAULT_DELAY_MIN} e {DEFAULT_DELAY_MAX} segundos será usado entre cada
-              contato (padrão — ajuda a evitar bloqueios).
+              Um tempo aleatório entre {DEFAULT_DELAY_MIN} segundos ({toMinutesLabel(DEFAULT_DELAY_MIN)}) e{" "}
+              {DEFAULT_DELAY_MAX} segundos ({toMinutesLabel(DEFAULT_DELAY_MAX)}) será usado entre cada contato
+              (padrão — ajuda a evitar bloqueios).
             </p>
           )}
         </div>

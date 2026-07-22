@@ -8,8 +8,10 @@ import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-requ
 import { formatCurrency } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { notifyMetaConversionWon } from "@/lib/meta-ads/conversions";
+import { createProcessForWonDeal } from "@/lib/processes/create";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
+import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     lossReasonId,
     lostReason,
     expectedCloseAt,
+    closedAt: closedAtInput,
     ownerId,
     customFieldValues,
   } = body as {
@@ -62,6 +65,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     lossReasonId?: string | null;
     lostReason?: string | null;
     expectedCloseAt?: string | null;
+    closedAt?: string;
     ownerId?: string;
     customFieldValues?: Record<string, unknown>;
   };
@@ -119,8 +123,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
-    const closedAt =
-      status && status !== "OPEN" && existing.status === "OPEN" ? new Date() : undefined;
+    let closedAt: Date | undefined;
+    if (status && status !== "OPEN" && existing.status === "OPEN") {
+      if (closedAtInput) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(closedAtInput)) {
+          return NextResponse.json({ error: "Data inválida" }, { status: 400 });
+        }
+        closedAt = brazilDateStringWithNowTimeToUTC(closedAtInput);
+        if (isNaN(closedAt.getTime())) {
+          return NextResponse.json({ error: "Data inválida" }, { status: 400 });
+        }
+      } else {
+        closedAt = new Date();
+      }
+    }
 
     // Só valida/grava se o body de fato mandou customFieldValues — as outras
     // chamadas a esse PUT (mudar status, valor, etc.) não mandam esse campo,
@@ -170,6 +186,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           value: deal.value != null ? Number(deal.value) : null,
           contact: deal.contact,
         }).catch((err) => console.error("[meta-ads] falha ao mandar evento de conversão", err));
+        // Negócio ganho vira Processo de pós-venda — feito de dentro do
+        // request (não fire-and-forget) porque é escrita local rápida, e o
+        // time administrativo depende do processo já existir imediatamente
+        // depois de marcar o ganho, não "em alguns segundos".
+        await createProcessForWonDeal(
+          organizationId,
+          { id: deal.id, contactId: deal.contactId, ownerId: deal.ownerId },
+          userId,
+        ).catch((err) => console.error("[processes] falha ao criar processo de pós-venda", err));
       } else if (status === "LOST") {
         const reasonSuffix = lossReasonLabel ? ` · ${lossReasonLabel}` : "";
         systemBodies.push(`marcou o negócio como perdido${reasonSuffix}`);

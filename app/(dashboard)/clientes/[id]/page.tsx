@@ -86,6 +86,28 @@ export default async function ContactPage({
       ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact })
       : null;
 
+  // "Enviar como consultor" — só pro Dono, e só quando o cliente tem um
+  // responsável diferente dele com WhatsApp próprio conectado. Preserva o
+  // padrão de sempre mandar como o próprio usuário (whatsappThread acima);
+  // isso só oferece a alternativa, nunca troca sozinho.
+  let sendAsAlternate: { threadId: string; label: string } | null = null;
+  if (
+    whatsappThread &&
+    session!.user.role === "OWNER" &&
+    contact.responsavelId &&
+    contact.responsavelId !== session!.user.id &&
+    contact.responsavel
+  ) {
+    const consultantInstance = await resolveConnectedInstance(organizationId, contact.responsavelId);
+    const consultantThread =
+      consultantInstance?.status === "CONNECTED"
+        ? await getOrCreateThreadForContact({ organizationId, instance: consultantInstance, contact })
+        : null;
+    if (consultantThread) {
+      sendAsAlternate = { threadId: consultantThread.id, label: contact.responsavel.name };
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Link
@@ -161,6 +183,7 @@ export default async function ContactPage({
                 contactPhone: contact.whatsapp || contact.phone,
                 currentUserName: session!.user.name ?? undefined,
                 currentUserPhotoUrl,
+                sendAsAlternate,
               }
             : null
         }

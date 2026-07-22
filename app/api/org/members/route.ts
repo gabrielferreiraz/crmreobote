@@ -24,10 +24,11 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { name, email, role } = body as {
+  const { name, email, role, area } = body as {
     name?: string;
     email?: string;
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
+    area?: "VENDAS" | "ADMINISTRATIVO";
   };
 
   const access = await requireRole(["OWNER", "MANAGER"]);
@@ -35,6 +36,9 @@ export async function POST(req: Request) {
 
   if (!email || !role) {
     return NextResponse.json({ error: "email e role são obrigatórios" }, { status: 400 });
+  }
+  if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
+    return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
   // Gerente convida só papéis abaixo do próprio (Supervisor/Consultor) — sem
   // isso, um Gerente podia se auto-promover em dobro criando outro Gerente
@@ -63,7 +67,7 @@ export async function POST(req: Request) {
     }
 
     const membership = await prisma.organizationUser.create({
-      data: { organizationId: access.organizationId, userId: user.id, role },
+      data: { organizationId: access.organizationId, userId: user.id, role, area },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
 

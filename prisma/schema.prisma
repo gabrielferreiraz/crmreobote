@@ -39,6 +39,10 @@ model Organization {
   userDailyActivities    UserDailyActivity[]
   monthlyGoals           MonthlyGoal[]
   metaAdsConnection      MetaAdsConnection?
+  processPipelines       ProcessPipeline[]
+  processes              Process[]
+  processStageHistories  ProcessStageHistory[]
+  processRequests        ProcessRequest[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -71,6 +75,11 @@ model User {
   dailyActivities             UserDailyActivity[]
   monthlyGoalsUpdated         MonthlyGoal[]
   metaAdsConnectionsCreated   MetaAdsConnection[]
+  processesOwned              Process[]                 @relation("ProcessOwner")
+  processStageHistoryChanges  ProcessStageHistory[]     @relation("ProcessStageHistoryChangedBy")
+  processRequestsCreated      ProcessRequest[]          @relation("ProcessRequestRequestedBy")
+  processRequestsResolved     ProcessRequest[]          @relation("ProcessRequestResolvedBy")
+  whatsappMessagesSentAs      WhatsAppMessage[]         @relation("WhatsAppMessageSentBy")
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -319,6 +328,13 @@ model WhatsAppMessage {
   // contavam qualquer mensagem enviada (conversa manual, automação) junto
   // com prospecção fria nas mesmas métricas gerais.
   campaignId     String?
+  // Preenchido só quando quem operou o envio (sessão logada) é diferente do
+  // dono da instância (ver WhatsAppInstance.userId) — o caso de "enviar como
+  // consultor" (Dono mandando pelo número de outra pessoa) e o caso mais
+  // antigo, automático, da página de Negócio (Dono/Gerente abrindo o chat do
+  // negócio de outro vendedor, sempre atrelado ao WhatsApp do responsável).
+  // Nunca sai daqui pro WhatsApp em si — é só rastro interno de auditoria.
+  sentByUserId   String?
   createdAt      DateTime                 @default(now())
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -327,6 +343,7 @@ model WhatsAppMessage {
   replyTo      WhatsAppMessage?  @relation("WhatsAppMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies      WhatsAppMessage[] @relation("WhatsAppMessageReplies")
   campaign     Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  sentBy       User?             @relation("WhatsAppMessageSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, threadId, createdAt])
   @@index([organizationId, instanceId])
@@ -446,15 +463,35 @@ model Campaign {
   followUpDelayHours Int     @default(24)
   followUpTemplates  Json?
 
+  // RMKT de várias ondas — só campanhas LEAD_CAPTURE (ver CampaignSource)
+  // preenchem isso. Generaliza o followUp acima (que só permite UM reenvio)
+  // pra uma sequência configurável: [{ dayOffset, templates }, ...], onde
+  // dayOffset conta a partir do envio INICIAL (não da onda anterior). null/
+  // vazio = só a prospecção inicial, sem nenhuma onda de remarketing.
+  rmktWaves        Json?
+  // Depois de quantos dias sem resposta (contados do envio inicial) o
+  // destinatário vira FAILED com error "Não respondeu" (ver
+  // lib/campaigns/engine.ts) — só relevante pra LEAD_CAPTURE. Deve cobrir o
+  // maior dayOffset de rmktWaves (validado na criação, ver
+  // lib/campaigns/lead-capture.ts).
+  noReplyDays      Int?
+  // Onde o negócio criado automaticamente na resposta (ver
+  // lib/campaigns/reply.ts) deve cair — só LEAD_CAPTURE preenche; as demais
+  // continuam caindo no pipeline padrão/1ª etapa, como sempre foi.
+  targetPipelineId String?
+  targetStageId    String?
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance     WhatsAppInstance    @relation(fields: [instanceId], references: [id])
-  createdBy    User                @relation(fields: [createdById], references: [id])
-  recipients   CampaignRecipient[]
-  messages     WhatsAppMessage[]
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance       WhatsAppInstance    @relation(fields: [instanceId], references: [id])
+  createdBy      User                @relation(fields: [createdById], references: [id])
+  targetPipeline Pipeline?           @relation(fields: [targetPipelineId], references: [id], onDelete: SetNull)
+  targetStage    PipelineStage?      @relation(fields: [targetStageId], references: [id], onDelete: SetNull)
+  recipients     CampaignRecipient[]
+  messages       WhatsAppMessage[]
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -470,6 +507,11 @@ enum CampaignStatus {
 enum CampaignSource {
   MANUAL
   PIPELINE_BULK
+  // Contatos selecionados direto na página de Clientes (checkbox), sem
+  // negócio nenhum ainda — o negócio só nasce se/quando o contato responder
+  // (ver lib/campaigns/reply.ts). Suporta ondas de RMKT (rmktWaves) e
+  // expira sem resposta em noReplyDays.
+  LEAD_CAPTURE
 }
 
 model CampaignRecipient {
@@ -497,13 +539,22 @@ model CampaignRecipient {
   followUpSentAt DateTime?
   followUpError  String?
 
-  // Só preenchidos em campanhas PIPELINE_BULK (ver Campaign.source) — de
-  // qual negócio esse destinatário veio, e de qual WhatsApp ESTE
-  // destinatário específico deve ser enviado (o do responsável do
-  // negócio), já que um envio em massa do Pipeline pode juntar negócios de
-  // vários consultores diferentes numa mesma campanha. null (campanha
-  // MANUAL, o caso de sempre) = usa a instanceId única da campanha, sem
-  // nenhuma mudança de comportamento (ver lib/campaigns/engine.ts).
+  // Qual onda de Campaign.rmktWaves sai na PRÓXIMA vez (índice no array) —
+  // só avança em campanhas LEAD_CAPTURE; 0 = nenhuma onda enviada ainda.
+  // Quando >= rmktWaves.length, não há mais onda pra mandar (só resta
+  // esperar Campaign.noReplyDays vencer e marcar FAILED).
+  nextWaveIndex Int @default(0)
+
+  // dealId: em PIPELINE_BULK, de qual negócio esse destinatário VEIO; em
+  // LEAD_CAPTURE, o negócio CRIADO automaticamente quando este destinatário
+  // respondeu (ver lib/campaigns/reply.ts) — presença aqui já basta pra
+  // saber que converteu, sem precisar de outro campo. instanceId: de qual
+  // WhatsApp ESTE destinatário específico deve ser enviado (o do responsável
+  // do negócio em PIPELINE_BULK, já que um envio em massa do Pipeline pode
+  // juntar negócios de vários consultores diferentes numa mesma campanha).
+  // null (campanha MANUAL/LEAD_CAPTURE, que usam sempre um único WhatsApp
+  // pra campanha inteira) = usa a instanceId única da campanha, sem nenhuma
+  // mudança de comportamento (ver lib/campaigns/engine.ts).
   dealId     String?
   instanceId String?
 
@@ -530,23 +581,35 @@ enum CampaignRecipientStatus {
 }
 
 model OrganizationUser {
-  id             String    @id @default(cuid())
-  organizationId String
-  userId         String
-  role           OrgRole   @default(MEMBER)
-  teamId         String?
-  active         Boolean   @default(true)
-  createdAt      DateTime  @default(now())
+  id                    String    @id @default(cuid())
+  organizationId        String
+  userId                String
+  role                  OrgRole   @default(MEMBER)
+  teamId                String?
+  active                Boolean   @default(true)
+  createdAt             DateTime  @default(now())
   // Último heartbeat (ver lib/user-activity.ts) — só pra status "online
   // agora" (Configurações → Usuários). Sem relação com atividade/tempo no
   // CRM, isso vive em UserDailyActivity.
-  lastActiveAt   DateTime?
+  lastActiveAt          DateTime?
   // Texto do convite de reunião mandado pro WhatsApp do cliente (ver
   // lib/meeting-invite.ts) — por vendedor, não por organização: cada um
   // manda pelo próprio número, então cada um tem seu próprio jeito de
   // escrever. null usa o template padrão (DEFAULT_MEETING_INVITE_TEMPLATE)
   // até a pessoa editar pela 1ª vez, quando salva automaticamente.
   meetingInviteTemplate String?
+  // Acesso administrativo ao módulo de Processos (pós-venda) — independente
+  // do cargo de vendas (OWNER/MANAGER/SUPERVISOR/MEMBER): a pessoa do
+  // administrativo pode nem ser gerente de vendas nenhuma. OWNER sempre tem
+  // acesso administrativo mesmo com este campo false (ver
+  // lib/processes/access.ts), igual ao OWNER sempre ver tudo no pipeline de
+  // vendas — este campo só importa pra quem NÃO é OWNER.
+  canManageProcesses    Boolean   @default(false)
+  // Determina QUAL experiência a pessoa vê (início, menu, relatórios) —
+  // eixo separado do `role` (que continua controlando o que ela pode FAZER
+  // dentro de Vendas). Default VENDAS preserva o comportamento de todo
+  // usuário já existente. Ver lib/processes/access.ts e app/(dashboard)/page.tsx.
+  area                  UserArea  @default(VENDAS)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -561,6 +624,16 @@ enum OrgRole {
   MANAGER
   SUPERVISOR
   MEMBER
+}
+
+// "Que tela essa pessoa vê" — Vendas é o CRM de sempre (Pipeline, Relatórios
+// de vendas); Administrativo é o pós-venda (Processos, início só com tarefas/
+// anotações, Relatórios de acompanhamento de processo). Ortogonal ao `role`
+// de vendas: um Administrativo normalmente é MEMBER (não aparece em nenhum
+// negócio de ninguém), mas o cargo em si não muda de significado.
+enum UserArea {
+  VENDAS
+  ADMINISTRATIVO
 }
 
 // ─── Equipes ─────────────────────────────────────────────────────────
@@ -637,9 +710,10 @@ model Pipeline {
   order          Int      @default(0)
   createdAt      DateTime @default(now())
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  stages       PipelineStage[]
-  deals        Deal[]
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stages             PipelineStage[]
+  deals              Deal[]
+  campaignsTargeting Campaign[]
 
   @@index([organizationId])
 }
@@ -659,8 +733,9 @@ model PipelineStage {
   // vazias aqui — lead ainda frio, nada comprometido ainda.
   requiredFields String[] @default([])
 
-  pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  deals    Deal[]
+  pipeline           Pipeline   @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  deals              Deal[]
+  campaignsTargeting Campaign[]
 
   @@index([pipelineId, order])
 }
@@ -668,7 +743,7 @@ model PipelineStage {
 // ─── Contatos ────────────────────────────────────────────────────────
 
 model Contact {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   organizationId     String
   name               String
   email              String?
@@ -687,7 +762,7 @@ model Contact {
   state              String?
   zipCode            String?
   responsavelId      String?
-  tags               String[] @default([])
+  tags               String[]  @default([])
   // Dado livre vindo de integração externa (/api/v1/contacts) que não mapeia
   // pra nenhum campo conhecido — guardado como veio, só exibido, sem UI de
   // gestão de schema por organização (fora de escopo).
@@ -709,13 +784,13 @@ model Contact {
   // existe pra dedup: a Meta reenvia o mesmo webhook de leadgen mais de uma
   // vez às vezes, e não pode virar dois contatos/negócios duplicados.
   // metaCampaignName é o que os relatórios de conversão por origem agrupam.
-  metaLeadgenId      String?  @unique
+  metaLeadgenId      String?   @unique
   metaAdId           String?
   metaAdSetId        String?
   metaCampaignId     String?
   metaCampaignName   String?
   metaFormId         String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime  @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   responsavel        User?               @relation("ContactResponsavel", fields: [responsavelId], references: [id])
@@ -724,6 +799,7 @@ model Contact {
   activities         Activity[]
   whatsappThreads    WhatsAppThread[]
   campaignRecipients CampaignRecipient[]
+  processes          Process[]
 
   @@unique([organizationId, phoneNormalized])
   @@unique([organizationId, whatsappNormalized])
@@ -910,6 +986,10 @@ model Deal {
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
+  // Negócio ganho vira um Processo de pós-venda automaticamente (ver
+  // lib/processes/create.ts, chamado em PUT /api/deals/[id] na transição pra
+  // WON) — nunca mais de um por negócio.
+  process            Process?
 
   @@index([organizationId, pipelineId, stageId])
   @@index([organizationId, status])
@@ -923,25 +1003,172 @@ enum DealStatus {
   LOST
 }
 
+// ─── Processos (pós-venda) ────────────────────────────────────────────
+//
+// "CRM dentro do CRM" pro time administrativo/pós-venda — nasce sozinho
+// quando um negócio é marcado como Ganho (1 processo por negócio, nunca
+// mais). Kanban com etapas próprias e editáveis (mesmo padrão de
+// Pipeline/PipelineStage, só que separado de propósito: etapa de venda e
+// etapa de pós-venda são conceitos diferentes, e misturar os dois no mesmo
+// Deal/Pipeline arriscaria o funil de vendas que já funciona hoje).
+//
+// Acesso: quem tem `OrganizationUser.canManageProcesses` (ou é OWNER) edita
+// tudo — move card, cria/edita etapa, marca contemplado/pagamento/
+// documentação. Quem não tem só enxerga (leitura) os processos dos negócios
+// que ELE MESMO ganhou (`Process.ownerId` — herdado do Deal de origem no
+// momento da criação, nunca muda depois, mesmo se o negócio trocar de
+// responsável) — ver lib/processes/access.ts.
+
+model ProcessPipeline {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  isDefault      Boolean  @default(false)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stages       ProcessStage[]
+  processes    Process[]
+
+  @@index([organizationId])
+}
+
+model ProcessStage {
+  id         String   @id @default(cuid())
+  pipelineId String
+  name       String
+  order      Int
+  color      String?
+  // Etapa marcada como "conclusão" — entrar aqui dispara aviso (push) pro
+  // time administrativo (ver lib/processes/notify.ts). Não precisa ser a
+  // última etapa nem ser única.
+  isFinal    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  pipeline     ProcessPipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  processes    Process[]
+  stageHistory ProcessStageHistory[] @relation("ProcessStageHistoryToStage")
+
+  @@index([pipelineId])
+}
+
+enum DocumentStatus {
+  NOT_REQUESTED
+  PENDING_DELIVERY
+  DELIVERED
+}
+
+model Process {
+  id             String @id @default(cuid())
+  organizationId String
+  pipelineId     String
+  stageId        String
+  dealId         String @unique
+  contactId      String
+  // Herdado do Deal.ownerId no momento em que o processo nasce (negócio
+  // marcado como Ganho) — nunca reflete mudança de responsável do negócio
+  // depois disso; é o "dono" fixo pro escopo de leitura do consultor.
+  ownerId        String
+
+  // Marcadores independentes da etapa atual do Kanban — um processo pode
+  // estar em qualquer etapa E já estar contemplado/com documentação
+  // pendente ao mesmo tempo; os filtros da lista cruzam com qualquer etapa.
+  contemplated   Boolean        @default(false)
+  paymentPending Boolean        @default(true)
+  documentStatus DocumentStatus @default(NOT_REQUESTED)
+  // Cadastrados pelo administrativo assim que o cliente entra no consórcio —
+  // número da cota e do grupo, não texto livre (dá pra buscar/filtrar por
+  // qualquer um dos dois depois).
+  quotaNumber    String?
+  groupNumber    String?
+
+  stageEnteredAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline     ProcessPipeline       @relation(fields: [pipelineId], references: [id])
+  stage        ProcessStage          @relation(fields: [stageId], references: [id])
+  deal         Deal                  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact      Contact               @relation(fields: [contactId], references: [id])
+  owner        User                  @relation("ProcessOwner", fields: [ownerId], references: [id])
+  stageHistory ProcessStageHistory[]
+  requests     ProcessRequest[]
+  // Notas do administrativo sobre este processo (Activity.type = NOTE,
+  // reaproveitando o mesmo model do Negócio — ver Activity.processId) —
+  // alimenta o feed de "anotações" no início do Administrativo.
+  activities   Activity[]
+
+  @@index([organizationId])
+  @@index([organizationId, ownerId])
+  @@index([organizationId, stageId])
+  @@index([organizationId, pipelineId])
+  @@index([organizationId, quotaNumber])
+  @@index([organizationId, groupNumber])
+}
+
+// Auditoria de movimentação de etapa — quem, quando, de onde pra onde.
+// Nunca editado/apagado depois de criado (é o próprio registro de auditoria).
+model ProcessStageHistory {
+  id             String   @id @default(cuid())
+  processId      String
+  organizationId String
+  fromStageId    String?
+  toStageId      String
+  changedById    String
+  changedAt      DateTime @default(now())
+
+  process      Process      @relation(fields: [processId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  toStage      ProcessStage @relation("ProcessStageHistoryToStage", fields: [toStageId], references: [id])
+  changedBy    User         @relation("ProcessStageHistoryChangedBy", fields: [changedById], references: [id])
+
+  @@index([processId])
+  @@index([organizationId])
+}
+
+// Consultor só enxerga (nunca edita) o processo do próprio cliente — este é
+// o botão "Solicitar" pra ele avisar o administrativo de algo (documento
+// pronto, cliente perguntando, etc.) sem precisar de acesso de edição.
+model ProcessRequest {
+  id             String    @id @default(cuid())
+  processId      String
+  organizationId String
+  message        String
+  requestedById  String
+  resolvedAt     DateTime?
+  resolvedById   String?
+  createdAt      DateTime  @default(now())
+
+  process      Process      @relation(fields: [processId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User         @relation("ProcessRequestRequestedBy", fields: [requestedById], references: [id])
+  resolvedBy   User?        @relation("ProcessRequestResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([organizationId, resolvedAt])
+  @@index([processId])
+}
+
 // ─── Tarefas ─────────────────────────────────────────────────────────
 
 model Task {
-  id             String    @id @default(cuid())
-  organizationId String
-  dealId         String?
-  contactId      String?
-  ownerId        String
-  type           TaskType
-  title          String
-  description    String?
-  dueAt          DateTime?
-  completedAt    DateTime?
+  id                  String    @id @default(cuid())
+  organizationId      String
+  dealId              String?
+  contactId           String?
+  ownerId             String
+  type                TaskType
+  title               String
+  description         String?
+  dueAt               DateTime?
+  completedAt         DateTime?
   // Quando o convite da reunião (link de "adicionar ao calendário" pro
   // cliente) foi mandado pro WhatsApp dele — null enquanto não mandado.
   // Nunca reseta sozinho num reagendamento; a tela pergunta de novo e quem
   // manda decide se reenvia.
   meetingInviteSentAt DateTime?
-  createdAt      DateTime  @default(now())
+  createdAt           DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
@@ -970,6 +1197,10 @@ model Activity {
   organizationId String
   dealId         String?
   contactId      String?
+  // Nota do administrativo sobre um Processo de pós-venda (ver
+  // app/(dashboard)/processos) — mesmo model de atividade do Negócio,
+  // reaproveitado em vez de criar um "ProcessNote" à parte só pra isso.
+  processId      String?
   userId         String
   type           ActivityType
   body           String?
@@ -978,9 +1209,11 @@ model Activity {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
   contact      Contact?     @relation(fields: [contactId], references: [id])
+  process      Process?     @relation(fields: [processId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id])
 
   @@index([organizationId, dealId, createdAt])
+  @@index([organizationId, processId, createdAt])
 }
 
 enum ActivityType {

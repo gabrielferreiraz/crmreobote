@@ -19,6 +19,7 @@ import {
   Briefcase,
   IdCard,
   Trash2,
+  Send,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
@@ -32,6 +33,7 @@ import { DateRangeField } from "@/components/date-range-calendar";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
+import { SendLeadsDialog } from "@/components/send-leads-dialog";
 import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
@@ -142,6 +144,7 @@ export function ContactsTable({
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [sendLeadsOpen, setSendLeadsOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const sourceOptions = useMemo(() => {
@@ -579,6 +582,15 @@ export function ContactsTable({
                   )}
                 </BulkActionPopover>
               )}
+              <button
+                type="button"
+                onClick={() => setSendLeadsOpen(true)}
+                disabled={bulkBusy}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                <Send className="h-3.5 w-3.5" strokeWidth={2} />
+                Enviar leads e criar negócios
+              </button>
               {isManager && (
                 <button
                   type="button"
@@ -827,6 +839,18 @@ export function ContactsTable({
             await bulkDelete();
             setConfirmBulkDelete(false);
           }}
+        />
+      )}
+
+      {sendLeadsOpen && (
+        <SendLeadsDialog
+          contactIds={selectedContactIds}
+          onClose={() => setSendLeadsOpen(false)}
+          onSent={() => {
+            clearSelection();
+            router.refresh();
+          }}
+          onCreateScript={() => router.push(`/whatsapp/scripts/novo?returnTo=${encodeURIComponent("/clientes")}`)}
         />
       )}
 

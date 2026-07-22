@@ -13,18 +13,31 @@ export async function PATCH(
 ) {
   const { userId } = await params;
   const body = await req.json();
-  const { role, teamId, active, name } = body as {
+  const { role, teamId, active, name, canManageProcesses, area } = body as {
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
     name?: string;
+    canManageProcesses?: boolean;
+    area?: "VENDAS" | "ADMINISTRATIVO";
   };
 
   const access = await requireRole(["OWNER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  if (!role && teamId === undefined && active === undefined && name === undefined) {
-    return NextResponse.json({ error: "role, teamId, active ou name é obrigatório" }, { status: 400 });
+  if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
+    return NextResponse.json({ error: "area inválida" }, { status: 400 });
+  }
+
+  if (
+    !role &&
+    teamId === undefined &&
+    active === undefined &&
+    name === undefined &&
+    canManageProcesses === undefined &&
+    area === undefined
+  ) {
+    return NextResponse.json({ error: "role, teamId, active, name, canManageProcesses ou area é obrigatório" }, { status: 400 });
   }
 
   if (name !== undefined && !name.trim()) {
@@ -79,7 +92,7 @@ export async function PATCH(
 
       const updatedMembership = await tx.organizationUser.update({
         where: { organizationId_userId: { organizationId: access.organizationId, userId } },
-        data: { role, teamId, active },
+        data: { role, teamId, active, canManageProcesses, area },
         include: { user: { select: { id: true, name: true, email: true, image: true } } },
       });
 
