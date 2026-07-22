@@ -43,8 +43,20 @@ type GetOrCreateThreadParams = {
 export async function getOrCreateThread(params: GetOrCreateThreadParams) {
   const { organizationId, instanceId, phoneNormalized, whatsappName } = params;
 
-  const existing = await prisma.whatsAppThread.findUnique({
-    where: { instanceId_phoneNormalized: { instanceId, phoneNormalized } },
+  // Busca por VARIANTE (com/sem o 9º dígito), não pela chave exata: o
+  // número salvo no Contact (usado quando a conversa nasce de um envio
+  // nosso) pode ter uma contagem de dígitos diferente da que o WhatsApp
+  // manda de verdade no JID de uma mensagem recebida (é exatamente o
+  // problema que brazilianMobileVariants documenta em phone-normalize.ts).
+  // Usando findUnique pela chave exata como antes, uma resposta cujo JID
+  // discorda em 1 dígito do que já está salvo na thread nunca encontra essa
+  // thread — cria uma conversa NOVA e órfã, e a resposta nunca chega a bater
+  // com o CampaignRecipient.threadId da campanha que gerou o primeiro envio
+  // (visto na prática: teste de disparo em massa em que a resposta do lead
+  // simplesmente não contava em nenhum relatório).
+  const variants = brazilianMobileVariants(phoneNormalized);
+  const existing = await prisma.whatsAppThread.findFirst({
+    where: { instanceId, phoneNormalized: { in: variants } },
   });
 
   if (existing) {
@@ -70,12 +82,13 @@ export async function getOrCreateThread(params: GetOrCreateThreadParams) {
       },
     });
   } catch (err) {
-    // Corrida: duas mensagens do mesmo número chegaram quase juntas e ambas
-    // tentaram criar a conversa — a que perdeu só busca a que já existe.
+    // Corrida: duas mensagens quase juntas tentaram criar a conversa — a que
+    // perdeu busca de novo por variante (não só pela chave exata que
+    // colidiu), senão uma corrida entre duas grafias do mesmo número cai no
+    // "throw" abaixo por engano.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return prisma.whatsAppThread.findUniqueOrThrow({
-        where: { instanceId_phoneNormalized: { instanceId, phoneNormalized } },
-      });
+      const raced = await prisma.whatsAppThread.findFirst({ where: { instanceId, phoneNormalized: { in: variants } } });
+      if (raced) return raced;
     }
     throw err;
   }
@@ -156,8 +169,13 @@ export async function getOrCreateThreadForContact(params: GetOrCreateThreadForCo
   const phoneNormalized = normalizePhoneNumber(contact.whatsapp || contact.phone);
   if (!phoneNormalized) return null;
 
-  const existing = await prisma.whatsAppThread.findUnique({
-    where: { instanceId_phoneNormalized: { instanceId: instance.id, phoneNormalized } },
+  // Mesma correção de getOrCreateThread acima: busca por variante de 9º
+  // dígito, não pela chave exata — o número salvo no Contact pode ter uma
+  // contagem de dígitos diferente da que uma mensagem recebida desse mesmo
+  // lead já usou pra criar a conversa antes (thread já existente).
+  const variants = brazilianMobileVariants(phoneNormalized);
+  const existing = await prisma.whatsAppThread.findFirst({
+    where: { instanceId: instance.id, phoneNormalized: { in: variants } },
   });
   if (existing) {
     if (existing.contactId === contact.id) return existing;
@@ -170,13 +188,13 @@ export async function getOrCreateThreadForContact(params: GetOrCreateThreadForCo
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      const raced = await prisma.whatsAppThread.findUniqueOrThrow({
-        where: { instanceId_phoneNormalized: { instanceId: instance.id, phoneNormalized } },
+      const raced = await prisma.whatsAppThread.findFirst({
+        where: { instanceId: instance.id, phoneNormalized: { in: variants } },
       });
-      if (raced.contactId !== contact.id) {
+      if (raced && raced.contactId !== contact.id) {
         return prisma.whatsAppThread.update({ where: { id: raced.id }, data: { contactId: contact.id } });
       }
-      return raced;
+      if (raced) return raced;
     }
     throw err;
   }

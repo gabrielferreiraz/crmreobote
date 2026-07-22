@@ -598,17 +598,19 @@ model OrganizationUser {
   // escrever. null usa o template padrão (DEFAULT_MEETING_INVITE_TEMPLATE)
   // até a pessoa editar pela 1ª vez, quando salva automaticamente.
   meetingInviteTemplate String?
-  // Acesso administrativo ao módulo de Processos (pós-venda) — independente
-  // do cargo de vendas (OWNER/MANAGER/SUPERVISOR/MEMBER): a pessoa do
-  // administrativo pode nem ser gerente de vendas nenhuma. OWNER sempre tem
-  // acesso administrativo mesmo com este campo false (ver
-  // lib/processes/access.ts), igual ao OWNER sempre ver tudo no pipeline de
-  // vendas — este campo só importa pra quem NÃO é OWNER.
+  // Acesso administrativo ao módulo de Processos (pós-venda) pra quem é da
+  // área VENDAS mas precisa ajudar no pós-venda mesmo assim (ex.: um
+  // gerente) — quem já é `area: ADMINISTRATIVO` NUNCA precisa deste campo,
+  // sempre tem acesso total por conta da área (ver lib/processes/access.ts).
+  // OWNER também sempre tem acesso administrativo mesmo com este campo
+  // false, igual ao OWNER sempre ver tudo no pipeline de vendas.
   canManageProcesses    Boolean   @default(false)
   // Determina QUAL experiência a pessoa vê (início, menu, relatórios) —
   // eixo separado do `role` (que continua controlando o que ela pode FAZER
-  // dentro de Vendas). Default VENDAS preserva o comportamento de todo
-  // usuário já existente. Ver lib/processes/access.ts e app/(dashboard)/page.tsx.
+  // dentro de Vendas). ADMINISTRATIVO também dá acesso administrativo
+  // automático ao módulo de Processos (vê todos os processos da
+  // organização, não só os que ele mesmo ganhou) — ver lib/processes/access.ts.
+  // Default VENDAS preserva o comportamento de todo usuário já existente.
   area                  UserArea  @default(VENDAS)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -809,6 +811,12 @@ model Contact {
   // Usado pelo relatório de conversão por campanha (agrupa Deal via Contact
   // por metaCampaignId) — ver app/api/reports/meta-ads-attribution.
   @@index([organizationId, metaCampaignId])
+  // Cobre o ORDER BY createdAt DESC da listagem paginada de Clientes — sem
+  // isso, o índice de organizationId sozinho acha as linhas certas mas o
+  // Postgres ainda precisa ordenar TODAS elas em memória antes de aplicar o
+  // take/skip (o problema não é só "sem paginação", é paginação sem índice
+  // pra ordenação nunca ser realmente barata em escala).
+  @@index([organizationId, createdAt])
 }
 
 // ─── Motivos de perda ────────────────────────────────────────────────
@@ -995,6 +1003,11 @@ model Deal {
   @@index([organizationId, status])
   @@index([organizationId, ownerId])
   @@index([organizationId, lossReasonId])
+  // Cobre organizationId+pipelineId (filtro) + stageEnteredAt (ORDER BY) do
+  // board do Pipeline — sem isso, mesmo depois de filtrar status=OPEN e
+  // aplicar take/skip, o Postgres teria que ordenar todo o resultado
+  // filtrado em memória antes de recortar a página.
+  @@index([organizationId, pipelineId, status, stageEnteredAt])
 }
 
 enum DealStatus {
@@ -1012,9 +1025,10 @@ enum DealStatus {
 // etapa de pós-venda são conceitos diferentes, e misturar os dois no mesmo
 // Deal/Pipeline arriscaria o funil de vendas que já funciona hoje).
 //
-// Acesso: quem tem `OrganizationUser.canManageProcesses` (ou é OWNER) edita
-// tudo — move card, cria/edita etapa, marca contemplado/pagamento/
-// documentação. Quem não tem só enxerga (leitura) os processos dos negócios
+// Acesso: quem é OWNER, `OrganizationUser.area: ADMINISTRATIVO` ou tem
+// `canManageProcesses` edita tudo — move card, cria/edita etapa, marca
+// contemplado/pagamento/documentação, vê TODOS os processos da organização.
+// Quem não é nenhum dos três só enxerga (leitura) os processos dos negócios
 // que ELE MESMO ganhou (`Process.ownerId` — herdado do Deal de origem no
 // momento da criação, nunca muda depois, mesmo se o negócio trocar de
 // responsável) — ver lib/processes/access.ts.
@@ -1177,6 +1191,10 @@ model Task {
 
   @@index([organizationId, ownerId, dueAt])
   @@index([organizationId, dealId])
+  // Cobre o ORDER BY dueAt da Agenda pra quem enxerga a organização inteira
+  // (Dono/Gerente, sem filtro de ownerId) — o índice acima (com ownerId) só
+  // ajuda a ordenação quando o filtro de dono também está presente.
+  @@index([organizationId, completedAt, dueAt])
 }
 
 enum TaskType {

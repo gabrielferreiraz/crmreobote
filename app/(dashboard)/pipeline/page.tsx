@@ -33,6 +33,15 @@ export default async function PipelinePage({
     return <p className="text-neutral-400 dark:text-neutral-500">Nenhum pipeline configurado.</p>;
   }
 
+  // Teto de segurança: o Kanban só renderiza OPEN (filtrado no cliente, ver
+  // kanban-board.tsx), mas a view Lista deixa ver Ganhos/Perdidos também —
+  // por isso a busca continua trazendo os 3 status, só com um limite duro
+  // pra nunca tentar devolver o histórico inteiro de uma organização com
+  // dezenas de milhares de negócios já decididos. `dealsCapped` avisa a
+  // Lista que o histórico mais antigo pode estar faltando (ver
+  // pipeline-view.tsx) — resolver de vez exigiria a Lista buscar
+  // Ganhos/Perdidos com paginação própria, independente do Kanban.
+  const DEALS_FETCH_CAP = 2000;
   const dealsRaw = await prisma.deal.findMany({
     where: {
       organizationId,
@@ -41,7 +50,9 @@ export default async function PipelinePage({
     },
     include: { contact: true, owner: true, stage: true, lossReason: true },
     orderBy: { stageEnteredAt: "desc" },
+    take: DEALS_FETCH_CAP,
   });
+  const dealsCapped = dealsRaw.length === DEALS_FETCH_CAP;
 
   const dealIds = dealsRaw.map((d) => d.id);
   const pendingTasks = await prisma.task.findMany({
@@ -159,6 +170,7 @@ export default async function PipelinePage({
         }))}
         stages={activePipeline.stages}
         initialDeals={deals}
+        dealsCapped={dealsCapped}
         members={members.map((m) => m.user)}
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}

@@ -23,6 +23,7 @@ export function PipelineView({
   pipelines,
   stages,
   initialDeals,
+  dealsCapped,
   members,
   allMembers,
   lossReasons,
@@ -37,6 +38,8 @@ export function PipelineView({
   pipelines: PipelineOption[];
   stages: Stage[];
   initialDeals: Deal[];
+  /** true = a busca no servidor bateu no teto (ver page.tsx) — a Lista pode não estar mostrando o histórico completo de Ganhos/Perdidos. */
+  dealsCapped?: boolean;
   members: MemberOption[];
   allMembers: MemberFilterOption[];
   lossReasons: LossReasonOption[];
@@ -135,6 +138,13 @@ export function PipelineView({
           )}
         </div>
       </div>
+
+      {view === "lista" && dealsCapped && (
+        <p className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
+          Este pipeline tem muitos negócios — a lista pode não mostrar os ganhos/perdidos mais antigos. Os negócios em
+          andamento (Kanban) continuam completos.
+        </p>
+      )}
 
       {view === "kanban" ? (
         <KanbanBoard stages={stages} deals={deals} onDealsChange={setDeals} members={members} />

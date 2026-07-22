@@ -3,7 +3,7 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { parseSpreadsheet, normalizeHeader } from "@/lib/parse-spreadsheet";
 import { buildDealName } from "@/lib/deal-name";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
 import { parseBrazilianCurrency } from "@/lib/format";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
@@ -190,11 +190,29 @@ export async function POST(req: Request) {
     }
 
     // ─── Passo 1: resolve todo mundo em memória, sem escrever no banco ainda.
+    // Registra por VARIANTE (com/sem o 9º dígito do celular), não só pela
+    // chave exata — mesmo problema documentado em phone-normalize.ts's
+    // brazilianMobileVariants: uma linha da planilha com o número num formato
+    // de dígitos diferente do já salvo (ou de outra linha do mesmo arquivo)
+    // não reconhecia o mesmo contato e criava um segundo, duplicado.
     const contactRefByNumber = new Map<string, ContactRef>();
+    function registerRef(normalized: string | null, ref: ContactRef) {
+      if (!normalized) return;
+      for (const variant of brazilianMobileVariants(normalized)) contactRefByNumber.set(variant, ref);
+    }
+    function lookupRef(normalized: string | null): ContactRef | undefined {
+      if (!normalized) return undefined;
+      for (const variant of brazilianMobileVariants(normalized)) {
+        const ref = contactRefByNumber.get(variant);
+        if (ref) return ref;
+      }
+      return undefined;
+    }
+
     for (const c of existingContacts) {
       const ref: ContactRef = { kind: "existing", id: c.id, name: c.name, source: c.source };
-      if (c.phoneNormalized) contactRefByNumber.set(c.phoneNormalized, ref);
-      if (c.whatsappNormalized) contactRefByNumber.set(c.whatsappNormalized, ref);
+      registerRef(c.phoneNormalized, ref);
+      registerRef(c.whatsappNormalized, ref);
     }
 
     const pendingNewContacts: PendingContact[] = [];
@@ -216,19 +234,17 @@ export async function POST(req: Request) {
       const phoneNormalized = normalizePhoneNumber(phone);
       const whatsappNormalized = normalizePhoneNumber(whatsapp);
 
-      let ref =
-        (phoneNormalized ? contactRefByNumber.get(phoneNormalized) : undefined) ??
-        (whatsappNormalized ? contactRefByNumber.get(whatsappNormalized) : undefined) ??
-        null;
+      let ref = lookupRef(phoneNormalized) ?? lookupRef(whatsappNormalized) ?? null;
 
       if (!ref) {
         const pendingIndex = pendingNewContacts.length;
         pendingNewContacts.push({ name: contactName, phone, whatsapp, email, source, phoneNormalized, whatsappNormalized });
         ref = { kind: "new", pendingIndex, name: contactName, source: source ?? null };
         // Registra já como se existisse — uma linha seguinte com o mesmo
-        // telefone/whatsapp reaproveita este contato em vez de duplicar.
-        if (phoneNormalized) contactRefByNumber.set(phoneNormalized, ref);
-        if (whatsappNormalized) contactRefByNumber.set(whatsappNormalized, ref);
+        // telefone/whatsapp (em qualquer variante) reaproveita este contato
+        // em vez de duplicar.
+        registerRef(phoneNormalized, ref);
+        registerRef(whatsappNormalized, ref);
       }
       rowContactRef.push(ref);
     }
@@ -292,39 +308,48 @@ export async function POST(req: Request) {
         });
         const idByNumber = new Map<string, string>();
         for (const r of rows) {
-          if (r.phoneNormalized) idByNumber.set(r.phoneNormalized, r.id);
-          if (r.whatsappNormalized) idByNumber.set(r.whatsappNormalized, r.id);
+          if (r.phoneNormalized) for (const v of brazilianMobileVariants(r.phoneNormalized)) idByNumber.set(v, r.id);
+          if (r.whatsappNormalized) for (const v of brazilianMobileVariants(r.whatsappNormalized)) idByNumber.set(v, r.id);
         }
         const strays = withNumber.filter((e) => {
           const id =
-            (e.data.phoneNormalized && idByNumber.get(e.data.phoneNormalized)) ??
-            (e.data.whatsappNormalized && idByNumber.get(e.data.whatsappNormalized));
+            (e.data.phoneNormalized && brazilianMobileVariants(e.data.phoneNormalized).map((v) => idByNumber.get(v)).find(Boolean)) ??
+            (e.data.whatsappNormalized && brazilianMobileVariants(e.data.whatsappNormalized).map((v) => idByNumber.get(v)).find(Boolean));
           if (id) pendingIndexToRealId.set(e.pendingIndex, id);
           return !id;
         });
         // Raríssimo (perdeu uma corrida de criação concorrente pro mesmo
-        // número) — resolve pegando quem já ficou dono do número agora.
+        // número) — resolve pegando quem já ficou dono do número agora. Por
+        // variante (9º dígito) pelo mesmo motivo de sempre: quem venceu a
+        // corrida pode ter gravado o número num formato de dígitos diferente.
         if (strays.length > 0) {
+          const strayVariants = (n: string | null) => (n ? brazilianMobileVariants(n) : []);
           const conflicting = await tx.contact.findMany({
             where: {
               organizationId,
               OR: strays.flatMap((e) => [
-                ...(e.data.phoneNormalized
-                  ? [{ phoneNormalized: e.data.phoneNormalized }, { whatsappNormalized: e.data.phoneNormalized }]
+                ...(strayVariants(e.data.phoneNormalized).length
+                  ? [
+                      { phoneNormalized: { in: strayVariants(e.data.phoneNormalized) } },
+                      { whatsappNormalized: { in: strayVariants(e.data.phoneNormalized) } },
+                    ]
                   : []),
-                ...(e.data.whatsappNormalized
-                  ? [{ phoneNormalized: e.data.whatsappNormalized }, { whatsappNormalized: e.data.whatsappNormalized }]
+                ...(strayVariants(e.data.whatsappNormalized).length
+                  ? [
+                      { phoneNormalized: { in: strayVariants(e.data.whatsappNormalized) } },
+                      { whatsappNormalized: { in: strayVariants(e.data.whatsappNormalized) } },
+                    ]
                   : []),
               ]),
             },
           });
           for (const e of strays) {
+            const phoneVariants = strayVariants(e.data.phoneNormalized);
+            const whatsappVariants = strayVariants(e.data.whatsappNormalized);
             const match = conflicting.find(
               (c) =>
-                c.phoneNormalized === e.data.phoneNormalized ||
-                c.whatsappNormalized === e.data.phoneNormalized ||
-                c.phoneNormalized === e.data.whatsappNormalized ||
-                c.whatsappNormalized === e.data.whatsappNormalized,
+                (c.phoneNormalized && (phoneVariants.includes(c.phoneNormalized) || whatsappVariants.includes(c.phoneNormalized))) ||
+                (c.whatsappNormalized && (phoneVariants.includes(c.whatsappNormalized) || whatsappVariants.includes(c.whatsappNormalized))),
             );
             if (match) pendingIndexToRealId.set(e.pendingIndex, match.id);
           }

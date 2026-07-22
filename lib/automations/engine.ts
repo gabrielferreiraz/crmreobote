@@ -3,6 +3,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { runWithTenant } from "@/lib/tenant-context";
+import { brazilianMobileVariants } from "@/lib/phone-normalize";
 import { sendPushToUser } from "@/lib/push";
 import { sendWhatsAppMessage, resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { getOrCreateThread } from "@/lib/whatsapp/threads";
@@ -328,11 +329,20 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
         // exigem o Contact de cada destinatário — resolveWhatsappRecipients
         // só devolve o telefone normalizado, então busca o Contact
         // correspondente (mesmo padrão do envio manual em
-        // app/api/whatsapp/threads/[threadId]/send-script/route.ts).
+        // app/api/whatsapp/threads/[threadId]/send-script/route.ts). Por
+        // variante (9º dígito) — um destinatário "CUSTOM" (número digitado à
+        // mão na configuração da automação, não vinculado a um Contact
+        // específico) pode estar num formato de dígitos diferente do que
+        // está salvo no Contact de verdade, e sem isso a personalização
+        // (nome/cargo/empresa) simplesmente vinha em branco.
+        const contactPhoneVariants = brazilianMobileVariants(target.phoneNormalized);
         const contact = await prisma.contact.findFirst({
           where: {
             organizationId: entity.organizationId,
-            OR: [{ phoneNormalized: target.phoneNormalized }, { whatsappNormalized: target.phoneNormalized }],
+            OR: [
+              { phoneNormalized: { in: contactPhoneVariants } },
+              { whatsappNormalized: { in: contactPhoneVariants } },
+            ],
           },
         });
         const steps = renderSteps(

@@ -13,6 +13,8 @@ type NotificationTask = {
   dueAt: string | null;
   deal: { id: string; name: string } | null;
   contact: { id: string; name: string } | null;
+  /** true = dueAt já passou de verdade; false = ainda dentro de hoje (ver app/api/tasks/notifications/route.ts). */
+  overdue: boolean;
 };
 
 const POLL_INTERVAL_MS = 60_000;
@@ -53,6 +55,11 @@ export function NotificationBell() {
 
   const showPushToggle = pushStatus !== "unsupported";
   const isSubscribed = pushStatus === "subscribed";
+  // Atrasadas primeiro (mais urgente), depois as de hoje ainda não vencidas
+  // — os dois grupos já vêm ordenados por dueAt crescente (ver a query),
+  // então só filtrar preserva a ordem cronológica dentro de cada um.
+  const overdueTasks = tasks.filter((t) => t.overdue);
+  const todayTasks = tasks.filter((t) => !t.overdue);
 
   return (
     <div ref={containerRef} className="relative">
@@ -82,39 +89,14 @@ export function NotificationBell() {
                 Nenhuma tarefa pendente.
               </p>
             ) : (
-              tasks.map((task) => {
-                const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
-                const href = task.deal
-                  ? `/negocios/${task.deal.id}`
-                  : task.contact
-                    ? `/clientes/${task.contact.id}`
-                    : "/agenda";
-                return (
-                  <Link
-                    key={task.id}
-                    href={href}
-                    onClick={() => setOpen(false)}
-                    className="flex items-start gap-2.5 border-b border-neutral-50 dark:border-neutral-800 px-4 py-2.5 text-sm last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                  >
-                    <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-500/15">
-                      <Icon className="h-3 w-3 text-red-600 dark:text-red-400" strokeWidth={2} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
-                      <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                        {TASK_TYPE_LABELS[task.type] ?? task.type}
-                        {task.deal && ` · ${task.deal.name}`}
-                        {task.contact && ` · ${task.contact.name}`}
-                      </p>
-                      {task.dueAt && (
-                        <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">
-                          {new Date(task.dueAt).toLocaleString("pt-BR")}
-                        </p>
-                      )}
-                    </div>
-                  </Link>
-                );
-              })
+              <>
+                {overdueTasks.length > 0 && (
+                  <NotificationGroup label="Atrasadas" tasks={overdueTasks} tone="red" onNavigate={() => setOpen(false)} />
+                )}
+                {todayTasks.length > 0 && (
+                  <NotificationGroup label="Hoje" tasks={todayTasks} tone="amber" onNavigate={() => setOpen(false)} />
+                )}
+              </>
             )}
           </div>
 
@@ -152,6 +134,72 @@ export function NotificationBell() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const GROUP_TONE = {
+  red: {
+    label: "text-red-600 dark:text-red-400",
+    iconBg: "bg-red-50 dark:bg-red-500/15",
+    iconText: "text-red-600 dark:text-red-400",
+    date: "text-red-600 dark:text-red-400",
+  },
+  amber: {
+    label: "text-amber-600 dark:text-amber-400",
+    iconBg: "bg-amber-50 dark:bg-amber-500/15",
+    iconText: "text-amber-600 dark:text-amber-400",
+    date: "text-amber-600 dark:text-amber-400",
+  },
+} as const;
+
+/** Um grupo (Atrasadas ou Hoje) dentro do painel — mesmo mini-cabeçalho/tom de cor já usado nas seções da Agenda (ver tasks-list.tsx's TaskGroup). */
+function NotificationGroup({
+  label,
+  tasks,
+  tone,
+  onNavigate,
+}: {
+  label: string;
+  tasks: NotificationTask[];
+  tone: "red" | "amber";
+  onNavigate: () => void;
+}) {
+  const colors = GROUP_TONE[tone];
+  return (
+    <div>
+      <p className={`px-4 pt-2.5 pb-1 text-[11px] font-semibold tracking-wide uppercase ${colors.label}`}>{label}</p>
+      {tasks.map((task) => {
+        const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
+        const href = task.deal
+          ? `/negocios/${task.deal.id}`
+          : task.contact
+            ? `/clientes/${task.contact.id}`
+            : "/agenda";
+        return (
+          <Link
+            key={task.id}
+            href={href}
+            onClick={onNavigate}
+            className="flex items-start gap-2.5 border-b border-neutral-50 dark:border-neutral-800 px-4 py-2.5 text-sm last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          >
+            <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${colors.iconBg}`}>
+              <Icon className={`h-3 w-3 ${colors.iconText}`} strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
+              <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                {TASK_TYPE_LABELS[task.type] ?? task.type}
+                {task.deal && ` · ${task.deal.name}`}
+                {task.contact && ` · ${task.contact.name}`}
+              </p>
+              {task.dueAt && (
+                <p className={`mt-0.5 text-xs ${colors.date}`}>{new Date(task.dueAt).toLocaleString("pt-BR")}</p>
+              )}
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }

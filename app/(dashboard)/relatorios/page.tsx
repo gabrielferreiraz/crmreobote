@@ -21,21 +21,46 @@ import { TeamOwnerFilter } from "./team-owner-filter";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { AdminReportsView } from "./admin-reports-view";
+import { ReportTabs } from "./report-tabs";
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ pipelineId?: string; from?: string; to?: string; who?: string }>;
+  searchParams: Promise<{ pipelineId?: string; from?: string; to?: string; who?: string; view?: string }>;
 }) {
+  const { pipelineId: pipelineIdParam, from: fromParam, to: toParam, who: whoParam, view: viewParam } = await searchParams;
+
   // Administrativo (pós-venda) vê um relatório próprio — funil/metas de
-  // vendas não fazem sentido pra quem não vende.
+  // vendas não fazem sentido pra quem não vende. Sem aba: Administrativo
+  // sempre cai direto aqui, nunca alterna pro comercial. from/to/who viram
+  // o filtro de período/responsável do próprio relatório de processos (ver
+  // admin-reports-view.tsx) — não tem relação com o filtro do comercial,
+  // só reaproveita os mesmos nomes de parâmetro de URL.
   const area = await getCurrentUserArea();
-  if (area === "ADMINISTRATIVO") return <AdminReportsView />;
+  if (area === "ADMINISTRATIVO") return <AdminReportsView from={fromParam} to={toParam} who={whoParam} />;
 
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
-  const { pipelineId: pipelineIdParam, from: fromParam, to: toParam, who: whoParam } = await searchParams;
+
+  // Só o Dono ganha a aba "Processos" — consultor/gerente/supervisor nunca
+  // tiveram acesso ao módulo de Processos pra começo de conversa (ver
+  // lib/processes/access.ts), então oferecer a aba pra eles não faz
+  // sentido. Reaproveita o mesmo relatório do Administrativo: como quem tá
+  // pedindo é Dono, `requireProcessAccess()` já devolve acesso total (sem
+  // filtro de dono), então nem precisa de uma versão própria pra isso.
+  // Roda ANTES de qualquer query do comercial abaixo — sem isso, a aba
+  // "Processos" ficaria esperando o relatório de vendas inteiro carregar à
+  // toa antes de mostrar algo completamente diferente.
+  const isOwner = session!.user.role === "OWNER";
+  if (isOwner && viewParam === "processos") {
+    return (
+      <div className="space-y-6">
+        <ReportTabs active="processos" />
+        <AdminReportsView from={fromParam} to={toParam} who={whoParam} />
+      </div>
+    );
+  }
 
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);
@@ -615,6 +640,7 @@ export default async function RelatoriosPage({
       })
     : [];
   const dealThreadIds = dealThreads.map((t) => t.id);
+  const dealThreadIdSet = new Set(dealThreadIds);
 
   // Prospecção manual: a mensagem de ABERTURA (a 1ª de toda a thread, sem
   // limite de período — precisa saber quem falou primeiro na história toda,
@@ -705,12 +731,19 @@ export default async function RelatoriosPage({
   // Possíveis negociações de lista fria: lead abordado por disparo em massa
   // (a mesma base de "prospecção fria" acima) cuja conversa já passou de 5
   // mensagens DELE — sinal de que não é só um "oi" isolado, virou uma
-  // conversa de verdade que vale olhar como oportunidade. Não usa
-  // dateWhere aqui de propósito (mesmo padrão de manualOpenerReplies acima):
-  // o que é limitado ao período é o ENVIO que originou o lead, não quantas
-  // respostas ele já mandou desde então.
+  // conversa de verdade que vale olhar como oportunidade. Exclui thread que
+  // JÁ virou negócio (dealThreadIdSet) — senão um lead que já é negócio de
+  // verdade (aberto, ganho ou até perdido) continuava contado como "possível",
+  // quando na prática já deixou de ser possível pra ser um negócio real (ou
+  // já decidido). Não usa dateWhere aqui de propósito (mesmo padrão de
+  // manualOpenerReplies acima): o que é limitado ao período é o ENVIO que
+  // originou o lead, não quantas respostas ele já mandou desde então.
   const coldThreadIds = Array.from(
-    new Set(campaignRecipients.map((r) => r.threadId).filter((id): id is string => !!id)),
+    new Set(
+      campaignRecipients
+        .map((r) => r.threadId)
+        .filter((id): id is string => !!id && !dealThreadIdSet.has(id)),
+    ),
   );
   const COLD_POSSIBLE_DEAL_MIN_REPLIES = 5;
   // type != CALL: chamada perdida/recusada também vira WhatsAppMessage
@@ -750,7 +783,7 @@ export default async function RelatoriosPage({
   // acima, senão uma resposta numa conversa de negócio contava em dobro
   // (aqui e em "Conversas de negócio"). Também não conta resposta a disparo
   // de lista fria puro, já contada em "prospecção fria" via CampaignRecipient.repliedAt.
-  const dealThreadIdSet = new Set(dealThreadIds);
+  // (dealThreadIdSet já declarado lá em cima, reaproveitado aqui.)
   const organicThreadIds = Array.from(new Set(organicOutboundPairs.map((p) => p.threadId)));
   const generalThreadIds = organicThreadIds.filter((id) => !dealThreadIdSet.has(id));
   const inboundPairs = generalThreadIds.length
@@ -1004,8 +1037,8 @@ export default async function RelatoriosPage({
   // de período do resto do relatório acima — meta é "como estamos indo
   // agora", não uma pergunta sobre um período arbitrário escolhido. Também
   // sempre a organização inteira (ignora o filtro de equipe/responsável):
-  // é uma meta só, do time todo, não uma por pessoa.
-  const isOwner = session!.user.role === "OWNER";
+  // é uma meta só, do time todo, não uma por pessoa. `isOwner` já foi
+  // calculado lá em cima (decide a aba "Processos").
   const nowParts = getBrazilParts(new Date());
   const currentMonthLabel = brazilStartOfMonth().toLocaleDateString("pt-BR", {
     month: "long",
@@ -1031,21 +1064,24 @@ export default async function RelatoriosPage({
 
   return (
     <div className="space-y-16 pb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
-            Relatórios
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-            Panorama comercial
-          </h1>
-          <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
-            Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} />
-          <DateRangeFilter />
+      <div className="space-y-4">
+        {isOwner && <ReportTabs active="comercial" />}
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
+              Relatórios
+            </p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+              Panorama comercial
+            </h1>
+            <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
+              Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} />
+            <DateRangeFilter />
+          </div>
         </div>
       </div>
 
@@ -1443,7 +1479,9 @@ export default async function RelatoriosPage({
             (ganho) dentro do período do filtro — nunca é "essa mensagem virou venda", é o resultado final do contato.
             Geral = conversa fora de negócio. Prospecção fria = disparo em massa via Campanhas — dentro dela,
             “possível negociação” é o lead que já respondeu mais de {COLD_POSSIBLE_DEAL_MIN_REPLIES} mensagens
-            desde o disparo (não é contagem do período, é a conversa toda). Prospecção manual = a
+            desde o disparo (não é contagem do período, é a conversa toda) e AINDA não virou negócio — quem já é
+            negócio (aberto, ganho ou perdido) sai da lista de "possível" e passa a aparecer em "conversas de
+            negócio". Prospecção manual = a
             1ª mensagem de uma thread nova foi sua (não do lead) e ela hoje tem negócio — abordagem fria feita na mão.
             Conversas de negócio = toda a troca (inclusive a de abertura, se for o caso) de contato já vinculado a um
             negócio. Geral, prospecção fria e prospecção manual nunca compartilham mensagem entre si; conversas de

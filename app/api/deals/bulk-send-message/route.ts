@@ -22,9 +22,9 @@ const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR"] as const;
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { dealIds, scriptId, delayMinSec, delayMaxSec } = body as {
+  const { dealIds, scriptIds, delayMinSec, delayMaxSec } = body as {
     dealIds?: string[];
-    scriptId?: string;
+    scriptIds?: string[];
     delayMinSec?: number;
     delayMaxSec?: number;
   };
@@ -42,7 +42,8 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (!scriptId) return NextResponse.json({ error: "Selecione um script" }, { status: 400 });
+  const uniqueScriptIds = Array.from(new Set(scriptIds ?? []));
+  if (uniqueScriptIds.length === 0) return NextResponse.json({ error: "Selecione ao menos um script" }, { status: 400 });
 
   let resolvedDelayMinSec = DEFAULT_DELAY_MIN_SEC;
   let resolvedDelayMaxSec = DEFAULT_DELAY_MAX_SEC;
@@ -71,11 +72,13 @@ export async function POST(req: Request) {
     // Privado por consultor: um script só pode ser usado por quem o criou —
     // reforça no backend o que o picker já filtra (ver GET
     // /api/message-scripts?mine=true), nunca confia só na UI.
-    const script = await prisma.messageScript.findFirst({
-      where: { id: scriptId, organizationId, createdById: userId },
+    const scripts = await prisma.messageScript.findMany({
+      where: { id: { in: uniqueScriptIds }, organizationId, createdById: userId },
       select: { id: true, steps: true },
     });
-    if (!script) return NextResponse.json({ error: "Script inválido" }, { status: 400 });
+    if (scripts.length !== uniqueScriptIds.length) {
+      return NextResponse.json({ error: "Um dos scripts selecionados é inválido" }, { status: 400 });
+    }
 
     // Nunca confia na seleção vinda do cliente — revalida contra o escopo
     // de negócios que este usuário de fato enxerga (mesmo padrão de toda
@@ -148,7 +151,11 @@ export async function POST(req: Request) {
         name: `Envio em massa · ${access.session.user.name ?? "Consultor"} · ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
         status: "RUNNING",
         source: "PIPELINE_BULK",
-        messageTemplates: [{ steps: script.steps, weight: 1, scriptId: script.id }] as unknown as Prisma.InputJsonValue,
+        // Mais de um script selecionado = sorteio com peso igual entre eles
+        // a cada destinatário (ver pickWeighted em lib/campaigns/spintax.ts)
+        // — mesmo mecanismo de A/B já usado em campanhas MANUAL, só que
+        // exposto aqui pela 1ª vez na UI de envio em massa do Pipeline.
+        messageTemplates: scripts.map((s) => ({ steps: s.steps, weight: 1, scriptId: s.id })) as unknown as Prisma.InputJsonValue,
         audienceFilter: { jobTitles: [], tags: [], cities: [] } as unknown as Prisma.InputJsonValue,
         // Obrigatório no schema, mas não usado de fato pra PIPELINE_BULK —
         // cada destinatário carrega a própria instanceId (ver acima).

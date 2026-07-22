@@ -4,6 +4,26 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
 
 const WAVEFORM_BARS = 5;
+const ERROR_AUTO_DISMISS_MS = 4000;
+
+/**
+ * Junta um trecho novo ditado com o que já existia no campo — capitaliza a
+ * primeira letra do trecho novo e garante um ponto final antes de emendar.
+ * Sem isso, duas frases ditadas em momentos diferentes (ex.: nota de negócio
+ * complementada depois) viram uma corrida só sem pontuação nem maiúscula —
+ * o Web Speech API nunca devolve isso sozinho, sempre em minúsculo e sem
+ * pontuação final. Usado pelos 3 lugares que consomem VoiceInputButton em
+ * vez de cada um reimplementar a mesma concatenação.
+ */
+export function appendDictatedText(prev: string, text: string): string {
+  const trimmedNew = text.trim();
+  if (!trimmedNew) return prev;
+  const capitalized = trimmedNew.charAt(0).toUpperCase() + trimmedNew.slice(1);
+  const trimmedPrev = prev.trim();
+  if (!trimmedPrev) return capitalized;
+  const needsPunctuation = !/[.!?…]$/.test(trimmedPrev);
+  return `${trimmedPrev}${needsPunctuation ? "." : ""} ${capitalized}`;
+}
 
 /**
  * Ditado por voz via Web Speech API — nativa do navegador (Chrome/Edge/
@@ -42,6 +62,7 @@ export function VoiceInputButton({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -62,9 +83,16 @@ export function VoiceInputButton({
     () => () => {
       recognitionRef.current?.abort();
       stopVisualizer();
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
     },
     [],
   );
+
+  function showError(message: string) {
+    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+    setError(message);
+    errorTimeoutRef.current = setTimeout(() => setError(null), ERROR_AUTO_DISMISS_MS);
+  }
 
   async function startVisualizer() {
     try {
@@ -96,7 +124,11 @@ export function VoiceInputButton({
   }
 
   function toggle() {
-    if (listening) {
+    // Trava contra clique/toque duplo: sem isso, dois cliques rápidos antes
+    // do re-render refletir `listening=true` criavam DUAS instâncias de
+    // SpeechRecognition escutando o mesmo microfone ao mesmo tempo (a
+    // segunda sobrescrevia recognitionRef sem nunca parar a primeira).
+    if (listening || recognitionRef.current) {
       recognitionRef.current?.stop();
       return;
     }
@@ -121,17 +153,28 @@ export function VoiceInputButton({
     recognition.onerror = (event) => {
       // "no-speech"/"aborted" são silêncio comum (usuário clicou e não falou
       // nada, ou parou por conta própria) — não é erro de verdade, não avisa.
-      if (event.error !== "no-speech" && event.error !== "aborted") {
-        setError(
-          event.error === "not-allowed"
-            ? "Permissão de microfone negada"
-            : "Não consegui entender — tente de novo",
-        );
+      // Os outros códigos têm causas bem diferentes entre si (mic ausente
+      // vs. sem internet vs. permissão negada) — misturar tudo numa mensagem
+      // genérica de "tente de novo" manda o vendedor repetir uma ação que
+      // vai falhar de novo pelo mesmo motivo.
+      if (event.error === "no-speech" || event.error === "aborted") return;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        showError("Permissão de microfone negada");
+      } else if (event.error === "audio-capture") {
+        showError("Nenhum microfone encontrado");
+      } else if (event.error === "network") {
+        // O reconhecimento do Chrome/Edge processa o áudio no servidor deles,
+        // não localmente — sem internet (comum pra vendedor em campo), o
+        // erro real é conexão, não "não entendi o que você falou".
+        showError("Sem conexão com a internet");
+      } else {
+        showError("Não consegui entender — tente de novo");
       }
     };
     recognition.onend = () => {
       setListening(false);
       stopVisualizer();
+      recognitionRef.current = null;
     };
 
     recognitionRef.current = recognition;

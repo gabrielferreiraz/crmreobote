@@ -200,7 +200,7 @@ export function TasksListMobile({
           <MobileTaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} showOwner={showOwner} />
           <MobileTaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} showOwner={showOwner} />
           <MobileTaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} showOwner={showOwner} />
-          <MobileTaskGroup title="Concluídas" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
+          <MobileTaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
         </div>
       )}
 

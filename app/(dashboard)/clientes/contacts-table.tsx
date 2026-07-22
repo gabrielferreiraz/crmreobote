@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -90,8 +90,19 @@ type MemberOption = { id: string; name: string };
 
 type PipelineOption = { id: string; name: string; isDefault: boolean; firstStageId: string };
 
+/**
+ * Quantos contatos o carregamento inicial (página do servidor) e o "carregar
+ * mais" trazem por vez — organização com 100 mil clientes nunca busca tudo
+ * de uma vez só; ver app/(dashboard)/clientes/page.tsx.
+ */
+const PAGE_SIZE = 500;
+/** Máximo de resultados que a busca por texto (servidor, todo o banco) devolve de uma vez. */
+const SEARCH_LIMIT = 100;
+const SEARCH_DEBOUNCE_MS = 300;
+
 export function ContactsTable({
   initialContacts,
+  totalCount,
   isOwner,
   isManager,
   sources,
@@ -101,6 +112,8 @@ export function ContactsTable({
   customFields,
 }: {
   initialContacts: Contact[];
+  /** Total de contatos da organização no banco — pode ser bem maior que initialContacts.length (só a 1ª página vem carregada). */
+  totalCount: number;
   isOwner: boolean;
   isManager: boolean;
   sources: { id: string; label: string }[];
@@ -110,6 +123,22 @@ export function ContactsTable({
   customFields: CustomFieldDefinitionInput[];
 }) {
   const router = useRouter();
+  // Cópia local paginável de initialContacts — "carregar mais" concatena
+  // aqui; ressincroniza sozinha quando o servidor manda uma 1ª página nova
+  // (ex.: depois de router.refresh() por uma edição/import), senão o
+  // "carregar mais" de uma sessão anterior ficaria colado nela pra sempre.
+  const [contacts, setContacts] = useState(initialContacts);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Resultado da busca por texto no SERVIDOR (todo o banco, não só o que já
+  // foi carregado) — null quando a busca está vazia, e aí os filtros abaixo
+  // operam em cima de `contacts` (a página carregada) normalmente.
+  const [searchResults, setSearchResults] = useState<Contact[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setContacts(initialContacts);
+  }, [initialContacts]);
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [name, setName] = useState("");
@@ -147,20 +176,63 @@ export function ContactsTable({
   const [sendLeadsOpen, setSendLeadsOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
-  const sourceOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of initialContacts) if (c.source) set.add(c.source);
-    return Array.from(set).sort();
-  }, [initialContacts]);
+  // Busca por texto vai pro servidor (debounced), não filtra só o que já
+  // carregou — com 100 mil contatos, o cliente literalmente não tem o resto
+  // em memória pra filtrar. Reaproveita GET /api/contacts (já com índice
+  // trigram no Postgres, ver migration search_trigram_indexes).
+  useEffect(() => {
+    const term = search.trim();
+    // Nenhum setState síncrono no corpo do effect (mesmo o "limpar resultado
+    // ao apagar a busca" passa por um timer) — só assim os dois ramos ficam
+    // livres do aviso de cascata do react-hooks/set-state-in-effect.
+    if (!term) {
+      const clear = setTimeout(() => {
+        setSearchResults(null);
+        setSearching(false);
+      }, 0);
+      return () => clearTimeout(clear);
+    }
+    const timer = setTimeout(() => {
+      setSearching(true);
+      fetch(`/api/contacts?q=${encodeURIComponent(term)}&limit=${SEARCH_LIMIT}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data: Contact[]) => setSearchResults(data))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false));
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  // Junta a lista editável (Configurações → Cargos) com qualquer valor
-  // "antigo" (texto livre de antes dessa lista existir) que ainda esteja em
-  // uso — senão o filtro não encontraria contatos com cargo fora da lista.
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/contacts?skip=${contacts.length}&limit=${PAGE_SIZE}`);
+      if (res.ok) {
+        const next: Contact[] = await res.json();
+        setContacts((prev) => [...prev, ...next]);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  // Junta a lista editável (Configurações → Origens) com qualquer valor
+  // "antigo" já usado em algum contato — senão, com só a 1ª página
+  // carregada (ver PAGE_SIZE), uma origem que só aparece depois da página
+  // atual nunca viraria opção de filtro (a lista de Origens em si não tem
+  // esse limite, vem inteira do banco à parte).
+  const sourceOptions = useMemo(() => {
+    const set = new Set(sources.map((s) => s.label));
+    for (const c of contacts) if (c.source) set.add(c.source);
+    return Array.from(set).sort();
+  }, [contacts, sources]);
+
+  // Mesmo raciocínio do sourceOptions acima.
   const jobTitleOptions = useMemo(() => {
     const set = new Set(jobTitles.map((j) => j.label));
-    for (const c of initialContacts) if (c.jobTitle) set.add(c.jobTitle);
+    for (const c of contacts) if (c.jobTitle) set.add(c.jobTitle);
     return Array.from(set);
-  }, [initialContacts, jobTitles]);
+  }, [contacts, jobTitles]);
 
   const hasFilters =
     !!search ||
@@ -181,19 +253,18 @@ export function ContactsTable({
     setRegisteredTo("");
   }
 
+  // Base pra filtrar: resultado da busca no servidor (já veio filtrado por
+  // texto, ver o effect acima) quando há termo digitado, senão a página de
+  // contatos carregada até agora. Os demais filtros (origem, cargo,
+  // responsável, só-com-negócio, data) continuam client-side em cima dessa
+  // base — só o texto livre precisava ir pro banco pra alcançar quem ainda
+  // não foi carregado.
+  const baseContacts = searchResults ?? contacts;
+
   const filteredContacts = useMemo(() => {
-    const term = search.trim().toLowerCase();
     const from = registeredFrom ? brazilDateStringToUTC(registeredFrom) : null;
     const to = registeredTo ? brazilEndOfDayUTC(registeredTo) : null;
-    return initialContacts.filter((c) => {
-      if (
-        term &&
-        !c.name.toLowerCase().includes(term) &&
-        !(c.email ?? "").toLowerCase().includes(term) &&
-        !(c.phone ?? "").includes(term)
-      ) {
-        return false;
-      }
+    return baseContacts.filter((c) => {
       if (sourceFilter && c.source !== sourceFilter) return false;
       if (jobTitleFilter === NO_JOB_TITLE && c.jobTitle) return false;
       if (jobTitleFilter && jobTitleFilter !== NO_JOB_TITLE && c.jobTitle !== jobTitleFilter) return false;
@@ -207,16 +278,7 @@ export function ContactsTable({
       }
       return true;
     });
-  }, [
-    initialContacts,
-    search,
-    sourceFilter,
-    jobTitleFilter,
-    responsavelFilter,
-    onlyWithDeals,
-    registeredFrom,
-    registeredTo,
-  ]);
+  }, [baseContacts, sourceFilter, jobTitleFilter, responsavelFilter, onlyWithDeals, registeredFrom, registeredTo]);
 
   const selectedContactIds = useMemo(
     () => filteredContacts.filter((c) => selectedIds.has(c.id)).map((c) => c.id),
@@ -608,14 +670,17 @@ export function ContactsTable({
       </div>
       {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
-      {hasFilters && (
-        <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          {filteredContacts.length} de {initialContacts.length} contatos
-        </p>
-      )}
+      <p className="text-xs text-neutral-400 dark:text-neutral-500">
+        {searching
+          ? "Buscando…"
+          : searchResults
+            ? `${filteredContacts.length} resultado${filteredContacts.length === 1 ? "" : "s"} para "${search.trim()}"`
+            : hasFilters
+              ? `${filteredContacts.length} de ${contacts.length} carregados`
+              : `${contacts.length} de ${totalCount} conta${totalCount === 1 ? "" : "s"}`}
+      </p>
 
-
-      {initialContacts.length === 0 ? (
+      {totalCount === 0 ? (
         <div className="card">
           <EmptyState
             icon={Inbox}
@@ -827,6 +892,19 @@ export function ContactsTable({
             </table>
           </div>
         </>
+      )}
+
+      {/* Só faz sentido carregar mais da lista base — buscando por texto ou
+          com filtro ativo, "mais" seria de um recorte diferente do que está
+          na tela (a busca de texto já cobre o banco inteiro sozinha; os
+          outros filtros continuam restritos ao que já foi carregado). */}
+      {!searchResults && !hasFilters && contacts.length < totalCount && (
+        <div className="flex justify-center pt-1">
+          <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-secondary">
+            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {loadingMore ? "Carregando…" : `Carregar mais (${totalCount - contacts.length} restantes)`}
+          </button>
+        </div>
       )}
 
       {confirmBulkDelete && (

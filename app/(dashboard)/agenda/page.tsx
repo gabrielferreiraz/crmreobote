@@ -52,10 +52,24 @@ export default async function AgendaPage({
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
 
+    // Tarefa concluída nunca mais some sozinha (fica pra sempre no banco) —
+    // sem uma janela, a Agenda de uma organização antiga carregaria anos de
+    // "Concluídas" em toda visita. Pendente/atrasada continua sem limite de
+    // data (é o trabalho ativo de verdade, sempre precisa aparecer inteiro);
+    // só a concluída ganha uma janela recente + o teto duro de segurança.
+    const COMPLETED_TASKS_WINDOW_DAYS = 30;
+    const TASKS_FETCH_CAP = 2000;
+    const completedSince = new Date(Date.now() - COMPLETED_TASKS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
     const [tasksRaw, membersRaw, deals, googleResult, whatsappInstance] = await Promise.all([
       prisma.task.findMany({
-        where: { organizationId, ...scopeWhere(scope) },
+        where: {
+          organizationId,
+          ...scopeWhere(scope),
+          OR: [{ completedAt: null }, { completedAt: { gte: completedSince } }],
+        },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+        take: TASKS_FETCH_CAP,
         include: {
           deal: {
             select: { id: true, name: true, value: true, stage: { select: { name: true } } },

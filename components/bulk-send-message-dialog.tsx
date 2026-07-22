@@ -51,7 +51,7 @@ export function BulkSendMessageDialog({
 }) {
   const [scripts, setScripts] = useState<ScriptOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scriptId, setScriptId] = useState("");
+  const [scriptIds, setScriptIds] = useState<string[]>([]);
   const [useCustomDelay, setUseCustomDelay] = useState(false);
   const [delayMinSec, setDelayMinSec] = useState(DEFAULT_DELAY_MIN);
   const [delayMaxSec, setDelayMaxSec] = useState(DEFAULT_DELAY_MAX);
@@ -76,6 +76,10 @@ export function BulkSendMessageDialog({
     };
   }, []);
 
+  function toggleScript(id: string) {
+    setScriptIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
+  }
+
   function toggleCustomDelay(checked: boolean) {
     setUseCustomDelay(checked);
     if (checked) {
@@ -85,7 +89,7 @@ export function BulkSendMessageDialog({
   }
 
   async function handleSend() {
-    if (!scriptId) return;
+    if (scriptIds.length === 0) return;
     setSending(true);
     setError(null);
 
@@ -94,7 +98,7 @@ export function BulkSendMessageDialog({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         dealIds,
-        scriptId,
+        scriptIds,
         ...(useCustomDelay ? { delayMinSec, delayMaxSec } : {}),
       }),
     });
@@ -156,6 +160,10 @@ export function BulkSendMessageDialog({
       <div className="space-y-4">
         <div className="space-y-1.5">
           <label className="field-label">Script</label>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Selecione mais de um pra testar variações — cada contato recebe um deles sorteado, com chance igual entre
+            eles.
+          </p>
 
           {loadError ? (
             <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
@@ -184,10 +192,9 @@ export function BulkSendMessageDialog({
                   className="flex cursor-pointer items-start gap-2.5 rounded-md p-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
                   <input
-                    type="radio"
-                    name="script"
-                    checked={scriptId === s.id}
-                    onChange={() => setScriptId(s.id)}
+                    type="checkbox"
+                    checked={scriptIds.includes(s.id)}
+                    onChange={() => toggleScript(s.id)}
                     className="mt-0.5 accent-neutral-900 dark:accent-white"
                   />
                   <span className="min-w-0">
@@ -281,7 +288,7 @@ export function BulkSendMessageDialog({
           <button
             type="button"
             onClick={handleSend}
-            disabled={sending || !scriptId || (useCustomDelay && delayMaxSec < delayMinSec)}
+            disabled={sending || scriptIds.length === 0 || (useCustomDelay && delayMaxSec < delayMinSec)}
             className="btn-primary"
           >
             {sending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}

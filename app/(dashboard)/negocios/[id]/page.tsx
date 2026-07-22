@@ -25,7 +25,12 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         owner: true,
         stage: true,
         pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
-        activities: { orderBy: { createdAt: "desc" }, include: { user: true } },
+        // 200 mais recentes — um negócio de relacionamento longo (anos,
+        // trocando de etapa toda semana) pode acumular milhares de
+        // atividades (inclusive automáticas, tipo SYSTEM a cada mudança de
+        // etapa); a timeline da página não precisa do histórico inteiro de
+        // uma vez.
+        activities: { orderBy: { createdAt: "desc" }, include: { user: true }, take: 200 },
         tasks: { orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }] },
         lossReason: true,
       },

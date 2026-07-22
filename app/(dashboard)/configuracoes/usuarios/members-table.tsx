@@ -393,7 +393,10 @@ export function MembersTable({
               </p>
 
               {isOwner && m.role !== "OWNER" ? (
-                <div className="shrink-0" title="Área de atuação — Administrativo troca a tela inicial e os relatórios pra pós-venda e tira o acesso ao CRM de vendas">
+                <div
+                  className="shrink-0"
+                  title="Área de atuação — Administrativo troca a tela inicial e os relatórios pra pós-venda, tira o acesso ao CRM de vendas e dá acesso total a Processos (todos os clientes ganhos da organização)"
+                >
                   <Select
                     value={m.area}
                     onChange={(v) => setArea(m.user.id, v as Member["area"])}
@@ -408,10 +411,10 @@ export function MembersTable({
                 m.area === "ADMINISTRATIVO" && <Badge tone="accent">Administrativo</Badge>
               )}
 
-              {isOwner && m.role !== "OWNER" && (
+              {isOwner && m.role !== "OWNER" && m.area !== "ADMINISTRATIVO" && (
                 <label
                   className="hidden shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 md:flex"
-                  title="Acesso administrativo ao Processos (pós-venda) — edita etapas e move cards, independente do cargo de vendas"
+                  title="Acesso administrativo ao Processos (pós-venda) mesmo sendo da área Vendas — edita etapas e move cards de todos os clientes ganhos"
                 >
                   <input
                     type="checkbox"

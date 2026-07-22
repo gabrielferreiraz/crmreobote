@@ -48,7 +48,7 @@ export function SendLeadsDialog({
   const [scripts, setScripts] = useState<ScriptOption[] | null>(null);
   const [pipelines, setPipelines] = useState<PipelineOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scriptId, setScriptId] = useState("");
+  const [scriptIds, setScriptIds] = useState<string[]>([]);
   const [pipelineId, setPipelineId] = useState("");
   const [stageId, setStageId] = useState("");
   const [rmktEnabled, setRmktEnabled] = useState(false);
@@ -92,6 +92,10 @@ export function SendLeadsDialog({
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId) ?? null;
   const sortedStages = selectedPipeline?.stages.slice().sort((a, b) => a.order - b.order) ?? [];
 
+  function toggleScript(id: string) {
+    setScriptIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
+  }
+
   function addWave() {
     setWaves((prev) => [...prev, { dayOffset: "", scriptId: "" }]);
   }
@@ -110,7 +114,7 @@ export function SendLeadsDialog({
       waves.every((w) => Number(w.dayOffset) < Number(noReplyDays || 0)));
 
   const canSend =
-    !!scriptId && !!pipelineId && !!stageId && !!noReplyDays.trim() && Number(noReplyDays) > 0 && wavesValid;
+    scriptIds.length > 0 && !!pipelineId && !!stageId && !!noReplyDays.trim() && Number(noReplyDays) > 0 && wavesValid;
 
   async function handleSend() {
     if (!canSend) return;
@@ -122,7 +126,7 @@ export function SendLeadsDialog({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contactIds,
-        scriptId,
+        scriptIds,
         targetPipelineId: pipelineId,
         targetStageId: stageId,
         noReplyDays: Number(noReplyDays),
@@ -188,6 +192,12 @@ export function SendLeadsDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="field-label">Script inicial (prospecção)</label>
+            {scripts.length > 0 && (
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Selecione mais de um pra testar variações — cada lead recebe um deles sorteado, com chance igual entre
+                eles.
+              </p>
+            )}
             {scripts.length === 0 ? (
               <EmptyState
                 icon={MessageCircleMore}
@@ -209,10 +219,9 @@ export function SendLeadsDialog({
                       className="flex cursor-pointer items-start gap-2.5 rounded-md p-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                     >
                       <input
-                        type="radio"
-                        name="script"
-                        checked={scriptId === s.id}
-                        onChange={() => setScriptId(s.id)}
+                        type="checkbox"
+                        checked={scriptIds.includes(s.id)}
+                        onChange={() => toggleScript(s.id)}
                         className="mt-0.5 accent-neutral-900 dark:accent-white"
                       />
                       <span className="min-w-0">

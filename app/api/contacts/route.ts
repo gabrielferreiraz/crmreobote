@@ -13,9 +13,21 @@ import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
+// Sem `limit` explícito: 8 quando é busca por texto (autocomplete, ver
+// ContactSearchInput) ou PAGE_SIZE quando é listagem simples (ver
+// contacts-table.tsx) — nunca devolve a organização inteira de uma vez só.
+const DEFAULT_SEARCH_LIMIT = 8;
+const DEFAULT_LIST_LIMIT = 500;
+const MAX_LIMIT = 500;
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q");
+  const skipParam = Number(searchParams.get("skip"));
+  const skip = Number.isFinite(skipParam) && skipParam > 0 ? skipParam : 0;
+  const limitParam = Number(searchParams.get("limit"));
+  const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : null;
+  const take = Math.min(requestedLimit ?? (q ? DEFAULT_SEARCH_LIMIT : DEFAULT_LIST_LIMIT), MAX_LIMIT);
 
   const { organizationId } = await requireSession();
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -35,8 +47,9 @@ export async function GET(req: Request) {
           : {}),
       },
       orderBy: { createdAt: "desc" },
-      include: { _count: { select: { deals: true } } },
-      take: q ? 8 : undefined,
+      include: { _count: { select: { deals: true } }, responsavel: { select: { id: true, name: true } } },
+      take,
+      skip,
     });
 
     return NextResponse.json(contacts);

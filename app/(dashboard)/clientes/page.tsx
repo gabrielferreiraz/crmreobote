@@ -16,12 +16,17 @@ export default async function ClientesPage() {
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
   return runWithTenant(organizationId, async () => {
-    const [contactsRaw, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
+    const [contactsRaw, totalCount, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
+      // Só a 1ª página (ver PAGE_SIZE em contacts-table.tsx, que "carrega
+      // mais" sob demanda) — uma organização com 100 mil clientes nunca
+      // baixa a tabela inteira só pra abrir a tela.
       prisma.contact.findMany({
         where: { organizationId },
         orderBy: { createdAt: "desc" },
         include: { _count: { select: { deals: true } }, responsavel: { select: { id: true, name: true } } },
+        take: 500,
       }),
+      prisma.contact.count({ where: { organizationId } }),
       prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.customFieldDefinition.findMany({
@@ -54,11 +59,12 @@ export default async function ClientesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            {contacts.length} conta{contacts.length === 1 ? "" : "s"} ativa{contacts.length === 1 ? "" : "s"} na sua carteira
+            {totalCount} conta{totalCount === 1 ? "" : "s"} ativa{totalCount === 1 ? "" : "s"} na sua carteira
           </p>
         </div>
         <ContactsTable
           initialContacts={contacts}
+          totalCount={totalCount}
           isOwner={isOwner}
           isManager={isManager}
           sources={sources}

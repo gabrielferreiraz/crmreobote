@@ -4,14 +4,15 @@
  * OWNER/MANAGER/SUPERVISOR/MEMBER com escopos diferentes):
  *
  * - `isAdmin: true` — enxerga e edita tudo (mover card, criar/editar etapa,
- *   marcar contemplado/pagamento/documentação). É quem tem
- *   `OrganizationUser.canManageProcesses`, ou qualquer OWNER (mesmo sem o
- *   campo marcado — mesma regra de "dono sempre vê tudo" do pipeline de
- *   vendas).
+ *   marcar contemplado/pagamento/documentação), de TODOS os clientes
+ *   ganhos da organização. É quem tem `area: ADMINISTRATIVO` (o time de
+ *   pós-venda em si), qualquer OWNER (mesma regra de "dono sempre vê tudo"
+ *   do pipeline de vendas), ou quem tem `OrganizationUser.canManageProcesses`
+ *   marcado à parte (ex.: um gerente de vendas que também ajuda no
+ *   pós-venda, sem precisar virar Administrativo).
  * - `isAdmin: false` — só enxerga (nunca edita) os processos cujo
- *   `ownerId` é o próprio usuário (o negócio que ELE ganhou). Não tem
- *   relação nenhuma com o cargo de vendas (MEMBER, SUPERVISOR etc.) — um
- *   Gerente de vendas sem `canManageProcesses` cai neste mesmo nível.
+ *   `ownerId` é o próprio usuário (o negócio que ELE ganhou). É o caso do
+ *   consultor comum (`area: VENDAS`, sem `canManageProcesses`).
  *
  * Sempre confere no banco (não confia só no JWT), mesmo padrão de
  * requireSession/requireRole — desativação/mudança de permissão precisa
@@ -36,12 +37,12 @@ export async function requireProcessAccess(): Promise<ProcessAccess> {
   const membership = await runWithTenant(organizationId, () =>
     prisma.organizationUser.findUnique({
       where: { organizationId_userId: { organizationId, userId } },
-      select: { active: true, role: true, canManageProcesses: true },
+      select: { active: true, role: true, area: true, canManageProcesses: true },
     }),
   );
   if (!membership?.active) return { ok: false };
 
-  const isAdmin = membership.role === "OWNER" || membership.canManageProcesses;
+  const isAdmin = membership.role === "OWNER" || membership.area === "ADMINISTRATIVO" || membership.canManageProcesses;
   return { ok: true, isAdmin, organizationId, userId };
 }
 

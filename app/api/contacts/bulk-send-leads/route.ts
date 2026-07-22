@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   const body = await req.json();
   const {
     contactIds,
-    scriptId,
+    scriptIds,
     rmktEnabled,
     rmktWaves,
     noReplyDays,
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     delayMaxSec,
   } = body as {
     contactIds?: string[];
-    scriptId?: string;
+    scriptIds?: string[];
     rmktEnabled?: boolean;
     rmktWaves?: RmktWaveInput[];
     noReplyDays?: number;
@@ -58,7 +58,8 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (!scriptId) return NextResponse.json({ error: "Selecione um script inicial" }, { status: 400 });
+  const uniqueScriptIds = Array.from(new Set(scriptIds ?? []));
+  if (uniqueScriptIds.length === 0) return NextResponse.json({ error: "Selecione ao menos um script inicial" }, { status: 400 });
   if (!targetPipelineId || !targetStageId) {
     return NextResponse.json({ error: "Selecione o pipeline e a etapa de destino" }, { status: 400 });
   }
@@ -128,13 +129,15 @@ export async function POST(req: Request) {
 
     // Privado por consultor: um script só pode ser usado por quem o criou —
     // mesma regra de bulk-send-message.
-    const allScriptIds = Array.from(new Set([scriptId, ...waves.map((w) => w.scriptId)]));
+    const allScriptIds = Array.from(new Set([...uniqueScriptIds, ...waves.map((w) => w.scriptId)]));
     const scriptRows = await prisma.messageScript.findMany({
       where: { id: { in: allScriptIds }, organizationId, createdById: userId },
       select: { id: true, steps: true },
     });
     const stepsByScriptId = new Map(scriptRows.map((s) => [s.id, s.steps]));
-    if (!stepsByScriptId.has(scriptId)) return NextResponse.json({ error: "Script inicial inválido" }, { status: 400 });
+    for (const id of uniqueScriptIds) {
+      if (!stepsByScriptId.has(id)) return NextResponse.json({ error: "Um dos scripts iniciais selecionados é inválido" }, { status: 400 });
+    }
     for (const wave of waves) {
       if (!stepsByScriptId.has(wave.scriptId)) {
         return NextResponse.json({ error: "Script de uma das ondas de RMKT é inválido" }, { status: 400 });
@@ -170,7 +173,9 @@ export async function POST(req: Request) {
         name: `Prospecção · ${access.session.user.name ?? "Consultor"} · ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
         status: "RUNNING",
         source: "LEAD_CAPTURE",
-        messageTemplates: [{ steps: stepsByScriptId.get(scriptId), weight: 1, scriptId }] as unknown as Prisma.InputJsonValue,
+        // Mais de um script selecionado = sorteio com peso igual entre eles
+        // a cada lead (ver pickWeighted em lib/campaigns/spintax.ts).
+        messageTemplates: uniqueScriptIds.map((id) => ({ steps: stepsByScriptId.get(id), weight: 1, scriptId: id })) as unknown as Prisma.InputJsonValue,
         audienceFilter: { jobTitles: [], tags: [], cities: [] } as unknown as Prisma.InputJsonValue,
         instanceId: instance.id,
         delayMinSec: resolvedDelayMinSec,

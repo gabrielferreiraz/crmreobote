@@ -22,6 +22,15 @@ const VALID_TYPES: $Enums.WhatsAppMessageType[] = ["TEXT", "IMAGE", "AUDIO", "CO
 // components/whatsapp-chat.tsx) pra nunca ficar sem inscrição ativa.
 const PRESENCE_RESUBSCRIBE_MS = 55_000;
 
+// Sem isso, uma conversa antiga com milhares de mensagens trocadas era
+// buscada INTEIRA a cada 4s (o frontend faz polling nessa mesma rota
+// enquanto o chat fica aberto) — não é só "carrega tudo uma vez", é
+// retransferir um histórico que só cresce a cada poll. Não existe hoje um
+// "carregar mensagens mais antigas" ao rolar pra cima, então o corte é só
+// nas mais recentes — mensagem mais antiga que isso fica sem aparecer no
+// chat até esse recurso ser construído.
+const MESSAGE_LIMIT = 200;
+
 /** Garante que a conversa é da própria organização e está dentro do escopo de quem pediu (mesma regra do Pipeline). */
 async function loadAuthorizedThread(threadId: string, organizationId: string, userId: string, role: string | undefined) {
   const thread = await prisma.whatsAppThread.findFirst({
@@ -51,9 +60,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     // rawPayload nunca vai pro frontend — é o {key, message} bruto do
     // WhatsApp, só serve pra montar o "quoted" na hora de responder,
     // internamente (ver lib/whatsapp/send.ts).
-    const messages = await prisma.whatsAppMessage.findMany({
+    const messagesDesc = await prisma.whatsAppMessage.findMany({
       where: { organizationId, threadId },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
+      take: MESSAGE_LIMIT,
       select: {
         id: true,
         direction: true,
@@ -68,6 +78,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
         sentBy: { select: { name: true } },
       },
     });
+    const messages = messagesDesc.reverse();
 
     // Abrir a conversa é o próprio ato de "ler" — some com o sinal de
     // "lead respondeu" no card do negócio.

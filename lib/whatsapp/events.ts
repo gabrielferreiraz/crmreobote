@@ -26,7 +26,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber, formatBrazilianPhone, extractJidUser } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, formatBrazilianPhone, extractJidUser, brazilianMobileVariants } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64, findMessages, type HistoryMessage } from "@/lib/evolution";
 
 const DEBUG_LOG_ENABLED = process.env.WHATSAPP_WEBHOOK_DEBUG_LOG === "true" || process.env.NODE_ENV !== "production";
@@ -541,8 +541,13 @@ export async function handlePresenceUpdate(instance: InstanceRef, data: unknown)
     const presenceInfo = Object.values(update.presences ?? {})[0];
     if (!presenceInfo?.lastKnownPresence || !VALID_PRESENCE_STATUSES.has(presenceInfo.lastKnownPresence)) return;
 
-    const thread = await prisma.whatsAppThread.findUnique({
-      where: { instanceId_phoneNormalized: { instanceId: instance.id, phoneNormalized } },
+    // Por variante (9º dígito), não pela chave exata — o JID que o
+    // presence.update devolve pode discordar em 1 dígito do que ficou salvo
+    // na thread quando ela nasceu (mesmo problema de sempre, ver
+    // brazilianMobileVariants em lib/phone-normalize.ts); com findUnique
+    // pela chave exata, esse presença simplesmente nunca era aplicado.
+    const thread = await prisma.whatsAppThread.findFirst({
+      where: { instanceId: instance.id, phoneNormalized: { in: brazilianMobileVariants(phoneNormalized) } },
     });
     if (!thread) return; // presença de alguém que nunca trocou mensagem com a gente — nada pra atualizar
 

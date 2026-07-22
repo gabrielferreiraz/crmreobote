@@ -17,7 +17,7 @@ import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
 import { ConfettiBurst } from "@/components/confetti-burst";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
-import { VoiceInputButton } from "@/components/voice-input-button";
+import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 import { brazilDateKey } from "@/lib/timezone";
@@ -559,7 +559,7 @@ export function DealDetail({
                   className="field-input pr-9"
                 />
                 <VoiceInputButton
-                  onResult={(text) => setBody((prev) => (prev ? `${prev} ${text}` : text))}
+                  onResult={(text) => setBody((prev) => appendDictatedText(prev, text))}
                   className="absolute top-1.5 right-1.5"
                 />
               </div>

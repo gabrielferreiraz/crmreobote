@@ -8,7 +8,7 @@ import { Modal } from "@/components/modal";
 import { FilterPopover } from "@/components/filter-popover";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
-import { VoiceInputButton } from "@/components/voice-input-button";
+import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
@@ -229,7 +229,7 @@ export function TasksList({
           <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} showOwner={showOwner} />
           <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} showOwner={showOwner} />
           <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} showOwner={showOwner} />
-          <TaskGroup title="Concluídas" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
+          <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
         </div>
       )}
       </div>
@@ -372,7 +372,7 @@ export function NewTaskDialog({
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <label className="field-label">Título</label>
-            <VoiceInputButton onResult={(text) => setTitle((prev) => (prev ? `${prev} ${text}` : text))} />
+            <VoiceInputButton onResult={(text) => setTitle((prev) => appendDictatedText(prev, text))} />
           </div>
           <input
             autoFocus
@@ -414,7 +414,7 @@ export function NewTaskDialog({
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <label className="field-label">Descrição</label>
-            <VoiceInputButton onResult={(text) => setDescription((prev) => (prev ? `${prev} ${text}` : text))} />
+            <VoiceInputButton onResult={(text) => setDescription((prev) => appendDictatedText(prev, text))} />
           </div>
           <textarea
             value={description}
