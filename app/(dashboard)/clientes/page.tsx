@@ -21,12 +21,15 @@ export default async function ClientesPage() {
       // mais" sob demanda) — uma organização com 100 mil clientes nunca
       // baixa a tabela inteira só pra abrir a tela.
       prisma.contact.findMany({
-        where: { organizationId },
+        // Placeholders reconstruídos na migração do Agendor (negócio órfão
+        // de pessoa) ficam de fora da listagem de clientes de propósito —
+        // não são cliente navegável, só preservam o histórico do negócio.
+        where: { organizationId, NOT: { tags: { has: "sem-contato-agendor" } } },
         orderBy: { createdAt: "desc" },
         include: { _count: { select: { deals: true } }, responsavel: { select: { id: true, name: true } } },
         take: 500,
       }),
-      prisma.contact.count({ where: { organizationId } }),
+      prisma.contact.count({ where: { organizationId, NOT: { tags: { has: "sem-contato-agendor" } } } }),
       prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.customFieldDefinition.findMany({

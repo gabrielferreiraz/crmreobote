@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -36,6 +36,9 @@ export async function GET(req: Request) {
     const contacts = await prisma.contact.findMany({
       where: {
         organizationId,
+        // Placeholders reconstruídos na migração do Agendor (negócio órfão
+        // de pessoa) ficam de fora da listagem de clientes de propósito.
+        NOT: { tags: { has: "sem-contato-agendor" } },
         ...(q
           ? {
               OR: [
@@ -107,8 +110,9 @@ export async function POST(req: Request) {
   }
 
   return runWithTenant(organizationId, async () => {
-    const phoneNormalized = normalizePhoneNumber(phone);
-    const whatsappNormalized = normalizePhoneNumber(whatsapp);
+    const whatsappFallback = fallbackWhatsappToPhone(phone, normalizePhoneNumber(phone), whatsapp, normalizePhoneNumber(whatsapp));
+    const phoneNormalized = whatsappFallback.phoneNormalized;
+    const whatsappNormalized = whatsappFallback.whatsappNormalized;
     const cleanTags = Array.isArray(tags)
       ? tags.map((t) => sanitizeCell(t.trim())).filter(Boolean)
       : [];
@@ -134,8 +138,8 @@ export async function POST(req: Request) {
           organizationId,
           name: sanitizeCell(name),
           email: sanitizeCell(email),
-          phone: sanitizeCell(phone),
-          whatsapp: sanitizeCell(whatsapp),
+          phone: sanitizeCell(whatsappFallback.phone),
+          whatsapp: sanitizeCell(whatsappFallback.whatsapp),
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),

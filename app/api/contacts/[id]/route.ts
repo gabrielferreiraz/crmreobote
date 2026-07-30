@@ -3,7 +3,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -91,12 +91,22 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // apagar telefone normalizado nem campos personalizados que não vieram.
     const phoneNormalized = "phone" in body ? normalizePhoneNumber(phone) : undefined;
     const whatsappNormalized = "whatsapp" in body ? normalizePhoneNumber(whatsapp) : undefined;
+
+    // Estado efetivo pós-update (existente + o que veio nessa chamada) — só
+    // assim dá pra saber se o contato vai FICAR com celular e sem WhatsApp,
+    // mesmo quando essa chamada em particular só tocou num dos dois campos.
+    const effectivePhone = "phone" in body ? sanitizeCell(phone) : existing.phone;
+    const effectivePhoneNormalized = phoneNormalized !== undefined ? phoneNormalized : existing.phoneNormalized;
+    const effectiveWhatsappRaw = "whatsapp" in body ? whatsapp : existing.whatsapp ?? undefined;
+    const effectiveWhatsappNormalized = whatsappNormalized !== undefined ? whatsappNormalized : existing.whatsappNormalized;
+    const whatsappFallback = fallbackWhatsappToPhone(effectivePhone, effectivePhoneNormalized, effectiveWhatsappRaw, effectiveWhatsappNormalized);
+
     const cleanTags = Array.isArray(tags)
       ? tags.map((t) => sanitizeCell(t.trim())).filter(Boolean)
       : undefined;
 
     if (phoneNormalized !== undefined || whatsappNormalized !== undefined) {
-      const duplicate = await findDuplicateContact(organizationId, phoneNormalized ?? null, whatsappNormalized ?? null, id);
+      const duplicate = await findDuplicateContact(organizationId, whatsappFallback.phoneNormalized, whatsappFallback.whatsappNormalized, id);
       if (duplicate) {
         return NextResponse.json({ error: duplicate.message }, { status: 409 });
       }
@@ -120,8 +130,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         data: {
           name: sanitizeCell(name),
           email: sanitizeCell(email),
-          phone: sanitizeCell(phone),
-          whatsapp: sanitizeCell(whatsapp),
+          phone: sanitizeCell(whatsappFallback.phone),
+          whatsapp: sanitizeCell(whatsappFallback.whatsapp),
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),
@@ -134,8 +144,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           zipCode: sanitizeCell(zipCode),
           ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
           ...("responsavelId" in body ? { responsavelId: responsavelId || null } : {}),
-          phoneNormalized,
-          whatsappNormalized,
+          phoneNormalized: whatsappFallback.phoneNormalized,
+          whatsappNormalized: whatsappFallback.whatsappNormalized,
           ...(cleanCustomFieldValues !== undefined ? { customFieldValues: cleanCustomFieldValues } : {}),
         },
       });

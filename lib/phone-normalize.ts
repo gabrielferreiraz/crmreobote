@@ -29,6 +29,28 @@ export function normalizePhoneNumber(raw: string | null | undefined): string | n
 }
 
 /**
+ * Praticamente todo celular no Brasil também é WhatsApp — contato que fica
+ * com celular preenchido e WhatsApp vazio MUDA o número pro campo WhatsApp
+ * (não copia: o celular fica vazio depois, o número passa a existir só num
+ * lugar). Cadastro manual, edição, importação em massa, upsert de
+ * integração externa e a migração do Agendor aplicam essa mesma regra.
+ */
+export function fallbackWhatsappToPhone(
+  phone: string | null | undefined,
+  phoneNormalized: string | null,
+  whatsapp: string | null | undefined,
+  whatsappNormalized: string | null,
+): { phone: string | null; phoneNormalized: string | null; whatsapp: string | null; whatsappNormalized: string | null } {
+  if (whatsappNormalized) {
+    return { phone: phone ?? null, phoneNormalized, whatsapp: whatsapp ?? null, whatsappNormalized };
+  }
+  if (phoneNormalized) {
+    return { phone: null, phoneNormalized: null, whatsapp: phone ?? null, whatsappNormalized: phoneNormalized };
+  }
+  return { phone: phone ?? null, phoneNormalized: phoneNormalized ?? null, whatsapp: whatsapp ?? null, whatsappNormalized: whatsappNormalized ?? null };
+}
+
+/**
  * Extrai a parte "usuário" de um JID do WhatsApp — ex.:
  * "5511999998888:14@s.whatsapp.net" → "5511999998888". O ":14" é o id do
  * aparelho (multi-device); mensagens normalmente chegam sem ele, mas

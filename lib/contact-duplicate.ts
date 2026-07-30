@@ -16,7 +16,15 @@ export async function findDuplicateContact(
   phoneNormalized: string | null,
   whatsappNormalized: string | null,
   excludeId?: string,
-): Promise<{ message: string; contactId: string; responsavelId: string | null } | null> {
+): Promise<{
+  message: string;
+  contactId: string;
+  responsavelId: string | null;
+  phone: string | null;
+  phoneNormalized: string | null;
+  whatsapp: string | null;
+  whatsappNormalized: string | null;
+} | null> {
   if (!phoneNormalized && !whatsappNormalized) return null;
 
   const phoneVariants = phoneNormalized ? brazilianMobileVariants(phoneNormalized) : [];
@@ -35,16 +43,17 @@ export async function findDuplicateContact(
 
   if (!existing) return null;
 
-  if (existing.phoneNormalized && phoneVariants.includes(existing.phoneNormalized)) {
-    return {
-      message: `Já existe um contato com esse telefone: ${existing.name}.`,
-      contactId: existing.id,
-      responsavelId: existing.responsavelId,
-    };
-  }
-  return {
-    message: `Já existe um contato com esse WhatsApp: ${existing.name}.`,
+  const base = {
     contactId: existing.id,
     responsavelId: existing.responsavelId,
+    phone: existing.phone,
+    phoneNormalized: existing.phoneNormalized,
+    whatsapp: existing.whatsapp,
+    whatsappNormalized: existing.whatsappNormalized,
   };
+
+  if (existing.phoneNormalized && phoneVariants.includes(existing.phoneNormalized)) {
+    return { ...base, message: `Já existe um contato com esse telefone: ${existing.name}.` };
+  }
+  return { ...base, message: `Já existe um contato com esse WhatsApp: ${existing.name}.` };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -259,6 +259,18 @@ export function KanbanBoard({
   );
 }
 
+// Altura estimada de um DealCard renderizado + o gap de 8px que antes vinha
+// do `gap-2` do flex (trocado por padding-bottom já que os cartões agora são
+// posicionados de forma absoluta, ver uso abaixo) — os cartões têm conteúdo
+// compacto e sempre a mesma estrutura de linhas (nome+avatar, contato+
+// crédito, tarefas, valor+dias), então a altura real varia muito pouco e uma
+// estimativa fixa é suficiente pra virtualizar sem precisar medir cada um.
+const ROW_HEIGHT = 116;
+// Linhas extras montadas acima/abaixo da área visível — sem essa margem, um
+// scroll rápido mostraria um instante de coluna vazia antes do próximo lote
+// de cartões terminar de montar.
+const OVERSCAN = 6;
+
 function StageColumn({
   stage,
   deals,
@@ -270,6 +282,31 @@ function StageColumn({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
   const total = deals.reduce((sum, d) => sum + (d.value ?? 0), 0);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  // Chute inicial generoso (em vez de 0) pra já mostrar um lote de cartões no
+  // primeiro render, sem esperar o ResizeObserver medir a coluna de verdade —
+  // ele corrige o valor logo em seguida, o chute só evita uma coluna vazia
+  // por um instante.
+  const [viewportHeight, setViewportHeight] = useState(640);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewportHeight(el.clientHeight);
+    const observer = new ResizeObserver(() => setViewportHeight(el.clientHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Só monta no DOM os cartões (com listener de drag, avatar etc.) que estão
+  // dentro ou perto da área visível da coluna — sem isso, uma etapa com
+  // milhares de negócios montava todos de uma vez, mesmo os que nunca
+  // aparecem na tela sem rolar, travando o scroll e gastando memória à toa.
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const endIndex = Math.min(deals.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+  const visibleDeals = deals.slice(startIndex, endIndex);
 
   return (
     <div
@@ -292,13 +329,24 @@ function StageColumn({
           {deals.length}
         </span>
       </div>
-      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 pb-2">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        className="scrollbar-thin flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2"
+      >
         {deals.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum negócio</p>
         )}
-        {deals.map((deal) => (
-          <DealCard key={deal.id} deal={deal} />
-        ))}
+        <div style={{ position: "relative", height: deals.length * ROW_HEIGHT }}>
+          {visibleDeals.map((deal, i) => (
+            <div
+              key={deal.id}
+              style={{ position: "absolute", top: (startIndex + i) * ROW_HEIGHT, left: 0, right: 0, paddingBottom: 8 }}
+            >
+              <DealCard deal={deal} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -10,7 +10,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { ORGANIZATION_ID, resolveUserId } from "@/scripts/agendor/users";
 import { loadSheet, getHeaders, colIndex, cellText, cellDate } from "@/scripts/agendor/xlsx-utils";
 import { type CanonicalMap, resolveCanonicalPersonId } from "@/scripts/agendor/phone-dedup";
@@ -126,6 +126,7 @@ export async function importPessoas(
     }
 
     const ownerId = await resolveUserId(responsavel, dryRun);
+    const whatsappFallback = fallbackWhatsappToPhone(celularRaw, normalizePhoneNumber(celularRaw), whatsappRaw, normalizePhoneNumber(whatsappRaw));
 
     try {
       await prisma.contact.create({
@@ -133,10 +134,10 @@ export async function importPessoas(
           organizationId: ORGANIZATION_ID,
           name,
           email: cellText(row, idxEmail),
-          phone: celularRaw,
-          whatsapp: whatsappRaw,
-          phoneNormalized: normalizePhoneNumber(celularRaw),
-          whatsappNormalized: normalizePhoneNumber(whatsappRaw),
+          phone: whatsappFallback.phone,
+          whatsapp: whatsappFallback.whatsapp,
+          phoneNormalized: whatsappFallback.phoneNormalized,
+          whatsappNormalized: whatsappFallback.whatsappNormalized,
           source: cellText(row, idxOrigem),
           company: cellText(row, idxEmpresaRel),
           jobTitle: cellText(row, idxCargo),

@@ -92,7 +92,12 @@ export async function importTarefas(
     const type = TYPE_MAP[tipo] ?? "OTHER";
     const descricao = cellText(row, idxDescricao);
     const dueAt = cellDate(row, idxDataAgendamento) ?? undefined;
-    const completedAt = cellDate(row, idxDataFinalizacao) ?? undefined;
+    // Tarefa "pendente" no Agendor cujo prazo já passou há muito tempo não é
+    // trabalho ativo de verdade — é debris histórico que nunca foi marcado
+    // como feito/cancelado no sistema antigo. Sem isso, a Agenda do
+    // consultor piloto ficaria com milhares de "atrasadas" de anos atrás
+    // (confirmado: 98,5% das pendentes importadas já tinham vencido).
+    const completedAt = cellDate(row, idxDataFinalizacao) ?? (dueAt && dueAt < new Date() ? dueAt : undefined);
     const title = (descricao ?? (tipo || "Tarefa")).slice(0, TITLE_MAX_LEN);
 
     // Resolvido uma vez por linha (não por responsável) — mesmo negócio/

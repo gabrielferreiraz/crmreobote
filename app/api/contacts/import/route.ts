@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { parseSpreadsheet, normalizeHeader } from "@/lib/parse-spreadsheet";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
@@ -147,12 +147,17 @@ export async function POST(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     const result = await prisma.contact.createMany({
-      data: validParsed.map((c) => ({
-        organizationId,
-        ...c,
-        phoneNormalized: normalizePhoneNumber(c.phone),
-        whatsappNormalized: normalizePhoneNumber(c.whatsapp),
-      })),
+      data: validParsed.map((c) => {
+        const whatsappFallback = fallbackWhatsappToPhone(c.phone, normalizePhoneNumber(c.phone), c.whatsapp, normalizePhoneNumber(c.whatsapp));
+        return {
+          organizationId,
+          ...c,
+          phone: whatsappFallback.phone ?? undefined,
+          whatsapp: whatsappFallback.whatsapp ?? undefined,
+          phoneNormalized: whatsappFallback.phoneNormalized,
+          whatsappNormalized: whatsappFallback.whatsappNormalized,
+        };
+      }),
       skipDuplicates: true,
     });
 

@@ -13,7 +13,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
@@ -58,8 +58,23 @@ export async function upsertContactFromIntegration(
       data[field] = sanitizeCell(typeof raw === "string" ? raw : null);
     }
   }
-  if ("phone" in input) data.phoneNormalized = phoneNormalized;
-  if ("whatsapp" in input) data.whatsappNormalized = whatsappNormalized;
+  // Estado efetivo pós-upsert (existente + o que veio nesta chamada) — uma
+  // integração que só manda "phone" ainda precisa terminar com o número
+  // movido pro WhatsApp se o contato não tinha antes (praticamente todo
+  // celular no Brasil também é WhatsApp) — não copiado, o celular esvazia.
+  const effectivePhone = "phone" in input ? phone : (duplicate?.phone ?? undefined);
+  const effectivePhoneNormalized = "phone" in input ? phoneNormalized : (duplicate?.phoneNormalized ?? null);
+  const effectiveWhatsapp = "whatsapp" in input ? whatsapp : (duplicate?.whatsapp ?? undefined);
+  const effectiveWhatsappNormalized = "whatsapp" in input ? whatsappNormalized : (duplicate?.whatsappNormalized ?? null);
+  const whatsappFallback = fallbackWhatsappToPhone(effectivePhone, effectivePhoneNormalized, effectiveWhatsapp, effectiveWhatsappNormalized);
+  if ("phone" in input || whatsappFallback.phoneNormalized !== (duplicate?.phoneNormalized ?? null)) {
+    data.phone = sanitizeCell(whatsappFallback.phone);
+    data.phoneNormalized = whatsappFallback.phoneNormalized;
+  }
+  if ("whatsapp" in input || whatsappFallback.whatsappNormalized !== (duplicate?.whatsappNormalized ?? null)) {
+    data.whatsapp = sanitizeCell(whatsappFallback.whatsapp);
+    data.whatsappNormalized = whatsappFallback.whatsappNormalized;
+  }
   if ("tags" in input && Array.isArray(input.tags)) {
     data.tags = input.tags
       .filter((t): t is string => typeof t === "string")
