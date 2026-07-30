@@ -42,3 +42,7 @@ next-env.d.ts
 
 /app/generated/prisma
 .scratch/
+
+# exports de dados reais (clientes/consultores) - nunca versionar
+*.xlsx
+*.xls
