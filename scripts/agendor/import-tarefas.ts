@@ -118,7 +118,7 @@ export async function importTarefas(
         continue;
       }
 
-      if (!dryRun && existingTaskKeys.has(`${codigoTarefa}::${ownerId}`)) {
+      if (existingTaskKeys.has(`${codigoTarefa}::${ownerId}`)) {
         result.skippedAlreadyImported++;
         continue;
       }
