@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -250,6 +250,7 @@ export function KanbanBoard({
               stage={stage}
               deals={filteredDeals.filter((d) => d.stageId === stage.id)}
               disabled={pending}
+              activeDealId={activeDeal?.id ?? null}
             />
           ))}
         </div>
@@ -275,10 +276,12 @@ function StageColumn({
   stage,
   deals,
   disabled,
+  activeDealId,
 }: {
   stage: Stage;
   deals: Deal[];
   disabled: boolean;
+  activeDealId: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
   const total = deals.reduce((sum, d) => sum + (d.value ?? 0), 0);
@@ -291,7 +294,10 @@ function StageColumn({
   // por um instante.
   const [viewportHeight, setViewportHeight] = useState(640);
 
-  useEffect(() => {
+  // useLayoutEffect (não useEffect): mede antes do navegador pintar, senão a
+  // 1ª pintura usa o chute de 640px e pode mostrar cartão a mais/a menos por
+  // um frame até o valor real chegar.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     setViewportHeight(el.clientHeight);
@@ -300,12 +306,35 @@ function StageColumn({
     return () => observer.disconnect();
   }, []);
 
+  // rAF em vez de atualizar o state a cada evento de scroll direto — um
+  // scroll rápido dispara dezenas de eventos por segundo, e sem isso cada um
+  // vira um re-render da coluna inteira + todo cartão visível. Coalescendo
+  // pro próximo frame, no máximo 1 re-render por frame pintado.
+  const scrollRaf = useRef<number | null>(null);
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (scrollRaf.current != null) cancelAnimationFrame(scrollRaf.current);
+    scrollRaf.current = requestAnimationFrame(() => setScrollTop(top));
+  }, []);
+  useLayoutEffect(() => {
+    return () => {
+      if (scrollRaf.current != null) cancelAnimationFrame(scrollRaf.current);
+    };
+  }, []);
+
   // Só monta no DOM os cartões (com listener de drag, avatar etc.) que estão
   // dentro ou perto da área visível da coluna — sem isso, uma etapa com
   // milhares de negócios montava todos de uma vez, mesmo os que nunca
   // aparecem na tela sem rolar, travando o scroll e gastando memória à toa.
-  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIndex = Math.min(deals.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+  const rawStartIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const rawEndIndex = Math.min(deals.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+  // O dnd-kit rola automaticamente a coluna quando se arrasta um cartão perto
+  // da borda (autoScroll, ligado por padrão) — sem isso, o próprio cartão
+  // sendo arrastado podia sair da janela virtualizada e desmontar no meio do
+  // arrasto. Alarga a janela (nunca encolhe) pra sempre incluir o índice dele.
+  const activeIndex = activeDealId ? deals.findIndex((d) => d.id === activeDealId) : -1;
+  const startIndex = activeIndex >= 0 ? Math.min(rawStartIndex, activeIndex) : rawStartIndex;
+  const endIndex = activeIndex >= 0 ? Math.max(rawEndIndex, activeIndex + 1) : rawEndIndex;
   const visibleDeals = deals.slice(startIndex, endIndex);
 
   return (
@@ -331,7 +360,7 @@ function StageColumn({
       </div>
       <div
         ref={scrollRef}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        onScroll={handleScroll}
         className="scrollbar-thin flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2"
       >
         {deals.length === 0 && (
@@ -352,7 +381,10 @@ function StageColumn({
   );
 }
 
-function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
+// memo: sem isso, o rAF-throttle do scroll (acima) perde metade do valor —
+// StageColumn ainda re-renderiza a cada frame rolado, e todo cartão visível
+// re-renderizaria junto mesmo sem nenhuma prop sua ter mudado de verdade.
+const DealCard = memo(function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: deal.id,
   });
@@ -447,4 +479,4 @@ function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
       </Link>
     </div>
   );
-}
+});
