@@ -23,6 +23,22 @@ async function headers() {
 const nextConfig: NextConfig = {
   output: "standalone",
   headers,
+  // Sem isso, o Next (a partir da v15) trata toda página dinâmica como
+  // "stale" em 0 segundos — ou seja, voltar pra uma tela que você acabou de
+  // visitar refaz a busca no servidor do zero e reexibe o esqueleto de
+  // carregamento, mesmo sem nada ter mudado. Isso mantém o payload de cada
+  // rota já visitada em cache no navegador por 1h — navegar entre
+  // Agenda/Clientes/Pipeline/etc. fica instantâneo depois da 1ª visita.
+  // Ações que alteram dado (mover negócio, criar contato, ...) continuam
+  // atualizando na hora porque toda mutação chama router.refresh(), que
+  // ignora esse cache. O que pode ficar "atrasado" é só a mudança feita por
+  // OUTRO usuário numa tela que você não recarregou — só aparece quando
+  // esse cache expirar ou quando alguma ação sua disparar um refresh.
+  experimental: {
+    staleTimes: {
+      dynamic: 3600,
+    },
+  },
 };
 
 export default nextConfig;
