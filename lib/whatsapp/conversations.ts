@@ -47,8 +47,12 @@ export async function listConversations(organizationId: string, scope: DealScope
   });
 
   // Thread sem nenhuma mensagem ainda (ex.: criada mas o envio falhou logo
-  // depois) não é uma conversa de verdade — não aparece na lista.
-  const withMessages = threads.filter((t) => t.messages.length > 0);
+  // depois) não é uma conversa de verdade — não aparece na lista. Thread
+  // órfã (instance null — instância apagada de verdade, dono desativado,
+  // ver ownerUserId em prisma/schema.prisma) também não: é histórico
+  // arquivado, vive no backup de mensagens (Configurações > Usuários), não
+  // no inbox de conversas ativas.
+  const withMessages = threads.filter((t) => t.messages.length > 0 && t.instance);
   if (withMessages.length === 0) return [];
 
   const threadIds = withMessages.map((t) => t.id);
@@ -97,8 +101,8 @@ export async function listConversations(organizationId: string, scope: DealScope
       // conecta o número, mas atribui o lead pra outro vendedor cuidar). Sem
       // negócio vinculado (WhatsApp Geral), cai no dono da instância mesmo,
       // que é a única informação de "responsável" que existe nesse caso.
-      ownerId: deal?.ownerId ?? thread.instance.userId,
-      ownerName: deal?.ownerName ?? thread.instance.user.name,
+      ownerId: deal?.ownerId ?? thread.instance?.userId ?? "",
+      ownerName: deal?.ownerName ?? thread.instance?.user.name ?? "",
       profilePicUrl: thread.profilePicUrl,
     };
   });

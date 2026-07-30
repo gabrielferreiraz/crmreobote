@@ -19,18 +19,13 @@ async function getProcessAdminUserIds(organizationId: string): Promise<string[]>
 
 export async function notifyProcessReachedFinalStage(
   organizationId: string,
-  process: { id: string; contactName: string; stageName: string },
+  process: { id: string; contactName: string; stageName: string; ownerId: string },
 ): Promise<void> {
-  const adminIds = await getProcessAdminUserIds(organizationId);
-  await Promise.all(
-    adminIds.map((userId) =>
-      sendPushToUser(userId, {
-        title: "Processo concluído",
-        body: `${process.contactName} chegou em "${process.stageName}"`,
-        url: `/processos?processId=${process.id}`,
-      }).catch((err) => console.error("[processes] falha ao mandar push de etapa final", err)),
-    ),
-  );
+  await sendPushToUser(process.ownerId, {
+    title: "Processo concluído",
+    body: `${process.contactName} chegou em "${process.stageName}"`,
+    url: `/processos/${process.id}`,
+  }).catch((err) => console.error("[processes] falha ao mandar push de etapa final", err));
 }
 
 export async function notifyProcessRequestCreated(
@@ -43,7 +38,7 @@ export async function notifyProcessRequestCreated(
       sendPushToUser(userId, {
         title: "Solicitação de consultor",
         body: `${request.requesterName} pediu algo sobre ${request.contactName}`,
-        url: `/processos?processId=${request.processId}`,
+        url: `/processos/${request.processId}`,
       }).catch((err) => console.error("[processes] falha ao mandar push de solicitação", err)),
     ),
   );

@@ -37,6 +37,7 @@ export default async function IntegracoesSettingsPage() {
       createdByName: k.createdBy.name,
       lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
       revokedAt: k.revokedAt?.toISOString() ?? null,
+      expiresAt: k.expiresAt?.toISOString() ?? null,
       createdAt: k.createdAt.toISOString(),
     }));
 

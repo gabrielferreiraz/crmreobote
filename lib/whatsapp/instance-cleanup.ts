@@ -18,6 +18,13 @@ export async function isActiveMember(organizationId: string, userId: string): Pr
   return membership?.active === true;
 }
 
+/**
+ * Apagar esta linha NÃO destrói as conversas/mensagens dela — WhatsAppThread/
+ * WhatsAppMessage.instanceId é SetNull (era Cascade), e ownerUserId
+ * (denormalizado na criação da conversa) preserva pra sempre quem era o
+ * dono, sustentando o backup de mensagens em Configurações > Usuários
+ * mesmo depois da instância sumir.
+ */
 export async function deleteInstanceForInactiveUser(instance: {
   id: string;
   instanceName: string;

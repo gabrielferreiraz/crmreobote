@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil } from "lucide-react";
+import Link from "next/link";
+import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil, History } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
@@ -30,6 +31,12 @@ const ROLE_LABELS: Record<Member["role"], string> = {
   SUPERVISOR: "Supervisor",
   MEMBER: "Membro",
 };
+
+// Mesma lista de colunas no cabeçalho e em cada linha — é o que garante que
+// select, badge, checkbox ou nada (célula vazia) sempre caem exatamente sob
+// a coluna certa, em vez de empurrar o resto da linha quando um campo não
+// se aplica (ex.: Dono não tem Papel/Área pra escolher).
+const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_100px_140px_100px_140px]";
 
 // Espelha ONLINE_THRESHOLD_MS de lib/user-activity.ts — não importa direto
 // de lá porque esse módulo puxa o client do Prisma, que não pode entrar no
@@ -316,18 +323,27 @@ export function MembersTable({
           {tab === "active" ? "Nenhum usuário ativo." : "Nenhum usuário inativo."}
         </div>
       ) : (
-        <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
+        <div className="card divide-y divide-neutral-100 overflow-hidden dark:divide-neutral-800">
+          <div className={`hidden gap-4 px-4 py-2.5 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500 lg:grid lg:items-center ${GRID_COLS}`}>
+            <span>Usuário</span>
+            <span>Papel</span>
+            <span>Equipe</span>
+            <span>Área</span>
+            <span>Processos</span>
+            <span />
+          </div>
           {visibleMembers.map((m) => {
             const effectiveLastActiveAt = m.user.id in presence ? presence[m.user.id] : m.lastActiveAt;
             const online = isOnline(effectiveLastActiveAt);
             const seenFull = lastSeenFull(effectiveLastActiveAt);
+            const hasImplicitProcessAccess = m.role === "OWNER" || m.area === "ADMINISTRATIVO";
 
             return (
             <div
               key={m.id}
-              className={`flex flex-wrap items-center gap-x-4 gap-y-2 p-4 ${!m.active ? "opacity-60" : ""}`}
+              className={`grid grid-cols-1 gap-3 p-4 lg:items-center lg:gap-4 ${GRID_COLS} ${!m.active ? "opacity-60" : ""}`}
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
                 {isOwner ? (
                   <button
                     onClick={() => triggerPhotoUpload(m.user.id)}
@@ -370,12 +386,12 @@ export function MembersTable({
                 </div>
               </div>
 
-              <div className="shrink-0">
+              <div className="min-w-0">
                 {isOwner && m.user.id !== currentUserId ? (
                   <Select
                     value={m.role}
                     onChange={(v) => changeRole(m.user.id, v as Member["role"])}
-                    className="min-w-[110px] py-1.5 text-xs"
+                    className="w-full py-1.5 text-xs"
                     options={[
                       { value: "OWNER", label: "Dono" },
                       { value: "MANAGER", label: "Gerente" },
@@ -388,46 +404,57 @@ export function MembersTable({
                 )}
               </div>
 
-              <p className="hidden w-24 shrink-0 truncate text-xs text-neutral-500 dark:text-neutral-400 sm:block">
-                {m.team?.name ?? "—"}
-              </p>
+              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{m.team?.name ?? "—"}</p>
 
-              {isOwner && m.role !== "OWNER" ? (
-                <div
-                  className="shrink-0"
-                  title="Área de atuação — Administrativo troca a tela inicial e os relatórios pra pós-venda, tira o acesso ao CRM de vendas e dá acesso total a Processos (todos os clientes ganhos da organização)"
-                >
-                  <Select
-                    value={m.area}
-                    onChange={(v) => setArea(m.user.id, v as Member["area"])}
-                    className="min-w-[130px] py-1.5 text-xs"
-                    options={[
-                      { value: "VENDAS", label: "Vendas" },
-                      { value: "ADMINISTRATIVO", label: "Administrativo" },
-                    ]}
-                  />
-                </div>
-              ) : (
-                m.area === "ADMINISTRATIVO" && <Badge tone="accent">Administrativo</Badge>
-              )}
+              <div className="min-w-0">
+                {m.role === "OWNER" ? (
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">—</span>
+                ) : isOwner ? (
+                  <div
+                    title="Área de atuação — Administrativo troca a tela inicial e os relatórios pra pós-venda, tira o acesso ao CRM de vendas e dá acesso total a Processos (todos os clientes ganhos da organização)"
+                  >
+                    <Select
+                      value={m.area}
+                      onChange={(v) => setArea(m.user.id, v as Member["area"])}
+                      className="w-full py-1.5 text-xs"
+                      options={[
+                        { value: "VENDAS", label: "Vendas" },
+                        { value: "ADMINISTRATIVO", label: "Administrativo" },
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <Badge tone={m.area === "ADMINISTRATIVO" ? "accent" : "neutral"}>
+                    {m.area === "ADMINISTRATIVO" ? "Administrativo" : "Vendas"}
+                  </Badge>
+                )}
+              </div>
 
-              {isOwner && m.role !== "OWNER" && m.area !== "ADMINISTRATIVO" && (
-                <label
-                  className="hidden shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 md:flex"
-                  title="Acesso administrativo ao Processos (pós-venda) mesmo sendo da área Vendas — edita etapas e move cards de todos os clientes ganhos"
-                >
-                  <input
-                    type="checkbox"
-                    checked={m.canManageProcesses}
-                    onChange={(e) => setCanManageProcesses(m.user.id, e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
-                  />
-                  Processos
-                </label>
-              )}
+              <div className="min-w-0">
+                {hasImplicitProcessAccess ? (
+                  <span title="Acesso total a Processos — automático pra Dono e área Administrativo">
+                    <Badge tone="accent">Total</Badge>
+                  </span>
+                ) : isOwner ? (
+                  <label
+                    className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
+                    title="Acesso administrativo ao Processos (pós-venda) mesmo sendo da área Vendas — edita etapas e move cards de todos os clientes ganhos"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={m.canManageProcesses}
+                      onChange={(e) => setCanManageProcesses(m.user.id, e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-neutral-300 dark:border-neutral-700"
+                    />
+                    {m.canManageProcesses ? "Sim" : "Não"}
+                  </label>
+                ) : (
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">{m.canManageProcesses ? "Sim" : "—"}</span>
+                )}
+              </div>
 
-              {isOwner && (
-                <div className="ml-auto flex shrink-0 items-center gap-1">
+              {isOwner ? (
+                <div className="flex shrink-0 items-center gap-1 lg:justify-self-end">
                   <button
                     onClick={() => {
                       setMemberToRename(m);
@@ -439,6 +466,14 @@ export function MembersTable({
                   >
                     <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
                   </button>
+                  <Link
+                    href={`/configuracoes/usuarios/${m.user.id}/whatsapp-backup`}
+                    className="icon-btn"
+                    title="Backup de mensagens WhatsApp"
+                    aria-label={`Ver backup de mensagens de WhatsApp de ${m.user.name}`}
+                  >
+                    <History className="h-3.5 w-3.5" strokeWidth={2} />
+                  </Link>
                   {m.active ? (
                     <button
                       onClick={() => setMemberToReset(m)}
@@ -481,6 +516,8 @@ export function MembersTable({
                     </>
                   )}
                 </div>
+              ) : (
+                <span className="hidden lg:block" />
               )}
             </div>
             );

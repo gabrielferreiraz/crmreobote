@@ -22,8 +22,10 @@ export function PipelineView({
   pipelineId,
   pipelines,
   stages,
-  initialDeals,
-  dealsCapped,
+  initialKanbanDeals,
+  kanbanCapped,
+  initialListaDeals,
+  listaTotalCount,
   members,
   allMembers,
   lossReasons,
@@ -37,9 +39,12 @@ export function PipelineView({
   pipelineId: string;
   pipelines: PipelineOption[];
   stages: Stage[];
-  initialDeals: Deal[];
-  /** true = a busca no servidor bateu no teto (ver page.tsx) — a Lista pode não estar mostrando o histórico completo de Ganhos/Perdidos. */
-  dealsCapped?: boolean;
+  initialKanbanDeals: Deal[];
+  /** true = o Kanban bateu no teto de segurança (ver page.tsx) — praticamente nunca deve acontecer. */
+  kanbanCapped?: boolean;
+  initialListaDeals: Deal[];
+  /** Total de negócios do pipeline (todos os status) no banco — pode ser bem maior que initialListaDeals.length (só a 1ª página vem carregada, ver deals-list.tsx). */
+  listaTotalCount: number;
   members: MemberOption[];
   allMembers: MemberFilterOption[];
   lossReasons: LossReasonOption[];
@@ -52,14 +57,39 @@ export function PipelineView({
 }) {
   const router = useRouter();
   const [view, setView] = useState<"kanban" | "lista">("kanban");
-  const [deals, setDeals] = useState(initialDeals);
+  const [kanbanDeals, setKanbanDeals] = useState(initialKanbanDeals);
+  const [listaDeals, setListaDeals] = useState(initialListaDeals);
+  const [loadingMoreLista, setLoadingMoreLista] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
 
   useEffect(() => {
-    setDeals(initialDeals);
-  }, [initialDeals]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setKanbanDeals(initialKanbanDeals);
+  }, [initialKanbanDeals]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setListaDeals(initialListaDeals);
+  }, [initialListaDeals]);
+
+  // Busca a próxima página da Lista (todos os status) — reaproveita GET
+  // /api/deals (já enriquecido com próxima atividade/WhatsApp não lido/foto,
+  // ver lib/deals/list-query.ts) pra nunca renderizar negócio "incompleto"
+  // comparado à 1ª página vinda do servidor.
+  async function loadMoreListaDeals() {
+    setLoadingMoreLista(true);
+    try {
+      const res = await fetch(`/api/deals?pipelineId=${pipelineId}&skip=${listaDeals.length}&limit=500`);
+      if (res.ok) {
+        const next: Deal[] = await res.json();
+        setListaDeals((prev) => [...prev, ...next]);
+      }
+    } finally {
+      setLoadingMoreLista(false);
+    }
+  }
 
   useEffect(() => {
     if (openNewDeal) {
@@ -139,18 +169,20 @@ export function PipelineView({
         </div>
       </div>
 
-      {view === "lista" && dealsCapped && (
+      {view === "kanban" && kanbanCapped && (
         <p className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
-          Este pipeline tem muitos negócios — a lista pode não mostrar os ganhos/perdidos mais antigos. Os negócios em
-          andamento (Kanban) continuam completos.
+          Este pipeline tem um número incomum de negócios em andamento — o Kanban pode não estar mostrando todos.
         </p>
       )}
 
       {view === "kanban" ? (
-        <KanbanBoard stages={stages} deals={deals} onDealsChange={setDeals} members={members} />
+        <KanbanBoard stages={stages} deals={kanbanDeals} onDealsChange={setKanbanDeals} members={members} />
       ) : (
         <DealsList
-          deals={deals}
+          deals={listaDeals}
+          totalCount={listaTotalCount}
+          onLoadMore={loadMoreListaDeals}
+          loadingMore={loadingMoreLista}
           members={allMembers}
           stages={stages}
           pipelineId={pipelineId}
@@ -168,7 +200,10 @@ export function PipelineView({
         members={members}
         customFields={customFields}
         creditTypes={creditTypes}
-        onCreated={(deal) => setDeals((prev) => [deal, ...prev])}
+        onCreated={(deal) => {
+          setKanbanDeals((prev) => [deal, ...prev]);
+          setListaDeals((prev) => [deal, ...prev]);
+        }}
         open={dealDialogOpen}
         onOpenChange={setDealDialogOpen}
         hideTrigger

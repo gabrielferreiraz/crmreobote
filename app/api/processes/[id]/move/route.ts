@@ -56,6 +56,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         id: process.id,
         contactName: process.contact.name,
         stageName: targetStage.name,
+        ownerId: process.ownerId,
       }).catch((err) => console.error("[processes] falha ao notificar etapa final", err));
     }
 

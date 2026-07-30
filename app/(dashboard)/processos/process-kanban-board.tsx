@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -31,6 +32,7 @@ import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 import { DOCUMENT_STATUS_LABELS, DOCUMENT_STATUS_BADGE, type DocumentStatus } from "./document-status";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
@@ -55,6 +57,109 @@ export type ProcessItem = {
   hasUnreadWhatsApp: boolean;
 };
 
+/**
+ * Estado de busca/filtro dos processos — compartilhado entre o kanban
+ * (desktop) e a lista agrupada por etapa (mobile), pra manter as duas visões
+ * sempre filtrando exatamente do mesmo jeito.
+ */
+export function useProcessFilters(processes: ProcessItem[]) {
+  const [search, setSearch] = useState("");
+  const [contemplatedFilter, setContemplatedFilter] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState("");
+  const [documentFilter, setDocumentFilter] = useState("");
+
+  const hasFilters = !!search || !!contemplatedFilter || !!paymentFilter || !!documentFilter;
+
+  function clearFilters() {
+    setSearch("");
+    setContemplatedFilter("");
+    setPaymentFilter("");
+    setDocumentFilter("");
+  }
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return processes.filter((p) => {
+      if (term && !p.contact.name.toLowerCase().includes(term) && !p.deal.name.toLowerCase().includes(term)) return false;
+      if (contemplatedFilter && String(p.contemplated) !== contemplatedFilter) return false;
+      if (paymentFilter && String(p.paymentPending) !== paymentFilter) return false;
+      if (documentFilter && p.documentStatus !== documentFilter) return false;
+      return true;
+    });
+  }, [processes, search, contemplatedFilter, paymentFilter, documentFilter]);
+
+  return {
+    search,
+    setSearch,
+    contemplatedFilter,
+    setContemplatedFilter,
+    paymentFilter,
+    setPaymentFilter,
+    documentFilter,
+    setDocumentFilter,
+    hasFilters,
+    clearFilters,
+    filtered,
+  };
+}
+
+/** Os 3 selects de filtro — mesmo conteúdo dentro do FilterPopover do kanban e da lista mobile. */
+export function ProcessFilterFields({
+  contemplatedFilter,
+  setContemplatedFilter,
+  paymentFilter,
+  setPaymentFilter,
+  documentFilter,
+  setDocumentFilter,
+}: {
+  contemplatedFilter: string;
+  setContemplatedFilter: (v: string) => void;
+  paymentFilter: string;
+  setPaymentFilter: (v: string) => void;
+  documentFilter: string;
+  setDocumentFilter: (v: string) => void;
+}) {
+  return (
+    <>
+      <div className="space-y-1">
+        <label className="field-label">Contemplado</label>
+        <Select
+          value={contemplatedFilter}
+          onChange={setContemplatedFilter}
+          className="w-full py-1.5 text-sm"
+          options={[
+            { value: "", label: "Todos" },
+            { value: "true", label: "Contemplados" },
+            { value: "false", label: "Não contemplados" },
+          ]}
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="field-label">Pagamento</label>
+        <Select
+          value={paymentFilter}
+          onChange={setPaymentFilter}
+          className="w-full py-1.5 text-sm"
+          options={[
+            { value: "", label: "Todos" },
+            { value: "true", label: "Falta pagar" },
+            { value: "false", label: "Pagamento em dia" },
+          ]}
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="field-label">Documentação</label>
+        <Select
+          value={documentFilter}
+          onChange={setDocumentFilter}
+          className="w-full py-1.5 text-sm"
+          options={[{ value: "", label: "Todos" }, ...Object.entries(DOCUMENT_STATUS_LABELS).map(([value, label]) => ({ value, label }))]}
+        />
+      </div>
+    </>
+  );
+}
+
 export function ProcessKanbanBoard({
   pipelineId,
   stages,
@@ -77,30 +182,19 @@ export function ProcessKanbanBoard({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
   );
 
-  const [search, setSearch] = useState("");
-  const [contemplatedFilter, setContemplatedFilter] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState("");
-  const [documentFilter, setDocumentFilter] = useState("");
-
-  const hasFilters = !!search || !!contemplatedFilter || !!paymentFilter || !!documentFilter;
-
-  function clearFilters() {
-    setSearch("");
-    setContemplatedFilter("");
-    setPaymentFilter("");
-    setDocumentFilter("");
-  }
-
-  const filteredProcesses = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return processes.filter((p) => {
-      if (term && !p.contact.name.toLowerCase().includes(term) && !p.deal.name.toLowerCase().includes(term)) return false;
-      if (contemplatedFilter && String(p.contemplated) !== contemplatedFilter) return false;
-      if (paymentFilter && String(p.paymentPending) !== paymentFilter) return false;
-      if (documentFilter && p.documentStatus !== documentFilter) return false;
-      return true;
-    });
-  }, [processes, search, contemplatedFilter, paymentFilter, documentFilter]);
+  const {
+    search,
+    setSearch,
+    contemplatedFilter,
+    setContemplatedFilter,
+    paymentFilter,
+    setPaymentFilter,
+    documentFilter,
+    setDocumentFilter,
+    hasFilters,
+    clearFilters,
+    filtered: filteredProcesses,
+  } = useProcessFilters(processes);
 
   function handleDragStart(event: DragStartEvent) {
     if (!isAdmin) return;
@@ -172,41 +266,14 @@ export function ProcessKanbanBoard({
           />
         </div>
         <FilterPopover active={hasFilters} onClear={clearFilters}>
-          <div className="space-y-1">
-            <label className="field-label">Contemplado</label>
-            <Select
-              value={contemplatedFilter}
-              onChange={setContemplatedFilter}
-              className="w-full py-1.5 text-sm"
-              options={[
-                { value: "", label: "Todos" },
-                { value: "true", label: "Contemplados" },
-                { value: "false", label: "Não contemplados" },
-              ]}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="field-label">Pagamento</label>
-            <Select
-              value={paymentFilter}
-              onChange={setPaymentFilter}
-              className="w-full py-1.5 text-sm"
-              options={[
-                { value: "", label: "Todos" },
-                { value: "true", label: "Falta pagar" },
-                { value: "false", label: "Pagamento em dia" },
-              ]}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="field-label">Documentação</label>
-            <Select
-              value={documentFilter}
-              onChange={setDocumentFilter}
-              className="w-full py-1.5 text-sm"
-              options={[{ value: "", label: "Todos" }, ...Object.entries(DOCUMENT_STATUS_LABELS).map(([value, label]) => ({ value, label }))]}
-            />
-          </div>
+          <ProcessFilterFields
+            contemplatedFilter={contemplatedFilter}
+            setContemplatedFilter={setContemplatedFilter}
+            paymentFilter={paymentFilter}
+            setPaymentFilter={setPaymentFilter}
+            documentFilter={documentFilter}
+            setDocumentFilter={setDocumentFilter}
+          />
         </FilterPopover>
       </div>
 
@@ -254,16 +321,19 @@ function StageColumn({
   const [showColors, setShowColors] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
+  const colorTriggerRef = useRef<HTMLButtonElement>(null);
+  const colorPanelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!showColors) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setShowColors(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showColors]);
+  // Portal + position:fixed (mesmo padrão de components/select.tsx) — sem
+  // isso, o popover de cor (position:absolute normal) fica cortado assim que
+  // a coluna não está na primeira posição visível do carrossel horizontal do
+  // kanban (overflow-x-auto corta overflow-y também, por spec do CSS).
+  const colorCoords = useFloatingDropdown({
+    open: showColors,
+    onClose: () => setShowColors(false),
+    triggerRef: colorTriggerRef,
+    panelRef: colorPanelRef,
+  });
 
   async function patchStage(data: Partial<{ name: string; color: string }>) {
     setSaving(true);
@@ -298,17 +368,24 @@ function StageColumn({
     >
       {editing ? (
         <div className="m-1.5 flex items-center gap-1 rounded-md border border-blue-500 bg-white px-2 py-1.5 ring-1 ring-blue-500/30 dark:bg-neutral-900">
-          <div className="relative shrink-0" ref={popoverRef}>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setShowColors((v) => !v)}
-              className="h-3.5 w-3.5 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110 dark:ring-white/10"
-              style={{ backgroundColor: stage.color ?? "#999" }}
-              aria-label="Escolher cor"
-            />
-            {showColors && (
-              <div className="surface-glass animate-pop-in absolute top-6 left-0 z-10 flex flex-wrap gap-1 rounded-md p-2 shadow-lg" style={{ width: 120 }}>
+          <button
+            ref={colorTriggerRef}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setShowColors((v) => !v)}
+            className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110 dark:ring-white/10 coarse:h-9 coarse:w-9"
+            style={{ backgroundColor: stage.color ?? "#999" }}
+            aria-label="Escolher cor"
+          />
+          {showColors &&
+            colorCoords &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                ref={colorPanelRef}
+                className="surface-glass animate-pop-in fixed z-50 flex w-[120px] flex-wrap gap-1 rounded-md p-2 shadow-lg coarse:w-[156px]"
+                style={{ top: colorCoords.top, left: colorCoords.left }}
+              >
                 {COLOR_PRESETS.map((c) => (
                   <button
                     key={c}
@@ -318,13 +395,13 @@ function StageColumn({
                       patchStage({ color: c });
                       setShowColors(false);
                     }}
-                    className="h-5 w-5 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110 dark:ring-white/10"
+                    className="h-5 w-5 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110 dark:ring-white/10 coarse:h-8 coarse:w-8"
                     style={{ backgroundColor: c }}
                   />
                 ))}
-              </div>
+              </div>,
+              document.body,
             )}
-          </div>
           <input
             autoFocus
             value={name}
@@ -369,9 +446,11 @@ function StageColumn({
           className={`flex items-center gap-2 rounded-md px-3 py-2.5 text-left ${isAdmin ? "hover:bg-neutral-200/50 dark:hover:bg-neutral-800/60" : ""}`}
         >
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
-          <span className="text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">{stage.name}</span>
+          <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
+            {stage.name}
+          </span>
           {total > 0 && (
-            <span className="truncate text-[10px] font-medium text-neutral-400 dark:text-neutral-500">{formatCurrency(total)}</span>
+            <span className="shrink-0 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">{formatCurrency(total)}</span>
           )}
           <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
             {processes.length}
@@ -389,7 +468,7 @@ function StageColumn({
         />
       )}
 
-      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 pb-2">
         {processes.length === 0 && <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum processo</p>}
         {processes.map((process) => (
           <ProcessCard key={process.id} process={process} isAdmin={isAdmin} />
@@ -484,24 +563,14 @@ function AddStageColumn({ pipelineId, nextColor }: { pipelineId: string; nextCol
   );
 }
 
-function ProcessCard({
-  process,
-  isAdmin,
-  overlay,
-}: {
-  process: ProcessItem;
-  isAdmin: boolean;
-  overlay?: boolean;
-}) {
-  const draggable = useDraggable({ id: process.id, disabled: !isAdmin });
-  const { attributes, listeners, setNodeRef, transform, isDragging } = draggable;
-
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
-
-  const content = (
+/** Conteúdo visual do card — compartilhado entre o kanban (arrastável) e a
+ * lista mobile (sem drag, só toque-pra-abrir), pra não duplicar o mesmo
+ * markup em dois lugares. */
+export function ProcessCardContent({ process, dimmed }: { process: ProcessItem; dimmed?: boolean }) {
+  return (
     <div
       className={`relative rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900 ${
-        isDragging ? "opacity-40" : ""
+        dimmed ? "opacity-40" : ""
       }`}
     >
       {process.openRequestCount > 0 && (
@@ -556,13 +625,28 @@ function ProcessCard({
       </div>
     </div>
   );
+}
 
-  if (overlay) return content;
+function ProcessCard({
+  process,
+  isAdmin,
+  overlay,
+}: {
+  process: ProcessItem;
+  isAdmin: boolean;
+  overlay?: boolean;
+}) {
+  const draggable = useDraggable({ id: process.id, disabled: !isAdmin });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = draggable;
+
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+
+  if (overlay) return <ProcessCardContent process={process} dimmed={isDragging} />;
 
   return (
     <div ref={setNodeRef} style={style} {...(isAdmin ? { ...listeners, ...attributes } : {})} className="touch-manipulation">
       <Link href={`/processos/${process.id}`} onClick={(e) => isDragging && e.preventDefault()}>
-        {content}
+        <ProcessCardContent process={process} dimmed={isDragging} />
       </Link>
     </div>
   );

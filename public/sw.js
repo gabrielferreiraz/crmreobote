@@ -10,8 +10,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "CRM";
   const options = {
     body: data.body || "",
-    icon: "/icon.svg",
-    badge: "/icon.svg",
+    icon: "/icons/192",
+    badge: "/icons/192",
     data: { url: data.url || "/" },
   };
 
@@ -24,8 +24,16 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((clientList) => {
+      // Compara só o pathname, não a URL absoluta — client.url inclui origin
+      // (e às vezes querystring/hash de navegação) então "== url" quase nunca
+      // batia, mesmo com a aba certa já aberta, e sempre abria uma aba nova.
+      const targetPath = new URL(url, self.location.origin).pathname;
       for (const client of clientList) {
-        if (client.url === url && "focus" in client) return client.focus();
+        if ("focus" in client && new URL(client.url).pathname === targetPath) {
+          client.focus();
+          if ("navigate" in client) client.navigate(url);
+          return;
+        }
       }
       if (self.clients.openWindow) return self.clients.openWindow(url);
     }),

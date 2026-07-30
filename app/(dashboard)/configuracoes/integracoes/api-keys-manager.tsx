@@ -17,6 +17,7 @@ type ApiKey = {
   createdByName: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  expiresAt: string | null;
   createdAt: string;
 };
 
@@ -25,10 +26,21 @@ function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
+function isExpired(iso: string | null): boolean {
+  return !!iso && new Date(iso) <= new Date();
+}
+
+const EXPIRY_OPTIONS = [
+  { value: "30", label: "30 dias" },
+  { value: "90", label: "90 dias" },
+  { value: "", label: "Sem expiração" },
+];
+
 export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKey[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState("30");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -42,7 +54,7 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKey[] }) {
     const res = await fetch("/api/api-keys", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, expiresInDays: expiresInDays ? Number(expiresInDays) : null }),
     });
     const data = await res.json().catch(() => ({}));
     setLoading(false);
@@ -53,6 +65,7 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKey[] }) {
     }
 
     setName("");
+    setExpiresInDays("30");
     setOpen(false);
     setNewKey(data.fullKey);
     router.refresh();
@@ -85,10 +98,12 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKey[] }) {
                 <p className="flex items-center gap-2 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
                   {k.name}
                   {k.revokedAt && <Badge tone="neutral">Revogada</Badge>}
+                  {!k.revokedAt && isExpired(k.expiresAt) && <Badge tone="danger">Expirada</Badge>}
                 </p>
                 <p className="truncate font-mono text-xs text-neutral-500 dark:text-neutral-400">{k.keyPrefix}…</p>
                 <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                  Criada por {k.createdByName} · último uso {formatDateTime(k.lastUsedAt)}
+                  Criada por {k.createdByName} · último uso {formatDateTime(k.lastUsedAt)} ·{" "}
+                  {k.expiresAt ? `expira em ${formatDateTime(k.expiresAt)}` : "sem expiração"}
                 </p>
               </div>
               {!k.revokedAt && (
@@ -121,6 +136,22 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKey[] }) {
                 placeholder="Ex.: Zapier - lista fria Facebook"
                 className="field-input"
               />
+            </div>
+
+            <div className="space-y-1">
+              <label className="field-label">Expira em</label>
+              <select value={expiresInDays} onChange={(e) => setExpiresInDays(e.target.value)} className="field-input">
+                {EXPIRY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              {!expiresInDays && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Uma chave sem expiração continua válida pra sempre se vazar — prefira um prazo quando possível.
+                </p>
+              )}
             </div>
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

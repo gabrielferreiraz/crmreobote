@@ -13,6 +13,8 @@ import {
   MetaApiError,
 } from "@/lib/meta-whatsapp";
 import { encryptSecret } from "@/lib/security/secret-crypto";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +50,7 @@ export async function POST(req: Request) {
   const body = await req.json();
   const { code, phoneNumberId, wabaId } = body as { code?: string; phoneNumberId?: string; wabaId?: string };
 
-  const { organizationId, userId } = await requireSession();
+  const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   if (!code || !phoneNumberId || !wabaId) {
@@ -134,6 +136,17 @@ export async function POST(req: Request) {
       throw err;
     }
 
+    await logAudit({
+      organizationId,
+      actorUserId: userId,
+      actorName: session!.user.name ?? session!.user.email ?? "?",
+      action: "WHATSAPP_CONNECTED",
+      targetType: "WhatsAppInstance",
+      targetId: instanceName,
+      detail: `Meta Cloud API${displayPhoneNumber ? ` · ${displayPhoneNumber}` : ""}`,
+      ip: getClientIp(req),
+    });
+
     return NextResponse.json({ ok: true, phoneNumber: displayPhoneNumber });
   });
 }
@@ -146,8 +159,8 @@ export async function POST(req: Request) {
  * no Business Manager), então a única coisa que de fato precisa acontecer
  * pra este CRM parar de usar essa conexão é apagar a credencial local.
  */
-export async function DELETE() {
-  const { organizationId, userId } = await requireSession();
+export async function DELETE(req: Request) {
+  const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
@@ -157,6 +170,18 @@ export async function DELETE() {
     if (!instance) return NextResponse.json({ ok: true });
 
     await prisma.whatsAppInstance.delete({ where: { id: instance.id } });
+
+    await logAudit({
+      organizationId,
+      actorUserId: userId,
+      actorName: session!.user.name ?? session!.user.email ?? "?",
+      action: "WHATSAPP_DISCONNECTED",
+      targetType: "WhatsAppInstance",
+      targetId: instance.id,
+      detail: "Meta Cloud API",
+      ip: getClientIp(req),
+    });
+
     return NextResponse.json({ ok: true });
   });
 }

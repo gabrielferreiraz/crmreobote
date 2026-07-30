@@ -104,7 +104,10 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
   const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
   if (!thread) throw new WhatsAppSendError("Conversa não encontrada");
 
-  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: thread.instanceId } });
+  // instanceId null = instância foi apagada de verdade (dono desativado, ver
+  // ownerUserId em prisma/schema.prisma) — a conversa continua existindo só
+  // pra consulta (backup), nunca mais dá pra enviar por ela.
+  const instance = thread.instanceId ? await prisma.whatsAppInstance.findUnique({ where: { id: thread.instanceId ?? undefined } }) : null;
   if (!instance || instance.status !== "CONNECTED") {
     throw new WhatsAppSendError("O WhatsApp desta conversa não está conectado no CRM");
   }

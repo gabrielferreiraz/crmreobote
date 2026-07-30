@@ -292,7 +292,7 @@ function StageColumn({
           {deals.length}
         </span>
       </div>
-      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 pb-2">
         {deals.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum negócio</p>
         )}

@@ -109,7 +109,6 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
   // reconstruir nada antes dela.
   const stageCatalog = new Map(stageCatalogRows.map((s) => [s.id, s]));
   const ownerNameById = new Map(processes.map((p) => [p.ownerId, p.owner.name]));
-  const isContemplationStage = (stageId: string) => (stageCatalog.get(stageId)?.name ?? "").toLowerCase().includes("contempl");
 
   const historyByProcess = new Map<string, typeof stageHistory>();
   for (const h of stageHistory) {
@@ -197,12 +196,16 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
       stageDurations.set(seg.stageId, prev);
     }
 
-    const contemplationSegment = segments.find((s) => isContemplationStage(s.stageId));
-    if (contemplationSegment) {
-      contemplationDurationsMs.push(contemplationSegment.enteredAt.getTime() - process.createdAt.getTime());
+    // contemplatedAt (marcador explícito, gravado em PATCH /api/processes/[id]
+    // na transição false→true) — não mais inferido pelo NOME da etapa: isso
+    // dependia de uma etapa se chamar exatamente algo com "contempl", que
+    // quebrava silenciosamente (pra sempre, inclusive retroativo) assim que
+    // alguém renomeasse a etapa em Configurações > Processos.
+    if (process.contemplatedAt) {
+      contemplationDurationsMs.push(process.contemplatedAt.getTime() - process.createdAt.getTime());
 
-      if (contemplationSegment.enteredAt >= trendStart && contemplationSegment.enteredAt <= trendEnd) {
-        const parts = getBrazilParts(contemplationSegment.enteredAt);
+      if (process.contemplatedAt >= trendStart && process.contemplatedAt <= trendEnd) {
+        const parts = getBrazilParts(process.contemplatedAt);
         const bucket = contemplationsByMonth.find((b) => b.year === parts.year && b.month === parts.month);
         if (bucket) {
           bucket.value += 1;

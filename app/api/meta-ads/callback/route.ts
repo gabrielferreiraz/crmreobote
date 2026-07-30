@@ -5,6 +5,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { exchangeCodeForToken, exchangeForLongLivedToken } from "@/lib/meta-graph";
 import { listOwnedPages, getMetaAdsRedirectUri, subscribePageToLeadgen } from "@/lib/meta-ads";
 import { encryptSecret } from "@/lib/security/secret-crypto";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +61,16 @@ export async function GET(req: NextRequest) {
             connectedById: access.userId,
           },
         });
+      });
+
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName: access.session.user.name ?? access.session.user.email ?? "?",
+        action: "META_ADS_CONNECTED",
+        targetType: "MetaAdsConnection",
+        detail: page.name,
+        ip: getClientIp(req),
       });
 
       const res = NextResponse.redirect(new URL(`${REDIRECT_PATH}?meta_ads=connected`, req.url));

@@ -14,6 +14,8 @@ import {
   WEBHOOK_EVENTS,
 } from "@/lib/evolution";
 import { validateProxyInput, buildEvolutionProxyPayload, type ProxyInput } from "@/lib/whatsapp/proxy";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -124,7 +126,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { organizationId, userId } = await requireSession();
+  const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   // proxy é opcional — só usado se a instância ainda não existir (aplicado
@@ -164,6 +166,17 @@ export async function POST(req: Request) {
           { status: 502 },
         );
       }
+
+      await logAudit({
+        organizationId,
+        actorUserId: userId,
+        actorName: session!.user.name ?? session!.user.email ?? "?",
+        action: "WHATSAPP_CONNECTED",
+        targetType: "WhatsAppInstance",
+        targetId: instance.id,
+        detail: "Evolution (QR Code)",
+        ip: getClientIp(req),
+      });
     }
 
     try {
@@ -175,8 +188,8 @@ export async function POST(req: Request) {
   });
 }
 
-export async function DELETE() {
-  const { organizationId, userId } = await requireSession();
+export async function DELETE(req: Request) {
+  const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
@@ -194,6 +207,18 @@ export async function DELETE() {
     }
 
     await prisma.whatsAppInstance.delete({ where: { id: instance.id } });
+
+    await logAudit({
+      organizationId,
+      actorUserId: userId,
+      actorName: session!.user.name ?? session!.user.email ?? "?",
+      action: "WHATSAPP_DISCONNECTED",
+      targetType: "WhatsAppInstance",
+      targetId: instance.id,
+      detail: "Evolution",
+      ip: getClientIp(req),
+    });
+
     return NextResponse.json({ ok: true });
   });
 }

@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const access = await requireRole(["OWNER", "MANAGER"]);
@@ -18,6 +20,18 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     // Soft-revoke — mantém a linha (nome, quem criou, último uso) pro histórico,
     // só invalida a chave pra autenticação (ver lib/require-api-key.ts).
     await prisma.apiKey.update({ where: { id }, data: { revokedAt: new Date() } });
+
+    await logAudit({
+      organizationId: access.organizationId,
+      actorUserId: access.userId,
+      actorName: access.session.user.name ?? access.session.user.email ?? "?",
+      action: "API_KEY_REVOKED",
+      targetType: "ApiKey",
+      targetId: existing.id,
+      detail: `"${existing.name}"`,
+      ip: getClientIp(req),
+    });
+
     return NextResponse.json({ ok: true });
   });
 }

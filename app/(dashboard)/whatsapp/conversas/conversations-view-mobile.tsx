@@ -60,6 +60,16 @@ export function ConversationsMobile({
     }
   }, [initialSelectedId]);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSelectedThreadId(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const [tab, setTab] = useState<ConversationTab>(() => {
     if (paramContactId) return "crm";
     if (paramThreadId) {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { usePushSubscription } from "@/lib/use-push-subscription";
 
 type NavItem = {
   href: string;
@@ -67,6 +68,16 @@ export function MobileNav({
   const [sheetOpen, setSheetOpen] = useState(false);
   const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
   const overflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
+  const { unsubscribe } = usePushSubscription();
+
+  // Mesmo motivo do UserMenu (desktop): desativa a inscrição de push deste
+  // navegador antes de sair, pra não deixar notificação de quem saiu
+  // aparecendo num aparelho compartilhado depois do logout.
+  async function handleSignOut(e: React.FormEvent) {
+    e.preventDefault();
+    await unsubscribe();
+    await signOutAction();
+  }
 
   const isOverflowActive = overflowItems.some((i) => pathname.startsWith(i.href)) || pathname.startsWith("/automacoes");
   const fab = FAB_BY_SECTION.find((f) => f.match(pathname));
@@ -184,7 +195,7 @@ export function MobileNav({
                 <ThemeToggle />
               </div>
 
-              <form action={signOutAction}>
+              <form action={signOutAction} onSubmit={handleSignOut}>
                 <button
                   type="submit"
                   className="card mt-2 flex w-full items-center gap-3 p-3 text-left text-sm text-red-600 transition-colors active:bg-red-50 dark:text-red-400 dark:active:bg-red-500/10"

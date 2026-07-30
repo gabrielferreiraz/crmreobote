@@ -64,19 +64,30 @@ export function groupByOwner<T extends { ownerId: string; ownerName: string }>(
 export function formatWhen(value: string | Date): string {
   const date = new Date(value);
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const sameDay = date.toDateString() === now.toDateString();
+  
+  const dDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((dNow.getTime() - dDate.getTime()) / (24 * 60 * 60 * 1000));
 
-  if (sameDay) {
-    for (const unit of RELATIVE_UNITS) {
-      if (diff < unit.limitMs) {
-        if (unit.suffix === "agora") return "agora";
-        return `${Math.max(1, Math.floor(diff / unit.divisorMs))} ${unit.suffix}`;
-      }
-    }
+  if (diffDays === 0) {
     return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   }
-  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  if (diffDays === 1) {
+    return "Ontem";
+  }
+  if (diffDays < 7) {
+    const daysOfWeek = [
+      "Domingo",
+      "Segunda-feira",
+      "Terça-feira",
+      "Quarta-feira",
+      "Quinta-feira",
+      "Sexta-feira",
+      "Sábado"
+    ];
+    return daysOfWeek[dDate.getDay()];
+  }
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 /** Abas "WhatsApp CRM" (vinculado a um Contact) / "WhatsApp Geral" (todo o resto) — compartilhado entre desktop e mobile. */
@@ -177,6 +188,16 @@ export function ConversationsView({
       setSelectedThreadId(initialSelectedId);
     }
   }, [initialSelectedId]);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSelectedThreadId(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const [tab, setTab] = useState<ConversationTab>(() => {
     if (paramContactId) return "crm";

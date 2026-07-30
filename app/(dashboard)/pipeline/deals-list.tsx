@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, Trash2, GitBranch, Layers, User, Send } from "lucide-react";
+import { Search, SearchX, Inbox, Trash2, GitBranch, Layers, User, Send, Loader2 } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { EmptyState } from "@/components/empty-state";
@@ -22,6 +22,7 @@ import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-
 import type { Deal } from "./kanban-board";
 
 const QUICK_RANGES = buildListQuickRanges();
+const SEARCH_DEBOUNCE_MS = 300;
 
 type MemberOption = { id: string; name: string; active: boolean };
 type Stage = { id: string; name: string; color: string | null };
@@ -36,6 +37,9 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
 
 export function DealsList({
   deals,
+  totalCount,
+  onLoadMore,
+  loadingMore,
   members,
   stages,
   pipelineId,
@@ -46,6 +50,10 @@ export function DealsList({
   restoredDraft,
 }: {
   deals: Deal[];
+  /** Total de negócios do pipeline (todos os status) no banco — pode ser bem maior que deals.length (ver pipeline-view.tsx). */
+  totalCount: number;
+  onLoadMore: () => Promise<void>;
+  loadingMore: boolean;
   members: MemberOption[];
   stages: Stage[];
   pipelineId: string;
@@ -57,6 +65,12 @@ export function DealsList({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
+  // Resultado da busca por texto no SERVIDOR (todo o pipeline, não só a
+  // página carregada) — null quando a busca está vazia, e aí os demais
+  // filtros abaixo operam em cima de `deals` (a página carregada) normalmente.
+  // Mesmo padrão de app/(dashboard)/clientes/contacts-table.tsx.
+  const [searchResults, setSearchResults] = useState<Deal[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">("OPEN");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [ownerStatusFilter, setOwnerStatusFilter] = useState<"" | "active" | "inactive">("");
@@ -69,17 +83,48 @@ export function DealsList({
   const [closedFrom, setClosedFrom] = useState("");
   const [closedTo, setClosedTo] = useState("");
 
+  // Busca por texto vai pro servidor (debounced), não filtra só o que já
+  // carregou — com o pipeline inteiro (todos os status) podendo ter muito
+  // mais que a página atual, o cliente não tem o resto em memória pra
+  // filtrar. Reaproveita GET /api/deals (mesmo endpoint do "carregar mais",
+  // ver pipeline-view.tsx). Mesmo padrão de clientes/contacts-table.tsx.
+  useEffect(() => {
+    const term = search.trim();
+    if (!term) {
+      const clear = setTimeout(() => {
+        setSearchResults(null);
+        setSearching(false);
+      }, 0);
+      return () => clearTimeout(clear);
+    }
+    const timer = setTimeout(() => {
+      setSearching(true);
+      fetch(`/api/deals?pipelineId=${pipelineId}&q=${encodeURIComponent(term)}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data: Deal[]) => setSearchResults(data))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false));
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search, pipelineId]);
+
+  // Base pra filtrar: resultado da busca no servidor (já veio filtrado por
+  // texto) quando há termo digitado, senão a página de negócios carregada
+  // até agora. Os demais filtros (status, responsável, etapa etc.) continuam
+  // client-side em cima dessa base.
+  const baseDeals = searchResults ?? deals;
+
   const jobTitleOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const d of deals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
+    for (const d of baseDeals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
     return Array.from(set).sort();
-  }, [deals]);
+  }, [baseDeals]);
 
   const originOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const d of deals) if (d.contact.source) set.add(d.contact.source);
+    for (const d of baseDeals) if (d.contact.source) set.add(d.contact.source);
     return Array.from(set).sort();
-  }, [deals]);
+  }, [baseDeals]);
 
   const activeByOwnerId = useMemo(() => new Map(members.map((m) => [m.id, m.active])), [members]);
 
@@ -151,16 +196,12 @@ export function DealsList({
   }
 
   const filteredDeals = useMemo(() => {
-    const term = search.trim().toLowerCase();
     const from = dateFrom ? brazilDateStringToUTC(dateFrom) : null;
     const to = dateTo ? brazilEndOfDayUTC(dateTo) : null;
     const closedFromDate = closedFrom ? brazilDateStringToUTC(closedFrom) : null;
     const closedToDate = closedTo ? brazilEndOfDayUTC(closedTo) : null;
 
-    return deals.filter((d) => {
-      if (term && !d.name.toLowerCase().includes(term) && !d.contact.name.toLowerCase().includes(term)) {
-        return false;
-      }
+    return baseDeals.filter((d) => {
       if (statusFilter && d.status !== statusFilter) return false;
       if (ownerFilter && d.owner.id !== ownerFilter) return false;
       if (ownerStatusFilter) {
@@ -184,8 +225,7 @@ export function DealsList({
       return true;
     });
   }, [
-    deals,
-    search,
+    baseDeals,
     statusFilter,
     ownerFilter,
     ownerStatusFilter,
@@ -586,12 +626,19 @@ export function DealsList({
       {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
+        {searching
+          ? "Buscando…"
+          : searchResults
+            ? `${filteredDeals.length} resultado${filteredDeals.length === 1 ? "" : "s"} para "${search.trim()}" · `
+            : hasFilters
+              ? `${filteredDeals.length} de ${deals.length} carregados · `
+              : `${deals.length} de ${totalCount} negócio${totalCount === 1 ? "" : "s"} · `}
         Ganhos: <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(wonSum)}</span> · Perdidos:{" "}
         <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(lostSum)}</span>
       </p>
 
       <div className="card overflow-x-auto">
-        {deals.length === 0 ? (
+        {totalCount === 0 ? (
           <EmptyState icon={Inbox} title="Nenhum negócio cadastrado" description="Crie o primeiro negócio para começar a preencher o funil." />
         ) : filteredDeals.length === 0 ? (
           <EmptyState icon={SearchX} title="Nenhum negócio encontrado" description="Ajuste a busca ou limpe os filtros." />
@@ -704,6 +751,19 @@ export function DealsList({
           </table>
         )}
       </div>
+
+      {/* Só faz sentido carregar mais da lista base — buscando por texto ou
+          com filtro ativo, "mais" seria de um recorte diferente do que está
+          na tela (a busca de texto já cobre o pipeline inteiro sozinha; os
+          outros filtros continuam restritos ao que já foi carregado). */}
+      {!searchResults && !hasFilters && deals.length < totalCount && (
+        <div className="flex justify-center pt-1">
+          <button type="button" onClick={onLoadMore} disabled={loadingMore} className="btn-secondary">
+            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {loadingMore ? "Carregando…" : `Carregar mais (${totalCount - deals.length} restantes)`}
+          </button>
+        </div>
+      )}
 
       {confirmBulkDelete && (
         <ConfirmDialog

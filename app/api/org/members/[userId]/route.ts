@@ -4,6 +4,8 @@ import { requireRole } from "@/lib/require-role";
 import { deleteAvatar } from "@/lib/r2";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { cleanupInstanceIfDisconnected } from "@/lib/whatsapp/instance-cleanup";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +125,54 @@ export async function PATCH(
       // limpeza fica pro webhook/health-check pegar na próxima queda (nunca
       // derruba uma sessão que ainda está de pé só por causa da desativação).
       await cleanupInstanceIfDisconnected(access.organizationId, userId);
+
+      // PushSubscription é por User (global, sem organizationId — ver
+      // schema.prisma), então só apaga se a pessoa não tiver NENHUMA outra
+      // organização ativa; senão um dono desativando alguém na Org A cortaria
+      // push de negócios/tarefas dela na Org B também.
+      const remainingActive = await prisma.organizationUser.count({ where: { userId, active: true } });
+      if (remainingActive === 0) {
+        await prisma.pushSubscription.deleteMany({ where: { userId } });
+      }
+    }
+
+    const actorName = access.session.user.name ?? access.session.user.email ?? "?";
+    const ip = getClientIp(req);
+    if (role && role !== membership.role) {
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName,
+        action: "MEMBER_ROLE_CHANGED",
+        targetType: "User",
+        targetId: userId,
+        detail: `${updated.user.name}: ${membership.role} → ${role}`,
+        ip,
+      });
+    }
+    if (active === false && membership.active) {
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName,
+        action: "MEMBER_DEACTIVATED",
+        targetType: "User",
+        targetId: userId,
+        detail: updated.user.name,
+        ip,
+      });
+    }
+    if (active === true && !membership.active) {
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName,
+        action: "MEMBER_REACTIVATED",
+        targetType: "User",
+        targetId: userId,
+        detail: updated.user.name,
+        ip,
+      });
     }
 
     return NextResponse.json(updated);
@@ -130,7 +180,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
@@ -141,6 +191,7 @@ export async function DELETE(
   return runWithTenant(access.organizationId, async () => {
     const membership = await prisma.organizationUser.findUnique({
       where: { organizationId_userId: { organizationId: access.organizationId, userId } },
+      include: { user: { select: { name: true } } },
     });
     if (!membership) return NextResponse.json({ error: "Membro não encontrado" }, { status: 404 });
 
@@ -178,6 +229,13 @@ export async function DELETE(
     // conectada, espera o webhook/health-check pegar na próxima queda.
     await cleanupInstanceIfDisconnected(access.organizationId, userId);
 
+    // Mesmo cuidado do PATCH: só limpa a inscrição de push (global por User)
+    // se não sobrar nenhuma outra organização ativa pra essa pessoa.
+    const remainingActive = await prisma.organizationUser.count({ where: { userId, active: true } });
+    if (remainingActive === 0) {
+      await prisma.pushSubscription.deleteMany({ where: { userId } });
+    }
+
     const remainingMemberships = await prisma.organizationUser.count({ where: { userId } });
     if (remainingMemberships === 0) {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { image: true } });
@@ -187,6 +245,17 @@ export async function DELETE(
         await deleteAvatar(previousKey).catch(() => {});
       }
     }
+
+    await logAudit({
+      organizationId: access.organizationId,
+      actorUserId: access.userId,
+      actorName: access.session.user.name ?? access.session.user.email ?? "?",
+      action: "MEMBER_REMOVED",
+      targetType: "User",
+      targetId: userId,
+      detail: membership.user.name,
+      ip: getClientIp(req),
+    });
 
     return NextResponse.json({ ok: true });
   });

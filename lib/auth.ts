@@ -5,8 +5,27 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/lib/auth.config";
-import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
+import { rateLimit, resetRateLimit, getClientIp } from "@/lib/rate-limit";
 import { runWithTenant, runWithTenantUser } from "@/lib/tenant-context";
+import { logAudit } from "@/lib/audit-log";
+
+/**
+ * Acha a organização mais relevante pra atribuir um evento de login a essa
+ * pessoa — ativa em primeiro lugar (é a que o próprio login usa), mas cai
+ * pra qualquer filiação (mesmo inativa) pra login FALHO ainda deixar rastro
+ * em alguma organização em vez de sumir sem log nenhum. `null` só quando a
+ * pessoa não tem filiação alguma.
+ */
+async function resolveOrgForAuditLog(userId: string): Promise<string | null> {
+  const membership = await runWithTenantUser(userId, () =>
+    prisma.organizationUser.findFirst({
+      where: { userId },
+      orderBy: [{ active: "desc" }, { createdAt: "asc" }],
+      select: { organizationId: true },
+    }),
+  );
+  return membership?.organizationId ?? null;
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -22,10 +41,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: {},
         password: {},
       },
-      authorize: async (credentials) => {
+      authorize: async (credentials, request) => {
         const email = credentials?.email as string | undefined;
         const password = credentials?.password as string | undefined;
         if (!email || !password) return null;
+
+        const ip = getClientIp(request);
 
         const key = `login:${email.toLowerCase()}`;
         const { allowed, retryAfterMs } = rateLimit(key, 5, 15 * 60 * 1000);
@@ -43,21 +64,50 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const valid = await bcrypt.compare(password, user.password);
         if (!valid) {
           console.warn(`[auth] login falhou: senha incorreta para ${email}`);
+          const orgId = await resolveOrgForAuditLog(user.id);
+          if (orgId) {
+            await logAudit({
+              organizationId: orgId,
+              actorUserId: user.id,
+              actorName: user.name,
+              action: "LOGIN_FAILED",
+              detail: "Senha incorreta",
+              ip,
+            });
+          }
           return null;
         }
 
         const hasActiveMembership = await runWithTenantUser(user.id, () =>
           prisma.organizationUser.findFirst({
             where: { userId: user.id, active: true },
-            select: { id: true },
+            select: { id: true, organizationId: true },
           }),
         );
         if (!hasActiveMembership) {
           console.warn(`[auth] login falhou: ${email} não tem nenhuma organização ativa`);
+          const orgId = await resolveOrgForAuditLog(user.id);
+          if (orgId) {
+            await logAudit({
+              organizationId: orgId,
+              actorUserId: user.id,
+              actorName: user.name,
+              action: "LOGIN_FAILED",
+              detail: "Sem organização ativa",
+              ip,
+            });
+          }
           return null;
         }
 
         resetRateLimit(key);
+        await logAudit({
+          organizationId: hasActiveMembership.organizationId,
+          actorUserId: user.id,
+          actorName: user.name,
+          action: "LOGIN_SUCCESS",
+          ip,
+        });
         return { id: user.id, name: user.name, email: user.email, image: user.image };
       },
     }),

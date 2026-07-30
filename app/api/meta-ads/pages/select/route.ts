@@ -4,6 +4,8 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { encryptSecret, decryptSecret } from "@/lib/security/secret-crypto";
 import { subscribePageToLeadgen, type FacebookPage } from "@/lib/meta-ads";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +54,16 @@ export async function POST(req: NextRequest) {
         connectedById: access.userId,
       },
     });
+  });
+
+  await logAudit({
+    organizationId: access.organizationId,
+    actorUserId: access.userId,
+    actorName: access.session.user.name ?? access.session.user.email ?? "?",
+    action: "META_ADS_CONNECTED",
+    targetType: "MetaAdsConnection",
+    detail: page.name,
+    ip: getClientIp(req),
   });
 
   const res = NextResponse.json({ ok: true, pageName: page.name });

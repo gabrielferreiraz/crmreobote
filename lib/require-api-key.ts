@@ -17,6 +17,7 @@ export async function requireApiKey(req: Request) {
 
   const apiKey = await runWithApiKeyLookup(keyHash, () => prisma.apiKey.findUnique({ where: { keyHash } }));
   if (!apiKey || apiKey.revokedAt) return { ok: false as const, organizationId: null };
+  if (apiKey.expiresAt && apiKey.expiresAt <= new Date()) return { ok: false as const, organizationId: null };
 
   // Fire-and-forget — não atrasa a resposta do integrador por causa de um
   // campo que só serve pra exibir "último uso" na UI de gestão.

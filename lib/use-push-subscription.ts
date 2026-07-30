@@ -11,6 +11,21 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 export type PushStatus = "checking" | "subscribed" | "unsubscribed" | "unsupported";
 
+/**
+ * Manda o endpoint/chaves pro servidor associar (ou REASSOCIAR) à sessão
+ * atual — POST /api/push/subscribe faz upsert por endpoint, sempre gravando
+ * o userId de quem chamou. Chamado tanto ao ativar quanto (crucial) toda
+ * vez que o hook monta e já encontra uma inscrição existente no navegador.
+ */
+async function claimSubscription(subscription: PushSubscriptionJSON): Promise<boolean> {
+  const res = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.keys }),
+  });
+  return res.ok;
+}
+
 export function usePushSubscription() {
   const isSupported =
     typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
@@ -24,6 +39,18 @@ export function usePushSubscription() {
     (async () => {
       const registration = await navigator.serviceWorker.register("/sw.js");
       const existing = await registration.pushManager.getSubscription();
+      if (existing) {
+        // Reafirma no servidor que este endpoint é da sessão ATUAL — sem
+        // isso, um aparelho compartilhado (loja/computador de equipe) em
+        // que a pessoa A ativou push e depois deslogou continuava com a
+        // linha no banco apontando pra A; quando B loga no mesmo aparelho,
+        // o navegador já está "inscrito" (é o mesmo Service Worker) e B
+        // via de fato as notificações de A, sem nunca ter clicado em nada.
+        // O upsert do servidor é por endpoint (nunca cria duplicata), então
+        // isso só corrige a titularidade — reafirmar de novo pro mesmo
+        // usuário de sempre é inofensivo.
+        await claimSubscription(existing.toJSON()).catch(() => {});
+      }
       setStatus(existing ? "subscribed" : "unsubscribed");
     })();
   }, [isSupported]);
@@ -47,13 +74,8 @@ export function usePushSubscription() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
       });
-      const json = subscription.toJSON();
-      const res = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
-      });
-      if (!res.ok) { setError("Erro ao salvar inscrição no servidor."); return; }
+      const ok = await claimSubscription(subscription.toJSON());
+      if (!ok) { setError("Erro ao salvar inscrição no servidor."); return; }
       setStatus("subscribed");
     } catch {
       setError("Não foi possível ativar as notificações.");

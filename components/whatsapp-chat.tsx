@@ -606,16 +606,34 @@ export function ChatWindow({
               />
             </div>
           ) : (
-            messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                contactName={contactName}
-                currentUserName={currentUserName}
-                currentUserPhotoUrl={currentUserPhotoUrl}
-                onReply={setReplyingTo}
-              />
-            ))
+            (() => {
+              let lastDayString = "";
+              return messages.map((m) => {
+                const mDate = new Date(m.createdAt);
+                const dayString = mDate.toDateString();
+                const showDivider = dayString !== lastDayString;
+                lastDayString = dayString;
+
+                return (
+                  <div key={m.id} className="space-y-1.5">
+                    {showDivider && (
+                      <div className="my-3 flex justify-center">
+                        <span className="rounded bg-neutral-200/80 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 shadow-sm">
+                          {formatDividerDate(mDate)}
+                        </span>
+                      </div>
+                    )}
+                    <MessageBubble
+                      message={m}
+                      contactName={contactName}
+                      currentUserName={currentUserName}
+                      currentUserPhotoUrl={currentUserPhotoUrl}
+                      onReply={setReplyingTo}
+                    />
+                  </div>
+                );
+              });
+            })()
           )}
           <div ref={bottomRef} />
         </div>
@@ -625,9 +643,8 @@ export function ChatWindow({
           onClick={() => scrollToBottom()}
           aria-label="Ir para o final da conversa"
           tabIndex={showScrollButton ? 0 : -1}
-          className={`absolute right-3 bottom-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-neutral-600 shadow-md ring-1 ring-black/5 transition-opacity duration-300 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-white/10 ${
-            showScrollButton ? "opacity-100" : "pointer-events-none opacity-0"
-          }`}
+          className={`absolute right-3 bottom-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-neutral-600 shadow-md ring-1 ring-black/5 transition-opacity duration-300 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-white/10 ${showScrollButton ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
         >
           <ArrowDown className="h-4 w-4" strokeWidth={2} />
         </button>
@@ -671,6 +688,7 @@ export function ChatWindow({
               setPastedImage(file);
               setAttachMode("IMAGE");
             }}
+            focusTrigger={replyingTo}
           />
         ) : (
           <StructuredComposer
@@ -762,20 +780,18 @@ function MessageBubble({
         className={
           isSticker
             ? "max-w-[55%]"
-            : `max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${
-                isOut
-                  ? "rounded-br-sm bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                  : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
-              }`
+            : `max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${isOut
+              ? "rounded-br-sm bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+              : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+            }`
         }
       >
         {message.replyTo && (
           <div
-            className={`mb-1 rounded-md border-l-2 px-2 py-1 text-xs ${
-              isOut
+            className={`mb-1 rounded-md border-l-2 px-2 py-1 text-xs ${isOut
                 ? "border-white/40 bg-white/10 dark:border-neutral-900/30 dark:bg-neutral-900/10"
                 : "border-neutral-400 bg-black/5 dark:border-neutral-500 dark:bg-white/5"
-            }`}
+              }`}
           >
             <p className="truncate opacity-80">{previewForQuote(message.replyTo)}</p>
           </div>
@@ -884,9 +900,8 @@ function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
           e.stopPropagation();
           toggleZoom(e);
         }}
-        className={`max-h-full max-w-full rounded-md object-contain transition-transform duration-200 ease-out ${
-          zoomed ? "scale-[2.2] cursor-zoom-out" : "cursor-zoom-in"
-        }`}
+        className={`max-h-full max-w-full rounded-md object-contain transition-transform duration-200 ease-out ${zoomed ? "scale-[2.2] cursor-zoom-out" : "cursor-zoom-in"
+          }`}
         style={{ transformOrigin: origin }}
       />
     </div>
@@ -1076,11 +1091,10 @@ function SendScriptModal({ threadId, onClose }: { threadId: string; onClose: () 
               key={s.id}
               type="button"
               onClick={() => setSelectedId(s.id)}
-              className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                selectedId === s.id
+              className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${selectedId === s.id
                   ? "border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-800"
                   : "border-neutral-200 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
-              }`}
+                }`}
             >
               <p className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</p>
               <p className="text-xs text-neutral-400 dark:text-neutral-500">
@@ -1119,7 +1133,7 @@ function TagContactModal({ contactId, onClose }: { contactId: string; onClose: (
     fetch(`/api/contacts/${contactId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setTagsInput(((data?.tags ?? []) as string[]).join(", ")))
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoaded(true));
   }, [contactId]);
 
@@ -1298,13 +1312,13 @@ const FORMAT_OPTIONS: {
   shortcutLabel: string;
   needsShift?: boolean;
 }[] = [
-  { marker: "*", label: "Negrito", icon: Bold, shortcutKey: "b", shortcutLabel: "Ctrl+B" },
-  { marker: "_", label: "Itálico", icon: Italic, shortcutKey: "i", shortcutLabel: "Ctrl+I" },
-  // Ctrl+S sozinho aciona "Salvar página" do navegador — usa Shift pra não brigar com isso.
-  { marker: "~", label: "Tachado", icon: Strikethrough, shortcutKey: "s", shortcutLabel: "Ctrl+Shift+S", needsShift: true },
-];
+    { marker: "*", label: "Negrito", icon: Bold, shortcutKey: "b", shortcutLabel: "Ctrl+B" },
+    { marker: "_", label: "Itálico", icon: Italic, shortcutKey: "i", shortcutLabel: "Ctrl+I" },
+    // Ctrl+S sozinho aciona "Salvar página" do navegador — usa Shift pra não brigar com isso.
+    { marker: "~", label: "Tachado", icon: Strikethrough, shortcutKey: "s", shortcutLabel: "Ctrl+Shift+S", needsShift: true },
+  ];
 
-const MAX_TEXTAREA_HEIGHT = 120;
+const MAX_TEXTAREA_HEIGHT = 100;
 
 function autoResizeTextarea(el: HTMLTextAreaElement) {
   el.style.height = "auto";
@@ -1371,6 +1385,7 @@ function TextComposer({
   onToggleMenu,
   onPick,
   onPasteImage,
+  focusTrigger,
 }: {
   sending: boolean;
   onSend: (text: string) => void;
@@ -1378,9 +1393,16 @@ function TextComposer({
   onToggleMenu: () => void;
   onPick: (mode: AttachMode) => void;
   onPasteImage: (file: File) => void;
+  focusTrigger?: any;
 }) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (focusTrigger && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [focusTrigger]);
 
   function submit() {
     if (!text.trim()) return;
@@ -1458,7 +1480,7 @@ function TextComposer({
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="relative rounded-3xl border border-neutral-200 bg-white transition-colors focus-within:border-neutral-400 focus-within:ring-1 focus-within:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-500 dark:focus-within:ring-neutral-500">
+      <div className="relative rounded-2xl border border-neutral-200 bg-white transition-colors focus-within:border-neutral-400 focus-within:ring-1 focus-within:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-500 dark:focus-within:ring-neutral-500">
         <textarea
           ref={textareaRef}
           value={text}
@@ -1468,12 +1490,12 @@ function TextComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="Digite uma mensagem… (Shift+Enter para quebrar linha)"
+          placeholder="Digite uma mensagem…"
           rows={1}
-          className="scrollbar-thin max-h-[120px] w-full resize-none bg-transparent py-3 pr-14 pl-4 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+          className="scrollbar-thin max-h-[100px] w-full resize-none bg-transparent py-2 pr-12 pl-3.5 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
 
-        <div className="flex items-center gap-0.5 px-2 pb-2">
+        <div className="flex items-center gap-0.5 px-2 pb-1.5">
           {FORMAT_OPTIONS.map((f) => (
             <button
               key={f.marker}
@@ -1514,16 +1536,16 @@ function TextComposer({
           type="button"
           disabled={sending}
           onClick={() => (hasText ? submit() : onPick("AUDIO"))}
-          className="absolute right-2 bottom-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition-all active:scale-95 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className="absolute right-1.5 bottom-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition-all active:scale-95 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
           aria-label={hasText ? "Enviar" : "Gravar áudio"}
           title={hasText ? "Enviar" : "Gravar áudio"}
         >
           {sending ? (
-            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
           ) : hasText ? (
-            <Send className="h-4 w-4" strokeWidth={2} />
+            <Send className="h-3.5 w-3.5" strokeWidth={2} />
           ) : (
-            <Mic className="h-4 w-4" strokeWidth={2} />
+            <Mic className="h-3.5 w-3.5" strokeWidth={2} />
           )}
         </button>
       </div>
@@ -1734,7 +1756,7 @@ function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
   function stopVisualizer() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
-    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current?.close().catch(() => { });
     audioCtxRef.current = null;
   }
 
@@ -1918,5 +1940,32 @@ function PixForm({ sending, onSend }: { sending: boolean; onSend: (payload: Reco
       </button>
     </div>
   );
+}
+
+function formatDividerDate(date: Date): string {
+  const now = new Date();
+  const dDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((dNow.getTime() - dDate.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return "Hoje";
+  if (diffDays === 1) return "Ontem";
+  if (diffDays < 7) {
+    const daysOfWeek = [
+      "Domingo",
+      "Segunda-feira",
+      "Terça-feira",
+      "Quarta-feira",
+      "Quinta-feira",
+      "Sexta-feira",
+      "Sábado"
+    ];
+    return daysOfWeek[dDate.getDay()];
+  }
+  return dDate.toLocaleDateString("pt-BR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  });
 }
 

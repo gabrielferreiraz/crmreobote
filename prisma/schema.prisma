@@ -43,6 +43,7 @@ model Organization {
   processes              Process[]
   processStageHistories  ProcessStageHistory[]
   processRequests        ProcessRequest[]
+  auditLogs              AuditLog[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -80,6 +81,8 @@ model User {
   processRequestsCreated      ProcessRequest[]          @relation("ProcessRequestRequestedBy")
   processRequestsResolved     ProcessRequest[]          @relation("ProcessRequestResolvedBy")
   whatsappMessagesSentAs      WhatsAppMessage[]         @relation("WhatsAppMessageSentBy")
+  whatsappThreadsOwned        WhatsAppThread[]          @relation("WhatsAppThreadOwner")
+  auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -262,7 +265,15 @@ enum WhatsAppInstanceStatus {
 model WhatsAppThread {
   id              String  @id @default(cuid())
   organizationId  String
-  instanceId      String
+  // Nullable de propósito (era obrigatório) — a instância pode ser apagada
+  // de verdade quando o dono é desativado (ver
+  // lib/whatsapp/instance-cleanup.ts's deleteInstanceForInactiveUser), e a
+  // conversa não pode sumir junto (ver onDelete: SetNull abaixo e
+  // ownerUserId, que preserva pra sempre QUEM era o dono, independente da
+  // instância continuar existindo ou não — é o que sustenta o backup de
+  // mensagens em Configurações → Usuários).
+  instanceId      String?
+  ownerUserId     String?
   phoneNormalized String // número normalizado da OUTRA parte, nunca da nossa instância
   whatsappName    String? // pushName do WhatsApp — melhor-esforço, pode ficar desatualizado
   contactId       String?
@@ -290,7 +301,8 @@ model WhatsAppThread {
   updatedAt DateTime @updatedAt
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance           WhatsAppInstance    @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instance           WhatsAppInstance?   @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  ownerUser          User?               @relation("WhatsAppThreadOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   contact            Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
   messages           WhatsAppMessage[]
   campaignRecipients CampaignRecipient[]
@@ -298,12 +310,15 @@ model WhatsAppThread {
   @@unique([instanceId, phoneNormalized])
   @@index([organizationId, contactId])
   @@index([organizationId])
+  @@index([organizationId, ownerUserId])
 }
 
 model WhatsAppMessage {
   id             String                   @id @default(cuid())
   organizationId String
-  instanceId     String
+  // Nullable pelo mesmo motivo de WhatsAppThread.instanceId — preserva a
+  // mensagem quando a instância é apagada de verdade (usuário desativado).
+  instanceId     String?
   threadId       String
   direction      WhatsAppMessageDirection
   type           WhatsAppMessageType      @default(TEXT)
@@ -338,7 +353,7 @@ model WhatsAppMessage {
   createdAt      DateTime                 @default(now())
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance     WhatsAppInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instance     WhatsAppInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
   thread       WhatsAppThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
   replyTo      WhatsAppMessage?  @relation("WhatsAppMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies      WhatsAppMessage[] @relation("WhatsAppMessageReplies")
@@ -575,6 +590,13 @@ model CampaignRecipient {
 
 enum CampaignRecipientStatus {
   PENDING
+  // Transitório — só existe entre o momento em que um tick do cron "reivindica"
+  // este destinatário (ver claimRecipient em lib/campaigns/engine.ts) e o
+  // envio de verdade terminar (SENT/FAILED). Existe especificamente pra
+  // impedir que dois ticks do cron rodando ao mesmo tempo (cron-job.org não
+  // garante exclusão mútua entre execuções — ver app/api/cron/campaigns)
+  // escolham o MESMO destinatário PENDING e mandem a mensagem duas vezes.
+  SENDING
   SENT
   FAILED
   SKIPPED
@@ -792,6 +814,9 @@ model Contact {
   metaCampaignId     String?
   metaCampaignName   String?
   metaFormId         String?
+  // "Código da Pessoa" do Agendor — mesma ideia de agendorDealId (ver Deal):
+  // chave de reconciliação pra reimportar sem duplicar.
+  agendorContactId   String?   @unique
   createdAt          DateTime  @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -982,6 +1007,11 @@ model Deal {
   // Valores dos campos personalizados definidos em CustomFieldDefinition —
   // { [customFieldDefinitionId]: string | number | boolean }.
   customFieldValues Json?
+  // "Código do Negócio" do Agendor — chave de reconciliação da migração
+  // (ver scripts/import-agendor.ts): permite reimportar sem duplicar (upsert
+  // por este campo) mesmo rodando o import várias vezes ao longo do tempo,
+  // conforme mais consultores forem migrando aos poucos.
+  agendorDealId     String?  @unique
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1089,6 +1119,13 @@ model Process {
   // estar em qualquer etapa E já estar contemplado/com documentação
   // pendente ao mesmo tempo; os filtros da lista cruzam com qualquer etapa.
   contemplated   Boolean        @default(false)
+  // Quando `contemplated` virou true pela 1ª vez (ver PATCH
+  // /api/processes/[id]) — fonte de verdade pras métricas de "tempo até
+  // contemplação"/"contemplações por mês" em Relatórios. Nunca infere isso
+  // pelo NOME da etapa (frágil: etapa é editável livremente pelo admin em
+  // Configurações > Processos, um nome renomeado quebraria a métrica
+  // silenciosamente, inclusive pra processos já contemplados no passado).
+  contemplatedAt DateTime?
   paymentPending Boolean        @default(true)
   documentStatus DocumentStatus @default(NOT_REQUESTED)
   // Cadastrados pelo administrativo assim que o cliente entra no consórcio —
@@ -1182,6 +1219,13 @@ model Task {
   // Nunca reseta sozinho num reagendamento; a tela pergunta de novo e quem
   // manda decide se reenvia.
   meetingInviteSentAt DateTime?
+  // "Código da tarefa" do Agendor — mesma ideia de agendorDealId (ver Deal):
+  // chave de reconciliação pra reimportar sem duplicar. NÃO é único sozinho
+  // porque uma tarefa do Agendor com mais de 1 responsável vira uma linha
+  // POR responsável aqui (ver scripts/import-agendor.ts) — o mesmo
+  // agendorTaskId aparece então em mais de uma linha de propósito; o que
+  // precisa ser único é a combinação com o dono (ver @@unique abaixo).
+  agendorTaskId       String?
   createdAt           DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1189,6 +1233,7 @@ model Task {
   contact      Contact?     @relation(fields: [contactId], references: [id])
   owner        User         @relation(fields: [ownerId], references: [id])
 
+  @@unique([agendorTaskId, ownerId])
   @@index([organizationId, ownerId, dueAt])
   @@index([organizationId, dealId])
   // Cobre o ORDER BY dueAt da Agenda pra quem enxerga a organização inteira
@@ -1348,12 +1393,48 @@ model ApiKey {
   createdById    String
   lastUsedAt     DateTime?
   revokedAt      DateTime?
+  // Nula = nunca expira (opção "sem expiração" na criação, ver
+  // app/(dashboard)/configuracoes/integracoes/api-keys-manager.tsx). Checada
+  // em lib/require-api-key.ts a cada chamada — uma chave vazada em log
+  // público/repositório não fica válida pra sempre por padrão.
+  expiresAt      DateTime?
   createdAt      DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation(fields: [createdById], references: [id])
 
   @@index([organizationId])
+}
+
+// ─── Audit log administrativo ────────────────────────────────────────
+//
+// Trilha de ações críticas de administração da conta — login, chaves de
+// API, gestão de membros, conexões externas (WhatsApp/Meta/Google). Existe
+// pra permitir investigar "quem fez o quê, de onde" se uma conta OWNER for
+// comprometida; não é o log de atividade do consultor (ver
+// UserDailyActivity, que é sobre produtividade, não segurança).
+//
+// `action`/`targetType` são String livre (não enum) de propósito — um novo
+// tipo de evento não deve exigir uma migration `ALTER TYPE` só pra ser
+// logado (ver lib/audit-log.ts pra lista de valores usados hoje).
+// `actorName` é congelado no momento do evento (não só uma FK) porque o
+// nome do usuário pode mudar depois e o log deve continuar lendo como era.
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorUserId    String?
+  actorName      String
+  action         String
+  targetType     String?
+  targetId       String?
+  detail         String?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUser    User?        @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
 }
 
 model WebhookSubscription {

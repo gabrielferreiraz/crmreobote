@@ -4,13 +4,15 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { exchangeGoogleCode, fetchGoogleUserEmail } from "@/lib/google-calendar-oauth";
 import { encryptSecret } from "@/lib/security/secret-crypto";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 const DEFAULT_REDIRECT_PATH = "/configuracoes/perfil";
 
 export async function GET(req: NextRequest) {
-  const { organizationId, userId } = await requireSession();
+  const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
@@ -71,6 +73,16 @@ export async function GET(req: NextRequest) {
         },
       }),
     );
+
+    await logAudit({
+      organizationId,
+      actorUserId: userId,
+      actorName: session!.user.name ?? session!.user.email ?? "?",
+      action: "GOOGLE_CALENDAR_CONNECTED",
+      targetType: "GoogleCalendarConnection",
+      detail: email,
+      ip: getClientIp(req),
+    });
 
     return redirectWithCleanup(new URL(`${redirectPath}?google=connected`, req.url));
   } catch (err) {

@@ -92,12 +92,6 @@ function LoginForm() {
         </button>
       </form>
 
-      <p className="text-center text-sm text-neutral-500 dark:text-neutral-400">
-        Não tem conta?{" "}
-        <Link href="/register" className="font-medium text-neutral-900 dark:text-neutral-100 hover:underline">
-          Criar conta
-        </Link>
-      </p>
     </div>
   );
 }

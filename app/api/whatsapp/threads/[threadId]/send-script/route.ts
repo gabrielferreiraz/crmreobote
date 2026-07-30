@@ -37,10 +37,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
       where: { id: threadId, organizationId },
       include: { instance: { select: { userId: true, status: true } }, contact: true },
     });
-    if (!thread) return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+    if (!thread || !thread.instance) return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
 
     const scope = await getDealScope(organizationId, userId, session!.user.role);
-    if (scope.type === "owners" && !scope.ownerIds.includes(thread.instance.userId)) {
+    if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
@@ -48,8 +48,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     // esse mesmo erro lá dentro do loop em segundo plano, mas só logado
     // (console.error), nunca visto por quem clicou "Enviar"; sem essa
     // checagem aqui, o modal mostra "Enviando..." e fecha sozinho mesmo
-    // quando NENHUMA mensagem do script sai de verdade.
-    if (thread.instance.status !== "CONNECTED") {
+    // quando NENHUMA mensagem do script sai de verdade. Instância null =
+    // conversa arquivada (apagada de verdade, ver ownerUserId no schema) —
+    // mesmo tratamento de "não conectado".
+    if (!thread.instance || thread.instance.status !== "CONNECTED") {
       return NextResponse.json({ error: "O WhatsApp desta conversa não está conectado no CRM" }, { status: 400 });
     }
 

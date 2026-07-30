@@ -23,10 +23,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       where: { id: threadId, organizationId },
       include: { instance: { select: { userId: true, instanceName: true, status: true } } },
     });
-    if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    if (!thread || !thread.instance) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     const scope = await getDealScope(organizationId, userId, session!.user.role);
-    if (scope.type === "owners" && !scope.ownerIds.includes(thread.instance.userId)) {
+    if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
@@ -35,10 +35,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       return NextResponse.json({ url: thread.profilePicUrl });
     }
 
-    // Instância desconectada nunca vai responder — não vale a pena marcar o
-    // cache como "tentado" (senão, quando reconectar, ficaríamos até 12h sem
-    // tentar de novo mesmo já dando certo).
-    if (thread.instance.status !== "CONNECTED") {
+    // Instância desconectada (ou apagada de verdade — conversa arquivada,
+    // ver ownerUserId em prisma/schema.prisma) nunca vai responder — não
+    // vale a pena marcar o cache como "tentado" (senão, quando reconectar,
+    // ficaríamos até 12h sem tentar de novo mesmo já dando certo).
+    if (!thread.instance || thread.instance.status !== "CONNECTED") {
       return NextResponse.json({ url: thread.profilePicUrl });
     }
 

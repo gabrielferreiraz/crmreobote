@@ -56,10 +56,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const existing = await prisma.process.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+    // contemplatedAt: fonte de verdade pra "tempo até contemplação" em
+    // Relatórios (ver admin-reports-view.tsx) — grava só na transição
+    // false→true, nunca reescrita depois (reativar o marcador mais tarde
+    // atualiza a data pra esse novo momento, não perde o registro).
+    const justContemplated = contemplated === true && !existing.contemplated;
+
     const updated = await prisma.process.update({
       where: { id },
       data: {
         ...(contemplated !== undefined ? { contemplated } : {}),
+        ...(justContemplated ? { contemplatedAt: new Date() } : {}),
         ...(paymentPending !== undefined ? { paymentPending } : {}),
         ...(documentStatus !== undefined ? { documentStatus: documentStatus as $Enums.DocumentStatus } : {}),
         ...(quotaNumber !== undefined ? { quotaNumber: quotaNumber?.trim() || null } : {}),

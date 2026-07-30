@@ -25,12 +25,17 @@ import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/in
 import type { $Enums } from "@/app/generated/prisma/client";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RISK_WINDOW_MS = 7 * DAY_MS;
+// Exportado — o relatório de instabilidade (app/(dashboard)/relatorios/page.tsx)
+// usa a MESMA janela/limiar aqui pra "quantas mensagens de campanha essa
+// instância mandou na janela de risco" fazer sentido junto do
+// recentDisconnectCount, em vez de duplicar o número e arriscar os dois
+// desalinharem se esse limiar mudar um dia.
+export const RISK_WINDOW_MS = 7 * DAY_MS;
 // Queda confirmada 3x numa janela de 7 dias é tratada como sinal de que o
 // número está instável/sob suspeita da própria WhatsApp (não só uma
 // coincidência de rede) — insistir mandando campanha nesse estado é
 // exatamente o padrão que aumenta risco de banimento em vez de reduzir.
-const RISK_THRESHOLD = 3;
+export const RISK_THRESHOLD = 3;
 
 type CheckableInstance = {
   id: string;
@@ -131,8 +136,7 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
   escalated: number;
 }> {
   // Organization não tem RLS — listar todas aqui é seguro; cada organização é
-  // checada depois já com o tenant certo (mesmo padrão de runAutomations e
-  // cleanupExpiredChatMedia).
+  // checada depois já com o tenant certo (mesmo padrão de runAutomations).
   const organizations = await prisma.organization.findMany({ select: { id: true } });
 
   let checked = 0;

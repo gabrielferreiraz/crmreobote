@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LogOut, UserCircle } from "lucide-react";
 import { Avatar } from "./avatar";
+import { usePushSubscription } from "@/lib/use-push-subscription";
 
 export function UserMenu({
   name,
@@ -18,6 +19,19 @@ export function UserMenu({
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { unsubscribe } = usePushSubscription();
+
+  // Desativa a inscrição de push deste NAVEGADOR antes de sair — sem isso,
+  // num computador compartilhado, a inscrição continua ativa (a nível de SO)
+  // mesmo deslogado, e a próxima pessoa a usar o aparelho (ou só alguém por
+  // perto, já que notificação push aparece mesmo com o site fechado) via
+  // notificação com nome de lead/negócio de quem saiu. Nunca bloqueia o
+  // logout em si (unsubscribe() já engole os próprios erros).
+  async function handleSignOut(e: React.FormEvent) {
+    e.preventDefault();
+    await unsubscribe();
+    await signOutAction();
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -53,7 +67,7 @@ export function UserMenu({
             <UserCircle className="h-3.5 w-3.5" strokeWidth={2} />
             Editar perfil
           </Link>
-          <form action={signOutAction}>
+          <form action={signOutAction} onSubmit={handleSignOut}>
             <button
               type="submit"
               className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"

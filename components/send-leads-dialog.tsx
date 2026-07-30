@@ -245,6 +245,12 @@ export function SendLeadsDialog({
             )}
           </div>
 
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
+            Disparo em massa por número conectado via QR Code (Evolution) tem risco maior de banimento — e, ao
+            contrário do que costuma se pensar, boa parte dos banimentos por esse padrão de uso é permanente, não
+            some sozinho em 24h. Número conectado pela API oficial da Meta não tem esse risco.
+          </p>
+
           <div className="grid grid-cols-2 gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
             <div className="space-y-1">
               <label className="field-label">Pipeline de destino</label>

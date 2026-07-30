@@ -23,7 +23,7 @@ export default async function ProcessosSettingsPage() {
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Etapas do Processos</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             {pipeline.name} — etapas do Kanban de pós-venda. Marcar uma etapa como &quot;conclusão&quot; avisa o
-            administrativo (push) sempre que um processo chegar nela.
+            consultor responsável (push) sempre que um processo chegar nela.
           </p>
         </div>
         <ProcessStageManager pipelineId={pipeline.id} initialStages={stages} />

@@ -34,6 +34,10 @@ ENV NODE_ENV=production
 
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
+# pg_dump pro backup automático do banco (ver lib/db-backup.ts /
+# app/api/cron/db-backup) — não vem por padrão na imagem Alpine.
+RUN apk add --no-cache postgresql-client
+
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

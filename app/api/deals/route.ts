@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
+import { fetchDealsList } from "@/lib/deals/list-query";
 import { buildDealName } from "@/lib/deal-name";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -12,25 +13,34 @@ import { recordUserChange } from "@/lib/user-activity";
 
 export const dynamic = "force-dynamic";
 
+const DEFAULT_SEARCH_LIMIT = 50;
+const DEFAULT_LIST_LIMIT = 500;
+const MAX_LIMIT = 500;
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const pipelineId = searchParams.get("pipelineId");
-  const status = searchParams.get("status");
+  const pipelineId = searchParams.get("pipelineId") ?? undefined;
+  const status = searchParams.get("status") as "OPEN" | "WON" | "LOST" | null;
+  const q = searchParams.get("q") ?? undefined;
+  const skipParam = Number(searchParams.get("skip"));
+  const skip = Number.isFinite(skipParam) && skipParam > 0 ? skipParam : 0;
+  const limitParam = Number(searchParams.get("limit"));
+  const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : null;
+  const take = Math.min(requestedLimit ?? (q ? DEFAULT_SEARCH_LIMIT : DEFAULT_LIST_LIMIT), MAX_LIMIT);
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
-    const deals = await prisma.deal.findMany({
-      where: {
-        organizationId: access.organizationId,
-        ...scopeWhere(scope),
-        ...(pipelineId ? { pipelineId } : {}),
-        ...(status ? { status: status as "OPEN" | "WON" | "LOST" } : {}),
-      },
-      orderBy: { stageEnteredAt: "desc" },
-      include: { contact: true, owner: true, stage: true },
+    const deals = await fetchDealsList({
+      organizationId: access.organizationId,
+      pipelineId,
+      scope,
+      status: status ?? undefined,
+      q,
+      skip,
+      take,
     });
 
     return NextResponse.json(deals);

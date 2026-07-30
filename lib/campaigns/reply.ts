@@ -78,6 +78,30 @@ export async function handleCampaignReply(
 
   await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { dealId: deal.id } });
 
+  // Marca de antemão qualquer automação "Negócio criado → Enviar notificação
+  // push" como já executada pra ESTE negócio — o push logo abaixo já avisa o
+  // responsável (com contexto melhor: qual campanha, quem respondeu); sem
+  // isso, o próximo tick do cron de automações (lib/automations/engine.ts)
+  // via esse mesmo negócio "criado" e mandava um SEGUNDO push genérico sobre
+  // a mesma coisa. Só suprime a ação SEND_PUSH especificamente — se a regra
+  // também criar tarefa/nota/etc., isso é outra AutomationRule (ação
+  // diferente) e continua rodando normalmente.
+  const dealCreatedPushRules = await prisma.automationRule.findMany({
+    where: { organizationId, trigger: "DEAL_CREATED", action: "SEND_PUSH", enabled: true },
+    select: { id: true },
+  });
+  if (dealCreatedPushRules.length > 0) {
+    await prisma.automationExecution.createMany({
+      data: dealCreatedPushRules.map((r) => ({
+        ruleId: r.id,
+        entityId: deal.id,
+        success: true,
+        detail: "Pulado — negócio criado por resposta de campanha, notificação já enviada separadamente.",
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   sendPushToUser(ownerId, {
     title: "Novo lead respondeu",
     body: `${contact.name} respondeu · ${campaign.name}`,

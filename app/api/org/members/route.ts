@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { generateTempPassword } from "@/lib/generate-temp-password";
 import { runWithTenant } from "@/lib/tenant-context";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +71,17 @@ export async function POST(req: Request) {
     const membership = await prisma.organizationUser.create({
       data: { organizationId: access.organizationId, userId: user.id, role, area },
       include: { user: { select: { id: true, name: true, email: true } } },
+    });
+
+    await logAudit({
+      organizationId: access.organizationId,
+      actorUserId: access.userId,
+      actorName: access.session.user.name ?? access.session.user.email ?? "?",
+      action: "MEMBER_INVITED",
+      targetType: "User",
+      targetId: user.id,
+      detail: `${membership.user.name} (${membership.user.email}) · papel ${role}`,
+      ip: getClientIp(req),
     });
 
     return NextResponse.json({ membership, tempPassword }, { status: 201 });

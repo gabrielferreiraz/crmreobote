@@ -7,6 +7,7 @@ import { upsertContactFromIntegration } from "@/lib/api/upsert-contact";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { buildDealName } from "@/lib/deal-name";
 import { sanitizeCell } from "@/lib/csv-sanitize";
+import { dealInputSchema, firstZodMessage } from "@/lib/api/v1-schemas";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,9 @@ export async function POST(req: Request) {
     return apiError("Corpo da requisição precisa ser um objeto JSON", 400);
   }
 
+  const parsedBody = dealInputSchema.safeParse(body);
+  if (!parsedBody.success) return apiError(firstZodMessage(parsedBody.error), 400);
+
   const {
     contactId: givenContactId,
     contact: contactInput,
@@ -40,42 +44,7 @@ export async function POST(req: Request) {
     creditType,
     description,
     source,
-  } = body as {
-    contactId?: string;
-    contact?: Record<string, unknown>;
-    pipelineId?: string;
-    stageId?: string;
-    ownerId?: string;
-    name?: string;
-    value?: number;
-    creditType?: string;
-    description?: string;
-    source?: string;
-  };
-
-  if (!givenContactId && !contactInput) {
-    return apiError("Envie 'contactId' (contato existente) ou 'contact' (dados pra criar/atualizar)", 400);
-  }
-
-  // Campos soltos vêm de fora sem garantia nenhuma de tipo (o `as {...}` acima
-  // é só uma anotação do TypeScript, não valida nada em runtime) — sem isso,
-  // um `value` string ou um `name` objeto chegava direto no Prisma e estourava
-  // um erro não tratado, fora do envelope {success:false,...} documentado.
-  if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
-    return apiError("'value' precisa ser um número", 400);
-  }
-  if (name !== undefined && typeof name !== "string") {
-    return apiError("'name' precisa ser uma string", 400);
-  }
-  if (creditType !== undefined && typeof creditType !== "string") {
-    return apiError("'creditType' precisa ser uma string", 400);
-  }
-  if (description !== undefined && typeof description !== "string") {
-    return apiError("'description' precisa ser uma string", 400);
-  }
-  if (source !== undefined && typeof source !== "string") {
-    return apiError("'source' precisa ser uma string", 400);
-  }
+  } = parsedBody.data;
 
   return runWithTenant(access.organizationId, async () => {
     const warnings: string[] = [];

@@ -6,6 +6,7 @@ import { Settings2 } from "lucide-react";
 import Link from "next/link";
 import { Select } from "@/components/select";
 import { ProcessKanbanBoard, type ProcessItem } from "./process-kanban-board";
+import { ProcessesListMobile } from "./processes-list-mobile";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 type PipelineOption = { id: string; name: string };
@@ -57,13 +58,19 @@ export function ProcessesView({
         )}
       </div>
 
-      <ProcessKanbanBoard
-        pipelineId={pipelineId}
-        stages={stages}
-        processes={processes}
-        onProcessesChange={setProcesses}
-        isAdmin={isAdmin}
-      />
+      <div className="hidden h-full lg:block">
+        <ProcessKanbanBoard
+          pipelineId={pipelineId}
+          stages={stages}
+          processes={processes}
+          onProcessesChange={setProcesses}
+          isAdmin={isAdmin}
+        />
+      </div>
+
+      <div className="lg:hidden">
+        <ProcessesListMobile stages={stages} processes={processes} />
+      </div>
     </div>
   );
 }

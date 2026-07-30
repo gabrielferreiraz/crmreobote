@@ -39,8 +39,12 @@ async function loadAuthorizedThread(threadId: string, organizationId: string, us
   });
   if (!thread) return { thread: null, forbidden: false };
 
+  // ownerUserId (denormalizado, sobrevive à instância ser apagada de
+  // verdade — ver prisma/schema.prisma), não thread.instance?.userId: uma
+  // conversa arquivada (instance null) ainda precisa respeitar o mesmo
+  // escopo de "dono/admin vê tudo, consultor só o seu".
   const scope = await getDealScope(organizationId, userId, role);
-  if (scope.type === "owners" && !scope.ownerIds.includes(thread.instance.userId)) {
+  if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
     return { thread: null, forbidden: true };
   }
   return { thread, forbidden: false };
@@ -102,7 +106,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     // efeito colateral best-effort (ver lib/evolution.ts's sendPresence).
     const needsResubscribe =
       !thread.presenceSubscribedAt || Date.now() - thread.presenceSubscribedAt.getTime() > PRESENCE_RESUBSCRIBE_MS;
-    if (thread.instance.status === "CONNECTED" && needsResubscribe) {
+    if (thread.instance && thread.instance.status === "CONNECTED" && needsResubscribe) {
       const fullNumber = `55${thread.phoneNormalized}`;
       sendPresence(thread.instance.instanceName, fullNumber)
         .then(() => prisma.whatsAppThread.update({ where: { id: thread.id }, data: { presenceSubscribedAt: new Date() } }))

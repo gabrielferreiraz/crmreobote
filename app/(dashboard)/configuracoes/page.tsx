@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase, ClipboardList } from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase, ClipboardList, ShieldAlert } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
@@ -73,6 +73,17 @@ export default async function ConfiguracoesPage() {
           />
         )}
       </Section>
+
+      {isOwner && (
+        <Section title="Segurança">
+          <Row
+            href="/configuracoes/auditoria"
+            icon={ShieldAlert}
+            title="Auditoria"
+            description="Login, chaves de API, gestão de membros e conexões externas — quem fez o quê e de onde."
+          />
+        </Section>
+      )}
 
       {isOwner && (
         <Section title="Alertas por e-mail">

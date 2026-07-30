@@ -546,7 +546,19 @@ async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefini
   if (rule.trigger === "TASK_DUE_SOON") {
     const minutesBefore = triggerConfig.minutesBefore ?? 15;
     const now = new Date();
-    const windowEnd = new Date(now.getTime() + minutesBefore * 60 * 1000);
+    // A janela real nunca pode ser mais estreita que o intervalo entre
+    // checagens (o cron roda de hora em hora — ver vercel.json) — com
+    // minutesBefore=15 (padrão), a janela [agora, agora+15min) só cobria os
+    // primeiros 15 minutos de cada hora; uma tarefa vencendo às XX:30 nunca
+    // caía em NENHUMA janela de nenhum tick (no tick seguinte, XX:30 já é
+    // passado, vira assunto do TASK_OVERDUE, não deste gatilho — o aviso
+    // "está chegando" simplesmente nunca disparava pra ~45 dos 60 minutos da
+    // hora). Math.max com a cadência real da checagem garante que toda
+    // tarefa é vista por pelo menos um tick antes de vencer — quem configura
+    // um valor já maior que a cadência (ex.: 120min) não é afetado.
+    const CHECK_INTERVAL_MINUTES = 60;
+    const lookaheadMinutes = Math.max(minutesBefore, CHECK_INTERVAL_MINUTES);
+    const windowEnd = new Date(now.getTime() + lookaheadMinutes * 60 * 1000);
     // Janela [agora, agora+N min) — dueAt já passado é assunto do TASK_OVERDUE,
     // não deste gatilho, pra não avisar duas vezes pela mesma tarefa.
     const tasks = await prisma.task.findMany({

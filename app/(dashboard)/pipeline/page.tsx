@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
-import { resolveAvatarUrlMap } from "@/lib/r2";
+import { fetchDealsList } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
 import { PipelineView } from "./pipeline-view";
 
@@ -33,81 +33,36 @@ export default async function PipelinePage({
     return <p className="text-neutral-400 dark:text-neutral-500">Nenhum pipeline configurado.</p>;
   }
 
-  // Teto de segurança: o Kanban só renderiza OPEN (filtrado no cliente, ver
-  // kanban-board.tsx), mas a view Lista deixa ver Ganhos/Perdidos também —
-  // por isso a busca continua trazendo os 3 status, só com um limite duro
-  // pra nunca tentar devolver o histórico inteiro de uma organização com
-  // dezenas de milhares de negócios já decididos. `dealsCapped` avisa a
-  // Lista que o histórico mais antigo pode estar faltando (ver
-  // pipeline-view.tsx) — resolver de vez exigiria a Lista buscar
-  // Ganhos/Perdidos com paginação própria, independente do Kanban.
-  const DEALS_FETCH_CAP = 2000;
-  const dealsRaw = await prisma.deal.findMany({
-    where: {
+  // Kanban e Lista têm necessidades diferentes: o Kanban só mostra OPEN (é o
+  // funil de trabalho de verdade, precisa vir completo pra reordenar/arrastar
+  // direito) — o teto aqui é só uma rede de segurança, praticamente nunca
+  // deve ser atingido (o volume de negócios OPEN é limitado pela capacidade
+  // de trabalho da equipe, diferente do histórico de Ganhos/Perdidos, que só
+  // cresce). A Lista pode ver os 3 status, então usa paginação de verdade
+  // (1ª página aqui, "carregar mais" busca o resto — ver deals-list.tsx e
+  // GET /api/deals) em vez de um teto fixo com aviso de corte.
+  const KANBAN_FETCH_CAP = 5000;
+  const LISTA_PAGE_SIZE = 500;
+
+  const [kanbanDeals, listaDeals, listaTotalCount] = await Promise.all([
+    fetchDealsList({
       organizationId,
       pipelineId: activePipeline.id,
-      ...scopeWhere(scope),
-    },
-    include: { contact: true, owner: true, stage: true, lossReason: true },
-    orderBy: { stageEnteredAt: "desc" },
-    take: DEALS_FETCH_CAP,
-  });
-  const dealsCapped = dealsRaw.length === DEALS_FETCH_CAP;
-
-  const dealIds = dealsRaw.map((d) => d.id);
-  const pendingTasks = await prisma.task.findMany({
-    where: { dealId: { in: dealIds }, completedAt: null },
-    orderBy: { dueAt: "asc" },
-    select: { dealId: true, title: true, type: true },
-  });
-  const nextTaskByDeal = new Map<string, string>();
-  const taskTypesByDeal = new Map<string, string[]>();
-  for (const task of pendingTasks) {
-    if (!task.dealId) continue;
-    if (!nextTaskByDeal.has(task.dealId)) nextTaskByDeal.set(task.dealId, task.title);
-    const types = taskTypesByDeal.get(task.dealId) ?? [];
-    if (!types.includes(task.type)) types.push(task.type);
-    taskTypesByDeal.set(task.dealId, types);
-  }
-
-  const avatarMap = await resolveAvatarUrlMap(dealsRaw.map((d) => d.owner.image));
-
-  const unreadMessages = await prisma.whatsAppMessage.findMany({
-    where: {
+      scope,
+      status: "OPEN",
+      take: KANBAN_FETCH_CAP,
+    }),
+    fetchDealsList({
       organizationId,
-      direction: "INBOUND",
-      read: false,
-      thread: { contactId: { in: dealsRaw.map((d) => d.contactId) } },
-    },
-    select: { thread: { select: { contactId: true } } },
-  });
-  const unreadContactIds = new Set(
-    unreadMessages.map((m) => m.thread.contactId).filter((id): id is string => !!id),
-  );
-
-  const deals = dealsRaw.map((deal) => ({
-    id: deal.id,
-    name: deal.name,
-    creditType: deal.creditType,
-    value: deal.value ? Number(deal.value) : null,
-    status: deal.status,
-    stageId: deal.stageId,
-    stageEnteredAt: deal.stageEnteredAt,
-    createdAt: deal.createdAt,
-    closedAt: deal.closedAt,
-    stage: { id: deal.stage.id, name: deal.stage.name, color: deal.stage.color },
-    contact: { id: deal.contact.id, name: deal.contact.name, source: deal.contact.source, jobTitle: deal.contact.jobTitle },
-    owner: {
-      id: deal.owner.id,
-      name: deal.owner.name,
-      photoUrl: deal.owner.image ? (avatarMap.get(deal.owner.image) ?? null) : null,
-    },
-    nextActivity: nextTaskByDeal.get(deal.id) ?? null,
-    taskTypes: taskTypesByDeal.get(deal.id) ?? [],
-    hasUnreadWhatsApp: unreadContactIds.has(deal.contactId),
-    lossReasonId: deal.lossReasonId,
-    lossReason: deal.lossReason ? { id: deal.lossReason.id, label: deal.lossReason.label } : null,
-  }));
+      pipelineId: activePipeline.id,
+      scope,
+      take: LISTA_PAGE_SIZE,
+    }),
+    prisma.deal.count({
+      where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
+    }),
+  ]);
+  const kanbanCapped = kanbanDeals.length === KANBAN_FETCH_CAP;
 
   const membersRaw = await prisma.organizationUser.findMany({
     where: { organizationId, active: true },
@@ -169,8 +124,10 @@ export default async function PipelinePage({
           stages: p.stages.map((s) => ({ id: s.id, name: s.name })),
         }))}
         stages={activePipeline.stages}
-        initialDeals={deals}
-        dealsCapped={dealsCapped}
+        initialKanbanDeals={kanbanDeals}
+        kanbanCapped={kanbanCapped}
+        initialListaDeals={listaDeals}
+        listaTotalCount={listaTotalCount}
         members={members.map((m) => m.user)}
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}

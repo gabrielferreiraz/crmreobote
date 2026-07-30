@@ -3,6 +3,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { apiSuccess, apiError } from "@/lib/api/v1-response";
 import { upsertContactFromIntegration } from "@/lib/api/upsert-contact";
+import { contactInputSchema, firstZodMessage } from "@/lib/api/v1-schemas";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,11 @@ export async function POST(req: Request) {
     return apiError("Corpo da requisição precisa ser um objeto JSON", 400);
   }
 
+  const parsed = contactInputSchema.safeParse(body);
+  if (!parsed.success) return apiError(firstZodMessage(parsed.error), 400);
+
   return runWithTenant(access.organizationId, async () => {
-    const result = await upsertContactFromIntegration(access.organizationId, body as Record<string, unknown>);
+    const result = await upsertContactFromIntegration(access.organizationId, parsed.data);
     if (!result.ok) return apiError(result.error, 400);
 
     const c = result.contact;

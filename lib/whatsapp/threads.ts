@@ -70,12 +70,19 @@ export async function getOrCreateThread(params: GetOrCreateThreadParams) {
     return prisma.whatsAppThread.update({ where: { id: existing.id }, data });
   }
 
-  const contact = await resolveContactForNumber(organizationId, phoneNormalized);
+  const [contact, instance] = await Promise.all([
+    resolveContactForNumber(organizationId, phoneNormalized),
+    prisma.whatsAppInstance.findUnique({ where: { id: instanceId }, select: { userId: true } }),
+  ]);
   try {
     return await prisma.whatsAppThread.create({
       data: {
         organizationId,
         instanceId,
+        // Denormalizado (sobrevive à instância ser apagada de verdade quando
+        // o dono é desativado — ver ownerUserId no schema) — resolvido uma
+        // vez aqui, na criação, nunca reescrito depois.
+        ownerUserId: instance?.userId,
         phoneNormalized,
         whatsappName: whatsappName ?? undefined,
         contactId: contact?.id,
@@ -183,8 +190,11 @@ export async function getOrCreateThreadForContact(params: GetOrCreateThreadForCo
   }
 
   try {
+    // ownerUserId: denormalizado, sobrevive à instância ser apagada de
+    // verdade (ver ownerUserId no schema/getOrCreateThread acima).
+    const instanceRow = await prisma.whatsAppInstance.findUnique({ where: { id: instance.id }, select: { userId: true } });
     return await prisma.whatsAppThread.create({
-      data: { organizationId, instanceId: instance.id, phoneNormalized, contactId: contact.id },
+      data: { organizationId, instanceId: instance.id, ownerUserId: instanceRow?.userId, phoneNormalized, contactId: contact.id },
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

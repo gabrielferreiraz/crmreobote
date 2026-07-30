@@ -40,6 +40,11 @@ export async function sendPushToUser(
         const statusCode = (err as { statusCode?: number })?.statusCode;
         if (statusCode === 404 || statusCode === 410) {
           await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+        } else {
+          // Qualquer outra falha (401/403 chave VAPID errada, 413 payload grande,
+          // 429 rate limit, erro de rede) fica muda sem isso — sem log, um push
+          // que nunca chega parece só "não configurado" e ninguém percebe.
+          console.error("[push] falha ao enviar notificação", { statusCode, endpoint: sub.endpoint, err });
         }
         return false;
       }

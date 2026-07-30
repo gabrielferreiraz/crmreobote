@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-type RecipientStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED";
+type RecipientStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
 
 type Recipient = {
   id: string;
@@ -20,6 +20,7 @@ type Recipient = {
 
 const STATUS_LABELS: Record<RecipientStatus, string> = {
   PENDING: "Pendente",
+  SENDING: "Enviando",
   SENT: "Enviada",
   FAILED: "Falhou",
   SKIPPED: "Pulada",
@@ -27,6 +28,7 @@ const STATUS_LABELS: Record<RecipientStatus, string> = {
 
 const STATUS_TONE: Record<RecipientStatus, string> = {
   PENDING: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
+  SENDING: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400",
   SENT: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
   FAILED: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400",
   SKIPPED: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
@@ -70,6 +72,7 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
         >
           <option value="ALL">Todos os status</option>
           <option value="PENDING">Pendente</option>
+          <option value="SENDING">Enviando</option>
           <option value="SENT">Enviada</option>
           <option value="FAILED">Falhou</option>
           <option value="SKIPPED">Pulada</option>

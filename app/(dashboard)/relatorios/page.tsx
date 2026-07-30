@@ -14,6 +14,7 @@ import { TrendAreaChart } from "@/components/charts/trend-area-chart";
 import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
 import { Leaderboard, type LeaderboardEntry } from "@/components/leaderboard";
 import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
+import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
@@ -671,10 +672,12 @@ export default async function RelatoriosPage({
   const manualOpenerRepliedSet = new Set(manualOpenerReplies.map((m) => m.threadId));
   const manualProspectByInstance = new Map<string, { sent: number; replied: number }>();
   for (const m of manualProspectOpeners) {
-    if (!manualProspectByInstance.has(m.instanceId)) manualProspectByInstance.set(m.instanceId, { sent: 0, replied: 0 });
-    const stat = manualProspectByInstance.get(m.instanceId)!;
-    stat.sent += 1;
-    if (manualOpenerRepliedSet.has(m.threadId)) stat.replied += 1;
+    if (m.instanceId) {
+      if (!manualProspectByInstance.has(m.instanceId)) manualProspectByInstance.set(m.instanceId, { sent: 0, replied: 0 });
+      const stat = manualProspectByInstance.get(m.instanceId)!;
+      stat.sent += 1;
+      if (m.threadId && manualOpenerRepliedSet.has(m.threadId)) stat.replied += 1;
+    }
   }
 
   const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
@@ -727,6 +730,61 @@ export default async function RelatoriosPage({
     }),
   ]);
   const outboundPairs = organicOutboundPairs;
+
+  // Instabilidade de instância (risco de banimento) — recentDisconnectCount/
+  // riskWindowStartedAt já são calculados e usados pra pausar campanha
+  // automaticamente (ver lib/whatsapp/health-check.ts); aqui só EXPÕE esse
+  // sinal que já existe, cruzado com quanto a instância disparou de campanha
+  // na mesma janela de risco. Não é filtrado pelo período do relatório de
+  // propósito — é "estado de risco agora", igual ao badge Conectado/
+  // Desconectado dos cards acima, não uma métrica histórica do intervalo
+  // escolhido.
+  const instanceIds = whatsappInstances.map((i) => i.id);
+  const riskWindowStart = new Date(new Date().getTime() - RISK_WINDOW_MS);
+  const [pausedCampaignCounts, recentCampaignSentCounts] = instanceIds.length
+    ? await Promise.all([
+        prisma.campaign.groupBy({
+          by: ["instanceId"],
+          where: { organizationId, instanceId: { in: instanceIds }, status: "PAUSED" },
+          _count: true,
+        }),
+        prisma.whatsAppMessage.groupBy({
+          by: ["instanceId"],
+          where: {
+            organizationId,
+            instanceId: { in: instanceIds },
+            direction: "OUTBOUND",
+            campaignId: { not: null },
+            createdAt: { gte: riskWindowStart },
+          },
+          _count: true,
+        }),
+      ])
+    : [[], []];
+  const pausedCampaignsByInstance = new Map(pausedCampaignCounts.map((c) => [c.instanceId, c._count]));
+  const recentCampaignSentByInstance = new Map(recentCampaignSentCounts.map((c) => [c.instanceId, c._count]));
+  // Contagem simples de conexões Evolution ativas — sinal antecipado de carga
+  // no servidor (cada uma é uma sessão Baileys ao vivo) antes de precisar de
+  // alerta por e-mail de verdade (que exigiria decidir um destinatário
+  // "dono da infra", conceito que não existe ainda, só dono de organização).
+  const connectedEvolutionCount = whatsappInstances.filter((i) => i.provider === "EVOLUTION" && i.status === "CONNECTED").length;
+  // Só instância com sinal de verdade pra olhar — a maioria fica saudável
+  // (recentDisconnectCount 0) e não deveria poluir o relatório.
+  const instabilityRows = whatsappInstances
+    .filter((i) => i.recentDisconnectCount > 0)
+    .map((i) => ({
+      userId: i.userId,
+      name: i.user.name,
+      phoneNumber: i.phoneNumber,
+      provider: i.provider,
+      recentDisconnectCount: i.recentDisconnectCount,
+      disconnectAlertLevel: i.disconnectAlertLevel,
+      riskWindowStartedAt: i.riskWindowStartedAt,
+      atRisk: i.recentDisconnectCount >= RISK_THRESHOLD,
+      pausedCampaigns: pausedCampaignsByInstance.get(i.id) ?? 0,
+      recentCampaignSent: recentCampaignSentByInstance.get(i.id) ?? 0,
+    }))
+    .sort((a, b) => b.recentDisconnectCount - a.recentDisconnectCount);
 
   // Possíveis negociações de lista fria: lead abordado por disparo em massa
   // (a mesma base de "prospecção fria" acima) cuja conversa já passou de 5
@@ -1422,6 +1480,66 @@ export default async function RelatoriosPage({
               </div>
             ))}
           </div>
+
+          {whatsappInstances.length > 0 && (
+            <div className="card overflow-x-auto p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Instabilidade de número (risco de banimento)</h3>
+                <span className="inline-flex items-baseline gap-1.5 text-sm" title="Cada uma é uma sessão ao vivo no servidor Evolution — sinal antecipado de carga antes de sentir lentidão de verdade">
+                  <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{connectedEvolutionCount}</span>
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                    conexão{connectedEvolutionCount === 1 ? "" : "ões"} Evolution ativa{connectedEvolutionCount === 1 ? "" : "s"}
+                  </span>
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                Instância que caiu {RISK_THRESHOLD}+ vezes numa janela de 7 dias entra automaticamente em risco (a
+                campanha que dispara por ela é pausada sozinha) — a tabela abaixo só mostra quem já tem alguma queda
+                recente, pra acompanhar antes de virar risco de verdade.
+              </p>
+              {instabilityRows.length === 0 ? (
+                <p className="mt-4 text-sm text-neutral-400 dark:text-neutral-500">Nenhuma instância com queda recente agora.</p>
+              ) : (
+              <table className="mt-4 w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                    <th className="pb-2 font-medium">Vendedor</th>
+                    <th className="pb-2 font-medium">Número</th>
+                    <th className="pb-2 text-right font-medium">Quedas (7d)</th>
+                    <th className="pb-2 text-right font-medium">Campanhas pausadas</th>
+                    <th className="pb-2 text-right font-medium">Msgs de campanha (7d)</th>
+                    <th className="pb-2 text-right font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {instabilityRows.map((r) => (
+                    <tr key={r.userId} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                      <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{r.name}</td>
+                      <td className="py-2.5 text-neutral-500 dark:text-neutral-400">
+                        {r.phoneNumber ?? "—"} <span className="text-xs text-neutral-400 dark:text-neutral-500">({r.provider})</span>
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{r.recentDisconnectCount}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{r.pausedCampaigns}</td>
+                      <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{r.recentCampaignSent}</td>
+                      <td className="py-2.5 text-right">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            r.atRisk
+                              ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                              : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                          }`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${r.atRisk ? "bg-red-500" : "bg-amber-500"}`} />
+                          {r.atRisk ? "Em risco" : "Observar"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              )}
+            </div>
+          )}
 
           {scriptBreakdown.length > 0 && (
             <div className="grid grid-cols-12 gap-5">
