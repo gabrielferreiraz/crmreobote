@@ -151,14 +151,12 @@ export function ContactsTable({
   // de "algo mudou, busque a página/filtro atual de novo".
   const skipNextFetch = useRef(true);
 
-  useEffect(() => {
-    if (skipNextFetch.current) {
-      skipNextFetch.current = false;
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    const params = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
+  // Monta só os parâmetros de FILTRO (sem paginação) — reaproveitado tanto
+  // pelo fetch da página quanto pelo link de exportar, pra exportar sempre
+  // bater exatamente com o que a tela está mostrando, nunca a carteira
+  // inteira sem filtro nenhum.
+  const buildFilterParams = () => {
+    const params = new URLSearchParams();
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (sourceFilter) params.set("source", sourceFilter);
     if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
@@ -166,6 +164,19 @@ export function ContactsTable({
     if (onlyWithDeals) params.set("onlyWithDeals", "1");
     if (registeredFrom) params.set("registeredFrom", brazilDateStringToUTC(registeredFrom).toISOString());
     if (registeredTo) params.set("registeredTo", brazilEndOfDayUTC(registeredTo).toISOString());
+    return params;
+  };
+
+  useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const params = buildFilterParams();
+    params.set("skip", String((page - 1) * pageSize));
+    params.set("limit", String(pageSize));
 
     fetch(`/api/contacts?${params.toString()}`)
       .then(async (res) => {
@@ -207,6 +218,11 @@ export function ContactsTable({
     onlyWithDeals ||
     !!registeredFrom ||
     !!registeredTo;
+  // Busca por texto também "filtra" pra fins de mostrar a contagem certa no
+  // cabeçalho — sem isso, digitar algo na busca não bastava pra trocar "na
+  // sua carteira" (o total INTEIRO da organização) por "encontrada(s)" (o
+  // total já filtrado pelo termo digitado).
+  const hasActiveFilter = hasFilters || !!debouncedSearch;
 
   function clearFilters() {
     setSourceFilter("");
@@ -440,6 +456,15 @@ export function ContactsTable({
 
   return (
     <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+          {hasActiveFilter
+            ? `${totalCount} conta${totalCount === 1 ? "" : "s"} encontrada${totalCount === 1 ? "" : "s"} com o filtro atual`
+            : `${totalCount} conta${totalCount === 1 ? "" : "s"} ativa${totalCount === 1 ? "" : "s"} na sua carteira`}
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => setOpen(true)} className="btn-primary">
           <Plus className="h-4 w-4" strokeWidth={2.5} />
@@ -450,7 +475,11 @@ export function ContactsTable({
           Importar
         </button>
         {isOwner && (
-          <a href="/api/contacts/export" className="btn-secondary">
+          <a
+            href={`/api/contacts/export?${buildFilterParams().toString()}`}
+            className="btn-secondary"
+            title="Exporta só os contatos que batem com a busca e os filtros atuais"
+          >
             <Download className="h-4 w-4" strokeWidth={2} />
             Exportar
           </a>

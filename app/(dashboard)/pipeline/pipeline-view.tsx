@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Kanban, List, Upload, Download, Plus } from "lucide-react";
+import { Kanban, List, Upload, Plus } from "lucide-react";
 import { ImportDialog } from "@/components/import-dialog";
 import { Select } from "@/components/select";
 import { NewDealDialog } from "./new-deal-dialog";
@@ -144,12 +144,6 @@ export function PipelineView({
             <Upload className="h-4 w-4" strokeWidth={2} />
             Importar
           </button>
-          {isOwner && (
-            <a href="/api/deals/export" className="btn-secondary">
-              <Download className="h-4 w-4" strokeWidth={2} />
-              Exportar
-            </a>
-          )}
         </div>
       </div>
 
@@ -174,6 +168,7 @@ export function PipelineView({
           lossReasons={lossReasons}
           canBulkDelete={canBulkDelete}
           canBulkMessage={canBulkMessage}
+          canExport={isOwner}
           restoredDraft={restoredDraft}
         />
       )}

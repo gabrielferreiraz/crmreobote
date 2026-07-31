@@ -21,9 +21,30 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
     if (!source) return NextResponse.json({ error: "Origem não encontrada" }, { status: 404 });
 
+    const trimmedLabel = label.trim();
+    if (trimmedLabel === source.label) return NextResponse.json(source);
+
+    // Contact.source é texto livre, não FK (ver schema) — sem isso, editar
+    // aqui só mudava o rótulo da lista e deixava todo contato que já usava o
+    // texto antigo órfão, pendurado num valor que sumiu da lista.
+    await prisma.contact.updateMany({
+      where: { organizationId: access.organizationId, source: source.label },
+      data: { source: trimmedLabel },
+    });
+
+    // Já existe outra origem com esse nome exato? Funde nela (apaga esta) em
+    // vez de deixar duas origens com o mesmo rótulo na lista.
+    const existing = await prisma.leadSource.findFirst({
+      where: { organizationId: access.organizationId, label: trimmedLabel, id: { not: id } },
+    });
+    if (existing) {
+      await prisma.leadSource.delete({ where: { id } });
+      return NextResponse.json(existing);
+    }
+
     const updated = await prisma.leadSource.update({
       where: { id },
-      data: { label: label.trim() },
+      data: { label: trimmedLabel },
     });
 
     return NextResponse.json(updated);

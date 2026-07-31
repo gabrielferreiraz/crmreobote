@@ -6,8 +6,8 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 
 export const dynamic = "force-dynamic";
 
-type ContactRow = { id: string; name: string; email: string | null };
-type DealRow = { id: string; name: string; contactName: string };
+type ContactRow = { id: string; name: string; email: string | null; ownerName: string | null };
+type DealRow = { id: string; name: string; contactName: string; ownerName: string | null };
 
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
@@ -33,28 +33,30 @@ export async function GET(req: Request) {
     await setTenantOnTx(tx, organizationId);
 
     const contactRows = await tx.$queryRaw<ContactRow[]>`
-      SELECT id, name, email
-      FROM "Contact"
-      WHERE "organizationId" = ${organizationId}
+      SELECT ct.id, ct.name, ct.email, u.name AS "ownerName"
+      FROM "Contact" ct
+      LEFT JOIN "User" u ON u.id = ct."responsavelId"
+      WHERE ct."organizationId" = ${organizationId}
         AND (
-          name ILIKE '%' || ${q} || '%' OR
-          name % ${q} OR
-          company ILIKE '%' || ${q} || '%' OR
-          company % ${q} OR
-          email ILIKE '%' || ${q} || '%' OR
+          ct.name ILIKE '%' || ${q} || '%' OR
+          ct.name % ${q} OR
+          ct.company ILIKE '%' || ${q} || '%' OR
+          ct.company % ${q} OR
+          ct.email ILIKE '%' || ${q} || '%' OR
           (${digits} <> '' AND (
-            "phoneNormalized" LIKE '%' || ${digits} || '%' OR
-            "whatsappNormalized" LIKE '%' || ${digits} || '%'
+            ct."phoneNormalized" LIKE '%' || ${digits} || '%' OR
+            ct."whatsappNormalized" LIKE '%' || ${digits} || '%'
           ))
         )
-      ORDER BY GREATEST(similarity(name, ${q}), similarity(coalesce(company, ''), ${q})) DESC, name ASC
+      ORDER BY GREATEST(similarity(ct.name, ${q}), similarity(coalesce(ct.company, ''), ${q})) DESC, ct.name ASC
       LIMIT 5
     `;
 
     const dealRows = await tx.$queryRaw<DealRow[]>`
-      SELECT d.id, d.name, c.name AS "contactName"
+      SELECT d.id, d.name, c.name AS "contactName", u.name AS "ownerName"
       FROM "Deal" d
       JOIN "Contact" c ON c.id = d."contactId"
+      LEFT JOIN "User" u ON u.id = d."ownerId"
       WHERE d."organizationId" = ${organizationId}
         AND (d.name ILIKE '%' || ${q} || '%' OR d.name % ${q})
       ORDER BY similarity(d.name, ${q}) DESC, d.name ASC
@@ -65,7 +67,7 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json({
-    contacts,
-    deals: deals.map((d) => ({ id: d.id, name: d.name, contact: { name: d.contactName } })),
+    contacts: contacts.map((c) => ({ id: c.id, name: c.name, email: c.email, ownerName: c.ownerName })),
+    deals: deals.map((d) => ({ id: d.id, name: d.name, contact: { name: d.contactName }, ownerName: d.ownerName })),
   });
 }

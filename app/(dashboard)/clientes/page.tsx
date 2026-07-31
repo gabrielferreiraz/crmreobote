@@ -48,25 +48,17 @@ export default async function ClientesPage() {
       .map((p) => ({ id: p.id, name: p.name, isDefault: p.isDefault, firstStageId: p.stages[0].id }));
 
     return (
-      <div className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            {totalCount} conta{totalCount === 1 ? "" : "s"} ativa{totalCount === 1 ? "" : "s"} na sua carteira
-          </p>
-        </div>
-        <ContactsTable
-          initialContacts={contacts}
-          initialTotalCount={totalCount}
-          isOwner={isOwner}
-          isManager={isManager}
-          sources={sources}
-          jobTitles={jobTitles}
-          members={members}
-          pipelines={pipelines}
-          customFields={customFields}
-        />
-      </div>
+      <ContactsTable
+        initialContacts={contacts}
+        initialTotalCount={totalCount}
+        isOwner={isOwner}
+        isManager={isManager}
+        sources={sources}
+        jobTitles={jobTitles}
+        members={members}
+        pipelines={pipelines}
+        customFields={customFields}
+      />
     );
   });
 }

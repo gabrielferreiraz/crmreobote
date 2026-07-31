@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2 } from "lucide-react";
+import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2, Download } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { EmptyState } from "@/components/empty-state";
@@ -57,6 +57,7 @@ export function DealsList({
   lossReasons,
   canBulkDelete,
   canBulkMessage,
+  canExport,
   restoredDraft,
 }: {
   initialDeals: Deal[];
@@ -72,6 +73,7 @@ export function DealsList({
   lossReasons: LossReasonOption[];
   canBulkDelete: boolean;
   canBulkMessage: boolean;
+  canExport: boolean;
   restoredDraft: BulkSendDraft | null;
 }) {
   const router = useRouter();
@@ -110,14 +112,12 @@ export function DealsList({
   // busca redundante assim que montasse.
   const skipNextFetch = useRef(true);
 
-  useEffect(() => {
-    if (skipNextFetch.current) {
-      skipNextFetch.current = false;
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    const params = new URLSearchParams({ pipelineId, skip: String((page - 1) * pageSize), limit: String(pageSize) });
+  // Monta só os parâmetros de FILTRO (sem paginação) — reaproveitado tanto
+  // pelo fetch da página quanto pelo link de exportar, pra exportar sempre
+  // bater exatamente com o que a tela está mostrando, nunca o pipeline
+  // inteiro sem filtro nenhum.
+  const buildFilterParams = () => {
+    const params = new URLSearchParams({ pipelineId });
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (statusFilter) params.set("status", statusFilter);
     if (ownerFilter && ownerStatusFilter) {
@@ -138,6 +138,19 @@ export function DealsList({
     if (dateTo) params.set("createdTo", brazilEndOfDayUTC(dateTo).toISOString());
     if (closedFrom) params.set("closedFrom", brazilDateStringToUTC(closedFrom).toISOString());
     if (closedTo) params.set("closedTo", brazilEndOfDayUTC(closedTo).toISOString());
+    return params;
+  };
+
+  useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const params = buildFilterParams();
+    params.set("skip", String((page - 1) * pageSize));
+    params.set("limit", String(pageSize));
 
     fetch(`/api/deals?${params.toString()}`)
       .then(async (res) => {
@@ -602,6 +615,12 @@ export function DealsList({
             />
           </div>
         </FilterPopover>
+        {canExport && (
+          <a href={`/api/deals/export?${buildFilterParams().toString()}`} className="btn-secondary btn-sm" title="Exporta só os negócios que batem com a busca e os filtros atuais">
+            <Download className="h-3.5 w-3.5" strokeWidth={2} />
+            Exportar
+          </a>
+        )}
         {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />}
         {selectedIds.size > 0 && (
           <div className="ml-auto">

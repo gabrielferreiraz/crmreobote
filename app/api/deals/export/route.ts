@@ -5,10 +5,17 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { buildDealsWhere, type DealsFilterParams } from "@/lib/deals/list-query";
 
 export const dynamic = "force-dynamic";
 
 const BATCH_SIZE = 500;
+
+function parseDate(value: string | null): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Em andamento",
@@ -21,7 +28,7 @@ const STATUS_LABEL: Record<string, string> = {
  * direto no stream de saída, em vez de um `findMany` sem limite (com 4
  * relações por linha) + workbook inteiro em memória.
  */
-async function writeDealsWorkbook(organizationId: string, output: PassThrough) {
+async function writeDealsWorkbook(filterParams: DealsFilterParams, output: PassThrough) {
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: output, useStyles: true });
   const sheet = workbook.addWorksheet("Negócios");
 
@@ -40,11 +47,12 @@ async function writeDealsWorkbook(organizationId: string, output: PassThrough) {
   ];
   sheet.getRow(1).font = { bold: true };
 
-  await runWithTenant(organizationId, async () => {
+  await runWithTenant(filterParams.organizationId, async () => {
+    const where = buildDealsWhere(filterParams);
     let skip = 0;
     for (;;) {
       const batch = await prisma.deal.findMany({
-        where: { organizationId },
+        where,
         orderBy: { createdAt: "desc" },
         skip,
         take: BATCH_SIZE,
@@ -79,7 +87,7 @@ async function writeDealsWorkbook(organizationId: string, output: PassThrough) {
   await workbook.commit();
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const access = await requireRole(["OWNER"]);
   if (!access.ok) {
     return NextResponse.json(
@@ -88,9 +96,33 @@ export async function GET() {
     );
   }
 
+  // Mesmos filtros da Lista (ver GET /api/deals) — sem isso, o botão
+  // "Exportar" sempre baixava o pipeline inteiro, ignorando qualquer
+  // busca/filtro aplicado na tela. Dono sempre enxerga tudo (scope "all",
+  // mesma regra de getDealScope pra role OWNER) — não precisa de uma consulta
+  // extra só pra confirmar isso.
+  const { searchParams } = new URL(req.url);
+  const ownerIdParam = searchParams.get("ownerId");
+  const filterParams: DealsFilterParams = {
+    organizationId: access.organizationId,
+    scope: { type: "all" },
+    pipelineId: searchParams.get("pipelineId") ?? undefined,
+    status: (searchParams.get("status") as "OPEN" | "WON" | "LOST" | null) ?? undefined,
+    q: searchParams.get("q") ?? undefined,
+    ownerIds: ownerIdParam ? ownerIdParam.split(",").filter(Boolean) : undefined,
+    stageId: searchParams.get("stageId") ?? undefined,
+    lossReasonId: searchParams.get("lossReasonId") ?? undefined,
+    jobTitle: searchParams.get("jobTitle") ?? undefined,
+    source: searchParams.get("source") ?? undefined,
+    createdFrom: parseDate(searchParams.get("createdFrom")),
+    createdTo: parseDate(searchParams.get("createdTo")),
+    closedFrom: parseDate(searchParams.get("closedFrom")),
+    closedTo: parseDate(searchParams.get("closedTo")),
+  };
+
   const passThrough = new PassThrough();
 
-  writeDealsWorkbook(access.organizationId, passThrough).catch((err) => {
+  writeDealsWorkbook(filterParams, passThrough).catch((err) => {
     console.error("[export] falha ao gerar planilha de negócios", err);
     passThrough.destroy(err instanceof Error ? err : new Error(String(err)));
   });

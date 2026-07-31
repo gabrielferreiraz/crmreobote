@@ -5,10 +5,17 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
+import { buildContactsWhere, type ContactsFilterParams } from "@/lib/contacts/list-query";
 
 export const dynamic = "force-dynamic";
 
 const BATCH_SIZE = 500;
+
+function parseDate(value: string | null): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
 
 /**
  * Busca e escreve em lotes, direto no stream de saída, em vez de um
@@ -17,7 +24,7 @@ const BATCH_SIZE = 500;
  * primeiro byte sair. `useStyles: true` é obrigatório aqui: sem ele o
  * WorkbookWriter em modo stream ignora o negrito do cabeçalho em silêncio.
  */
-async function writeContactsWorkbook(organizationId: string, output: PassThrough) {
+async function writeContactsWorkbook(filterParams: ContactsFilterParams, output: PassThrough) {
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: output, useStyles: true });
   const sheet = workbook.addWorksheet("Contatos");
 
@@ -33,11 +40,12 @@ async function writeContactsWorkbook(organizationId: string, output: PassThrough
   ];
   sheet.getRow(1).font = { bold: true };
 
-  await runWithTenant(organizationId, async () => {
+  await runWithTenant(filterParams.organizationId, async () => {
+    const where = buildContactsWhere(filterParams);
     let skip = 0;
     for (;;) {
       const batch = await prisma.contact.findMany({
-        where: { organizationId },
+        where,
         orderBy: { createdAt: "desc" },
         skip,
         take: BATCH_SIZE,
@@ -68,7 +76,7 @@ async function writeContactsWorkbook(organizationId: string, output: PassThrough
   await workbook.commit();
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const access = await requireRole(["OWNER"]);
   if (!access.ok) {
     return NextResponse.json(
@@ -77,12 +85,27 @@ export async function GET() {
     );
   }
 
+  // Mesmos filtros da listagem (ver GET /api/contacts) — sem isso, o botão
+  // "Exportar" sempre baixava a organização inteira, ignorando qualquer
+  // busca/filtro que a pessoa tivesse aplicado na tela.
+  const { searchParams } = new URL(req.url);
+  const filterParams: ContactsFilterParams = {
+    organizationId: access.organizationId,
+    q: searchParams.get("q") ?? undefined,
+    source: searchParams.get("source") ?? undefined,
+    jobTitle: searchParams.get("jobTitle") ?? undefined,
+    responsavelId: searchParams.get("responsavelId") ?? undefined,
+    onlyWithDeals: searchParams.get("onlyWithDeals") === "1",
+    registeredFrom: parseDate(searchParams.get("registeredFrom")),
+    registeredTo: parseDate(searchParams.get("registeredTo")),
+  };
+
   const passThrough = new PassThrough();
 
   // Não espera terminar antes de responder — a Response já vai com o stream
   // (Readable.toWeb), e o navegador começa a receber bytes enquanto os
   // lotes seguintes ainda estão sendo buscados/escritos.
-  writeContactsWorkbook(access.organizationId, passThrough).catch((err) => {
+  writeContactsWorkbook(filterParams, passThrough).catch((err) => {
     console.error("[export] falha ao gerar planilha de contatos", err);
     passThrough.destroy(err instanceof Error ? err : new Error(String(err)));
   });

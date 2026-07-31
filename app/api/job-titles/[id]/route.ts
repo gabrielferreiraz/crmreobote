@@ -21,9 +21,30 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
     if (!jobTitle) return NextResponse.json({ error: "Cargo não encontrado" }, { status: 404 });
 
+    const trimmedLabel = label.trim();
+    if (trimmedLabel === jobTitle.label) return NextResponse.json(jobTitle);
+
+    // Contact.jobTitle é texto livre, não FK (ver schema) — sem isso, editar
+    // aqui só mudava o rótulo da lista e deixava todo contato que já usava o
+    // texto antigo órfão, pendurado num valor que sumiu da lista.
+    await prisma.contact.updateMany({
+      where: { organizationId: access.organizationId, jobTitle: jobTitle.label },
+      data: { jobTitle: trimmedLabel },
+    });
+
+    // Já existe outro cargo com esse nome exato? Funde nele (apaga este) em
+    // vez de deixar dois cargos com o mesmo rótulo na lista.
+    const existing = await prisma.jobTitle.findFirst({
+      where: { organizationId: access.organizationId, label: trimmedLabel, id: { not: id } },
+    });
+    if (existing) {
+      await prisma.jobTitle.delete({ where: { id } });
+      return NextResponse.json(existing);
+    }
+
     const updated = await prisma.jobTitle.update({
       where: { id },
-      data: { label: label.trim() },
+      data: { label: trimmedLabel },
     });
 
     return NextResponse.json(updated);

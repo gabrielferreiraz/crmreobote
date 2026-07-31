@@ -13,10 +13,30 @@ export default async function LeadSourcesSettingsPage() {
   const organizationId = session.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    const sources = await prisma.leadSource.findMany({
+    let sources = await prisma.leadSource.findMany({
       where: { organizationId },
       orderBy: { order: "asc" },
     });
+
+    // Mesma autocura de cargos/page.tsx: origem digitada fora daqui
+    // (migração, importação, integração externa) nunca passou por "+
+    // Adicionar" — sem isso ficava invisível aqui mesmo com contatos usando.
+    const distinctUsed = await prisma.contact.findMany({
+      where: { organizationId, source: { not: null } },
+      distinct: ["source"],
+      select: { source: true },
+    });
+    const existingLabels = new Set(sources.map((s) => s.label));
+    const missing = distinctUsed
+      .map((d) => d.source)
+      .filter((label): label is string => !!label && !existingLabels.has(label));
+    if (missing.length > 0) {
+      const maxOrder = await prisma.leadSource.aggregate({ where: { organizationId }, _max: { order: true } });
+      await prisma.leadSource.createMany({
+        data: missing.map((label, i) => ({ organizationId, label, order: (maxOrder._max.order ?? -1) + 1 + i })),
+      });
+      sources = await prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } });
+    }
 
     const counts = await prisma.contact.groupBy({
       by: ["source"],

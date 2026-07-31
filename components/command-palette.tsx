@@ -17,8 +17,8 @@ const QUICK_LINKS = [
 ];
 
 type Result = {
-  contacts: { id: string; name: string; email: string | null }[];
-  deals: { id: string; name: string; contact: { name: string } }[];
+  contacts: { id: string; name: string; email: string | null; ownerName: string | null }[];
+  deals: { id: string; name: string; contact: { name: string }; ownerName: string | null }[];
 };
 
 export function CommandPalette({ compact = false }: { compact?: boolean }) {
@@ -144,11 +144,16 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                   <button
                     key={c.id}
                     onClick={() => go(`/clientes/${c.id}`)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
                   >
-                    <Users className="h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
-                    <span className="truncate">{c.name}</span>
-                    {c.email && <span className="truncate text-neutral-400">{c.email}</span>}
+                    <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{c.name}</span>
+                      <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">
+                        {c.ownerName ? `Responsável: ${c.ownerName}` : "Sem responsável"}
+                        {c.email && ` · ${c.email}`}
+                      </span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -163,11 +168,16 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                   <button
                     key={d.id}
                     onClick={() => go(`/negocios/${d.id}`)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
                   >
-                    <Kanban className="h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
-                    <span className="truncate">{d.name}</span>
-                    <span className="truncate text-neutral-400">{d.contact.name}</span>
+                    <Kanban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{d.name}</span>
+                      <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">
+                        {d.contact.name}
+                        {d.ownerName && ` · Responsável: ${d.ownerName}`}
+                      </span>
+                    </span>
                   </button>
                 ))}
               </div>

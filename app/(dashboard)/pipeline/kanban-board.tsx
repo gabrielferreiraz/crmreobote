@@ -277,7 +277,7 @@ export function KanbanBoard({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="scrollbar-thin flex flex-1 gap-3 overflow-x-auto pb-4">
+        <div className="scrollbar-thin flex flex-1 gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => (
             <StageColumn
               key={stage.id}
@@ -294,13 +294,15 @@ export function KanbanBoard({
   );
 }
 
-// Altura estimada de um DealCard renderizado + o gap de 8px que antes vinha
-// do `gap-2` do flex (trocado por padding-bottom já que os cartões agora são
-// posicionados de forma absoluta, ver uso abaixo) — os cartões têm conteúdo
-// compacto e sempre a mesma estrutura de linhas (nome+avatar, contato+
-// crédito, tarefas, valor+dias), então a altura real varia muito pouco e uma
-// estimativa fixa é suficiente pra virtualizar sem precisar medir cada um.
-const ROW_HEIGHT = 116;
+// Altura estimada de um DealCard renderizado + o espaço de 14px entre
+// cartões (CARD_GAP, ver uso abaixo — trocado por padding-bottom já que os
+// cartões agora são posicionados de forma absoluta) — os cartões têm
+// conteúdo compacto e sempre a mesma estrutura de linhas (nome+avatar,
+// contato+crédito, tarefas, valor+dias), então a altura real varia muito
+// pouco e uma estimativa fixa é suficiente pra virtualizar sem precisar medir
+// cada um.
+const CARD_GAP = 14;
+const ROW_HEIGHT = 108 + CARD_GAP;
 // Linhas extras montadas acima/abaixo da área visível — sem essa margem, um
 // scroll rápido mostraria um instante de coluna vazia antes do próximo lote
 // de cartões terminar de montar.
@@ -409,7 +411,7 @@ const StageColumn = memo(function StageColumn({
           {visibleDeals.map((deal, i) => (
             <div
               key={deal.id}
-              style={{ position: "absolute", top: (startIndex + i) * ROW_HEIGHT, left: 0, right: 0, paddingBottom: 8 }}
+              style={{ position: "absolute", top: (startIndex + i) * ROW_HEIGHT, left: 0, right: 0, paddingBottom: CARD_GAP }}
             >
               <DealCard deal={deal} />
             </div>

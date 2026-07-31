@@ -13,10 +13,32 @@ export default async function JobTitlesSettingsPage() {
   const organizationId = session.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    const jobTitles = await prisma.jobTitle.findMany({
+    let jobTitles = await prisma.jobTitle.findMany({
       where: { organizationId },
       orderBy: { order: "asc" },
     });
+
+    // Cargo digitado fora daqui (migração do Agendor, importação em massa,
+    // upsert de integração externa) nunca passou por "+ Adicionar" — sem
+    // isso, ficava invisível nesta lista pra sempre, mesmo com contatos
+    // usando. Autocura: toda visita aqui garante que todo valor distinto
+    // realmente em uso também exista como opção editável.
+    const distinctUsed = await prisma.contact.findMany({
+      where: { organizationId, jobTitle: { not: null } },
+      distinct: ["jobTitle"],
+      select: { jobTitle: true },
+    });
+    const existingLabels = new Set(jobTitles.map((j) => j.label));
+    const missing = distinctUsed
+      .map((d) => d.jobTitle)
+      .filter((label): label is string => !!label && !existingLabels.has(label));
+    if (missing.length > 0) {
+      const maxOrder = await prisma.jobTitle.aggregate({ where: { organizationId }, _max: { order: true } });
+      await prisma.jobTitle.createMany({
+        data: missing.map((label, i) => ({ organizationId, label, order: (maxOrder._max.order ?? -1) + 1 + i })),
+      });
+      jobTitles = await prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } });
+    }
 
     const counts = await prisma.contact.groupBy({
       by: ["jobTitle"],
