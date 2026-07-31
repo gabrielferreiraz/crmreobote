@@ -63,12 +63,12 @@ export function Pagination({
         </div>
 
         {totalPages > 1 && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 coarse:gap-0.5">
             <button
               type="button"
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800 coarse:h-11 coarse:w-11"
               aria-label="Página anterior"
             >
               <ChevronLeft className="h-4 w-4" strokeWidth={2} />
@@ -84,7 +84,7 @@ export function Pagination({
                   key={p}
                   type="button"
                   onClick={() => onPageChange(p)}
-                  className={`inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors ${
+                  className={`inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors coarse:h-11 coarse:min-w-11 ${
                     p === page
                       ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
                       : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -99,7 +99,7 @@ export function Pagination({
               type="button"
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800 coarse:h-11 coarse:w-11"
               aria-label="Próxima página"
             >
               <ChevronRight className="h-4 w-4" strokeWidth={2} />

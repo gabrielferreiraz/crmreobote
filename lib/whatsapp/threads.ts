@@ -11,6 +11,19 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { brazilianMobileVariants, normalizePhoneNumber } from "@/lib/phone-normalize";
 
+/**
+ * Mantém WhatsAppThread.lastMessageAt em dia — é o que ordena/limita a lista
+ * de Conversas (ver lib/whatsapp/conversations.ts), pra nunca precisar
+ * buscar TODA thread da organização só pra achar as mais recentes. Chamado
+ * depois de criar QUALQUER mensagem ou chamada numa conversa (ver
+ * lib/whatsapp/events.ts, meta-events.ts e send.ts) — `at` é o `createdAt`
+ * de verdade da mensagem salva (não `new Date()`), pra o backfill de
+ * histórico (importHistoryMessages) preservar a ordem cronológica real.
+ */
+export async function touchThreadLastMessage(threadId: string, at: Date): Promise<void> {
+  await prisma.whatsAppThread.update({ where: { id: threadId }, data: { lastMessageAt: at } });
+}
+
 /** Acha um Contact do CRM cujo telefone bata com o número normalizado (considera a variante com/sem o 9º dígito). */
 export async function resolveContactForNumber(
   organizationId: string,

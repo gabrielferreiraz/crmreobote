@@ -297,6 +297,17 @@ model WhatsAppThread {
   lastSeenAt           DateTime?
   presenceSubscribedAt DateTime?
 
+  // Denormalizado a partir de WhatsAppMessage.createdAt (atualizado toda vez
+  // que uma mensagem — ou chamada — é criada nesta conversa, ver
+  // touchThreadLastMessage em lib/whatsapp/threads.ts) — é o que ordena a
+  // lista de Conversas (lib/whatsapp/conversations.ts). Sem isso, achar as
+  // conversas mais recentes exigia buscar TODA thread da organização (com a
+  // última mensagem de cada uma via join) só pra ordenar em JS, e essa busca
+  // roda a cada 5s via polling (ver conversations-view.tsx) — nula em
+  // threads sem nenhuma mensagem ainda (nunca aparecem na lista de qualquer
+  // forma, ver listConversations).
+  lastMessageAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -311,6 +322,7 @@ model WhatsAppThread {
   @@index([organizationId, contactId])
   @@index([organizationId])
   @@index([organizationId, ownerUserId])
+  @@index([organizationId, lastMessageAt])
 }
 
 model WhatsAppMessage {

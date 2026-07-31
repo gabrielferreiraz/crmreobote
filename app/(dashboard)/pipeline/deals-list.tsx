@@ -19,6 +19,7 @@ import { BulkSendMessageDialog } from "@/components/bulk-send-message-dialog";
 import { Pagination } from "@/components/pagination";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
+import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import type { Deal } from "./kanban-board";
 
@@ -272,6 +273,17 @@ export function DealsList({
     if (f.closedTo !== undefined) setClosedTo(f.closedTo);
     setPage(1);
   }
+
+  // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
+  // voltar, ou navegar pra outra tela e voltar) — reaproveita captureFilters/
+  // restoreFilters acima (já existiam pro round-trip de "+ Criar script"),
+  // só acrescenta pageSize (que aquele par não guarda, por não precisar pra
+  // esse outro uso). Ver lib/use-persisted-filters.ts.
+  usePersistedFilters("pipeline-lista", { ...captureFilters(), pageSize }, (saved) => {
+    const { pageSize: savedPageSize, ...filterFields } = saved;
+    restoreFilters(filterFields as Record<string, string>);
+    if (typeof savedPageSize === "number") setPageSize(savedPageSize);
+  });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -687,56 +699,36 @@ export function DealsList({
         <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.lostSum)}</span>
       </p>
 
-      <div className="card overflow-x-auto">
-        {totalCount === 0 ? (
+      {totalCount === 0 ? (
+        <div className="card">
           <EmptyState icon={Inbox} title="Nenhum negócio cadastrado" description="Crie o primeiro negócio para começar a preencher o funil." />
-        ) : deals.length === 0 ? (
+        </div>
+      ) : deals.length === 0 ? (
+        <div className="card">
           <EmptyState icon={SearchX} title="Nenhum negócio encontrado" description="Ajuste a busca ou limpe os filtros." />
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
-                <th className="px-3 py-2 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    className="accent-neutral-900 dark:accent-white"
-                    aria-label="Selecionar todos"
-                  />
-                </th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Negócio</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Cliente</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Etapa</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Status</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Responsável</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Próx. atividade</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Data</th>
-                <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Valor</th>
-                <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Parado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deals.map((deal) => (
-                <tr
-                  key={deal.id}
-                  className="group border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-                >
-                  <td className="px-3 py-1.5">
+        </div>
+      ) : (
+        <>
+          {/* Mobile: cards — a tabela de 9 colunas força rolagem horizontal
+              por cima de tudo num celular; aqui cada negócio vira um cartão
+              com só o essencial, mesmo padrão de clientes/contacts-table.tsx. */}
+          <div className="space-y-2 lg:hidden">
+            {deals.map((deal) => (
+              <div key={deal.id} className="group card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(deal.id)}
                       onClick={(e) => toggleSelect(deal.id, e.shiftKey)}
                       onChange={() => {}}
                       className={`accent-neutral-900 dark:accent-white ${
-                        selectedIds.has(deal.id) ? "" : "opacity-0 group-hover:opacity-100"
+                        selectedIds.has(deal.id) ? "" : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
                       }`}
                     />
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">
                     <Link
                       href={`/negocios/${deal.id}`}
-                      className="flex items-center gap-1.5 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                      className="flex min-w-0 items-center gap-1.5 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
                     >
                       {deal.hasUnreadWhatsApp && (
                         <span className="relative flex h-2 w-2 shrink-0" title="O lead respondeu">
@@ -744,63 +736,157 @@ export function DealsList({
                           <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
                         </span>
                       )}
-                      <span>{deal.name}</span>
-                      {deal.creditType && (
-                        <span className="font-normal text-neutral-400 dark:text-neutral-500">· {deal.creditType}</span>
-                      )}
+                      <span className="truncate">{deal.name}</span>
                     </Link>
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">
-                    <span className="text-neutral-800 dark:text-neutral-200">{deal.contact.name}</span>
-                    {deal.contact.source && (
-                      <span className="text-neutral-400 dark:text-neutral-500"> · {deal.contact.source}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: deal.stage.color ?? "#999" }} />
-                      {deal.stage.name}
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
-                    {STATUS_LABELS[deal.status]}
-                    {deal.status === "LOST" && (deal.lossReason?.label ?? deal.lostReason) && (
-                      <span className="text-neutral-400 dark:text-neutral-500"> · {deal.lossReason?.label ?? deal.lostReason}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
-                    <span className="flex items-center gap-1.5">
-                      <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
-                      {deal.owner.name}
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">{deal.nextActivity ?? "—"}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
-                    {new Date(deal.status === "OPEN" ? deal.createdAt : (deal.closedAt ?? deal.createdAt)).toLocaleDateString("pt-BR")}
-                  </td>
-                  <td className="px-3 py-1.5 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
+                  </div>
+                  <span className="shrink-0 text-sm font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
                     {formatCurrency(deal.value)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right whitespace-nowrap text-neutral-500 dark:text-neutral-400">
-                    {deal.status !== "OPEN" ? "—" : daysSince(deal.stageEnteredAt) === 0 ? "hoje" : `${daysSince(deal.stageEnteredAt)} dias`}
-                  </td>
+                  </span>
+                </div>
+                <p className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                  {deal.contact.name}
+                  {deal.contact.source && ` · ${deal.contact.source}`}
+                  {deal.creditType && ` · ${deal.creditType}`}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: deal.stage.color ?? "#999" }} />
+                    {deal.stage.name}
+                  </span>
+                  <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                    {STATUS_LABELS[deal.status]}
+                    {deal.status === "LOST" && (deal.lossReason?.label ?? deal.lostReason) && ` · ${deal.lossReason?.label ?? deal.lostReason}`}
+                  </span>
+                </div>
+                {deal.nextActivity && (
+                  <p className="mt-1.5 truncate text-xs text-neutral-400 dark:text-neutral-500">Próxima: {deal.nextActivity}</p>
+                )}
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="flex items-center gap-1.5">
+                    <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
+                    {deal.owner.name}
+                  </span>
+                  <span>
+                    {new Date(deal.status === "OPEN" ? deal.createdAt : (deal.closedAt ?? deal.createdAt)).toLocaleDateString("pt-BR")}
+                    {deal.status === "OPEN" &&
+                      ` · ${daysSince(deal.stageEnteredAt) === 0 ? "parado hoje" : `${daysSince(deal.stageEnteredAt)}d parado`}`}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop: tabela */}
+          <div className="card hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
+                  <th className="px-3 py-2 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      className="accent-neutral-900 dark:accent-white"
+                      aria-label="Selecionar todos"
+                    />
+                  </th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Negócio</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Cliente</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Etapa</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Status</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Responsável</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Próx. atividade</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Data</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Valor</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Parado</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-neutral-200 dark:border-neutral-800">
-                <td colSpan={8} className="px-3 py-2 text-right text-xs font-medium text-neutral-400 dark:text-neutral-500">
-                  Total filtrado
-                </td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
-                  {formatCurrency(sums.totalSum)}
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {deals.map((deal) => (
+                  <tr
+                    key={deal.id}
+                    className="group border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  >
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(deal.id)}
+                        onClick={(e) => toggleSelect(deal.id, e.shiftKey)}
+                        onChange={() => {}}
+                        className={`accent-neutral-900 dark:accent-white ${
+                          selectedIds.has(deal.id) ? "" : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
+                        }`}
+                      />
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">
+                      <Link
+                        href={`/negocios/${deal.id}`}
+                        className="flex items-center gap-1.5 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                      >
+                        {deal.hasUnreadWhatsApp && (
+                          <span className="relative flex h-2 w-2 shrink-0" title="O lead respondeu">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
+                          </span>
+                        )}
+                        <span>{deal.name}</span>
+                        {deal.creditType && (
+                          <span className="font-normal text-neutral-400 dark:text-neutral-500">· {deal.creditType}</span>
+                        )}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">
+                      <span className="text-neutral-800 dark:text-neutral-200">{deal.contact.name}</span>
+                      {deal.contact.source && (
+                        <span className="text-neutral-400 dark:text-neutral-500"> · {deal.contact.source}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: deal.stage.color ?? "#999" }} />
+                        {deal.stage.name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
+                      {STATUS_LABELS[deal.status]}
+                      {deal.status === "LOST" && (deal.lossReason?.label ?? deal.lostReason) && (
+                        <span className="text-neutral-400 dark:text-neutral-500"> · {deal.lossReason?.label ?? deal.lostReason}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
+                      <span className="flex items-center gap-1.5">
+                        <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
+                        {deal.owner.name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">{deal.nextActivity ?? "—"}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
+                      {new Date(deal.status === "OPEN" ? deal.createdAt : (deal.closedAt ?? deal.createdAt)).toLocaleDateString("pt-BR")}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
+                      {formatCurrency(deal.value)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap text-neutral-500 dark:text-neutral-400">
+                      {deal.status !== "OPEN" ? "—" : daysSince(deal.stageEnteredAt) === 0 ? "hoje" : `${daysSince(deal.stageEnteredAt)} dias`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-neutral-200 dark:border-neutral-800">
+                  <td colSpan={8} className="px-3 py-2 text-right text-xs font-medium text-neutral-400 dark:text-neutral-500">
+                    Total filtrado
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
+                    {formatCurrency(sums.totalSum)}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
 
       <Pagination
         page={page}

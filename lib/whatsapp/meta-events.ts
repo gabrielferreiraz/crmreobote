@@ -21,7 +21,7 @@ import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normaliz
 import { downloadMedia } from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
-import { getOrCreateThread } from "@/lib/whatsapp/threads";
+import { getOrCreateThread, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
 import type { $Enums } from "@/app/generated/prisma/client";
@@ -160,6 +160,7 @@ async function saveIncomingMetaMessage(
       status: "DELIVERED",
     },
   });
+  await touchThreadLastMessage(thread.id, saved.createdAt);
   debugLog(`[wa:meta-webhook] mensagem salva: id=${saved.id} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`);
 
   const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;

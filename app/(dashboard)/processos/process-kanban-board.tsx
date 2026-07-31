@@ -33,6 +33,7 @@ import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
+import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { DOCUMENT_STATUS_LABELS, DOCUMENT_STATUS_BADGE, type DocumentStatus } from "./document-status";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
@@ -69,6 +70,15 @@ export function useProcessFilters(processes: ProcessItem[]) {
   const [documentFilter, setDocumentFilter] = useState("");
 
   const hasFilters = !!search || !!contemplatedFilter || !!paymentFilter || !!documentFilter;
+
+  // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
+  // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
+  usePersistedFilters("processos", { search, contemplatedFilter, paymentFilter, documentFilter }, (saved) => {
+    if (saved.search !== undefined) setSearch(saved.search);
+    if (saved.contemplatedFilter !== undefined) setContemplatedFilter(saved.contemplatedFilter);
+    if (saved.paymentFilter !== undefined) setPaymentFilter(saved.paymentFilter);
+    if (saved.documentFilter !== undefined) setDocumentFilter(saved.documentFilter);
+  });
 
   function clearFilters() {
     setSearch("");
@@ -468,7 +478,7 @@ function StageColumn({
         />
       )}
 
-      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 pb-2">
+      <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 pb-4">
         {processes.length === 0 && <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum processo</p>}
         {processes.map((process) => (
           <ProcessCard key={process.id} process={process} isAdmin={isAdmin} />

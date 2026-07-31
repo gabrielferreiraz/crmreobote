@@ -28,7 +28,7 @@ import {
 } from "@/lib/evolution";
 import * as metaWhatsApp from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
-import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
+import { getOrCreateThreadForContact, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { signMediaKey } from "@/lib/whatsapp/media-token";
 
 export class WhatsAppSendError extends Error {}
@@ -276,6 +276,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       sentByUserId: sentByUserId && sentByUserId !== instance.userId ? sentByUserId : undefined,
     },
   });
+  await touchThreadLastMessage(threadId, message.createdAt);
 
   return { id: message.id };
 }

@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Calendar as CalendarIcon, Check, ChevronDown, ChevronLeft } from "lucide-react";
 import { DateRangeCalendar } from "@/components/date-range-calendar";
 import { buildQuickRanges } from "@/lib/date-ranges";
+import { DATE_RANGE_FILTER_KEY } from "./filters-storage";
 
 const QUICK_RANGES = buildQuickRanges();
 
@@ -66,6 +67,10 @@ export function DateRangeFilter() {
     else params.delete("to");
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
+    try {
+      if (from || to) localStorage.setItem(DATE_RANGE_FILTER_KEY, JSON.stringify({ from, to }));
+      else localStorage.removeItem(DATE_RANGE_FILTER_KEY);
+    } catch {}
     setOpen(false);
     setShowCustom(false);
   }

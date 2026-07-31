@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Select } from "@/components/select";
+import { PIPELINE_FILTER_KEY } from "./filters-storage";
 
 /**
  * Filtro por funil — mesmo parâmetro de URL (?pipelineId=<id>) que o gráfico
@@ -25,6 +26,10 @@ export function PipelineFilter({ pipelines }: { pipelines: { id: string; name: s
     else params.delete("pipelineId");
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
+    try {
+      if (value) localStorage.setItem(PIPELINE_FILTER_KEY, value);
+      else localStorage.removeItem(PIPELINE_FILTER_KEY);
+    } catch {}
   }
 
   const options = [{ value: "", label: "Todos os funis" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))];

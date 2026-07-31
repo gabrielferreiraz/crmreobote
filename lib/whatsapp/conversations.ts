@@ -36,9 +36,41 @@ export type ConversationSummary = {
   profilePicUrl: string | null;
 };
 
-export async function listConversations(organizationId: string, scope: DealScope): Promise<ConversationSummary[]> {
+/**
+ * Quantas conversas a lista (e o polling de 5s que a mantém atualizada, ver
+ * conversations-view.tsx) traz por padrão — é um inbox de "conversas
+ * recentes", não um arquivo histórico completo; ninguém precisa ver de
+ * relance um lead frio de anos atrás que nunca mais respondeu. Bem generoso
+ * pra escala de equipe real (a organização inteira, não por vendedor).
+ */
+const DEFAULT_LIMIT = 300;
+
+export async function listConversations(
+  organizationId: string,
+  scope: DealScope,
+  limit: number = DEFAULT_LIMIT,
+): Promise<ConversationSummary[]> {
   const threads = await prisma.whatsAppThread.findMany({
-    where: { organizationId, ...whatsappScopeWhere(scope) },
+    where: {
+      organizationId,
+      ...whatsappScopeWhere(scope),
+      // Thread sem nenhuma mensagem ainda (ex.: criada mas o envio falhou logo
+      // depois) não é uma conversa de verdade — lastMessageAt só é gravado
+      // depois da 1ª mensagem (ver touchThreadLastMessage), então esse filtro
+      // já exclui ela. Thread órfã (instanceId null — instância apagada de
+      // verdade, dono desativado) também não entra: é histórico arquivado,
+      // vive no backup de mensagens (Configurações > Usuários), não no inbox
+      // de conversas ativas.
+      lastMessageAt: { not: null },
+      instanceId: { not: null },
+    },
+    // Ordena e já limita no Postgres (índice organizationId+lastMessageAt) —
+    // antes buscava TODA thread da organização, com a última mensagem de
+    // cada uma via join, só pra ordenar isso em JavaScript depois. Rodava a
+    // cada 5s (polling), então esse era o tipo de custo que cresce sozinho
+    // com o histórico total, não com o quanto está de fato ativo.
+    orderBy: { lastMessageAt: "desc" },
+    take: limit,
     include: {
       contact: { select: { id: true, name: true } },
       instance: { select: { userId: true, user: { select: { id: true, name: true } } } },
@@ -46,12 +78,8 @@ export async function listConversations(organizationId: string, scope: DealScope
     },
   });
 
-  // Thread sem nenhuma mensagem ainda (ex.: criada mas o envio falhou logo
-  // depois) não é uma conversa de verdade — não aparece na lista. Thread
-  // órfã (instance null — instância apagada de verdade, dono desativado,
-  // ver ownerUserId em prisma/schema.prisma) também não: é histórico
-  // arquivado, vive no backup de mensagens (Configurações > Usuários), não
-  // no inbox de conversas ativas.
+  // Checagem defensiva — na prática lastMessageAt garante isso, mas não
+  // custa nada continuar filtrando caso o cache fique dessincronizado.
   const withMessages = threads.filter((t) => t.messages.length > 0 && t.instance);
   if (withMessages.length === 0) return [];
 

@@ -21,6 +21,7 @@ import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { TASK_TYPE_ICON, TASK_TYPE_LABELS } from "@/lib/task-icons";
+import { usePersistedFilters } from "@/lib/use-persisted-filters";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
@@ -108,6 +109,16 @@ export function KanbanBoard({
   }, [openDeals]);
 
   const hasFilters = !!search || !!ownerFilter || !!sourceFilter || !!jobTitleFilter || staleOnly;
+
+  // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
+  // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
+  usePersistedFilters("pipeline-kanban", { search, ownerFilter, sourceFilter, jobTitleFilter, staleOnly }, (saved) => {
+    if (saved.search !== undefined) setSearch(saved.search);
+    if (saved.ownerFilter !== undefined) setOwnerFilter(saved.ownerFilter);
+    if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
+    if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
+    if (saved.staleOnly !== undefined) setStaleOnly(saved.staleOnly);
+  });
 
   function clearFilters() {
     setSearch("");
@@ -294,14 +305,13 @@ export function KanbanBoard({
   );
 }
 
-// Altura estimada de um DealCard renderizado + o espaço de 14px entre
-// cartões (CARD_GAP, ver uso abaixo — trocado por padding-bottom já que os
-// cartões agora são posicionados de forma absoluta) — os cartões têm
-// conteúdo compacto e sempre a mesma estrutura de linhas (nome+avatar,
-// contato+crédito, tarefas, valor+dias), então a altura real varia muito
-// pouco e uma estimativa fixa é suficiente pra virtualizar sem precisar medir
-// cada um.
-const CARD_GAP = 14;
+// Altura estimada de um DealCard renderizado + o espaço entre cartões
+// (CARD_GAP, ver uso abaixo — trocado por padding-bottom já que os cartões
+// agora são posicionados de forma absoluta) — os cartões têm conteúdo
+// compacto e sempre a mesma estrutura de linhas (nome+avatar, contato+
+// crédito, tarefas, valor+dias), então a altura real varia muito pouco e uma
+// estimativa fixa é suficiente pra virtualizar sem precisar medir cada um.
+const CARD_GAP = 22;
 const ROW_HEIGHT = 108 + CARD_GAP;
 // Linhas extras montadas acima/abaixo da área visível — sem essa margem, um
 // scroll rápido mostraria um instante de coluna vazia antes do próximo lote
@@ -402,7 +412,7 @@ const StageColumn = memo(function StageColumn({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="scrollbar-thin flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2"
+        className="scrollbar-thin flex-1 overflow-x-hidden overflow-y-auto px-2 pb-4"
       >
         {deals.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum negócio</p>

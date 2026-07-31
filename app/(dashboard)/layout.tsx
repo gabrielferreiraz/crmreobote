@@ -76,8 +76,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* scrollbar-gutter reserva o espaço da barra de rolagem o tempo todo —
           sem isso, trocar o filtro de período no Relatórios (ou qualquer
           outra navegação que mude a altura do conteúdo) faz a barra
-          aparecer/sumir e o conteúdo inteiro "pular" alguns pixels pro lado. */}
-      <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 [scrollbar-gutter:stable] lg:p-8">
+          aparecer/sumir e o conteúdo inteiro "pular" alguns pixels pro lado.
+          padding-bottom à parte (não só `p-4`/`lg:p-8`) — senão o `lg:p-8`
+          reescreve TODOS os lados de uma vez, inclusive o de baixo, e o
+          respiro que existia só no mobile (pra não colar no MobileNav fixo)
+          desaparece na versão desktop, deixando o fim de qualquer página
+          (o card/linha mais debaixo) colado na borda da janela. */}
+      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-24 [scrollbar-gutter:stable] lg:px-8 lg:pt-8 lg:pb-16">
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
 

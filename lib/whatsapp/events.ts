@@ -38,7 +38,7 @@ function debugLog(...args: unknown[]): void {
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
-import { getOrCreateThread } from "@/lib/whatsapp/threads";
+import { getOrCreateThread, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
 import { isOptOutMessage } from "@/lib/whatsapp/opt-out";
@@ -229,6 +229,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
       ...(options.createdAt ? { createdAt: options.createdAt } : {}),
     },
   });
+  await touchThreadLastMessage(thread.id, saved.createdAt);
   debugLog(
     `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
   );
@@ -491,6 +492,7 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
               status: "DELIVERED",
             },
           });
+      await touchThreadLastMessage(thread.id, saved.createdAt);
       console.log(`[wa:webhook] chamada salva: id=${saved.id} status=${callStatus} thread=${thread.id}`);
 
       // Chamada perdida/recusada é pelo menos tão urgente quanto mensagem de

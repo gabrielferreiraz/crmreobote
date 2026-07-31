@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Select } from "@/components/select";
+import { WHO_FILTER_KEY } from "./filters-storage";
 
 /**
  * Filtro por equipe ou responsável — um único parâmetro de URL (?who=team:<id>
@@ -31,6 +32,10 @@ export function TeamOwnerFilter({
     else params.delete("who");
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
+    try {
+      if (value) localStorage.setItem(WHO_FILTER_KEY, value);
+      else localStorage.removeItem(WHO_FILTER_KEY);
+    } catch {}
   }
 
   const options = [

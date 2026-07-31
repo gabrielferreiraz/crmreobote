@@ -40,6 +40,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
+import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
 
 const QUICK_RANGES = buildListQuickRanges();
@@ -142,6 +143,23 @@ export function ContactsTable({
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [search]);
+
+  // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
+  // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
+  usePersistedFilters(
+    "clientes",
+    { search, sourceFilter, jobTitleFilter, responsavelFilter, onlyWithDeals, registeredFrom, registeredTo, pageSize },
+    (saved) => {
+      if (saved.search !== undefined) setSearch(saved.search);
+      if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
+      if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
+      if (saved.responsavelFilter !== undefined) setResponsavelFilter(saved.responsavelFilter);
+      if (saved.onlyWithDeals !== undefined) setOnlyWithDeals(saved.onlyWithDeals);
+      if (saved.registeredFrom !== undefined) setRegisteredFrom(saved.registeredFrom);
+      if (saved.registeredTo !== undefined) setRegisteredTo(saved.registeredTo);
+      if (saved.pageSize !== undefined) setPageSize(saved.pageSize);
+    },
+  );
 
   // 1ª renderização já tem os dados certos (vieram prontos do servidor,
   // página 1, sem filtro) — sem essa guarda, esse efeito dispararia uma
@@ -684,7 +702,7 @@ export function ContactsTable({
                       onClick={(e) => toggleSelect(c.id, e.shiftKey)}
                       onChange={() => {}}
                       className={`accent-neutral-900 dark:accent-white ${
-                        selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100"
+                        selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
                       }`}
                     />
                     <Link
@@ -808,7 +826,7 @@ export function ContactsTable({
                         onClick={(e) => toggleSelect(c.id, e.shiftKey)}
                         onChange={() => {}}
                         className={`accent-neutral-900 dark:accent-white ${
-                          selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100"
+                          selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
                         }`}
                       />
                     </td>

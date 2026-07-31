@@ -54,9 +54,7 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
   const where: Prisma.DealWhereInput = {
     organizationId,
     ...(pipelineId ? { pipelineId } : {}),
-    ...scopeWhere(scope),
     ...(status ? { status } : {}),
-    ...(ownerIds && ownerIds.length > 0 ? { ownerId: { in: ownerIds } } : {}),
     ...(stageId ? { stageId } : {}),
     ...(lossReasonId ? { lossReasonId } : {}),
     ...(q
@@ -68,6 +66,25 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
         }
       : {}),
   };
+
+  // scopeWhere (autorização por papel — o que o usuário TEM PERMISSÃO de ver)
+  // e o filtro de responsável (o que o usuário ESCOLHEU ver) incidem sobre o
+  // mesmo campo (ownerId) — nunca podem ser combinados via spread num mesmo
+  // objeto: a chave que vier depois sobrescreve a outra em silêncio, e o
+  // filtro escolhido pelo usuário (vindo direto da query string) acabava
+  // descartando de vez a restrição de escopo, deixando um MEMBER/SUPERVISOR
+  // pedir `?ownerId=<qualquer um>` e ver negócio de qualquer pessoa da
+  // organização. Sempre em AND — o resultado só pode ser negócio cujo dono
+  // esteja DENTRO do escopo permitido E dentro do filtro escolhido.
+  const scopeFilter = scopeWhere(scope);
+  const ownerFilter = ownerIds && ownerIds.length > 0 ? { ownerId: { in: ownerIds } } : null;
+  const combinedOwnerFilters = [
+    ...(Object.keys(scopeFilter).length > 0 ? [scopeFilter] : []),
+    ...(ownerFilter ? [ownerFilter] : []),
+  ];
+  if (combinedOwnerFilters.length > 0) {
+    where.AND = combinedOwnerFilters;
+  }
 
   if (jobTitle || source) {
     where.contact = {

@@ -21,6 +21,7 @@ import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
 import { PipelineFilter } from "./pipeline-filter";
+import { FiltersUrlRestore } from "./filters-url-restore";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { AdminReportsView } from "./admin-reports-view";
@@ -1203,6 +1204,7 @@ export default async function RelatoriosPage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <FiltersUrlRestore />
             <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
             <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} />
             <DateRangeFilter />
