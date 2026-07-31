@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope } from "@/lib/team-scope";
-import { fetchDealsList } from "@/lib/deals/list-query";
+import { fetchDealsList, countDeals, aggregateDealValues } from "@/lib/deals/list-query";
 import { buildDealName } from "@/lib/deal-name";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -17,6 +17,12 @@ const DEFAULT_SEARCH_LIMIT = 50;
 const DEFAULT_LIST_LIMIT = 500;
 const MAX_LIMIT = 500;
 
+function parseDate(value: string | null): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const pipelineId = searchParams.get("pipelineId") ?? undefined;
@@ -28,22 +34,57 @@ export async function GET(req: Request) {
   const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : null;
   const take = Math.min(requestedLimit ?? (q ? DEFAULT_SEARCH_LIMIT : DEFAULT_LIST_LIMIT), MAX_LIMIT);
 
+  // Filtros que hoje só existiam client-side em deals-list.tsx — "está numa
+  // dessas ids" (ownerId aceita lista) cobre tanto "responsável X" quanto
+  // "responsável ativo/inativo", já resolvido pelo cliente antes de mandar
+  // (ver deals-list.tsx), sem precisar de um lookup extra aqui.
+  const ownerIdParam = searchParams.get("ownerId");
+  const ownerIds = ownerIdParam ? ownerIdParam.split(",").filter(Boolean) : undefined;
+  const stageId = searchParams.get("stageId") ?? undefined;
+  const lossReasonId = searchParams.get("lossReasonId") ?? undefined;
+  const jobTitle = searchParams.get("jobTitle") ?? undefined;
+  const source = searchParams.get("source") ?? undefined;
+  const createdFrom = parseDate(searchParams.get("createdFrom"));
+  const createdTo = parseDate(searchParams.get("createdTo"));
+  const closedFrom = parseDate(searchParams.get("closedFrom"));
+  const closedTo = parseDate(searchParams.get("closedTo"));
+
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
-    const deals = await fetchDealsList({
+    const filterParams = {
       organizationId: access.organizationId,
       pipelineId,
       scope,
       status: status ?? undefined,
       q,
-      skip,
-      take,
-    });
+      ownerIds,
+      stageId,
+      lossReasonId,
+      jobTitle,
+      source,
+      createdFrom,
+      createdTo,
+      closedFrom,
+      closedTo,
+    };
 
-    return NextResponse.json(deals);
+    const [deals, totalCount, sums] = await Promise.all([
+      fetchDealsList({ ...filterParams, skip, take }),
+      countDeals(filterParams),
+      aggregateDealValues(filterParams),
+    ]);
+
+    return NextResponse.json(deals, {
+      headers: {
+        "X-Total-Count": String(totalCount),
+        "X-Won-Sum": String(sums.wonSum),
+        "X-Lost-Sum": String(sums.lostSum),
+        "X-Total-Sum": String(sums.totalSum),
+      },
+    });
   });
 }
 

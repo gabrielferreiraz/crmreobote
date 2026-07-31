@@ -364,6 +364,12 @@ model WhatsAppMessage {
   @@index([organizationId, instanceId])
   @@index([organizationId, threadId, direction, read])
   @@index([organizationId, campaignId])
+  // Relatórios (app/(dashboard)/relatorios/page.tsx) agrupam por
+  // instanceId/threadId filtrando organizationId+direction+campaignId (nulo
+  // ou não) + intervalo de data SEM informar threadId — nenhum índice
+  // existente cobre essa combinação (os de cima exigem threadId), então
+  // essas consultas caíam em varredura sequencial filtrada.
+  @@index([organizationId, direction, campaignId, createdAt], map: "WhatsAppMessage_org_direction_campaign_createdAt_idx")
 }
 
 enum WhatsAppMessageDirection {
@@ -1033,11 +1039,23 @@ model Deal {
   @@index([organizationId, status])
   @@index([organizationId, ownerId])
   @@index([organizationId, lossReasonId])
+  // Sem isso, achar o(s) negócio(s) de um contato exigia varredura sem
+  // índice — usado tanto pelo EXISTS de Relatórios (dealThreads, ver
+  // page.tsx) quanto por lib/campaigns/reply.ts's "já existe negócio aberto
+  // pra este contato?" (roda a cada mensagem WhatsApp recebida vinculada a
+  // negócio de campanha).
+  @@index([organizationId, contactId])
   // Cobre organizationId+pipelineId (filtro) + stageEnteredAt (ORDER BY) do
   // board do Pipeline — sem isso, mesmo depois de filtrar status=OPEN e
   // aplicar take/skip, o Postgres teria que ordenar todo o resultado
   // filtrado em memória antes de recortar a página.
   @@index([organizationId, pipelineId, status, stageEnteredAt])
+  // Relatórios (app/(dashboard)/relatorios/page.tsx) agrupam WON/LOST por
+  // dono/motivo/tipo de crédito filtrando organizationId+status+intervalo de
+  // closedAt — Deal_organizationId_status_idx não cobre closedAt, então um
+  // filtro de período (ex.: "Este mês") ainda exigia varrer TODOS os negócios
+  // decididos daquele status antes de descartar os fora do intervalo.
+  @@index([organizationId, status, closedAt])
 }
 
 enum DealStatus {

@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
+import sharp from "sharp";
 import { matchesFileSignature } from "@/lib/file-signature";
 
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
@@ -34,6 +35,30 @@ export function assertValidAvatar(contentType: string, size: number, buffer: Buf
   if (!matchesFileSignature(buffer, contentType)) {
     throw new AvatarUploadError("O conteúdo do arquivo não corresponde ao formato declarado.");
   }
+}
+
+// Maior que qualquer tamanho de exibição real (o maior Avatar hoje é "xl",
+// 96px de CSS) mas com folga pra tela retina/2x-3x — sem redimensionar,
+// uma foto de celular de vários MB era guardada e baixada inteira toda vez
+// só pra aparecer como um círculo de 24-96px.
+const AVATAR_MAX_DIMENSION = 512;
+
+/**
+ * Redimensiona e recomprime antes de subir pro R2 — feito uma vez no upload,
+ * não a cada visualização (diferente de next/image, que exigiria expor o
+ * bucket privado por trás de remotePatterns e perderia o cache do otimizador
+ * de qualquer forma, já que cada URL assinada muda a cada resolução). Mantém
+ * o formato original (PNG preserva transparência de logo/marca-d'água, se
+ * for o caso) só encolhendo dimensão/qualidade.
+ */
+export async function resizeAvatar(buffer: Buffer, contentType: string): Promise<Buffer> {
+  const resized = sharp(buffer)
+    .rotate() // aplica a orientação EXIF antes de cortar — sem isso, foto de celular vertical podia sair deitada
+    .resize({ width: AVATAR_MAX_DIMENSION, height: AVATAR_MAX_DIMENSION, fit: "cover", withoutEnlargement: true });
+
+  if (contentType === "image/png") return resized.png({ compressionLevel: 8 }).toBuffer();
+  if (contentType === "image/webp") return resized.webp({ quality: 82 }).toBuffer();
+  return resized.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
 }
 
 /** Chave R2 imprevisível — nem o userId nem sequência são adivinháveis a partir dela. */

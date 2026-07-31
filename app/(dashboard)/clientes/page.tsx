@@ -1,10 +1,15 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
+import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { ContactsTable } from "./contacts-table";
 import { AdminClientsView } from "./admin-clients-view";
+
+// Essa é só a 1ª página, no tamanho padrão do seletor de itens por página —
+// abre a tela sem precisar de um fetch extra; paginação de verdade (ver
+// contacts-table.tsx e GET /api/contacts) cuida do resto.
+const DEFAULT_PAGE_SIZE = 50;
 
 export default async function ClientesPage() {
   const area = await getCurrentUserArea();
@@ -16,20 +21,9 @@ export default async function ClientesPage() {
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
   return runWithTenant(organizationId, async () => {
-    const [contactsRaw, totalCount, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
-      // Só a 1ª página (ver PAGE_SIZE em contacts-table.tsx, que "carrega
-      // mais" sob demanda) — uma organização com 100 mil clientes nunca
-      // baixa a tabela inteira só pra abrir a tela.
-      prisma.contact.findMany({
-        // Placeholders reconstruídos na migração do Agendor (negócio órfão
-        // de pessoa) ficam de fora da listagem de clientes de propósito —
-        // não são cliente navegável, só preservam o histórico do negócio.
-        where: { organizationId, NOT: { tags: { has: "sem-contato-agendor" } } },
-        orderBy: { createdAt: "desc" },
-        include: { _count: { select: { deals: true } }, responsavel: { select: { id: true, name: true } } },
-        take: 500,
-      }),
-      prisma.contact.count({ where: { organizationId, NOT: { tags: { has: "sem-contato-agendor" } } } }),
+    const [contacts, totalCount, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
+      fetchContactsList({ organizationId, take: DEFAULT_PAGE_SIZE }),
+      countContacts({ organizationId }),
       prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.customFieldDefinition.findMany({
@@ -48,10 +42,6 @@ export default async function ClientesPage() {
       }),
     ]);
 
-    const contacts = contactsRaw.map((c) => ({
-      ...c,
-      customFieldValues: c.customFieldValues as CustomFieldFormValues | null,
-    }));
     const members = membersRaw.map((m) => m.user);
     const pipelines = pipelinesRaw
       .filter((p) => p.stages.length > 0)
@@ -67,7 +57,7 @@ export default async function ClientesPage() {
         </div>
         <ContactsTable
           initialContacts={contacts}
-          totalCount={totalCount}
+          initialTotalCount={totalCount}
           isOwner={isOwner}
           isManager={isManager}
           sources={sources}

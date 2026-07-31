@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
-import { fetchDealsList } from "@/lib/deals/list-query";
+import { fetchDealsList, aggregateDealValues } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
 import { PipelineView } from "./pipeline-view";
 
@@ -38,13 +38,15 @@ export default async function PipelinePage({
   // direito) — o teto aqui é só uma rede de segurança, praticamente nunca
   // deve ser atingido (o volume de negócios OPEN é limitado pela capacidade
   // de trabalho da equipe, diferente do histórico de Ganhos/Perdidos, que só
-  // cresce). A Lista pode ver os 3 status, então usa paginação de verdade
-  // (1ª página aqui, "carregar mais" busca o resto — ver deals-list.tsx e
-  // GET /api/deals) em vez de um teto fixo com aviso de corte.
+  // cresce). A Lista usa paginação de verdade (ver deals-list.tsx e GET
+  // /api/deals) — essa é só a 1ª página, no tamanho padrão do seletor de
+  // itens por página, pra abrir a tela sem precisar de um fetch extra.
   const KANBAN_FETCH_CAP = 5000;
-  const LISTA_PAGE_SIZE = 500;
+  const LISTA_DEFAULT_PAGE_SIZE = 50;
 
-  const [kanbanDeals, listaDeals, listaTotalCount] = await Promise.all([
+  const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope };
+
+  const [kanbanDeals, listaDeals, listaTotalCount, listaSums] = await Promise.all([
     fetchDealsList({
       organizationId,
       pipelineId: activePipeline.id,
@@ -52,37 +54,32 @@ export default async function PipelinePage({
       status: "OPEN",
       take: KANBAN_FETCH_CAP,
     }),
-    fetchDealsList({
-      organizationId,
-      pipelineId: activePipeline.id,
-      scope,
-      take: LISTA_PAGE_SIZE,
-    }),
+    fetchDealsList({ ...listaFilterParams, take: LISTA_DEFAULT_PAGE_SIZE }),
     prisma.deal.count({
       where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
     }),
+    aggregateDealValues(listaFilterParams),
   ]);
   const kanbanCapped = kanbanDeals.length === KANBAN_FETCH_CAP;
 
-  const membersRaw = await prisma.organizationUser.findMany({
-    where: { organizationId, active: true },
-    orderBy: { createdAt: "asc" },
+  // Uma consulta só, cobrindo ativos e inativos — `active desc` já deixa os
+  // ativos primeiro (em createdAt asc entre si), então dá pra derivar
+  // `membersRaw` (só ativos, usado pra atribuir/criar negócio) filtrando em
+  // memória em vez de repetir a mesma consulta com um `where` mais estreito.
+  const allMembersRaw = await prisma.organizationUser.findMany({
+    where: { organizationId },
+    orderBy: [{ active: "desc" }, { createdAt: "asc" }],
     include: { user: { select: { id: true, name: true } } },
   });
+  const membersRaw = allMembersRaw.filter((m) => m.active);
 
   const members =
     scope.type === "owners"
       ? membersRaw.filter((m) => scope.ownerIds.includes(m.userId))
       : membersRaw;
 
-  // Inclui inativos aqui — diferente de `members` (usado pra atribuir/criar
-  // negócio, onde só faz sentido gente ativa), o filtro da lista precisa achar
-  // negócios de quem já saiu do time.
-  const allMembersRaw = await prisma.organizationUser.findMany({
-    where: { organizationId },
-    orderBy: [{ active: "desc" }, { createdAt: "asc" }],
-    include: { user: { select: { id: true, name: true } } },
-  });
+  // Inclui inativos aqui — diferente de `members` acima, o filtro da lista
+  // precisa achar negócios de quem já saiu do time.
   const allMembersForFilter =
     scope.type === "owners"
       ? allMembersRaw.filter((m) => scope.ownerIds.includes(m.userId))
@@ -128,6 +125,7 @@ export default async function PipelinePage({
         kanbanCapped={kanbanCapped}
         initialListaDeals={listaDeals}
         listaTotalCount={listaTotalCount}
+        listaSums={listaSums}
         members={members.map((m) => m.user)}
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}

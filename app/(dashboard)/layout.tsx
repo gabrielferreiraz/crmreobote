@@ -2,9 +2,8 @@ import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Plus, Calculator } from "lucide-react";
-import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
-import { runWithTenant } from "@/lib/tenant-context";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { TopNavLinks } from "./top-nav-links";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -20,29 +19,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  // Roda a checagem de bootstrap dentro de runWithTenant (storage.run), não
-  // setTenant/enterWith — enterWith não garante que o contexto sobreviva até
-  // esta consulta ser de fato executada, o que já causou usuários ativos
-  // serem derrubados por engano (RLS bloqueia tudo sem contexto).
-  //
-  // Reconfere no banco (não confia só no JWT) — uma desativação precisa derrubar
-  // sessões já emitidas, não só bloquear logins novos.
-  const membership = session.user.organizationId
-    ? await runWithTenant(session.user.organizationId, () =>
-        prisma.organizationUser.findUnique({
-          where: {
-            organizationId_userId: {
-              organizationId: session.user.organizationId!,
-              userId: session.user.id,
-            },
-          },
-          select: { active: true, area: true, user: { select: { image: true } } },
-        }),
-      )
-    : null;
+  // getCurrentMembership() já reconfere no banco (não confia só no JWT) —
+  // uma desativação precisa derrubar sessões já emitidas, não só bloquear
+  // logins novos. Memoizada por requisição (React cache()), então as
+  // páginas/componentes que chamam requireSession/requireRole/
+  // getCurrentUserArea logo em seguida reaproveitam esta mesma consulta em
+  // vez de repeti-la (ver lib/current-membership.ts).
+  const membership = await getCurrentMembership();
   if (!membership?.active) redirect("/api/auth/deactivated");
 
-  const photoUrl = await resolveAvatarUrl(membership.user.image);
+  const photoUrl = await resolveAvatarUrl(membership.photoKey);
   const isAdministrativo = membership.area === "ADMINISTRATIVO";
 
   async function handleSignOut() {

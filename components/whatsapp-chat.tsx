@@ -40,6 +40,11 @@ import { CurrencyInput } from "@/components/currency-input";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
+import { withViewTransition } from "@/lib/view-transition";
+
+// Reexportado só pra não quebrar quem já importava daqui (ver
+// lib/view-transition.ts pra onde a implementação de fato mora agora).
+export { withViewTransition };
 
 type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "CONTACT" | "PIX" | "BUTTONS" | "LIST" | "STICKER" | "CALL";
 
@@ -143,22 +148,6 @@ const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
 ];
 
 /**
- * Troca de estado (abrir/fechar conversa, entrar/sair do modo foco) usando a
- * View Transitions API nativa do navegador quando disponível — dá um
- * fade/morph suave de graça, sem framer-motion e sem precisar animar
- * `position: fixed` (que não é animável via transition/keyframe comuns).
- * Em navegadores sem suporte, cai de volta pra troca instantânea normal.
- */
-export function withViewTransition(update: () => void) {
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
-  if (typeof doc.startViewTransition === "function") {
-    doc.startViewTransition(update);
-  } else {
-    update();
-  }
-}
-
-/**
  * Sobe o arquivo pro R2 (via app/api/whatsapp/media) e devolve a chave
  * interna — nunca uma URL pública direta, o bucket é privado por padrão.
  */
@@ -218,31 +207,6 @@ export function WhatsAppChat({
         />
       )}
     </>
-  );
-}
-
-/**
- * Botão que só abre o painel — mantido separado do painel em si porque o
- * painel precisa ficar fora da coluna estreita da barra lateral (como irmão
- * do conteúdo do negócio no layout flex), enquanto o gatilho continua no
- * lugar de sempre. Quem controla o `open` é a página (ver deal-detail.tsx).
- */
-export function WhatsAppPanelTrigger({ onOpen, hasUnread }: { onOpen: () => void; hasUnread?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={() => withViewTransition(onOpen)}
-      className="btn-secondary relative w-full justify-center"
-    >
-      <WhatsAppIcon className="h-4 w-4" strokeWidth={2} />
-      Abrir conversa
-      {hasUnread && (
-        <span className="absolute -top-1 -right-1 flex h-3 w-3" title="O lead respondeu">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-          <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600" />
-        </span>
-      )}
-    </button>
   );
 }
 

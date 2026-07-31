@@ -17,6 +17,7 @@ type LossReasonOption = { id: string; label: string };
 type CreditTypeOption = { id: string; label: string };
 type Stage = { id: string; name: string; color: string | null; order: number };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
+type Sums = { wonSum: number; lostSum: number; totalSum: number };
 
 export function PipelineView({
   pipelineId,
@@ -26,6 +27,7 @@ export function PipelineView({
   kanbanCapped,
   initialListaDeals,
   listaTotalCount,
+  listaSums,
   members,
   allMembers,
   lossReasons,
@@ -43,8 +45,10 @@ export function PipelineView({
   /** true = o Kanban bateu no teto de segurança (ver page.tsx) — praticamente nunca deve acontecer. */
   kanbanCapped?: boolean;
   initialListaDeals: Deal[];
-  /** Total de negócios do pipeline (todos os status) no banco — pode ser bem maior que initialListaDeals.length (só a 1ª página vem carregada, ver deals-list.tsx). */
+  /** Total de negócios do pipeline (todos os status, sem filtro) no banco — pode ser bem maior que initialListaDeals.length (só a 1ª página vem carregada, ver deals-list.tsx). */
   listaTotalCount: number;
+  /** Somas de Ganhos/Perdidos/Total sem filtro nenhum — ver aggregateDealValues em lib/deals/list-query.ts. */
+  listaSums: Sums;
   members: MemberOption[];
   allMembers: MemberFilterOption[];
   lossReasons: LossReasonOption[];
@@ -58,8 +62,10 @@ export function PipelineView({
   const router = useRouter();
   const [view, setView] = useState<"kanban" | "lista">("kanban");
   const [kanbanDeals, setKanbanDeals] = useState(initialKanbanDeals);
-  const [listaDeals, setListaDeals] = useState(initialListaDeals);
-  const [loadingMoreLista, setLoadingMoreLista] = useState(false);
+  // DealsList é dono da própria página/filtro (ver deals-list.tsx) — isso só
+  // precisa avisar "algo mudou, busque nem que seja a mesma página/filtro de
+  // novo" quando um negócio é criado ou uma importação termina.
+  const [listaReloadToken, setListaReloadToken] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
@@ -68,28 +74,6 @@ export function PipelineView({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setKanbanDeals(initialKanbanDeals);
   }, [initialKanbanDeals]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setListaDeals(initialListaDeals);
-  }, [initialListaDeals]);
-
-  // Busca a próxima página da Lista (todos os status) — reaproveita GET
-  // /api/deals (já enriquecido com próxima atividade/WhatsApp não lido/foto,
-  // ver lib/deals/list-query.ts) pra nunca renderizar negócio "incompleto"
-  // comparado à 1ª página vinda do servidor.
-  async function loadMoreListaDeals() {
-    setLoadingMoreLista(true);
-    try {
-      const res = await fetch(`/api/deals?pipelineId=${pipelineId}&skip=${listaDeals.length}&limit=500`);
-      if (res.ok) {
-        const next: Deal[] = await res.json();
-        setListaDeals((prev) => [...prev, ...next]);
-      }
-    } finally {
-      setLoadingMoreLista(false);
-    }
-  }
 
   useEffect(() => {
     if (openNewDeal) {
@@ -179,10 +163,10 @@ export function PipelineView({
         <KanbanBoard stages={stages} deals={kanbanDeals} onDealsChange={setKanbanDeals} members={members} />
       ) : (
         <DealsList
-          deals={listaDeals}
-          totalCount={listaTotalCount}
-          onLoadMore={loadMoreListaDeals}
-          loadingMore={loadingMoreLista}
+          initialDeals={initialListaDeals}
+          initialTotalCount={listaTotalCount}
+          initialSums={listaSums}
+          reloadToken={listaReloadToken}
           members={allMembers}
           stages={stages}
           pipelineId={pipelineId}
@@ -202,7 +186,7 @@ export function PipelineView({
         creditTypes={creditTypes}
         onCreated={(deal) => {
           setKanbanDeals((prev) => [deal, ...prev]);
-          setListaDeals((prev) => [deal, ...prev]);
+          setListaReloadToken((t) => t + 1);
         }}
         open={dealDialogOpen}
         onOpenChange={setDealDialogOpen}
@@ -216,7 +200,10 @@ export function PipelineView({
           endpoint="/api/deals/import"
           extraFields={{ pipelineId }}
           onClose={() => setImportOpen(false)}
-          onImported={() => router.refresh()}
+          onImported={() => {
+            router.refresh();
+            setListaReloadToken((t) => t + 1);
+          }}
           renderSummary={(r) => {
             const parts: string[] = [];
             if (r.skipped > 0) parts.push(`${r.skipped} linhas ignoradas por falta de contato`);

@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity } from "lucide-react";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
+import { Prisma } from "@/app/generated/prisma/client";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, brazilStartOfDay, brazilDateKey, getBrazilParts } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { DonutChart } from "@/components/charts/donut-chart";
@@ -19,6 +20,7 @@ import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
+import { PipelineFilter } from "./pipeline-filter";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { AdminReportsView } from "./admin-reports-view";
@@ -64,7 +66,18 @@ export default async function RelatoriosPage({
   }
 
   return runWithTenant(organizationId, async () => {
-  const scope = await getDealScope(organizationId, userId, session!.user.role);
+  // `pipelines` não depende de `scope`/`visibleMembers` (só de organizationId)
+  // — roda em paralelo com a resolução do escopo em vez de esperar ela
+  // terminar à toa (getDealScope faz sua própria consulta pra Gerente/
+  // Supervisor, ver lib/team-scope.ts).
+  const [scope, pipelines] = await Promise.all([
+    getDealScope(organizationId, userId, session!.user.role),
+    prisma.pipeline.findMany({
+      where: { organizationId },
+      orderBy: { order: "asc" },
+      include: { stages: { orderBy: { order: "asc" } } },
+    }),
+  ]);
 
   // Membros que esta pessoa já enxerga no escopo normal dela — vira tanto as
   // opções do filtro por equipe/responsável abaixo quanto a base do ranking
@@ -125,16 +138,22 @@ export default async function RelatoriosPage({
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
       : {};
 
-  const pipelines = await prisma.pipeline.findMany({
-    where: { organizationId },
-    orderBy: { order: "asc" },
-    include: { stages: { orderBy: { order: "asc" } } },
-  });
-
   const activePipeline =
     pipelines.find((p) => p.id === pipelineIdParam) ??
     pipelines.find((p) => p.isDefault) ??
     pipelines[0];
+
+  // Filtro de funil pro RESTO do relatório (receita, ranking, cargo, motivo
+  // de perda, etc.) — diferente de `activePipeline` acima (que sempre
+  // resolve pra UM funil, porque o gráfico de etapas não tem como misturar
+  // etapas de funis diferentes num funil só). Aqui, sem `pipelineId` na URL
+  // = "todos os funis" (comportamento de sempre, nada muda pra quem não usa
+  // o filtro nesta sessão) — só estreita quando o valor bate um funil de
+  // verdade. Índice em Deal.pipelineId já existe (mesma coluna usada pelo
+  // Kanban/Lista do Pipeline), então isso é um `WHERE` a mais barato, não
+  // um filtro em memória.
+  const pipelineFilter: { pipelineId?: string } =
+    pipelineIdParam && pipelines.some((p) => p.id === pipelineIdParam) ? { pipelineId: pipelineIdParam } : {};
 
   // Janela do gráfico de evolução: exatamente o período escolhido; sem
   // filtro, cai pros últimos 6 meses (senão "Tudo" viraria um gráfico com
@@ -172,7 +191,7 @@ export default async function RelatoriosPage({
     wonByCreditType,
     dailyActivityRaw,
   ] = await Promise.all([
-    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope) } }),
+    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter } }),
     activePipeline
       ? prisma.deal.groupBy({
           by: ["stageId"],
@@ -183,48 +202,50 @@ export default async function RelatoriosPage({
       : Promise.resolve([]),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, ...scopeWhere(effectiveScope) },
+      where: { organizationId, ...scopeWhere(effectiveScope), ...pipelineFilter },
       _count: true,
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope) },
+      where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter },
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
       _count: true,
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
       _count: true,
     }),
     prisma.deal.groupBy({
       by: ["lossReasonId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
       _count: true,
     }),
     // Ranking de reuniões + visitas: as duas são "foi falar com o lead direto"
     // (reunião = online, visita = presencial), então o ranking soma as duas —
     // mas agrupado por type também, pra manter o detalhamento de quantas
-    // foram de cada tipo (ver breakdown no card).
+    // foram de cada tipo (ver breakdown no card). Activity não tem
+    // pipelineId direto (pode nem estar ligada a negócio nenhum), então não
+    // aplica esse filtro — é uma métrica de pessoa, não de funil.
     prisma.activity.groupBy({
       by: ["userId", "type"],
       where: { organizationId, type: { in: ["MEETING", "VISIT"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
       _count: true,
     }),
     prisma.deal.findMany({
-      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope) },
+      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope), ...pipelineFilter },
       select: { closedAt: true, value: true },
     }),
     // Faturamento por tipo de crédito — imóvel e veículo têm ticket e ciclo
     // de decisão bem diferentes, vale ver separado, não só o total misturado.
     prisma.deal.groupBy({
       by: ["creditType"],
-      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
+      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
       _count: true,
       _sum: { value: true },
     }),
@@ -588,32 +609,52 @@ export default async function RelatoriosPage({
   const maxLossCount = Math.max(1, ...lossBreakdown.map((l) => l.count));
 
   // ─── Negócios decididos por cargo do contato — Prisma não agrupa por
-  // campo de relação (contact.jobTitle não é coluna de Deal), então busca os
-  // negócios decididos no período e agrupa na mão. Respeita o mesmo filtro
-  // de data das outras métricas "decididas" da página.
-  const decidedDealsForJobTitle = await prisma.deal.findMany({
-    where: { organizationId, status: { in: ["WON", "LOST"] }, ...scopeWhere(effectiveScope), ...dateWhere("closedAt") },
-    select: { status: true, value: true, contact: { select: { jobTitle: true } } },
+  // campo de relação (contact.jobTitle não é coluna de Deal), então antes
+  // isso buscava TODO negócio decidido (WON+LOST) da organização inteira pra
+  // agrupar na mão em JS. Numa organização com histórico migrado (dezenas de
+  // milhares de negócios já decididos), isso significava trazer todas essas
+  // linhas pro Node em TODA visita ao relatório sem filtro de data (o padrão
+  // da página, "Tudo"). Reescrito como agregação SQL (GROUP BY já em
+  // Postgres) — só os poucos grupos por cargo trafegam de volta, não uma
+  // linha por negócio. Precisa de `prismaRaw.$transaction` + `setTenantOnTx`
+  // porque `$queryRaw` não passa pela extensão de RLS de lib/prisma.ts (que
+  // só intercepta operações de modelo, não consultas cruas) — sem isso a
+  // policy de RLS (FORCE ROW LEVEL SECURITY) bloquearia tudo em silêncio.
+  // Validado bit-a-bit contra o resultado da versão antiga (agrupamento em
+  // JS) antes de substituir, com e sem filtro de responsável/período.
+  const ownerFilterSql =
+    effectiveScope.type === "owners"
+      ? effectiveScope.ownerIds.length > 0
+        ? Prisma.sql`AND d."ownerId" IN (${Prisma.join(effectiveScope.ownerIds)})`
+        : Prisma.sql`AND false`
+      : Prisma.empty;
+  const pipelineFilterSql = pipelineFilter.pipelineId ? Prisma.sql`AND d."pipelineId" = ${pipelineFilter.pipelineId}` : Prisma.empty;
+  const jobTitleAgg = await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    return tx.$queryRaw<{ label: string; won: number; lost: number; wonValue: Prisma.Decimal }[]>`
+      SELECT
+        COALESCE(NULLIF(c."jobTitle", ''), 'Sem cargo cadastrado') AS label,
+        COUNT(*) FILTER (WHERE d.status = 'WON')::int AS won,
+        COUNT(*) FILTER (WHERE d.status = 'LOST')::int AS lost,
+        COALESCE(SUM(d.value) FILTER (WHERE d.status = 'WON'), 0) AS "wonValue"
+      FROM "Deal" d
+      JOIN "Contact" c ON c.id = d."contactId"
+      WHERE d."organizationId" = ${organizationId}
+        AND d.status IN ('WON', 'LOST')
+        ${ownerFilterSql}
+        ${pipelineFilterSql}
+        ${rangeFrom ? Prisma.sql`AND d."closedAt" >= ${rangeFrom}` : Prisma.empty}
+        ${rangeTo ? Prisma.sql`AND d."closedAt" <= ${rangeTo}` : Prisma.empty}
+      GROUP BY 1
+    `;
   });
-  const jobTitleStats = new Map<string, { won: number; lost: number; wonValue: number }>();
-  for (const deal of decidedDealsForJobTitle) {
-    const key = deal.contact.jobTitle || "Sem cargo cadastrado";
-    if (!jobTitleStats.has(key)) jobTitleStats.set(key, { won: 0, lost: 0, wonValue: 0 });
-    const stat = jobTitleStats.get(key)!;
-    if (deal.status === "WON") {
-      stat.won += 1;
-      stat.wonValue += deal.value ? Number(deal.value) : 0;
-    } else {
-      stat.lost += 1;
-    }
-  }
-  const jobTitleBreakdown = Array.from(jobTitleStats.entries())
-    .map(([label, s]) => ({
-      label,
-      won: s.won,
-      lost: s.lost,
-      wonValue: s.wonValue,
-      winRate: s.won + s.lost > 0 ? Math.round((s.won / (s.won + s.lost)) * 100) : 0,
+  const jobTitleBreakdown = jobTitleAgg
+    .map((row) => ({
+      label: row.label,
+      won: row.won,
+      lost: row.lost,
+      wonValue: Number(row.wonValue),
+      winRate: row.won + row.lost > 0 ? Math.round((row.won / (row.won + row.lost)) * 100) : 0,
     }))
     .sort((a, b) => b.won + b.lost - (a.won + a.lost));
 
@@ -627,19 +668,44 @@ export default async function RelatoriosPage({
   // ─── WhatsApp dos negócios: threads de contato que já viraram negócio
   // (aberto, ganho ou perdido) — precisa vir ANTES do bloco "Geral" abaixo,
   // que usa dealThreadIds pra excluir essas threads da contagem geral.
-  const dealContacts = await prisma.deal.findMany({
-    where: { organizationId, ...scopeWhere(effectiveScope) },
-    select: { contactId: true },
-    distinct: ["contactId"],
+  //
+  // Antes: uma consulta buscava TODO contactId distinto entre os negócios da
+  // organização (até ~113 mil linhas numa organização com histórico
+  // migrado) só pra devolver essa lista pro Node, que então mandava ela de
+  // volta como um IN(...) gigante pra achar as threads — o próprio ida-e-
+  // volta de ~113 mil ids já custava perto de 1s antes de sequer olhar pra
+  // WhatsAppThread. Reescrito como EXISTS direto no SQL (o "está vinculado a
+  // um negócio no escopo" nunca precisa sair do Postgres) — validado contra
+  // a versão antiga com dados sintéticos (revertidos, nunca persistidos)
+  // cobrindo escopo "all", escopo por dono (via Deal.ownerId) e o escopo
+  // separado de whatsappScopeWhere (via WhatsAppInstance.userId), inclusive
+  // o caso em que os dois escopos apontam pra donos DIFERENTES (a thread só
+  // deve aparecer quando as duas condições batem, nunca só uma).
+  const dealOwnerFilterSql =
+    effectiveScope.type === "owners"
+      ? effectiveScope.ownerIds.length > 0
+        ? Prisma.sql`AND d."ownerId" IN (${Prisma.join(effectiveScope.ownerIds)})`
+        : Prisma.sql`AND false`
+      : Prisma.empty;
+  const instanceOwnerFilterSql =
+    effectiveScope.type === "owners"
+      ? effectiveScope.ownerIds.length > 0
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM "WhatsAppInstance" i WHERE i.id = t."instanceId" AND i."userId" IN (${Prisma.join(effectiveScope.ownerIds)}))`
+        : Prisma.sql`AND false`
+      : Prisma.empty;
+  const dealThreads = await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    return tx.$queryRaw<{ id: string; instanceId: string | null; contactId: string | null }[]>`
+      SELECT t.id, t."instanceId", t."contactId"
+      FROM "WhatsAppThread" t
+      WHERE t."organizationId" = ${organizationId}
+        AND EXISTS (
+          SELECT 1 FROM "Deal" d
+          WHERE d."contactId" = t."contactId" AND d."organizationId" = ${organizationId} ${dealOwnerFilterSql}
+        )
+        ${instanceOwnerFilterSql}
+    `;
   });
-  const dealContactIds = dealContacts.map((d) => d.contactId);
-
-  const dealThreads = dealContactIds.length
-    ? await prisma.whatsAppThread.findMany({
-        where: { organizationId, contactId: { in: dealContactIds }, ...whatsappScopeWhere(effectiveScope) },
-        select: { id: true, instanceId: true, contactId: true },
-      })
-    : [];
   const dealThreadIds = dealThreads.map((t) => t.id);
   const dealThreadIdSet = new Set(dealThreadIds);
 
@@ -1137,6 +1203,7 @@ export default async function RelatoriosPage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
             <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} />
             <DateRangeFilter />
           </div>
@@ -1241,7 +1308,12 @@ export default async function RelatoriosPage({
         <div className="grid grid-cols-12 gap-5">
           <div className="card col-span-12 p-6 lg:col-span-7">
             <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Funil por etapa</h3>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Negócios abertos agora, de etapa em etapa — veja onde mais se perde volume.</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Negócios abertos agora, de etapa em etapa — veja onde mais se perde volume.
+              {!pipelineFilter.pipelineId && activePipeline && (
+                <> Mostrando <strong className="font-medium text-neutral-500 dark:text-neutral-400">{activePipeline.name}</strong> — etapas de funis diferentes não têm como somar num funil só; escolha um funil específico no filtro pra ver outro.</>
+              )}
+            </p>
             {stageData.length === 0 ? (
               <div className="mt-6">
                 <FunnelSkeleton message="Nenhum negócio em aberto nesse período" />

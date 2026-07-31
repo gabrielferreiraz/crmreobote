@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
+import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
@@ -20,42 +21,41 @@ const DEFAULT_SEARCH_LIMIT = 8;
 const DEFAULT_LIST_LIMIT = 500;
 const MAX_LIMIT = 500;
 
+function parseDate(value: string | null): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q");
+  const q = searchParams.get("q") ?? undefined;
   const skipParam = Number(searchParams.get("skip"));
   const skip = Number.isFinite(skipParam) && skipParam > 0 ? skipParam : 0;
   const limitParam = Number(searchParams.get("limit"));
   const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : null;
   const take = Math.min(requestedLimit ?? (q ? DEFAULT_SEARCH_LIMIT : DEFAULT_LIST_LIMIT), MAX_LIMIT);
 
+  // Filtros que hoje só existiam client-side em contacts-table.tsx.
+  const source = searchParams.get("source") ?? undefined;
+  const jobTitle = searchParams.get("jobTitle") ?? undefined;
+  const responsavelId = searchParams.get("responsavelId") ?? undefined;
+  const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
+  const registeredFrom = parseDate(searchParams.get("registeredFrom"));
+  const registeredTo = parseDate(searchParams.get("registeredTo"));
+
   const { organizationId } = await requireSession();
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
-    const contacts = await prisma.contact.findMany({
-      where: {
-        organizationId,
-        // Placeholders reconstruídos na migração do Agendor (negócio órfão
-        // de pessoa) ficam de fora da listagem de clientes de propósito.
-        NOT: { tags: { has: "sem-contato-agendor" } },
-        ...(q
-          ? {
-              OR: [
-                { name: { contains: q, mode: "insensitive" } },
-                { email: { contains: q, mode: "insensitive" } },
-                { phone: { contains: q } },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { createdAt: "desc" },
-      include: { _count: { select: { deals: true } }, responsavel: { select: { id: true, name: true } } },
-      take,
-      skip,
-    });
+    const filterParams = { organizationId, q, source, jobTitle, responsavelId, onlyWithDeals, registeredFrom, registeredTo };
 
-    return NextResponse.json(contacts);
+    const [contacts, totalCount] = await Promise.all([
+      fetchContactsList({ ...filterParams, skip, take }),
+      countContacts(filterParams),
+    ]);
+
+    return NextResponse.json(contacts, { headers: { "X-Total-Count": String(totalCount) } });
   });
 }
 

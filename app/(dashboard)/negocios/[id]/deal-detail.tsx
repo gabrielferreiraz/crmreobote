@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
@@ -14,13 +15,28 @@ import { Select } from "@/components/select";
 import { CurrencyInput } from "@/components/currency-input";
 import { DatePicker } from "@/components/date-picker";
 import { TimePicker } from "@/components/time-picker";
-import { WhatsAppPanel, WhatsAppPanelTrigger, ChatWindow } from "@/components/whatsapp-chat";
-import { ConfettiBurst } from "@/components/confetti-burst";
-import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
-import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
+import { WhatsAppPanelTrigger } from "@/components/whatsapp-panel-trigger";
+import { appendDictatedText } from "@/lib/dictation";
+import type { MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 import { brazilDateKey } from "@/lib/timezone";
+
+// Só carregam depois que a pessoa de fato abre o painel/confete/convite/
+// ditado por voz — cada um puxa dependências pesadas (chat com QR/mídia/
+// áudio, canvas de confete, Web Speech API) que a maioria das visitas a esta
+// página nunca aciona. `ssr: false` porque todos são só client-side de
+// qualquer forma (efeito visual, gravação de mídia, WebSpeech).
+const WhatsAppPanel = dynamic(() => import("@/components/whatsapp-chat").then((m) => m.WhatsAppPanel), { ssr: false });
+const ChatWindow = dynamic(() => import("@/components/whatsapp-chat").then((m) => m.ChatWindow), { ssr: false });
+const ConfettiBurst = dynamic(() => import("@/components/confetti-burst").then((m) => m.ConfettiBurst), { ssr: false });
+const MeetingInviteDialog = dynamic(
+  () => import("@/components/meeting-invite-dialog").then((m) => m.MeetingInviteDialog),
+  { ssr: false },
+);
+const VoiceInputButton = dynamic(() => import("@/components/voice-input-button").then((m) => m.VoiceInputButton), {
+  ssr: false,
+});
 
 type Stage = { id: string; name: string; order: number; color: string | null };
 
@@ -709,11 +725,11 @@ export function DealDetail({
             onSaved={() => router.refresh()}
           />
 
-          {deal.status === "LOST" && deal.lossReason && (
+          {deal.status === "LOST" && (deal.lossReason || deal.lostReason) && (
             <div className="card space-y-2 border-red-100 dark:border-red-900 bg-red-50/40 dark:bg-red-500/10 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Motivo da perda</h3>
-              <Row label="Motivo" value={deal.lossReason.label} />
-              {deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
+              <Row label="Motivo" value={deal.lossReason?.label ?? deal.lostReason ?? ""} />
+              {deal.lossReason && deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
             </div>
           )}
 
@@ -959,11 +975,11 @@ export function DealDetail({
               onSaved={() => router.refresh()}
             />
 
-            {deal.status === "LOST" && deal.lossReason && (
+            {deal.status === "LOST" && (deal.lossReason || deal.lostReason) && (
               <div className="card space-y-2 border-red-100 bg-red-50/40 p-4 text-sm dark:border-red-900 dark:bg-red-500/10">
                 <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Motivo da perda</h3>
-                <Row label="Motivo" value={deal.lossReason.label} />
-                {deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
+                <Row label="Motivo" value={deal.lossReason?.label ?? deal.lostReason ?? ""} />
+                {deal.lossReason && deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
               </div>
             )}
 

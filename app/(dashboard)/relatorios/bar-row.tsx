@@ -1,26 +1,49 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+const DEFAULT_COLOR = "#2a78d6";
+
 export function BarRow({
   label,
   value,
   max,
   displayValue,
+  color,
 }: {
   label: string;
   value: number;
   max: number;
   displayValue: string;
+  /** Cor da barra (ex.: a cor já configurada da etapa) — cai no azul padrão se omitida. */
+  color?: string | null;
 }) {
-  const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
+  const targetPct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
+  const [pct, setPct] = useState(0);
+
+  // Cresce do zero ao montar — sem isso a barra "aparece" pronta, perde o
+  // efeito de comparação que o crescimento comunica. requestAnimationFrame
+  // (não só setState direto) garante que o navegador pintou o 0% primeiro,
+  // senão a transição de largura não tem de onde partir.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setPct(targetPct));
+    return () => cancelAnimationFrame(frame);
+  }, [targetPct]);
+
+  const barColor = color || DEFAULT_COLOR;
 
   return (
-    <div className="flex items-center gap-3 text-sm" title={`${label}: ${displayValue}`}>
+    <div className="group/row -mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
       <span className="w-40 shrink-0 truncate text-neutral-500 dark:text-neutral-400">{label}</span>
-      <div className="h-2 flex-1 rounded-full bg-neutral-100 dark:bg-neutral-800">
+      <div className="relative h-2.5 flex-1 rounded-full bg-neutral-100 dark:bg-neutral-800">
         <div
-          className="h-2 rounded-full bg-neutral-900 dark:bg-white transition-all"
-          style={{ width: `${pct}%` }}
+          className="h-full rounded-full transition-[width,filter] duration-700 ease-out group-hover/row:brightness-110"
+          style={{ width: `${pct}%`, backgroundColor: barColor }}
         />
       </div>
-      <span className="w-24 shrink-0 text-right text-neutral-800 dark:text-neutral-200">{displayValue}</span>
+      <span className="w-24 shrink-0 text-right font-medium tabular-nums text-neutral-800 dark:text-neutral-200">
+        {displayValue}
+      </span>
     </div>
   );
 }

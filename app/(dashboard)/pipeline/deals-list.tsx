@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, Trash2, GitBranch, Layers, User, Send, Loader2 } from "lucide-react";
+import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2 } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { EmptyState } from "@/components/empty-state";
@@ -16,6 +16,7 @@ import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkSendMessageDialog } from "@/components/bulk-send-message-dialog";
+import { Pagination } from "@/components/pagination";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
@@ -23,11 +24,20 @@ import type { Deal } from "./kanban-board";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const DEFAULT_PAGE_SIZE = 50;
+/** Nenhum negócio de verdade tem esse id de responsável — usado quando o
+ * filtro de "responsável X" + "status do consultor" (ativo/inativo) se
+ * contradizem (ex.: escolheu um responsável específico E "só inativos", mas
+ * esse responsável está ativo), forçando zero resultados sem precisar de um
+ * caminho de código separado pra esse caso. */
+const IMPOSSIBLE_OWNER_ID = "__none__";
 
 type MemberOption = { id: string; name: string; active: boolean };
 type Stage = { id: string; name: string; color: string | null };
 type LossReasonOption = { id: string; label: string };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
+type Sums = { wonSum: number; lostSum: number; totalSum: number };
 
 const STATUS_LABELS: Record<Deal["status"], string> = {
   OPEN: "Em andamento",
@@ -36,10 +46,10 @@ const STATUS_LABELS: Record<Deal["status"], string> = {
 };
 
 export function DealsList({
-  deals,
-  totalCount,
-  onLoadMore,
-  loadingMore,
+  initialDeals,
+  initialTotalCount,
+  initialSums,
+  reloadToken,
   members,
   stages,
   pipelineId,
@@ -49,11 +59,12 @@ export function DealsList({
   canBulkMessage,
   restoredDraft,
 }: {
-  deals: Deal[];
-  /** Total de negócios do pipeline (todos os status) no banco — pode ser bem maior que deals.length (ver pipeline-view.tsx). */
-  totalCount: number;
-  onLoadMore: () => Promise<void>;
-  loadingMore: boolean;
+  initialDeals: Deal[];
+  /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
+  initialTotalCount: number;
+  initialSums: Sums;
+  /** Incrementado pelo componente pai (novo negócio criado, importação concluída) pra forçar buscar de novo a página/filtro atual. */
+  reloadToken: number;
   members: MemberOption[];
   stages: Stage[];
   pipelineId: string;
@@ -64,13 +75,17 @@ export function DealsList({
   restoredDraft: BulkSendDraft | null;
 }) {
   const router = useRouter();
+
+  const [deals, setDeals] = useState(initialDeals);
+  const [totalCount, setTotalCount] = useState(initialTotalCount);
+  const [sums, setSums] = useState(initialSums);
+  const [loading, setLoading] = useState(false);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
   const [search, setSearch] = useState("");
-  // Resultado da busca por texto no SERVIDOR (todo o pipeline, não só a
-  // página carregada) — null quando a busca está vazia, e aí os demais
-  // filtros abaixo operam em cima de `deals` (a página carregada) normalmente.
-  // Mesmo padrão de app/(dashboard)/clientes/contacts-table.tsx.
-  const [searchResults, setSearchResults] = useState<Deal[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">("OPEN");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [ownerStatusFilter, setOwnerStatusFilter] = useState<"" | "active" | "inactive">("");
@@ -83,50 +98,97 @@ export function DealsList({
   const [closedFrom, setClosedFrom] = useState("");
   const [closedTo, setClosedTo] = useState("");
 
-  // Busca por texto vai pro servidor (debounced), não filtra só o que já
-  // carregou — com o pipeline inteiro (todos os status) podendo ter muito
-  // mais que a página atual, o cliente não tem o resto em memória pra
-  // filtrar. Reaproveita GET /api/deals (mesmo endpoint do "carregar mais",
-  // ver pipeline-view.tsx). Mesmo padrão de clientes/contacts-table.tsx.
+  // Debounce só do texto — os demais filtros já resetam a página e buscam na
+  // hora (ver os handlers "with reset" abaixo).
   useEffect(() => {
-    const term = search.trim();
-    if (!term) {
-      const clear = setTimeout(() => {
-        setSearchResults(null);
-        setSearching(false);
-      }, 0);
-      return () => clearTimeout(clear);
-    }
-    const timer = setTimeout(() => {
-      setSearching(true);
-      fetch(`/api/deals?pipelineId=${pipelineId}&q=${encodeURIComponent(term)}`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((data: Deal[]) => setSearchResults(data))
-        .catch(() => setSearchResults([]))
-        .finally(() => setSearching(false));
-    }, SEARCH_DEBOUNCE_MS);
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [search, pipelineId]);
+  }, [search]);
 
-  // Base pra filtrar: resultado da busca no servidor (já veio filtrado por
-  // texto) quando há termo digitado, senão a página de negócios carregada
-  // até agora. Os demais filtros (status, responsável, etapa etc.) continuam
-  // client-side em cima dessa base.
-  const baseDeals = searchResults ?? deals;
+  // 1ª renderização já tem os dados certos (vieram prontos do servidor,
+  // página 1, sem filtro) — sem essa guarda, esse efeito dispararia uma
+  // busca redundante assim que montasse.
+  const skipNextFetch = useRef(true);
+
+  useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams({ pipelineId, skip: String((page - 1) * pageSize), limit: String(pageSize) });
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (statusFilter) params.set("status", statusFilter);
+    if (ownerFilter && ownerStatusFilter) {
+      const isActive = members.find((m) => m.id === ownerFilter)?.active ?? true;
+      const matches = ownerStatusFilter === "active" ? isActive : !isActive;
+      params.set("ownerId", matches ? ownerFilter : IMPOSSIBLE_OWNER_ID);
+    } else if (ownerFilter) {
+      params.set("ownerId", ownerFilter);
+    } else if (ownerStatusFilter) {
+      const ids = members.filter((m) => (ownerStatusFilter === "active" ? m.active : !m.active)).map((m) => m.id);
+      params.set("ownerId", ids.length > 0 ? ids.join(",") : IMPOSSIBLE_OWNER_ID);
+    }
+    if (stageFilter) params.set("stageId", stageFilter);
+    if (lossReasonFilter) params.set("lossReasonId", lossReasonFilter);
+    if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
+    if (originFilter) params.set("source", originFilter);
+    if (dateFrom) params.set("createdFrom", brazilDateStringToUTC(dateFrom).toISOString());
+    if (dateTo) params.set("createdTo", brazilEndOfDayUTC(dateTo).toISOString());
+    if (closedFrom) params.set("closedFrom", brazilDateStringToUTC(closedFrom).toISOString());
+    if (closedTo) params.set("closedTo", brazilEndOfDayUTC(closedTo).toISOString());
+
+    fetch(`/api/deals?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data: Deal[] = await res.json();
+        if (cancelled) return;
+        setDeals(data);
+        setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
+        setSums({
+          wonSum: Number(res.headers.get("X-Won-Sum") ?? 0),
+          lostSum: Number(res.headers.get("X-Lost-Sum") ?? 0),
+          totalSum: Number(res.headers.get("X-Total-Sum") ?? 0),
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    pipelineId,
+    page,
+    pageSize,
+    debouncedSearch,
+    statusFilter,
+    ownerFilter,
+    ownerStatusFilter,
+    stageFilter,
+    lossReasonFilter,
+    jobTitleFilter,
+    originFilter,
+    dateFrom,
+    dateTo,
+    closedFrom,
+    closedTo,
+    reloadToken,
+  ]);
 
   const jobTitleOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const d of baseDeals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
+    for (const d of deals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
     return Array.from(set).sort();
-  }, [baseDeals]);
+  }, [deals]);
 
   const originOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const d of baseDeals) if (d.contact.source) set.add(d.contact.source);
+    for (const d of deals) if (d.contact.source) set.add(d.contact.source);
     return Array.from(set).sort();
-  }, [baseDeals]);
-
-  const activeByOwnerId = useMemo(() => new Map(members.map((m) => [m.id, m.active])), [members]);
+  }, [deals]);
 
   const hasFilters =
     statusFilter !== "OPEN" ||
@@ -153,11 +215,13 @@ export function DealsList({
     setDateTo("");
     setClosedFrom("");
     setClosedTo("");
+    setPage(1);
   }
 
   function applyClosedQuickRange(range: { from: string; to: string }) {
     setClosedFrom(range.from);
     setClosedTo(range.to);
+    setPage(1);
   }
 
   // Pra ida-e-volta de "+ Criar script" (ver components/bulk-send-message-dialog.tsx
@@ -193,65 +257,8 @@ export function DealsList({
     if (f.dateTo !== undefined) setDateTo(f.dateTo);
     if (f.closedFrom !== undefined) setClosedFrom(f.closedFrom);
     if (f.closedTo !== undefined) setClosedTo(f.closedTo);
+    setPage(1);
   }
-
-  const filteredDeals = useMemo(() => {
-    const from = dateFrom ? brazilDateStringToUTC(dateFrom) : null;
-    const to = dateTo ? brazilEndOfDayUTC(dateTo) : null;
-    const closedFromDate = closedFrom ? brazilDateStringToUTC(closedFrom) : null;
-    const closedToDate = closedTo ? brazilEndOfDayUTC(closedTo) : null;
-
-    return baseDeals.filter((d) => {
-      if (statusFilter && d.status !== statusFilter) return false;
-      if (ownerFilter && d.owner.id !== ownerFilter) return false;
-      if (ownerStatusFilter) {
-        const isActive = activeByOwnerId.get(d.owner.id) ?? true;
-        if (ownerStatusFilter === "active" && !isActive) return false;
-        if (ownerStatusFilter === "inactive" && isActive) return false;
-      }
-      if (stageFilter && d.stage.id !== stageFilter) return false;
-      if (lossReasonFilter && d.lossReasonId !== lossReasonFilter) return false;
-      if (jobTitleFilter && d.contact.jobTitle !== jobTitleFilter) return false;
-      if (originFilter && d.contact.source !== originFilter) return false;
-      const createdAt = new Date(d.createdAt);
-      if (from && createdAt < from) return false;
-      if (to && createdAt > to) return false;
-      if (closedFromDate || closedToDate) {
-        if (!d.closedAt) return false;
-        const closedAt = new Date(d.closedAt);
-        if (closedFromDate && closedAt < closedFromDate) return false;
-        if (closedToDate && closedAt > closedToDate) return false;
-      }
-      return true;
-    });
-  }, [
-    baseDeals,
-    statusFilter,
-    ownerFilter,
-    ownerStatusFilter,
-    activeByOwnerId,
-    stageFilter,
-    lossReasonFilter,
-    jobTitleFilter,
-    originFilter,
-    dateFrom,
-    dateTo,
-    closedFrom,
-    closedTo,
-  ]);
-
-  const wonSum = useMemo(
-    () => filteredDeals.filter((d) => d.status === "WON" && d.value != null).reduce((sum, d) => sum + d.value!, 0),
-    [filteredDeals],
-  );
-  const lostSum = useMemo(
-    () => filteredDeals.filter((d) => d.status === "LOST" && d.value != null).reduce((sum, d) => sum + d.value!, 0),
-    [filteredDeals],
-  );
-  const totalFilteredValue = useMemo(
-    () => filteredDeals.filter((d) => d.value != null).reduce((sum, d) => sum + d.value!, 0),
-    [filteredDeals],
-  );
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -271,6 +278,7 @@ export function DealsList({
     restoreFilters(restoredDraft.filters);
     setSelectedIds(new Set(restoredDraft.selectedIds));
     setBulkSendOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoredDraft]);
 
   function handleCreateScript() {
@@ -278,15 +286,19 @@ export function DealsList({
     router.push(`/whatsapp/scripts/novo?returnTo=${encodeURIComponent("/pipeline")}`);
   }
 
-  const allFilteredSelected = filteredDeals.length > 0 && filteredDeals.every((d) => selectedIds.has(d.id));
+  // Seleção opera só sobre a página atual — "selecionar tudo" seleciona no
+  // máximo `pageSize` negócios (antes, com "carregar mais", podia acumular
+  // milhares na memória; com paginação de verdade não tem mais um superset
+  // pra selecionar de outras páginas).
+  const allSelected = deals.length > 0 && deals.every((d) => selectedIds.has(d.id));
 
   function toggleSelectAll() {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (allFilteredSelected) {
-        for (const d of filteredDeals) next.delete(d.id);
+      if (allSelected) {
+        for (const d of deals) next.delete(d.id);
       } else {
-        for (const d of filteredDeals) next.add(d.id);
+        for (const d of deals) next.add(d.id);
       }
       return next;
     });
@@ -304,13 +316,13 @@ export function DealsList({
       }
 
       if (shiftKey && lastSelectedId && lastSelectedId !== id) {
-        const lastIndex = filteredDeals.findIndex((d) => d.id === lastSelectedId);
-        const currentIndex = filteredDeals.findIndex((d) => d.id === id);
+        const lastIndex = deals.findIndex((d) => d.id === lastSelectedId);
+        const currentIndex = deals.findIndex((d) => d.id === id);
         if (lastIndex !== -1 && currentIndex !== -1) {
           const start = Math.min(lastIndex, currentIndex);
           const end = Math.max(lastIndex, currentIndex);
           for (let i = start; i <= end; i++) {
-            const dealId = filteredDeals[i].id;
+            const dealId = deals[i].id;
             if (isSelecting) {
               next.add(dealId);
             } else {
@@ -440,7 +452,10 @@ export function DealsList({
           />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Buscar negócio ou contato"
             className="field-input w-64 py-1.5 pl-8 text-sm"
           />
@@ -450,7 +465,10 @@ export function DealsList({
             <label className="field-label">Status</label>
             <Select
               value={statusFilter}
-              onChange={(v) => setStatusFilter(v as Deal["status"] | "")}
+              onChange={(v) => {
+                setStatusFilter(v as Deal["status"] | "");
+                setPage(1);
+              }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "OPEN", label: "Em andamento" },
@@ -464,7 +482,10 @@ export function DealsList({
             <label className="field-label">Etapa</label>
             <Select
               value={stageFilter}
-              onChange={setStageFilter}
+              onChange={(v) => {
+                setStageFilter(v);
+                setPage(1);
+              }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todas as etapas" },
@@ -476,7 +497,10 @@ export function DealsList({
             <label className="field-label">Responsável</label>
             <Select
               value={ownerFilter}
-              onChange={setOwnerFilter}
+              onChange={(v) => {
+                setOwnerFilter(v);
+                setPage(1);
+              }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
@@ -488,7 +512,10 @@ export function DealsList({
             <label className="field-label">Status do consultor</label>
             <Select
               value={ownerStatusFilter}
-              onChange={(v) => setOwnerStatusFilter(v as "" | "active" | "inactive")}
+              onChange={(v) => {
+                setOwnerStatusFilter(v as "" | "active" | "inactive");
+                setPage(1);
+              }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Ativos e inativos" },
@@ -502,7 +529,10 @@ export function DealsList({
               <label className="field-label">Cargo</label>
               <Select
                 value={jobTitleFilter}
-                onChange={setJobTitleFilter}
+                onChange={(v) => {
+                  setJobTitleFilter(v);
+                  setPage(1);
+                }}
                 className="w-full py-1.5 text-sm"
                 options={[
                   { value: "", label: "Todos os cargos" },
@@ -516,7 +546,10 @@ export function DealsList({
               <label className="field-label">Origem</label>
               <Select
                 value={originFilter}
-                onChange={setOriginFilter}
+                onChange={(v) => {
+                  setOriginFilter(v);
+                  setPage(1);
+                }}
                 className="w-full py-1.5 text-sm"
                 options={[
                   { value: "", label: "Todas as origens" },
@@ -530,7 +563,10 @@ export function DealsList({
               <label className="field-label">Motivo da perda</label>
               <Select
                 value={lossReasonFilter}
-                onChange={setLossReasonFilter}
+                onChange={(v) => {
+                  setLossReasonFilter(v);
+                  setPage(1);
+                }}
                 className="w-full py-1.5 text-sm"
                 options={[
                   { value: "", label: "Todos os motivos" },
@@ -549,6 +585,7 @@ export function DealsList({
               onSelect={(r) => {
                 setDateFrom(r.from);
                 setDateTo(r.to);
+                setPage(1);
               }}
             />
           </div>
@@ -565,6 +602,7 @@ export function DealsList({
             />
           </div>
         </FilterPopover>
+        {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />}
         {selectedIds.size > 0 && (
           <div className="ml-auto">
             <SelectionBar count={selectedIds.size} onClear={clearSelection}>
@@ -626,21 +664,14 @@ export function DealsList({
       {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        {searching
-          ? "Buscando…"
-          : searchResults
-            ? `${filteredDeals.length} resultado${filteredDeals.length === 1 ? "" : "s"} para "${search.trim()}" · `
-            : hasFilters
-              ? `${filteredDeals.length} de ${deals.length} carregados · `
-              : `${deals.length} de ${totalCount} negócio${totalCount === 1 ? "" : "s"} · `}
-        Ganhos: <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(wonSum)}</span> · Perdidos:{" "}
-        <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(lostSum)}</span>
+        Ganhos: <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.wonSum)}</span> · Perdidos:{" "}
+        <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.lostSum)}</span>
       </p>
 
       <div className="card overflow-x-auto">
         {totalCount === 0 ? (
           <EmptyState icon={Inbox} title="Nenhum negócio cadastrado" description="Crie o primeiro negócio para começar a preencher o funil." />
-        ) : filteredDeals.length === 0 ? (
+        ) : deals.length === 0 ? (
           <EmptyState icon={SearchX} title="Nenhum negócio encontrado" description="Ajuste a busca ou limpe os filtros." />
         ) : (
           <table className="w-full text-sm">
@@ -649,7 +680,7 @@ export function DealsList({
                 <th className="px-3 py-2 font-medium">
                   <input
                     type="checkbox"
-                    checked={allFilteredSelected}
+                    checked={allSelected}
                     onChange={toggleSelectAll}
                     className="accent-neutral-900 dark:accent-white"
                     aria-label="Selecionar todos"
@@ -667,7 +698,7 @@ export function DealsList({
               </tr>
             </thead>
             <tbody>
-              {filteredDeals.map((deal) => (
+              {deals.map((deal) => (
                 <tr
                   key={deal.id}
                   className="group border-b border-neutral-100 dark:border-neutral-800 last:border-0 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
@@ -714,8 +745,8 @@ export function DealsList({
                   </td>
                   <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
                     {STATUS_LABELS[deal.status]}
-                    {deal.status === "LOST" && deal.lossReason && (
-                      <span className="text-neutral-400 dark:text-neutral-500"> · {deal.lossReason.label}</span>
+                    {deal.status === "LOST" && (deal.lossReason?.label ?? deal.lostReason) && (
+                      <span className="text-neutral-400 dark:text-neutral-500"> · {deal.lossReason?.label ?? deal.lostReason}</span>
                     )}
                   </td>
                   <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500 dark:text-neutral-400">
@@ -743,7 +774,7 @@ export function DealsList({
                   Total filtrado
                 </td>
                 <td className="px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100">
-                  {formatCurrency(totalFilteredValue)}
+                  {formatCurrency(sums.totalSum)}
                 </td>
                 <td></td>
               </tr>
@@ -752,18 +783,18 @@ export function DealsList({
         )}
       </div>
 
-      {/* Só faz sentido carregar mais da lista base — buscando por texto ou
-          com filtro ativo, "mais" seria de um recorte diferente do que está
-          na tela (a busca de texto já cobre o pipeline inteiro sozinha; os
-          outros filtros continuam restritos ao que já foi carregado). */}
-      {!searchResults && !hasFilters && deals.length < totalCount && (
-        <div className="flex justify-center pt-1">
-          <button type="button" onClick={onLoadMore} disabled={loadingMore} className="btn-secondary">
-            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {loadingMore ? "Carregando…" : `Carregar mais (${totalCount - deals.length} restantes)`}
-          </button>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSizeOptions={PAGE_SIZE_OPTIONS}
+        itemLabel="negócios"
+      />
 
       {confirmBulkDelete && (
         <ConfirmDialog

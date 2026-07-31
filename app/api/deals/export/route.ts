@@ -64,7 +64,7 @@ async function writeDealsWorkbook(organizationId: string, output: PassThrough) {
             owner: sanitizeCell(deal.owner.name),
             value: deal.value ? Number(deal.value) : "",
             creditType: sanitizeCell(deal.creditType ?? ""),
-            lossReason: sanitizeCell(deal.lossReason?.label ?? ""),
+            lossReason: sanitizeCell(deal.lossReason?.label ?? deal.lostReason ?? ""),
             createdAt: deal.createdAt.toLocaleDateString("pt-BR"),
           })
           .commit();

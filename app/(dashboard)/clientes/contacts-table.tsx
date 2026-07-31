@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -30,6 +30,7 @@ import { FilterPopover } from "@/components/filter-popover";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
+import { Pagination } from "@/components/pagination";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
@@ -39,11 +40,12 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
+import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/list-query";
 
 const QUICK_RANGES = buildListQuickRanges();
-
-const NO_JOB_TITLE = "__NONE__";
-const NO_RESPONSAVEL = "__NONE__";
+const SEARCH_DEBOUNCE_MS = 300;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const DEFAULT_PAGE_SIZE = 50;
 
 const SOURCE_BADGE: Record<string, string> = {
   FACEBOOK:
@@ -62,47 +64,15 @@ const SOURCE_DOT: Record<string, string> = {
 };
 const SOURCE_DOT_DEFAULT = "bg-neutral-400";
 
-type Contact = {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  whatsapp: string | null;
-  source: string | null;
-  company: string | null;
-  jobTitle: string | null;
-  address: string | null;
-  addressNumber: string | null;
-  addressComplement: string | null;
-  neighborhood: string | null;
-  city: string | null;
-  state: string | null;
-  zipCode: string | null;
-  tags: string[];
-  responsavelId: string | null;
-  responsavel: { id: string; name: string } | null;
-  createdAt: string | Date;
-  customFieldValues: CustomFieldFormValues | null;
-  _count: { deals: number };
-};
+type Contact = EnrichedContact;
 
 type MemberOption = { id: string; name: string };
 
 type PipelineOption = { id: string; name: string; isDefault: boolean; firstStageId: string };
 
-/**
- * Quantos contatos o carregamento inicial (página do servidor) e o "carregar
- * mais" trazem por vez — organização com 100 mil clientes nunca busca tudo
- * de uma vez só; ver app/(dashboard)/clientes/page.tsx.
- */
-const PAGE_SIZE = 500;
-/** Máximo de resultados que a busca por texto (servidor, todo o banco) devolve de uma vez. */
-const SEARCH_LIMIT = 100;
-const SEARCH_DEBOUNCE_MS = 300;
-
 export function ContactsTable({
   initialContacts,
-  totalCount,
+  initialTotalCount,
   isOwner,
   isManager,
   sources,
@@ -112,8 +82,7 @@ export function ContactsTable({
   customFields,
 }: {
   initialContacts: Contact[];
-  /** Total de contatos da organização no banco — pode ser bem maior que initialContacts.length (só a 1ª página vem carregada). */
-  totalCount: number;
+  initialTotalCount: number;
   isOwner: boolean;
   isManager: boolean;
   sources: { id: string; label: string }[];
@@ -123,22 +92,14 @@ export function ContactsTable({
   customFields: CustomFieldDefinitionInput[];
 }) {
   const router = useRouter();
-  // Cópia local paginável de initialContacts — "carregar mais" concatena
-  // aqui; ressincroniza sozinha quando o servidor manda uma 1ª página nova
-  // (ex.: depois de router.refresh() por uma edição/import), senão o
-  // "carregar mais" de uma sessão anterior ficaria colado nela pra sempre.
-  const [contacts, setContacts] = useState(initialContacts);
-  const [loadingMore, setLoadingMore] = useState(false);
-  // Resultado da busca por texto no SERVIDOR (todo o banco, não só o que já
-  // foi carregado) — null quando a busca está vazia, e aí os filtros abaixo
-  // operam em cima de `contacts` (a página carregada) normalmente.
-  const [searchResults, setSearchResults] = useState<Contact[] | null>(null);
-  const [searching, setSearching] = useState(false);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setContacts(initialContacts);
-  }, [initialContacts]);
+  const [contacts, setContacts] = useState(initialContacts);
+  const [totalCount, setTotalCount] = useState(initialTotalCount);
+  const [loading, setLoading] = useState(false);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [name, setName] = useState("");
@@ -158,10 +119,11 @@ export function ContactsTable({
   const [tags, setTags] = useState("");
   const [responsavelId, setResponsavelId] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
-  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
@@ -176,51 +138,55 @@ export function ContactsTable({
   const [sendLeadsOpen, setSendLeadsOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
-  // Busca por texto vai pro servidor (debounced), não filtra só o que já
-  // carregou — com 100 mil contatos, o cliente literalmente não tem o resto
-  // em memória pra filtrar. Reaproveita GET /api/contacts (já com índice
-  // trigram no Postgres, ver migration search_trigram_indexes).
   useEffect(() => {
-    const term = search.trim();
-    // Nenhum setState síncrono no corpo do effect (mesmo o "limpar resultado
-    // ao apagar a busca" passa por um timer) — só assim os dois ramos ficam
-    // livres do aviso de cascata do react-hooks/set-state-in-effect.
-    if (!term) {
-      const clear = setTimeout(() => {
-        setSearchResults(null);
-        setSearching(false);
-      }, 0);
-      return () => clearTimeout(clear);
-    }
-    const timer = setTimeout(() => {
-      setSearching(true);
-      fetch(`/api/contacts?q=${encodeURIComponent(term)}&limit=${SEARCH_LIMIT}`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((data: Contact[]) => setSearchResults(data))
-        .catch(() => setSearchResults([]))
-        .finally(() => setSearching(false));
-    }, SEARCH_DEBOUNCE_MS);
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [search]);
 
-  async function loadMore() {
-    setLoadingMore(true);
-    try {
-      const res = await fetch(`/api/contacts?skip=${contacts.length}&limit=${PAGE_SIZE}`);
-      if (res.ok) {
-        const next: Contact[] = await res.json();
-        setContacts((prev) => [...prev, ...next]);
-      }
-    } finally {
-      setLoadingMore(false);
+  // 1ª renderização já tem os dados certos (vieram prontos do servidor,
+  // página 1, sem filtro) — sem essa guarda, esse efeito dispararia uma
+  // busca redundante assim que montasse. `initialContacts` entra nas
+  // dependências porque sua referência muda a cada `router.refresh()`
+  // (novo contato criado, ação em massa, importação) — funciona como sinal
+  // de "algo mudou, busque a página/filtro atual de novo".
+  const skipNextFetch = useRef(true);
+
+  useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      return;
     }
-  }
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (sourceFilter) params.set("source", sourceFilter);
+    if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
+    if (responsavelFilter) params.set("responsavelId", responsavelFilter);
+    if (onlyWithDeals) params.set("onlyWithDeals", "1");
+    if (registeredFrom) params.set("registeredFrom", brazilDateStringToUTC(registeredFrom).toISOString());
+    if (registeredTo) params.set("registeredTo", brazilEndOfDayUTC(registeredTo).toISOString());
+
+    fetch(`/api/contacts?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data: Contact[] = await res.json();
+        if (cancelled) return;
+        setContacts(data);
+        setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, responsavelFilter, onlyWithDeals, registeredFrom, registeredTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
-  // "antigo" já usado em algum contato — senão, com só a 1ª página
-  // carregada (ver PAGE_SIZE), uma origem que só aparece depois da página
-  // atual nunca viraria opção de filtro (a lista de Origens em si não tem
-  // esse limite, vem inteira do banco à parte).
+  // visto na página atual — cobre valor "antigo" que só apareceria depois de
+  // navegar pra outra página, mas evita uma consulta extra só pra isso.
   const sourceOptions = useMemo(() => {
     const set = new Set(sources.map((s) => s.label));
     for (const c of contacts) if (c.source) set.add(c.source);
@@ -235,7 +201,6 @@ export function ContactsTable({
   }, [contacts, jobTitles]);
 
   const hasFilters =
-    !!search ||
     !!sourceFilter ||
     !!jobTitleFilter ||
     !!responsavelFilter ||
@@ -244,57 +209,30 @@ export function ContactsTable({
     !!registeredTo;
 
   function clearFilters() {
-    setSearch("");
     setSourceFilter("");
     setJobTitleFilter("");
     setResponsavelFilter("");
     setOnlyWithDeals(false);
     setRegisteredFrom("");
     setRegisteredTo("");
+    setPage(1);
   }
 
-  // Base pra filtrar: resultado da busca no servidor (já veio filtrado por
-  // texto, ver o effect acima) quando há termo digitado, senão a página de
-  // contatos carregada até agora. Os demais filtros (origem, cargo,
-  // responsável, só-com-negócio, data) continuam client-side em cima dessa
-  // base — só o texto livre precisava ir pro banco pra alcançar quem ainda
-  // não foi carregado.
-  const baseContacts = searchResults ?? contacts;
-
-  const filteredContacts = useMemo(() => {
-    const from = registeredFrom ? brazilDateStringToUTC(registeredFrom) : null;
-    const to = registeredTo ? brazilEndOfDayUTC(registeredTo) : null;
-    return baseContacts.filter((c) => {
-      if (sourceFilter && c.source !== sourceFilter) return false;
-      if (jobTitleFilter === NO_JOB_TITLE && c.jobTitle) return false;
-      if (jobTitleFilter && jobTitleFilter !== NO_JOB_TITLE && c.jobTitle !== jobTitleFilter) return false;
-      if (responsavelFilter === NO_RESPONSAVEL && c.responsavelId) return false;
-      if (responsavelFilter && responsavelFilter !== NO_RESPONSAVEL && c.responsavelId !== responsavelFilter) return false;
-      if (onlyWithDeals && c._count.deals === 0) return false;
-      if (from || to) {
-        const createdAt = new Date(c.createdAt);
-        if (from && createdAt < from) return false;
-        if (to && createdAt > to) return false;
-      }
-      return true;
-    });
-  }, [baseContacts, sourceFilter, jobTitleFilter, responsavelFilter, onlyWithDeals, registeredFrom, registeredTo]);
-
   const selectedContactIds = useMemo(
-    () => filteredContacts.filter((c) => selectedIds.has(c.id)).map((c) => c.id),
-    [filteredContacts, selectedIds],
+    () => contacts.filter((c) => selectedIds.has(c.id)).map((c) => c.id),
+    [contacts, selectedIds],
   );
-  const allFilteredSelected = filteredContacts.length > 0 && filteredContacts.every((c) => selectedIds.has(c.id));
+  const allSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
 
   function toggleSelectAll() {
     setSelectedIds((prev) => {
-      if (allFilteredSelected) {
+      if (allSelected) {
         const next = new Set(prev);
-        for (const c of filteredContacts) next.delete(c.id);
+        for (const c of contacts) next.delete(c.id);
         return next;
       }
       const next = new Set(prev);
-      for (const c of filteredContacts) next.add(c.id);
+      for (const c of contacts) next.add(c.id);
       return next;
     });
   }
@@ -311,14 +249,14 @@ export function ContactsTable({
       }
 
       if (shiftKey && lastSelectedId && lastSelectedId !== id) {
-        const lastIndex = filteredContacts.findIndex((c) => c.id === lastSelectedId);
-        const currentIndex = filteredContacts.findIndex((c) => c.id === id);
+        const lastIndex = contacts.findIndex((c) => c.id === lastSelectedId);
+        const currentIndex = contacts.findIndex((c) => c.id === id);
         if (lastIndex !== -1 && currentIndex !== -1) {
           const start = Math.min(lastIndex, currentIndex);
           const end = Math.max(lastIndex, currentIndex);
-          
+
           for (let i = start; i <= end; i++) {
-            const contactId = filteredContacts[i].id;
+            const contactId = contacts[i].id;
             if (isSelecting) {
               next.add(contactId);
             } else {
@@ -374,7 +312,7 @@ export function ContactsTable({
     setBulkError(null);
     try {
       const failures = await countBulkFailures(
-        filteredContacts
+        contacts
           .filter((c) => selectedIds.has(c.id))
           .map((c) =>
             fetch(`/api/contacts/${c.id}`, {
@@ -441,7 +379,7 @@ export function ContactsTable({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setCreating(true);
     setError(null);
 
     const res = await fetch("/api/contacts", {
@@ -471,7 +409,7 @@ export function ContactsTable({
       }),
     });
 
-    setLoading(false);
+    setCreating(false);
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -527,7 +465,10 @@ export function ContactsTable({
           />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Buscar por nome, e-mail ou celular"
             className="field-input w-full py-1.5 pl-8 text-sm"
           />
@@ -538,7 +479,10 @@ export function ContactsTable({
               <label className="field-label">Origem</label>
               <Select
                 value={sourceFilter}
-                onChange={setSourceFilter}
+                onChange={(v) => {
+                  setSourceFilter(v);
+                  setPage(1);
+                }}
                 className="w-full py-1.5 text-sm"
                 options={[
                   { value: "", label: "Todas as origens" },
@@ -551,7 +495,10 @@ export function ContactsTable({
             <label className="field-label">Cargo</label>
             <Select
               value={jobTitleFilter}
-              onChange={setJobTitleFilter}
+              onChange={(v) => {
+                setJobTitleFilter(v);
+                setPage(1);
+              }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os cargos" },
@@ -564,7 +511,10 @@ export function ContactsTable({
             <label className="field-label">Responsável</label>
             <Select
               value={responsavelFilter}
-              onChange={setResponsavelFilter}
+              onChange={(v) => {
+                setResponsavelFilter(v);
+                setPage(1);
+              }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
@@ -574,7 +524,10 @@ export function ContactsTable({
             />
           </div>
           <button
-            onClick={() => setOnlyWithDeals((v) => !v)}
+            onClick={() => {
+              setOnlyWithDeals((v) => !v);
+              setPage(1);
+            }}
             className={`w-full rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
               onlyWithDeals
                 ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
@@ -593,10 +546,12 @@ export function ContactsTable({
               onSelect={(r) => {
                 setRegisteredFrom(r.from);
                 setRegisteredTo(r.to);
+                setPage(1);
               }}
             />
           </div>
         </FilterPopover>
+        {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />}
         {selectedIds.size > 0 && (
           <div className="ml-auto">
             <SelectionBar count={selectedIds.size} onClear={clearSelection}>
@@ -670,16 +625,6 @@ export function ContactsTable({
       </div>
       {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
-      <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        {searching
-          ? "Buscando…"
-          : searchResults
-            ? `${filteredContacts.length} resultado${filteredContacts.length === 1 ? "" : "s"} para "${search.trim()}"`
-            : hasFilters
-              ? `${filteredContacts.length} de ${contacts.length} carregados`
-              : `${contacts.length} de ${totalCount} conta${totalCount === 1 ? "" : "s"}`}
-      </p>
-
       {totalCount === 0 ? (
         <div className="card">
           <EmptyState
@@ -688,7 +633,7 @@ export function ContactsTable({
             description="Cadastre clientes para vincular a negócios e tarefas."
           />
         </div>
-      ) : filteredContacts.length === 0 ? (
+      ) : contacts.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={SearchX}
@@ -700,7 +645,7 @@ export function ContactsTable({
         <>
           {/* Mobile: cards */}
           <div className="space-y-2 lg:hidden">
-            {filteredContacts.map((c) => (
+            {contacts.map((c) => (
               <div key={c.id} className="group card p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
@@ -730,7 +675,7 @@ export function ContactsTable({
                   </p>
                   <p className="flex items-center gap-1.5">
                     <Phone className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
-                    {c.phone ?? "—"}
+                    {c.whatsapp ?? c.phone ?? "—"}
                   </p>
                   <p className="flex items-center gap-1.5">
                     <IdCard className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
@@ -773,7 +718,7 @@ export function ContactsTable({
                   <th className="border-r border-neutral-100 px-3 py-2.5 dark:border-neutral-800">
                     <input
                       type="checkbox"
-                      checked={allFilteredSelected}
+                      checked={allSelected}
                       onChange={toggleSelectAll}
                       className="accent-neutral-900 dark:accent-white"
                       aria-label="Selecionar todos"
@@ -794,7 +739,7 @@ export function ContactsTable({
                   <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
                     <span className="inline-flex items-center gap-1.5">
                       <Phone className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      Celular
+                      WhatsApp
                     </span>
                   </th>
                   <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
@@ -825,7 +770,7 @@ export function ContactsTable({
                 </tr>
               </thead>
               <tbody>
-                {filteredContacts.map((c) => (
+                {contacts.map((c) => (
                   <tr key={c.id} className="group border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40">
                     <td className="border-r border-neutral-100 px-3 py-3 dark:border-neutral-800">
                       <input
@@ -851,7 +796,7 @@ export function ContactsTable({
                       {c.email ?? "—"}
                     </td>
                     <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                      {c.phone ?? "—"}
+                      {c.whatsapp ?? c.phone ?? "—"}
                     </td>
                     <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                       {c.jobTitle ?? "—"}
@@ -894,18 +839,18 @@ export function ContactsTable({
         </>
       )}
 
-      {/* Só faz sentido carregar mais da lista base — buscando por texto ou
-          com filtro ativo, "mais" seria de um recorte diferente do que está
-          na tela (a busca de texto já cobre o banco inteiro sozinha; os
-          outros filtros continuam restritos ao que já foi carregado). */}
-      {!searchResults && !hasFilters && contacts.length < totalCount && (
-        <div className="flex justify-center pt-1">
-          <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-secondary">
-            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {loadingMore ? "Carregando…" : `Carregar mais (${totalCount - contacts.length} restantes)`}
-          </button>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSizeOptions={PAGE_SIZE_OPTIONS}
+        itemLabel="contas"
+      />
 
       {confirmBulkDelete && (
         <ConfirmDialog
@@ -991,9 +936,9 @@ export function ContactsTable({
               <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading || !name.trim() || !jobTitle} className="btn-primary">
-                {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-                {loading ? (
+              <button type="submit" disabled={creating || !name.trim() || !jobTitle} className="btn-primary">
+                {creating && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+                {creating ? (
                   <span className="inline-flex items-center gap-1">
                     Criando
                     <LoadingDots />
@@ -1081,4 +1026,3 @@ function TagPopoverBody({ busy, onApply }: { busy: boolean; onApply: (value: str
     </div>
   );
 }
-

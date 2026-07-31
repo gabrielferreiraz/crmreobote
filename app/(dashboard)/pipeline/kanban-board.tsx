@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -51,9 +51,18 @@ export type Deal = {
   hasUnreadWhatsApp: boolean;
   lossReasonId: string | null;
   lossReason: { id: string; label: string } | null;
+  // Texto livre — é o que a migração do Agendor preenche (não existia
+  // motivo estruturado lá). Sempre cair pra ele quando não houver
+  // lossReasonId, senão negócio perdido migrado aparece sem motivo nenhum.
+  lostReason: string | null;
 };
 
 type MemberOption = { id: string; name: string };
+
+// Referência estável pra etapas sem nenhum negócio — evitar criar um array
+// novo a cada render aqui deixa o memo() do StageColumn (ver abaixo) de fato
+// pular o re-render dessas colunas quando nada relevante pra elas mudou.
+const EMPTY_DEALS: Deal[] = [];
 
 export function KanbanBoard({
   stages,
@@ -108,19 +117,44 @@ export function KanbanBoard({
     setStaleOnly(false);
   }
 
+  // Adia o valor usado no filtro pesado (não o do input, que continua
+  // ecoando cada tecla na hora) — com milhares de negócios OPEN, o React
+  // prioriza manter a digitação instantânea e só recalcula filteredDeals
+  // (e por tabela o board inteiro) assim que sobrar folga, em vez de travar
+  // o campo de busca esperando o re-render de todas as colunas.
+  const deferredSearch = useDeferredValue(search);
+  const deferredOwnerFilter = useDeferredValue(ownerFilter);
+  const deferredSourceFilter = useDeferredValue(sourceFilter);
+  const deferredJobTitleFilter = useDeferredValue(jobTitleFilter);
+  const deferredStaleOnly = useDeferredValue(staleOnly);
+
   const filteredDeals = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = deferredSearch.trim().toLowerCase();
     return openDeals.filter((d) => {
       if (term && !d.name.toLowerCase().includes(term) && !d.contact.name.toLowerCase().includes(term)) {
         return false;
       }
-      if (ownerFilter && d.owner.id !== ownerFilter) return false;
-      if (sourceFilter && d.contact.source !== sourceFilter) return false;
-      if (jobTitleFilter && d.contact.jobTitle !== jobTitleFilter) return false;
-      if (staleOnly && !isStale(d.stageEnteredAt)) return false;
+      if (deferredOwnerFilter && d.owner.id !== deferredOwnerFilter) return false;
+      if (deferredSourceFilter && d.contact.source !== deferredSourceFilter) return false;
+      if (deferredJobTitleFilter && d.contact.jobTitle !== deferredJobTitleFilter) return false;
+      if (deferredStaleOnly && !isStale(d.stageEnteredAt)) return false;
       return true;
     });
-  }, [openDeals, search, ownerFilter, sourceFilter, jobTitleFilter, staleOnly]);
+  }, [openDeals, deferredSearch, deferredOwnerFilter, deferredSourceFilter, deferredJobTitleFilter, deferredStaleOnly]);
+
+  // Agrupa por etapa numa única passada (O(negócios)) em vez de um .filter()
+  // por coluna (O(etapas × negócios)) — com várias etapas e milhares de
+  // negócios, filtrar o array inteiro uma vez por coluna a cada render era
+  // trabalho redundante que só cresce com o funil.
+  const dealsByStage = useMemo(() => {
+    const map = new Map<string, Deal[]>();
+    for (const d of filteredDeals) {
+      const arr = map.get(d.stageId);
+      if (arr) arr.push(d);
+      else map.set(d.stageId, [d]);
+    }
+    return map;
+  }, [filteredDeals]);
 
   function handleDragStart(event: DragStartEvent) {
     const deal = openDeals.find((d) => d.id === event.active.id);
@@ -248,7 +282,7 @@ export function KanbanBoard({
             <StageColumn
               key={stage.id}
               stage={stage}
-              deals={filteredDeals.filter((d) => d.stageId === stage.id)}
+              deals={dealsByStage.get(stage.id) ?? EMPTY_DEALS}
               disabled={pending}
               activeDealId={activeDeal?.id ?? null}
             />
@@ -272,7 +306,12 @@ const ROW_HEIGHT = 116;
 // de cartões terminar de montar.
 const OVERSCAN = 6;
 
-function StageColumn({
+// memo: cada arrasto muda `activeDeal`/`pending` no componente pai — sem
+// isso, TODAS as colunas re-renderizavam a cada movimento do mouse durante o
+// drag, mesmo as que não têm nenhum negócio envolvido (o `deals` de cada
+// coluna vem de dealsByStage, que só muda identidade quando filteredDeals
+// muda de verdade, ver acima).
+const StageColumn = memo(function StageColumn({
   stage,
   deals,
   disabled,
@@ -379,7 +418,7 @@ function StageColumn({
       </div>
     </div>
   );
-}
+});
 
 // memo: sem isso, o rAF-throttle do scroll (acima) perde metade do valor —
 // StageColumn ainda re-renderiza a cada frame rolado, e todo cartão visível

@@ -2,11 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Inbox } from "lucide-react";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
-import { WhatsAppChat } from "@/components/whatsapp-chat";
 import { formatCurrency } from "@/lib/format";
+
+// O chat (com QR/mídia/áudio) só monta quando o cliente tem WhatsApp
+// vinculado (ver `whatsapp &&` abaixo) — sem next/dynamic, o componente
+// inteiro ia pro bundle desta página mesmo pra clientes sem WhatsApp.
+const WhatsAppChat = dynamic(() => import("@/components/whatsapp-chat").then((m) => m.WhatsAppChat), { ssr: false });
 
 const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" | "danger" }> = {
   OPEN: { label: "Em andamento", tone: "neutral" },

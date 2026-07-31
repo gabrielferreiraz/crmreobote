@@ -8,6 +8,7 @@ import {
   uploadAvatar,
   deleteAvatar,
   resolveAvatarUrl,
+  resizeAvatar,
   AvatarUploadError,
 } from "@/lib/r2";
 
@@ -48,8 +49,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ userId:
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { image: true } });
     const previousKey = user?.image?.startsWith("avatars/") ? user.image : null;
 
+    const resizedBuffer = await resizeAvatar(buffer, file.type);
     const key = buildAvatarKey(userId, file.type);
-    await uploadAvatar(key, buffer, file.type);
+    await uploadAvatar(key, resizedBuffer, file.type);
 
     await prisma.user.update({ where: { id: userId }, data: { image: key } });
 

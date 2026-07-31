@@ -2,28 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
+import { appendDictatedText } from "@/lib/dictation";
 
 const WAVEFORM_BARS = 5;
 const ERROR_AUTO_DISMISS_MS = 4000;
 
-/**
- * Junta um trecho novo ditado com o que já existia no campo — capitaliza a
- * primeira letra do trecho novo e garante um ponto final antes de emendar.
- * Sem isso, duas frases ditadas em momentos diferentes (ex.: nota de negócio
- * complementada depois) viram uma corrida só sem pontuação nem maiúscula —
- * o Web Speech API nunca devolve isso sozinho, sempre em minúsculo e sem
- * pontuação final. Usado pelos 3 lugares que consomem VoiceInputButton em
- * vez de cada um reimplementar a mesma concatenação.
- */
-export function appendDictatedText(prev: string, text: string): string {
-  const trimmedNew = text.trim();
-  if (!trimmedNew) return prev;
-  const capitalized = trimmedNew.charAt(0).toUpperCase() + trimmedNew.slice(1);
-  const trimmedPrev = prev.trim();
-  if (!trimmedPrev) return capitalized;
-  const needsPunctuation = !/[.!?…]$/.test(trimmedPrev);
-  return `${trimmedPrev}${needsPunctuation ? "." : ""} ${capitalized}`;
-}
+// Reexportado só pra não quebrar quem já importava daqui (ver
+// lib/dictation.ts pra onde a implementação de fato mora agora).
+export { appendDictatedText };
 
 /**
  * Ditado por voz via Web Speech API — nativa do navegador (Chrome/Edge/

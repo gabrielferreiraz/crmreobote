@@ -144,16 +144,19 @@ async function resolveTemplateValues(entity: Entity): Promise<Record<string, str
     }
   }
 
-  if (entity.contactId) {
-    const contact = await prisma.contact.findUnique({ where: { id: entity.contactId } });
-    if (contact) {
-      values["cliente.nome"] = contact.name;
-      values["cliente.cargo"] = contact.jobTitle ?? "—";
-      values["cliente.telefone"] = contact.phone ?? contact.whatsapp ?? "—";
-    }
-  }
+  // Sem negócio (ex.: CONTACT_NO_DEAL) — contato e responsável não têm
+  // relação de dependência entre si, então buscam em paralelo em vez de um
+  // round-trip atrás do outro.
+  const [contact, owner] = await Promise.all([
+    entity.contactId ? prisma.contact.findUnique({ where: { id: entity.contactId } }) : null,
+    prisma.user.findUnique({ where: { id: entity.ownerId }, select: { name: true } }),
+  ]);
 
-  const owner = await prisma.user.findUnique({ where: { id: entity.ownerId }, select: { name: true } });
+  if (contact) {
+    values["cliente.nome"] = contact.name;
+    values["cliente.cargo"] = contact.jobTitle ?? "—";
+    values["cliente.telefone"] = contact.phone ?? contact.whatsapp ?? "—";
+  }
   if (owner) values["responsavel.nome"] = owner.name;
 
   return values;
@@ -322,29 +325,44 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
     );
     if (targets.length === 0) return { success: false, detail: "Nenhum destinatário resolvido para o envio." };
 
+    // Variáveis do script ({nome}/{cargo}/{empresa}/{cidade} + spintax) exigem
+    // o Contact de cada destinatário — resolveWhatsappRecipients só devolve o
+    // telefone normalizado, então busca o Contact correspondente (mesmo
+    // padrão do envio manual em app/api/whatsapp/threads/[threadId]/
+    // send-script/route.ts). Uma consulta só pra todos os destinatários (não
+    // uma por `target` dentro do loop) — o resultado é o mesmo, só sem N
+    // idas ao banco quando a regra tem vários destinatários configurados.
+    const allPhoneVariants = targets.flatMap((t) => brazilianMobileVariants(t.phoneNormalized));
+    const matchingContacts =
+      allPhoneVariants.length > 0
+        ? await prisma.contact.findMany({
+            where: {
+              organizationId: entity.organizationId,
+              OR: [
+                { phoneNormalized: { in: allPhoneVariants } },
+                { whatsappNormalized: { in: allPhoneVariants } },
+              ],
+            },
+          })
+        : [];
+    // Por variante (9º dígito) — um destinatário "CUSTOM" (número digitado à
+    // mão na configuração da automação, não vinculado a um Contact
+    // específico) pode estar num formato de dígitos diferente do que está
+    // salvo no Contact de verdade, e sem isso a personalização
+    // (nome/cargo/empresa) simplesmente vinha em branco.
+    function findContactForPhone(phoneNormalized: string) {
+      const variants = brazilianMobileVariants(phoneNormalized);
+      return matchingContacts.find(
+        (c) =>
+          (c.phoneNormalized && variants.includes(c.phoneNormalized)) ||
+          (c.whatsappNormalized && variants.includes(c.whatsappNormalized)),
+      );
+    }
+
     let sent = 0;
     for (const target of targets) {
       try {
-        // Variáveis do script ({nome}/{cargo}/{empresa}/{cidade} + spintax)
-        // exigem o Contact de cada destinatário — resolveWhatsappRecipients
-        // só devolve o telefone normalizado, então busca o Contact
-        // correspondente (mesmo padrão do envio manual em
-        // app/api/whatsapp/threads/[threadId]/send-script/route.ts). Por
-        // variante (9º dígito) — um destinatário "CUSTOM" (número digitado à
-        // mão na configuração da automação, não vinculado a um Contact
-        // específico) pode estar num formato de dígitos diferente do que
-        // está salvo no Contact de verdade, e sem isso a personalização
-        // (nome/cargo/empresa) simplesmente vinha em branco.
-        const contactPhoneVariants = brazilianMobileVariants(target.phoneNormalized);
-        const contact = await prisma.contact.findFirst({
-          where: {
-            organizationId: entity.organizationId,
-            OR: [
-              { phoneNormalized: { in: contactPhoneVariants } },
-              { whatsappNormalized: { in: contactPhoneVariants } },
-            ],
-          },
-        });
+        const contact = findContactForPhone(target.phoneNormalized);
         const steps = renderSteps(
           script.steps as { text: string; delayAfterSec: number }[],
           { nome: contact?.name ?? "", cargo: contact?.jobTitle, empresa: contact?.company, cidade: contact?.city },

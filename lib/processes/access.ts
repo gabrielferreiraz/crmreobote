@@ -19,31 +19,18 @@
  * valer imediatamente, mesmo com sessão já emitida.
  */
 
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { runWithTenant } from "@/lib/tenant-context";
+import { getCurrentMembership } from "@/lib/current-membership";
 
 export type ProcessAccess =
   | { ok: true; isAdmin: boolean; organizationId: string; userId: string }
   | { ok: false };
 
 export async function requireProcessAccess(): Promise<ProcessAccess> {
-  const session = await auth();
-  if (!session?.user?.organizationId) return { ok: false };
-
-  const organizationId = session.user.organizationId;
-  const userId = session.user.id;
-
-  const membership = await runWithTenant(organizationId, () =>
-    prisma.organizationUser.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
-      select: { active: true, role: true, area: true, canManageProcesses: true },
-    }),
-  );
+  const membership = await getCurrentMembership();
   if (!membership?.active) return { ok: false };
 
   const isAdmin = membership.role === "OWNER" || membership.area === "ADMINISTRATIVO" || membership.canManageProcesses;
-  return { ok: true, isAdmin, organizationId, userId };
+  return { ok: true, isAdmin, organizationId: membership.organizationId, userId: membership.userId };
 }
 
 /** Filtro Prisma pra where de Process — admin não filtra nada, não-admin só os próprios. */

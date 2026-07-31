@@ -338,7 +338,14 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
           ) : (
             <div className="space-y-3">
               {Array.from(stageCounts.values()).map((stage) => (
-                <BarRow key={stage.name} label={stage.name} value={stage.count} max={maxStageCount} displayValue={String(stage.count)} />
+                <BarRow
+                  key={stage.name}
+                  label={stage.name}
+                  value={stage.count}
+                  max={maxStageCount}
+                  displayValue={String(stage.count)}
+                  color={stage.color}
+                />
               ))}
             </div>
           )}

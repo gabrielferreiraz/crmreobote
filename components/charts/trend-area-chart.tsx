@@ -1,3 +1,6 @@
+"use client";
+
+import { useRef, useState, useEffect } from "react";
 import { formatCurrency } from "@/lib/format";
 
 type Point = {
@@ -8,11 +11,34 @@ type Point = {
   breakdown?: { label: string; value: number }[];
 };
 
+/** Catmull-Rom → Bézier cúbica (tensão padrão) — curva suave passando por
+ * todos os pontos, sem precisar de lib de gráfico. */
+function smoothPath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] ?? points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] ?? p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
 /**
- * Área/linha em SVG puro. Os pontos são renderizados como <span> HTML por
- * cima (não dentro do SVG) porque o viewBox usa preserveAspectRatio="none"
- * pra esticar livremente — um <circle> ali dentro viraria elipse distorcida;
- * um <span> posicionado em % do container real fica sempre redondo.
+ * Área/linha em SVG puro, com crosshair que segue o ponteiro e encaixa no
+ * ponto mais próximo — em vez de precisar acertar um alvo de poucos pixels
+ * por cima de cada pontinho, a área inteira do gráfico já responde. Os
+ * pontos/rótulos são renderizados como <span> HTML por cima (não dentro do
+ * SVG) porque o viewBox usa preserveAspectRatio="none" pra esticar
+ * livremente — um <circle> ali dentro viraria elipse distorcida; um <span>
+ * posicionado em % do container real fica sempre redondo.
  */
 export function TrendAreaChart({
   data,
@@ -21,13 +47,22 @@ export function TrendAreaChart({
   data: Point[];
   formatValue?: (value: number) => string;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [drawn, setDrawn] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setDrawn(true));
+    return () => cancelAnimationFrame(frame);
+  }, [data]);
+
   const max = Math.max(1, ...data.map((d) => d.value));
   const points = data.map((d, i) => ({
     ...d,
     x: data.length > 1 ? (i / (data.length - 1)) * 100 : 50,
     y: 100 - (d.value / max) * 92,
   }));
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const linePath = smoothPath(points);
   const areaPath = `${linePath} L 100 100 L 0 100 Z`;
 
   // Com muitos pontos (ex.: 31 dias), um rótulo por ponto vira uma fileira de
@@ -38,70 +73,125 @@ export function TrendAreaChart({
   const labelStep = Math.max(1, Math.ceil(points.length / MAX_LABELS));
   const axisLabels = points.filter((_, i) => i % labelStep === 0 || i === points.length - 1);
 
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!containerRef.current || points.length === 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const pctX = ((e.clientX - rect.left) / rect.width) * 100;
+    let nearest = 0;
+    let nearestDist = Infinity;
+    points.forEach((p, i) => {
+      const dist = Math.abs(p.x - pctX);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = i;
+      }
+    });
+    setHoverIndex(nearest);
+  }
+
+  const active = hoverIndex !== null ? points[hoverIndex] : null;
+  const activeBreakdown = active?.breakdown?.filter((b) => b.value > 0) ?? [];
+  // Perto das bordas do gráfico, um balão centrado no ponto vaza pra fora do
+  // card — perto do início ele "nasce" grudado na esquerda do ponto, perto do
+  // fim grudado na direita, só no meio fica centrado.
+  const anchor = !active ? "center" : active.x < 15 ? "left" : active.x > 85 ? "right" : "center";
+
   return (
     <div>
-      <div className="relative h-32 w-full">
+      <div
+        ref={containerRef}
+        className="relative h-32 w-full cursor-crosshair touch-none"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
+        {/* Grade de referência recessiva — 2 linhas horizontais, sem número
+            do eixo (o card já é compacto demais pra caber uma coluna de
+            rótulos sem brigar com o resto). */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-px">
+          <div className="h-px bg-neutral-100 dark:bg-neutral-800/80" />
+          <div className="h-px bg-neutral-100 dark:bg-neutral-800/80" />
+          <div className="h-px bg-neutral-200 dark:bg-neutral-800" />
+        </div>
+
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">
           <defs>
             <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
+              <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />
               <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
             </linearGradient>
+            <clipPath id="trend-reveal">
+              <rect x="0" y="0" width={drawn ? 100 : 0} height="100" className="transition-[width] duration-[900ms] ease-out" />
+            </clipPath>
           </defs>
-          <path d={areaPath} fill="url(#trend-fill)" stroke="none" className="text-neutral-900 dark:text-neutral-100" />
-          <path
-            d={linePath}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            vectorEffect="non-scaling-stroke"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-neutral-900 dark:text-neutral-100"
-          />
+          <g clipPath="url(#trend-reveal)">
+            <path d={areaPath} fill="url(#trend-fill)" stroke="none" className="text-[#2a78d6] dark:text-[#3987e5]" />
+            <path
+              d={linePath}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-[#2a78d6] dark:text-[#3987e5]"
+            />
+          </g>
+          {/* Ponto final sempre visível e um pouco maior — é o valor mais
+              recente, a "manchete" da série. */}
+          {points.length > 0 && (
+            <circle
+              cx={points[points.length - 1].x}
+              cy={points[points.length - 1].y}
+              r="1.6"
+              className="fill-[#2a78d6] stroke-[#fcfcfb] dark:fill-[#3987e5] dark:stroke-neutral-900"
+              strokeWidth="1"
+              opacity={drawn ? 1 : 0}
+              style={{ transition: "opacity 200ms ease-out 700ms" }}
+            />
+          )}
         </svg>
-        {points.map((p, i) => {
-          // Perto das bordas do gráfico, um balão centrado no ponto vaza pra
-          // fora do card — perto do início ele "nasce" grudado na esquerda do
-          // ponto, perto do fim grudado na direita, só no meio fica centrado.
-          const anchor = p.x < 15 ? "left" : p.x > 85 ? "right" : "center";
-          const breakdown = p.breakdown?.filter((b) => b.value > 0) ?? [];
-          return (
+
+        {/* Crosshair — segue o ponteiro, encaixa no ponto mais próximo em vez
+            de exigir mira precisa num alvo de poucos pixels. */}
+        {active && (
+          <>
             <div
-              key={i}
-              className="group absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${p.x}%`, top: `${p.y}%` }}
+              className="pointer-events-none absolute top-0 bottom-0 w-px bg-neutral-300 dark:bg-neutral-600"
+              style={{ left: `${active.x}%` }}
+            />
+            <div
+              className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#2a78d6] ring-2 ring-[#fcfcfb] dark:bg-[#3987e5] dark:ring-neutral-900"
+              style={{ left: `${active.x}%`, top: `${active.y}%` }}
+            />
+            <div
+              className={`pointer-events-none absolute bottom-full z-10 mb-2 rounded-md bg-neutral-900 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg dark:bg-white dark:text-neutral-900 ${
+                activeBreakdown.length > 0 ? "w-48" : "whitespace-nowrap"
+              } ${anchor === "left" ? "left-0" : anchor === "right" ? "right-0" : "left-1/2 -translate-x-1/2"}`}
+              style={{ left: anchor === "center" ? `${active.x}%` : undefined }}
             >
-              <span className="block h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-neutral-100" />
-              {/* Balão custom em vez do title nativo do navegador — aparece na hora
-                  (o title nativo demora ~1s) e já vem formatado em reais. */}
-              <div
-                className={`pointer-events-none absolute bottom-full z-10 mb-1.5 rounded-md bg-neutral-900 px-2.5 py-1.5 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-active:opacity-100 dark:bg-white dark:text-neutral-900 ${
-                  breakdown.length > 0 ? "w-48" : "whitespace-nowrap"
-                } ${anchor === "left" ? "left-0" : anchor === "right" ? "right-0" : "left-1/2 -translate-x-1/2"}`}
-              >
-                <p className="whitespace-nowrap">
-                  <span className="capitalize opacity-70">{p.tooltipLabel ?? p.label}</span> · {formatValue(p.value)}
-                </p>
-                {breakdown.length > 0 && (
-                  <div className="mt-1 space-y-0.5 border-t border-white/15 pt-1 dark:border-neutral-900/10">
-                    {breakdown.slice(0, 5).map((b, bi) => (
-                      <div key={bi} className="flex items-center justify-between gap-2 opacity-80">
-                        <span className="min-w-0 truncate">{b.label}</span>
-                        <span className="shrink-0 whitespace-nowrap tabular-nums">{formatValue(b.value)}</span>
-                      </div>
-                    ))}
-                    {breakdown.length > 5 && (
-                      <p className="opacity-60">
-                        +{breakdown.length - 5} outro{breakdown.length - 5 === 1 ? "" : "s"}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+              <p className="whitespace-nowrap">
+                <span className="capitalize opacity-70">{active.tooltipLabel ?? active.label}</span>
+                <span className="mx-1 opacity-50">·</span>
+                <span className="font-semibold">{formatValue(active.value)}</span>
+              </p>
+              {activeBreakdown.length > 0 && (
+                <div className="mt-1 space-y-0.5 border-t border-white/15 pt-1 dark:border-neutral-900/10">
+                  {activeBreakdown.slice(0, 5).map((b, bi) => (
+                    <div key={bi} className="flex items-center justify-between gap-2 opacity-80">
+                      <span className="min-w-0 truncate">{b.label}</span>
+                      <span className="shrink-0 whitespace-nowrap tabular-nums">{formatValue(b.value)}</span>
+                    </div>
+                  ))}
+                  {activeBreakdown.length > 5 && (
+                    <p className="opacity-60">
+                      +{activeBreakdown.length - 5} outro{activeBreakdown.length - 5 === 1 ? "" : "s"}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
-          );
-        })}
+          </>
+        )}
       </div>
       <div className="relative mt-2 h-4 text-[11px] text-neutral-400 capitalize dark:text-neutral-500">
         {axisLabels.map((p, i) => {
@@ -110,7 +200,9 @@ export function TrendAreaChart({
           return (
             <span
               key={i}
-              className={`absolute whitespace-nowrap ${isFirst ? "left-0" : isLast ? "right-0" : "-translate-x-1/2"}`}
+              className={`absolute whitespace-nowrap transition-colors ${hoverIndex !== null && points[hoverIndex]?.x === p.x ? "font-medium text-neutral-700 dark:text-neutral-300" : ""} ${
+                isFirst ? "left-0" : isLast ? "right-0" : "-translate-x-1/2"
+              }`}
               style={isFirst || isLast ? undefined : { left: `${p.x}%` }}
             >
               {p.label}
