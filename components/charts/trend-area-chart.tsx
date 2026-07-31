@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDuration } from "@/lib/format";
 
 type Point = {
   label: string;
@@ -10,6 +10,29 @@ type Point = {
   /** Detalhamento opcional (ex.: por consultor) mostrado embaixo do total no balão do ponto. */
   breakdown?: { label: string; value: number }[];
 };
+
+/**
+ * Serializável de propósito (nunca uma função) — este componente é "use
+ * client" e recebe essa prop de Server Components (ver relatorios/page.tsx,
+ * admin-reports-view.tsx); função não atravessa a fronteira RSC ("Functions
+ * cannot be passed directly to Client Components").
+ */
+export type TrendValueFormat =
+  | { type: "currency" }
+  | { type: "duration" }
+  | { type: "count"; singular: string; plural: string };
+
+function formatTrendValue(format: TrendValueFormat, value: number): string {
+  switch (format.type) {
+    case "duration":
+      return formatDuration(value * 1000);
+    case "count":
+      return `${value} ${value === 1 ? format.singular : format.plural}`;
+    case "currency":
+    default:
+      return formatCurrency(value);
+  }
+}
 
 /** Catmull-Rom → Bézier cúbica (tensão padrão) — curva suave passando por
  * todos os pontos, sem precisar de lib de gráfico. */
@@ -42,11 +65,12 @@ function smoothPath(points: { x: number; y: number }[]): string {
  */
 export function TrendAreaChart({
   data,
-  formatValue = formatCurrency,
+  format = { type: "currency" },
 }: {
   data: Point[];
-  formatValue?: (value: number) => string;
+  format?: TrendValueFormat;
 }) {
+  const formatValue = (value: number) => formatTrendValue(format, value);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false);

@@ -1406,7 +1406,7 @@ export default async function RelatoriosPage({
                 Soma do tempo com a aba do CRM em primeiro plano, todo mundo junto, dia a dia.
               </p>
               <div className="mt-6">
-                <TrendAreaChart data={teamActivityTrend} formatValue={(v) => formatDuration(v * 1000)} />
+                <TrendAreaChart data={teamActivityTrend} format={{ type: "duration" }} />
               </div>
             </div>
           </div>

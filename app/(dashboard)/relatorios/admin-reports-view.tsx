@@ -326,7 +326,7 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
         </p>
         <TrendAreaChart
           data={contemplationsByMonth}
-          formatValue={(v) => `${v} contemplaç${v === 1 ? "ão" : "ões"}`}
+          format={{ type: "count", singular: "contemplação", plural: "contemplações" }}
         />
       </div>
 
