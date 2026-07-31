@@ -40,7 +40,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
-import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/list-query";
+import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;

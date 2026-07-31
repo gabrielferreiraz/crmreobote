@@ -1,38 +1,17 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
 
-/** Sentinela pro filtro "sem cargo cadastrado" (não dá pra mandar `null` numa querystring). */
-export const NO_JOB_TITLE = "__NONE__";
-/** Mesma ideia pro filtro "sem responsável". */
-export const NO_RESPONSAVEL = "__NONE__";
+// Reexportados por compatibilidade com quem já importava daqui — mas
+// componente "use client" deve importar de @/lib/contacts/constants
+// diretamente (ver comentário lá: importar deste arquivo no cliente arrasta
+// `pg` pro bundle do navegador e quebra o build).
+export { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact };
 
 /** Placeholders reconstruídos na migração do Agendor (negócio órfão de
  * pessoa) — nunca aparecem na listagem de clientes, só existem pra
  * preservar o histórico do negócio (ver scripts/agendor/import-negocios.ts). */
 const NO_CONTACT_TAG = "sem-contato-agendor";
-
-/**
- * Só os campos que a listagem (app/(dashboard)/clientes/contacts-table.tsx)
- * de fato renderiza/filtra — endereço completo, empresa e customFieldValues
- * (JSON livre, ver lib/custom-fields.ts) só existem na página de detalhe do
- * contato (/clientes/[id], que busca o registro completo separadamente),
- * nunca na lista. Trazer isso pra até 500 linhas por página era bytes reais
- * do Postgres à toa.
- */
-export type EnrichedContact = {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  whatsapp: string | null;
-  source: string | null;
-  jobTitle: string | null;
-  tags: string[];
-  responsavelId: string | null;
-  responsavel: { id: string; name: string } | null;
-  createdAt: Date;
-  _count: { deals: number };
-};
 
 export type ContactsFilterParams = {
   organizationId: string;
