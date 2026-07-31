@@ -44,10 +44,14 @@ export async function GET(req: Request) {
   const lossReasonId = searchParams.get("lossReasonId") ?? undefined;
   const jobTitle = searchParams.get("jobTitle") ?? undefined;
   const source = searchParams.get("source") ?? undefined;
+  const state = searchParams.get("state") ?? undefined;
+  const city = searchParams.get("city") ?? undefined;
   const createdFrom = parseDate(searchParams.get("createdFrom"));
   const createdTo = parseDate(searchParams.get("createdTo"));
   const closedFrom = parseDate(searchParams.get("closedFrom"));
   const closedTo = parseDate(searchParams.get("closedTo"));
+  const stageEnteredBefore = parseDate(searchParams.get("stageEnteredBefore"));
+  const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -65,14 +69,17 @@ export async function GET(req: Request) {
       lossReasonId,
       jobTitle,
       source,
+      state,
+      city,
       createdFrom,
       createdTo,
       closedFrom,
       closedTo,
+      stageEnteredBefore,
     };
 
     const [deals, totalCount, sums] = await Promise.all([
-      fetchDealsList({ ...filterParams, skip, take }),
+      fetchDealsList({ ...filterParams, skip, take, sortDir }),
       countDeals(filterParams),
       aggregateDealValues(filterParams),
     ]);

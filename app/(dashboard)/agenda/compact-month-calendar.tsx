@@ -148,7 +148,7 @@ export function CompactMonthCalendar({
           <h2 className="mb-3 text-sm font-semibold text-neutral-900 capitalize dark:text-neutral-100">
             {selectedDay.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
           </h2>
-          <div className="scrollbar-thin max-h-[60vh] space-y-2 overflow-y-auto">
+          <div className="scrollbar-thin max-h-[60vh] space-y-2 overflow-y-auto pb-2">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
               <TaskRow key={t.id} task={t} onToggle={onToggle} showOwner={showOwner} />
             ))}

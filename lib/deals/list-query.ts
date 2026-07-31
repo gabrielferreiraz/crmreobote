@@ -36,10 +36,16 @@ export type DealsFilterParams = {
   lossReasonId?: string;
   jobTitle?: string;
   source?: string;
+  /** Sigla exata (UF) do estado do contato. */
+  state?: string;
+  /** Por trecho (contains) da cidade do contato. */
+  city?: string;
   createdFrom?: Date;
   createdTo?: Date;
   closedFrom?: Date;
   closedTo?: Date;
+  /** Ex.: "negócios parados" na Início — etapa não muda há X dias. */
+  stageEnteredBefore?: Date;
 };
 
 /**
@@ -49,7 +55,7 @@ export type DealsFilterParams = {
  * filtro diferente do da busca.
  */
 export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInput {
-  const { organizationId, pipelineId, scope, status, q, ownerIds, stageId, lossReasonId, jobTitle, source, createdFrom, createdTo, closedFrom, closedTo } = params;
+  const { organizationId, pipelineId, scope, status, q, ownerIds, stageId, lossReasonId, jobTitle, source, state, city, createdFrom, createdTo, closedFrom, closedTo, stageEnteredBefore } = params;
 
   const where: Prisma.DealWhereInput = {
     organizationId,
@@ -57,6 +63,7 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
     ...(status ? { status } : {}),
     ...(stageId ? { stageId } : {}),
     ...(lossReasonId ? { lossReasonId } : {}),
+    ...(stageEnteredBefore ? { stageEnteredAt: { lte: stageEnteredBefore } } : {}),
     ...(q
       ? {
           OR: [
@@ -86,10 +93,12 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
     where.AND = combinedOwnerFilters;
   }
 
-  if (jobTitle || source) {
+  if (jobTitle || source || state || city) {
     where.contact = {
       ...(jobTitle ? { jobTitle } : {}),
       ...(source ? { source } : {}),
+      ...(state ? { state } : {}),
+      ...(city ? { city: { contains: city, mode: "insensitive" } } : {}),
     };
   }
 
@@ -146,8 +155,10 @@ export async function aggregateDealValues(params: DealsFilterParams): Promise<{ 
  * (GET /api/deals) — extraído pra um lugar só pra nunca duplicar essa lógica
  * em dois pontos e eles saírem de sincronia.
  */
-export async function fetchDealsList(params: DealsFilterParams & { skip?: number; take: number }): Promise<EnrichedDeal[]> {
-  const { organizationId, skip, take } = params;
+export async function fetchDealsList(
+  params: DealsFilterParams & { skip?: number; take: number; sortDir?: "asc" | "desc" },
+): Promise<EnrichedDeal[]> {
+  const { organizationId, skip, take, sortDir = "desc" } = params;
 
   const dealsRaw = await prisma.deal.findMany({
     where: buildDealsWhere(params),

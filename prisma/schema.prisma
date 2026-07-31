@@ -860,6 +860,11 @@ model Contact {
   // take/skip (o problema não é só "sem paginação", é paginação sem índice
   // pra ordenação nunca ser realmente barata em escala).
   @@index([organizationId, createdAt])
+  // Filtro de Estado (lista fechada de 27 UFs, sempre igualdade exata) — city
+  // usa índice trigram à parte (ver migration 20260731 — GIN não é
+  // declarável aqui, o gerador não modela esse tipo de índice) porque é
+  // busca por trecho (contains), não igualdade.
+  @@index([organizationId, state])
 }
 
 // ─── Motivos de perda ────────────────────────────────────────────────

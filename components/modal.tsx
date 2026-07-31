@@ -67,7 +67,7 @@ export function Modal({
           <div
             ref={panelRef}
             style={{ animation: "modal-panel-in 150ms ease-out" }}
-            className={`surface-glass-panel scrollbar-thin w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl p-5 ${
+            className={`surface-glass-panel scrollbar-thin w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl p-5 pb-7 ${
               isNested ? "shadow-2xl ring-1 ring-black/5 dark:ring-white/10" : ""
             }`}
           >

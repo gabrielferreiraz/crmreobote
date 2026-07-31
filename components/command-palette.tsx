@@ -111,7 +111,7 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
             />
           </div>
 
-          <div className="scrollbar-thin max-h-80 overflow-y-auto pt-2">
+          <div className="scrollbar-thin max-h-80 overflow-y-auto pt-2 pb-2">
             {!hasResults && (
               <p className="px-1 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
                 Nada encontrado.

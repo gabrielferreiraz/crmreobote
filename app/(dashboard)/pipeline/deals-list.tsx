@@ -21,6 +21,7 @@ import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
+import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
 
 const QUICK_RANGES = buildListQuickRanges();
@@ -96,6 +97,8 @@ export function DealsList({
   const [lossReasonFilter, setLossReasonFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [closedFrom, setClosedFrom] = useState("");
@@ -135,6 +138,8 @@ export function DealsList({
     if (lossReasonFilter) params.set("lossReasonId", lossReasonFilter);
     if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
     if (originFilter) params.set("source", originFilter);
+    if (stateFilter) params.set("state", stateFilter);
+    if (cityFilter) params.set("city", cityFilter);
     if (dateFrom) params.set("createdFrom", brazilDateStringToUTC(dateFrom).toISOString());
     if (dateTo) params.set("createdTo", brazilEndOfDayUTC(dateTo).toISOString());
     if (closedFrom) params.set("closedFrom", brazilDateStringToUTC(closedFrom).toISOString());
@@ -185,6 +190,8 @@ export function DealsList({
     lossReasonFilter,
     jobTitleFilter,
     originFilter,
+    stateFilter,
+    cityFilter,
     dateFrom,
     dateTo,
     closedFrom,
@@ -212,6 +219,8 @@ export function DealsList({
     !!lossReasonFilter ||
     !!jobTitleFilter ||
     !!originFilter ||
+    !!stateFilter ||
+    !!cityFilter ||
     !!dateFrom ||
     !!dateTo ||
     !!closedFrom ||
@@ -225,6 +234,8 @@ export function DealsList({
     setLossReasonFilter("");
     setJobTitleFilter("");
     setOriginFilter("");
+    setStateFilter("");
+    setCityFilter("");
     setDateFrom("");
     setDateTo("");
     setClosedFrom("");
@@ -251,6 +262,8 @@ export function DealsList({
       lossReasonFilter,
       jobTitleFilter,
       originFilter,
+      stateFilter,
+      cityFilter,
       dateFrom,
       dateTo,
       closedFrom,
@@ -267,6 +280,8 @@ export function DealsList({
     if (f.lossReasonFilter !== undefined) setLossReasonFilter(f.lossReasonFilter);
     if (f.jobTitleFilter !== undefined) setJobTitleFilter(f.jobTitleFilter);
     if (f.originFilter !== undefined) setOriginFilter(f.originFilter);
+    if (f.stateFilter !== undefined) setStateFilter(f.stateFilter);
+    if (f.cityFilter !== undefined) setCityFilter(f.cityFilter);
     if (f.dateFrom !== undefined) setDateFrom(f.dateFrom);
     if (f.dateTo !== undefined) setDateTo(f.dateTo);
     if (f.closedFrom !== undefined) setClosedFrom(f.closedFrom);
@@ -583,6 +598,30 @@ export function DealsList({
               />
             </div>
           )}
+          <div className="space-y-1">
+            <label className="field-label">Estado</label>
+            <Select
+              value={stateFilter}
+              onChange={(v) => {
+                setStateFilter(v);
+                setPage(1);
+              }}
+              className="w-full py-1.5 text-sm"
+              options={[{ value: "", label: "Todos os estados" }, ...ESTADOS_BR]}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Cidade</label>
+            <input
+              value={cityFilter}
+              onChange={(e) => {
+                setCityFilter(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Buscar por cidade"
+              className="field-input w-full py-1.5 text-sm"
+            />
+          </div>
           {statusFilter === "LOST" && lossReasons.length > 0 && (
             <div className="space-y-1">
               <label className="field-label">Motivo da perda</label>

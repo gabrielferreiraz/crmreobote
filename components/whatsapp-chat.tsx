@@ -557,7 +557,7 @@ export function ChatWindow({
         <div
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
-          className="chat-bg-dots scrollbar-thin h-full space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-950/50"
+          className="chat-bg-dots scrollbar-thin h-full space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 pb-5 dark:bg-neutral-950/50"
         >
           {!messages ? (
             <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
@@ -1049,7 +1049,7 @@ function SendScriptModal({ threadId, onClose }: { threadId: string; onClose: () 
       ) : scripts.length === 0 ? (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">Nenhum script cadastrado ainda (Scripts, no menu do WhatsApp).</p>
       ) : (
-        <div className="scrollbar-thin max-h-72 space-y-1 overflow-y-auto">
+        <div className="scrollbar-thin max-h-72 space-y-1 overflow-y-auto pb-1">
           {scripts.map((s) => (
             <button
               key={s.id}

@@ -383,7 +383,7 @@ export function AutomationsTable({
                       <p className="py-2 text-sm text-neutral-500 dark:text-neutral-400">Essa automação ainda não rodou.</p>
                     )}
                     {Array.isArray(history) && history.length > 0 && (
-                      <div className="scrollbar-thin max-h-72 divide-y divide-neutral-100 overflow-y-auto dark:divide-neutral-800/60">
+                      <div className="scrollbar-thin max-h-72 divide-y divide-neutral-100 overflow-y-auto pb-1 dark:divide-neutral-800/60">
                         {history.map((e) => (
                           <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
                             {e.success ? (

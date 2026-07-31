@@ -114,6 +114,8 @@ export async function GET(req: Request) {
     lossReasonId: searchParams.get("lossReasonId") ?? undefined,
     jobTitle: searchParams.get("jobTitle") ?? undefined,
     source: searchParams.get("source") ?? undefined,
+    state: searchParams.get("state") ?? undefined,
+    city: searchParams.get("city") ?? undefined,
     createdFrom: parseDate(searchParams.get("createdFrom")),
     createdTo: parseDate(searchParams.get("createdTo")),
     closedFrom: parseDate(searchParams.get("closedFrom")),

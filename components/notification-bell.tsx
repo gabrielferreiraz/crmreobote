@@ -83,7 +83,7 @@ export function NotificationBell() {
               Tarefas atrasadas/hoje
             </p>
           </div>
-          <div className="scrollbar-thin max-h-96 overflow-y-auto">
+          <div className="scrollbar-thin max-h-96 overflow-y-auto pb-1">
             {tasks.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
                 Nenhuma tarefa pendente.

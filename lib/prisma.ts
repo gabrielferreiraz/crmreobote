@@ -78,18 +78,29 @@ function withTenantRls(client: PrismaClient) {
           // filtrando tudo silenciosamente (zero linhas, sem erro nenhum). A forma
           // em array agrupa todas as operações numa única transação/conexão real.
           //
+          // As 5 chamadas set_config viram uma ÚNICA consulta (uma SELECT com 5
+          // colunas, não 5 SELECTs) — banco é remoto (~40ms de ida-e-volta por
+          // consulta), e cada uma dessas era uma ida-e-volta própria. Isso corta
+          // de 7 idas-e-voltas por operação (BEGIN + 5 set_config + a consulta
+          // de verdade + COMMIT) pra 4 (BEGIN + 1 set_config combinado + a
+          // consulta + COMMIT) — em TODA operação do Prisma no app inteiro, não
+          // só numa tela. Continua sendo uma única query parametrizada (sem
+          // concatenar string à mão), só com várias chamadas de função no lugar
+          // de várias declarações.
+          //
           // maxWait/timeout acima do padrão (2s/5s) porque o Postgres é remoto e
           // uma conexão nova pode levar alguns segundos pra estabelecer — sem essa
           // folga, várias consultas em paralelo (ex.: a Home, que dispara ~9 de
           // uma vez) estouram o prazo padrão logo após o dev server reiniciar,
           // com o pool ainda frio.
-          const [, , , , , result] = await client.$transaction(
+          const [, result] = await client.$transaction(
             [
-              client.$executeRaw`SELECT set_config('app.current_organization_id', ${organizationId ?? ""}, true)`,
-              client.$executeRaw`SELECT set_config('app.current_user_id', ${userId ?? ""}, true)`,
-              client.$executeRaw`SELECT set_config('app.current_instance_name', ${instanceName ?? ""}, true)`,
-              client.$executeRaw`SELECT set_config('app.current_api_key_hash', ${apiKeyHash ?? ""}, true)`,
-              client.$executeRaw`SELECT set_config('app.current_meta_page_id', ${metaPageId ?? ""}, true)`,
+              client.$executeRaw`SELECT
+                set_config('app.current_organization_id', ${organizationId ?? ""}, true),
+                set_config('app.current_user_id', ${userId ?? ""}, true),
+                set_config('app.current_instance_name', ${instanceName ?? ""}, true),
+                set_config('app.current_api_key_hash', ${apiKeyHash ?? ""}, true),
+                set_config('app.current_meta_page_id', ${metaPageId ?? ""}, true)`,
               query(args),
             ],
             { maxWait: 10_000, timeout: 15_000 },

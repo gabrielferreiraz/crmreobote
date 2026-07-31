@@ -1,19 +1,23 @@
 import Link from "next/link";
-import { ArrowUpRight, Briefcase, TrendingUp, Users, Inbox, Clock, ArrowRight } from "lucide-react";
+import { ArrowUpRight, Briefcase, TrendingUp, Users, Inbox, ArrowRight } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
-import { formatCurrency, daysSince } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import { ACTIVITY_ICON, ACTIVITY_LABEL } from "@/lib/activity-icons";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { brazilGreeting, brazilStartOfMonth } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
+import { fetchDealsList, countDeals } from "@/lib/deals/list-query";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { CountUpValue } from "@/components/count-up-value";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { HomeAdministrativo } from "./home-administrativo";
+import { StaleDealsList } from "./stale-deals-list";
+
+const STALE_DEALS_PAGE_SIZE = 10;
 
 export default async function HomePage() {
   const session = await auth();
@@ -37,7 +41,9 @@ export default async function HomePage() {
     include: { stages: { orderBy: { order: "asc" } } },
   });
 
-  const [openDeals, pipelineValue, wonThisMonth, activeClients, staleDeals, stageValues, upcomingTasks, recentActivities] =
+  const staleDealsParams = { organizationId, scope, status: "OPEN" as const, stageEnteredBefore: staleBefore };
+
+  const [openDeals, pipelineValue, wonThisMonth, activeClients, staleDeals, staleDealsCount, stageValues, upcomingTasks, recentActivities] =
     await Promise.all([
       prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
       prisma.deal.aggregate({
@@ -49,12 +55,9 @@ export default async function HomePage() {
         _sum: { value: true },
         _count: true,
       }),
-      prisma.contact.count({ where: { organizationId } }),
-      prisma.deal.findMany({
-        where: { organizationId, status: "OPEN", stageEnteredAt: { lte: staleBefore }, ...scopeWhere(scope) },
-        orderBy: { stageEnteredAt: "asc" },
-        include: { contact: true, stage: true },
-      }),
+      prisma.contact.count({ where: { organizationId, responsavelId: userId } }),
+      fetchDealsList({ ...staleDealsParams, take: STALE_DEALS_PAGE_SIZE, sortDir: "asc" }),
+      countDeals(staleDealsParams),
       pipeline
         ? prisma.deal.groupBy({
             by: ["stageId"],
@@ -148,7 +151,7 @@ export default async function HomePage() {
                       style={{ width: `${Math.max(4, (stage.value / maxStageValue) * 100)}%` }}
                     />
                   </div>
-                  <span className="w-24 shrink-0 text-right text-sm tabular-nums text-neutral-500 dark:text-neutral-400">
+                  <span className="shrink-0 text-right text-sm whitespace-nowrap tabular-nums text-neutral-500 dark:text-neutral-400">
                     {formatCurrency(stage.value)}
                   </span>
                 </div>
@@ -198,31 +201,12 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {staleDeals.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Negócios parados (sem trocar de etapa há {STALE_DEAL_DAYS}+ dias)
-          </h2>
-          <div className="space-y-2">
-            {staleDeals.map((deal) => (
-              <Link
-                key={deal.id}
-                href={`/negocios/${deal.id}`}
-                className="card flex items-center justify-between p-3 text-sm hover:border-neutral-300 dark:hover:border-neutral-700"
-              >
-                <span className="flex items-center gap-2 text-neutral-800 dark:text-neutral-200">
-                  <Avatar name={deal.contact.name} size="xs" />
-                  {deal.name} <span className="text-neutral-500 dark:text-neutral-400">· {deal.contact.name}</span>
-                </span>
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
-                  <Clock className="h-3 w-3" strokeWidth={2} />
-                  {deal.stage.name} · {daysSince(deal.stageEnteredAt)}d
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      <StaleDealsList
+        initialDeals={staleDeals}
+        initialTotalCount={staleDealsCount}
+        staleBefore={staleBefore.toISOString()}
+        staleDays={STALE_DEAL_DAYS}
+      />
 
       <div>
         <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">Atividades recentes</h2>

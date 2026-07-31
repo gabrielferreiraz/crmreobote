@@ -168,7 +168,7 @@ export function WhatsAppBackupView({ userId }: { userId: string }) {
           )}
         </div>
 
-        <div className="scrollbar-thin card min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="scrollbar-thin card min-h-0 flex-1 overflow-y-auto p-2 pb-4">
           {filteredThreads.length === 0 ? (
             <p className="p-3 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhuma conversa encontrada.</p>
           ) : (
@@ -232,7 +232,7 @@ export function WhatsAppBackupView({ userId }: { userId: string }) {
                 Carregando...
               </p>
             ) : (
-              <div className="scrollbar-thin chat-bg-dots min-h-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-950/50">
+              <div className="scrollbar-thin chat-bg-dots min-h-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 pb-5 dark:bg-neutral-950/50">
                 {messages.map((m) => {
                   const isOut = m.direction === "OUTBOUND";
                   return (

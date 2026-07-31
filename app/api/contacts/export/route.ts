@@ -95,6 +95,8 @@ export async function GET(req: Request) {
     source: searchParams.get("source") ?? undefined,
     jobTitle: searchParams.get("jobTitle") ?? undefined,
     responsavelId: searchParams.get("responsavelId") ?? undefined,
+    state: searchParams.get("state") ?? undefined,
+    city: searchParams.get("city") ?? undefined,
     onlyWithDeals: searchParams.get("onlyWithDeals") === "1",
     registeredFrom: parseDate(searchParams.get("registeredFrom")),
     registeredTo: parseDate(searchParams.get("registeredTo")),

@@ -89,7 +89,7 @@ export function TimePicker({
             className="surface-glass animate-pop-in fixed z-50 w-32 rounded-md p-1 shadow-lg"
             style={{ top: coords.top, left: coords.left }}
           >
-            <div ref={listRef} className="scrollbar-thin max-h-48 overflow-y-auto">
+            <div ref={listRef} className="scrollbar-thin max-h-48 overflow-y-auto pb-1">
               {TIMES.map((t) => (
                 <button
                   key={t}

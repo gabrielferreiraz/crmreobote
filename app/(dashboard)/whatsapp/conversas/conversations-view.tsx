@@ -446,7 +446,7 @@ export function ConversationsView({
           </div>
         )}
 
-        <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto p-1.5">
+        <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto p-1.5 pb-4">
           {tabConversations.length === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState

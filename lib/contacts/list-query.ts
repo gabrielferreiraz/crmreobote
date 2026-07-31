@@ -21,6 +21,10 @@ export type ContactsFilterParams = {
   jobTitle?: string;
   /** Id exato, ou NO_RESPONSAVEL pra "sem responsável", ou vazio pra não filtrar. */
   responsavelId?: string;
+  /** Sigla exata (UF) — lista fechada, ver ESTADOS_BR em lib/contacts/constants.ts. */
+  state?: string;
+  /** Por trecho, sem diferenciar maiúsculas/acentos exatos (ver índice trigram) — cidade é texto livre, não uma lista fechada como estado. */
+  city?: string;
   onlyWithDeals?: boolean;
   registeredFrom?: Date;
   registeredTo?: Date;
@@ -32,12 +36,14 @@ export type ContactsFilterParams = {
  * paginação mostra um total que a busca não confirma.
  */
 export function buildContactsWhere(params: ContactsFilterParams): Prisma.ContactWhereInput {
-  const { organizationId, q, source, jobTitle, responsavelId, onlyWithDeals, registeredFrom, registeredTo } = params;
+  const { organizationId, q, source, jobTitle, responsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo } = params;
 
   const where: Prisma.ContactWhereInput = {
     organizationId,
     NOT: { tags: { has: NO_CONTACT_TAG } },
     ...(source ? { source } : {}),
+    ...(state ? { state } : {}),
+    ...(city ? { city: { contains: city, mode: "insensitive" } } : {}),
     ...(q
       ? {
           OR: [

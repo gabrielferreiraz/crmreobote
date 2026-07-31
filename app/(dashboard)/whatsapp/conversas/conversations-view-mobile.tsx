@@ -306,7 +306,7 @@ export function ConversationsMobile({
         />
       )}
 
-      <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto">
+      <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto pb-4">
         {tabConversations.length === 0 ? (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState

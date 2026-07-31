@@ -41,7 +41,7 @@ import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
-import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
+import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -128,6 +128,8 @@ export function ContactsTable({
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
   const [onlyWithDeals, setOnlyWithDeals] = useState(false);
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
@@ -148,12 +150,14 @@ export function ContactsTable({
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
   usePersistedFilters(
     "clientes",
-    { search, sourceFilter, jobTitleFilter, responsavelFilter, onlyWithDeals, registeredFrom, registeredTo, pageSize },
+    { search, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, registeredFrom, registeredTo, pageSize },
     (saved) => {
       if (saved.search !== undefined) setSearch(saved.search);
       if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
       if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
       if (saved.responsavelFilter !== undefined) setResponsavelFilter(saved.responsavelFilter);
+      if (saved.stateFilter !== undefined) setStateFilter(saved.stateFilter);
+      if (saved.cityFilter !== undefined) setCityFilter(saved.cityFilter);
       if (saved.onlyWithDeals !== undefined) setOnlyWithDeals(saved.onlyWithDeals);
       if (saved.registeredFrom !== undefined) setRegisteredFrom(saved.registeredFrom);
       if (saved.registeredTo !== undefined) setRegisteredTo(saved.registeredTo);
@@ -179,6 +183,8 @@ export function ContactsTable({
     if (sourceFilter) params.set("source", sourceFilter);
     if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
     if (responsavelFilter) params.set("responsavelId", responsavelFilter);
+    if (stateFilter) params.set("state", stateFilter);
+    if (cityFilter) params.set("city", cityFilter);
     if (onlyWithDeals) params.set("onlyWithDeals", "1");
     if (registeredFrom) params.set("registeredFrom", brazilDateStringToUTC(registeredFrom).toISOString());
     if (registeredTo) params.set("registeredTo", brazilEndOfDayUTC(registeredTo).toISOString());
@@ -211,7 +217,7 @@ export function ContactsTable({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, responsavelFilter, onlyWithDeals, registeredFrom, registeredTo, initialContacts]);
+  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, registeredFrom, registeredTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
   // visto na página atual — cobre valor "antigo" que só apareceria depois de
@@ -233,6 +239,8 @@ export function ContactsTable({
     !!sourceFilter ||
     !!jobTitleFilter ||
     !!responsavelFilter ||
+    !!stateFilter ||
+    !!cityFilter ||
     onlyWithDeals ||
     !!registeredFrom ||
     !!registeredTo;
@@ -246,6 +254,8 @@ export function ContactsTable({
     setSourceFilter("");
     setJobTitleFilter("");
     setResponsavelFilter("");
+    setStateFilter("");
+    setCityFilter("");
     setOnlyWithDeals(false);
     setRegisteredFrom("");
     setRegisteredTo("");
@@ -568,6 +578,30 @@ export function ContactsTable({
                 { value: NO_RESPONSAVEL, label: "Sem responsável" },
                 ...members.map((m) => ({ value: m.id, label: m.name })),
               ]}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Estado</label>
+            <Select
+              value={stateFilter}
+              onChange={(v) => {
+                setStateFilter(v);
+                setPage(1);
+              }}
+              className="w-full py-1.5 text-sm"
+              options={[{ value: "", label: "Todos os estados" }, ...ESTADOS_BR]}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Cidade</label>
+            <input
+              value={cityFilter}
+              onChange={(e) => {
+                setCityFilter(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Buscar por cidade"
+              className="field-input w-full py-1.5 text-sm"
             />
           </div>
           <button
@@ -959,7 +993,10 @@ export function ContactsTable({
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Endereço" value={address} onChange={setAddress} />
-              <Field label="Estado" value={state} onChange={setState} />
+              <div className="space-y-1">
+                <label className="field-label">Estado</label>
+                <Select value={state} onChange={setState} placeholder="Selecione o estado" options={[{ value: "", label: "—" }, ...ESTADOS_BR]} />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Número" value={addressNumber} onChange={setAddressNumber} />

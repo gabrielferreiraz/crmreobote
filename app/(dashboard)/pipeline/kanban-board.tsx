@@ -391,17 +391,17 @@ const StageColumn = memo(function StageColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-72 shrink-0 flex-col rounded-lg border bg-neutral-100/50 dark:bg-neutral-800/40 transition-colors ${
+      className={`flex w-64 shrink-0 flex-col rounded-lg border bg-neutral-100/50 dark:bg-neutral-800/40 transition-colors ${
         isOver ? "border-neutral-900 dark:border-white bg-neutral-100 dark:bg-neutral-800 ring-1 ring-neutral-900 dark:ring-white" : "border-neutral-200 dark:border-neutral-800"
       }`}
     >
       <div className="flex items-center gap-2 px-3 py-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
-        <span className="text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
+        <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
           {stage.name}
         </span>
         {total > 0 && (
-          <span className="truncate text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
+          <span className="shrink-0 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
             {formatCurrency(total)}
           </span>
         )}

@@ -162,7 +162,7 @@ export function Select({
             ref={panelRef}
             id={`${instanceId}-listbox`}
             role="listbox"
-            className="surface-glass animate-pop-in scrollbar-thin fixed z-50 max-h-56 overflow-y-auto rounded-md p-1 shadow-lg"
+            className="surface-glass animate-pop-in scrollbar-thin fixed z-50 max-h-56 overflow-y-auto rounded-md p-1 pb-1.5 shadow-lg"
             style={{ top: coords.top, left: coords.left, width: coords.width }}
           >
             {options.map((opt, i) => (

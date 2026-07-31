@@ -7,6 +7,7 @@ import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
+import { ESTADOS_BR } from "@/lib/contacts/constants";
 
 type Contact = {
   id: string;
@@ -172,7 +173,10 @@ export function ContactEditForm({
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Endereço" value={address} onChange={setAddress} />
-          <Field label="Estado" value={state} onChange={setState} />
+          <div className="space-y-1">
+            <label className="field-label">Estado</label>
+            <Select value={state} onChange={setState} placeholder="Selecione o estado" options={[{ value: "", label: "—" }, ...ESTADOS_BR]} />
+          </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Número" value={addressNumber} onChange={setAddressNumber} />

@@ -14,6 +14,42 @@ export const NO_JOB_TITLE = "__NONE__";
 export const NO_RESPONSAVEL = "__NONE__";
 
 /**
+ * As 27 UFs do Brasil — lista fechada, então o filtro de Estado (Clientes e
+ * Negócios) usa essas opções fixas em vez de derivar de `Contact.state`
+ * (que hoje está 100% vazio na base migrada do Agendor; só passa a ter
+ * valor em contatos novos, cadastrados com o campo Estado preenchido).
+ */
+export const ESTADOS_BR = [
+  { value: "AC", label: "Acre" },
+  { value: "AL", label: "Alagoas" },
+  { value: "AP", label: "Amapá" },
+  { value: "AM", label: "Amazonas" },
+  { value: "BA", label: "Bahia" },
+  { value: "CE", label: "Ceará" },
+  { value: "DF", label: "Distrito Federal" },
+  { value: "ES", label: "Espírito Santo" },
+  { value: "GO", label: "Goiás" },
+  { value: "MA", label: "Maranhão" },
+  { value: "MT", label: "Mato Grosso" },
+  { value: "MS", label: "Mato Grosso do Sul" },
+  { value: "MG", label: "Minas Gerais" },
+  { value: "PA", label: "Pará" },
+  { value: "PB", label: "Paraíba" },
+  { value: "PR", label: "Paraná" },
+  { value: "PE", label: "Pernambuco" },
+  { value: "PI", label: "Piauí" },
+  { value: "RJ", label: "Rio de Janeiro" },
+  { value: "RN", label: "Rio Grande do Norte" },
+  { value: "RS", label: "Rio Grande do Sul" },
+  { value: "RO", label: "Rondônia" },
+  { value: "RR", label: "Roraima" },
+  { value: "SC", label: "Santa Catarina" },
+  { value: "SP", label: "São Paulo" },
+  { value: "SE", label: "Sergipe" },
+  { value: "TO", label: "Tocantins" },
+] as const;
+
+/**
  * Só os campos que a listagem (app/(dashboard)/clientes/contacts-table.tsx)
  * de fato renderiza/filtra — endereço completo, empresa e customFieldValues
  * (JSON livre, ver lib/custom-fields.ts) só existem na página de detalhe do

@@ -40,6 +40,8 @@ export async function GET(req: Request) {
   const source = searchParams.get("source") ?? undefined;
   const jobTitle = searchParams.get("jobTitle") ?? undefined;
   const responsavelId = searchParams.get("responsavelId") ?? undefined;
+  const state = searchParams.get("state") ?? undefined;
+  const city = searchParams.get("city") ?? undefined;
   const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
   const registeredFrom = parseDate(searchParams.get("registeredFrom"));
   const registeredTo = parseDate(searchParams.get("registeredTo"));
@@ -48,7 +50,7 @@ export async function GET(req: Request) {
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
-    const filterParams = { organizationId, q, source, jobTitle, responsavelId, onlyWithDeals, registeredFrom, registeredTo };
+    const filterParams = { organizationId, q, source, jobTitle, responsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo };
 
     const [contacts, totalCount] = await Promise.all([
       fetchContactsList({ ...filterParams, skip, take }),
