@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getBrazilParts } from "@/lib/timezone";
+import { countActiveSellers } from "@/lib/goals/suggestion";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,12 @@ export async function PUT(req: Request) {
   const { year, month } = getBrazilParts(new Date());
 
   return runWithTenant(access.organizationId, async () => {
+    // Sempre grava quantos vendedores ativos existem AGORA junto do valor —
+    // é o que permite comparar depois "a equipe mudou desde que essa meta
+    // foi salva?" sem confundir com "o valor não bate com a fórmula porque
+    // foi ajustado de propósito" (ver lib/goals/suggestion.ts).
+    const sellerCount = await countActiveSellers(access.organizationId);
+
     const goal = await prisma.monthlyGoal.upsert({
       where: {
         organizationId_year_month: { organizationId: access.organizationId, year, month: month + 1 },
@@ -31,10 +38,12 @@ export async function PUT(req: Request) {
         month: month + 1,
         value,
         updatedById: access.userId,
+        basedOnSellerCount: sellerCount,
       },
       update: {
         value,
         updatedById: access.userId,
+        basedOnSellerCount: sellerCount,
       },
     });
 

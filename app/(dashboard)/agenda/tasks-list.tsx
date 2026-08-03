@@ -8,6 +8,7 @@ import { Modal } from "@/components/modal";
 import { FilterPopover } from "@/components/filter-popover";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
+import { ScheduleMessageDialog, type ScheduleMessageTask } from "@/components/schedule-message-dialog";
 import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
@@ -313,6 +314,9 @@ export function NewTaskDialog({
   // vinculado — troca o formulário pelo MeetingInviteDialog em vez de fechar
   // na hora (ver render abaixo).
   const [meetingInviteTask, setMeetingInviteTask] = useState<MeetingInviteTask | null>(null);
+  // Mesma ideia, pra tarefa WhatsApp com prazo FUTURO e cliente vinculado —
+  // troca pelo ScheduleMessageDialog (ver components/schedule-message-dialog.tsx).
+  const [scheduleMessageTask, setScheduleMessageTask] = useState<ScheduleMessageTask | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -351,6 +355,23 @@ export function NewTaskDialog({
       });
       return;
     }
+    if (created.type === "WHATSAPP" && created.dueAt && created.contact && new Date(created.dueAt) > new Date()) {
+      setScheduleMessageTask({
+        id: created.id,
+        title: created.title,
+        dueAt: created.dueAt,
+        contact: {
+          id: created.contact.id,
+          name: created.contact.name,
+          jobTitle: created.contact.jobTitle,
+          company: created.contact.company,
+          city: created.contact.city,
+          phone: created.contact.phone,
+          whatsapp: created.contact.whatsapp,
+        },
+      });
+      return;
+    }
 
     onCreated();
   }
@@ -363,6 +384,10 @@ export function NewTaskDialog({
         onClose={onCreated}
       />
     );
+  }
+
+  if (scheduleMessageTask) {
+    return <ScheduleMessageDialog task={scheduleMessageTask} onClose={onCreated} />;
   }
 
   return (

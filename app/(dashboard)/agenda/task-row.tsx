@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleAlert, ChevronRight, CalendarPlus } from "lucide-react";
+import { CircleAlert, ChevronRight, CalendarPlus, MessageCircle } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
 import { AnimatedCheck } from "@/components/animated-check";
@@ -16,6 +16,9 @@ export type Task = {
   dueAt: string | Date | null;
   completedAt: string | Date | null;
   createdAt: string | Date;
+  scheduledMessageText: string | null;
+  scheduledMessageSentAt: string | Date | null;
+  scheduledMessageFailedAt: string | Date | null;
   deal: {
     id: string;
     name: string;
@@ -28,9 +31,32 @@ export type Task = {
     phone?: string | null;
     source?: string | null;
     email?: string | null;
+    jobTitle?: string | null;
+    company?: string | null;
+    city?: string | null;
   } | null;
   owner: { id: string; name: string; photoUrl: string | null };
 };
+
+/**
+ * Rótulo pra mostrar na Agenda (lista) e no detalhe da tarefa quando ela tem
+ * uma mensagem de WhatsApp programada (ver Task.scheduledMessageText no
+ * schema e lib/tasks/scheduled-whatsapp.ts, que manda de verdade). null =
+ * não é o caso (tarefa sem tipo/mensagem programada), então quem chama não
+ * precisa mostrar nada.
+ */
+export function scheduledMessageStatus(task: Task): { label: string; tone: "neutral" | "green" | "red" } | null {
+  if (task.type !== "WHATSAPP" || !task.scheduledMessageText) return null;
+  const name = task.contact?.name ?? "o cliente";
+  if (task.scheduledMessageSentAt) return { label: `Mensagem enviada para ${name}`, tone: "green" };
+  if (task.scheduledMessageFailedAt) return { label: "Falha ao enviar automaticamente — envie manualmente", tone: "red" };
+  if (task.completedAt) return { label: "Envio cancelado (tarefa finalizada antes da hora)", tone: "neutral" };
+  if (!task.dueAt) return null;
+  const d = new Date(task.dueAt);
+  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return { label: `Enviar mensagem para ${name} dia ${date} às ${time}`, tone: "neutral" };
+}
 
 export function TaskRow({
   task,
@@ -49,6 +75,12 @@ export function TaskRow({
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
   const overdue = !completed && !!task.dueAt && new Date(task.dueAt) < new Date();
+  const msgStatus = scheduledMessageStatus(task);
+  const MSG_STATUS_COLOR: Record<string, string> = {
+    neutral: "text-neutral-500 dark:text-neutral-400",
+    green: "text-emerald-600 dark:text-emerald-400",
+    red: "text-red-600 dark:text-red-400",
+  };
 
   useEffect(() => {
     setCompleted(!!task.completedAt);
@@ -144,13 +176,19 @@ export function TaskRow({
         </div>
 
         {/* Sub-info compacta visível na linha */}
-        {(task.deal || task.contact) && (
+        {(task.deal || task.contact || msgStatus) && (
           <div
             className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 pb-2.5 pl-[42px] text-xs text-neutral-500 dark:text-neutral-400 cursor-pointer"
             onClick={() => setModalOpen(true)}
           >
             {task.deal && <span>{task.deal.name}</span>}
             {task.contact && <span>{task.contact.name}</span>}
+            {msgStatus && (
+              <span className={`inline-flex items-center gap-1 ${MSG_STATUS_COLOR[msgStatus.tone]}`}>
+                <MessageCircle className="h-3 w-3 shrink-0" strokeWidth={2} />
+                {msgStatus.label}
+              </span>
+            )}
           </div>
         )}
       </div>

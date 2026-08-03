@@ -75,7 +75,12 @@ export default async function AgendaPage({
             select: { id: true, name: true, value: true, stage: { select: { name: true } } },
           },
           contact: {
-            select: { id: true, name: true, phone: true, whatsapp: true, source: true, email: true },
+            // jobTitle/company/city: só pro preview da mensagem de WhatsApp
+            // programada renderizar {cargo}/{empresa}/{cidade} de verdade no
+            // detalhe da tarefa (ver task-detail-modal.tsx) — o envio real
+            // (lib/tasks/scheduled-whatsapp.ts) busca o Contact completo à
+            // parte, então isso aqui só afeta o que a pessoa VÊ na prévia.
+            select: { id: true, name: true, phone: true, whatsapp: true, source: true, email: true, jobTitle: true, company: true, city: true },
           },
           owner: { select: { id: true, name: true, image: true } },
         },
@@ -116,6 +121,9 @@ export default async function AgendaPage({
             phone: task.contact.phone ?? task.contact.whatsapp ?? null,
             source: task.contact.source ?? null,
             email: task.contact.email ?? null,
+            jobTitle: task.contact.jobTitle ?? null,
+            company: task.contact.company ?? null,
+            city: task.contact.city ?? null,
           }
         : null,
       owner: {

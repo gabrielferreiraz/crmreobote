@@ -23,6 +23,7 @@ import { TeamOwnerFilter } from "./team-owner-filter";
 import { PipelineFilter } from "./pipeline-filter";
 import { FiltersUrlRestore } from "./filters-url-restore";
 import { GoalCard } from "./goal-card";
+import { countActiveSellers, suggestedGoalValue } from "@/lib/goals/suggestion";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { AdminReportsView } from "./admin-reports-view";
 import { ReportTabs } from "./report-tabs";
@@ -1170,7 +1171,7 @@ export default async function RelatoriosPage({
     year: "numeric",
     timeZone: "UTC",
   });
-  const [monthlyGoal, goalWonAgg] = await Promise.all([
+  const [monthlyGoal, goalWonAgg, activeSellerCount] = await Promise.all([
     prisma.monthlyGoal.findUnique({
       where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
     }),
@@ -1178,9 +1179,17 @@ export default async function RelatoriosPage({
       where: { organizationId, status: "WON", closedAt: { gte: brazilStartOfMonth() } },
       _sum: { value: true },
     }),
+    countActiveSellers(organizationId),
   ]);
   const goalValue = monthlyGoal ? Number(monthlyGoal.value) : null;
   const goalAchievedValue = goalWonAgg._sum.value ? Number(goalWonAgg._sum.value) : 0;
+  const goalSuggestedValue = suggestedGoalValue(activeSellerCount);
+  // Só sugere atualizar quando dá pra comparar com uma base conhecida —
+  // meta sem `basedOnSellerCount` (salva antes desse campo existir) nunca
+  // dispara a sugestão, só quando o time muda DEPOIS de uma meta que já
+  // tinha uma base registrada (ver migration 20260803110000).
+  const goalBasisChanged =
+    monthlyGoal?.basedOnSellerCount != null && monthlyGoal.basedOnSellerCount !== activeSellerCount;
   // Pro marcador de ritmo no GoalCard — "dia X de Y do mês", sempre em
   // calendário de Brasília (nowParts já é isso), nunca no fuso do navegador
   // de quem está vendo a tela.
@@ -1206,7 +1215,7 @@ export default async function RelatoriosPage({
           <div className="flex flex-wrap items-center gap-2">
             <FiltersUrlRestore />
             <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
-            <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} />
+            <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />
             <DateRangeFilter />
           </div>
         </div>
@@ -1220,6 +1229,9 @@ export default async function RelatoriosPage({
           isOwner={isOwner}
           daysElapsed={goalDaysElapsed}
           daysInMonth={goalDaysInMonth}
+          sellerCount={activeSellerCount}
+          suggestedValue={goalSuggestedValue}
+          goalBasisChanged={goalBasisChanged}
         />
       )}
 

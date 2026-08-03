@@ -37,6 +37,9 @@ export function GoalCard({
   isOwner,
   daysElapsed,
   daysInMonth,
+  sellerCount,
+  suggestedValue,
+  goalBasisChanged,
 }: {
   monthLabel: string;
   goalValue: number | null;
@@ -44,6 +47,12 @@ export function GoalCard({
   isOwner: boolean;
   daysElapsed: number;
   daysInMonth: number;
+  /** Consultores (MEMBER) ativos agora — base da sugestão (ver lib/goals/suggestion.ts). */
+  sellerCount: number;
+  /** sellerCount × R$1,2M. */
+  suggestedValue: number;
+  /** true = já existe meta pro mês, mas o time mudou de tamanho desde que ela foi salva. */
+  goalBasisChanged: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -51,12 +60,7 @@ export function GoalCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSave() {
-    const value = draft ? Number(draft) : NaN;
-    if (!Number.isFinite(value) || value <= 0) {
-      setError("Informe um valor de meta maior que zero");
-      return;
-    }
+  async function saveGoal(value: number) {
     setSaving(true);
     setError(null);
 
@@ -76,6 +80,15 @@ export function GoalCard({
 
     setEditing(false);
     router.refresh();
+  }
+
+  async function handleSave() {
+    const value = draft ? Number(draft) : NaN;
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Informe um valor de meta maior que zero");
+      return;
+    }
+    await saveGoal(value);
   }
 
   const hasGoal = goalValue !== null && goalValue > 0;
@@ -127,6 +140,8 @@ export function GoalCard({
         )}
       </div>
 
+      {error && !editing && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
       {editing ? (
         <div className="mt-4 flex flex-wrap items-end gap-2">
           <div className="w-40 space-y-1">
@@ -148,13 +163,44 @@ export function GoalCard({
           {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
       ) : !hasGoal ? (
-        <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
-          {isOwner
-            ? "Nenhuma meta definida ainda — clique no lápis pra definir."
-            : "O dono ainda não definiu uma meta pra este mês."}
-        </p>
+        isOwner ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+            <span>
+              Sugestão: {formatCurrency(suggestedValue)} ({sellerCount} consultor{sellerCount === 1 ? "" : "es"} ativo
+              {sellerCount === 1 ? "" : "s"} × {formatCurrency(1_200_000)})
+            </span>
+            <button
+              type="button"
+              onClick={() => saveGoal(suggestedValue)}
+              disabled={saving}
+              className="font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-300 dark:decoration-neutral-600 dark:hover:text-neutral-100"
+            >
+              {saving ? "Salvando…" : "Usar esta meta"}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
+            O dono ainda não definiu uma meta pra este mês.
+          </p>
+        )
       ) : (
         <div className="mt-4 space-y-4">
+          {isOwner && goalBasisChanged && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-400 dark:text-neutral-500">
+              <span>
+                Equipe mudou pra {sellerCount} consultor{sellerCount === 1 ? "" : "es"} ativo
+                {sellerCount === 1 ? "" : "s"} — sugestão: {formatCurrency(suggestedValue)}
+              </span>
+              <button
+                type="button"
+                onClick={() => saveGoal(suggestedValue)}
+                disabled={saving}
+                className="font-medium underline decoration-neutral-300 underline-offset-2 hover:text-neutral-700 disabled:opacity-50 dark:decoration-neutral-600 dark:hover:text-neutral-300"
+              >
+                {saving ? "Salvando…" : "Atualizar"}
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <span className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">

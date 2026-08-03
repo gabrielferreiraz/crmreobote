@@ -56,6 +56,7 @@ export default async function ClientesPage() {
         sources={sources}
         jobTitles={jobTitles}
         members={members}
+        currentUserId={session!.user.id}
         pipelines={pipelines}
         customFields={customFields}
       />

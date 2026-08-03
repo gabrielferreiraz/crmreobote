@@ -28,6 +28,7 @@ export function PipelineView({
   initialListaDeals,
   listaTotalCount,
   listaSums,
+  currentUserId,
   members,
   allMembers,
   lossReasons,
@@ -49,6 +50,8 @@ export function PipelineView({
   listaTotalCount: number;
   /** Somas de Ganhos/Perdidos/Total sem filtro nenhum — ver aggregateDealValues em lib/deals/list-query.ts. */
   listaSums: Sums;
+  /** Pra "Eu" aparecer sempre em primeiro nos filtros de Responsável (Kanban/Lista, ver lib/sort-self-first.ts). */
+  currentUserId: string;
   members: MemberOption[];
   allMembers: MemberFilterOption[];
   lossReasons: LossReasonOption[];
@@ -112,22 +115,20 @@ export function PipelineView({
           <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
             <button
               onClick={() => setView("kanban")}
-              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                view === "kanban"
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "kanban"
                   ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
                   : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
-              }`}
+                }`}
             >
               <Kanban className="h-3.5 w-3.5" strokeWidth={2} />
               Kanban
             </button>
             <button
               onClick={() => setView("lista")}
-              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                view === "lista"
+              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "lista"
                   ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
                   : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
-              }`}
+                }`}
             >
               <List className="h-3.5 w-3.5" strokeWidth={2} />
               Lista
@@ -154,7 +155,13 @@ export function PipelineView({
       )}
 
       {view === "kanban" ? (
-        <KanbanBoard stages={stages} deals={kanbanDeals} onDealsChange={setKanbanDeals} members={members} />
+        <KanbanBoard
+          stages={stages}
+          deals={kanbanDeals}
+          onDealsChange={setKanbanDeals}
+          members={members}
+          currentUserId={currentUserId}
+        />
       ) : (
         <DealsList
           initialDeals={initialListaDeals}
@@ -162,6 +169,7 @@ export function PipelineView({
           initialSums={listaSums}
           reloadToken={listaReloadToken}
           members={allMembers}
+          currentUserId={currentUserId}
           stages={stages}
           pipelineId={pipelineId}
           pipelines={pipelines}

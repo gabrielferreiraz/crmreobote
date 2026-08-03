@@ -20,6 +20,7 @@ import { Pagination } from "@/components/pagination";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
+import { sortSelfFirst } from "@/lib/sort-self-first";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
@@ -53,6 +54,7 @@ export function DealsList({
   initialSums,
   reloadToken,
   members,
+  currentUserId,
   stages,
   pipelineId,
   pipelines,
@@ -69,6 +71,8 @@ export function DealsList({
   /** Incrementado pelo componente pai (novo negócio criado, importação concluída) pra forçar buscar de novo a página/filtro atual. */
   reloadToken: number;
   members: MemberOption[];
+  /** Pra "Eu" aparecer sempre em primeiro no filtro de Responsável (ver lib/sort-self-first.ts). */
+  currentUserId?: string;
   stages: Stage[];
   pipelineId: string;
   pipelines: PipelineOption[];
@@ -98,6 +102,9 @@ export function DealsList({
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
+
+  // "Eu" sempre em primeiro no filtro de Responsável.
+  const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
   const [cityFilter, setCityFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -544,7 +551,10 @@ export function DealsList({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
-                ...members.map((m) => ({ value: m.id, label: m.active ? m.name : `${m.name} (inativo)` })),
+                ...orderedMembers.map((m) => ({
+                  value: m.id,
+                  label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,
+                })),
               ]}
             />
           </div>

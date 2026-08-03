@@ -7,12 +7,16 @@ import { AutomationsTable } from "./automations-table";
 export default async function AutomacoesPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
+  const userId = session!.user.id;
   const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
-    const [rulesRaw, pipelines, lossReasons, membersRaw, connectedInstances, customFields, scripts] = await Promise.all([
+    const [rulesRaw, pipelines, lossReasons, membersRaw, connectedInstances, customFields, scripts, teams] = await Promise.all([
+      // OWNER/MANAGER vê as regras de todo mundo (supervisão); Supervisor/
+      // Consultor só as próprias — mesmo escopo aplicado de novo em cada
+      // chamada de app/api/automations (nunca confia só nisso aqui).
       prisma.automationRule.findMany({
-        where: { organizationId },
+        where: { organizationId, ...(isManager ? {} : { createdById: userId }) },
         orderBy: { createdAt: "desc" },
       }),
       prisma.pipeline.findMany({
@@ -47,7 +51,17 @@ export default async function AutomacoesPage() {
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),
+      // Só usado no seletor de alvo "Equipe", visível só pra OWNER/MANAGER —
+      // busca sempre (custo desprezível) pra não precisar de um segundo
+      // round-trip condicional.
+      prisma.team.findMany({
+        where: { organizationId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
     ]);
+
+    const memberUserMap = new Map(membersRaw.map((m) => [m.user.id, m.user.name]));
 
     const rules = rulesRaw.map((r) => ({
       ...r,
@@ -55,9 +69,12 @@ export default async function AutomacoesPage() {
       actionConfig: r.actionConfig as Record<string, unknown> | null,
       lastRunAt: r.lastRunAt ? r.lastRunAt.toISOString() : null,
       createdAt: r.createdAt.toISOString(),
+      // Só faz diferença pra quem vê regra de mais de uma pessoa (OWNER/
+      // MANAGER) — sem isso, uma lista com automação de vários consultores
+      // misturada não deixa claro de quem é cada uma.
+      createdByName: r.createdById ? (memberUserMap.get(r.createdById) ?? null) : null,
     }));
 
-    const memberUserMap = new Map(membersRaw.map((m) => [m.user.id, m.user.name]));
     const whatsappInstances = connectedInstances.map((inst) => ({
       userId: inst.userId,
       label: `${memberUserMap.get(inst.userId) ?? "Usuário"} (${inst.phoneNumber ?? "sem número"})`,
@@ -68,14 +85,19 @@ export default async function AutomacoesPage() {
         <SettingsBackLink />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Automações</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Regras simples que economizam horas do time</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+            {isManager ? "Regras simples que economizam horas do time" : "Regras simples que economizam seu tempo nos seus negócios"}
+          </p>
         </div>
         <AutomationsTable
           initialRules={rules}
-          canManage={isManager}
+          canManage
+          showCreatedBy={isManager}
+          canTargetOthers={isManager}
           pipelines={pipelines.map((p) => ({ id: p.id, name: p.name, stages: p.stages }))}
           lossReasons={lossReasons}
           members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name, role: m.role }))}
+          teams={teams}
           whatsappInstances={whatsappInstances}
           customFields={customFields}
           scripts={scripts}

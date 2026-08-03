@@ -79,6 +79,11 @@ type RuleWithOrg = {
   action: $Enums.AutomationAction;
   actionConfig: Prisma.JsonValue;
   createdAt: Date;
+  /** Null nas regras criadas antes desta coluna existir (só OWNER/MANAGER tinham acesso então) — ver findMatches abaixo. */
+  createdById: string | null;
+  targetType: $Enums.AutomationTargetType;
+  targetUserIds: string[];
+  targetTeamId: string | null;
 };
 
 // DEAL_CREATED/DEAL_WON/DEAL_LOST/DEAL_STAGE_ENTERED usavam só rule.createdAt
@@ -485,7 +490,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
   return { success: false, detail: "Ação desconhecida." };
 }
 
-async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<Entity[]> {
+async function findMatchesRaw(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<Entity[]> {
   const triggerConfig = (rule.triggerConfig ?? {}) as TriggerConfig;
   const conditions = triggerConfig.customFieldConditions;
   const definitionsById = new Map(customFieldDefs.map((d) => [d.id, d]));
@@ -720,6 +725,50 @@ async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefini
   }
 
   return [];
+}
+
+/**
+ * Filtra os matches (já achados por findMatchesRaw, por gatilho) pelo ALVO
+ * da regra — o gatilho continua olhando a organização inteira, isso só
+ * decide quais dessas entidades de fato contam pra disparar a ação, pelo
+ * dono (Deal/Task.ownerId ou o "responsável" sintético de Contact, ver
+ * Entity.ownerId). EVERYONE preserva o comportamento de sempre (toda regra
+ * antes deste campo existir). SELF/USERS/TEAM nunca dependem do que o
+ * cliente manda em tempo real — o valor já foi validado/forçado no servidor
+ * na criação/edição da regra (ver app/api/automations), então aqui é só
+ * aplicar o que já está gravado.
+ */
+async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<Entity[]> {
+  const matches = await findMatchesRaw(rule, customFieldDefs);
+
+  if (rule.targetType === "EVERYONE") return matches;
+
+  if (rule.targetType === "SELF") {
+    // Regra legada (sem createdById, de antes desta coluna existir) nunca
+    // deveria ter targetType SELF — mas se acontecer, não tem "dono" pra
+    // restringir, então trata como Todos em vez de silenciosamente não
+    // disparar em nada.
+    if (!rule.createdById) return matches;
+    return matches.filter((m) => m.ownerId === rule.createdById);
+  }
+
+  if (rule.targetType === "USERS") {
+    if (rule.targetUserIds.length === 0) return [];
+    const allowed = new Set(rule.targetUserIds);
+    return matches.filter((m) => allowed.has(m.ownerId));
+  }
+
+  if (rule.targetType === "TEAM") {
+    if (!rule.targetTeamId) return [];
+    const teamMembers = await prisma.organizationUser.findMany({
+      where: { organizationId: rule.organizationId, teamId: rule.targetTeamId },
+      select: { userId: true },
+    });
+    const allowed = new Set(teamMembers.map((m) => m.userId));
+    return matches.filter((m) => allowed.has(m.ownerId));
+  }
+
+  return matches;
 }
 
 async function runRule(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<number> {

@@ -83,6 +83,7 @@ model User {
   whatsappMessagesSentAs      WhatsAppMessage[]         @relation("WhatsAppMessageSentBy")
   whatsappThreadsOwned        WhatsAppThread[]          @relation("WhatsAppThreadOwner")
   auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
+  automationRulesCreated      AutomationRule[]          @relation("AutomationRuleCreatedBy")
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -691,10 +692,11 @@ model Team {
   managerId      String?
   createdAt      DateTime @default(now())
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  leader       User?              @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: SetNull)
-  manager      User?              @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
-  members      OrganizationUser[]
+  organization          Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leader                User?              @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  manager               User?              @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members               OrganizationUser[]
+  automationRuleTargets AutomationRule[]   @relation("AutomationRuleTargetTeam")
 
   @@index([organizationId])
   // Usado por getDealScope (lib/team-scope.ts) — passa a rodar em toda
@@ -890,13 +892,24 @@ model LossReason {
 // corrente. Histórico de meses passados fica guardado (não é só "a meta
 // atual"), então dá pra olhar um mês antigo depois e ver se bateu.
 model MonthlyGoal {
-  id             String   @id @default(cuid())
-  organizationId String
-  year           Int
-  month          Int // 1-12
-  value          Decimal  @db.Decimal(14, 2)
-  updatedAt      DateTime @updatedAt
-  updatedById    String
+  id                 String   @id @default(cuid())
+  organizationId     String
+  year               Int
+  month              Int // 1-12
+  value              Decimal  @db.Decimal(14, 2)
+  updatedAt          DateTime @updatedAt
+  updatedById        String
+  // Quantos consultores (role MEMBER) ativos existiam quando `value` foi
+  // salvo por último (ver lib/goals/suggestion.ts) — null pra linhas
+  // antigas, de antes desse campo existir. É o que permite distinguir "a
+  // meta foi ajustada de propósito, não precisa sugerir nada" de "a equipe
+  // mudou de tamanho depois que a meta foi definida, vale sugerir de novo":
+  // só compara o VALOR de `value` com a sugestão apareceria toda vez que o
+  // dono digitasse um valor fora da fórmula. `null` nunca dispara sugestão
+  // de atualização (só dá pra saber que mudou comparando com uma base
+  // conhecida) — evita alarme falso em toda meta já existente no dia em
+  // que este campo foi introduzido.
+  basedOnSellerCount Int?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   updatedBy    User         @relation(fields: [updatedById], references: [id])
@@ -1239,29 +1252,49 @@ model ProcessRequest {
 // ─── Tarefas ─────────────────────────────────────────────────────────
 
 model Task {
-  id                  String    @id @default(cuid())
-  organizationId      String
-  dealId              String?
-  contactId           String?
-  ownerId             String
-  type                TaskType
-  title               String
-  description         String?
-  dueAt               DateTime?
-  completedAt         DateTime?
+  id                       String    @id @default(cuid())
+  organizationId           String
+  dealId                   String?
+  contactId                String?
+  ownerId                  String
+  type                     TaskType
+  title                    String
+  description              String?
+  dueAt                    DateTime?
+  completedAt              DateTime?
   // Quando o convite da reunião (link de "adicionar ao calendário" pro
   // cliente) foi mandado pro WhatsApp dele — null enquanto não mandado.
   // Nunca reseta sozinho num reagendamento; a tela pergunta de novo e quem
   // manda decide se reenvia.
-  meetingInviteSentAt DateTime?
+  meetingInviteSentAt      DateTime?
+  // Texto (com variáveis {nome}/{cargo}/{empresa}/{cidade}/{consultor}/
+  // {saudacao}, ver lib/campaigns/spintax.ts) programado pra ser mandado
+  // automaticamente pro WhatsApp do contato no exato dueAt desta tarefa —
+  // só faz sentido em tarefas type=WHATSAPP. Preenchido uma vez, na
+  // criação (ver ScheduleMessageDialog); nunca editado depois. Renderizado
+  // de novo (contato/saudação atuais) só na hora do envio de verdade pelo
+  // cron (ver lib/tasks/scheduled-whatsapp.ts) — não fica "congelado" com
+  // os dados de quando foi escrito.
+  scheduledMessageText     String?
+  // Quando o cron mandou de verdade — null enquanto pendente. Setado uma
+  // única vez; depois disso o cron nunca mais mexe nesta tarefa (ver
+  // scheduledMessageFailedAt abaixo pra falha).
+  scheduledMessageSentAt   DateTime?
+  // Quando o envio automático falhou de vez (WhatsApp desconectado, contato
+  // sem número, etc.) — decisão de produto é NÃO tentar de novo (o
+  // consultor é avisado 1x por push e manda manualmente se quiser). Setado
+  // uma vez; impede reprocessar a mesma tarefa em todo tick seguinte. Um
+  // erro inesperado de infra (não uma falha de envio de verdade) NÃO seta
+  // isto — deixa o próximo tick tentar de novo.
+  scheduledMessageFailedAt DateTime?
   // "Código da tarefa" do Agendor — mesma ideia de agendorDealId (ver Deal):
   // chave de reconciliação pra reimportar sem duplicar. NÃO é único sozinho
   // porque uma tarefa do Agendor com mais de 1 responsável vira uma linha
   // POR responsável aqui (ver scripts/import-agendor.ts) — o mesmo
   // agendorTaskId aparece então em mais de uma linha de propósito; o que
   // precisa ser único é a combinação com o dono (ver @@unique abaixo).
-  agendorTaskId       String?
-  createdAt           DateTime  @default(now())
+  agendorTaskId            String?
+  createdAt                DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
@@ -1303,6 +1336,15 @@ model Activity {
   type           ActivityType
   body           String?
   createdAt      DateTime     @default(now())
+  // "Código da tarefa" do Agendor — só preenchido pra Activity de Reunião/
+  // Visita geradas pelo backfill de scripts/agendor/backfill-meeting-visit-activities.ts,
+  // que reconstrói o registro de "isso aconteceu" a partir da Task migrada
+  // (a migração original só criou Task, ver import-tarefas.ts, e o
+  // relatório de Reuniões/Visitas conta de Activity, não de Task — sem
+  // isso, todo o histórico migrado ficava invisível em Relatórios).
+  // Create-only por (agendorTaskId, userId), mesma chave do Task de
+  // origem — nunca preenchido em Activity criada organicamente.
+  agendorTaskId  String?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
@@ -1310,6 +1352,7 @@ model Activity {
   process      Process?     @relation(fields: [processId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id])
 
+  @@unique([agendorTaskId, userId])
   @@index([organizationId, dealId, createdAt])
   @@index([organizationId, processId, createdAt])
 }
@@ -1356,22 +1399,61 @@ model UserDailyActivity {
 // ─── Automações ──────────────────────────────────────────────────────
 
 model AutomationRule {
-  id             String            @id @default(cuid())
+  id             String               @id @default(cuid())
   organizationId String
   name           String
   trigger        AutomationTrigger
   triggerConfig  Json?
   action         AutomationAction
   actionConfig   Json?
-  enabled        Boolean           @default(true)
-  runCount       Int               @default(0)
+  enabled        Boolean              @default(true)
+  runCount       Int                  @default(0)
   lastRunAt      DateTime?
-  createdAt      DateTime          @default(now())
+  createdAt      DateTime             @default(now())
+  // Null pras regras já existentes antes desta coluna (criadas quando só
+  // OWNER/MANAGER tinha acesso, então "sem dono" == só OWNER/MANAGER
+  // enxergam). Regras novas de Supervisor/Consultor sempre preenchem isso —
+  // é o que restringe a lista de cada um às próprias (ver GET
+  // /api/automations), igual ao mesmo padrão já usado em MessageScript.
+  createdById    String?
+  // Em quem a regra AGE (o gatilho ainda é o mesmo pra organização inteira —
+  // isso filtra quais negócios/contatos/tarefas contam como "match", pelo
+  // dono da entidade). Só OWNER/MANAGER escolhem isso ao criar/editar (ver
+  // app/api/automations) — regra de Supervisor/Consultor é sempre SELF,
+  // forçado no servidor, nunca confia no que o cliente manda.
+  targetType     AutomationTargetType @default(EVERYONE)
+  // Só relevante quando targetType = USERS.
+  targetUserIds  String[]             @default([])
+  // Só relevante quando targetType = TEAM.
+  targetTeamId   String?
 
   organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?                 @relation("AutomationRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  targetTeam   Team?                 @relation("AutomationRuleTargetTeam", fields: [targetTeamId], references: [id], onDelete: SetNull)
   executions   AutomationExecution[]
 
   @@index([organizationId])
+  @@index([organizationId, createdById])
+  @@index([organizationId, targetTeamId])
+}
+
+enum AutomationTargetType {
+  /**
+   * Toda a organização (comportamento de sempre, antes deste campo existir).
+   */
+  EVERYONE
+  /**
+   * Só o dono da entidade (Deal/Task/Contato) ser igual a quem criou a regra.
+   */
+  SELF
+  /**
+   * Só o dono da entidade estar numa lista específica de pessoas escolhidas (targetUserIds).
+   */
+  USERS
+  /**
+   * Só o dono da entidade ser membro da equipe escolhida (targetTeamId).
+   */
+  TEAM
 }
 
 model AutomationExecution {

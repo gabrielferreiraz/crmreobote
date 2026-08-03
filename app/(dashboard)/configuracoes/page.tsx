@@ -34,6 +34,12 @@ export default async function ConfiguracoesPage() {
           title="Perfil e preferências"
           description="Foto, notificações push e conexão do WhatsApp."
         />
+        <Row
+          href="/automacoes"
+          icon={Zap}
+          title="Automações"
+          description="Regras que disparam ação sozinhas nos seus negócios (tarefa, e-mail, WhatsApp, push)."
+        />
       </Section>
 
       {isManager ? (
@@ -45,7 +51,6 @@ export default async function ConfiguracoesPage() {
           <Row href="/configuracoes/origens" icon={Tag} title="Origens" description="De onde vêm os leads (Facebook, Indicação...)." />
           <Row href="/configuracoes/tipos-de-credito" icon={CreditCard} title="Tipos de crédito" description="Imóvel, veículo e outras categorias do negócio." />
           <Row href="/configuracoes/cargos" icon={Briefcase} title="Cargos" description="Profissão/ocupação usada no cadastro de clientes." />
-          <Row href="/automacoes" icon={Zap} title="Automações" description="Regras que disparam ação sozinhas (tarefa, e-mail, WhatsApp, push)." />
           <Row href="/configuracoes/campos-personalizados" icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
           {canManageProcesses && (
             <Row href="/configuracoes/processos" icon={ClipboardList} title="Processos (pós-venda)" description="Etapas do Kanban administrativo de pós-venda." />

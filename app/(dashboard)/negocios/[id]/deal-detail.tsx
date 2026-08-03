@@ -18,6 +18,7 @@ import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanelTrigger } from "@/components/whatsapp-panel-trigger";
 import { appendDictatedText } from "@/lib/dictation";
 import type { MeetingInviteTask } from "@/components/meeting-invite-dialog";
+import type { ScheduleMessageTask } from "@/components/schedule-message-dialog";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 import { brazilDateKey } from "@/lib/timezone";
@@ -32,6 +33,10 @@ const ChatWindow = dynamic(() => import("@/components/whatsapp-chat").then((m) =
 const ConfettiBurst = dynamic(() => import("@/components/confetti-burst").then((m) => m.ConfettiBurst), { ssr: false });
 const MeetingInviteDialog = dynamic(
   () => import("@/components/meeting-invite-dialog").then((m) => m.MeetingInviteDialog),
+  { ssr: false },
+);
+const ScheduleMessageDialog = dynamic(
+  () => import("@/components/schedule-message-dialog").then((m) => m.ScheduleMessageDialog),
   { ssr: false },
 );
 const VoiceInputButton = dynamic(() => import("@/components/voice-input-button").then((m) => m.VoiceInputButton), {
@@ -173,6 +178,9 @@ export function DealDetail({
   // Setado depois de criar/reagendar uma tarefa Reunião com data definida —
   // abre o MeetingInviteDialog por cima (ver submitActivity/saveTask).
   const [meetingInviteTask, setMeetingInviteTask] = useState<MeetingInviteTask | null>(null);
+  // Mesma ideia, pra tarefa WhatsApp recém-criada com prazo FUTURO — abre o
+  // ScheduleMessageDialog por cima (ver submitActivity).
+  const [scheduleMessageTask, setScheduleMessageTask] = useState<ScheduleMessageTask | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
   const [showConfetti, setShowConfetti] = useState(false);
@@ -424,6 +432,23 @@ export function DealDetail({
           contact: { id: deal.contact.id, name: deal.contact.name, phone: deal.contact.phone, whatsapp: deal.contact.whatsapp },
           owner: { name: deal.owner.name },
         });
+      }
+      if (activeTab === "WHATSAPP" && taskRes.ok) {
+        const created = await taskRes.json();
+        if (created.dueAt && new Date(created.dueAt) > new Date()) {
+          setScheduleMessageTask({
+            id: created.id,
+            title: created.title,
+            dueAt: created.dueAt,
+            contact: {
+              id: deal.contact.id,
+              name: deal.contact.name,
+              jobTitle: deal.contact.jobTitle,
+              phone: deal.contact.phone,
+              whatsapp: deal.contact.whatsapp,
+            },
+          });
+        }
       }
     }
 
@@ -1071,6 +1096,9 @@ export function DealDetail({
           isWhatsAppConnected={isWhatsAppConnected}
           onClose={() => setMeetingInviteTask(null)}
         />
+      )}
+      {scheduleMessageTask && (
+        <ScheduleMessageDialog task={scheduleMessageTask} onClose={() => setScheduleMessageTask(null)} />
       )}
       </div>
 

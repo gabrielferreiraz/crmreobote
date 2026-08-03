@@ -45,6 +45,55 @@ export const VALID_ACTIONS: $Enums.AutomationAction[] = [
   "SEND_SCRIPT",
 ];
 
+const VALID_TARGET_TYPES: $Enums.AutomationTargetType[] = ["EVERYONE", "SELF", "USERS", "TEAM"];
+
+export type TargetConfig = {
+  targetType: $Enums.AutomationTargetType;
+  targetUserIds: string[];
+  targetTeamId: string | null;
+};
+
+/**
+ * Resolve e valida o ALVO da regra (em quem ela age, além do gatilho) —
+ * Todos/Eu/Usuários específicos/Equipe. Só OWNER/MANAGER escolhem isso; pra
+ * qualquer outro papel, ignora completamente o que o cliente mandou e força
+ * SELF — nunca confia no body pra decidir um escopo mais amplo que o
+ * próprio usuário que está criando/editando a regra.
+ */
+export async function resolveTargetConfig(
+  organizationId: string,
+  isManager: boolean,
+  input: { targetType?: string; targetUserIds?: string[]; targetTeamId?: string | null } | undefined,
+): Promise<{ ok: true; value: TargetConfig } | { ok: false; error: string }> {
+  if (!isManager) {
+    return { ok: true, value: { targetType: "SELF", targetUserIds: [], targetTeamId: null } };
+  }
+
+  const targetType = (input?.targetType ?? "EVERYONE") as $Enums.AutomationTargetType;
+  if (!VALID_TARGET_TYPES.includes(targetType)) {
+    return { ok: false, error: "Alvo inválido" };
+  }
+
+  if (targetType === "SELF" || targetType === "EVERYONE") {
+    return { ok: true, value: { targetType, targetUserIds: [], targetTeamId: null } };
+  }
+
+  if (targetType === "USERS") {
+    const ids = Array.from(new Set((input?.targetUserIds ?? []).filter(Boolean)));
+    if (ids.length === 0) return { ok: false, error: "Selecione ao menos um usuário" };
+    const members = await prisma.organizationUser.findMany({ where: { organizationId, userId: { in: ids } } });
+    if (members.length !== ids.length) return { ok: false, error: "Um dos usuários selecionados é inválido" };
+    return { ok: true, value: { targetType, targetUserIds: ids, targetTeamId: null } };
+  }
+
+  // TEAM
+  const teamId = input?.targetTeamId;
+  if (!teamId) return { ok: false, error: "Selecione a equipe" };
+  const team = await prisma.team.findFirst({ where: { id: teamId, organizationId } });
+  if (!team) return { ok: false, error: "Equipe inválida" };
+  return { ok: true, value: { targetType, targetUserIds: [], targetTeamId: teamId } };
+}
+
 export async function validateTriggerConfig(
   organizationId: string,
   trigger: $Enums.AutomationTrigger,

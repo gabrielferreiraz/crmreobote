@@ -16,9 +16,11 @@ const DEFAULT_DELAY_MIN_SEC = 50;
 const DEFAULT_DELAY_MAX_SEC = 120;
 const MAX_DEALS_PER_SEND = 2000;
 
-// Isolado numa constante — hoje só Supervisor+, o usuário sinalizou que
-// pode querer abrir pra Membro (consultor) mais pra frente.
-const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR"] as const;
+// Liberado pra todos os papéis, inclusive Membro (consultor) — a seleção é
+// sempre revalidada contra getDealScope/scopeWhere do papel de quem chama
+// logo abaixo, então um Consultor só consegue mandar mensagem pros negócios
+// que já são dele, mesmo mandando o id de negócio de outra pessoa na mão.
+const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"] as const;
 
 export async function POST(req: Request) {
   const body = await req.json();

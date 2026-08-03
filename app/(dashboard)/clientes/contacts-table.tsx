@@ -40,6 +40,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
+import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
 
@@ -79,6 +80,7 @@ export function ContactsTable({
   sources,
   jobTitles,
   members,
+  currentUserId,
   pipelines,
   customFields,
 }: {
@@ -89,6 +91,8 @@ export function ContactsTable({
   sources: { id: string; label: string }[];
   jobTitles: { id: string; label: string }[];
   members: MemberOption[];
+  /** Pra "Eu" aparecer sempre em primeiro no filtro de Responsável (ver lib/sort-self-first.ts). */
+  currentUserId?: string;
   pipelines: PipelineOption[];
   customFields: CustomFieldDefinitionInput[];
 }) {
@@ -234,6 +238,9 @@ export function ContactsTable({
     for (const c of contacts) if (c.jobTitle) set.add(c.jobTitle);
     return Array.from(set);
   }, [contacts, jobTitles]);
+
+  // "Eu" sempre em primeiro no filtro de Responsável.
+  const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
 
   const hasFilters =
     !!sourceFilter ||
@@ -576,7 +583,7 @@ export function ContactsTable({
               options={[
                 { value: "", label: "Todos os responsáveis" },
                 { value: NO_RESPONSAVEL, label: "Sem responsável" },
-                ...members.map((m) => ({ value: m.id, label: m.name })),
+                ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
               ]}
             />
           </div>

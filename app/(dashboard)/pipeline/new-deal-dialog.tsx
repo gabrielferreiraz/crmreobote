@@ -8,6 +8,7 @@ import { ContactSearchInput } from "@/components/contact-search-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
+import { QuickRegisterDealForm } from "./quick-register-deal-form";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -37,6 +38,7 @@ export function NewDealDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
+  const [tab, setTab] = useState<"manual" | "quick">("manual");
   const [contactId, setContactId] = useState("");
   const [value, setValue] = useState("");
   const [creditType, setCreditType] = useState("");
@@ -103,60 +105,101 @@ export function NewDealDialog({
       )}
 
       {isOpen && (
-        <Modal onClose={() => setOpen(false)}>
+        <Modal onClose={() => setOpen(false)} maxWidth={tab === "quick" ? "max-w-2xl" : "max-w-sm"}>
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo negócio</h2>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="space-y-1">
-              <label className="field-label">Contato</label>
-              <ContactSearchInput value={contactId} onChange={(id) => setContactId(id)} autoFocus />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Valor</label>
-              <CurrencyInput value={value} onChange={setValue} />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Tipo de crédito</label>
-              <Select
-                value={creditType}
-                onChange={setCreditType}
-                options={[
-                  { value: "", label: "—" },
-                  ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
-                ]}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Responsável</label>
-              <Select
-                value={ownerId}
-                onChange={setOwnerId}
-                options={[
-                  { value: "", label: "Atribuição automática" },
-                  ...members.map((m) => ({ value: m.id, label: m.name })),
-                ]}
-              />
-            </div>
-            <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          <div className="mb-4 inline-flex rounded-lg bg-neutral-100 p-1 text-sm dark:bg-neutral-800">
+            <button
+              type="button"
+              onClick={() => setTab("manual")}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+                tab === "manual"
+                  ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100"
+                  : "text-neutral-500 dark:text-neutral-400"
+              }`}
+            >
+              Manual
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("quick")}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+                tab === "quick"
+                  ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100"
+                  : "text-neutral-500 dark:text-neutral-400"
+              }`}
+            >
+              Cadastro rápido
+            </button>
+          </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
-                Cancelar
-              </button>
-              <button type="submit" disabled={loading || !contactId} className="btn-primary">
-                {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-                {loading ? (
-                  <span className="inline-flex items-center gap-1">
-                    Criando
-                    <LoadingDots />
-                  </span>
-                ) : (
-                  "Criar"
-                )}
-              </button>
-            </div>
-          </form>
+          {tab === "quick" ? (
+            <QuickRegisterDealForm
+              pipelineId={pipelineId}
+              firstStageId={firstStageId}
+              members={members}
+              creditTypes={creditTypes}
+              onCreated={(deal) => {
+                setOpen(false);
+                setTab("manual");
+                onCreated(deal);
+              }}
+              onCancel={() => setOpen(false)}
+            />
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <label className="field-label">Contato</label>
+                <ContactSearchInput value={contactId} onChange={(id) => setContactId(id)} autoFocus />
+              </div>
+              <div className="space-y-1">
+                <label className="field-label">Valor</label>
+                <CurrencyInput value={value} onChange={setValue} />
+              </div>
+              <div className="space-y-1">
+                <label className="field-label">Tipo de crédito</label>
+                <Select
+                  value={creditType}
+                  onChange={setCreditType}
+                  options={[
+                    { value: "", label: "—" },
+                    ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
+                  ]}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="field-label">Responsável</label>
+                <Select
+                  value={ownerId}
+                  onChange={setOwnerId}
+                  options={[
+                    { value: "", label: "Atribuição automática" },
+                    ...members.map((m) => ({ value: m.id, label: m.name })),
+                  ]}
+                />
+              </div>
+              <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
+
+              {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={loading || !contactId} className="btn-primary">
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+                  {loading ? (
+                    <span className="inline-flex items-center gap-1">
+                      Criando
+                      <LoadingDots />
+                    </span>
+                  ) : (
+                    "Criar"
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
         </Modal>
       )}
     </>

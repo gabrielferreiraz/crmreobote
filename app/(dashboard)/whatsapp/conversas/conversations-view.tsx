@@ -334,7 +334,12 @@ export function ConversationsView({
   const ownerOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const c of tabConversations) seen.set(c.ownerId, c.ownerId === currentUserId ? "Você" : c.ownerName);
-    return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+    // "Você" sempre em primeiro, o resto por ordem alfabética.
+    return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => {
+      if (a.value === currentUserId) return -1;
+      if (b.value === currentUserId) return 1;
+      return a.label.localeCompare(b.label);
+    });
   }, [tabConversations, currentUserId]);
   // Enxergar mais de um responsável nas conversas já indica visibilidade
   // ampliada (dono, ou admin líder de equipe) — não precisa checar role.

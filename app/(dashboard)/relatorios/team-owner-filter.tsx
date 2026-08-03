@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Select } from "@/components/select";
+import { sortSelfFirst } from "@/lib/sort-self-first";
 import { WHO_FILTER_KEY } from "./filters-storage";
 
 /**
@@ -14,9 +15,12 @@ import { WHO_FILTER_KEY } from "./filters-storage";
 export function TeamOwnerFilter({
   teams,
   members,
+  currentUserId,
 }: {
   teams: { id: string; name: string }[];
   members: { id: string; name: string }[];
+  /** Pra "Eu" aparecer sempre em primeiro (ver lib/sort-self-first.ts). */
+  currentUserId?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -38,10 +42,11 @@ export function TeamOwnerFilter({
     } catch {}
   }
 
+  const orderedMembers = sortSelfFirst(members, currentUserId);
   const options = [
     { value: "", label: "Todos" },
     ...teams.map((t) => ({ value: `team:${t.id}`, label: `Equipe: ${t.name}` })),
-    ...members.map((m) => ({ value: `owner:${m.id}`, label: m.name })),
+    ...orderedMembers.map((m) => ({ value: `owner:${m.id}`, label: m.id === currentUserId ? "Eu" : m.name })),
   ];
 
   return <Select value={current} onChange={apply} options={options} className="w-52" />;

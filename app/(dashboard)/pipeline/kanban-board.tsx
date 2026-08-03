@@ -22,6 +22,7 @@ import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { TASK_TYPE_ICON, TASK_TYPE_LABELS } from "@/lib/task-icons";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
+import { sortSelfFirst } from "@/lib/sort-self-first";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
@@ -70,11 +71,13 @@ export function KanbanBoard({
   deals,
   onDealsChange,
   members,
+  currentUserId,
 }: {
   stages: Stage[];
   deals: Deal[];
   onDealsChange: (updater: (prev: Deal[]) => Deal[]) => void;
   members: MemberOption[];
+  currentUserId?: string;
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
@@ -95,6 +98,10 @@ export function KanbanBoard({
   const [staleOnly, setStaleOnly] = useState(false);
 
   const openDeals = useMemo(() => deals.filter((d) => d.status === "OPEN"), [deals]);
+
+  // "Eu" sempre em primeiro no filtro de Responsável — acha a si mesmo na
+  // hora, sem procurar o próprio nome no meio da lista de consultores.
+  const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
 
   const sourceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -232,7 +239,7 @@ export function KanbanBoard({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
-                ...members.map((m) => ({ value: m.id, label: m.name })),
+                ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
               ]}
             />
           </div>

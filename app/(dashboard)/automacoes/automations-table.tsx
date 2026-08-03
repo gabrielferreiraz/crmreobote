@@ -52,6 +52,8 @@ type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHA
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
+type TargetType = "EVERYONE" | "SELF" | "USERS" | "TEAM";
+
 type Rule = {
   id: string;
   name: string;
@@ -62,14 +64,27 @@ type Rule = {
   enabled: boolean;
   runCount: number;
   lastRunAt: string | null;
+  /** Só vem preenchido pra quem enxerga regra de mais de uma pessoa (OWNER/MANAGER) — ver showCreatedBy. */
+  createdByName?: string | null;
+  targetType: TargetType;
+  targetUserIds: string[];
+  targetTeamId: string | null;
 };
 
 type StageOption = { id: string; name: string };
 type PipelineOption = { id: string; name: string; stages: StageOption[] };
 type LossReasonOption = { id: string; label: string };
 type MemberOption = { id: string; name: string; role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER" };
+type TeamOption = { id: string; name: string };
 type WhatsappInstanceOption = { userId: string; label: string };
 type ScriptOption = { id: string; name: string };
+
+const TARGET_TYPE_LABELS: Record<TargetType, string> = {
+  EVERYONE: "Todos",
+  SELF: "Só eu",
+  USERS: "Usuários específicos",
+  TEAM: "Equipe",
+};
 
 const TRIGGER_LABELS: Record<Trigger, string> = {
   DEAL_STALE: "Negócio parado",
@@ -111,18 +126,26 @@ const ACTION_LABELS: Record<Action, string> = {
 export function AutomationsTable({
   initialRules,
   canManage,
+  showCreatedBy = false,
+  canTargetOthers = false,
   pipelines,
   lossReasons,
   members,
+  teams,
   whatsappInstances,
   customFields,
   scripts,
 }: {
   initialRules: Rule[];
   canManage: boolean;
+  /** OWNER/MANAGER vê regra de todo mundo misturada — mostra "por Fulano" pra não ficar ambíguo de quem é cada uma. */
+  showCreatedBy?: boolean;
+  /** Só OWNER/MANAGER escolhem o alvo (Todos/Eu/Usuários/Equipe) — Supervisor/Consultor sempre cria restrita a si mesmo. */
+  canTargetOthers?: boolean;
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  teams: TeamOption[];
   whatsappInstances: WhatsappInstanceOption[];
   customFields: CustomFieldOption[];
   scripts: ScriptOption[];
@@ -161,8 +184,19 @@ export function AutomationsTable({
   const stageById = new Map(pipelines.flatMap((p) => p.stages.map((s) => [s.id, `${s.name} (${p.name})`])));
   const lossReasonById = new Map(lossReasons.map((r) => [r.id, r.label]));
   const memberById = new Map(members.map((m) => [m.id, m.name]));
+  const teamById = new Map(teams.map((t) => [t.id, t.name]));
   const customFieldById = new Map(customFields.map((f) => [f.id, f]));
   const scriptById = new Map(scripts.map((s) => [s.id, s]));
+
+  /** Resumo de "em quem age" pra mostrar na linha da regra — só chamado quando showCreatedBy (visão de OWNER/MANAGER). */
+  function describeTarget(rule: Rule): string {
+    if (rule.targetType === "EVERYONE") return "Todos";
+    if (rule.targetType === "SELF") return rule.createdByName ? `Só ${rule.createdByName}` : "Só o criador";
+    if (rule.targetType === "TEAM") return rule.targetTeamId ? (teamById.get(rule.targetTeamId) ?? "equipe removida") : "equipe removida";
+    // USERS
+    const names = rule.targetUserIds.map((id) => memberById.get(id) ?? "removido");
+    return names.length > 0 ? names.join(", ") : "ninguém selecionado";
+  }
 
   function describeTrigger(rule: Rule): string | null {
     const config = rule.triggerConfig ?? {};
@@ -300,8 +334,18 @@ export function AutomationsTable({
                   </span>
 
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</p>
-                    <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{describeRule(rule)}</p>
+                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                      {rule.name}
+                      {showCreatedBy && (
+                        <span className="ml-1.5 font-normal text-neutral-400 dark:text-neutral-500">
+                          · {rule.createdByName ?? "sem dono definido"}
+                        </span>
+                      )}
+                    </p>
+                    <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                      {describeRule(rule)}
+                      {showCreatedBy && ` · Alvo: ${describeTarget(rule)}`}
+                    </p>
                   </div>
 
                   <button
@@ -427,6 +471,8 @@ export function AutomationsTable({
           pipelines={pipelines}
           lossReasons={lossReasons}
           members={members}
+          teams={teams}
+          canTargetOthers={canTargetOthers}
           whatsappInstances={whatsappInstances}
           customFields={customFields}
           scripts={scripts}
@@ -536,6 +582,8 @@ function AutomationDialog({
   pipelines,
   lossReasons,
   members,
+  teams,
+  canTargetOthers,
   whatsappInstances,
   customFields,
   scripts,
@@ -546,6 +594,9 @@ function AutomationDialog({
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  teams: TeamOption[];
+  /** Só OWNER/MANAGER escolhem em quem a automação age — Supervisor/Consultor sempre cria restrita a si mesmo, sem esse seletor. */
+  canTargetOthers: boolean;
   whatsappInstances: WhatsappInstanceOption[];
   customFields: CustomFieldOption[];
   scripts: ScriptOption[];
@@ -558,6 +609,11 @@ function AutomationDialog({
   const ac = editRule?.actionConfig ?? {};
 
   const [name, setName] = useState(editRule?.name ?? "");
+  const [targetType, setTargetType] = useState<TargetType>(
+    editRule?.targetType ?? (canTargetOthers ? "EVERYONE" : "SELF"),
+  );
+  const [targetUserIds, setTargetUserIds] = useState<string[]>(editRule?.targetUserIds ?? []);
+  const [targetTeamId, setTargetTeamId] = useState((editRule?.targetTeamId as string | null | undefined) ?? teams[0]?.id ?? "");
   const [trigger, setTrigger] = useState<Trigger>(editRule?.trigger ?? "DEAL_STALE");
   const [action, setAction] = useState<Action>(editRule?.action ?? "CREATE_TASK");
   const [staleDays, setStaleDays] = useState(String((tc.days as number | undefined) ?? 3));
@@ -663,7 +719,20 @@ function AutomationDialog({
     const res = await fetch(isEdit ? `/api/automations/${editRule!.id}` : "/api/automations", {
       method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, trigger, triggerConfig, action, actionConfig }),
+      body: JSON.stringify({
+        name,
+        trigger,
+        triggerConfig,
+        action,
+        actionConfig,
+        // Só tem efeito se o servidor confirmar que quem está salvando é
+        // OWNER/MANAGER (ver resolveTargetConfig em lib/automations/validation.ts)
+        // — pra Supervisor/Consultor, o servidor ignora isso e força SELF de
+        // qualquer forma, então mandar sempre é inofensivo mesmo sem canTargetOthers.
+        targetType,
+        targetUserIds: targetType === "USERS" ? targetUserIds : undefined,
+        targetTeamId: targetType === "TEAM" ? targetTeamId || undefined : undefined,
+      }),
     });
 
     setLoading(false);
@@ -686,7 +755,9 @@ function AutomationDialog({
     (action !== "SEND_WHATSAPP" || (!!whatsappMessage.trim() && whatsappRecipients.length > 0)) &&
     (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0)) &&
     (action !== "SEND_SCRIPT" || (!!scriptId && scriptRecipients.length > 0)) &&
-    (action !== "SET_CUSTOM_FIELD" || (!!setFieldId && !!setFieldValue));
+    (action !== "SET_CUSTOM_FIELD" || (!!setFieldId && !!setFieldValue)) &&
+    (targetType !== "USERS" || targetUserIds.length > 0) &&
+    (targetType !== "TEAM" || !!targetTeamId);
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-3xl">
@@ -705,6 +776,50 @@ function AutomationDialog({
             className="field-input"
           />
         </div>
+
+        {canTargetOthers && (
+          <div className="space-y-1 sm:col-span-2">
+            <label className="field-label">Em quem age</label>
+            <Select
+              value={targetType}
+              onChange={(v) => setTargetType(v as TargetType)}
+              options={(Object.entries(TARGET_TYPE_LABELS) as [TargetType, string][]).map(([value, label]) => ({ value, label }))}
+            />
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              O gatilho continua olhando a organização inteira — isso só decide quais negócios/contatos/tarefas contam, pelo responsável.
+            </p>
+            {targetType === "USERS" && (
+              <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-700">
+                {members.map((m) => (
+                  <label
+                    key={m.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md p-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={targetUserIds.includes(m.id)}
+                      onChange={() =>
+                        setTargetUserIds((prev) => (prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]))
+                      }
+                      className="accent-neutral-900 dark:accent-white"
+                    />
+                    {m.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {targetType === "TEAM" && (
+              <div className="mt-1">
+                <Select
+                  value={targetTeamId}
+                  onChange={setTargetTeamId}
+                  placeholder="Selecione a equipe"
+                  options={teams.map((t) => ({ value: t.id, label: t.name }))}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className="field-label">Quando</label>

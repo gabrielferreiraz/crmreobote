@@ -78,11 +78,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
           outra navegação que mude a altura do conteúdo) faz a barra
           aparecer/sumir e o conteúdo inteiro "pular" alguns pixels pro lado.
           padding-bottom à parte (não só `p-4`/`lg:p-8`) — senão o `lg:p-8`
-          reescreve TODOS os lados de uma vez, inclusive o de baixo, e o
-          respiro que existia só no mobile (pra não colar no MobileNav fixo)
-          desaparece na versão desktop, deixando o fim de qualquer página
-          (o card/linha mais debaixo) colado na borda da janela. */}
-      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-24 [scrollbar-gutter:stable] lg:px-8 lg:pt-8 lg:pb-16">
+          reescreve TODOS os lados de uma vez, inclusive o de baixo. Mesmo
+          valor generoso (pb-24 = 96px) no mobile para dar espaço ao menu
+          inferior fixo e ao botão flutuante (FAB). No desktop, usamos lg:pb-8
+          (32px) para manter o espaçamento uniforme com as laterais/topo
+          (lg:px-8, lg:pt-8), evitando que telas de altura fixa (como o
+          Kanban e o Chat do WhatsApp que usam h-full) fiquem com um grande
+          vazio ou pareçam "cortadas" no final. */}
+      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-24 [scrollbar-gutter:stable] lg:px-8 lg:pt-8 lg:pb-8">
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
 

@@ -24,7 +24,9 @@ import { Avatar } from "@/components/avatar";
 import { AnimatedCheck } from "@/components/animated-check";
 import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
 import { Modal } from "@/components/modal";
-import type { Task } from "./task-row";
+import { renderTemplate } from "@/lib/campaigns/spintax";
+import { brazilGreeting } from "@/lib/timezone";
+import { type Task, scheduledMessageStatus } from "./task-row";
 
 function formatDateTime(dateStr: string | Date | null): string {
   if (!dateStr) return "";
@@ -81,6 +83,7 @@ export function TaskDetailModal({
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
   const overdue = !completed && !!task.dueAt && new Date(task.dueAt) < new Date();
   const rel = relativeTime(task.dueAt, completed);
+  const msgStatus = scheduledMessageStatus(task);
 
   // Link para o chat interno do CRM
   const crmChatUrl = task.contact ? `/whatsapp/conversas?contactId=${task.contact.id}` : "";
@@ -131,6 +134,27 @@ export function TaskDetailModal({
           )}
         </div>
 
+        {/* Mensagem de WhatsApp programada — preview client-side; o envio de
+            verdade (lib/tasks/scheduled-whatsapp.ts) re-renderiza na hora
+            certa com a saudação/dados atuais, não fica congelado com isto. */}
+        {task.type === "WHATSAPP" && task.scheduledMessageText && (
+          <div className="py-4 border-b border-neutral-100 dark:border-neutral-800">
+            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">Mensagem programada</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
+              {renderTemplate(
+                task.scheduledMessageText,
+                {
+                  nome: task.contact?.name ?? "",
+                  cargo: task.contact?.jobTitle,
+                  empresa: task.contact?.company,
+                  cidade: task.contact?.city,
+                },
+                brazilGreeting(),
+              )}
+            </p>
+          </div>
+        )}
+
         {/* Details List (Agendor style: Simple list with icons) */}
         <div className="py-4 space-y-3.5 text-sm">
           {/* Prazo / Status */}
@@ -143,6 +167,19 @@ export function TaskDetailModal({
               {rel.label}
             </span>
           </div>
+
+          {/* Envio automático de WhatsApp programado */}
+          {msgStatus && (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 text-neutral-500 dark:text-neutral-400">
+                <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={2} />
+                <span>Mensagem programada</span>
+              </div>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${TONE_COLOR[msgStatus.tone]}`}>
+                {msgStatus.label}
+              </span>
+            </div>
+          )}
 
           {/* Vínculo de Negócio */}
           {task.deal && (
