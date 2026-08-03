@@ -105,7 +105,11 @@ export function NewDealDialog({
       )}
 
       {isOpen && (
-        <Modal onClose={() => setOpen(false)} maxWidth={tab === "quick" ? "max-w-2xl" : "max-w-sm"}>
+        // Largura fixa pras duas abas — se dependesse da aba (Manual bem mais
+        // estreito que Cadastro rápido), o modal (centralizado na tela)
+        // mudava de tamanho ao trocar de aba e a própria seleção de aba
+        // "pulava" de lugar, obrigando a mover o mouse pra clicar de novo.
+        <Modal onClose={() => setOpen(false)} maxWidth="max-w-xl">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo negócio</h2>
 
           <div className="mb-4 inline-flex rounded-lg bg-neutral-100 p-1 text-sm dark:bg-neutral-800">

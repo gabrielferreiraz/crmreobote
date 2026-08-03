@@ -24,7 +24,6 @@ export function PipelineView({
   pipelines,
   stages,
   initialKanbanDeals,
-  kanbanCapped,
   initialListaDeals,
   listaTotalCount,
   listaSums,
@@ -43,8 +42,6 @@ export function PipelineView({
   pipelines: PipelineOption[];
   stages: Stage[];
   initialKanbanDeals: Deal[];
-  /** true = o Kanban bateu no teto de segurança (ver page.tsx) — praticamente nunca deve acontecer. */
-  kanbanCapped?: boolean;
   initialListaDeals: Deal[];
   /** Total de negócios do pipeline (todos os status, sem filtro) no banco — pode ser bem maior que initialListaDeals.length (só a 1ª página vem carregada, ver deals-list.tsx). */
   listaTotalCount: number;
@@ -147,12 +144,6 @@ export function PipelineView({
           </button>
         </div>
       </div>
-
-      {view === "kanban" && kanbanCapped && (
-        <p className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
-          Este pipeline tem um número incomum de negócios em andamento — o Kanban pode não estar mostrando todos.
-        </p>
-      )}
 
       {view === "kanban" ? (
         <KanbanBoard

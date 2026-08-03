@@ -88,7 +88,6 @@ export default async function PipelinePage({
       }),
       aggregateDealValues(listaFilterParams),
     ]);
-    const kanbanCapped = kanbanDeals.length === KANBAN_FETCH_CAP;
 
     // Uma consulta só, cobrindo ativos e inativos — `active desc` já deixa os
     // ativos primeiro (em createdAt asc entre si), então dá pra derivar
@@ -131,7 +130,6 @@ export default async function PipelinePage({
         }))}
         stages={activePipeline.stages}
         initialKanbanDeals={kanbanDeals}
-        kanbanCapped={kanbanCapped}
         initialListaDeals={listaDeals}
         listaTotalCount={listaTotalCount}
         listaSums={listaSums}
