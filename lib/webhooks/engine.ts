@@ -8,7 +8,7 @@
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { signPayload } from "@/lib/webhooks/sign";
-import { isUrlSafeToFetch } from "@/lib/webhooks/url-safety";
+import { safeFetchJson, UnsafeWebhookUrlError } from "@/lib/webhooks/url-safety";
 
 const MAX_ATTEMPTS = 5;
 // Backoff exponencial: 1min, 5min, 30min, 2h, 6h — depois disso desiste (status FAILED).
@@ -60,20 +60,6 @@ export async function runWebhookDeliveries(): Promise<{ checked: number; deliver
           continue;
         }
 
-        // Re-resolve na hora da entrega, não só no cadastro (POST
-        // /api/webhook-subscriptions já confere isso) — um domínio podia
-        // apontar pra um IP público quando foi cadastrado e ser repontado pra
-        // rede interna depois (DNS rebinding). Falha permanente, não entra
-        // no backoff — a URL em si é que está errada, tentar de novo não muda isso.
-        if (!(await isUrlSafeToFetch(delivery.subscription.url))) {
-          await prisma.webhookDelivery.update({
-            where: { id: delivery.id },
-            data: { status: "FAILED", responseBody: "URL de destino não é mais um host público válido" },
-          });
-          failed += 1;
-          continue;
-        }
-
         const rawBody = JSON.stringify({
           event: delivery.event,
           data: delivery.payload,
@@ -82,8 +68,13 @@ export async function runWebhookDeliveries(): Promise<{ checked: number; deliver
         const signature = signPayload(delivery.subscription.secret, rawBody);
 
         try {
-          const res = await fetch(delivery.subscription.url, {
-            method: "POST",
+          // Resolve e fixa o IP validado na própria conexão (ver
+          // lib/webhooks/url-safety.ts) — não é só "checar antes de buscar":
+          // checar e buscar como dois passos separados são duas consultas
+          // DNS diferentes, e um domínio malicioso pode responder IP público
+          // numa e IP interno na outra (rebinding). Também nunca segue
+          // redirecionamento.
+          const res = await safeFetchJson(delivery.subscription.url, {
             headers: {
               "Content-Type": "application/json",
               "X-CRM-Event": delivery.event,
@@ -91,9 +82,8 @@ export async function runWebhookDeliveries(): Promise<{ checked: number; deliver
               "X-CRM-Signature": `sha256=${signature}`,
             },
             body: rawBody,
-            signal: AbortSignal.timeout(10_000),
+            timeoutMs: 10_000,
           });
-          const bodyText = await res.text().catch(() => "");
 
           if (res.ok) {
             await prisma.webhookDelivery.update({
@@ -102,16 +92,25 @@ export async function runWebhookDeliveries(): Promise<{ checked: number; deliver
                 status: "SUCCESS",
                 attempts: { increment: 1 },
                 responseStatus: res.status,
-                responseBody: bodyText.slice(0, RESPONSE_BODY_TRUNCATE),
+                responseBody: res.body.slice(0, RESPONSE_BODY_TRUNCATE),
               },
             });
             delivered += 1;
           } else {
-            await failAttempt(delivery.id, delivery.attempts, res.status, bodyText);
+            await failAttempt(delivery.id, delivery.attempts, res.status, res.body);
             failed += 1;
           }
         } catch (err) {
-          await failAttempt(delivery.id, delivery.attempts, null, err instanceof Error ? err.message : String(err));
+          if (err instanceof UnsafeWebhookUrlError) {
+            // Falha permanente, não entra no backoff — a URL em si é que
+            // está errada, tentar de novo não muda isso.
+            await prisma.webhookDelivery.update({
+              where: { id: delivery.id },
+              data: { status: "FAILED", responseBody: err.message },
+            });
+          } else {
+            await failAttempt(delivery.id, delivery.attempts, null, err instanceof Error ? err.message : String(err));
+          }
           failed += 1;
         }
       }

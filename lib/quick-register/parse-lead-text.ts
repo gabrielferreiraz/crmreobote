@@ -81,6 +81,31 @@ export function normalizeLabel(s: string): string {
     .trim();
 }
 
+/**
+ * Minúsculo + acento removido SEM mudar o comprimento da string (cada
+ * caractere vira exatamente um outro, nunca some) — ao contrário de
+ * `normalizeLabel` (que colapsa espaço e remove pontuação, útil pra
+ * comparar rótulos, mas destrói a correspondência de posição com o texto
+ * original). Usado pra reconhecer um rótulo NO INÍCIO de uma linha sem
+ * dois-pontos (ver matchLabelPrefix) e ainda saber exatamente onde ele
+ * termina no texto de verdade, com acento/caixa originais, pra recortar o
+ * valor certo.
+ */
+export function foldAccents(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[áàãâä]/g, "a")
+    .replace(/[éèêë]/g, "e")
+    .replace(/[íìîï]/g, "i")
+    .replace(/[óòõôö]/g, "o")
+    .replace(/[úùûü]/g, "u")
+    .replace(/ç/g, "c");
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const LABEL_ALIASES: Record<string, TextField> = {};
 function registerAliases(field: TextField, ...labels: string[]) {
   for (const label of labels) LABEL_ALIASES[normalizeLabel(label)] = field;
@@ -122,6 +147,63 @@ const GENERIC_PHONE_LABELS = new Set(
     normalizeLabel,
   ),
 );
+
+// Junta os 4 dicionários acima numa lista só, do rótulo mais
+// específico/comprido pro mais genérico (importa a ORDEM: "numero
+// whatsapp" precisa ser tentado antes de "numero" sozinho, senão o mais
+// curto "vence" primeiro e sobra "whatsapp" como se fosse valor). Reaproveitada
+// por matchLabelPrefix logo abaixo (rótulo sem dois-pontos, ex.: texto colado
+// sem formatação) e exportada pra format-dictated-lead-text.ts (que marca
+// esses mesmos rótulos com ":" no texto ditado por voz) — as duas pontas
+// nunca podem reconhecer rótulos diferentes um do outro.
+const ALL_LABEL_ENTRIES: { normalized: string }[] = [
+  ...Array.from(VALUE_LABELS, (normalized) => ({ normalized })),
+  ...Array.from(WHATSAPP_LABELS, (normalized) => ({ normalized })),
+  ...Array.from(GENERIC_PHONE_LABELS, (normalized) => ({ normalized })),
+  ...Object.keys(LABEL_ALIASES).map((normalized) => ({ normalized })),
+].sort((a, b) => b.normalized.length - a.normalized.length);
+
+/** Só os textos normalizados, pro formatador de ditado (não precisa saber o campo, só onde o rótulo começa/termina). */
+export const ALL_LEAD_LABELS: string[] = ALL_LABEL_ENTRIES.map((e) => e.normalized);
+
+// Campos de texto "nome próprio" — o ditado por voz sempre chega em
+// minúsculo (a Web Speech API nunca devolve maiúscula/pontuação sozinha),
+// então vale capitalizar antes de exibir. De propósito NÃO inclui telefone/
+// whatsapp/e-mail/CEP/valor/descrição (número e frase livre não deveriam
+// virar Title Case) nem estado (sigla já vem tratada à parte).
+const TITLE_CASE_FIELDS = new Set<TextField>(["name", "company", "jobTitle", "address", "addressComplement", "neighborhood", "city"]);
+
+/** Usado só por format-dictated-lead-text.ts, que precisa saber quais rótulos valem a pena capitalizar. */
+export function shouldTitleCaseLabelValue(normalized: string): boolean {
+  const field = LABEL_ALIASES[normalized];
+  return !!field && TITLE_CASE_FIELDS.has(field);
+}
+
+function labelToWordPattern(normalized: string): string {
+  return normalized.split(" ").map(escapeRegExp).join("\\s+");
+}
+
+const LABEL_PREFIX_ENTRIES = ALL_LABEL_ENTRIES.map((entry) => ({
+  normalized: entry.normalized,
+  regex: new RegExp(`^${labelToWordPattern(entry.normalized)}(?=\\s|$)`),
+}));
+
+/**
+ * Reconhece um rótulo conhecido logo no INÍCIO da linha, mesmo sem
+ * dois-pontos depois (ex.: "Nome Gabriel Medeiros", "Cidade Campo Grande
+ * MS") — texto colado sem formatação, ou já reformatado pelo ditado por voz
+ * (ver format-dictated-lead-text.ts), costuma vir assim. `foldedLine` já
+ * precisa vir passada por `foldAccents` (preserva o comprimento, então o
+ * `length` devolvido aqui recorta certo a linha ORIGINAL). Testa do rótulo
+ * mais específico pro mais genérico (ver ALL_LABEL_ENTRIES).
+ */
+function matchLabelPrefix(foldedLine: string): { normalized: string; length: number } | null {
+  for (const entry of LABEL_PREFIX_ENTRIES) {
+    const m = foldedLine.match(entry.regex);
+    if (m) return { normalized: entry.normalized, length: m[0].length };
+  }
+  return null;
+}
 
 /** Texto de lead encaminhado do WhatsApp costuma vir com marcação
  * (*negrito*, _itálico_) — sem isso, "*Nome:* Erani" virava valor "* Erani"
@@ -219,6 +301,27 @@ function tryExtractMoney(line: string): { text: string; amount: number } | null 
 
 const UF_CODES = new Set<string>(ESTADOS_BR.map((s) => s.value));
 
+/**
+ * "Campo Grande MS", "Campo Grande/MS", "Campo Grande - MS" → { city:
+ * "Campo Grande", state: "MS" } — pro valor de um campo já rotulado como
+ * Cidade (rótulo explícito com/sem dois-pontos, ou vindo do ditado por voz),
+ * que pode trazer a UF grudada de qualquer um desses jeitos (ditado por voz
+ * só separa por espaço; texto colado às vezes usa "/", "-" ou ","). Exige
+ * pelo menos um separador de verdade antes da sigla (espaço OU pontuação) —
+ * nunca as duas letras finais coladas sem nada no meio, senão qualquer nome
+ * de cidade terminado por acaso em duas letras maiúsculas arriscaria virar
+ * "cidade cortada + UF" à toa. Case-insensitive porque ditado por voz vem
+ * tudo em minúsculo ("campo grande ms").
+ */
+function splitTrailingState(value: string): { city: string; state: string | null } {
+  const m = value.match(/^(.*\S)[\s/,-]+([A-Za-z]{2})$/);
+  if (m) {
+    const uf = m[2].toUpperCase();
+    if (UF_CODES.has(uf)) return { city: m[1].trim(), state: uf };
+  }
+  return { city: value, state: null };
+}
+
 // Construído a partir do nome ACENTUADO de cada estado, casado contra a
 // linha original (não contra uma versão sem acento) — de propósito: "Pará"
 // sem o acento vira "para", uma preposição comum demais pra arriscar casar
@@ -251,6 +354,61 @@ const CREDIT_TYPE_KEYWORDS: { guess: string; words: string[] }[] = [
   { guess: "Caminhão", words: ["caminhao", "pesados", "trator", "maquinario"] },
   { guess: "Serviços", words: ["servico", "servicos", "viagem", "curso"] },
 ];
+
+/**
+ * Aplica um rótulo já reconhecido (com dois-pontos OU pelo prefixo sem
+ * dois-pontos, ver matchLabelPrefix) — mesma lógica pros dois casos,
+ * extraída pra nunca desalinhar um do outro. `whatsappState` é mutável
+ * (objeto, não booleano solto) porque precisa persistir entre chamadas do
+ * Passo 1 pra várias linhas da mesma tarefa. Devolve `true` quando o valor
+ * foi de fato aceito (a linha pode ser anulada pra não sobrar na descrição).
+ */
+function applyLabel(
+  normalized: string,
+  value: string,
+  fields: ParsedLeadFields,
+  whatsappState: { explicit: boolean },
+): boolean {
+  if (VALUE_LABELS.has(normalized) && fields.value === null) {
+    const parsed = parseLabeledMoney(value);
+    if (parsed !== null) {
+      fields.value = parsed;
+      return true;
+    }
+  }
+
+  if (WHATSAPP_LABELS.has(normalized)) {
+    if (fields.whatsapp !== null && !whatsappState.explicit && fields.phone === null) {
+      fields.phone = fields.whatsapp;
+    }
+    fields.whatsapp = value;
+    whatsappState.explicit = true;
+    return true;
+  }
+  if (GENERIC_PHONE_LABELS.has(normalized)) {
+    if (fields.whatsapp === null) fields.whatsapp = value;
+    else if (fields.phone === null) fields.phone = value;
+    return true;
+  }
+
+  const field = LABEL_ALIASES[normalized];
+  if (field && fields[field] === null) {
+    // Cidade rotulada às vezes vem com a UF grudada só por espaço ("Cidade
+    // Campo Grande MS") — sem separador de pontuação, CITY_STATE_REGEX (Passo
+    // 2, pra texto sem rótulo) não pega; aqui já se sabe que é cidade, então
+    // vale a pena tentar separar antes de aceitar o valor cru.
+    if (field === "city") {
+      const split = splitTrailingState(value);
+      fields.city = split.city;
+      if (split.state && fields.state === null) fields.state = split.state;
+    } else {
+      fields[field] = value;
+    }
+    return true;
+  }
+
+  return false;
+}
 
 export function parseLeadText(raw: string): ParsedLeadFields {
   const fields: ParsedLeadFields = {
@@ -303,48 +461,34 @@ export function parseLeadText(raw: string): ParsedLeadFields {
     i++; // a linha de resposta já foi consumida, não é outra pergunta
   }
 
-  // Passo 1 — rótulo explícito ("Rótulo: valor") + endereço sem rótulo.
-  let whatsappIsExplicit = false;
+  // Passo 1 — rótulo explícito, COM dois-pontos ("Rótulo: valor") ou SEM
+  // (ex.: "Nome Gabriel Medeiros" — texto colado sem formatação, ou já
+  // reescrito pelo ditado por voz, ver format-dictated-lead-text.ts) + endereço
+  // sem rótulo.
+  const whatsappState = { explicit: false };
   for (let i = 0; i < rawLines.length; i++) {
     if (qaClaimed[i]) continue;
     const line = rawLines[i];
+    let consumed = false;
+
     const colonIdx = line.indexOf(":");
     if (colonIdx > 0 && colonIdx <= 40) {
       const value = cleanExtractedValue(line.slice(colonIdx + 1));
       const normalized = normalizeLabel(line.slice(0, colonIdx));
-      if (value) {
-        if (VALUE_LABELS.has(normalized) && fields.value === null) {
-          const parsed = parseLabeledMoney(value);
-          if (parsed !== null) {
-            fields.value = parsed;
-            residuals[i] = null;
-            continue;
-          }
-        }
+      if (value) consumed = applyLabel(normalized, value, fields, whatsappState);
+    }
 
-        if (WHATSAPP_LABELS.has(normalized)) {
-          if (fields.whatsapp !== null && !whatsappIsExplicit && fields.phone === null) {
-            fields.phone = fields.whatsapp;
-          }
-          fields.whatsapp = value;
-          whatsappIsExplicit = true;
-          residuals[i] = null;
-          continue;
-        }
-        if (GENERIC_PHONE_LABELS.has(normalized)) {
-          if (fields.whatsapp === null) fields.whatsapp = value;
-          else if (fields.phone === null) fields.phone = value;
-          residuals[i] = null;
-          continue;
-        }
-
-        const field = LABEL_ALIASES[normalized];
-        if (field && fields[field] === null) {
-          fields[field] = value;
-          residuals[i] = null;
-          continue;
-        }
+    if (!consumed) {
+      const prefix = matchLabelPrefix(foldAccents(line));
+      if (prefix) {
+        const value = cleanExtractedValue(line.slice(prefix.length));
+        if (value) consumed = applyLabel(prefix.normalized, value, fields, whatsappState);
       }
+    }
+
+    if (consumed) {
+      residuals[i] = null;
+      continue;
     }
 
     if (fields.address === null && STREET_PREFIX_REGEX.test(line)) {

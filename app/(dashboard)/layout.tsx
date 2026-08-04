@@ -78,14 +78,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
           outra navegação que mude a altura do conteúdo) faz a barra
           aparecer/sumir e o conteúdo inteiro "pular" alguns pixels pro lado.
           padding-bottom à parte (não só `p-4`/`lg:p-8`) — senão o `lg:p-8`
-          reescreve TODOS os lados de uma vez, inclusive o de baixo. Mesmo
-          valor generoso (pb-24 = 96px) no mobile para dar espaço ao menu
-          inferior fixo e ao botão flutuante (FAB). No desktop, usamos lg:pb-8
-          (32px) para manter o espaçamento uniforme com as laterais/topo
-          (lg:px-8, lg:pt-8), evitando que telas de altura fixa (como o
-          Kanban e o Chat do WhatsApp que usam h-full) fiquem com um grande
-          vazio ou pareçam "cortadas" no final. */}
-      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-24 [scrollbar-gutter:stable] lg:px-8 lg:pt-8 lg:pb-8">
+          reescreve TODOS os lados de uma vez, inclusive o de baixo.
+          pb-24 (96px) sempre, em qualquer tamanho de tela — já tentamos um
+          `lg:pb-8` (32px) menor no desktop pra "economizar" espaço nas
+          páginas com `h-full` (Kanban, Chat do WhatsApp), mas isso não ajuda
+          em nada essas páginas (o filho `h-full` só se adapta à altura que
+          sobrar, não sobra vazio nenhum) e faz toda página comum (Relatórios,
+          Configurações, Clientes, Início) voltar a ficar com o último
+          elemento colado na borda da janela — o problema real e recorrente.
+          Nunca reduza esse valor no desktop de novo sem confirmar que o
+          rodapé de uma página comprida (ex.: Configurações) sobra visível. */}
+      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-24 [scrollbar-gutter:stable] lg:px-8 lg:pt-8">
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
 

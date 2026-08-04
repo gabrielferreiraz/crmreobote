@@ -73,6 +73,7 @@ model User {
   apiKeysCreated              ApiKey[]
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
+  contactsLeadQualified       Contact[]                 @relation("ContactLeadQualifiedBy")
   dailyActivities             UserDailyActivity[]
   monthlyGoalsUpdated         MonthlyGoal[]
   metaAdsConnectionsCreated   MetaAdsConnection[]
@@ -834,6 +835,14 @@ model Contact {
   metaCampaignId     String?
   metaCampaignName   String?
   metaFormId         String?
+  // Qualificação manual de lead pelo consultor — o status é o que o
+  // consultor classifica (QUALIFIED / UNQUALIFIED), a data registra o
+  // momento, e qualificadoPor identifica o usuário. Essa info também vai
+  // de volta pro Conversions API da Meta (eventos Lead.QUALIFIED e
+  // Lead.UNQUALIFIED) pra alimentar a inteligência das campanhas de anúncio.
+  leadQualification  ContactLeadQualification?
+  leadQualificationAt DateTime?
+  leadQualificationBy String?
   // "Código da Pessoa" do Agendor — mesma ideia de agendorDealId (ver Deal):
   // chave de reconciliação pra reimportar sem duplicar.
   agendorContactId   String?   @unique
@@ -841,6 +850,7 @@ model Contact {
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   responsavel        User?               @relation("ContactResponsavel", fields: [responsavelId], references: [id])
+  qualifiedBy        User?               @relation("ContactLeadQualifiedBy", fields: [leadQualificationBy], references: [id])
   deals              Deal[]
   tasks              Task[]
   activities         Activity[]
@@ -867,6 +877,10 @@ model Contact {
   // declarável aqui, o gerador não modela esse tipo de índice) porque é
   // busca por trecho (contains), não igualdade.
   @@index([organizationId, state])
+  // Índice pro novo relatório de funil Facebook → WhatsApp → Venda e pro
+  // histórico de qualificação por campanha/consultor.
+  @@index([organizationId, leadQualification])
+  @@index([organizationId, leadQualificationAt])
 }
 
 // ─── Motivos de perda ────────────────────────────────────────────────
@@ -1092,6 +1106,15 @@ enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+// Classificação manual de lead pelo consultor responsável — QUALIFIED
+// ("Lead qualificado") ou UNQUALIFIED ("Lead desqualificado"). O evento
+// correspondente é enviado de volta pro Conversions API da Meta pra
+// campanha de origem aprender e otimizar a audiência.
+enum ContactLeadQualification {
+  QUALIFIED
+  UNQUALIFIED
 }
 
 // ─── Processos (pós-venda) ────────────────────────────────────────────

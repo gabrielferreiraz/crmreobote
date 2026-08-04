@@ -21,7 +21,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     const dealRaw = await prisma.deal.findFirst({
       where: { id, organizationId, ...scopeWhere(scope) },
       include: {
-        contact: true,
+        contact: {
+          include: {
+            qualifiedBy: { select: { name: true } },
+          },
+        },
         owner: true,
         stage: true,
         pipeline: { include: { stages: { orderBy: { order: "asc" } } } },

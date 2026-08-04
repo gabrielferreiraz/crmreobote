@@ -1,22 +1,36 @@
 /**
  * Detecta pedido de opt-out numa mensagem INBOUND — palavra-chave simples,
- * de propósito conservadora (só frases isoladas/curtas, não qualquer menção
- * no meio de uma frase longa) pra não marcar opt-out por engano numa
- * conversa de venda normal. Não substitui bom senso: é só um gatilho
- * automático a mais além do vendedor poder marcar manualmente.
+ * de propósito conservadora (não qualquer menção solta no meio de uma frase
+ * longa, tipo "para" usado como preposição) pra não marcar opt-out por
+ * engano numa conversa de venda normal. Não substitui bom senso: é só um
+ * gatilho automático a mais além do vendedor poder marcar manualmente.
+ *
+ * Duas categorias de padrão:
+ *  1. Comando isolado — a mensagem inteira é só a palavra (ex.: "Parar.").
+ *  2. Frase de pedido — verbo de parar/sair/cancelar junto do objeto certo
+ *     (mandar/enviar mensagem, lista, cadastro, número), em qualquer lugar
+ *     da frase — cobre "Por favor pare de me mandar mensagem" e "quero sair
+ *     da lista", que a versão só-frase-isolada não pegava.
  */
 
 const OPT_OUT_PATTERNS = [
-  /^\s*(pare|parar|para)( de (mandar|enviar))?\s*$/i,
-  /^\s*sair\s*$/i,
-  /^\s*stop\s*$/i,
-  /^\s*cancelar\s*$/i,
-  /^\s*descadastrar\s*$/i,
-  /não quero mais receber/i,
-  /nao quero mais receber/i,
-  /remover meu (numero|número)/i,
+  // Comando isolado, com ou sem pontuação final.
+  /^\s*(pare|parar|para|sair|stop|cancelar|descadastrar|descadastre|descadastra)\s*[.!]?\s*$/i,
+
+  // Pedido de parar de mandar/enviar mensagem — "pare/pode parar/para" perto
+  // de "mandar/enviar", com "de"/"me" opcionais no meio.
+  /\b(pare|parar|para)\s+(de\s+)?(me\s+)?(mandar|enviar|mand[ae]|envi[ae])\b/i,
+  /\bn[ãa]o\s+(me\s+)?manda(m)?\s+mais\b/i,
+  /n[ãa]o quero mais receber/i,
+
+  // Pedido de sair/remover/cancelar de lista, campanha ou cadastro.
+  /\bsair\s+da\s+(lista|campanha)\b/i,
+  /\bcancela(r)?\s+(meu\s+)?(cadastro|inscri[çc][ãa]o)\b/i,
+  /\bdescadastr(ar|e|a)(-me)?\b/i,
+  /remov(er|e|a) meu (numero|número)/i,
   /tirar meu (numero|número)/i,
   /me tira da (lista|campanha)/i,
+  /\bremov(e|a)(-me)?\s+da\s+(lista|campanha)\b/i,
 ];
 
 export function isOptOutMessage(text: string | null | undefined): boolean {

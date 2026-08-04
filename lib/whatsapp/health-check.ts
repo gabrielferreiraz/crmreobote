@@ -92,6 +92,24 @@ async function checkAndMaybeDisconnect(
 
     console.warn(`[wa:health] instância ${instance.instanceName} confirma problema numa 2ª rodada — corrigindo e avisando`);
 
+    // Claim atômico: só quem pegar a instância ainda EXATAMENTE no estado
+    // que a gente leu (CONNECTED, mesma pendingDisconnectSince) segue daqui
+    // pra baixo — sem isso, dois ticks do cron sobrepostos (ex.: um tick
+    // demorou mais que o intervalo entre execuções) podiam os dois chegar
+    // nesse ponto pro mesmo registro e cada um mandar seu próprio
+    // notifyInstanceDisconnected (aviso duplicado) ou tentar deletar a mesma
+    // instância duas vezes.
+    const claimed = await prisma.whatsAppInstance.updateMany({
+      where: { id: instance.id, status: "CONNECTED", pendingDisconnectSince: instance.pendingDisconnectSince },
+      data: { pendingDisconnectSince: null },
+    });
+    if (claimed.count === 0) {
+      console.warn(
+        `[wa:health] instância ${instance.instanceName} já foi tratada por outra checagem concorrente — pulando`,
+      );
+      return;
+    }
+
     // Dono não é mais membro ativo: remove de vez em vez de só marcar
     // desconectado (mesma regra do webhook — ver lib/whatsapp/events.ts).
     if (!(await isActiveMember(instance.organizationId, instance.userId))) {
@@ -111,7 +129,6 @@ async function checkAndMaybeDisconnect(
         status: "DISCONNECTED",
         disconnectedAt: new Date(),
         disconnectAlertLevel: 0,
-        pendingDisconnectSince: null,
         recentDisconnectCount: nextDisconnectCount,
         riskWindowStartedAt: windowExpired ? new Date() : instance.riskWindowStartedAt,
       },
@@ -189,11 +206,16 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
         const nextLevel = Math.min(3, elapsedDays) as 0 | 1 | 2 | 3;
         if (nextLevel <= instance.disconnectAlertLevel) continue;
 
-        await notifyInstanceStillDisconnected(instance, nextLevel as 1 | 2 | 3);
-        await prisma.whatsAppInstance.update({
-          where: { id: instance.id },
+        // Mesmo claim atômico do passo 1: só quem pegar disconnectAlertLevel
+        // ainda no valor que a gente leu manda o aviso — evita e-mail de
+        // escalada duplicado se dois ticks do cron se sobrepuserem.
+        const claimed = await prisma.whatsAppInstance.updateMany({
+          where: { id: instance.id, disconnectAlertLevel: instance.disconnectAlertLevel },
           data: { disconnectAlertLevel: nextLevel },
         });
+        if (claimed.count === 0) continue;
+
+        await notifyInstanceStillDisconnected(instance, nextLevel as 1 | 2 | 3);
         escalated += 1;
       }
     });

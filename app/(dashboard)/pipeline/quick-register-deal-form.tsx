@@ -5,8 +5,10 @@ import { Loader2, Sparkles } from "lucide-react";
 import { CurrencyInput } from "@/components/currency-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { VoiceInputButton } from "@/components/voice-input-button";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { parseLeadText, normalizeLabel, type ParsedLeadFields } from "@/lib/quick-register/parse-lead-text";
+import { appendDictatedLeadText } from "@/lib/quick-register/format-dictated-lead-text";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -200,6 +202,18 @@ export function QuickRegisterDealForm({
     applyParsed(parseLeadText(rawText));
   }
 
+  // Ditado por voz aqui não vem quebrado por linha como texto colado — chega
+  // como um bloco só ("nome fulano telefone tal cidade tal"), então
+  // appendDictatedLeadText primeiro reescreve isso pro formato "Rótulo:
+  // valor" por linha (ver lib/quick-register/format-dictated-lead-text.ts)
+  // antes de emendar no que já tinha no campo. Já dispara a separação de
+  // campos na hora, igual colar — não devia precisar de mais um clique.
+  function handleDictated(text: string) {
+    const next = appendDictatedLeadText(rawText, text);
+    setRawText(next);
+    applyParsed(parseLeadText(next));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!firstStageId || !name.trim() || !jobTitle) return;
@@ -269,7 +283,10 @@ export function QuickRegisterDealForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <div className="space-y-1">
-        <label className="field-label">Colar texto do lead</label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="field-label">Colar texto do lead</label>
+          <VoiceInputButton onResult={handleDictated} />
+        </div>
         <textarea
           autoFocus
           value={rawText}

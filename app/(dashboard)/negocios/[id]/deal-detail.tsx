@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES } from "@/lib/activity-icons";
@@ -61,6 +61,8 @@ type DealTask = {
   completedAt: string | Date | null;
 };
 
+type ContactLeadQualification = "QUALIFIED" | "UNQUALIFIED";
+
 type Deal = {
   id: string;
   name: string;
@@ -73,7 +75,23 @@ type Deal = {
   expectedCloseAt: string | Date | null;
   stageId: string;
   stageEnteredAt: string | Date;
-  contact: { id: string; name: string; email: string | null; phone: string | null; whatsapp: string | null; jobTitle: string | null };
+  contact: {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    whatsapp: string | null;
+    jobTitle: string | null;
+    source: string | null;
+    metaLeadgenId: string | null;
+    metaCampaignId: string | null;
+    metaCampaignName: string | null;
+    metaAdId: string | null;
+    metaAdSetId: string | null;
+    leadQualification: ContactLeadQualification | null;
+    leadQualificationAt: string | Date | null;
+    qualifiedBy: { name: string } | null;
+  };
   owner: { id: string; name: string; photoUrl: string | null };
   stage: Stage;
   pipeline: { stages: Stage[] };
@@ -184,6 +202,10 @@ export function DealDetail({
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
   const [showConfetti, setShowConfetti] = useState(false);
+  const [leadQualStatus, setLeadQualStatus] = useState<{ saving: boolean; error: string | null }>({ saving: false, error: null });
+  // Usado pra UI refletir a mudança imediata sem esperar router.refresh()
+  const [localQualification, setLocalQualification] = useState<ContactLeadQualification | null>(null);
+  const [localQualificationAt, setLocalQualificationAt] = useState<string | Date | null>(null);
 
   useEffect(() => {
     const taskId = searchParams.get("highlightTask");
@@ -386,6 +408,33 @@ export function DealDetail({
       body: JSON.stringify({ completed }),
     });
     router.refresh();
+  }
+
+  async function setLeadQualification(qualification: ContactLeadQualification | null) {
+    setLeadQualStatus({ saving: true, error: null });
+    try {
+      const res = await fetch(`/api/contacts/${deal.contact.id}/lead-qualification`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qualification }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setLeadQualStatus({ saving: false, error: data.error ?? "Erro ao salvar qualificação" });
+        return;
+      }
+      if (qualification) {
+        setLocalQualification(qualification);
+        setLocalQualificationAt(new Date());
+      } else {
+        setLocalQualification(null);
+        setLocalQualificationAt(null);
+      }
+      setLeadQualStatus({ saving: false, error: null });
+      router.refresh();
+    } catch {
+      setLeadQualStatus({ saving: false, error: "Falha de conexão." });
+    }
   }
 
   function selectTab(type: string) {
@@ -758,6 +807,105 @@ export function DealDetail({
             </div>
           )}
 
+          {(deal.contact.metaCampaignName || deal.contact.source) && (
+            <div className="card space-y-2 p-4 text-sm">
+              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Origem do lead</h3>
+              {deal.contact.metaCampaignName && (
+                <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
+                  <span>Facebook Ads</span>
+                  <span className="text-blue-600/70 dark:text-blue-300/70">· {deal.contact.metaCampaignName}</span>
+                </div>
+              )}
+              {deal.contact.source && !deal.contact.metaCampaignName && (
+                <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs font-medium text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700">
+                  Origem: {deal.contact.source}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card space-y-3 p-4 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Qualificação do lead</h3>
+              {(() => {
+                const qual = localQualification ?? deal.contact.leadQualification;
+                if (!qual) return null;
+                return (
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    qual === "QUALIFIED"
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20"
+                      : "bg-neutral-100 text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700"
+                  }`}>
+                    {qual === "QUALIFIED" ? <ThumbsUp className="h-3 w-3" strokeWidth={2.5} /> : <ThumbsDown className="h-3 w-3" strokeWidth={2.5} />}
+                    {qual === "QUALIFIED" ? "Qualificado" : "Desqualificado"}
+                  </span>
+                );
+              })()}
+            </div>
+
+            {canEditDetails && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={leadQualStatus.saving}
+                  onClick={() => setLeadQualification(
+                    (localQualification ?? deal.contact.leadQualification) === "QUALIFIED" ? null : "QUALIFIED"
+                  )}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    (localQualification ?? deal.contact.leadQualification) === "QUALIFIED"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-neutral-100 text-neutral-600 hover:bg-emerald-50 hover:text-emerald-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+                  } disabled:opacity-50`}
+                >
+                  <ThumbsUp className="h-3.5 w-3.5" strokeWidth={2} />
+                  {(localQualification ?? deal.contact.leadQualification) === "QUALIFIED" ? "Remover" : "Qualificado"}
+                </button>
+                <button
+                  type="button"
+                  disabled={leadQualStatus.saving}
+                  onClick={() => setLeadQualification(
+                    (localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED" ? null : "UNQUALIFIED"
+                  )}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    (localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED"
+                      ? "bg-neutral-700 text-white dark:bg-neutral-600"
+                      : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                  } disabled:opacity-50`}
+                >
+                  <ThumbsDown className="h-3.5 w-3.5" strokeWidth={2} />
+                  {(localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED" ? "Remover" : "Desqualificado"}
+                </button>
+                {leadQualStatus.saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-500" strokeWidth={2.5} />}
+              </div>
+            )}
+
+            {(() => {
+              const qual = localQualification ?? deal.contact.leadQualification;
+              const qualAt = localQualificationAt ?? deal.contact.leadQualificationAt;
+              if (!qual || !qualAt) {
+                if (leadQualStatus.error) return <p className="text-xs text-red-600 dark:text-red-400">{leadQualStatus.error}</p>;
+                return null;
+              }
+              return (
+                <div className="space-y-1 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs text-neutral-500 dark:bg-neutral-800/40 dark:text-neutral-400">
+                  <p>
+                    Classificado em {new Date(qualAt).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  {deal.contact.qualifiedBy && <p>por {deal.contact.qualifiedBy.name}</p>}
+                </div>
+              );
+            })()}
+            {leadQualStatus.error && (
+              <p className="text-xs text-red-600 dark:text-red-400">{leadQualStatus.error}</p>
+            )}
+          </div>
+
           <div className="card space-y-2 p-4 text-sm">
             <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do contato</h3>
             <EditableRow
@@ -1007,6 +1155,105 @@ export function DealDetail({
                 {deal.lossReason && deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
               </div>
             )}
+
+            {(deal.contact.metaCampaignName || deal.contact.source) && (
+              <div className="card space-y-2 p-4 text-sm">
+                <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Origem do lead</h3>
+                {deal.contact.metaCampaignName && (
+                  <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
+                    <span>Facebook Ads</span>
+                    <span className="text-blue-600/70 dark:text-blue-300/70">· {deal.contact.metaCampaignName}</span>
+                  </div>
+                )}
+                {deal.contact.source && !deal.contact.metaCampaignName && (
+                  <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs font-medium text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700">
+                    Origem: {deal.contact.source}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="card space-y-3 p-4 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Qualificação do lead</h3>
+                {(() => {
+                  const qual = localQualification ?? deal.contact.leadQualification;
+                  if (!qual) return null;
+                  return (
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      qual === "QUALIFIED"
+                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20"
+                        : "bg-neutral-100 text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700"
+                    }`}>
+                      {qual === "QUALIFIED" ? <ThumbsUp className="h-3 w-3" strokeWidth={2.5} /> : <ThumbsDown className="h-3 w-3" strokeWidth={2.5} />}
+                      {qual === "QUALIFIED" ? "Qualificado" : "Desqualificado"}
+                    </span>
+                  );
+                })()}
+              </div>
+
+              {canEditDetails && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={leadQualStatus.saving}
+                    onClick={() => setLeadQualification(
+                      (localQualification ?? deal.contact.leadQualification) === "QUALIFIED" ? null : "QUALIFIED"
+                    )}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      (localQualification ?? deal.contact.leadQualification) === "QUALIFIED"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-neutral-100 text-neutral-600 hover:bg-emerald-50 hover:text-emerald-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+                    } disabled:opacity-50`}
+                  >
+                    <ThumbsUp className="h-3.5 w-3.5" strokeWidth={2} />
+                    {(localQualification ?? deal.contact.leadQualification) === "QUALIFIED" ? "Remover" : "Qualificado"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={leadQualStatus.saving}
+                    onClick={() => setLeadQualification(
+                      (localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED" ? null : "UNQUALIFIED"
+                    )}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      (localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED"
+                        ? "bg-neutral-700 text-white dark:bg-neutral-600"
+                        : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                    } disabled:opacity-50`}
+                  >
+                    <ThumbsDown className="h-3.5 w-3.5" strokeWidth={2} />
+                    {(localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED" ? "Remover" : "Desqualificado"}
+                  </button>
+                  {leadQualStatus.saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-500" strokeWidth={2.5} />}
+                </div>
+              )}
+
+              {(() => {
+                const qual = localQualification ?? deal.contact.leadQualification;
+                const qualAt = localQualificationAt ?? deal.contact.leadQualificationAt;
+                if (!qual || !qualAt) {
+                  if (leadQualStatus.error) return <p className="text-xs text-red-600 dark:text-red-400">{leadQualStatus.error}</p>;
+                  return null;
+                }
+                return (
+                  <div className="space-y-1 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs text-neutral-500 dark:bg-neutral-800/40 dark:text-neutral-400">
+                    <p>
+                      Classificado em {new Date(qualAt).toLocaleString("pt-BR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    {deal.contact.qualifiedBy && <p>por {deal.contact.qualifiedBy.name}</p>}
+                  </div>
+                );
+              })()}
+              {leadQualStatus.error && (
+                <p className="text-xs text-red-600 dark:text-red-400">{leadQualStatus.error}</p>
+              )}
+            </div>
 
             <div className="card space-y-2 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do contato</h3>

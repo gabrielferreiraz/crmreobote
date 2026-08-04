@@ -288,6 +288,11 @@ function WhatsAppChatModal({
   );
 }
 
+type ContactOriginInfo = {
+  metaCampaignName: string | null;
+  source: string | null;
+};
+
 export function ChatWindow({
   threadId,
   contactId,
@@ -321,6 +326,7 @@ export function ChatWindow({
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [presence, setPresence] = useState<ThreadPresence | null>(null);
   const [contactPhotoUrl, setContactPhotoUrl] = useState<string | null>(null);
+  const [contactOrigin, setContactOrigin] = useState<ContactOriginInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
@@ -421,6 +427,28 @@ export function ChatWindow({
   }, [activeThreadId]);
 
   useEffect(() => {
+    if (!contactId) {
+      setContactOrigin(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/contacts/${contactId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) {
+          setContactOrigin({
+            metaCampaignName: data.metaCampaignName ?? null,
+            source: data.source ?? null,
+          });
+        }
+      })
+      .catch(() => { });
+    return () => {
+      cancelled = true;
+    };
+  }, [contactId]);
+
+  useEffect(() => {
     // Mutação de ref dentro de efeito é segura (diferente de durante o
     // render) — reseta a "memória" de scroll ao trocar de conversa.
     wasNearBottomRef.current = true;
@@ -493,18 +521,28 @@ export function ChatWindow({
               {contactName ?? "Conversa"}
               <WhatsAppIcon className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
             </h2>
-            {(() => {
-              const label = presenceLabel(presence);
-              if (!label) {
-                return <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>;
-              }
-              return (
-                <p className="flex items-center gap-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                  {label.online && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
-                  {label.text}
-                </p>
-              );
-            })()}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {contactOrigin?.metaCampaignName && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
+                  Facebook Ads
+                  <span className="max-w-[120px] truncate text-blue-600/70 dark:text-blue-300/70">
+                    · {contactOrigin.metaCampaignName}
+                  </span>
+                </span>
+              )}
+              {(() => {
+                const label = presenceLabel(presence);
+                if (!label) {
+                  return <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{contactPhone || "WhatsApp"}</p>;
+                }
+                return (
+                  <p className="flex items-center gap-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                    {label.online && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
+                    {label.text}
+                  </p>
+                );
+              })()}
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">

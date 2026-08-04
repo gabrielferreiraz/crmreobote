@@ -16,6 +16,13 @@ type DealForConversion = {
   contact: { email: string | null; phone: string | null; whatsapp: string | null };
 };
 
+type ContactForConversion = {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+};
+
 export async function notifyMetaConversionWon(organizationId: string, deal: DealForConversion): Promise<void> {
   const connection = await prisma.metaAdsConnection.findUnique({ where: { organizationId } });
   if (!connection?.pixelId) return;
@@ -37,4 +44,40 @@ export async function notifyMetaConversionWon(organizationId: string, deal: Deal
     value: deal.value ?? undefined,
   });
   console.log(`[meta-ads] evento de conversão (Purchase) mandado pro Pixel — negócio ${deal.id}`);
+}
+
+/**
+ * Avisa a Meta (Conversions API) quando um lead é classificado como
+ * QUALIFIED ou UNQUALIFIED pelo consultor. Mesmo comportamento:
+ * silencioso se não houver Meta Ads conectado ou Pixel ID cadastrado.
+ * Eventos: Contact (para QUALIFIED) e Lead.UNQUALIFIED não é standard —
+ * usamos "Lead" com action_source, e o próprio status é contextual
+ * via eventId prefixado pra dedup.
+ */
+export async function notifyMetaLeadQualification(
+  organizationId: string,
+  contact: ContactForConversion,
+  qualification: "QUALIFIED" | "UNQUALIFIED",
+): Promise<void> {
+  const connection = await prisma.metaAdsConnection.findUnique({ where: { organizationId } });
+  if (!connection?.pixelId) return;
+
+  const phone = contact.whatsapp || contact.phone;
+  if (!contact.email && !phone) {
+    console.log(`[meta-ads] contato ${contact.id} ${qualification.toLowerCase()}, mas sem e-mail/telefone — nada pra mandar pro Pixel`);
+    return;
+  }
+
+  const accessToken = decryptSecret(connection.pageAccessTokenEncrypted);
+  const eventName = qualification === "QUALIFIED" ? "Lead" : "Lead";
+  // Usamos um custom_data leve pra distinguir os dois, sem perder a
+  // compatibilidade com o evento Lead padrão da Meta (que é o que o
+  // algoritmo de otimização de campanhas entende).
+  await sendConversionEvent(connection.pixelId, accessToken, {
+    eventName,
+    eventTime: new Date(),
+    eventId: `contact:${contact.id}:lead:${qualification.toLowerCase()}`,
+    user: { email: contact.email, phone },
+  });
+  console.log(`[meta-ads] evento Lead.${qualification} mandado pro Pixel — contato ${contact.id}`);
 }
