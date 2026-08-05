@@ -86,7 +86,7 @@ export function Pagination({
                   onClick={() => onPageChange(p)}
                   className={`inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums transition-colors coarse:h-11 coarse:min-w-11 ${
                     p === page
-                      ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                      ? "bg-brand text-white"
                       : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   }`}
                 >

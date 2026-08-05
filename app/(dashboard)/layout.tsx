@@ -37,12 +37,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+    <div className="flex min-h-dvh flex-col overflow-hidden bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <MobileHeader photoUrl={photoUrl} name={session.user.name ?? session.user.email ?? "?"} />
 
       <header className="surface-glass relative z-30 hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-900 text-sm font-semibold text-white dark:bg-white dark:text-neutral-900">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white dark:text-white">
             C
           </div>
           <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
@@ -88,7 +88,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           elemento colado na borda da janela — o problema real e recorrente.
           Nunca reduza esse valor no desktop de novo sem confirmar que o
           rodapé de uma página comprida (ex.: Configurações) sobra visível. */}
-      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-24 [scrollbar-gutter:stable] lg:px-8 lg:pt-8">
+      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-28 [scrollbar-gutter:stable] lg:px-8 lg:pt-8 lg:pb-24">
         <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
       </main>
 

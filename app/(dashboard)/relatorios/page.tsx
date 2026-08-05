@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
@@ -748,7 +748,7 @@ export default async function RelatoriosPage({
     }
   }
 
-  const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
+  const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients, slaContactsQualified, slaAllThreadsFirstMessages] = await Promise.all([
     prisma.whatsAppInstance.findMany({
       where: { organizationId, ...(effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {}) },
       include: { user: { select: { id: true, name: true } } },
@@ -794,6 +794,50 @@ export default async function RelatoriosPage({
         threadId: true,
         campaign: { select: { instanceId: true } },
         contact: { select: { jobTitle: true } },
+      },
+    }),
+    // ─── SLA: leads QUALIFIED no período — tempo entre criação e qualificação,
+    // e quem qualificou. `responsavelId` mapeia pro vendedor (dono do contato),
+    // `leadQualificationBy` pra quem clicou no botão. No ranking de SLA usamos
+    // o responsável (é o operacional do vendedor, não a pessoa de gestão que
+    // eventualmente qualificou um lead pra alguém).
+    prisma.contact.findMany({
+      where: {
+        organizationId,
+        leadQualification: "QUALIFIED",
+        leadQualificationAt: {
+          ...(rangeFrom ? { gte: rangeFrom } : {}),
+          ...(rangeTo ? { lte: rangeTo } : {}),
+        },
+        ...(effectiveScope.type === "owners" ? { responsavelId: { in: effectiveScope.ownerIds } } : {}),
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        leadQualificationAt: true,
+        responsavelId: true,
+      },
+    }),
+    // ─── SLA: 1ª mensagem DE TODAS as threads do período (inclui "Geral",
+    // negócios e manual) — usada pra calcular:
+    //   • % de contato em <1h: 1ª OUTBOUND do vendedor menos quando o contato
+    //     entrou no CRM / quando a thread foi criada (o que for mais próximo).
+    //   • Tempo de 1ª resposta do vendedor em 100% das threads, não só de
+    //     negócio — quando a 1ª mensagem foi INBOUND (lead bateu primeiro).
+    prisma.whatsAppMessage.findMany({
+      where: {
+        organizationId,
+        ...whatsappScopeWhere(effectiveScope),
+        ...dateWhere("createdAt"),
+      },
+      orderBy: { createdAt: "asc" },
+      distinct: ["threadId"],
+      select: {
+        threadId: true,
+        instanceId: true,
+        direction: true,
+        campaignId: true,
+        createdAt: true,
       },
     }),
   ]);
@@ -974,14 +1018,178 @@ export default async function RelatoriosPage({
   // groupBy não alcança campo de relação (thread.contactId) — resolve à
   // parte. Thread sem Contact vinculado (aba "Geral") não entra nas métricas
   // de resposta/conversão, só quem é lead de verdade mesmo.
-  const allThreadIds = Array.from(
-    new Set([...inboundPairs.map((p) => p.threadId), ...outboundPairs.map((p) => p.threadId)]),
+  // `createdAt` da thread aqui também alimenta o SLA: é o teto mínimo do
+  // "tempo até o 1º contato" (a 1ª mensagem não pode ser antes da thread
+  // existir, mesmo que o Contact seja mais novo que a thread).
+  const slaAllThreadIds = Array.from(
+    new Set([...inboundPairs.map((p) => p.threadId), ...outboundPairs.map((p) => p.threadId), ...slaAllThreadsFirstMessages.map((m) => m.threadId)]),
   );
   const threads = await prisma.whatsAppThread.findMany({
-    where: { id: { in: allThreadIds } },
-    select: { id: true, contactId: true },
+    where: { id: { in: slaAllThreadIds } },
+    select: { id: true, contactId: true, createdAt: true },
   });
+  const threadById = new Map(threads.map((t) => [t.id, t]));
   const contactIdByThread = new Map(threads.map((t) => [t.id, t.contactId]));
+
+  // ─── SLA: Contatos (Contact) abordados no período — createdAt de contato
+  // é o "t0" do SLA. Busca só quem tem responsavelId e thread vinculada,
+  // pra poder quebrar por vendedor no ranking.
+  const slaContactThreadIds = Array.from(new Set(slaAllThreadsFirstMessages.map((m) => threadById.get(m.threadId)?.contactId).filter((id): id is string => !!id)));
+  const slaContactsForFirstTouch = slaContactThreadIds.length
+    ? await prisma.contact.findMany({
+        where: {
+          organizationId,
+          id: { in: slaContactThreadIds },
+          ...(effectiveScope.type === "owners" ? { responsavelId: { in: effectiveScope.ownerIds } } : {}),
+        },
+        select: { id: true, createdAt: true, responsavelId: true },
+      })
+    : [];
+  const slaContactById = new Map(slaContactsForFirstTouch.map((c) => [c.id, c]));
+
+  // ─── SLA: Para cada thread onde a 1ª mensagem foi INBOUND (lead bateu
+  // primeiro), pega a 1ª OUTBOUND do vendedor — calcula o tempo atém a
+  // resposta, por thread.
+  const slaLeadFirstThreadsIds = slaAllThreadsFirstMessages
+    .filter((m) => m.direction === "INBOUND")
+    .map((m) => m.threadId);
+  const slaFirstReplyOutbound = slaLeadFirstThreadsIds.length
+    ? await prisma.whatsAppMessage.findMany({
+        where: {
+          organizationId,
+          threadId: { in: slaLeadFirstThreadsIds },
+          direction: "OUTBOUND",
+        },
+        orderBy: { createdAt: "asc" },
+        distinct: ["threadId"],
+        select: { threadId: true, instanceId: true, createdAt: true },
+      })
+    : [];
+  const slaFirstOutboundByThread = new Map(slaFirstReplyOutbound.map((m) => [m.threadId, m]));
+
+  // ─── SLA: Cálculo agregado e por vendedor ───────────────────────────────
+  // Horário de SLA comercial: intervalo que conta como "dentro do horário"
+  // pro SLA de 1h. Por enquanto 100% do tempo conta (sla simples de tempo
+  // real, não horário comercial restrito) — fica um placeholder pra trocar
+  // depois se o cliente quiser apenas 9h-18h.
+  const SLA_FIRST_TOUCH_TARGET_MS = 60 * 60 * 1000; // 1 hora
+  const slaByUser = new Map<
+    string,
+    {
+      firstTouchMs: number[];
+      firstReplyMs: number[];
+      qualificationMs: number[];
+      firstTouchUnderTarget: number;
+      firstTouchTotal: number;
+    }
+  >();
+  const ensureSlaUser = (userId: string) => {
+    if (!slaByUser.has(userId)) {
+      slaByUser.set(userId, {
+        firstTouchMs: [],
+        firstReplyMs: [],
+        qualificationMs: [],
+        firstTouchUnderTarget: 0,
+        firstTouchTotal: 0,
+      });
+    }
+    return slaByUser.get(userId)!;
+  };
+
+  // A. 1º contato (vendedor chama primeiro): tempo entre a entrada do
+  // contato no CRM (ou criação da thread, o que for MAIS RECENTE — é o t0
+  // mais correto, um contato importado ontem não penaliza quem abordou hoje)
+  // e a 1ª mensagem OUTBOUND.
+  for (const firstMsg of slaAllThreadsFirstMessages) {
+    if (firstMsg.direction !== "OUTBOUND") continue;
+    const thread = threadById.get(firstMsg.threadId);
+    if (!thread?.contactId) continue;
+    const contact = slaContactById.get(thread.contactId);
+    const userId = contact?.responsavelId ?? whatsappInstances.find((i) => i.id === firstMsg.instanceId)?.userId;
+    if (!userId) continue;
+    const t0 = contact && contact.createdAt > thread.createdAt ? contact.createdAt : thread.createdAt;
+    const delta = firstMsg.createdAt.getTime() - t0.getTime();
+    if (delta < 0) continue; // thread/msg fora de ordem (importação antiga) — ignora
+    const bucket = ensureSlaUser(userId);
+    bucket.firstTouchMs.push(delta);
+    bucket.firstTouchTotal += 1;
+    if (delta <= SLA_FIRST_TOUCH_TARGET_MS) bucket.firstTouchUnderTarget += 1;
+  }
+
+  // B. Tempo de 1ª resposta do vendedor (lead bateu primeiro): INBOUND 1ª
+  // -> OUTBOUND mais antiga depois dela.
+  for (const firstMsg of slaAllThreadsFirstMessages) {
+    if (firstMsg.direction !== "INBOUND") continue;
+    const reply = slaFirstOutboundByThread.get(firstMsg.threadId);
+    if (!reply) continue;
+    const userId = whatsappInstances.find((i) => i.id === reply.instanceId)?.userId;
+    if (!userId) continue;
+    const delta = reply.createdAt.getTime() - firstMsg.createdAt.getTime();
+    if (delta < 0) continue;
+    ensureSlaUser(userId).firstReplyMs.push(delta);
+  }
+
+  // C. Tempo até qualificação: Contact.createdAt -> leadQualificationAt.
+  for (const c of slaContactsQualified) {
+    if (!c.leadQualificationAt || !c.responsavelId) continue;
+    const delta = c.leadQualificationAt.getTime() - c.createdAt.getTime();
+    if (delta < 0) continue;
+    ensureSlaUser(c.responsavelId).qualificationMs.push(delta);
+  }
+
+  const percentile = (arr: number[], p: number) => {
+    if (arr.length === 0) return null;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const idx = Math.round((p / 100) * (sorted.length - 1));
+    return sorted[idx];
+  };
+  const avg = (arr: number[]) => (arr.length === 0 ? null : arr.reduce((a, b) => a + b, 0) / arr.length);
+
+  const slaSummaryRows = visibleMembers
+    .map((m) => ({ userId: m.userId, name: m.user.name, photoUrl: personPhoto(m.userId) }))
+    .map((u) => {
+      const s = slaByUser.get(u.userId);
+      const totalLeadsQualified = slaContactsQualified.filter((c) => c.responsavelId === u.userId).length;
+      return {
+        id: u.userId,
+        name: u.name,
+        photoUrl: u.photoUrl,
+        avgFirstTouchMs: avg(s?.firstTouchMs ?? []),
+        firstTouchWithin1h: s && s.firstTouchTotal > 0 ? Math.round((s.firstTouchUnderTarget / s.firstTouchTotal) * 100) : null,
+        firstTouchTotal: s?.firstTouchTotal ?? 0,
+        avgFirstReplyMs: avg(s?.firstReplyMs ?? []),
+        p95FirstReplyMs: percentile(s?.firstReplyMs ?? [], 95),
+        firstReplyCount: s?.firstReplyMs.length ?? 0,
+        avgQualificationMs: avg(s?.qualificationMs ?? []),
+        qualificationCount: totalLeadsQualified,
+      };
+    })
+    // Vendedor que não tem nenhuma interação no período não aparece no
+    // ranking de SLA — não há dados para mostrar, e a tabela já tem
+    // "Atividade da equipe" pra ver quem ficou parado mesmo.
+    .filter((r) => r.firstTouchTotal > 0 || r.firstReplyCount > 0 || r.qualificationCount > 0);
+
+  // Totais agregados do time todo (para os 4 cards no topo da seção).
+  const slaAllFirstTouch = slaSummaryRows.flatMap((r) => {
+    const s = slaByUser.get(r.id);
+    return s?.firstTouchMs ?? [];
+  });
+  const slaAllFirstReplies = slaSummaryRows.flatMap((r) => {
+    const s = slaByUser.get(r.id);
+    return s?.firstReplyMs ?? [];
+  });
+  const slaAllQual = slaSummaryRows.flatMap((r) => {
+    const s = slaByUser.get(r.id);
+    return s?.qualificationMs ?? [];
+  });
+  const slaTotalFirstTouch = slaSummaryRows.reduce((a, r) => a + r.firstTouchTotal, 0);
+  const slaWithin1hCount = Array.from(slaByUser.values()).reduce((a, s) => a + s.firstTouchUnderTarget, 0);
+  const slaOverallFirstTouchWithin1h = slaTotalFirstTouch > 0 ? Math.round((slaWithin1hCount / slaTotalFirstTouch) * 100) : null;
+  const slaTotalAvgFirstTouchMs = avg(slaAllFirstTouch);
+  const slaTotalAvgFirstReplyMs = avg(slaAllFirstReplies);
+  const slaTotalP95FirstReplyMs = percentile(slaAllFirstReplies, 95);
+  const slaTotalAvgQualificationMs = avg(slaAllQual);
+  const slaTotalQualified = slaContactsQualified.length;
 
   const contactedContactIds = Array.from(
     new Set(outboundPairs.map((p) => contactIdByThread.get(p.threadId)).filter((id): id is string => !!id)),
@@ -1390,6 +1598,187 @@ export default async function RelatoriosPage({
           </div>
         )}
       </section>
+
+      {/* ─── SLA e Health de equipe ─────────────────────────────────── */}
+      {(slaSummaryRows.length > 0 || slaTotalFirstTouch > 0 || slaTotalQualified > 0) && (
+        <section className="space-y-6">
+          <SectionHeading
+            eyebrow="SLA do time"
+            title="Tempo de resposta & Health da operação"
+            description="Métricas operacionais que dono de operação de vendas paga pra ver: quanto tempo demora pro lead receber a 1ª mensagem, pra uma mensagem do lead ser respondida e pra um lead ser qualificado."
+          />
+          <div className="grid grid-cols-12 items-start gap-5">
+            <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-12">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="card p-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-emerald-500" strokeWidth={2} />
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      Contato em menos de 1 hora
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    {slaOverallFirstTouchWithin1h !== null ? `${slaOverallFirstTouchWithin1h}%` : "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                    {slaTotalFirstTouch > 0
+                      ? `${slaWithin1hCount} de ${slaTotalFirstTouch} lead${slaTotalFirstTouch === 1 ? "" : "s"} abordado${slaTotalFirstTouch === 1 ? "" : "s"} no período`
+                      : "Sem contatos abordados no período"}
+                  </p>
+                </div>
+                <div className="card p-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Timer className="h-4 w-4 text-sky-500" strokeWidth={2} />
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      Tempo médio até o 1º contato
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    {slaTotalAvgFirstTouchMs !== null ? formatDuration(slaTotalAvgFirstTouchMs) : "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                    {slaTotalFirstTouch > 0
+                      ? `Média do tempo entre o lead entrar no CRM e receber a 1ª mensagem OUTBOUND`
+                      : "Sem contatos abordados no período"}
+                  </p>
+                </div>
+                <div className="card p-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Target className="h-4 w-4 text-violet-500" strokeWidth={2} />
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      Tempo médio de resposta do vendedor
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    {slaTotalAvgFirstReplyMs !== null ? formatDuration(slaTotalAvgFirstReplyMs) : "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                    {slaTotalP95FirstReplyMs !== null
+                      ? `P95 ${formatDuration(slaTotalP95FirstReplyMs)} — tempo que 95% dos leads esperam no máximo`
+                      : "Nenhuma resposta enviada no período (lead não chamou primeiro)"}
+                  </p>
+                </div>
+                <div className="card p-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-amber-500" strokeWidth={2} />
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      Tempo médio até qualificação
+                    </p>
+                  </div>
+                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                    {slaTotalAvgQualificationMs !== null ? formatDuration(slaTotalAvgQualificationMs) : "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                    {slaTotalQualified > 0
+                      ? `${slaTotalQualified} lead${slaTotalQualified === 1 ? "" : "s"} QUALIFICADO${slaTotalQualified === 1 ? "" : "S"} no período`
+                      : "Nenhum lead qualificado no período"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {slaSummaryRows.length > 0 && (
+            <div className="card overflow-x-auto p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  SLA por vendedor
+                </h3>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                  Tempo real 24/7 — não conta apenas horário comercial (configurável).
+                </p>
+              </div>
+              <table className="mt-4 w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                    <th className="pb-2 font-medium">Vendedor</th>
+                    <th className="pb-2 text-right font-medium">Contato &lt;1h</th>
+                    <th className="pb-2 text-right font-medium">Médio p/ 1º contato</th>
+                    <th className="pb-2 text-right font-medium">Médio p/ responder</th>
+                    <th className="pb-2 text-right font-medium">P95 responder</th>
+                    <th className="pb-2 text-right font-medium">Médio p/ qualificar</th>
+                    <th className="pb-2 text-right font-medium">Leads qualificados</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slaSummaryRows
+                    // Ordena por "quem atende mais em <1h" primeiro, depois por
+                    // menor tempo médio de primeira resposta. Critério de ranking
+                    // de SLA operacional: quem fecha a janela de 1h do lead com
+                    // mais frequência.
+                    .sort((a, b) => {
+                      const apct = a.firstTouchWithin1h ?? -1;
+                      const bpct = b.firstTouchWithin1h ?? -1;
+                      if (bpct !== apct) return bpct - apct;
+                      const at = a.avgFirstReplyMs ?? Infinity;
+                      const bt = b.avgFirstReplyMs ?? Infinity;
+                      if (at !== bt) return at - bt;
+                      return a.name.localeCompare(b.name, "pt-BR");
+                    })
+                    .map((r) => (
+                      <tr key={r.id} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
+                        <td className="py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <Avatar name={r.name} src={r.photoUrl ?? null} size="xs" />
+                            <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums">
+                          {r.firstTouchWithin1h !== null ? (
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                                r.firstTouchWithin1h >= 70
+                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                                  : r.firstTouchWithin1h >= 40
+                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                                    : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                              }`}
+                            >
+                              {r.firstTouchWithin1h}%
+                              <span className="text-[10px] font-normal opacity-75">
+                                ({r.firstTouchTotal})
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-neutral-400 dark:text-neutral-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                          {r.avgFirstTouchMs !== null ? formatDuration(r.avgFirstTouchMs) : "—"}
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                          {r.avgFirstReplyMs !== null ? formatDuration(r.avgFirstReplyMs) : "—"}
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                          {r.p95FirstReplyMs !== null ? formatDuration(r.p95FirstReplyMs) : "—"}
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                          {r.avgQualificationMs !== null ? formatDuration(r.avgQualificationMs) : "—"}
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                          {r.qualificationCount > 0 ? r.qualificationCount : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Contato em menos de 1 hora: % dos leads abordados (1ª mensagem OUTBOUND do vendedor)
+            que receberam a 1ª mensagem até 60 min depois de entrar no CRM (ou da thread ser
+            criada, o que for mais recente — um contato importado ontem não penaliza quem
+            abordou hoje). Tempo de resposta: lead chamou primeiro (mensagem INBOUND na 1ª
+            posição da thread) → tempo até a 1ª mensagem OUTBOUND do vendedor; P95 = 95% dos
+            casos demoram no máximo esse valor — serve pra identificar quem tem &apos;pico de
+            espera&apos; escondido na média. Tempo até qualificação: tempo entre a criação do
+            contato e a marcação QUALIFIED. Vendedores sem nenhum dado no período não
+            aparecem aqui — o card &apos;Atividade da equipe&apos; abaixo já mostra tempo no CRM por
+            pessoa, inclusive quem ficou parado.
+          </p>
+        </section>
+      )}
 
       {/* ─── Atividade da equipe (só Dono/Gerente) ─────────────────────── */}
       {showTeamActivity && (

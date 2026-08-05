@@ -87,7 +87,7 @@ export function MobileNav({
       {fab && (
         <Link
           href={fab.href}
-          className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-neutral-900/25 active:scale-95 dark:bg-white dark:text-neutral-900 dark:shadow-none lg:hidden"
+          className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/25 active:scale-95 dark:shadow-brand/15 lg:hidden"
           aria-label={fab.label}
         >
           <Plus className="h-6 w-6" strokeWidth={2.5} />
@@ -104,12 +104,12 @@ export function MobileNav({
               key={item.href}
               href={item.href}
               className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors active:bg-neutral-100 dark:active:bg-neutral-800 ${
-                isActive ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-400 dark:text-neutral-500"
+                isActive ? "text-brand dark:text-brand" : "text-neutral-400 dark:text-neutral-500"
               }`}
             >
               <span
                 className={`flex h-7 w-11 items-center justify-center rounded-full transition-colors ${
-                  isActive ? "bg-neutral-100 dark:bg-neutral-800" : ""
+                  isActive ? "bg-brand-light dark:bg-brand-light" : ""
                 }`}
               >
                 <item.icon className="h-5 w-5" strokeWidth={isActive ? 2.3 : 2} />
@@ -122,12 +122,12 @@ export function MobileNav({
           type="button"
           onClick={() => setSheetOpen(true)}
           className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors active:bg-neutral-100 dark:active:bg-neutral-800 ${
-            isOverflowActive ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-400 dark:text-neutral-500"
+            isOverflowActive ? "text-brand dark:text-brand" : "text-neutral-400 dark:text-neutral-500"
           }`}
         >
           <span
             className={`flex h-7 w-11 items-center justify-center rounded-full transition-colors ${
-              isOverflowActive ? "bg-neutral-100 dark:bg-neutral-800" : ""
+              isOverflowActive ? "bg-brand-light dark:bg-brand-light" : ""
             }`}
           >
             <Menu className="h-5 w-5" strokeWidth={isOverflowActive ? 2.3 : 2} />
@@ -165,8 +165,8 @@ export function MobileNav({
                     onClick={() => setSheetOpen(false)}
                     className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
-                      <item.icon className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                      <item.icon className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
                     </span>
                     <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">{item.label}</span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
@@ -179,8 +179,8 @@ export function MobileNav({
                   onClick={() => setSheetOpen(false)}
                   className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
-                    <Calculator className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                    <Calculator className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
                   </span>
                   <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Simulador</span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
@@ -188,8 +188,8 @@ export function MobileNav({
               </div>
 
               <div className="card mt-2 flex items-center gap-3 p-3 text-sm">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
-                  <Moon className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                  <Moon className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
                 </span>
                 <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Tema</span>
                 <ThemeToggle />

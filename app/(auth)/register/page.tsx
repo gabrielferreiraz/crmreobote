@@ -50,8 +50,8 @@ export default function RegisterPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Criar conta</h1>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Configure sua empresa no CRM</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Crie sua conta</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Configure sua empresa no CRM</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -106,7 +106,7 @@ export default function RegisterPage() {
 
       <p className="text-center text-sm text-neutral-500 dark:text-neutral-400">
         Já tem conta?{" "}
-        <Link href="/login" className="font-medium text-neutral-900 dark:text-neutral-100 hover:underline">
+        <Link href="/login" className="font-medium text-brand hover:text-brand-hover hover:underline dark:text-brand dark:hover:text-brand-hover">
           Entrar
         </Link>
       </p>

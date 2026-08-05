@@ -7,6 +7,13 @@ import { isStale } from "@/lib/stale";
 import { EmptyState } from "@/components/empty-state";
 import { CountUpValue } from "@/components/count-up-value";
 
+/** Each stat tile gets a distinct color — same pattern as the sales dashboard. */
+const ADMIN_STAT_COLORS = [
+  { bg: "bg-brand-light dark:bg-brand-light", icon: "text-brand dark:text-brand" },
+  { bg: "bg-amber-50 dark:bg-amber-500/10", icon: "text-amber-600 dark:text-amber-400" },
+  { bg: "bg-violet-50 dark:bg-violet-500/10", icon: "text-violet-600 dark:text-violet-400" },
+];
+
 /**
  * Início do Administrativo — deliberadamente diferente do início de Vendas
  * (sem funil/metas, que não fazem sentido pra quem não vende): só as
@@ -54,9 +61,9 @@ export async function HomeAdministrativo() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:gap-4">
-        <StatTile icon={ListTodo} label="Tarefas pendentes" value={pendingTasks.length} />
-        <StatTile icon={Clock} label="Processos parados" value={staleCount} href="/processos" />
-        <StatTile icon={MessageSquareWarning} label="Solicitações pendentes" value={openRequestCount} href="/processos" />
+        <StatTile icon={ListTodo} label="Tarefas pendentes" value={pendingTasks.length} colorSet={ADMIN_STAT_COLORS[0]} />
+        <StatTile icon={Clock} label="Processos parados" value={staleCount} href="/processos" colorSet={ADMIN_STAT_COLORS[1]} />
+        <StatTile icon={MessageSquareWarning} label="Solicitações pendentes" value={openRequestCount} href="/processos" colorSet={ADMIN_STAT_COLORS[2]} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -105,8 +112,8 @@ export async function HomeAdministrativo() {
                   href={note.process ? `/processos/${note.process.id}` : "/processos"}
                   className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
-                    <StickyNote className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-light dark:bg-brand-light">
+                    <StickyNote className="h-3.5 w-3.5 text-brand dark:text-brand" strokeWidth={2} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">
@@ -131,17 +138,21 @@ function StatTile({
   label,
   value,
   href,
+  colorSet,
 }: {
   icon: typeof ListTodo;
   label: string;
   value: number;
   href?: string;
+  colorSet: { bg: string; icon: string };
 }) {
   const content = (
-    <div className="card p-3 lg:p-4">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="card p-3 transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none lg:p-4">
+      <div className="mb-3 flex items-center justify-between">
         <p className="truncate text-xs font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
-        <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${colorSet.bg}`}>
+          <Icon className={`h-4 w-4 ${colorSet.icon}`} strokeWidth={2} />
+        </div>
       </div>
       <p className="text-lg font-semibold tracking-tight tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100 lg:text-2xl">
         <CountUpValue value={value} format="number" />

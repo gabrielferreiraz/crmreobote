@@ -127,29 +127,65 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.organizationId = membership.organizationId;
           token.role = membership.role;
         }
-      } else if (token.id && token.organizationId) {
-        // Sem `user` (toda requisição depois do login) — refresca só o papel
-        // dentro da MESMA organização já fixada no token, nunca troca de
-        // organização sozinho aqui. Sem isso, um papel trocado (ex.: rebaixar
-        // um MANAGER pra MEMBER em PATCH /api/org/members/[userId]) só valia
-        // depois de relogar — o JWT (30 dias por padrão) mantinha o papel
-        // antigo, e isso alimentava getDealScope (lib/team-scope.ts) com
-        // escopo de acesso desatualizado em toda página que lê session.user.role
-        // direto (pipeline, tarefas, relatórios etc.), não só nas rotas que já
-        // revalidavam via requireRole/requireSession.
-        const membership = await runWithTenant(token.organizationId as string, () =>
-          prisma.organizationUser.findUnique({
-            where: {
-              organizationId_userId: {
-                organizationId: token.organizationId as string,
-                userId: token.id as string,
+      } else if (token.id) {
+        // Sem `user` (toda requisição depois do login) — tenta atualizar o
+        // papel/organização. Primeiro, busca uma membership dentro da MESMA
+        // organização já fixada no token (comportamento original).
+        if (token.organizationId) {
+          const membership = await runWithTenant(token.organizationId as string, () =>
+            prisma.organizationUser.findUnique({
+              where: {
+                organizationId_userId: {
+                  organizationId: token.organizationId as string,
+                  userId: token.id as string,
+                },
               },
-            },
-            select: { role: true, active: true },
-          }),
-        );
-        if (membership?.active) {
-          token.role = membership.role;
+              select: { role: true, active: true },
+            }),
+          );
+          if (membership?.active) {
+            token.role = membership.role;
+          } else {
+            // Membership atual não existe mais ou foi desativada — tenta
+            // encontrar QUALQUER outra organização ativa que esse usuário
+            // faça parte. Se encontrar, troca pra ela; se não, remove o
+            // organizationId do token (usuário fica sem acesso até ser
+            // reconvidado, sem precisar de logout manual).
+            const anyActive = await runWithTenantUser(token.id as string, () =>
+              prisma.organizationUser.findFirst({
+                where: { userId: token.id as string, active: true },
+                orderBy: { createdAt: "asc" },
+              }),
+            );
+            if (anyActive) {
+              console.warn(
+                `[auth] usuário ${token.id} teve membership em org ${token.organizationId} desativada/removida — migrando automaticamente para org ${anyActive.organizationId}`,
+              );
+              token.organizationId = anyActive.organizationId;
+              token.role = anyActive.role;
+            } else {
+              console.warn(
+                `[auth] usuário ${token.id} não tem nenhuma organização ativa — removendo organizationId do token`,
+              );
+              delete token.organizationId;
+              delete token.role;
+            }
+          }
+        } else {
+          // Token sem organizationId (ou porque o usuário acabou de ficar sem
+          // nenhuma org ativa na rodada acima) — tenta recuperar caso uma
+          // membership tenha sido recriada. Sem isso, o usuário teria que
+          // relogar mesmo após ser reconvidado.
+          const anyActive = await runWithTenantUser(token.id as string, () =>
+            prisma.organizationUser.findFirst({
+              where: { userId: token.id as string, active: true },
+              orderBy: { createdAt: "asc" },
+            }),
+          );
+          if (anyActive) {
+            token.organizationId = anyActive.organizationId;
+            token.role = anyActive.role;
+          }
         }
       }
       return token;

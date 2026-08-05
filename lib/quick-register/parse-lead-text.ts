@@ -111,26 +111,56 @@ function registerAliases(field: TextField, ...labels: string[]) {
   for (const label of labels) LABEL_ALIASES[normalizeLabel(label)] = field;
 }
 
-registerAliases("name", "nome", "nome completo", "cliente", "nome do cliente", "contato");
+// Além dos rótulos "de formulário" (nome, cargo, cidade...), registra frases
+// de CONEXÃO naturais de fala — quem dita descrevendo um lead em voz alta
+// não fala "Cidade:", fala "ele mora em Campo Grande". Só entram frases
+// específicas o bastante pro domínio (2+ palavras, quase nunca aparecem por
+// acaso numa frase qualquer) — um conectivo solto tipo "é"/"de" sozinho
+// nunca vira rótulo (baixa demais a precisão, um "é"/"de" qualquer no meio
+// do texto ia disparar em cima de qualquer coisa).
+registerAliases("name", "nome", "nome completo", "cliente", "nome do cliente", "contato", "se chama", "chama se");
 registerAliases("email", "email", "e mail");
 // Telefone/whatsapp NÃO entram no dicionário genérico acima — ver
 // WHATSAPP_LABELS/GENERIC_PHONE_LABELS abaixo, precisam de uma regra própria.
-registerAliases("company", "empresa", "nome da empresa", "local de trabalho", "razao social");
-registerAliases("jobTitle", "profissao", "cargo", "ocupacao", "funcao");
+registerAliases("company", "empresa", "nome da empresa", "local de trabalho", "razao social", "trabalha na", "trabalha na empresa");
+registerAliases("jobTitle", "profissao", "cargo", "ocupacao", "funcao", "trabalha como", "atua como");
 registerAliases("address", "endereco", "rua", "logradouro");
 registerAliases("addressNumber", "numero", "n", "num", "nº");
 registerAliases("addressComplement", "complemento", "compl");
 registerAliases("neighborhood", "bairro");
-registerAliases("city", "cidade", "municipio");
+registerAliases("city", "cidade", "municipio", "mora em", "reside em", "mora na cidade de");
 registerAliases("state", "estado", "uf");
 registerAliases("zipCode", "cep");
-registerAliases("creditTypeGuess", "tipo de credito", "categoria", "tipo do consorcio", "modalidade", "tipo");
+registerAliases(
+  "creditTypeGuess",
+  "tipo de credito",
+  "categoria",
+  "tipo do consorcio",
+  "modalidade",
+  "tipo",
+  "quer um consorcio de",
+  "consorcio de",
+  "interessado em",
+);
 registerAliases("description", "descricao", "obs", "observacao", "observacoes", "detalhes", "mensagem", "resumo");
 
-// "Valor" precisa de parsing numérico (R$, "mil", "k"), por isso fica fora
-// do dicionário genérico de string acima.
+// "Valor" precisa de parsing numérico (R$, "mil", "k", ou por extenso — ver
+// parseSpokenAmount abaixo), por isso fica fora do dicionário genérico de
+// string acima. "Valor de"/"orçamento de" cobrem a frase natural de quem
+// está ditando ("o valor de trezentos mil"), não só o rótulo seco.
 const VALUE_LABELS = new Set(
-  ["valor", "valor do credito", "valor do bem", "valor desejado", "valor da carta", "credito"].map(normalizeLabel),
+  [
+    "valor",
+    "valor do credito",
+    "valor do bem",
+    "valor desejado",
+    "valor da carta",
+    "credito",
+    "valor de",
+    "orcamento de",
+    "quer investir",
+    "pretende investir",
+  ].map(normalizeLabel),
 );
 
 // A maioria dos leads só tem UM número, e quase sempre rotulado como
@@ -261,6 +291,95 @@ function parseBrazilianNumber(digitsAndSeparators: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// Número por EXTENSO em português ("trezentos mil", "um milhão e duzentos
+// mil") — ditado por voz descrevendo um valor quase nunca sai em dígito
+// ("trezentos mil", não "300000" nem "300 mil"), diferente de texto
+// digitado/colado. Cobre só a faixa que interessa pra valor de consórcio
+// (unidades até centenas de milhão) — não tenta ser um conversor de número
+// por extenso genérico e completo.
+const SPOKEN_NUMBER_UNITS: Record<string, number> = {
+  zero: 0,
+  um: 1,
+  uma: 1,
+  dois: 2,
+  duas: 2,
+  tres: 3,
+  quatro: 4,
+  cinco: 5,
+  seis: 6,
+  sete: 7,
+  oito: 8,
+  nove: 9,
+  dez: 10,
+  onze: 11,
+  doze: 12,
+  treze: 13,
+  quatorze: 14,
+  catorze: 14,
+  quinze: 15,
+  dezesseis: 16,
+  dezessete: 17,
+  dezoito: 18,
+  dezenove: 19,
+  vinte: 20,
+  trinta: 30,
+  quarenta: 40,
+  cinquenta: 50,
+  sessenta: 60,
+  setenta: 70,
+  oitenta: 80,
+  noventa: 90,
+  cem: 100,
+  cento: 100,
+  duzentos: 200,
+  trezentos: 300,
+  quatrocentos: 400,
+  quinhentos: 500,
+  seiscentos: 600,
+  setecentos: 700,
+  oitocentos: 800,
+  novecentos: 900,
+};
+const SPOKEN_NUMBER_SCALES: Record<string, number> = { mil: 1_000, milhao: 1_000_000, milhoes: 1_000_000 };
+// Palavras que só conectam ("trezentos E cinquenta mil", "valor DE trezentos
+// mil") — ignoradas na soma, nunca interrompem o reconhecimento.
+const SPOKEN_NUMBER_CONNECTORS = new Set(["e", "de"]);
+
+/**
+ * "trezentos mil" → 300000, "um milhão e duzentos mil" → 1200000. Para no
+ * primeiro token desconhecido DEPOIS de já ter reconhecido algo (ex.: "oitenta
+ * mil reais" — "reais" encerra sem quebrar o que já foi lido); devolve null
+ * se a primeira palavra já não for número nenhum.
+ */
+function parseSpokenAmount(text: string): number | null {
+  const words = foldAccents(text)
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !SPOKEN_NUMBER_CONNECTORS.has(w));
+  if (words.length === 0) return null;
+
+  let total = 0;
+  let current = 0;
+  let matchedAny = false;
+  for (const word of words) {
+    if (word in SPOKEN_NUMBER_UNITS) {
+      current += SPOKEN_NUMBER_UNITS[word];
+      matchedAny = true;
+    } else if (word in SPOKEN_NUMBER_SCALES) {
+      total += (current === 0 ? 1 : current) * SPOKEN_NUMBER_SCALES[word];
+      current = 0;
+      matchedAny = true;
+    } else if (matchedAny) {
+      break; // palavra desconhecida depois de já ter achado número (ex. "reais") — só encerra, não invalida.
+    } else {
+      return null; // nem a 1ª palavra é número — não é um valor por extenso.
+    }
+  }
+  total += current;
+  return total > 0 ? total : null;
+}
+
 /** Valor vindo de um rótulo explícito ("Valor: 80000") — mais tolerante,
  * porque o rótulo já garante que é dinheiro (não precisa de R$/separador
  * de milhar pra confiar). */
@@ -270,8 +389,12 @@ function parseLabeledMoney(raw: string): number | null {
   if (mil) return parseFloat(mil[1].replace(",", ".")) * 1000;
   const k = cleaned.match(/^(\d+(?:[.,]\d+)?)\s*k$/i);
   if (k) return parseFloat(k[1].replace(",", ".")) * 1000;
-  if (!/\d/.test(cleaned)) return null;
-  return parseBrazilianNumber(cleaned.replace(/[^\d.,]/g, ""));
+  if (/\d/.test(cleaned)) {
+    const parsed = parseBrazilianNumber(cleaned.replace(/[^\d.,]/g, ""));
+    if (parsed !== null) return parsed;
+  }
+  // Sem dígito nenhum — tenta por extenso (ditado por voz).
+  return parseSpokenAmount(cleaned);
 }
 
 /** Valor "solto" no meio de uma frase sem rótulo nenhum — aqui sim precisa
@@ -590,8 +713,16 @@ export function parseLeadText(raw: string): ParsedLeadFields {
     if (match) fields.creditTypeGuess = match.guess;
   }
 
-  const description = residuals.filter((r): r is string => !!r).join("\n").trim();
-  fields.description = description || null;
+  // Junta ao que sobrou de tudo que ninguém reivindicou — NUNCA substitui um
+  // valor que o Passo 1 já tiver posto aqui via rótulo explícito ("Descrição:
+  // ..."/"Obs: ..."/ditado). Sem essa checagem, uma descrição rotulada corretamente
+  // era descartada em silêncio sempre que todas as outras linhas também
+  // tivessem sido reivindicadas por outro campo (residuals ficava vazio, e o
+  // valor já certo em fields.description virava null de novo).
+  const leftover = residuals.filter((r): r is string => !!r).join("\n").trim();
+  if (leftover) {
+    fields.description = fields.description ? `${fields.description}\n${leftover}` : leftover;
+  }
 
   return fields;
 }

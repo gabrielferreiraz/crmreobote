@@ -9,11 +9,23 @@
 :root {
   --background: #f9fafb;
   --foreground: #111827;
+  --brand: #6366f1;
+  --brand-hover: #4f46e5;
+  --brand-active: #4338ca;
+  --brand-light: #eef2ff;
+  --brand-light-hover: #e0e7ff;
+  --brand-subtle: rgba(99, 102, 241, 0.08);
 }
 
 .dark {
   --background: #0a0a0a;
   --foreground: #f5f5f5;
+  --brand: #818cf8;
+  --brand-hover: #a5b4fc;
+  --brand-active: #c7d2fe;
+  --brand-light: rgba(129, 140, 248, 0.12);
+  --brand-light-hover: rgba(129, 140, 248, 0.18);
+  --brand-subtle: rgba(129, 140, 248, 0.06);
 }
 
 ::view-transition-old(root),
@@ -25,6 +37,11 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-light: var(--brand-light);
+  --color-brand-light-hover: var(--brand-light-hover);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -50,13 +67,13 @@ body {
 }
 
 ::selection {
-  background-color: #e5e5e5;
-  color: #171717;
+  background-color: #c7d2fe;
+  color: #312e81;
 }
 
 .dark ::selection {
-  background-color: #404040;
-  color: #f5f5f5;
+  background-color: #4338ca;
+  color: #e0e7ff;
 }
 
 @keyframes highlight-once {
@@ -335,15 +352,24 @@ body {
 
 @layer components {
   .btn-primary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-white dark:focus-visible:ring-offset-neutral-950;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-all duration-150 hover:shadow-md hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98];
+    background-color: var(--brand);
+  }
+
+  .btn-primary:hover {
+    background-color: var(--brand-hover);
+  }
+
+  .btn-primary:active {
+    background-color: var(--brand-active);
   }
 
   .btn-secondary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-all duration-150 hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
   }
 
   .btn-ghost {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 transition-all duration-150 hover:bg-brand-light hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:text-neutral-400 dark:hover:bg-brand-light dark:hover:text-brand;
   }
 
   .btn-sm {
@@ -351,7 +377,7 @@ body {
   }
 
   .field-input {
-    @apply w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-all duration-200 ease-out placeholder:text-neutral-400 hover:border-neutral-400 focus:border-neutral-400 focus:ring-1 focus:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:hover:border-neutral-600 dark:focus:border-neutral-500 dark:focus:ring-neutral-500;
+    @apply w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-all duration-200 ease-out placeholder:text-neutral-400 hover:border-neutral-400 focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:hover:border-neutral-600 dark:focus:border-brand dark:focus:ring-brand/20;
   }
 
   .field-select {
@@ -364,7 +390,7 @@ body {
   }
 
   .card {
-    @apply rounded-lg border border-neutral-200/60 bg-white transition-colors dark:border-neutral-800/60 dark:bg-neutral-900 dark:shadow-none;
+    @apply rounded-lg border border-neutral-200/60 bg-white transition-all duration-150 dark:border-neutral-800/60 dark:bg-neutral-900 dark:shadow-none;
     /* Sombra em camadas (perto+difusa) só faz sentido no claro — dá aquele
        ar "flutuando" suave sem virar um card pesado/datado. No escuro a
        borda já basta pra separar do fundo; sombra ali só sujaria. */
@@ -372,6 +398,14 @@ body {
       0 1px 2px rgba(0, 0, 0, 0.04),
       0 10px 20px -8px rgba(0, 0, 0, 0.10),
       0 24px 40px -16px rgba(0, 0, 0, 0.08);
+  }
+
+  .card:hover {
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .dark .card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
   }
 
   /* Vidro leve — menus/dropdowns pequenos (Select, DatePicker, popovers de
@@ -394,7 +428,7 @@ body {
   }
 
   .icon-btn {
-    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
   }
 
   /* Pílula de variável inserida no meio do texto (ver components/variable-input.tsx)

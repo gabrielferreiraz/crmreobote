@@ -88,11 +88,11 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="flex h-9 w-64 shrink-0 items-center gap-2 rounded-md border border-neutral-300 bg-white px-3 text-sm text-neutral-400 transition-colors hover:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
+          className="flex h-9 w-64 shrink-0 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-400 shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
         >
           <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
           <span className="flex-1 truncate text-left whitespace-nowrap">Buscar clientes, negócios...</span>
-          <kbd className="shrink-0 rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
+          <kbd className="shrink-0 rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
             ⌘K
           </kbd>
         </button>
@@ -127,7 +127,7 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                   <button
                     key={l.href}
                     onClick={() => go(l.href)}
-                    className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 transition-colors hover:bg-brand-light hover:text-brand dark:text-neutral-200 dark:hover:bg-brand-light dark:hover:text-brand"
                   >
                     {l.label}
                   </button>
@@ -144,7 +144,7 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                   <button
                     key={c.id}
                     onClick={() => go(`/clientes/${c.id}`)}
-                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 transition-colors hover:bg-brand-light hover:text-brand dark:text-neutral-200 dark:hover:bg-brand-light dark:hover:text-brand"
                   >
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
                     <span className="min-w-0 flex-1">
@@ -168,7 +168,7 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                   <button
                     key={d.id}
                     onClick={() => go(`/negocios/${d.id}`)}
-                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 transition-colors hover:bg-brand-light hover:text-brand dark:text-neutral-200 dark:hover:bg-brand-light dark:hover:text-brand"
                   >
                     <Kanban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
                     <span className="min-w-0 flex-1">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, QrCode, Unplug, History, ShieldCheck, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, QrCode, Unplug, History, ShieldCheck } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 
 type EvolutionStatus = "loading" | "disconnected" | "connecting" | "connected";
@@ -78,19 +78,6 @@ export function WhatsAppConnect() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Proxy é opcional e só faz efeito na criação da instância (ver
-  // app/api/whatsapp/instance/route.ts) — reduz o risco de a WhatsApp
-  // identificar a sessão como automatizada por vir de IP de datacenter.
-  // Nunca vem preenchido sozinho: precisa de um proxy residencial/móvel de
-  // verdade contratado à parte (serviço pago — proxy "grátis" público é
-  // datacenter ou já malicioso).
-  const [showProxyForm, setShowProxyForm] = useState(false);
-  const [proxyHost, setProxyHost] = useState("");
-  const [proxyPort, setProxyPort] = useState("");
-  const [proxyProtocol, setProxyProtocol] = useState("http");
-  const [proxyUsername, setProxyUsername] = useState("");
-  const [proxyPassword, setProxyPassword] = useState("");
-
   async function refreshStatus() {
     const res = await fetch("/api/whatsapp/instance");
     if (!res.ok) return;
@@ -127,19 +114,16 @@ export function WhatsAppConnect() {
     setBusy(true);
     setError(null);
     try {
-      const proxy = proxyHost.trim()
-        ? {
-            host: proxyHost.trim(),
-            port: Number(proxyPort),
-            protocol: proxyProtocol,
-            username: proxyUsername.trim() || undefined,
-            password: proxyPassword || undefined,
-          }
-        : undefined;
+      // Sem campo de proxy aqui de propósito — exigia que o próprio
+      // consultor soubesse o que é proxy e já tivesse um contratado à parte,
+      // o que nunca acontecia na prática (ver lib/whatsapp/proxy.ts pra
+      // detalhe). Automatizar isso (pool de proxy da organização) fica pra
+      // quando houver um provedor escolhido — a rota ainda aceita `proxy` no
+      // corpo se um dia isso for preenchido de outro lugar.
       const res = await fetch("/api/whatsapp/instance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proxy }),
+        body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -249,65 +233,6 @@ export function WhatsAppConnect() {
                 </button>
               )}
             </div>
-
-            {status === "disconnected" && (
-              <div className="rounded-md border border-neutral-200 dark:border-neutral-800">
-                <button
-                  type="button"
-                  onClick={() => setShowProxyForm((v) => !v)}
-                  className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-medium text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
-                >
-                  {showProxyForm ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                  Configurar proxy (opcional)
-                </button>
-                {showProxyForm && (
-                  <div className="space-y-2 border-t border-neutral-100 p-3 dark:border-neutral-800">
-                    <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                      Reduz o risco da WhatsApp identificar a conexão como automatizada (IP de datacenter é um sinal
-                      de suspeita). Precisa de um proxy residencial/móvel contratado à parte — deixe em branco se não
-                      tiver um.
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        value={proxyHost}
-                        onChange={(e) => setProxyHost(e.target.value)}
-                        placeholder="Host"
-                        className="field-input py-1.5 text-sm"
-                      />
-                      <input
-                        value={proxyPort}
-                        onChange={(e) => setProxyPort(e.target.value)}
-                        placeholder="Porta"
-                        inputMode="numeric"
-                        className="field-input py-1.5 text-sm"
-                      />
-                      <select
-                        value={proxyProtocol}
-                        onChange={(e) => setProxyProtocol(e.target.value)}
-                        className="field-input py-1.5 text-sm"
-                      >
-                        <option value="http">http</option>
-                        <option value="https">https</option>
-                        <option value="socks5">socks5</option>
-                      </select>
-                      <input
-                        value={proxyUsername}
-                        onChange={(e) => setProxyUsername(e.target.value)}
-                        placeholder="Usuário (opcional)"
-                        className="field-input py-1.5 text-sm"
-                      />
-                      <input
-                        value={proxyPassword}
-                        onChange={(e) => setProxyPassword(e.target.value)}
-                        placeholder="Senha (opcional)"
-                        type="password"
-                        className="field-input col-span-2 py-1.5 text-sm"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {qrCode && status === "connecting" && (
               <div className="flex flex-col items-center gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">

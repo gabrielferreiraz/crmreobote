@@ -4,25 +4,60 @@ import { ALL_LEAD_LABELS, foldAccents, normalizeLabel, shouldTitleCaseLabelValue
  * Reformata um trecho recém-DITADO (Web Speech API, ver components/
  * voice-input-button.tsx) pro formato "Rótulo: valor" que parseLeadText
  * entende — o ditado chega como um bloco contínuo, sem quebra de linha
- * nenhuma entre os campos (ex.: "nome gabriel medeiros telefone 67981783902
- * cidade campo grande ms"), bem diferente de texto colado (que já vem
- * quebrado por linha). "Regex pesado" de propósito: varre o texto inteiro
- * (não só o início de cada linha, como parseLeadText faz) atrás de QUALQUER
- * ocorrência de um rótulo conhecido — reaproveita a MESMA lista de rótulos
- * (ALL_LEAD_LABELS) que parseLeadText reconhece, pra nunca marcar aqui um
- * rótulo que o parser não vai depois entender do outro lado.
+ * nenhuma entre os campos, numa fala natural cheia de pronome/conectivo
+ * ("o cliente se chama Gabriel, ele mora em Campo Grande, o telefone dele
+ * é..."), bem diferente de texto colado (já quebrado por linha, direto ao
+ * ponto). "Regex pesado" de propósito: varre o texto inteiro (não só o
+ * início de cada linha, como parseLeadText faz) atrás de QUALQUER
+ * ocorrência de um rótulo conhecido, e limpa pronome/conectivo solto nas
+ * bordas de cada valor encontrado — sem isso, "ele mora em Campo Grande ele
+ * trabalha" virava cidade "Campo Grande Ele" (o pronome do próximo trecho
+ * grudado no valor anterior).
  */
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Alguns rótulos de UMA palavra só são específicos demais pro modo "varre o
+// texto inteiro" — "cliente", por exemplo, é reconhecido com segurança por
+// parseLeadText (só testa o INÍCIO de cada linha, então "cliente" ali só
+// dispara se for mesmo a 1ª palavra), mas aqui, escaneando qualquer ponto de
+// uma frase natural, a mesma palavra aparece o tempo todo como substantivo
+// comum ("o cliente quer...", "para esse cliente...") e fragmentaria o
+// texto à toa. Fora do dicionário completo (ALL_LEAD_LABELS) só pra ESTE
+// escaneamento — o reconhecimento por linha em parseLeadText continua
+// intacto, essas palavras ainda funcionam lá.
+const DICTATION_SCAN_DENYLIST = new Set(
+  ["cliente", "contato", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
+    normalizeLabel,
+  ),
+);
+const DICTATION_SCAN_LABELS = ALL_LEAD_LABELS.filter((label) => !DICTATION_SCAN_DENYLIST.has(label));
+
 // Do rótulo mais específico/comprido pro mais genérico (mesma ordem de
 // ALL_LEAD_LABELS) — na alternação do regex, a primeira opção que casar
 // numa posição vence, então "numero whatsapp" precisa vir antes de "numero"
 // sozinho, senão sobra "whatsapp" solto como se fosse valor.
-const LABEL_SCAN_PATTERN = ALL_LEAD_LABELS.map((label) => label.split(" ").map(escapeRegExp).join("\\s+")).join("|");
+const LABEL_SCAN_PATTERN = DICTATION_SCAN_LABELS.map((label) => label.split(" ").map(escapeRegExp).join("\\s+")).join(
+  "|",
+);
 const LABEL_SCAN_REGEX = new RegExp(`\\b(?:${LABEL_SCAN_PATTERN})\\b`, "g");
+
+// Pronome/artigo/conectivo que a fala natural cola nas bordas do valor de
+// verdade ("ele mora em Campo Grande ELE trabalha..." — o 2º "ele" já é do
+// próximo trecho, não faz parte da cidade). Removidos só das PONTAS do
+// valor (começo/fim), nunca do meio — "Casa do Construtor" continua intacto.
+const EDGE_FILLER_WORDS = new Set(["ele", "ela", "dele", "dela", "o", "a", "e", "de", "do", "da", "na", "no"]);
+
+function stripEdgeFillers(value: string): string {
+  const words = value.split(/\s+/).filter(Boolean);
+  let start = 0;
+  let end = words.length;
+  while (start < end && EDGE_FILLER_WORDS.has(foldAccents(words[start]))) start++;
+  while (end > start && EDGE_FILLER_WORDS.has(foldAccents(words[end - 1]))) end--;
+  return words.slice(start, end).join(" ");
+}
 
 // "de", "da", "do"... ficam minúsculos mesmo no meio de um nome/endereço
 // capitalizado ("Maria de Souza", não "Maria De Souza") — só a 1ª palavra
@@ -60,7 +95,7 @@ export function formatDictatedLeadText(text: string): string {
 
   const lines: string[] = [];
   const firstStart = matches[0].index!;
-  const preamble = trimmed.slice(0, firstStart).trim();
+  const preamble = stripEdgeFillers(trimmed.slice(0, firstStart).trim());
   if (preamble) lines.push(preamble);
 
   for (let i = 0; i < matches.length; i++) {
@@ -70,7 +105,7 @@ export function formatDictatedLeadText(text: string): string {
     const valueEnd = i + 1 < matches.length ? matches[i + 1].index! : trimmed.length;
     const rawLabel = trimmed.slice(labelStart, labelEnd);
     const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
-    let value = trimmed.slice(labelEnd, valueEnd).trim();
+    let value = stripEdgeFillers(trimmed.slice(labelEnd, valueEnd).trim());
     // Ditado por voz sempre chega em minúsculo (a Web Speech API nunca
     // devolve maiúscula sozinha) — capitaliza nome/cidade/empresa/endereço
     // pra não precisar corrigir tudo na mão antes de criar.

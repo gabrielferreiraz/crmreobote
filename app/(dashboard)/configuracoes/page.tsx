@@ -121,8 +121,8 @@ function Row({
 }) {
   const content = (
     <>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
-        <Icon className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+        <Icon className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
       </div>
       <div className="min-w-0 flex-1">
         <p className={`font-medium ${href ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"}`}>
@@ -145,9 +145,9 @@ function Row({
   }
 
   return (
-    <Link href={href} className="flex items-center gap-3 p-4 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60">
+    <Link href={href} className="group flex items-center gap-3 p-4 text-sm transition-colors hover:bg-brand-light/50 dark:hover:bg-brand-light/30">
       {content}
-      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand dark:text-neutral-600 dark:group-hover:text-brand" strokeWidth={2} />
     </Link>
   );
 }

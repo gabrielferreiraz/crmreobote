@@ -3,7 +3,6 @@
 import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { PasswordInput } from "@/components/password-input";
 import { LoadingDots } from "@/components/loading-dots";
@@ -50,18 +49,18 @@ function LoginForm() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Entrar</h1>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Acesse seu CRM</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Bem-vindo de volta</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Entre na sua conta do CRM</p>
       </div>
 
       {deactivated && (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-500/10 dark:text-red-300">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-500/10 dark:text-red-300">
           Seu acesso foi desativado. Fale com o administrador da sua organização.
         </p>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <label className="field-label">E-mail</label>
           <input
             autoFocus
@@ -70,14 +69,19 @@ function LoginForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="field-input"
+            placeholder="seu@email.com"
           />
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <label className="field-label">Senha</label>
           <PasswordInput value={password} onChange={setPassword} required />
         </div>
 
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-500/10 dark:text-red-300">
+            {error}
+          </p>
+        )}
 
         <button type="submit" disabled={loading} className="btn-primary w-full">
           {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
@@ -91,7 +95,6 @@ function LoginForm() {
           )}
         </button>
       </form>
-
     </div>
   );
 }

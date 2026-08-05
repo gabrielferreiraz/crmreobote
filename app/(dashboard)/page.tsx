@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { formatCurrency } from "@/lib/format";
 import { ACTIVITY_ICON, ACTIVITY_LABEL } from "@/lib/activity-icons";
+import { TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { brazilGreeting, brazilStartOfMonth } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
@@ -18,6 +19,14 @@ import { HomeAdministrativo } from "./home-administrativo";
 import { StaleDealsList } from "./stale-deals-list";
 
 const STALE_DEALS_PAGE_SIZE = 10;
+
+/** Each stat tile gets a distinct color identity — makes them scannable at a glance. */
+const STAT_COLORS = {
+  pipeline: { bg: "bg-brand-light dark:bg-brand-light", icon: "text-brand dark:text-brand" },
+  value: { bg: "bg-blue-50 dark:bg-blue-500/10", icon: "text-blue-600 dark:text-blue-400" },
+  won: { bg: "bg-emerald-50 dark:bg-emerald-500/10", icon: "text-emerald-600 dark:text-emerald-400" },
+  clients: { bg: "bg-violet-50 dark:bg-violet-500/10", icon: "text-violet-600 dark:text-violet-400" },
+} as const;
 
 export default async function HomePage() {
   const session = await auth();
@@ -83,6 +92,7 @@ export default async function HomePage() {
   const stageData = (pipeline?.stages ?? []).map((stage) => ({
     id: stage.id,
     name: stage.name,
+    color: stage.color ?? "#6366f1",
     count: stageValues.find((s) => s.stageId === stage.id)?._count ?? 0,
     value: stageValues.find((s) => s.stageId === stage.id)?._sum.value
       ? Number(stageValues.find((s) => s.stageId === stage.id)!._sum.value)
@@ -104,12 +114,13 @@ export default async function HomePage() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
-        <StatTile icon={Briefcase} label="Negócios abertos" value={openDeals} />
+        <StatTile icon={Briefcase} label="Negócios abertos" value={openDeals} colorSet={STAT_COLORS.pipeline} />
         <StatTile
           icon={ArrowUpRight}
           label="Pipeline aberto"
           value={pipelineValue._sum.value ? Number(pipelineValue._sum.value) : 0}
           format="currency"
+          colorSet={STAT_COLORS.value}
         />
         <StatTile
           icon={TrendingUp}
@@ -117,8 +128,9 @@ export default async function HomePage() {
           value={wonThisMonth._sum.value ? Number(wonThisMonth._sum.value) : 0}
           format="currency"
           hint={`${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`}
+          colorSet={STAT_COLORS.won}
         />
-        <StatTile icon={Users} label="Clientes ativos" value={activeClients} />
+        <StatTile icon={Users} label="Clientes ativos" value={activeClients} colorSet={STAT_COLORS.clients} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -130,9 +142,9 @@ export default async function HomePage() {
             </div>
             <Link
               href="/pipeline"
-              className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+              className="group inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover dark:text-brand dark:hover:text-brand-hover"
             >
-              Abrir pipeline <ArrowRight className="h-3 w-3" strokeWidth={2} />
+              Abrir pipeline <ArrowRight className="h-3 w-3 transition-transform duration-150 group-hover:translate-x-0.5" strokeWidth={2} />
             </Link>
           </div>
 
@@ -142,13 +154,19 @@ export default async function HomePage() {
             <div className="space-y-3">
               {stageData.map((stage) => (
                 <div key={stage.id} className="flex items-center gap-4">
-                  <span className="w-32 shrink-0 truncate text-sm text-neutral-700 dark:text-neutral-300">
-                    {stage.name} <span className="text-neutral-400 dark:text-neutral-500">· {stage.count}</span>
+                  <span className="flex w-32 shrink-0 items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color }} />
+                    <span className="truncate">{stage.name}</span>
+                    <span className="text-neutral-400 dark:text-neutral-500">· {stage.count}</span>
                   </span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                  <div className="group/bar h-2.5 flex-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
                     <div
-                      className="h-full rounded-full bg-neutral-900 dark:bg-white"
-                      style={{ width: `${Math.max(4, (stage.value / maxStageValue) * 100)}%` }}
+                      className="h-full rounded-full transition-all duration-300 group-hover/bar:opacity-100"
+                      style={{
+                        width: `${Math.max(4, (stage.value / maxStageValue) * 100)}%`,
+                        backgroundColor: stage.color,
+                        opacity: 0.8,
+                      }}
                     />
                   </div>
                   <span className="shrink-0 text-right text-sm whitespace-nowrap tabular-nums text-neutral-500 dark:text-neutral-400">
@@ -165,37 +183,40 @@ export default async function HomePage() {
           {upcomingTasks.length === 0 ? (
             <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">Nenhuma tarefa agendada.</p>
           ) : (
-            <div className="space-y-4">
-              {upcomingTasks.map((task) => (
-                <Link
-                  key={task.id}
-                  href={
-                    task.deal
-                      ? `/negocios/${task.deal.id}?highlightTask=${task.id}`
-                      : task.contact
-                        ? `/clientes/${task.contact.id}`
-                        : "/agenda"
-                  }
-                  className="-mx-2 flex gap-3 rounded-md p-2 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-                >
-                  <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                    {task.dueAt && (
-                      <>
-                        <div>{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit" })}</div>
-                        <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short" })}</div>
-                      </>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
-                    <p className="truncate text-neutral-500 dark:text-neutral-400">
-                      {task.deal?.name ?? task.contact?.name ?? ""}
-                      {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
-                    </p>
-                  </div>
-                  <Avatar name={session!.user.name ?? "?"} src={ownPhotoUrl} size="xs" className="shrink-0" />
-                </Link>
-              ))}
+            <div className="space-y-1">
+              {upcomingTasks.map((task) => {
+                const colors = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
+                return (
+                  <Link
+                    key={task.id}
+                    href={
+                      task.deal
+                        ? `/negocios/${task.deal.id}?highlightTask=${task.id}`
+                        : task.contact
+                          ? `/clientes/${task.contact.id}`
+                          : "/agenda"
+                    }
+                    className="-mx-2 flex gap-3 rounded-lg p-2.5 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  >
+                    <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+                      {task.dueAt && (
+                        <>
+                          <div className="font-semibold">{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit" })}</div>
+                          <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short" })}</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
+                      <p className="truncate text-neutral-500 dark:text-neutral-400">
+                        {task.deal?.name ?? task.contact?.name ?? ""}
+                        {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
+                      </p>
+                    </div>
+                    <Avatar name={session!.user.name ?? "?"} src={ownPhotoUrl} size="xs" className="shrink-0" />
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>
@@ -218,6 +239,7 @@ export default async function HomePage() {
           <div className="space-y-2">
             {recentActivities.map((activity) => {
               const Icon = ACTIVITY_ICON[activity.type] ?? Inbox;
+              const colors = TASK_TYPE_COLOR[activity.type] ?? TASK_TYPE_COLOR.OTHER;
               return (
                 <Link
                   key={activity.id}
@@ -228,19 +250,19 @@ export default async function HomePage() {
                         ? `/clientes/${activity.contact.id}`
                         : "/pipeline"
                   }
-                  className="card flex gap-3 p-3 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  className="card flex gap-3 p-3 text-sm transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none"
                 >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
-                    <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${colors.bg}`}>
+                    <Icon className={`h-4 w-4 ${colors.text}`} strokeWidth={2} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-neutral-800 dark:text-neutral-200">
-                      {ACTIVITY_LABEL[activity.type] ?? activity.type}
+                      <span className="font-medium">{ACTIVITY_LABEL[activity.type] ?? activity.type}</span>
                       {" — "}
                       {activity.deal?.name ?? activity.contact?.name ?? ""}
                     </p>
                     {activity.body && <p className="mt-1 text-neutral-500 dark:text-neutral-400">{activity.body}</p>}
-                    <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
                       <Avatar
                         name={activity.user.name}
                         src={activity.user.image ? avatarMap.get(activity.user.image) : null}
@@ -270,18 +292,22 @@ function StatTile({
   value,
   format = "number",
   hint,
+  colorSet,
 }: {
   icon: typeof Briefcase;
   label: string;
   value: number;
   format?: "number" | "currency";
   hint?: string;
+  colorSet: { bg: string; icon: string };
 }) {
   return (
-    <div className="card p-3 lg:p-4">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="card p-3 transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none lg:p-4">
+      <div className="mb-3 flex items-center justify-between">
         <p className="truncate text-xs font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
-        <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${colorSet.bg}`}>
+          <Icon className={`h-4 w-4 ${colorSet.icon}`} strokeWidth={2} />
+        </div>
       </div>
       <p className="text-lg font-semibold tracking-tight tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100 lg:text-2xl">
         <CountUpValue value={value} format={format} />
