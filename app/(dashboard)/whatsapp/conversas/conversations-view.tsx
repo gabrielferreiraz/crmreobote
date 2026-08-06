@@ -11,6 +11,7 @@ import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ChatWindow, withViewTransition } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
+import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 
 export type Conversation = {
   threadId: string;
@@ -109,8 +110,8 @@ export function TabSwitcher({
     tab === "crm" ? notificationPrefs?.notifyOnCrmMessage : notificationPrefs?.notifyOnGeralMessage;
 
   return (
-    <div className="flex shrink-0 items-center justify-between border-b border-neutral-200/60 px-2.5 pt-2 dark:border-neutral-800/60">
-      <div className="flex items-center gap-1">
+    <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
+      <div className="flex flex-1 items-center gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900">
         {(
           [
             { value: "crm" as const, label: "WhatsApp CRM" },
@@ -121,10 +122,10 @@ export function TabSwitcher({
             key={opt.value}
             type="button"
             onClick={() => onChange(opt.value)}
-            className={`rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
               tab === opt.value
-                ? "border-b-2 border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
-                : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-700 active:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-300 dark:active:text-neutral-100"
+                ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-800 dark:text-white dark:ring-white/10"
+                : "text-neutral-500 hover:text-neutral-700 active:bg-black/5 dark:text-neutral-400 dark:hover:text-neutral-200 dark:active:bg-white/5"
             }`}
           >
             {opt.label}
@@ -136,7 +137,11 @@ export function TabSwitcher({
         <button
           type="button"
           onClick={() => onToggleNotifications(tab)}
-          className="icon-btn mb-1 shrink-0"
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+            notifyEnabled
+              ? "bg-brand-light text-brand dark:bg-brand-light dark:text-brand"
+              : "bg-neutral-100/80 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-600 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+          }`}
           aria-label={notifyEnabled ? `Desativar notificações do ${tab === "crm" ? "CRM" : "Geral"}` : `Ativar notificações do ${tab === "crm" ? "CRM" : "Geral"}`}
           title={notifyEnabled ? "Notificações ativadas — clique pra desativar" : "Notificações desativadas — clique pra ativar"}
         >
@@ -287,34 +292,51 @@ export function ConversationsView({
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
 
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/whatsapp/conversations");
-        if (!res.ok) return;
-        const next: Conversation[] = await res.json();
+  // Reaproveitado pelo polling de segurança E pelo evento ao vivo (useWhatsAppLive
+  // abaixo) — os dois só decidem QUANDO buscar de novo, a lógica de "o que
+  // fazer com a resposta" é uma só.
+  async function refreshConversations() {
+    try {
+      const res = await fetch("/api/whatsapp/conversations");
+      if (!res.ok) return;
+      const next: Conversation[] = await res.json();
 
-        // Marca quem recebeu mensagem nova desde o último poll pra dar um
-        // piscar sutil na linha — sem isso, uma mensagem nova só se nota
-        // reparando no número do badge, fácil de passar batido.
-        const arrived = new Set<string>();
-        for (const c of next) {
-          const prevCount = unreadByThreadRef.current.get(c.threadId) ?? 0;
-          if (c.unreadCount > prevCount) arrived.add(c.threadId);
-        }
-        unreadByThreadRef.current = new Map(next.map((c) => [c.threadId, c.unreadCount]));
-
-        setConversations(next);
-        if (arrived.size > 0) {
-          setJustArrived(arrived);
-          setTimeout(() => setJustArrived(new Set()), 1400);
-        }
-      } catch {
-        // Silencioso: mantém a última lista boa em caso de falha temporária de rede.
+      // Marca quem recebeu mensagem nova desde a última busca pra dar um
+      // piscar sutil na linha — sem isso, uma mensagem nova só se nota
+      // reparando no número do badge, fácil de passar batido.
+      const arrived = new Set<string>();
+      for (const c of next) {
+        const prevCount = unreadByThreadRef.current.get(c.threadId) ?? 0;
+        if (c.unreadCount > prevCount) arrived.add(c.threadId);
       }
-    }, 5000);
+      unreadByThreadRef.current = new Map(next.map((c) => [c.threadId, c.unreadCount]));
+
+      setConversations(next);
+      if (arrived.size > 0) {
+        setJustArrived(arrived);
+        setTimeout(() => setJustArrived(new Set()), 1400);
+      }
+    } catch {
+      // Silencioso: mantém a última lista boa em caso de falha temporária de rede.
+    }
+  }
+
+  useEffect(() => {
+    // Rede de segurança, não o mecanismo principal — ver comentário análogo
+    // em components/whatsapp-chat.tsx. Cobre só a conexão SSE cair sem o
+    // navegador perceber.
+    const interval = setInterval(refreshConversations, 45_000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Qualquer evento (de qualquer thread) pode mudar esta lista — uma
+  // conversa nova, reordenação por "mensagem mais recente", contador de não
+  // lida — então, diferente do chat (que só recarrega a própria thread
+  // aberta), aqui não filtra por threadId.
+  useWhatsAppLive(() => {
+    refreshConversations();
+  });
 
   const tabCounts = useMemo(
     () => ({
@@ -388,7 +410,7 @@ export function ConversationsView({
 
   return (
     <div className="hidden min-h-0 flex-1 lg:flex">
-      <div className="surface-glass-panel flex shrink-0 flex-col overflow-hidden rounded-lg" style={{ width: sidebarWidth }}>
+      <div className="surface-glass-panel flex shrink-0 flex-col overflow-hidden rounded-3xl" style={{ width: sidebarWidth }}>
         <TabSwitcher
           tab={tab}
           onChange={setTab}
@@ -403,17 +425,21 @@ export function ConversationsView({
           </p>
         )}
 
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-200/60 p-2.5 dark:border-neutral-800/60">
+        <div
+          className={`flex shrink-0 items-center gap-2 px-3 pb-3 ${
+            showOwnerInfo ? "" : "border-b border-neutral-200/60 dark:border-neutral-800/60"
+          }`}
+        >
           <div className="relative flex-1">
             <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
+              className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
               strokeWidth={2}
             />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar conversa"
-              className="field-input py-1.5 pr-7 pl-8 text-sm"
+              className="field-input rounded-2xl border-transparent bg-neutral-100 py-1.5 pr-8 pl-9 text-sm focus:border-transparent focus:bg-white focus:ring-1 focus:ring-neutral-200 dark:bg-neutral-900 dark:focus:bg-neutral-950 dark:focus:ring-neutral-800"
             />
             {search && (
               <button
@@ -429,10 +455,10 @@ export function ConversationsView({
           <button
             type="button"
             onClick={() => setOnlyUnread((v) => !v)}
-            className={`shrink-0 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
+            className={`shrink-0 rounded-2xl border px-3 py-1.5 text-xs font-medium transition-all ${
               onlyUnread
-                ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                : "border-neutral-300 bg-white text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                ? "border-transparent bg-brand text-white shadow-sm dark:text-white"
+                : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
             }`}
             title="Mostrar só não lidas"
           >
@@ -453,16 +479,20 @@ export function ConversationsView({
 
         <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto p-1.5 pb-4">
           {tabConversations.length === 0 ? (
-            <div className="flex h-full items-center justify-center p-6">
-              <EmptyState
-                icon={MessageCircle}
-                title="Nenhuma conversa ainda"
-                description={
-                  tab === "crm"
-                    ? "Conversas de contatos já cadastrados no CRM aparecem aqui."
-                    : "Conversas de números que ainda não são contato aparecem aqui."
-                }
-              />
+            <div className="relative flex h-full items-center justify-center overflow-hidden rounded-2xl">
+              <div className="absolute top-1/2 left-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[70px]" />
+              <div className="chat-bg-dots absolute inset-0 opacity-60" />
+              <div className="relative z-10 p-6">
+                <EmptyState
+                  icon={MessageCircle}
+                  title="Nenhuma conversa ainda"
+                  description={
+                    tab === "crm"
+                      ? "Conversas de contatos já cadastrados no CRM aparecem aqui."
+                      : "Conversas de números que ainda não são contato aparecem aqui."
+                  }
+                />
+              </div>
             </div>
           ) : filteredConversations.length === 0 ? (
             <p className="p-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
@@ -565,25 +595,36 @@ export function ConversationsView({
             )}
           </div>
         ) : !whatsappConnected ? (
-          <div className="flex h-full items-center justify-center p-6">
-            <EmptyState
-              icon={WifiOff}
-              title="Seu WhatsApp está desconectado"
-              description="Você pode ver as conversas, mas não consegue enviar nem receber mensagens até reconectar."
-              action={
-                <Link href="/configuracoes/perfil" className="btn-secondary">
-                  Reconectar em Configurações → Perfil
-                </Link>
-              }
-            />
+          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-50/50 p-6 dark:bg-neutral-900/40">
+            <div className="absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/5 blur-[100px]" />
+            <div className="chat-bg-dots absolute inset-0 opacity-50" />
+            
+            <div className="relative z-10 w-full max-w-sm rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
+              <EmptyState
+                icon={WifiOff}
+                title="Seu WhatsApp está desconectado"
+                description="Você pode ver as conversas, mas não consegue enviar nem receber mensagens até reconectar."
+                action={
+                  <Link href="/configuracoes/perfil" className="btn-secondary">
+                    Reconectar em Configurações → Perfil
+                  </Link>
+                }
+              />
+            </div>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={MessageCircle}
-              title="Selecione uma conversa"
-              description="Escolha um contato à esquerda pra ver o histórico."
-            />
+          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-50/50 p-6 dark:bg-neutral-900/40">
+            <div className="absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[100px]" />
+            <div className="chat-bg-dots absolute inset-0 opacity-50" />
+            <WhatsAppIcon className="absolute top-1/2 left-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 text-neutral-900/5 dark:text-white/5" />
+            
+            <div className="relative z-10 w-full max-w-sm rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
+              <EmptyState
+                icon={MessageCircle}
+                title="Selecione uma conversa"
+                description="Escolha um contato à esquerda pra ver o histórico."
+              />
+            </div>
           </div>
         )}
       </div>
@@ -617,10 +658,10 @@ export function ConversationRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`flex w-full items-start gap-2.5 rounded-md border-l-2 p-2.5 text-left transition-colors active:scale-[0.98] ${
+      className={`flex w-full items-start gap-2.5 rounded-md border-l-2 p-2.5 text-left transition-all hover:-translate-y-px active:translate-y-0 ${
         isActive
-          ? "border-l-neutral-900 bg-neutral-100 dark:border-l-white dark:bg-neutral-800"
-          : "border-l-transparent hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+          ? "border-l-brand bg-white shadow-sm ring-1 ring-neutral-200/50 dark:border-l-brand dark:bg-neutral-800 dark:ring-neutral-700"
+          : "border-l-transparent hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-neutral-200/50 dark:hover:bg-neutral-800/60 dark:hover:ring-neutral-800"
       } ${justArrived ? "animate-highlight-once" : ""}`}
     >
       <div className="group relative mt-0.5 shrink-0">
@@ -628,7 +669,7 @@ export function ConversationRow({
           name={c.displayName}
           src={c.profilePicUrl}
           size="sm"
-          className="transition-shadow group-hover:ring-2 group-hover:ring-neutral-300 group-hover:ring-offset-2 group-hover:ring-offset-white dark:group-hover:ring-neutral-600 dark:group-hover:ring-offset-neutral-900"
+          className="transition-shadow group-hover:ring-2 group-hover:ring-brand/30 group-hover:ring-offset-1 group-hover:ring-offset-transparent dark:group-hover:ring-brand/50"
         />
         <span className="absolute -right-0.5 -bottom-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white ring-2 ring-white dark:bg-neutral-900 dark:ring-neutral-900">
           <WhatsAppIcon className="h-2.5 w-2.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />

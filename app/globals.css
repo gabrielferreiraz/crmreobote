@@ -260,6 +260,25 @@ body {
   animation: step-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Painel auxiliar "encaixando" logo abaixo do que acabou de ganhar foco (ex.:
+   caixa de inserir variável seguindo a mensagem ativa no editor de script) —
+   assentada suave, não é um popover/modal aparecendo por cima de nada. */
+@keyframes reveal-below {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-reveal-below {
+  animation: reveal-below 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Bolha de mensagem "chegando" no mockup de celular (MeetingInviteDialog) —
    nasce pequena embaixo (de onde ela "sobe") e estufa de leve antes de
    assentar no tamanho final, igual ao efeito real do WhatsApp. */
@@ -352,7 +371,7 @@ body {
 
 @layer components {
   .btn-primary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-all duration-150 hover:shadow-md hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98];
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-all duration-150 shadow-sm hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:shadow-sm;
     background-color: var(--brand);
   }
 
@@ -365,7 +384,7 @@ body {
   }
 
   .btn-secondary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-all duration-150 hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-all duration-150 shadow-sm hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
   }
 
   .btn-ghost {

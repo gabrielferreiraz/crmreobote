@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; stageId: string }> }) {
   const { id, stageId } = await params;
   const body = await req.json();
-  const { name, color, isFinal } = body as { name?: string; color?: string; isFinal?: boolean };
+  const { name, color, isFinal, slaBusinessDays } = body as {
+    name?: string;
+    color?: string;
+    isFinal?: boolean;
+    slaBusinessDays?: number | null;
+  };
 
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -25,6 +30,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         name: name?.trim() || undefined,
         color,
         isFinal: isFinal !== undefined ? isFinal : undefined,
+        slaBusinessDays: slaBusinessDays !== undefined ? slaBusinessDays : undefined,
       },
     });
 

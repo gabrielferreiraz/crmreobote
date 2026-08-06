@@ -43,6 +43,7 @@ import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
 import { isOptOutMessage } from "@/lib/whatsapp/opt-out";
 import { shouldResetWarmup } from "@/lib/whatsapp/warmup";
+import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
@@ -233,6 +234,13 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
   debugLog(
     `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
   );
+
+  // Só pra mensagem em tempo real, nunca pro backfill de histórico (options.notify
+  // = false lá) — um sync de histórico grava centenas de mensagens de uma vez,
+  // e cada uma acordando um chat aberto pra refazer o fetch seria só ruído.
+  if (options.notify) {
+    publishWhatsAppEvent(instance.organizationId, { type: "message", threadId: thread.id });
+  }
 
   // Push e resposta de campanha só fazem sentido pra mensagem recebida de
   // verdade em tempo real (nunca pro eco do que o próprio vendedor mandou,
@@ -561,6 +569,7 @@ export async function handlePresenceUpdate(instance: InstanceRef, data: unknown)
         ...(presenceInfo.lastSeen ? { lastSeenAt: new Date(presenceInfo.lastSeen * 1000) } : {}),
       },
     });
+    publishWhatsAppEvent(instance.organizationId, { type: "presence", threadId: thread.id });
   } catch (err) {
     console.error("[wa:webhook] falha ao processar presence.update", err);
   }
@@ -597,6 +606,13 @@ export async function handleStatusUpdate(instance: InstanceRef, data: unknown): 
 
     const result = await prisma.whatsAppMessage.updateMany({ where: { externalId }, data: { status: mapped } });
     console.log(`[wa:webhook] status "${update.status}" → ${mapped} aplicado a ${result.count} mensagem(ns) (externalId=${externalId})`);
+
+    // Achar a thread à parte (updateMany não devolve as linhas afetadas) só
+    // pra saber quem avisar — barato, externalId é @unique.
+    if (result.count > 0) {
+      const message = await prisma.whatsAppMessage.findFirst({ where: { externalId }, select: { threadId: true } });
+      if (message) publishWhatsAppEvent(instance.organizationId, { type: "status", threadId: message.threadId });
+    }
   } catch (err) {
     console.error("[wa:webhook] falha ao processar status de mensagem", err);
   }

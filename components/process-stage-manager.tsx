@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -18,8 +19,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2, Loader2, CircleCheck } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
-type Stage = {
+export type ProcessStage = {
   id: string;
   name: string;
   color: string | null;
@@ -30,13 +32,17 @@ type Stage = {
 
 const COLOR_PRESETS = ["#6366f1", "#8b5cf6", "#f59e0b", "#f97316", "#06b6d4", "#3b82f6", "#10b981", "#64748b", "#e34948"];
 
-export function ProcessStageManager({ pipelineId, initialStages }: { pipelineId: string; initialStages: Stage[] }) {
+// Compartilhado entre app/(dashboard)/configuracoes/processos (tela cheia
+// de configuração) e app/(dashboard)/processos (árvore inline, ver
+// category-tree-nav.tsx) — mesma edição de etapas nos dois lugares, um
+// componente só.
+export function ProcessStageManager({ pipelineId, initialStages }: { pipelineId: string; initialStages: ProcessStage[] }) {
   const router = useRouter();
   const [stages, setStages] = useState(initialStages);
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [stageToDelete, setStageToDelete] = useState<Stage | null>(null);
+  const [stageToDelete, setStageToDelete] = useState<ProcessStage | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -56,7 +62,7 @@ export function ProcessStageManager({ pipelineId, initialStages }: { pipelineId:
     router.refresh();
   }
 
-  async function patchStage(stageId: string, data: Partial<Pick<Stage, "name" | "color" | "isFinal">>) {
+  async function patchStage(stageId: string, data: Partial<Pick<ProcessStage, "name" | "color" | "isFinal">>) {
     setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, ...data } : s)));
     await fetch(`/api/process-pipelines/${pipelineId}/stages/${stageId}`, {
       method: "PATCH",
@@ -147,99 +153,115 @@ function StageRow({
   onPatch,
   onDelete,
 }: {
-  stage: Stage;
-  onPatch: (id: string, data: Partial<Pick<Stage, "name" | "color" | "isFinal">>) => void;
+  stage: ProcessStage;
+  onPatch: (id: string, data: Partial<Pick<ProcessStage, "name" | "color" | "isFinal">>) => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: stage.id });
   const [name, setName] = useState(stage.name);
   const [showColors, setShowColors] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
+  const colorTriggerRef = useRef<HTMLButtonElement>(null);
+  const colorPanelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!showColors) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setShowColors(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showColors]);
+  // Portal + position:fixed (mesmo padrão de components/select.tsx e do
+  // seletor de cor do Kanban de Processos) — sem isso, o popover de cor
+  // (position:absolute normal) fica cortado pelo scroll do Modal assim que a
+  // etapa não está bem no topo da lista visível.
+  const colorCoords = useFloatingDropdown({
+    open: showColors,
+    onClose: () => setShowColors(false),
+    triggerRef: colorTriggerRef,
+    panelRef: colorPanelRef,
+  });
 
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
 
   return (
-    <div ref={setNodeRef} style={style} className="card flex items-center gap-2 px-3 py-2">
-      <button
-        {...attributes}
-        {...listeners}
-        className="cursor-grab touch-none text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-400"
-        aria-label="Arrastar para reordenar"
-      >
-        <GripVertical className="h-4 w-4" strokeWidth={2} />
-      </button>
-
-      <div className="relative" ref={popoverRef}>
+    <div ref={setNodeRef} style={style} className="card space-y-2 px-3 py-2.5">
+      <div className="flex items-center gap-2.5">
         <button
+          {...attributes}
+          {...listeners}
+          className="shrink-0 cursor-grab touch-none text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-400"
+          aria-label="Arrastar para reordenar"
+        >
+          <GripVertical className="h-4 w-4" strokeWidth={2} />
+        </button>
+
+        <button
+          ref={colorTriggerRef}
           type="button"
           onClick={() => setShowColors((v) => !v)}
-          className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/10 transition-transform hover:scale-110"
+          className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110 dark:ring-white/10 coarse:h-9 coarse:w-9"
           style={{ backgroundColor: stage.color ?? "#999" }}
           aria-label="Escolher cor"
         />
-        {showColors && (
-          <div className="surface-glass animate-pop-in absolute top-6 left-0 z-10 flex flex-wrap gap-1 rounded-md p-2 shadow-lg" style={{ width: 120 }}>
-            {COLOR_PRESETS.map((c) => (
-              <button
-                key={c}
-                onClick={() => {
-                  onPatch(stage.id, { color: c });
-                  setShowColors(false);
-                }}
-                className="h-5 w-5 rounded-full ring-1 ring-black/10 dark:ring-white/10 transition-transform hover:scale-110"
-                style={{ backgroundColor: c }}
-              />
-            ))}
-          </div>
-        )}
+        {showColors &&
+          colorCoords &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div
+              ref={colorPanelRef}
+              className="surface-glass animate-pop-in fixed z-50 flex w-[120px] flex-wrap gap-1 rounded-md p-2 shadow-lg coarse:w-[156px]"
+              style={{ top: colorCoords.top, left: colorCoords.left }}
+            >
+              {COLOR_PRESETS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => {
+                    onPatch(stage.id, { color: c });
+                    setShowColors(false);
+                  }}
+                  className="h-5 w-5 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110 dark:ring-white/10 coarse:h-8 coarse:w-8"
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>,
+            document.body,
+          )}
+
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => {
+            if (name.trim() && name !== stage.name) onPatch(stage.id, { name: name.trim() });
+          }}
+          className="min-w-0 flex-1 rounded bg-transparent px-1 text-sm text-neutral-900 outline-none focus:bg-neutral-50 dark:text-neutral-100 dark:focus:bg-neutral-800"
+        />
+
+        <button
+          onClick={onDelete}
+          disabled={stage._count.processes > 0}
+          className="icon-btn shrink-0 hover:text-red-600 dark:hover:text-red-400"
+          title={stage._count.processes > 0 ? "Mova os processos antes de excluir" : "Excluir etapa"}
+        >
+          <Trash2 className="h-4 w-4" strokeWidth={2} />
+        </button>
       </div>
 
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          if (name.trim() && name !== stage.name) onPatch(stage.id, { name: name.trim() });
-        }}
-        className="flex-1 rounded bg-transparent px-1 text-sm text-neutral-900 dark:text-neutral-100 outline-none focus:bg-neutral-50 dark:focus:bg-neutral-800"
-      />
+      <div className="flex items-center justify-between gap-2">
+        <label
+          className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+            stage.isFinal
+              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+              : "text-neutral-400 hover:bg-neutral-100 dark:text-neutral-500 dark:hover:bg-neutral-800"
+          }`}
+          title="Etapa de conclusão — avisa o consultor responsável (push) quando um processo dele chegar aqui"
+        >
+          <input
+            type="checkbox"
+            checked={stage.isFinal}
+            onChange={(e) => onPatch(stage.id, { isFinal: e.target.checked })}
+            className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
+          />
+          <CircleCheck className="h-3.5 w-3.5" strokeWidth={2} />
+          Conclusão
+        </label>
 
-      <label
-        className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-          stage.isFinal
-            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-            : "text-neutral-400 hover:bg-neutral-100 dark:text-neutral-500 dark:hover:bg-neutral-800"
-        }`}
-        title="Marcar como etapa de conclusão — avisa o administrativo quando um processo chegar aqui"
-      >
-        <input
-          type="checkbox"
-          checked={stage.isFinal}
-          onChange={(e) => onPatch(stage.id, { isFinal: e.target.checked })}
-          className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
-        />
-        <CircleCheck className="h-3.5 w-3.5" strokeWidth={2} />
-        Conclusão
-      </label>
-
-      <span className="text-xs text-neutral-400 dark:text-neutral-500">{stage._count.processes} processos</span>
-
-      <button
-        onClick={onDelete}
-        disabled={stage._count.processes > 0}
-        className="icon-btn hover:text-red-600 dark:hover:text-red-400"
-        title={stage._count.processes > 0 ? "Mova os processos antes de excluir" : "Excluir etapa"}
-      >
-        <Trash2 className="h-4 w-4" strokeWidth={2} />
-      </button>
+        <span className="shrink-0 text-xs whitespace-nowrap text-neutral-400 dark:text-neutral-500">
+          {stage._count.processes} processo{stage._count.processes === 1 ? "" : "s"}
+        </span>
+      </div>
     </div>
   );
 }

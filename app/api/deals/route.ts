@@ -51,6 +51,7 @@ export async function GET(req: Request) {
   const closedFrom = parseDate(searchParams.get("closedFrom"));
   const closedTo = parseDate(searchParams.get("closedTo"));
   const stageEnteredBefore = parseDate(searchParams.get("stageEnteredBefore"));
+  const withoutProcess = searchParams.get("withoutProcess") === "1";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -76,6 +77,7 @@ export async function GET(req: Request) {
       closedFrom,
       closedTo,
       stageEnteredBefore,
+      withoutProcess,
     };
 
     const [deals, totalCount, sums] = await Promise.all([

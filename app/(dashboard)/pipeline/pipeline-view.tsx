@@ -15,6 +15,7 @@ type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
 type LossReasonOption = { id: string; label: string };
 type CreditTypeOption = { id: string; label: string };
+type LabelOption = { label: string };
 type Stage = { id: string; name: string; color: string | null; order: number };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 type Sums = { wonSum: number; lostSum: number; totalSum: number };
@@ -23,7 +24,8 @@ export function PipelineView({
   pipelineId,
   pipelines,
   stages,
-  initialKanbanDeals,
+  initialKanbanByStage,
+  initialKanbanCountByStage,
   initialListaDeals,
   listaTotalCount,
   listaSums,
@@ -33,6 +35,8 @@ export function PipelineView({
   lossReasons,
   customFields,
   creditTypes,
+  leadSources,
+  jobTitles,
   isOwner,
   canBulkDelete,
   canBulkMessage,
@@ -41,7 +45,10 @@ export function PipelineView({
   pipelineId: string;
   pipelines: PipelineOption[];
   stages: Stage[];
-  initialKanbanDeals: Deal[];
+  /** 1ª página de cada coluna (por etapa) — ver KanbanBoard, que pagina cada uma independente com "Carregar mais". */
+  initialKanbanByStage: Record<string, Deal[]>;
+  /** Total real (banco) de negócios OPEN por etapa — pode ser bem maior que initialKanbanByStage[id].length. */
+  initialKanbanCountByStage: Record<string, number>;
   initialListaDeals: Deal[];
   /** Total de negócios do pipeline (todos os status, sem filtro) no banco — pode ser bem maior que initialListaDeals.length (só a 1ª página vem carregada, ver deals-list.tsx). */
   listaTotalCount: number;
@@ -54,6 +61,9 @@ export function PipelineView({
   lossReasons: LossReasonOption[];
   customFields: CustomFieldDefinitionInput[];
   creditTypes: CreditTypeOption[];
+  /** Listas canônicas (Configurações → Origens/Cargos) pros filtros do Kanban — ver kanban-board.tsx. */
+  leadSources: LabelOption[];
+  jobTitles: LabelOption[];
   isOwner: boolean;
   canBulkDelete: boolean;
   canBulkMessage: boolean;
@@ -61,7 +71,10 @@ export function PipelineView({
 }) {
   const router = useRouter();
   const [view, setView] = useState<"kanban" | "lista">("kanban");
-  const [kanbanDeals, setKanbanDeals] = useState(initialKanbanDeals);
+  // KanbanBoard é dono do próprio estado por coluna (ver kanban-board.tsx) —
+  // isso só entrega o negócio recém-criado uma única vez (consumido pelo
+  // filho via onNewDealConsumed, mesmo padrão do openNewDeal abaixo).
+  const [newDeal, setNewDeal] = useState<Deal | null>(null);
   // DealsList é dono da própria página/filtro (ver deals-list.tsx) — isso só
   // precisa avisar "algo mudou, busque nem que seja a mesma página/filtro de
   // novo" quando um negócio é criado ou uma importação termina.
@@ -69,11 +82,6 @@ export function PipelineView({
   const [importOpen, setImportOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setKanbanDeals(initialKanbanDeals);
-  }, [initialKanbanDeals]);
 
   useEffect(() => {
     if (openNewDeal) {
@@ -98,7 +106,11 @@ export function PipelineView({
   }, []);
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // min-h-0: deixa o filho Kanban/Lista encolher de verdade até a altura
+    // disponível (ver o mesmo comentário, mais detalhado, em kanban-board.tsx)
+    // em vez de crescer pro tamanho do próprio conteúdo e vazar o scroll pra
+    // página inteira.
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           {pipelines.length > 1 && (
@@ -147,11 +159,16 @@ export function PipelineView({
 
       {view === "kanban" ? (
         <KanbanBoard
+          pipelineId={pipelineId}
           stages={stages}
-          deals={kanbanDeals}
-          onDealsChange={setKanbanDeals}
+          initialDealsByStage={initialKanbanByStage}
+          initialCountByStage={initialKanbanCountByStage}
           members={members}
           currentUserId={currentUserId}
+          leadSources={leadSources}
+          jobTitles={jobTitles}
+          newDeal={newDeal}
+          onNewDealConsumed={() => setNewDeal(null)}
         />
       ) : (
         <DealsList
@@ -179,7 +196,7 @@ export function PipelineView({
         customFields={customFields}
         creditTypes={creditTypes}
         onCreated={(deal) => {
-          setKanbanDeals((prev) => [deal, ...prev]);
+          setNewDeal(deal);
           setListaReloadToken((t) => t + 1);
         }}
         open={dealDialogOpen}

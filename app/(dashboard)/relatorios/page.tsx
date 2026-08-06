@@ -16,6 +16,7 @@ import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
 import { Leaderboard, type LeaderboardEntry } from "@/components/leaderboard";
 import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
 import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
+import { buildQuickRanges } from "@/lib/date-ranges";
 import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
@@ -26,14 +27,29 @@ import { GoalCard } from "./goal-card";
 import { countActiveSellers, suggestedGoalValue } from "@/lib/goals/suggestion";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { AdminReportsView } from "./admin-reports-view";
+import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ pipelineId?: string; from?: string; to?: string; who?: string; view?: string }>;
+  searchParams: Promise<{
+    pipelineId?: string;
+    from?: string;
+    to?: string;
+    who?: string;
+    view?: string;
+    processPipelineId?: string;
+  }>;
 }) {
-  const { pipelineId: pipelineIdParam, from: fromParam, to: toParam, who: whoParam, view: viewParam } = await searchParams;
+  const {
+    pipelineId: pipelineIdParam,
+    from: fromParam,
+    to: toParam,
+    who: whoParam,
+    view: viewParam,
+    processPipelineId: processPipelineIdParam,
+  } = await searchParams;
 
   // Administrativo (pós-venda) vê um relatório próprio — funil/metas de
   // vendas não fazem sentido pra quem não vende. Sem aba: Administrativo
@@ -42,7 +58,8 @@ export default async function RelatoriosPage({
   // admin-reports-view.tsx) — não tem relação com o filtro do comercial,
   // só reaproveita os mesmos nomes de parâmetro de URL.
   const area = await getCurrentUserArea();
-  if (area === "ADMINISTRATIVO") return <AdminReportsView from={fromParam} to={toParam} who={whoParam} />;
+  if (area === "ADMINISTRATIVO")
+    return <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />;
 
   const session = await auth();
   const organizationId = session!.user.organizationId!;
@@ -62,7 +79,20 @@ export default async function RelatoriosPage({
     return (
       <div className="space-y-6">
         <ReportTabs active="processos" />
-        <AdminReportsView from={fromParam} to={toParam} who={whoParam} />
+        <AdminReportsView from={fromParam} to={toParam} who={whoParam} pipelineId={processPipelineIdParam} />
+      </div>
+    );
+  }
+
+  // Mesma lógica da aba "Processos" acima — roda antes de qualquer query do
+  // comercial, e por conta própria (MetaAdsReportView busca os próprios
+  // dados, ver meta-ads-view.tsx). Antes vivia sozinho em /relatorios/meta-ads
+  // sem nenhum link pra lá; agora é só mais uma aba.
+  if (isOwner && viewParam === "facebook") {
+    return (
+      <div className="space-y-6">
+        <ReportTabs active="facebook" />
+        <MetaAdsReportView organizationId={organizationId} />
       </div>
     );
   }
@@ -133,8 +163,25 @@ export default async function RelatoriosPage({
   // lib/timezone.ts), então `new Date("YYYY-MM-DDT00:00:00")` direto
   // interpretaria como meia-noite UTC, 3h adiantada da meia-noite real de
   // Brasília, deslocando o filtro inteiro.
-  const rangeFrom = fromParam ? brazilDateStringToUTC(fromParam) : null;
-  const rangeTo = toParam ? brazilEndOfDayUTC(toParam) : null;
+  // Sem from/to na URL: cai no mesmo padrão "Este mês" do atalho do filtro
+  // (buildQuickRanges()[0]) em vez de "Tudo" (histórico inteiro). Sem isso, a
+  // 1ª visita (e qualquer navegação com a URL "em branco", antes do redirect
+  // client-side de FiltersUrlRestore restaurar o último filtro salvo) varria
+  // Deal/Contact/WhatsAppMessage inteiros sem filtro de data nenhum — com a
+  // escala real da organização, isso sozinho já explicava a tela travar ao
+  // abrir. "Tudo" continua escolhível de propósito no filtro, só não é mais
+  // o padrão de quem nunca escolheu nada.
+  const defaultRange = fromParam || toParam ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
+  const rangeFrom = fromParam
+    ? brazilDateStringToUTC(fromParam)
+    : defaultRange
+      ? brazilDateStringToUTC(defaultRange.from)
+      : null;
+  const rangeTo = toParam
+    ? brazilEndOfDayUTC(toParam)
+    : defaultRange
+      ? brazilEndOfDayUTC(defaultRange.to)
+      : null;
   const dateWhere = (field: "closedAt" | "createdAt" | "sentAt") =>
     rangeFrom || rangeTo
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }

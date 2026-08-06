@@ -1,11 +1,22 @@
 import Link from "next/link";
-import { Clock, CircleCheck, CircleDollarSign, FileWarning, MessageCircle, Target, Flag, Inbox, TrendingUp } from "lucide-react";
+import {
+  Clock,
+  CircleCheck,
+  CircleDollarSign,
+  FileWarning,
+  MessageCircle,
+  Flag,
+  Inbox,
+  TrendingUp,
+  Layers,
+  Wallet,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getContactsWithUnreadWhatsApp } from "@/lib/processes/whatsapp-signals";
 import { isStale, STALE_DEAL_DAYS } from "@/lib/stale";
-import { daysSince, formatDuration } from "@/lib/format";
+import { daysSince, formatDuration, formatCurrency } from "@/lib/format";
 import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, getBrazilParts } from "@/lib/timezone";
 import { Avatar } from "@/components/avatar";
 import { Leaderboard } from "@/components/leaderboard";
@@ -13,14 +24,46 @@ import { TrendAreaChart } from "@/components/charts/trend-area-chart";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
+import { ProcessPipelineFilter } from "./process-pipeline-filter";
+
+/** Média e mediana juntas — média sozinha é enganosa quando tem 1-2 processo
+ * que demorou muito mais que o normal (comum em pós-venda, um cliente com
+ * pendência de documentação pode travar meses); a mediana mostra o caso
+ * "típico" sem esse puxão. */
+function stats(values: number[]): { avgMs: number | null; medianMs: number | null; count: number } {
+  if (values.length === 0) return { avgMs: null, medianMs: null, count: 0 };
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const medianMs = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const avgMs = values.reduce((a, b) => a + b, 0) / values.length;
+  return { avgMs, medianMs, count: values.length };
+}
 
 /**
  * Relatório do Administrativo (pós-venda) — substitui o dashboard de
  * vendas (funil/metas não fazem sentido aqui). Foco no que o administrativo
  * precisa saber de relance: quantos processos em cada etapa, quantos
- * parados, quantos com pagamento/documentação pendente.
+ * parados, quantos com pagamento/documentação pendente — e, desde a
+ * Categoria/Subcategoria (Imóvel/Automóvel × Aquisição/Construção/...),
+ * tudo isso quebrado por essa hierarquia também, com os cálculos
+ * financeiros (valor total, por categoria) e os tempos (média E mediana)
+ * que o time pediu. Sem métrica de "contemplado" separada — todo processo
+ * aqui já nasce contemplado (é a própria condição pra entrar via
+ * "Adicionar ao processo", ver lib/processes/create.ts), então essa
+ * distinção nunca varia de verdade.
  */
-export async function AdminReportsView({ from, to, who }: { from?: string; to?: string; who?: string }) {
+export async function AdminReportsView({
+  from,
+  to,
+  who,
+  pipelineId,
+}: {
+  from?: string;
+  to?: string;
+  who?: string;
+  /** Id de ProcessPipeline (Subcategoria) — vazio/undefined = todas juntas. */
+  pipelineId?: string;
+}) {
   const access = await requireProcessAccess();
   if (!access.ok) return null;
 
@@ -32,7 +75,11 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
   // whoParam vem no formato "owner:<id>" (mesmo componente TeamOwnerFilter
   // do relatório comercial, sem opção de equipe aqui).
   const filterOwnerId = access.isAdmin && who?.startsWith("owner:") ? who.slice(6) : undefined;
-  const ownerFilter = { ...scopeWhere, ...(filterOwnerId ? { ownerId: filterOwnerId } : {}) };
+  const ownerFilter = {
+    ...scopeWhere,
+    ...(filterOwnerId ? { ownerId: filterOwnerId } : {}),
+    ...(pipelineId ? { pipelineId } : {}),
+  };
   // ProcessStageHistory e ProcessRequest não têm ownerId próprio (não são
   // "do consultor" diretamente) — escopa pela relação com Process, mesma
   // regra de admin-vê-tudo/consultor-só-o-seu de processScopeWhere.
@@ -44,23 +91,34 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
   const rangeFrom = from ? brazilDateStringToUTC(from) : null;
   const rangeTo = to ? brazilEndOfDayUTC(to) : null;
 
-  const [processes, contemplatedCount, paymentPendingCount, documentPendingCount, stageCatalogRows, stageHistory, processRequests, ownerRows] =
+  const [processes, documentPendingCount, categoriesRaw, stageHistory, processRequests, ownerRows] =
     await Promise.all([
       prisma.process.findMany({
         where: { organizationId: access.organizationId, ...ownerFilter },
-        include: { stage: true, contact: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } },
+        include: {
+          stage: true,
+          contact: { select: { id: true, name: true } },
+          owner: { select: { id: true, name: true } },
+          deal: { select: { value: true } },
+          pipeline: { select: { id: true, name: true, categoryId: true, category: { select: { name: true } } } },
+        },
       }),
-      prisma.process.count({ where: { organizationId: access.organizationId, ...ownerFilter, contemplated: true } }),
-      prisma.process.count({ where: { organizationId: access.organizationId, ...ownerFilter, paymentPending: true } }),
       prisma.process.count({
         where: { organizationId: access.organizationId, ...ownerFilter, documentStatus: { not: "DELIVERED" } },
       }),
-      // Catálogo completo de etapas (não só as ocupadas agora) — uma etapa
-      // pode ter passado gente no histórico sem ter ninguém nela hoje, e
-      // ainda assim entra no "tempo médio por etapa" abaixo.
-      prisma.processStage.findMany({
-        where: { pipeline: { organizationId: access.organizationId } },
-        select: { id: true, name: true, color: true, order: true, isFinal: true },
+      // Árvore inteira (Categoria → Subcategoria → Etapa) — alimenta o
+      // filtro de Categoria/Subcategoria E os rótulos com contexto de cada
+      // etapa abaixo (sem isso, duas subcategorias com uma etapa chamada
+      // "Finalizado" cada uma apareciam como se fossem a mesma barra).
+      prisma.processCategory.findMany({
+        where: { organizationId: access.organizationId },
+        orderBy: { order: "asc" },
+        include: {
+          pipelines: {
+            orderBy: { order: "asc" },
+            select: { id: true, name: true, stages: { select: { id: true, name: true, color: true, order: true, isFinal: true } } },
+          },
+        },
       }),
       prisma.processStageHistory.findMany({
         where: { organizationId: access.organizationId, ...relatedProcessFilter },
@@ -85,16 +143,57 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
     .map((o) => ({ id: o.ownerId, name: o.owner.name }))
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
+  const filterCategories = categoriesRaw.map((c) => ({
+    id: c.id,
+    name: c.name,
+    pipelines: c.pipelines.map((p) => ({ id: p.id, name: p.name })),
+  }));
+
   const unreadContactIds = await getContactsWithUnreadWhatsApp(
     access.organizationId,
     processes.map((p) => p.contact.id),
   );
 
-  const stageCounts = new Map<string, { name: string; color: string | null; count: number }>();
+  // ─── Catálogos derivados da árvore — etapa/subcategoria/categoria por id,
+  // pra rotular e pra "tempo médio por etapa" cobrir também etapa sem
+  // ninguém nela agora mas que já teve passagem no histórico.
+  type StageCatalogEntry = {
+    id: string;
+    name: string;
+    color: string | null;
+    order: number;
+    isFinal: boolean;
+    pipelineId: string;
+    pipelineName: string;
+    categoryId: string;
+    categoryName: string;
+  };
+  const stageCatalog = new Map<string, StageCatalogEntry>();
+  for (const category of categoriesRaw) {
+    for (const pipeline of category.pipelines) {
+      for (const stage of pipeline.stages) {
+        stageCatalog.set(stage.id, {
+          ...stage,
+          pipelineId: pipeline.id,
+          pipelineName: pipeline.name,
+          categoryId: category.id,
+          categoryName: category.name,
+        });
+      }
+    }
+  }
+
+  const stageCounts = new Map<string, { name: string; color: string | null; count: number; valueSum: number }>();
   for (const p of processes) {
+    const value = p.deal.value ? Number(p.deal.value) : 0;
     const existing = stageCounts.get(p.stageId);
-    if (existing) existing.count += 1;
-    else stageCounts.set(p.stageId, { name: p.stage.name, color: p.stage.color, count: 1 });
+    const label = stageCatalog.has(p.stageId) ? `${p.pipeline.name} · ${p.stage.name}` : p.stage.name;
+    if (existing) {
+      existing.count += 1;
+      existing.valueSum += value;
+    } else {
+      stageCounts.set(p.stageId, { name: label, color: p.stage.color, count: 1, valueSum: value });
+    }
   }
   const maxStageCount = Math.max(1, ...Array.from(stageCounts.values()).map((s) => s.count));
 
@@ -102,12 +201,34 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
     .filter((p) => !p.stage.isFinal && isStale(p.stageEnteredAt))
     .sort((a, b) => a.stageEnteredAt.getTime() - b.stageEnteredAt.getTime());
 
-  // ─── Tempo por etapa, tempo até contemplação e até finalização ─────────
-  // createProcessForWonDeal (lib/processes/create.ts) já grava a 1ª linha de
+  // ─── Cálculos financeiros — valor total processado (soma do valor do
+  // negócio de cada processo) e o ticket médio. Sem quebra "contemplado vs
+  // pendente": todo processo que chega aqui JÁ foi contemplado (é a própria
+  // condição pra entrar via "Adicionar ao processo" — ver
+  // lib/processes/create.ts), então essa distinção nunca varia de verdade.
+  let totalValue = 0;
+  for (const p of processes) {
+    totalValue += p.deal.value ? Number(p.deal.value) : 0;
+  }
+  const avgProcessValue = processes.length > 0 ? totalValue / processes.length : null;
+
+  const valueByCategory = new Map<string, { name: string; count: number; value: number }>();
+  for (const p of processes) {
+    const value = p.deal.value ? Number(p.deal.value) : 0;
+    const key = p.pipeline.categoryId;
+    const prev = valueByCategory.get(key) ?? { name: p.pipeline.category.name, count: 0, value: 0 };
+    prev.count += 1;
+    prev.value += value;
+    valueByCategory.set(key, prev);
+  }
+  const categoryBreakdown = Array.from(valueByCategory.values()).sort((a, b) => b.value - a.value);
+  const maxCategoryValue = Math.max(1, ...categoryBreakdown.map((c) => c.value));
+
+  // ─── Tempo por etapa e tempo até finalização ────────────────────────────
+  // createProcessForDeal (lib/processes/create.ts) já grava a 1ª linha de
   // histórico na criação do processo (fromStageId null, toStageId = etapa
-  // inicial do pipeline) — history[0] É a entrada na 1ª etapa, não precisa
-  // reconstruir nada antes dela.
-  const stageCatalog = new Map(stageCatalogRows.map((s) => [s.id, s]));
+  // inicial da subcategoria) — history[0] É a entrada na 1ª etapa, não
+  // precisa reconstruir nada antes dela.
   const ownerNameById = new Map(processes.map((p) => [p.ownerId, p.owner.name]));
 
   const historyByProcess = new Map<string, typeof stageHistory>();
@@ -117,13 +238,17 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
   }
 
   const stageDurations = new Map<string, { totalMs: number; count: number }>();
-  const contemplationDurationsMs: number[] = [];
   const finalizationDurationsMs: number[] = [];
+  // Por Subcategoria — categorias diferentes (ex.: Imóvel vs Automóvel)
+  // tendem a ter prazos bem diferentes; a média/mediana global sozinha
+  // escondia isso.
+  const finalizationByPipeline = new Map<string, number[]>();
 
-  // ─── Contemplações por mês — mesma definição de "contemplação" usada
-  // acima (1ª entrada numa etapa "Contemplado"). Período filtrado, ou os
-  // últimos 6 meses por padrão (mesma janela do gráfico de evolução do
-  // relatório comercial).
+  // ─── Processos adicionados por mês — todo processo já nasce contemplado
+  // (ver nota acima), então isto é o que "contemplações por mês" queria
+  // dizer na prática: quando cada cliente entrou no acompanhamento de
+  // pós-venda. Período filtrado, ou os últimos 6 meses por padrão (mesma
+  // janela do gráfico de evolução do relatório comercial).
   const trendEnd = rangeTo ?? new Date();
   const trendStart =
     rangeFrom ??
@@ -132,7 +257,7 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
       d.setUTCMonth(d.getUTCMonth() - 5);
       return d;
     })();
-  const contemplationsByMonth: {
+  const processesByMonth: {
     year: number;
     month: number;
     label: string;
@@ -148,7 +273,7 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
     let month = startParts.month;
     while (year < endParts.year || (year === endParts.year && month <= endParts.month)) {
       const labelDate = new Date(Date.UTC(year, month, 1));
-      contemplationsByMonth.push({
+      processesByMonth.push({
         year,
         month,
         label: labelDate.toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" }),
@@ -169,10 +294,10 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
     const history = historyByProcess.get(process.id) ?? [];
     const segments: { stageId: string; enteredAt: Date; exitedAt: Date | null }[] = [];
     if (history.length === 0) {
-      // Não deveria acontecer no fluxo normal (createProcessForWonDeal
-      // sempre grava a 1ª linha de histórico na criação, fromStageId null)
-      // — só cobre dado legado/manual sem histórico nenhum: assume que está
-      // na etapa atual desde que nasceu.
+      // Não deveria acontecer no fluxo normal (createProcessForDeal sempre
+      // grava a 1ª linha de histórico na criação, fromStageId null) — só
+      // cobre dado legado/manual sem histórico nenhum: assume que está na
+      // etapa atual desde que nasceu.
       segments.push({ stageId: process.stageId, enteredAt: process.createdAt, exitedAt: null });
     } else {
       // history[0] JÁ é a entrada na 1ª etapa (fromStageId null, gravado na
@@ -196,46 +321,39 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
       stageDurations.set(seg.stageId, prev);
     }
 
-    // contemplatedAt (marcador explícito, gravado em PATCH /api/processes/[id]
-    // na transição false→true) — não mais inferido pelo NOME da etapa: isso
-    // dependia de uma etapa se chamar exatamente algo com "contempl", que
-    // quebrava silenciosamente (pra sempre, inclusive retroativo) assim que
-    // alguém renomeasse a etapa em Configurações > Processos.
-    if (process.contemplatedAt) {
-      contemplationDurationsMs.push(process.contemplatedAt.getTime() - process.createdAt.getTime());
-
-      if (process.contemplatedAt >= trendStart && process.contemplatedAt <= trendEnd) {
-        const parts = getBrazilParts(process.contemplatedAt);
-        const bucket = contemplationsByMonth.find((b) => b.year === parts.year && b.month === parts.month);
-        if (bucket) {
-          bucket.value += 1;
-          // Chave por ownerId, não por nome — dois responsáveis com o mesmo
-          // nome (comum, nome brasileiro) misturariam a contagem dos dois
-          // num "breakdown" só.
-          bucket.byOwner.set(process.ownerId, (bucket.byOwner.get(process.ownerId) ?? 0) + 1);
-        }
+    if (process.createdAt >= trendStart && process.createdAt <= trendEnd) {
+      const parts = getBrazilParts(process.createdAt);
+      const bucket = processesByMonth.find((b) => b.year === parts.year && b.month === parts.month);
+      if (bucket) {
+        bucket.value += 1;
+        // Chave por ownerId, não por nome — dois responsáveis com o mesmo
+        // nome (comum, nome brasileiro) misturariam a contagem dos dois
+        // num "breakdown" só.
+        bucket.byOwner.set(process.ownerId, (bucket.byOwner.get(process.ownerId) ?? 0) + 1);
       }
     }
     const finalSegment = segments.find((s) => stageCatalog.get(s.stageId)?.isFinal);
     if (finalSegment) {
-      finalizationDurationsMs.push(finalSegment.enteredAt.getTime() - process.createdAt.getTime());
+      const ms = finalSegment.enteredAt.getTime() - process.createdAt.getTime();
+      finalizationDurationsMs.push(ms);
+      const list = finalizationByPipeline.get(process.pipelineId) ?? [];
+      list.push(ms);
+      finalizationByPipeline.set(process.pipelineId, list);
     }
   }
 
-  for (const bucket of contemplationsByMonth) {
+  for (const bucket of processesByMonth) {
     bucket.breakdown = Array.from(bucket.byOwner.entries())
       .map(([ownerId, value]) => ({ label: ownerNameById.get(ownerId) ?? "—", value }))
       .sort((a, b) => b.value - a.value);
   }
-
-  const avg = (values: number[]) => (values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null);
 
   const stageTimeBreakdown = Array.from(stageDurations.entries())
     .map(([stageId, d]) => {
       const stage = stageCatalog.get(stageId);
       return {
         id: stageId,
-        name: stage?.name ?? "Etapa removida",
+        name: stage ? `${stage.pipelineName} · ${stage.name}` : "Etapa removida",
         order: stage?.order ?? 999,
         avgMs: d.totalMs / d.count,
       };
@@ -243,24 +361,38 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
     .sort((a, b) => a.order - b.order);
   const maxStageAvgMs = Math.max(1, ...stageTimeBreakdown.map((s) => s.avgMs));
 
-  const avgContemplationMs = avg(contemplationDurationsMs);
-  const avgFinalizationMs = avg(finalizationDurationsMs);
+  const finalizationStats = stats(finalizationDurationsMs);
+
+  // Nome da subcategoria pra cada linha da tabela de tempo por subcategoria
+  // — só entram subcategorias com pelo menos 1 finalização registrada
+  // (senão a tabela mostraria uma fileira de travessões pra subcategoria
+  // nova sem histórico nenhum ainda).
+  const pipelineNameById = new Map<string, string>();
+  for (const category of categoriesRaw) {
+    for (const pipeline of category.pipelines) pipelineNameById.set(pipeline.id, `${category.name} · ${pipeline.name}`);
+  }
+  const timeByPipeline = Array.from(finalizationByPipeline.keys())
+    .map((id) => ({
+      id,
+      name: pipelineNameById.get(id) ?? "Subcategoria removida",
+      finalization: stats(finalizationByPipeline.get(id) ?? []),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   // ─── Solicitações do consultor pro administrativo ("Solicitar" no
   // detalhe do processo) — quantas ainda esperam resposta e, das já
   // respondidas, quanto tempo em média o administrativo levou.
   const pendingRequestsCount = processRequests.filter((r) => !r.resolvedAt).length;
-  const avgRequestResolutionMs = avg(
-    processRequests.filter((r) => r.resolvedAt).map((r) => r.resolvedAt!.getTime() - r.createdAt.getTime()),
-  );
+  const requestStats = stats(processRequests.filter((r) => r.resolvedAt).map((r) => r.resolvedAt!.getTime() - r.createdAt.getTime()));
 
   // ─── Cliente com mais cotas — cada Process é UMA cota de consórcio; quem
   // tem mais de um Process comprou mais de uma cota ao mesmo tempo. Só
   // entra quem tem mais de uma (ter 1 é o padrão, não é destaque nenhum).
-  const cotasByContact = new Map<string, { name: string; count: number; quotaNumbers: string[] }>();
+  const cotasByContact = new Map<string, { name: string; count: number; quotaNumbers: string[]; value: number }>();
   for (const p of processes) {
-    const prev = cotasByContact.get(p.contactId) ?? { name: p.contact.name, count: 0, quotaNumbers: [] };
+    const prev = cotasByContact.get(p.contactId) ?? { name: p.contact.name, count: 0, quotaNumbers: [], value: 0 };
     prev.count += 1;
+    prev.value += p.deal.value ? Number(p.deal.value) : 0;
     if (p.quotaNumber) prev.quotaNumbers.push(p.quotaNumber);
     cotasByContact.set(p.contactId, prev);
   }
@@ -280,14 +412,14 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Acompanhamento de pós-venda.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <ProcessPipelineFilter categories={filterCategories} />
           <TeamOwnerFilter teams={[]} members={ownerOptions} />
           <DateRangeFilter />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 lg:gap-4">
-        <StatTile icon={CircleCheck} label="Contemplados" value={contemplatedCount} />
-        <StatTile icon={CircleDollarSign} label="Com pagamento pendente" value={paymentPendingCount} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 lg:gap-4">
+        <StatTile icon={CircleCheck} label="Total de processos" value={processes.length} />
         <StatTile icon={FileWarning} label="Com documentação pendente" value={documentPendingCount} />
         <StatTile icon={Clock} label={`Parados ${STALE_DEAL_DAYS}+ dias`} value={staleProcesses.length} />
         <StatTile icon={MessageCircle} label="Com mensagem não lida" value={unreadContactIds.size} />
@@ -295,22 +427,31 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
       </div>
 
       <div>
-        <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">Tempos médios</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:gap-4">
+        <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">Valores</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
+          <StatTile icon={Wallet} label="Valor total em processo" value={formatCurrency(totalValue)} />
           <StatTile
-            icon={Target}
-            label="Até contemplação"
-            value={avgContemplationMs !== null ? formatDuration(avgContemplationMs) : "—"}
+            icon={CircleDollarSign}
+            label="Ticket médio por processo"
+            value={avgProcessValue !== null ? formatCurrency(avgProcessValue) : "—"}
           />
+        </div>
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-sm font-medium text-neutral-700 dark:text-neutral-300">Tempos (média · mediana)</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
           <StatTile
             icon={Flag}
             label="Até finalização"
-            value={avgFinalizationMs !== null ? formatDuration(avgFinalizationMs) : "—"}
+            value={finalizationStats.avgMs !== null ? formatDuration(finalizationStats.avgMs) : "—"}
+            hint={finalizationStats.medianMs !== null ? `mediana ${formatDuration(finalizationStats.medianMs)}` : undefined}
           />
           <StatTile
             icon={Inbox}
             label="Resposta a solicitações"
-            value={avgRequestResolutionMs !== null ? formatDuration(avgRequestResolutionMs) : "—"}
+            value={requestStats.avgMs !== null ? formatDuration(requestStats.avgMs) : "—"}
+            hint={requestStats.medianMs !== null ? `mediana ${formatDuration(requestStats.medianMs)}` : undefined}
           />
         </div>
       </div>
@@ -318,17 +459,38 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
       <div className="card p-5">
         <div className="mb-1 flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-          <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Contemplações por mês</h2>
+          <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Processos adicionados por mês</h2>
         </div>
         <p className="mb-6 text-xs text-neutral-400 dark:text-neutral-500">
-          1ª vez que cada processo entrou numa etapa de contemplação — o filtro de data acima afeta só este gráfico; o
+          Quando cada cliente entrou no acompanhamento de pós-venda — o filtro de data acima afeta só este gráfico; o
           resto do painel é sempre o estado atual.
         </p>
         <TrendAreaChart
-          data={contemplationsByMonth}
-          format={{ type: "count", singular: "contemplação", plural: "contemplações" }}
+          data={processesByMonth}
+          format={{ type: "count", singular: "processo", plural: "processos" }}
         />
       </div>
+
+      {categoryBreakdown.length > 1 && (
+        <div className="card p-5">
+          <div className="mb-1 flex items-center gap-2">
+            <Layers className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+            <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Processos e valor por categoria</h2>
+          </div>
+          <p className="mb-4 text-xs text-neutral-400 dark:text-neutral-500">Soma do valor do negócio de cada processo.</p>
+          <div className="space-y-3">
+            {categoryBreakdown.map((c) => (
+              <BarRow
+                key={c.name}
+                label={c.name}
+                value={c.value}
+                max={maxCategoryValue}
+                displayValue={`${formatCurrency(c.value)} · ${c.count}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-5">
         <div className="card col-span-12 p-5 lg:col-span-6">
@@ -343,7 +505,7 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
                   label={stage.name}
                   value={stage.count}
                   max={maxStageCount}
-                  displayValue={String(stage.count)}
+                  displayValue={`${stage.count} · ${formatCurrency(stage.valueSum)}`}
                   color={stage.color}
                 />
               ))}
@@ -376,6 +538,37 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
         </div>
       </div>
 
+      {timeByPipeline.length > 1 && (
+        <div className="card overflow-x-auto p-5">
+          <h2 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Tempo por subcategoria</h2>
+          <p className="mb-4 text-xs text-neutral-400 dark:text-neutral-500">
+            Categorias diferentes costumam ter prazo bem diferente — aqui não é uma média só, é por subcategoria.
+          </p>
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="border-b border-neutral-100 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+                <th className="pb-2 font-medium">Subcategoria</th>
+                <th className="pb-2 font-medium">Até finalização (média)</th>
+                <th className="pb-2 font-medium">Até finalização (mediana)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {timeByPipeline.map((row) => (
+                <tr key={row.id} className="border-b border-neutral-50 last:border-0 dark:border-neutral-900">
+                  <td className="py-2 pr-3 text-neutral-800 dark:text-neutral-200">{row.name}</td>
+                  <td className="py-2 pr-3 tabular-nums text-neutral-600 dark:text-neutral-300">
+                    {row.finalization.avgMs !== null ? formatDuration(row.finalization.avgMs) : "—"}
+                  </td>
+                  <td className="py-2 tabular-nums text-neutral-500 dark:text-neutral-400">
+                    {row.finalization.medianMs !== null ? formatDuration(row.finalization.medianMs) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {topQuotaClients.length > 0 && (
         <div className="card p-5">
           <h2 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Clientes com mais cotas</h2>
@@ -388,7 +581,8 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
               name: c.name,
               photoUrl: null,
               primaryValue: `${c.count} cotas`,
-              secondaryValue: c.quotaNumbers.length > 0 ? `Cotas ${c.quotaNumbers.join(", ")}` : undefined,
+              secondaryValue:
+                (c.quotaNumbers.length > 0 ? `Cotas ${c.quotaNumbers.join(", ")} · ` : "") + formatCurrency(c.value),
             }))}
             emptyLabel="Nenhum cliente com mais de uma cota ainda"
           />
@@ -413,7 +607,7 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
                 </span>
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
                   <Clock className="h-3 w-3" strokeWidth={2} />
-                  {process.stage.name} · {daysSince(process.stageEnteredAt)}d
+                  {process.pipeline.name} · {process.stage.name} · {daysSince(process.stageEnteredAt)}d
                 </span>
               </Link>
             ))}
@@ -425,7 +619,17 @@ export async function AdminReportsView({ from, to, who }: { from?: string; to?: 
   });
 }
 
-function StatTile({ icon: Icon, label, value }: { icon: typeof Clock; label: string; value: number | string }) {
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof Clock;
+  label: string;
+  value: number | string;
+  hint?: string;
+}) {
   return (
     <div className="card p-3 lg:p-4">
       <div className="mb-2 flex items-center justify-between">
@@ -433,6 +637,7 @@ function StatTile({ icon: Icon, label, value }: { icon: typeof Clock; label: str
         <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
       </div>
       <p className="text-lg font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 lg:text-2xl">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>
   );
 }

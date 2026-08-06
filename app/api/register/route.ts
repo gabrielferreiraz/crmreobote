@@ -105,13 +105,19 @@ export async function POST(req: Request) {
       })),
     });
 
-    // Pipeline de pós-venda (Processos) — mesma ideia do pipeline de vendas
-    // acima, só que pro módulo administrativo (ver lib/processes/create.ts,
-    // que também cria isso sob demanda se uma organização mais antiga ainda
-    // não tiver).
+    // Categoria/Subcategoria de pós-venda (Processos) — mesma ideia do
+    // pipeline de vendas acima, só que pro módulo administrativo. Categoria
+    // "Geral" com uma Subcategoria só ("Pós-venda") é só um ponto de
+    // partida — o administrativo reorganiza em Configurações → Processos
+    // conforme os tipos de crédito de verdade da organização (Imóvel,
+    // Automóvel, cada um com suas subcategorias).
+    const processCategory = await tx.processCategory.create({
+      data: { organizationId: organization.id, name: "Geral", order: 0 },
+    });
     const processPipeline = await tx.processPipeline.create({
       data: {
         organizationId: organization.id,
+        categoryId: processCategory.id,
         name: DEFAULT_PROCESS_PIPELINE_NAME,
         isDefault: true,
         order: 0,

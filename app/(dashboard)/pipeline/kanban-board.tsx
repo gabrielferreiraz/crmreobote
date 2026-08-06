@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -14,10 +14,11 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import Link from "next/link";
-import { Search, AlertTriangle } from "lucide-react";
+import { Search, AlertTriangle, Loader2 } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
-import { isStale } from "@/lib/stale";
+import { isStale, STALE_DEAL_DAYS } from "@/lib/stale";
 import { Avatar } from "@/components/avatar";
+import { Badge, type BadgeTone } from "@/components/badge";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { TASK_TYPE_ICON, TASK_TYPE_LABELS } from "@/lib/task-icons";
@@ -26,14 +27,13 @@ import { sortSelfFirst } from "@/lib/sort-self-first";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
-const CREDIT_TYPE_BADGE: Record<string, string> = {
-  "IMÓVEL":
-    "border-emerald-200/60 bg-emerald-50/60 text-emerald-700/80 dark:border-emerald-800/40 dark:bg-emerald-500/5 dark:text-emerald-400/70",
-  "VEÍCULO":
-    "border-slate-200/60 bg-slate-50/60 text-slate-600/80 dark:border-slate-700/40 dark:bg-slate-500/5 dark:text-slate-400/70",
+// Mesma paleta compartilhada de components/badge.tsx — Imóvel/Veículo não
+// são "bom" ou "ruim", só identidades diferentes, por isso não usam os tons
+// de status (success/warning/danger).
+const CREDIT_TYPE_TONE: Record<string, BadgeTone> = {
+  "IMÓVEL": "success",
+  "VEÍCULO": "slate",
 };
-const CREDIT_TYPE_BADGE_DEFAULT =
-  "border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-400";
 
 export type Deal = {
   id: string;
@@ -60,24 +60,57 @@ export type Deal = {
 };
 
 type MemberOption = { id: string; name: string };
+type LabelOption = { label: string };
 
-// Referência estável pra etapas sem nenhum negócio — evitar criar um array
-// novo a cada render aqui deixa o memo() do StageColumn (ver abaixo) de fato
-// pular o re-render dessas colunas quando nada relevante pra elas mudou.
+// Referência estável pra etapas sem nenhum negócio carregado — evitar criar
+// um array novo a cada render aqui deixa o memo() do StageColumn (ver abaixo)
+// de fato pular o re-render dessas colunas quando nada relevante mudou.
 const EMPTY_DEALS: Deal[] = [];
 
+// Por coluna, não pro pipeline inteiro — cada etapa busca sua própria página
+// (com "Carregar mais" independente) em vez do Kanban buscar o funil OPEN
+// inteiro numa consulta só, que não escala com dezenas de milhares de
+// negócios reais (ver app/(dashboard)/pipeline/page.tsx pro mesmo tamanho
+// usado na 1ª carga, feita no servidor).
+const KANBAN_STAGE_PAGE_SIZE = 60;
+// Teto da busca inicial/ao trocar filtro — uma consulta só (ver comentário
+// em page.tsx sobre por que não é mais uma por etapa), agrupada por etapa no
+// cliente depois. Precisa bater com KANBAN_INITIAL_CAP em page.tsx (a mesma
+// ideia, só que ali é a carga inicial do servidor).
+const KANBAN_INITIAL_CAP = 400;
+const SEARCH_DEBOUNCE_MS = 300;
+
 export function KanbanBoard({
+  pipelineId,
   stages,
-  deals,
-  onDealsChange,
+  initialDealsByStage,
+  initialCountByStage,
   members,
   currentUserId,
+  leadSources,
+  jobTitles,
+  newDeal,
+  onNewDealConsumed,
 }: {
+  pipelineId: string;
   stages: Stage[];
-  deals: Deal[];
-  onDealsChange: (updater: (prev: Deal[]) => Deal[]) => void;
+  initialDealsByStage: Record<string, Deal[]>;
+  initialCountByStage: Record<string, number>;
   members: MemberOption[];
   currentUserId?: string;
+  /** Listas canônicas (Configurações → Origens/Cargos) — as opções do filtro
+   * não podem depender só do que já carregou na tela: com paginação por
+   * coluna, uma etapa com poucos itens carregados não teria as opções que só
+   * aparecem em outra etapa. */
+  leadSources: LabelOption[];
+  jobTitles: LabelOption[];
+  /** Entrega única de "acabou de criar esse negócio" (ver pipeline-view.tsx)
+   * — KanbanBoard é dono do próprio estado por coluna agora, então o pai não
+   * pode mais empurrar direto num array. Consumido uma vez (onNewDealConsumed
+   * limpa no pai), mesmo padrão do openNewDeal/router.replace já usado nesta
+   * tela. */
+  newDeal: Deal | null;
+  onNewDealConsumed: () => void;
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
@@ -92,28 +125,60 @@ export function KanbanBoard({
   );
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [staleOnly, setStaleOnly] = useState(false);
 
-  const openDeals = useMemo(() => deals.filter((d) => d.status === "OPEN"), [deals]);
+  const [dealsByStage, setDealsByStage] = useState<Record<string, Deal[]>>(initialDealsByStage);
+  const [countByStage, setCountByStage] = useState<Record<string, number>>(initialCountByStage);
+  const [stagesLoading, setStagesLoading] = useState(false);
+  const [loadingMoreStages, setLoadingMoreStages] = useState<Set<string>>(new Set());
+
+  // Ressincroniza quando o pipeline ativo muda (troca de funil no seletor) —
+  // page.tsx já busca de novo com o pipeline certo, isso só reflete no client.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDealsByStage(initialDealsByStage);
+    setCountByStage(initialCountByStage);
+  }, [initialDealsByStage, initialCountByStage]);
+
+  // Entrega única do negócio recém-criado (ver comentário na prop acima).
+  useEffect(() => {
+    if (!newDeal) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDealsByStage((prev) => ({
+      ...prev,
+      [newDeal.stageId]: [newDeal, ...(prev[newDeal.stageId] ?? [])],
+    }));
+    setCountByStage((prev) => ({ ...prev, [newDeal.stageId]: (prev[newDeal.stageId] ?? 0) + 1 }));
+    onNewDealConsumed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newDeal]);
 
   // "Eu" sempre em primeiro no filtro de Responsável — acha a si mesmo na
   // hora, sem procurar o próprio nome no meio da lista de consultores.
   const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
 
+  // Origem/Cargo: lista canônica (Configurações) unida com o que já apareceu
+  // na tela — cobre valor "antigo" fora da lista editável sem precisar de
+  // uma consulta extra só pra isso. Mesmo raciocínio de contacts-table.tsx.
   const sourceOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const d of openDeals) if (d.contact.source) set.add(d.contact.source);
+    const set = new Set(leadSources.map((s) => s.label));
+    for (const deals of Object.values(dealsByStage)) {
+      for (const d of deals) if (d.contact.source) set.add(d.contact.source);
+    }
     return Array.from(set).sort();
-  }, [openDeals]);
+  }, [dealsByStage, leadSources]);
 
   const jobTitleOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const d of openDeals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
+    const set = new Set(jobTitles.map((j) => j.label));
+    for (const deals of Object.values(dealsByStage)) {
+      for (const d of deals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
+    }
     return Array.from(set).sort();
-  }, [openDeals]);
+  }, [dealsByStage, jobTitles]);
 
   const hasFilters = !!search || !!ownerFilter || !!sourceFilter || !!jobTitleFilter || staleOnly;
 
@@ -135,47 +200,139 @@ export function KanbanBoard({
     setStaleOnly(false);
   }
 
-  // Adia o valor usado no filtro pesado (não o do input, que continua
-  // ecoando cada tecla na hora) — com milhares de negócios OPEN, o React
-  // prioriza manter a digitação instantânea e só recalcula filteredDeals
-  // (e por tabela o board inteiro) assim que sobrar folga, em vez de travar
-  // o campo de busca esperando o re-render de todas as colunas.
-  const deferredSearch = useDeferredValue(search);
-  const deferredOwnerFilter = useDeferredValue(ownerFilter);
-  const deferredSourceFilter = useDeferredValue(sourceFilter);
-  const deferredJobTitleFilter = useDeferredValue(jobTitleFilter);
-  const deferredStaleOnly = useDeferredValue(staleOnly);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const filteredDeals = useMemo(() => {
-    const term = deferredSearch.trim().toLowerCase();
-    return openDeals.filter((d) => {
-      if (term && !d.name.toLowerCase().includes(term) && !d.contact.name.toLowerCase().includes(term)) {
-        return false;
-      }
-      if (deferredOwnerFilter && d.owner.id !== deferredOwnerFilter) return false;
-      if (deferredSourceFilter && d.contact.source !== deferredSourceFilter) return false;
-      if (deferredJobTitleFilter && d.contact.jobTitle !== deferredJobTitleFilter) return false;
-      if (deferredStaleOnly && !isStale(d.stageEnteredAt)) return false;
-      return true;
-    });
-  }, [openDeals, deferredSearch, deferredOwnerFilter, deferredSourceFilter, deferredJobTitleFilter, deferredStaleOnly]);
+  // Mantém os filtros atuais acessíveis fora de um efeito reativo (ver
+  // handleLoadMore abaixo) — sem isso, "Carregar mais" precisaria entrar nas
+  // dependências do useCallback, e sua identidade mudaria a cada tecla
+  // digitada, quebrando o memo() de StageColumn (ver comentário mais abaixo).
+  const filtersRef = useRef({ debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly });
+  useEffect(() => {
+    filtersRef.current = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly };
+  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly]);
 
-  // Agrupa por etapa numa única passada (O(negócios)) em vez de um .filter()
-  // por coluna (O(etapas × negócios)) — com várias etapas e milhares de
-  // negócios, filtrar o array inteiro uma vez por coluna a cada render era
-  // trabalho redundante que só cresce com o funil.
-  const dealsByStage = useMemo(() => {
-    const map = new Map<string, Deal[]>();
-    for (const d of filteredDeals) {
-      const arr = map.get(d.stageId);
-      if (arr) arr.push(d);
-      else map.set(d.stageId, [d]);
+  // Mesmo motivo do filtersRef acima: handleLoadMore precisa saber quantos
+  // negócios cada coluna já tem carregado (pro `skip`) sem depender de
+  // dealsByStage no useCallback.
+  const dealsByStageRef = useRef(dealsByStage);
+  useEffect(() => {
+    dealsByStageRef.current = dealsByStage;
+  }, [dealsByStage]);
+
+  function buildFilterParams(filters: typeof filtersRef.current) {
+    const params = new URLSearchParams();
+    params.set("pipelineId", pipelineId);
+    params.set("status", "OPEN");
+    if (filters.debouncedSearch) params.set("q", filters.debouncedSearch);
+    if (filters.ownerFilter) params.set("ownerId", filters.ownerFilter);
+    if (filters.sourceFilter) params.set("source", filters.sourceFilter);
+    if (filters.jobTitleFilter) params.set("jobTitle", filters.jobTitleFilter);
+    if (filters.staleOnly) {
+      params.set("stageEnteredBefore", new Date(Date.now() - STALE_DEAL_DAYS * 86_400_000).toISOString());
     }
-    return map;
-  }, [filteredDeals]);
+    return params;
+  }
+
+  // 1ª renderização já tem os dados certos (vieram prontos do servidor, sem
+  // filtro) — sem essa guarda, esse efeito dispararia uma busca redundante
+  // assim que montasse. Se um filtro salvo (usePersistedFilters acima)
+  // mudar o estado logo em seguida, o efeito roda de novo com a guarda já
+  // desarmada e busca certo.
+  const skipNextFetch = useRef(true);
+
+  useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      return;
+    }
+    let cancelled = false;
+    setStagesLoading(true);
+    const filters = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly };
+
+    // Duas consultas no total (não uma por coluna) — ver o mesmo motivo em
+    // page.tsx: N consultas em paralelo (uma por etapa) chegou a estourar o
+    // timeout de transação por operação com o pool de conexões sobrecarregado.
+    const dealsParams = buildFilterParams(filters);
+    dealsParams.set("take", String(KANBAN_INITIAL_CAP));
+    const countsParams = buildFilterParams(filters);
+
+    Promise.all([
+      fetch(`/api/deals?${dealsParams.toString()}`).then(async (res) => (res.ok ? ((await res.json()) as Deal[]) : [])),
+      fetch(`/api/deals/stage-counts?${countsParams.toString()}`).then(async (res) =>
+        res.ok ? ((await res.json()) as Record<string, number>) : {},
+      ),
+    ])
+      .then(([deals, counts]) => {
+        if (cancelled) return;
+        const byStage: Record<string, Deal[]> = {};
+        for (const deal of deals) (byStage[deal.stageId] ??= []).push(deal);
+        setDealsByStage(byStage);
+        setCountByStage(counts);
+      })
+      .finally(() => {
+        if (!cancelled) setStagesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly, pipelineId]);
+
+  // Identidade estável (deps vazias) — lida com filtros/contagem carregada
+  // via ref em vez de closure, pra não recriar a função (e derrubar o
+  // memo() de StageColumn) a cada tecla digitada num filtro.
+  const handleLoadMore = useCallback(async (stageId: string) => {
+    setLoadingMoreStages((prev) => new Set(prev).add(stageId));
+    try {
+      const params = buildFilterParams(filtersRef.current);
+      params.set("stageId", stageId);
+      const currentLength = dealsByStageRef.current[stageId]?.length ?? 0;
+      params.set("skip", String(currentLength));
+      params.set("take", String(KANBAN_STAGE_PAGE_SIZE));
+      const res = await fetch(`/api/deals?${params.toString()}`);
+      if (!res.ok) return;
+      const more: Deal[] = await res.json();
+      const total = Number(res.headers.get("X-Total-Count") ?? currentLength + more.length);
+      setDealsByStage((prev) => ({ ...prev, [stageId]: [...(prev[stageId] ?? []), ...more] }));
+      setCountByStage((prev) => ({ ...prev, [stageId]: total }));
+    } finally {
+      setLoadingMoreStages((prev) => {
+        const next = new Set(prev);
+        next.delete(stageId);
+        return next;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineId]);
+
+  // Backstop robusto: em vez de confiar só em h-full/flex-1/min-h-0 se
+  // propagando certo por 4-5 níveis de container até aqui (page → PipelineView
+  // → KanbanBoard → fileira de colunas), mede a distância real até o fim da
+  // janela e fixa essa altura por CSS — assim a fileira (e cada coluna
+  // esticada dentro dela) sempre termina exatamente onde a tela do usuário
+  // termina, não importa o que aconteça acima na árvore. Recalcula ao
+  // redimensionar a janela.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [rowHeight, setRowHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    function measure() {
+      const top = el!.getBoundingClientRect().top;
+      setRowHeight(Math.max(240, window.innerHeight - top - 16));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   function handleDragStart(event: DragStartEvent) {
-    const deal = openDeals.find((d) => d.id === event.active.id);
+    const stageId = (event.active.data.current as { stageId?: string } | undefined)?.stageId;
+    const deal = stageId ? dealsByStage[stageId]?.find((d) => d.id === event.active.id) : undefined;
     setActiveDeal(deal ?? null);
   }
 
@@ -186,16 +343,22 @@ export function KanbanBoard({
 
     const dealId = active.id as string;
     const targetStageId = over.id as string;
-    const deal = openDeals.find((d) => d.id === dealId);
-    if (!deal || deal.stageId === targetStageId) return;
+    const previousStageId = (active.data.current as { stageId?: string } | undefined)?.stageId;
+    if (!previousStageId) return;
+    const deal = dealsByStage[previousStageId]?.find((d) => d.id === dealId);
+    if (!deal || previousStageId === targetStageId) return;
 
-    const previousStageId = deal.stageId;
     setMoveError(null);
-    onDealsChange((prev) =>
-      prev.map((d) =>
-        d.id === dealId ? { ...d, stageId: targetStageId, stageEnteredAt: new Date() } : d,
-      ),
-    );
+    setDealsByStage((prev) => ({
+      ...prev,
+      [previousStageId]: (prev[previousStageId] ?? []).filter((d) => d.id !== dealId),
+      [targetStageId]: [{ ...deal, stageId: targetStageId, stageEnteredAt: new Date() }, ...(prev[targetStageId] ?? [])],
+    }));
+    setCountByStage((prev) => ({
+      ...prev,
+      [previousStageId]: Math.max(0, (prev[previousStageId] ?? 1) - 1),
+      [targetStageId]: (prev[targetStageId] ?? 0) + 1,
+    }));
     setPending(true);
 
     const res = await fetch(`/api/deals/${dealId}/move`, {
@@ -207,16 +370,30 @@ export function KanbanBoard({
     setPending(false);
 
     if (!res.ok) {
-      onDealsChange((prev) =>
-        prev.map((d) => (d.id === dealId ? { ...d, stageId: previousStageId } : d)),
-      );
+      setDealsByStage((prev) => ({
+        ...prev,
+        [targetStageId]: (prev[targetStageId] ?? []).filter((d) => d.id !== dealId),
+        [previousStageId]: [{ ...deal, stageId: previousStageId }, ...(prev[previousStageId] ?? [])],
+      }));
+      setCountByStage((prev) => ({
+        ...prev,
+        [targetStageId]: Math.max(0, (prev[targetStageId] ?? 1) - 1),
+        [previousStageId]: (prev[previousStageId] ?? 0) + 1,
+      }));
       const data = await res.json().catch(() => ({}));
       setMoveError(data.error ?? "Não foi possível mover o negócio");
     }
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // min-h-0: sem isso, um item flex sem altura mínima explícita nunca
+    // encolhe abaixo da altura do próprio conteúdo (o "chão" padrão é
+    // min-height:auto). Sem overflow-hidden aqui de propósito — o FilterPopover
+    // logo abaixo é `position:absolute` (não portal) e precisa poder flutuar
+    // por cima do board; quem corta o conteúdo agora é a fileira de colunas
+    // (rowRef, ver abaixo), com altura própria medida da janela, não este
+    // container.
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="relative">
           <Search
@@ -229,6 +406,9 @@ export function KanbanBoard({
             placeholder="Buscar negócio ou contato"
             className="field-input w-56 py-1.5 pl-8 text-sm"
           />
+          {stagesLoading && (
+            <Loader2 className="absolute top-1/2 right-2.5 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-neutral-400 dark:text-neutral-500" />
+          )}
         </div>
         <FilterPopover active={hasFilters} onClear={clearFilters}>
           <div className="space-y-1">
@@ -295,12 +475,25 @@ export function KanbanBoard({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="scrollbar-thin flex flex-1 gap-4 overflow-x-auto pb-4">
+        <div
+          ref={rowRef}
+          // flex: "0 0 auto" trava a altura no valor medido (rowHeight) —
+          // sem isso, a classe flex-1 (flex-basis:0%, grow:1) ainda manda no
+          // tamanho de verdade e o height inline vira só sugestão, ignorada
+          // pelo algoritmo de flex-grow. Só troca depois de medir (1ª
+          // pintura já mede antes de exibir, useLayoutEffect); antes disso
+          // continua flex-1 como fallback.
+          style={rowHeight != null ? { height: rowHeight, flex: "0 0 auto" } : undefined}
+          className="scrollbar-thin flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4"
+        >
           {stages.map((stage) => (
             <StageColumn
               key={stage.id}
               stage={stage}
-              deals={dealsByStage.get(stage.id) ?? EMPTY_DEALS}
+              deals={dealsByStage[stage.id] ?? EMPTY_DEALS}
+              total={countByStage[stage.id] ?? dealsByStage[stage.id]?.length ?? 0}
+              loadingMore={loadingMoreStages.has(stage.id)}
+              onLoadMore={handleLoadMore}
               disabled={pending}
               activeDealId={activeDeal?.id ?? null}
             />
@@ -324,25 +517,41 @@ const ROW_HEIGHT = 108 + CARD_GAP;
 // scroll rápido mostraria um instante de coluna vazia antes do próximo lote
 // de cartões terminar de montar.
 const OVERSCAN = 6;
+// A que distância (em px) do fim do conteúdo já carregado disparar a busca
+// do próximo lote — sem botão de "carregar mais": ao chegar perto do fim de
+// uma coluna rolando, o próximo lote já é buscado sozinho, silenciosamente,
+// antes mesmo do usuário perceber que tinha um limite ali. ~3 cartões de
+// antecedência é suficiente pra cobrir o tempo do fetch antes de sobrar tela
+// vazia embaixo.
+const LOAD_MORE_THRESHOLD_PX = ROW_HEIGHT * 3;
 
 // memo: cada arrasto muda `activeDeal`/`pending` no componente pai — sem
 // isso, TODAS as colunas re-renderizavam a cada movimento do mouse durante o
 // drag, mesmo as que não têm nenhum negócio envolvido (o `deals` de cada
-// coluna vem de dealsByStage, que só muda identidade quando filteredDeals
-// muda de verdade, ver acima).
+// coluna só muda identidade quando o fetch dessa etapa termina ou um negócio
+// é criado/movido de/pra ela — ver KanbanBoard acima). `onLoadMore` tem
+// identidade estável (useCallback com deps vazias) de propósito, senão
+// derrubaria esse memo a cada tecla digitada num filtro.
 const StageColumn = memo(function StageColumn({
   stage,
   deals,
+  total,
+  loadingMore,
+  onLoadMore,
   disabled,
   activeDealId,
 }: {
   stage: Stage;
   deals: Deal[];
+  total: number;
+  loadingMore: boolean;
+  onLoadMore: (stageId: string) => void;
   disabled: boolean;
   activeDealId: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
-  const total = deals.reduce((sum, d) => sum + (d.value ?? 0), 0);
+  const totalValue = deals.reduce((sum, d) => sum + (d.value ?? 0), 0);
+  const hasMore = deals.length < total;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -369,11 +578,34 @@ const StageColumn = memo(function StageColumn({
   // vira um re-render da coluna inteira + todo cartão visível. Coalescendo
   // pro próximo frame, no máximo 1 re-render por frame pintado.
   const scrollRaf = useRef<number | null>(null);
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const top = e.currentTarget.scrollTop;
-    if (scrollRaf.current != null) cancelAnimationFrame(scrollRaf.current);
-    scrollRaf.current = requestAnimationFrame(() => setScrollTop(top));
-  }, []);
+
+  // Trava local pra não disparar o mesmo "carregar mais" várias vezes
+  // seguidas enquanto a busca ainda está em voo (o prop `loadingMore` só
+  // reflete isso um render depois, tempo suficiente pra vários eventos de
+  // scroll passarem pelo threshold antes dele virar `true`). Destrava assim
+  // que um lote novo realmente chega (deals.length muda).
+  const loadMoreRequestedRef = useRef(false);
+  useEffect(() => {
+    loadMoreRequestedRef.current = false;
+  }, [deals.length]);
+
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      const top = el.scrollTop;
+      if (scrollRaf.current != null) cancelAnimationFrame(scrollRaf.current);
+      scrollRaf.current = requestAnimationFrame(() => setScrollTop(top));
+
+      if (hasMore && !loadingMore && !loadMoreRequestedRef.current) {
+        const distanceToBottom = el.scrollHeight - (top + el.clientHeight);
+        if (distanceToBottom < LOAD_MORE_THRESHOLD_PX) {
+          loadMoreRequestedRef.current = true;
+          onLoadMore(stage.id);
+        }
+      }
+    },
+    [hasMore, loadingMore, onLoadMore, stage.id],
+  );
   useLayoutEffect(() => {
     return () => {
       if (scrollRaf.current != null) cancelAnimationFrame(scrollRaf.current);
@@ -398,28 +630,40 @@ const StageColumn = memo(function StageColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-64 shrink-0 flex-col rounded-lg border bg-neutral-100/50 dark:bg-neutral-800/40 transition-colors ${
+      className={`flex w-64 min-h-0 shrink-0 flex-col rounded-lg border bg-neutral-100/50 dark:bg-neutral-800/40 transition-colors ${
         isOver ? "border-neutral-900 dark:border-white bg-neutral-100 dark:bg-neutral-800 ring-1 ring-neutral-900 dark:ring-white" : "border-neutral-200 dark:border-neutral-800"
       }`}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
         <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
           {stage.name}
         </span>
-        {total > 0 && (
+        {totalValue > 0 && (
           <span className="shrink-0 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
-            {formatCurrency(total)}
+            {formatCurrency(totalValue)}
           </span>
         )}
         <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-          {deals.length}
+          {total}
         </span>
       </div>
+      {/* overscroll-y-contain (não overscroll-contain nos dois eixos):
+          quando o scroll vertical desta coluna chega no início/fim, impede
+          que o "resto" do gesto passe pro ancestral (a página inteira) —
+          sem isso, ao chegar no fim de uma coluna curta o scroll "vazava" e
+          a página toda continuava rolando junto. Só no eixo Y de propósito:
+          a coluna não rola horizontalmente sozinha (overflow-x-hidden), e o
+          scroll horizontal de verdade é do container do Kanban (a linha
+          inteira de colunas, ver abaixo). `overscroll-contain` nos dois
+          eixos travava esse scroll horizontal sempre que o gesto começava
+          em cima de uma coluna (só "vazava" pro container nos vãos entre
+          colunas, onde não tinha essa div por cima) — daí o bug de scroll
+          horizontal que só funcionava no vão entre etapas. */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="scrollbar-thin flex-1 overflow-x-hidden overflow-y-auto px-2 pb-4"
+        className="scrollbar-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-2 pb-4"
       >
         {deals.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">Nenhum negócio</p>
@@ -430,10 +674,18 @@ const StageColumn = memo(function StageColumn({
               key={deal.id}
               style={{ position: "absolute", top: (startIndex + i) * ROW_HEIGHT, left: 0, right: 0, paddingBottom: CARD_GAP }}
             >
-              <DealCard deal={deal} />
+              <DealCard deal={deal} stageId={stage.id} />
             </div>
           ))}
         </div>
+        {/* Sem botão de "carregar mais" — o próximo lote já é buscado
+            sozinho ao chegar perto do fim (ver handleScroll acima). Isso aqui
+            é só um indício visual de que tem mais vindo, não uma ação. */}
+        {loadingMore && (
+          <div className="flex w-full items-center justify-center py-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400 dark:text-neutral-500" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -442,9 +694,10 @@ const StageColumn = memo(function StageColumn({
 // memo: sem isso, o rAF-throttle do scroll (acima) perde metade do valor —
 // StageColumn ainda re-renderiza a cada frame rolado, e todo cartão visível
 // re-renderizaria junto mesmo sem nenhuma prop sua ter mudado de verdade.
-const DealCard = memo(function DealCard({ deal, overlay }: { deal: Deal; overlay?: boolean }) {
+const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal; stageId?: string; overlay?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: deal.id,
+    data: { stageId },
   });
 
   const style = transform
@@ -480,13 +733,9 @@ const DealCard = memo(function DealCard({ deal, overlay }: { deal: Deal; overlay
       <div className="mt-1 flex items-center justify-between gap-2">
         <p className="min-w-0 truncate text-xs text-neutral-500 dark:text-neutral-400">{deal.contact.name}</p>
         {deal.creditType && (
-          <span
-            className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap ${
-              CREDIT_TYPE_BADGE[deal.creditType] ?? CREDIT_TYPE_BADGE_DEFAULT
-            }`}
-          >
+          <Badge tone={CREDIT_TYPE_TONE[deal.creditType] ?? "neutral"} size="sm" className="shrink-0 whitespace-nowrap">
             {deal.creditType}
-          </span>
+          </Badge>
         )}
       </div>
       <div className="mt-1.5 flex items-center gap-1.5">
@@ -500,13 +749,14 @@ const DealCard = memo(function DealCard({ deal, overlay }: { deal: Deal; overlay
             );
           })
         ) : (
-          <span
-            className="inline-flex items-center gap-1 rounded bg-red-100/70 dark:bg-red-950/30 px-1.5 py-0.5 text-[10px] font-bold text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-900/30 uppercase tracking-wide animate-pulse"
-            title="Sem tarefa agendada! Crie uma tarefa."
-          >
-            <AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" strokeWidth={2.5} />
-            Sem tarefa!
-          </span>
+          // Antes era vermelho, maiúsculo e piscando (animate-pulse) — o
+          // elemento mais chamativo do card inteiro, mais que o próprio nome
+          // do negócio. Continua avisando (ícone + cor de atenção), sem
+          // gritar mais alto que o resto do card.
+          <Badge tone="warning" size="sm" title="Sem tarefa agendada! Crie uma tarefa.">
+            <AlertTriangle className="h-3 w-3" strokeWidth={2.5} />
+            Sem tarefa
+          </Badge>
         )}
       </div>
       <div className="mt-2.5 flex items-center justify-between">

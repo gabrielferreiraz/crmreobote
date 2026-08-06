@@ -22,6 +22,7 @@ import {
   Send,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
+import { Badge, type BadgeTone } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ImportDialog } from "@/components/import-dialog";
@@ -49,22 +50,15 @@ const SEARCH_DEBOUNCE_MS = 300;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 50;
 
-const SOURCE_BADGE: Record<string, string> = {
-  FACEBOOK:
-    "border-blue-200/60 bg-blue-50/60 text-blue-700/80 dark:border-blue-800/40 dark:bg-blue-500/5 dark:text-blue-400/70",
-  INSTAGRAM:
-    "border-pink-200/60 bg-pink-50/60 text-pink-700/80 dark:border-pink-800/40 dark:bg-pink-500/5 dark:text-pink-400/70",
-  "INDICAÇÃO":
-    "border-emerald-200/60 bg-emerald-50/60 text-emerald-700/80 dark:border-emerald-800/40 dark:bg-emerald-500/5 dark:text-emerald-400/70",
+// Cor emprestada da marca de quem a origem representa, puxando do mesmo
+// Badge usado no resto do sistema (ver components/badge.tsx) — origem sem
+// marca reconhecida (ex.: uma criada em Configurações → Origens) cai no
+// neutro padrão.
+const SOURCE_TONE: Record<string, BadgeTone> = {
+  FACEBOOK: "blue",
+  INSTAGRAM: "pink",
+  "INDICAÇÃO": "success",
 };
-const SOURCE_BADGE_DEFAULT =
-  "border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-400";
-const SOURCE_DOT: Record<string, string> = {
-  FACEBOOK: "bg-blue-500",
-  INSTAGRAM: "bg-pink-500",
-  "INDICAÇÃO": "bg-emerald-500",
-};
-const SOURCE_DOT_DEFAULT = "bg-neutral-400";
 
 type Contact = EnrichedContact;
 
@@ -772,14 +766,9 @@ export function ContactsTable({
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   {c.source ? (
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
-                        SOURCE_BADGE[c.source] ?? SOURCE_BADGE_DEFAULT
-                      }`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${SOURCE_DOT[c.source] ?? SOURCE_DOT_DEFAULT}`} />
+                    <Badge tone={SOURCE_TONE[c.source] ?? "neutral"} dot>
                       {c.source}
-                    </span>
+                    </Badge>
                   ) : (
                     <span className="text-xs text-neutral-400 dark:text-neutral-500">Origem não informada</span>
                   )}
@@ -891,14 +880,9 @@ export function ContactsTable({
                     </td>
                     <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
                       {c.source ? (
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${
-                            SOURCE_BADGE[c.source] ?? SOURCE_BADGE_DEFAULT
-                          }`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${SOURCE_DOT[c.source] ?? SOURCE_DOT_DEFAULT}`} />
+                        <Badge tone={SOURCE_TONE[c.source] ?? "neutral"} dot>
                           {c.source}
-                        </span>
+                        </Badge>
                       ) : (
                         <span className="text-neutral-400 dark:text-neutral-500">—</span>
                       )}

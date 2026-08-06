@@ -23,6 +23,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       include: { user: { select: { id: true, name: true } } },
     });
 
+    // Só o consultor (não-admin) "lê" — é ele quem a nota avisa; se o admin
+    // marcasse como lida ao revisitar a própria nota, o indicador de "nova"
+    // nunca chegaria a aparecer pro consultor de verdade (ver
+    // ProcessCardContent/process-list.tsx). Sem await: não atrasa a resposta
+    // por causa de uma atualização que não muda nada do que já foi devolvido.
+    if (!access.isAdmin) {
+      prisma.activity
+        .updateMany({ where: { processId: id, type: "NOTE", readAt: null }, data: { readAt: new Date() } })
+        .catch((err) => console.error("[processes] falha ao marcar anotação como lida", err));
+    }
+
     return NextResponse.json(activities);
   });
 }

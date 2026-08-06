@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
-import { Layers, CircleDollarSign, CircleCheck, MessageSquareWarning } from "lucide-react";
+import { Layers, CircleDollarSign, MessageSquareWarning } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
-import { resolveAvatarUrlMap } from "@/lib/r2";
-import { getContactsWithUnreadWhatsApp } from "@/lib/processes/whatsapp-signals";
+import { fetchProcessList, countProcessesByStage } from "@/lib/processes/list-query";
 import { CountUpValue } from "@/components/count-up-value";
 import { ProcessesView } from "./processes-view";
+import type { ProcessItem } from "./process-kanban-board";
 
 export default async function ProcessosPage({
   searchParams,
@@ -19,70 +19,90 @@ export default async function ProcessosPage({
   const { pipelineId: pipelineIdParam } = await searchParams;
 
   return runWithTenant(access.organizationId, async () => {
-    const pipelines = await prisma.processPipeline.findMany({
+    const categoriesRaw = await prisma.processCategory.findMany({
       where: { organizationId: access.organizationId },
       orderBy: { order: "asc" },
-      include: { stages: { orderBy: { order: "asc" } } },
+      include: {
+        pipelines: {
+          orderBy: { order: "asc" },
+          include: {
+            stages: { orderBy: { order: "asc" }, include: { _count: { select: { processes: true } } } },
+            _count: { select: { processes: true } },
+          },
+        },
+      },
     });
 
+    const allPipelines = categoriesRaw.flatMap((c) => c.pipelines);
     const activePipeline =
-      pipelines.find((p) => p.id === pipelineIdParam) ?? pipelines.find((p) => p.isDefault) ?? pipelines[0];
+      allPipelines.find((p) => p.id === pipelineIdParam) ?? allPipelines.find((p) => p.isDefault) ?? allPipelines[0];
 
     if (!activePipeline) {
       return (
         <p className="text-neutral-400 dark:text-neutral-500">
-          Nenhuma pipeline de processos configurada ainda.
+          Nenhuma categoria/subcategoria de processos configurada ainda.
         </p>
       );
     }
 
-    const processesRaw = await prisma.process.findMany({
-      where: {
-        organizationId: access.organizationId,
-        pipelineId: activePipeline.id,
-        ...processScopeWhere(access),
-      },
-      orderBy: { stageEnteredAt: "desc" },
-      include: {
-        contact: { select: { id: true, name: true, phone: true, whatsapp: true } },
-        owner: { select: { id: true, name: true, image: true } },
-        stage: { select: { id: true, name: true, color: true } },
-        deal: { select: { id: true, name: true, value: true } },
-        _count: { select: { requests: { where: { resolvedAt: null } } } },
-      },
-    });
-
-    const avatarMap = await resolveAvatarUrlMap(processesRaw.map((p) => p.owner.image));
-    const unreadContactIds = await getContactsWithUnreadWhatsApp(
-      access.organizationId,
-      processesRaw.map((p) => p.contact.id),
-    );
-
-    const processes = processesRaw.map((p) => ({
-      id: p.id,
-      pipelineId: p.pipelineId,
-      stageId: p.stageId,
-      stage: p.stage,
-      contemplated: p.contemplated,
-      paymentPending: p.paymentPending,
-      documentStatus: p.documentStatus,
-      quotaNumber: p.quotaNumber,
-      groupNumber: p.groupNumber,
-      stageEnteredAt: p.stageEnteredAt,
-      contact: p.contact,
-      owner: {
-        id: p.owner.id,
-        name: p.owner.name,
-        photoUrl: p.owner.image ? (avatarMap.get(p.owner.image) ?? null) : null,
-      },
-      deal: { id: p.deal.id, name: p.deal.name, value: p.deal.value != null ? Number(p.deal.value) : null },
-      openRequestCount: p._count.requests,
-      hasUnreadWhatsApp: unreadContactIds.has(p.contact.id),
+    const categories = categoriesRaw.map((c) => ({
+      id: c.id,
+      name: c.name,
+      pipelines: c.pipelines.map((p) => ({
+        id: p.id,
+        name: p.name,
+        stages: p.stages,
+        _count: p._count,
+      })),
     }));
 
-    const totalValue = processes.reduce((sum, p) => sum + (p.deal.value ?? 0), 0);
-    const contemplatedCount = processes.filter((p) => p.contemplated).length;
-    const pendingCount = processes.filter((p) => p.openRequestCount > 0).length;
+    // Kanban busca limitado (não o pipeline inteiro) — mesmo motivo/mesmo
+    // padrão de app/(dashboard)/pipeline/page.tsx: uma consulta só, com teto,
+    // agrupada por etapa em memória; countProcessesByStage abaixo dá o total
+    // de verdade de cada coluna, e "carregar mais" (process-kanban-board.tsx)
+    // busca só a etapa que precisa quando o usuário rola até lá.
+    const PROCESS_INITIAL_CAP = 400;
+    const kanbanFilterParams = {
+      organizationId: access.organizationId,
+      pipelineId: activePipeline.id,
+      ownerId: access.isAdmin ? undefined : access.userId,
+    };
+
+    const [processCountByStage, processesFlat, orgStats] = await Promise.all([
+      countProcessesByStage(kanbanFilterParams),
+      fetchProcessList({ ...kanbanFilterParams, take: PROCESS_INITIAL_CAP }),
+      // Estatísticas do topo são visão geral (todas Categorias/Subcategorias
+      // juntas, mesmo escopo de "Lista") — diferente do Kanban abaixo, que é
+      // sempre só a Subcategoria ativa.
+      prisma.process.aggregate({
+        where: { organizationId: access.organizationId, ...processScopeWhere(access) },
+        _count: true,
+      }),
+    ]);
+
+    const [pendingCount, dealValueSum] = await Promise.all([
+      prisma.process.count({
+        where: {
+          organizationId: access.organizationId,
+          ...processScopeWhere(access),
+          requests: { some: { resolvedAt: null } },
+        },
+      }),
+      // Soma agregada no banco (não busca 1 linha por processo só pra somar
+      // em memória) — mesma ideia de aggregateDealValues em lib/deals/list-query.ts.
+      prisma.deal.aggregate({
+        where: { process: { organizationId: access.organizationId, ...processScopeWhere(access) } },
+        _sum: { value: true },
+      }),
+    ]);
+    const totalValue = dealValueSum._sum.value ? Number(dealValueSum._sum.value) : 0;
+
+    // fetchProcessList já devolve tudo enriquecido (avatar, WhatsApp não
+    // lido) — só falta agrupar por etapa pro Kanban.
+    const initialProcessesByStage: Record<string, ProcessItem[]> = {};
+    for (const p of processesFlat) {
+      (initialProcessesByStage[p.stageId] ??= []).push(p);
+    }
 
     return (
       <div className="flex h-full flex-col gap-4">
@@ -97,20 +117,20 @@ export default async function ProcessosPage({
           </div>
         </div>
 
-        {processes.length > 0 && (
-          <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4">
-            <ProcessStat icon={Layers} label="Processos" value={processes.length} />
+        {orgStats._count > 0 && (
+          <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-3">
+            <ProcessStat icon={Layers} label="Processos" value={orgStats._count} />
             <ProcessStat icon={CircleDollarSign} label="Valor total" value={totalValue} format="currency" />
-            <ProcessStat icon={CircleCheck} label="Contemplados" value={contemplatedCount} />
             <ProcessStat icon={MessageSquareWarning} label="Com pendências" value={pendingCount} />
           </div>
         )}
 
         <ProcessesView
           pipelineId={activePipeline.id}
-          pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))}
+          categories={categories}
           stages={activePipeline.stages}
-          initialProcesses={processes}
+          initialProcessesByStage={initialProcessesByStage}
+          initialCountByStage={processCountByStage}
           isAdmin={access.isAdmin}
         />
       </div>

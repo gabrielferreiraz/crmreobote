@@ -20,19 +20,7 @@ type Stage = { id: string; name: string; color: string | null; order: number };
  * mobile-friendly de fazer isso), não arrastando cards aqui.
  */
 export function ProcessesListMobile({ stages, processes }: { stages: Stage[]; processes: ProcessItem[] }) {
-  const {
-    search,
-    setSearch,
-    contemplatedFilter,
-    setContemplatedFilter,
-    paymentFilter,
-    setPaymentFilter,
-    documentFilter,
-    setDocumentFilter,
-    hasFilters,
-    clearFilters,
-    filtered,
-  } = useProcessFilters(processes);
+  const { search, setSearch, documentFilter, setDocumentFilter, hasFilters, clearFilters, filtered } = useProcessFilters(processes);
 
   const isEmpty = processes.length === 0;
   const noResults = !isEmpty && filtered.length === 0;
@@ -54,14 +42,7 @@ export function ProcessesListMobile({ stages, processes }: { stages: Stage[]; pr
             />
           </div>
           <FilterPopover active={hasFilters} onClear={clearFilters}>
-            <ProcessFilterFields
-              contemplatedFilter={contemplatedFilter}
-              setContemplatedFilter={setContemplatedFilter}
-              paymentFilter={paymentFilter}
-              setPaymentFilter={setPaymentFilter}
-              documentFilter={documentFilter}
-              setDocumentFilter={setDocumentFilter}
-            />
+            <ProcessFilterFields documentFilter={documentFilter} setDocumentFilter={setDocumentFilter} />
           </FilterPopover>
         </div>
       )}

@@ -56,9 +56,9 @@ criar/atualizar um contato (`POST /api/v1/contacts`) ou um negócio
 
 **Request**
 
-```
-GET /api/v1/members
-Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```bash
+curl -X GET https://api.seudominio.com/api/v1/members \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
 **Response**
@@ -146,29 +146,32 @@ livres (string) — mande só o que fizer sentido pra sua automação:
 
 **Request**
 
-```json
-{
-  "name": "Maria Silva",
-  "email": "maria@exemplo.com",
-  "phone": "67991234567",
-  "whatsapp": "67991234567",
-  "source": "Facebook Ads",
-  "company": "Empresa X",
-  "jobTitle": "Gerente",
-  "city": "Campo Grande",
-  "state": "MS",
-  "tags": ["lead-quente", "facebook"],
-  "ownerId": "cm...",
-  "adAttribution": {
-    "campaignId": "1234567890",
-    "campaignName": "Campanha Setembro - Consórcio",
-    "adId": "9876543210"
-  },
-  "customFields": {
-    "campanha_id": "abc123",
-    "orcamento_estimado": 5000
-  }
-}
+```bash
+curl -X POST https://api.seudominio.com/api/v1/contacts \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Maria Silva",
+    "email": "maria@exemplo.com",
+    "phone": "67991234567",
+    "whatsapp": "67991234567",
+    "source": "Facebook Ads",
+    "company": "Empresa X",
+    "jobTitle": "Gerente",
+    "city": "Campo Grande",
+    "state": "MS",
+    "tags": ["lead-quente", "facebook"],
+    "ownerId": "cm...",
+    "adAttribution": {
+      "campaignId": "1234567890",
+      "campaignName": "Campanha Setembro - Consórcio",
+      "adId": "9876543210"
+    },
+    "customFields": {
+      "campanha_id": "abc123",
+      "orcamento_estimado": 5000
+    }
+  }'
 ```
 
 **Response** (`201` se criou, `200` se atualizou) — devolve o registro completo salvo,
@@ -237,14 +240,17 @@ os outros, e cada item traz exatamente o que aconteceu com ele.
 
 **Request**
 
-```json
-{
-  "contacts": [
-    { "name": "Maria Silva", "phone": "67991234567", "source": "Lista fria - Julho" },
-    { "name": "João Souza", "phone": "67998887777", "source": "Lista fria - Julho", "ownerId": "id-que-nao-existe" },
-    { "phone": "67900000000" }
-  ]
-}
+```bash
+curl -X POST https://api.seudominio.com/api/v1/contacts/bulk \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contacts": [
+      { "name": "Maria Silva", "phone": "67991234567", "source": "Lista fria - Julho" },
+      { "name": "João Souza", "phone": "67998887777", "source": "Lista fria - Julho", "ownerId": "id-que-nao-existe" },
+      { "phone": "67900000000" }
+    ]
+  }'
 ```
 
 **Response**
@@ -301,23 +307,29 @@ veio, tudo numa chamada só.
 
 **Request** (contato novo, direto na mesma chamada)
 
-```json
-{
-  "contact": { "name": "Maria Silva", "phone": "67991234567", "source": "Facebook Ads" },
-  "value": 350000,
-  "creditType": "Imóvel"
-}
+```bash
+curl -X POST https://api.seudominio.com/api/v1/deals \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contact": { "name": "Maria Silva", "phone": "67991234567", "source": "Facebook Ads" },
+    "value": 350000,
+    "creditType": "Imóvel"
+  }'
 ```
 
 **Request** (contato já existente)
 
-```json
-{
-  "contactId": "cm...",
-  "pipelineId": "cm...",
-  "stageId": "cm...",
-  "value": 350000
-}
+```bash
+curl -X POST https://api.seudominio.com/api/v1/deals \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contactId": "cm...",
+    "pipelineId": "cm...",
+    "stageId": "cm...",
+    "value": 350000
+  }'
 ```
 
 **Response** (`201`) — também completa, com `warnings`:
@@ -385,22 +397,76 @@ X-CRM-Signature: sha256=<hmac hex>
 }
 ```
 
-Pra `contact.created`, `data` é o mesmo formato do `data` de resposta de
-`POST /api/v1/contacts`.
+**Exemplo para `deal.lost`:**
+```json
+{
+  "event": "deal.lost",
+  "timestamp": "2026-07-17T15:00:00.000Z",
+  "data": {
+    "id": "cm...",
+    "name": "07/26 - Maria Silva FACEBOOK ADS",
+    "status": "LOST",
+    "value": 350000,
+    "closedAt": "2026-07-17T15:00:00.000Z",
+    "contact": { "id": "cm...", "name": "Maria Silva", "phone": "67991234567", "email": null },
+    "owner": { "id": "cm...", "name": "Vendedor" },
+    "stage": { "id": "cm...", "name": "Fechamento" },
+    "lossReason": "Sem interesse no momento"
+  }
+}
+```
 
-### Validando a assinatura (Node.js)
+**Exemplo para `contact.created`:**
+O `data` deste webhook é o mesmo formato retornado na resposta de `POST /api/v1/contacts`.
+```json
+{
+  "event": "contact.created",
+  "timestamp": "2026-07-17T14:32:00.000Z",
+  "data": {
+    "id": "cm...",
+    "name": "Maria Silva",
+    "phone": "67991234567",
+    "source": "Facebook Ads",
+    "ownerId": "cm...",
+    "createdAt": "2026-07-17T14:32:00.000Z"
+  }
+}
+```
 
-O secret é mostrado uma única vez na criação do webhook — guarde-o.
+### Validando a assinatura
 
-```js
+O secret é mostrado uma única vez na criação do webhook — guarde-o. Para garantir que o webhook veio do CRM, você deve validar o header `X-CRM-Signature`. O payload usado deve ser o **corpo cru (raw body) exato recebido**, antes de qualquer parse/serialização JSON da sua linguagem.
+
+**Node.js / JavaScript**
+```javascript
 const crypto = require("crypto");
 
 function isValid(rawBody, signatureHeader, secret) {
   const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
   return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expected));
 }
+```
 
-// rawBody precisa ser a string exata recebida, antes de qualquer JSON.parse.
+**Python**
+```python
+import hmac
+import hashlib
+
+def is_valid(raw_body: bytes, signature_header: str, secret: str) -> bool:
+    expected = "sha256=" + hmac.new(
+        secret.encode('utf-8'),
+        raw_body,
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature_header, expected)
+```
+
+**PHP**
+```php
+function isValid($rawBody, $signatureHeader, $secret) {
+    $expected = 'sha256=' . hash_hmac('sha256', $rawBody, $secret);
+    return hash_equals($expected, $signatureHeader);
+}
 ```
 
 Responda `2xx` pra confirmar o recebimento — qualquer outro status (ou

@@ -41,6 +41,7 @@ import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
 import { withViewTransition } from "@/lib/view-transition";
+import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 
 // Reexportado só pra não quebrar quem já importava daqui (ver
 // lib/view-transition.ts pra onde a implementação de fato mora agora).
@@ -400,13 +401,22 @@ export function ChatWindow({
 
   useEffect(() => {
     load();
-    // Sem isso, uma mensagem que chega enquanto o chat está aberto (ou que o
-    // webhook processa um instante depois de abrir) só apareceria se a pessoa
-    // fechasse e abrisse de novo.
-    const interval = setInterval(load, 4000);
+    // Rede de segurança, não o mecanismo principal — o SSE abaixo (useWhatsAppLive)
+    // já acorda o chat na hora que o webhook grava uma mensagem/status/presença
+    // nova. Isso só cobre a conexão SSE cair sem o navegador perceber (ex.:
+    // proxy corporativo que bloqueia text/event-stream) — por isso o intervalo
+    // é bem mais espaçado do que os 4s de antes, quando isso era o único
+    // mecanismo de atualização.
+    const interval = setInterval(load, 45_000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
+
+  // Só recarrega quando o evento é da conversa aberta agora — um evento de
+  // OUTRA thread não deveria fazer esta janela específica refazer o fetch.
+  useWhatsAppLive((event) => {
+    if (event.threadId === activeThreadId) load();
+  });
 
   useEffect(() => {
     // Só uma vez por troca de conversa (não entra no polling de 4s) — a rota
@@ -501,7 +511,7 @@ export function ChatWindow({
           : `flex min-h-0 flex-col ${className}`
       }
     >
-      <div className="mb-2 flex shrink-0 items-center justify-between border-b border-neutral-200/60 pb-2 dark:border-neutral-800/60">
+      <div className="mb-2 flex shrink-0 items-center justify-between pb-1">
         <div className="flex min-w-0 items-center gap-2.5">
           {backMode && (
             <button type="button" onClick={onClose} className="icon-btn -ml-1 shrink-0" aria-label="Voltar">
@@ -595,7 +605,7 @@ export function ChatWindow({
         <div
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
-          className="chat-bg-dots scrollbar-thin h-full space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2.5 pb-5 dark:bg-neutral-950/50"
+          className="chat-bg-dots scrollbar-thin h-full space-y-1.5 overflow-y-auto rounded-[24px] ring-1 ring-neutral-200/50 bg-neutral-50/50 p-3 sm:p-4 pb-6 dark:bg-neutral-900/40 dark:ring-neutral-800"
         >
           {!messages ? (
             <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
@@ -675,7 +685,7 @@ export function ChatWindow({
         </div>
       )}
 
-      <div className="mt-2 shrink-0 border-t border-neutral-200/60 pt-2 dark:border-neutral-800/60">
+      <div className="mt-3 shrink-0 px-1">
         {attachMode === null ? (
           <TextComposer
             sending={sending}
@@ -782,17 +792,17 @@ function MessageBubble({
         className={
           isSticker
             ? "max-w-[55%]"
-            : `max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${isOut
-              ? "rounded-br-sm bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-              : "rounded-bl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+            : `max-w-[75%] rounded-2xl px-3 py-1.5 text-sm shadow-sm border ${isOut
+              ? "rounded-br-sm bg-brand text-white border-brand dark:bg-brand dark:text-white dark:border-brand"
+              : "rounded-bl-sm bg-white text-neutral-900 border-neutral-200/60 dark:bg-neutral-900 dark:border-neutral-800/60 dark:text-neutral-100"
             }`
         }
       >
         {message.replyTo && (
           <div
             className={`mb-1 rounded-md border-l-2 px-2 py-1 text-xs ${isOut
-                ? "border-white/40 bg-white/10 dark:border-neutral-900/30 dark:bg-neutral-900/10"
-                : "border-neutral-400 bg-black/5 dark:border-neutral-500 dark:bg-white/5"
+                ? "border-white/40 bg-white/15 dark:border-white/40 dark:bg-white/15"
+                : "border-neutral-400 bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-800"
               }`}
           >
             <p className="truncate opacity-80">{previewForQuote(message.replyTo)}</p>
@@ -1482,7 +1492,7 @@ function TextComposer({
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="relative rounded-2xl border border-neutral-200 bg-white transition-colors focus-within:border-neutral-400 focus-within:ring-1 focus-within:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-500 dark:focus-within:ring-neutral-500">
+      <div className="relative rounded-[24px] shadow-sm ring-1 ring-neutral-200/60 bg-white transition-shadow focus-within:shadow-md focus-within:ring-neutral-300 dark:ring-neutral-800 dark:bg-neutral-900 dark:focus-within:ring-neutral-600">
         <textarea
           ref={textareaRef}
           value={text}
@@ -1538,7 +1548,7 @@ function TextComposer({
           type="button"
           disabled={sending}
           onClick={() => (hasText ? submit() : onPick("AUDIO"))}
-          className="absolute right-1.5 bottom-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition-all active:scale-95 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className="absolute right-1.5 bottom-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-all hover:-translate-y-px active:translate-y-0 disabled:opacity-50 dark:bg-brand dark:text-white"
           aria-label={hasText ? "Enviar" : "Gravar áudio"}
           title={hasText ? "Enviar" : "Gravar áudio"}
         >

@@ -46,6 +46,10 @@ export type DealsFilterParams = {
   closedTo?: Date;
   /** Ex.: "negócios parados" na Início — etapa não muda há X dias. */
   stageEnteredBefore?: Date;
+  /** Só negócios Ganhos que ainda não viraram Processo de pós-venda — usado
+   * pela busca de "Adicionar ao processo" (ver app/(dashboard)/processos).
+   * `Deal.process` é a relação 1-1 opcional já existente. */
+  withoutProcess?: boolean;
 };
 
 /**
@@ -55,7 +59,7 @@ export type DealsFilterParams = {
  * filtro diferente do da busca.
  */
 export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInput {
-  const { organizationId, pipelineId, scope, status, q, ownerIds, stageId, lossReasonId, jobTitle, source, state, city, createdFrom, createdTo, closedFrom, closedTo, stageEnteredBefore } = params;
+  const { organizationId, pipelineId, scope, status, q, ownerIds, stageId, lossReasonId, jobTitle, source, state, city, createdFrom, createdTo, closedFrom, closedTo, stageEnteredBefore, withoutProcess } = params;
 
   const where: Prisma.DealWhereInput = {
     organizationId,
@@ -64,11 +68,13 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
     ...(stageId ? { stageId } : {}),
     ...(lossReasonId ? { lossReasonId } : {}),
     ...(stageEnteredBefore ? { stageEnteredAt: { lte: stageEnteredBefore } } : {}),
+    ...(withoutProcess ? { process: null } : {}),
     ...(q
       ? {
           OR: [
             { name: { contains: q, mode: "insensitive" } },
             { contact: { name: { contains: q, mode: "insensitive" } } },
+            { owner: { name: { contains: q, mode: "insensitive" } } },
           ],
         }
       : {}),
@@ -146,6 +152,24 @@ export async function aggregateDealValues(params: DealsFilterParams): Promise<{ 
     if (g.status === "LOST") lostSum = sum;
   }
   return { wonSum, lostSum, totalSum };
+}
+
+/**
+ * Mesma ideia de aggregateDealValues, mas contando por etapa — usado pelo
+ * Kanban (ver app/(dashboard)/pipeline/page.tsx e kanban-board.tsx) pra saber
+ * o total de verdade de cada coluna sem precisar carregar todos os negócios
+ * pra memória só pra contar (o Kanban busca só uma página por etapa, ver
+ * fetchDealsList abaixo). Reaproveita buildDealsWhere — nunca duplicar esse
+ * filtro à mão, senão a contagem sai de sincronia com o que a busca traz de
+ * verdade (foi um bug real entre fetchDealsList/countDeals antes).
+ */
+export async function countDealsByStage(params: DealsFilterParams): Promise<Record<string, number>> {
+  const groups = await prisma.deal.groupBy({
+    by: ["stageId"],
+    where: buildDealsWhere(params),
+    _count: { _all: true },
+  });
+  return Object.fromEntries(groups.map((g) => [g.stageId, g._count._all]));
 }
 
 /**
@@ -248,5 +272,45 @@ export async function fetchDealsList(
     lossReasonId: deal.lossReasonId,
     lossReason: deal.lossReason ? { id: deal.lossReason.id, label: deal.lossReason.label } : null,
     lostReason: deal.lostReason,
+  }));
+}
+
+export type LiteDeal = {
+  id: string;
+  name: string;
+  value: number | null;
+  contact: { name: string };
+  owner: { name: string };
+};
+
+/**
+ * Versão enxuta de fetchDealsList — só os 5 campos que uma busca tipo
+ * autocomplete (ex.: "Adicionar ao processo") de fato mostra. `fetchDealsList`
+ * é pesada de propósito pra alimentar a tela de Lista (busca foto do
+ * responsável no R2, próxima atividade, WhatsApp não lido) — cada uma dessas
+ * é uma ida-e-volta a mais (R2 inclusive, não só banco), e nenhuma aparece
+ * numa lista de resultado de busca. Medido: ~900ms com fetchDealsList vs
+ * a consulta única daqui.
+ */
+export async function fetchDealsLite(params: DealsFilterParams & { take: number }): Promise<LiteDeal[]> {
+  const rows = await prisma.deal.findMany({
+    where: buildDealsWhere(params),
+    select: {
+      id: true,
+      name: true,
+      value: true,
+      contact: { select: { name: true } },
+      owner: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: params.take,
+  });
+
+  return rows.map((d) => ({
+    id: d.id,
+    name: d.name,
+    value: d.value != null ? Number(d.value) : null,
+    contact: d.contact,
+    owner: d.owner,
   }));
 }

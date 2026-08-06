@@ -29,12 +29,21 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
       id: processRaw.id,
       pipelineId: processRaw.pipelineId,
       stageId: processRaw.stageId,
-      stage: { id: processRaw.stage.id, name: processRaw.stage.name, color: processRaw.stage.color },
-      pipeline: {
-        stages: processRaw.pipeline.stages.map((s) => ({ id: s.id, name: s.name, color: s.color, isFinal: s.isFinal })),
+      stage: {
+        id: processRaw.stage.id,
+        name: processRaw.stage.name,
+        color: processRaw.stage.color,
+        slaBusinessDays: processRaw.stage.slaBusinessDays,
       },
-      contemplated: processRaw.contemplated,
-      paymentPending: processRaw.paymentPending,
+      pipeline: {
+        stages: processRaw.pipeline.stages.map((s) => ({
+          id: s.id,
+          name: s.name,
+          color: s.color,
+          isFinal: s.isFinal,
+          slaBusinessDays: s.slaBusinessDays,
+        })),
+      },
       documentStatus: processRaw.documentStatus,
       quotaNumber: processRaw.quotaNumber,
       groupNumber: processRaw.groupNumber,

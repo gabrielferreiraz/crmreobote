@@ -1,9 +1,10 @@
 /**
  * Avisos (push) do módulo de Processos — v1 deliberadamente simples (sem
  * motor de automação customizável, ver conversa que definiu o escopo):
- * avisa o time administrativo quando um processo chega numa etapa "final",
- * e quando um consultor manda uma solicitação. Nada disso bloqueia a ação
- * principal — sempre chamado com .catch() no call site.
+ * avisa o CONSULTOR RESPONSÁVEL (dono do negócio) quando um processo dele
+ * chega numa etapa "final", e avisa o TIME ADMINISTRATIVO quando um
+ * consultor manda uma solicitação — direções opostas, não confundir. Nada
+ * disso bloqueia a ação principal — sempre chamado com .catch() no call site.
  */
 
 import { prisma } from "@/lib/prisma";

@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { PIPELINE_FILTER_KEY, WHO_FILTER_KEY, DATE_RANGE_FILTER_KEY } from "./filters-storage";
+import { buildQuickRanges } from "@/lib/date-ranges";
+import { PIPELINE_FILTER_KEY, WHO_FILTER_KEY, DATE_RANGE_FILTER_KEY, PROCESS_PIPELINE_FILTER_KEY } from "./filters-storage";
 
 /**
  * Componente invisível (renderiza null) — na montagem, se a URL chegou "em
@@ -32,6 +33,16 @@ export function FiltersUrlRestore() {
       } catch {}
     }
 
+    if (!params.has("processPipelineId")) {
+      try {
+        const saved = localStorage.getItem(PROCESS_PIPELINE_FILTER_KEY);
+        if (saved) {
+          params.set("processPipelineId", saved);
+          changed = true;
+        }
+      } catch {}
+    }
+
     if (!params.has("who")) {
       try {
         const saved = localStorage.getItem(WHO_FILTER_KEY);
@@ -43,6 +54,7 @@ export function FiltersUrlRestore() {
     }
 
     if (!params.has("from") && !params.has("to")) {
+      let restoredFromStorage = false;
       try {
         const raw = localStorage.getItem(DATE_RANGE_FILTER_KEY);
         if (raw) {
@@ -50,13 +62,27 @@ export function FiltersUrlRestore() {
           if (saved.from) {
             params.set("from", saved.from);
             changed = true;
+            restoredFromStorage = true;
           }
           if (saved.to) {
             params.set("to", saved.to);
             changed = true;
+            restoredFromStorage = true;
           }
         }
       } catch {}
+
+      // Ninguém nunca escolheu nada aqui (1ª visita, ou localStorage vazio) —
+      // cai no atalho "Este mês" em vez de ficar sem filtro de data nenhum
+      // (que varre o histórico inteiro da organização; ver o mesmo padrão em
+      // page.tsx). Quem realmente quiser "Tudo" continua podendo escolher no
+      // filtro — essa escolha, sim, é respeitada e nunca sobrescrita aqui.
+      if (!restoredFromStorage) {
+        const thisMonth = buildQuickRanges().find((q) => q.key === "this-month")!.range();
+        params.set("from", thisMonth.from);
+        params.set("to", thisMonth.to);
+        changed = true;
+      }
     }
 
     if (changed) {

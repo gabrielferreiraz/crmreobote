@@ -39,6 +39,7 @@ model Organization {
   userDailyActivities    UserDailyActivity[]
   monthlyGoals           MonthlyGoal[]
   metaAdsConnection      MetaAdsConnection?
+  processCategories      ProcessCategory[]
   processPipelines       ProcessPipeline[]
   processes              Process[]
   processStageHistories  ProcessStageHistory[]
@@ -1134,19 +1135,44 @@ enum ContactLeadQualification {
 // momento da criação, nunca muda depois, mesmo se o negócio trocar de
 // responsável) — ver lib/processes/access.ts.
 
+// Categoria de processo (ex.: "Imóvel", "Automóvel") — agrupa Subcategorias
+// (ver ProcessPipeline abaixo). Puramente organizacional: nada além de
+// ProcessPipeline referencia isso diretamente.
+model ProcessCategory {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipelines    ProcessPipeline[]
+
+  @@index([organizationId])
+}
+
+// Apesar do nome (mantido pra não precisar renomear toda rota/consulta que
+// já existe — ver app/api/process-pipelines/*), isto É a "Subcategoria" que
+// a UI mostra: cada uma pertence a UMA ProcessCategory e tem seu próprio
+// conjunto de ProcessStage, diferente das outras subcategorias da mesma
+// categoria (ex.: Imóvel → Aquisição tem etapas diferentes de Imóvel →
+// Construção).
 model ProcessPipeline {
   id             String   @id @default(cuid())
   organizationId String
+  categoryId     String
   name           String
   isDefault      Boolean  @default(false)
   order          Int      @default(0)
   createdAt      DateTime @default(now())
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category     ProcessCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   stages       ProcessStage[]
   processes    Process[]
 
   @@index([organizationId])
+  @@index([categoryId])
 }
 
 model ProcessStage {
@@ -1159,6 +1185,9 @@ model ProcessStage {
   // time administrativo (ver lib/processes/notify.ts). Não precisa ser a
   // última etapa nem ser única.
   isFinal    Boolean  @default(false)
+  // Prazo da etapa em dias úteis, opcional — sem isso configurado, a etapa
+  // simplesmente não participa do cálculo de atraso (ver lib/processes/sla.ts).
+  slaBusinessDays Int?
   createdAt  DateTime @default(now())
 
   pipeline     ProcessPipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
@@ -1186,18 +1215,9 @@ model Process {
   // depois disso; é o "dono" fixo pro escopo de leitura do consultor.
   ownerId        String
 
-  // Marcadores independentes da etapa atual do Kanban — um processo pode
-  // estar em qualquer etapa E já estar contemplado/com documentação
-  // pendente ao mesmo tempo; os filtros da lista cruzam com qualquer etapa.
-  contemplated   Boolean        @default(false)
-  // Quando `contemplated` virou true pela 1ª vez (ver PATCH
-  // /api/processes/[id]) — fonte de verdade pras métricas de "tempo até
-  // contemplação"/"contemplações por mês" em Relatórios. Nunca infere isso
-  // pelo NOME da etapa (frágil: etapa é editável livremente pelo admin em
-  // Configurações > Processos, um nome renomeado quebraria a métrica
-  // silenciosamente, inclusive pra processos já contemplados no passado).
-  contemplatedAt DateTime?
-  paymentPending Boolean        @default(true)
+  // Marcador independente da etapa atual do Kanban — um processo pode estar
+  // em qualquer etapa E já ter documentação pendente ao mesmo tempo; o
+  // filtro da lista cruza com qualquer etapa.
   documentStatus DocumentStatus @default(NOT_REQUESTED)
   // Cadastrados pelo administrativo assim que o cliente entra no consórcio —
   // número da cota e do grupo, não texto livre (dá pra buscar/filtrar por
@@ -1368,6 +1388,11 @@ model Activity {
   // Create-only por (agendorTaskId, userId), mesma chave do Task de
   // origem — nunca preenchido em Activity criada organicamente.
   agendorTaskId  String?
+  // Só usado em Activity de Processo (type=NOTE) — null até o consultor
+  // dono do processo abrir a tela e ver a nota (ver GET
+  // /api/processes/[id]/activities). Nunca preenchido/lido pra qualquer
+  // outro tipo de Activity (Negócio, etc.) — sempre null ali, inofensivo.
+  readAt         DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)

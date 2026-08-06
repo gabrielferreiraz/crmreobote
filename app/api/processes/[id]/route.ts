@@ -36,9 +36,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { contemplated, paymentPending, documentStatus, quotaNumber, groupNumber } = body as {
-    contemplated?: boolean;
-    paymentPending?: boolean;
+  const { documentStatus, quotaNumber, groupNumber } = body as {
     documentStatus?: string;
     quotaNumber?: string | null;
     groupNumber?: string | null;
@@ -56,18 +54,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const existing = await prisma.process.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-    // contemplatedAt: fonte de verdade pra "tempo até contemplação" em
-    // Relatórios (ver admin-reports-view.tsx) — grava só na transição
-    // false→true, nunca reescrita depois (reativar o marcador mais tarde
-    // atualiza a data pra esse novo momento, não perde o registro).
-    const justContemplated = contemplated === true && !existing.contemplated;
-
     const updated = await prisma.process.update({
       where: { id },
       data: {
-        ...(contemplated !== undefined ? { contemplated } : {}),
-        ...(justContemplated ? { contemplatedAt: new Date() } : {}),
-        ...(paymentPending !== undefined ? { paymentPending } : {}),
         ...(documentStatus !== undefined ? { documentStatus: documentStatus as $Enums.DocumentStatus } : {}),
         ...(quotaNumber !== undefined ? { quotaNumber: quotaNumber?.trim() || null } : {}),
         ...(groupNumber !== undefined ? { groupNumber: groupNumber?.trim() || null } : {}),
@@ -76,5 +65,28 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
 
     return NextResponse.json(updated);
+  });
+}
+
+/**
+ * Remove o negócio do processo — pra quando o administrativo adicionou o
+ * negócio errado por engano (ver "Adicionar ao processo"). Some o Process
+ * inteiro (histórico de etapa, solicitações e anotações vinculadas somem
+ * junto, onDelete: Cascade no schema) — o negócio em si nunca é tocado,
+ * volta a aparecer na busca de "Adicionar ao processo" normalmente.
+ */
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  const access = await requireProcessAccess();
+  if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  return runWithTenant(access.organizationId, async () => {
+    const existing = await prisma.process.findFirst({ where: { id, organizationId: access.organizationId } });
+    if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+    await prisma.process.delete({ where: { id } });
+
+    return NextResponse.json({ ok: true });
   });
 }

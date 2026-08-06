@@ -1,0 +1,1 @@
+ALTER TABLE "Activity" ADD COLUMN "readAt" TIMESTAMP(3);

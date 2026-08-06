@@ -315,6 +315,13 @@ export function ScriptEditor({
     [rawStepsKey, variationSeed],
   );
   const totalChars = steps.reduce((sum, s) => sum + s.text.length, 0);
+  // A caixa de "inserir variável" segue a mensagem com foco (não fica presa
+  // no fim da lista) — com várias mensagens, sem isso, cada variável exigia
+  // rolar até o fim pra inserir e rolar de volta pra conferir onde caiu. Fixa
+  // no step de um editor de variação já aberto, mesmo que o foco mude pra
+  // outro campo enquanto ele está aberto — senão o diálogo em edição
+  // "desaparecia" (o bloco todo se move junto com o foco).
+  const toolbarStepIndex = variationDialog ? variationDialog.stepIdx : focusedStepIndex;
   const canSubmit = !!name.trim() && steps.length > 0 && steps.every((s) => s.text.trim().length > 0);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -350,9 +357,15 @@ export function ScriptEditor({
         {backLabel}
       </Link>
 
-      <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-        {scriptId ? "Editar script" : "Novo script"}
-      </h1>
+      <div>
+        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          {scriptId ? "Editar script" : "Novo script"}
+        </h1>
+        <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+          Defina o texto, as variáveis e o intervalo entre mensagens — a prévia ao lado mostra exatamente como vai
+          chegar pro lead.
+        </p>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="card space-y-3 p-4">
@@ -399,7 +412,7 @@ export function ScriptEditor({
                 onBlur={() => tagInput && addTag(tagInput)}
                 list="existing-script-tags"
                 placeholder="Adicionar tag..."
-                className="field-input w-36 py-1 text-xs"
+                className="field-input w-48 py-1 text-xs"
               />
               <datalist id="existing-script-tags">
                 {existingTags
@@ -418,101 +431,117 @@ export function ScriptEditor({
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:items-start">
           <div className="space-y-2 lg:col-span-7">
             {steps.map((step, idx) => (
-              <div key={stepKeys[idx]} className="card space-y-2 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Mensagem {idx + 1}</span>
-                  {steps.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeStep(idx)}
-                      className="icon-btn"
-                      aria-label={`Remover mensagem ${idx + 1}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    </button>
-                  )}
+              <div key={stepKeys[idx]} className="card overflow-hidden p-0">
+                <div className="space-y-2 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Mensagem {idx + 1}</span>
+                    {steps.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeStep(idx)}
+                        className="icon-btn"
+                        aria-label={`Remover mensagem ${idx + 1}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <div
+                      ref={(el) => setEditorRef(idx, el)}
+                      contentEditable
+                      suppressContentEditableWarning
+                      onFocus={() => setFocusedStepIndex(idx)}
+                      onInput={() => handleEditorInput(idx)}
+                      onKeyDown={handleEditorKeyDown}
+                      onPaste={handleEditorPaste}
+                      onClick={(e) => handleEditorClick(e, idx)}
+                      className="field-input scrollbar-thin min-h-[4.5rem] cursor-text overflow-y-auto whitespace-pre-wrap"
+                    />
+                    {!step.text && (
+                      <span className="pointer-events-none absolute top-2 left-3 text-sm text-neutral-400 dark:text-neutral-500">
+                        Ex.: {"{saudacao} {primeiro_nome}"}! Vi que você atua como {"{cargo}"}...
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-neutral-400 dark:text-neutral-500">
+                    <span className="shrink-0">{step.text.length} caracteres</span>
+                    {idx < steps.length - 1 && (
+                      <label className="flex flex-wrap items-center gap-1.5">
+                        Esperar
+                        <input
+                          type="number"
+                          min={0}
+                          max={MAX_DELAY_SEC}
+                          value={step.delayAfterSec}
+                          onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
+                          className="field-input w-16 shrink-0 px-2 py-0.5"
+                        />
+                        segundos antes da próxima mensagem
+                      </label>
+                    )}
+                  </div>
                 </div>
-                <div className="relative">
-                  <div
-                    ref={(el) => setEditorRef(idx, el)}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onFocus={() => setFocusedStepIndex(idx)}
-                    onInput={() => handleEditorInput(idx)}
-                    onKeyDown={handleEditorKeyDown}
-                    onPaste={handleEditorPaste}
-                    onClick={(e) => handleEditorClick(e, idx)}
-                    className="field-input scrollbar-thin min-h-[4.5rem] cursor-text overflow-y-auto whitespace-pre-wrap"
-                  />
-                  {!step.text && (
-                    <span className="pointer-events-none absolute top-2 left-3 text-sm text-neutral-400 dark:text-neutral-500">
-                      Ex.: {"{saudacao} {primeiro_nome}"}! Vi que você atua como {"{cargo}"}...
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-400 dark:text-neutral-500">
-                  <span>{step.text.length} caracteres</span>
-                  {idx < steps.length - 1 && (
-                    <label className="flex items-center gap-1.5">
-                      Esperar
-                      <input
-                        type="number"
-                        min={0}
-                        max={MAX_DELAY_SEC}
-                        value={step.delayAfterSec}
-                        onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
-                        className="field-input w-16 px-2 py-0.5"
+
+                {/* Acompanha a mensagem com foco (ver toolbarStepIndex) — fica sempre
+                    colada em quem está sendo editado, nunca presa no fim da lista. Uma
+                    seção do MESMO card (não um card à parte) — comunica visualmente
+                    que os dois são uma unidade só, não duas coisas soltas por perto. */}
+                {idx === toolbarStepIndex && (
+                  <div className="animate-reveal-below space-y-2 border-t border-neutral-100 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
+                    {/* Enquanto o editor de variação está aberto, some com as pílulas
+                        "pra mensagem" — ele tem a própria linha de pílulas embutida
+                        (pra dentro das opções), e mostrar as duas juntas convidava a
+                        clicar na errada sem perceber a diferença. */}
+                    {variationDialog ? (
+                      <MessageVariationEditor
+                        initialOptions={variationDialog.options}
+                        onCancel={() => setVariationDialog(null)}
+                        onSave={saveVariationDialog}
                       />
-                      segundos antes da próxima mensagem
-                    </label>
-                  )}
-                </div>
+                    ) : (
+                      <>
+                        <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Inserir nesta mensagem</p>
+                        <VariablePills onInsert={insertVariable} />
+                        <button
+                          type="button"
+                          onClick={openNewVariationDialog}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                        >
+                          <Shuffle className="h-3 w-3" strokeWidth={2.5} />
+                          Adicionar variação
+                        </button>
+                        <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                          Variação = frases alternativas que o sistema escolhe ao acaso, pra não mandar sempre o mesmo texto.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
 
-            <div className="card space-y-2 p-3">
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Inserir em: <span className="font-medium text-neutral-600 dark:text-neutral-300">Mensagem {focusedStepIndex + 1}</span>
-              </p>
-              <VariablePills onInsert={insertVariable} />
-
-              {variationDialog ? (
-                <MessageVariationEditor
-                  initialOptions={variationDialog.options}
-                  onCancel={() => setVariationDialog(null)}
-                  onSave={saveVariationDialog}
-                />
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={openNewVariationDialog}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
-                  >
-                    <Shuffle className="h-3 w-3" strokeWidth={2.5} />
-                    Adicionar variação
-                  </button>
-                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                    Variação = frases alternativas que o sistema escolhe ao acaso, pra não mandar sempre o mesmo texto.
-                  </p>
-                </>
-              )}
-            </div>
-
-            <button type="button" onClick={addStep} className="btn-ghost w-full justify-center">
+            <button
+              type="button"
+              onClick={addStep}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-neutral-300 py-2.5 text-xs font-medium text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-neutral-700 dark:text-neutral-500 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
+            >
               <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
               Adicionar outra mensagem
             </button>
           </div>
 
-          <div className="card space-y-3 p-4 lg:sticky lg:top-4 lg:col-span-5">
-            <p className="field-label text-center">Prévia (com dados de exemplo)</p>
-            <WhatsAppPhonePreview steps={previewSteps} contactName={SAMPLE_VARS.nome} />
+          <div className="card relative space-y-3 overflow-hidden p-4 lg:sticky lg:top-4 lg:col-span-5">
+            <div className="pointer-events-none absolute top-1/2 left-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[80px]" />
+            <p className="field-label relative z-10 text-center">Prévia (com dados de exemplo)</p>
+            <div className="relative z-10">
+              <WhatsAppPhonePreview steps={previewSteps} contactName={SAMPLE_VARS.nome} />
+            </div>
             {hasVariation && (
               <button
                 type="button"
                 onClick={() => setVariationSeed((s) => s + 1)}
-                className="mx-auto flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                className="relative z-10 mx-auto flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
               >
                 <Shuffle className="h-3 w-3" strokeWidth={2.5} />
                 Ver outra variação

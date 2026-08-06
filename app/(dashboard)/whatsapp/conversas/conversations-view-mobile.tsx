@@ -294,7 +294,7 @@ export function ConversationsMobile({
           onClick={() => setOnlyUnread((v) => !v)}
           className={`tap-target shrink-0 rounded-md border px-2.5 text-xs font-medium transition-colors ${
             onlyUnread
-              ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+              ? "border-transparent bg-brand text-white"
               : "border-neutral-300 bg-white text-neutral-500 active:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:active:bg-neutral-800"
           }`}
         >

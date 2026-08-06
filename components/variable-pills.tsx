@@ -25,7 +25,7 @@ export function VariablePills({ onInsert }: { onInsert: (token: string) => void 
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onInsert(v.token)}
           title={`Inserir ${v.token}`}
-          className="rounded-full border border-neutral-300 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-900 hover:text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:border-white dark:hover:text-white"
+          className="rounded-full border border-neutral-300 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:border-brand dark:hover:text-brand"
         >
           {v.label}
         </button>

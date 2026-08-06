@@ -9,3 +9,9 @@
 export const PIPELINE_FILTER_KEY = "crm:filters:relatorios:pipelineId";
 export const WHO_FILTER_KEY = "crm:filters:relatorios:who";
 export const DATE_RANGE_FILTER_KEY = "crm:filters:relatorios:daterange";
+// Chave própria (não reaproveita PIPELINE_FILTER_KEY) — é um id de
+// ProcessPipeline (Subcategoria), espaço de ids totalmente diferente do
+// Pipeline de vendas que a outra chave guarda. Reaproveitar a mesma chave
+// faria o relatório de Processos herdar (errado) o filtro salvo do
+// relatório Comercial na primeira vez que alguém trocasse de aba.
+export const PROCESS_PIPELINE_FILTER_KEY = "crm:filters:relatorios:processPipelineId";

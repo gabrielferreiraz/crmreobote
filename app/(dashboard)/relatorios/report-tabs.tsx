@@ -4,16 +4,18 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 const TABS = [
   { key: "comercial", label: "Comercial" },
+  { key: "facebook", label: "Facebook" },
   { key: "processos", label: "Processos" },
 ] as const;
 
 /**
- * Alternância Comercial/Processos — só aparece pro Dono (ver relatorios/page.tsx;
- * consultor/gerente/supervisor nunca tiveram acesso ao módulo de Processos,
- * e Administrativo já cai direto no relatório de processos, sem aba). Muda
- * a URL (?view=), a página (Server Component) decide o que renderizar.
+ * Alternância Comercial/Facebook/Processos — só aparece pro Dono (ver
+ * relatorios/page.tsx; consultor/gerente/supervisor nunca tiveram acesso ao
+ * módulo de Processos nem ao relatório de Facebook Ads, e Administrativo já
+ * cai direto no relatório de processos, sem aba). Muda a URL (?view=), a
+ * página (Server Component) decide o que renderizar.
  */
-export function ReportTabs({ active }: { active: "comercial" | "processos" }) {
+export function ReportTabs({ active }: { active: "comercial" | "facebook" | "processos" }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

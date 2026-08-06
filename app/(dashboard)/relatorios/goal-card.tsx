@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Target, Pencil, Check, X, Loader2 } from "lucide-react";
+import { Badge, type BadgeTone } from "@/components/badge";
 import { CurrencyInput } from "@/components/currency-input";
 import { formatCurrency } from "@/lib/format";
 
@@ -13,15 +14,10 @@ const PACE_LABEL: Record<PaceStatus, string> = {
   onTrack: "No ritmo",
   behind: "Atrás do ritmo",
 };
-const PACE_BADGE: Record<PaceStatus, string> = {
-  ahead: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
-  onTrack: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
-  behind: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
-};
-const PACE_DOT: Record<PaceStatus, string> = {
-  ahead: "bg-emerald-500",
-  onTrack: "bg-neutral-400",
-  behind: "bg-amber-500",
+const PACE_TONE: Record<PaceStatus, BadgeTone> = {
+  ahead: "success",
+  onTrack: "neutral",
+  behind: "warning",
 };
 
 /**
@@ -212,13 +208,9 @@ export function GoalCard({
             </div>
             <div className="flex items-center gap-3">
               {!exceeded && (
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${PACE_BADGE[paceStatus]}`}
-                  title={`Meta batida: ${pct}% · Mês decorrido: ${pacePct}%`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${PACE_DOT[paceStatus]}`} />
+                <Badge tone={PACE_TONE[paceStatus]} dot title={`Meta batida: ${pct}% · Mês decorrido: ${pacePct}%`}>
                   {PACE_LABEL[paceStatus]}
-                </span>
+                </Badge>
               )}
               <span
                 className={`text-xl font-bold tabular-nums ${

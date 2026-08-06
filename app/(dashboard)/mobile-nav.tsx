@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
+import { LoadingDots } from "@/components/loading-dots";
 
 type NavItem = {
   href: string;
@@ -57,6 +58,26 @@ const FAB_BY_SECTION: { match: (pathname: string) => boolean; href: string; labe
   { match: (p) => p.startsWith("/agenda"), href: "/agenda?novo=1", label: "Nova atividade" },
 ];
 
+/** Mesmo motivo do NavLinkContent do menu superior — ícone e rótulo não mudam, só entra "..." flutuando ao lado do nome enquanto a rota carrega. */
+function TabContent({ icon: Icon, label, isActive }: { icon: typeof Home; label: string; isActive: boolean }) {
+  const { pending } = useLinkStatus();
+  return (
+    <>
+      <span
+        className={`flex h-7 w-11 items-center justify-center rounded-full transition-colors ${
+          isActive ? "bg-brand-light dark:bg-brand-light" : ""
+        }`}
+      >
+        <Icon className="h-4 w-4" strokeWidth={isActive ? 2.3 : 2} />
+      </span>
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        {pending && <LoadingDots />}
+      </span>
+    </>
+  );
+}
+
 export function MobileNav({
   signOutAction,
   isAdministrativo,
@@ -98,7 +119,7 @@ export function MobileNav({
         {primaryItems.map((item) => {
           const isActive = item.exact
             ? pathname === item.href
-            : pathname.startsWith(item.href) || item.alsoActiveOn?.some((p) => pathname.startsWith(p));
+            : pathname.startsWith(item.href) || (item.alsoActiveOn?.some((p) => pathname.startsWith(p)) ?? false);
           return (
             <Link
               key={item.href}
@@ -107,14 +128,7 @@ export function MobileNav({
                 isActive ? "text-brand dark:text-brand" : "text-neutral-400 dark:text-neutral-500"
               }`}
             >
-              <span
-                className={`flex h-7 w-11 items-center justify-center rounded-full transition-colors ${
-                  isActive ? "bg-brand-light dark:bg-brand-light" : ""
-                }`}
-              >
-                <item.icon className="h-5 w-5" strokeWidth={isActive ? 2.3 : 2} />
-              </span>
-              {item.label}
+              <TabContent icon={item.icon} label={item.label} isActive={isActive} />
             </Link>
           );
         })}
@@ -130,7 +144,7 @@ export function MobileNav({
               isOverflowActive ? "bg-brand-light dark:bg-brand-light" : ""
             }`}
           >
-            <Menu className="h-5 w-5" strokeWidth={isOverflowActive ? 2.3 : 2} />
+            <Menu className="h-4 w-4" strokeWidth={isOverflowActive ? 2.3 : 2} />
           </span>
           Mais
         </button>
@@ -166,7 +180,7 @@ export function MobileNav({
                     className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
-                      <item.icon className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
+                      <item.icon className="h-3.5 w-3.5 text-brand dark:text-brand" strokeWidth={1.75} />
                     </span>
                     <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">{item.label}</span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />

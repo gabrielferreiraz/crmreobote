@@ -1,9 +1,10 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
-import { fetchDealsList, aggregateDealValues } from "@/lib/deals/list-query";
+import { fetchDealsList, aggregateDealValues, countDealsByStage } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
 import { PipelineView } from "./pipeline-view";
+import type { Deal } from "./kanban-board";
 
 export default async function PipelinePage({
   searchParams,
@@ -26,6 +27,8 @@ export default async function PipelinePage({
       lossReasons,
       customFields,
       creditTypes,
+      leadSources,
+      jobTitles,
     ] = await Promise.all([
       getDealScope(organizationId, userId, session!.user.role),
       prisma.pipeline.findMany({
@@ -50,6 +53,14 @@ export default async function PipelinePage({
         where: { organizationId },
         orderBy: { order: "asc" },
       }),
+      // Listas canônicas de Origem/Cargo (mesmas tabelas de configuracoes/
+      // origens e configuracoes/cargos) — o Kanban busca só uma página por
+      // etapa (ver abaixo), então não dá mais pra derivar as opções do
+      // filtro só do que já carregou (uma etapa com poucos itens não teria
+      // as opções que só aparecem em outra). kanban-board.tsx combina isso
+      // com o que estiver carregado na tela, igual contacts-table.tsx já faz.
+      prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+      prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
     ]);
 
     const activePipeline =
@@ -61,33 +72,45 @@ export default async function PipelinePage({
       return <p className="text-neutral-400 dark:text-neutral-500">Nenhum pipeline configurado.</p>;
     }
 
-    // Kanban e Lista têm necessidades diferentes: o Kanban só mostra OPEN (é o
-    // funil de trabalho de verdade, precisa vir completo pra reordenar/arrastar
-    // direito) — o teto aqui é só uma rede de segurança, praticamente nunca
-    // deve ser atingido (o volume de negócios OPEN é limitado pela capacidade
-    // de trabalho da equipe, diferente do histórico de Ganhos/Perdidos, que só
-    // cresce). A Lista usa paginação de verdade (ver deals-list.tsx e GET
-    // /api/deals) — essa é só a 1ª página, no tamanho padrão do seletor de
-    // itens por página, pra abrir a tela sem precisar de um fetch extra.
-    const KANBAN_FETCH_CAP = 5000;
+    // Kanban e Lista têm necessidades diferentes: a Lista usa paginação de
+    // verdade (ver deals-list.tsx e GET /api/deals) — essa é só a 1ª página,
+    // no tamanho padrão do seletor de itens por página, pra abrir a tela sem
+    // precisar de um fetch extra. O Kanban só mostra OPEN, mas — diferente de
+    // antes — também busca limitado, por ETAPA (uma página por coluna, com
+    // "carregar mais" client-side em kanban-board.tsx), em vez de tentar
+    // trazer o funil OPEN inteiro numa consulta só: com dezenas de milhares
+    // de negócios reais, "buscar tudo de uma vez" não escala (medido: uma
+    // consulta de até 5000 linhas levava vários segundos de SSR sozinha, e um
+    // teto fixo ainda cortava negócio de verdade em silêncio quando excedido).
+    // Uma consulta só (não uma por etapa): cada operação do Prisma aqui abre a
+    // própria transação curta pra RLS (ver withTenantRls em lib/prisma.ts) —
+    // buscar por etapa em paralelo (uma consulta + 3 de enriquecimento cada)
+    // multiplicava demais o número de transações/conexões simultâneas contra
+    // um Postgres remoto e chegou a estourar o timeout de 15s por operação
+    // com o pool sobrecarregado. Uma única busca, com teto bem menor que o
+    // 5000 de antes, e depois agrupada por etapa em memória — ainda assim é
+    // sempre completo (nada cortado em silêncio): countDealsByStage abaixo dá
+    // o total de verdade de cada coluna, e "carregar mais" busca só a etapa
+    // que precisa, uma de cada vez, quando o usuário realmente rola até lá.
+    const KANBAN_INITIAL_CAP = 400;
     const LISTA_DEFAULT_PAGE_SIZE = 50;
 
     const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope };
+    const kanbanFilterParams = { organizationId, pipelineId: activePipeline.id, scope, status: "OPEN" as const };
 
-    const [kanbanDeals, listaDeals, listaTotalCount, listaSums] = await Promise.all([
-      fetchDealsList({
-        organizationId,
-        pipelineId: activePipeline.id,
-        scope,
-        status: "OPEN",
-        take: KANBAN_FETCH_CAP,
-      }),
+    const [openCountByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums] = await Promise.all([
+      countDealsByStage(kanbanFilterParams),
+      fetchDealsList({ ...kanbanFilterParams, take: KANBAN_INITIAL_CAP }),
       fetchDealsList({ ...listaFilterParams, take: LISTA_DEFAULT_PAGE_SIZE }),
       prisma.deal.count({
         where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
       }),
       aggregateDealValues(listaFilterParams),
     ]);
+    const initialKanbanByStage: Record<string, Deal[]> = {};
+    for (const deal of kanbanDeals) {
+      (initialKanbanByStage[deal.stageId] ??= []).push(deal);
+    }
 
     // Uma consulta só, cobrindo ativos e inativos — `active desc` já deixa os
     // ativos primeiro (em createdAt asc entre si), então dá pra derivar
@@ -116,7 +139,7 @@ export default async function PipelinePage({
   const canBulkMessage = true;
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Pipeline</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{activePipeline.name}</p>
@@ -129,7 +152,8 @@ export default async function PipelinePage({
           stages: p.stages.map((s) => ({ id: s.id, name: s.name })),
         }))}
         stages={activePipeline.stages}
-        initialKanbanDeals={kanbanDeals}
+        initialKanbanByStage={initialKanbanByStage}
+        initialKanbanCountByStage={openCountByStage}
         initialListaDeals={listaDeals}
         listaTotalCount={listaTotalCount}
         listaSums={listaSums}
@@ -139,6 +163,8 @@ export default async function PipelinePage({
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}
         customFields={customFields}
         creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
+        leadSources={leadSources.map((s) => ({ label: s.label }))}
+        jobTitles={jobTitles.map((j) => ({ label: j.label }))}
         isOwner={isOwner}
         canBulkDelete={isManager}
         canBulkMessage={canBulkMessage}

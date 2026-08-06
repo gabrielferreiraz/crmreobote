@@ -32,3 +32,21 @@ export async function getContactsWithUnreadWhatsApp(organizationId: string, cont
   }
   return result;
 }
+
+/**
+ * Processos (dentre os informados) com anotação do administrativo ainda não
+ * vista pelo consultor dono — mesma ideia de getContactsWithUnreadWhatsApp
+ * acima, só que pra Activity type=NOTE (ver Activity.readAt e
+ * app/api/processes/[id]/activities/route.ts, que marca como lida quando o
+ * consultor abre o processo).
+ */
+export async function getProcessesWithUnreadNotes(processIds: string[]): Promise<Set<string>> {
+  if (processIds.length === 0) return new Set();
+
+  const groups = await prisma.activity.groupBy({
+    by: ["processId"],
+    where: { processId: { in: processIds }, type: "NOTE", readAt: null },
+    _count: { _all: true },
+  });
+  return new Set(groups.map((g) => g.processId).filter((id): id is string => !!id));
+}

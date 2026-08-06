@@ -8,7 +8,6 @@ import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-requ
 import { formatCurrency } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { notifyMetaConversionWon } from "@/lib/meta-ads/conversions";
-import { createProcessForWonDeal } from "@/lib/processes/create";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
@@ -186,15 +185,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           value: deal.value != null ? Number(deal.value) : null,
           contact: deal.contact,
         }).catch((err) => console.error("[meta-ads] falha ao mandar evento de conversão", err));
-        // Negócio ganho vira Processo de pós-venda — feito de dentro do
-        // request (não fire-and-forget) porque é escrita local rápida, e o
-        // time administrativo depende do processo já existir imediatamente
-        // depois de marcar o ganho, não "em alguns segundos".
-        await createProcessForWonDeal(
-          organizationId,
-          { id: deal.id, contactId: deal.contactId, ownerId: deal.ownerId },
-          userId,
-        ).catch((err) => console.error("[processes] falha ao criar processo de pós-venda", err));
+        // Negócio ganho NÃO vira Processo de pós-venda sozinho — o setor de
+        // contemplações decide, caso a caso, quando e em qual
+        // Categoria/Subcategoria o negócio entra (ver "Adicionar ao
+        // processo" em /processos, POST /api/processes).
       } else if (status === "LOST") {
         const reasonSuffix = lossReasonLabel ? ` · ${lossReasonLabel}` : "";
         systemBodies.push(`marcou o negócio como perdido${reasonSuffix}`);

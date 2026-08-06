@@ -3,13 +3,15 @@ import { ThemeToggle } from "@/components/theme-toggle";
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      {/* Left: brand panel — clean, no blur circles (those scream "AI") */}
-      <div className="relative hidden w-[42%] shrink-0 overflow-hidden lg:block">
-        <div className="absolute inset-0 bg-brand" />
-        {/* Subtle dot grid — barely visible, adds texture without noise */}
-        <div className="absolute inset-0 opacity-[0.06]" style={{
-          backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
+      {/* Left: premium abstract panel */}
+      <div className="relative hidden w-[45%] shrink-0 overflow-hidden lg:block bg-neutral-950">
+        <div className="absolute -left-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-brand/30 blur-[120px]" />
+        <div className="absolute -bottom-1/4 -right-1/4 h-[600px] w-[600px] rounded-full bg-indigo-500/20 blur-[100px]" />
+        
+        {/* Subtle noise grid */}
+        <div className="absolute inset-0 opacity-10" style={{
+          backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.4) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
         }} />
 
         <div className="relative flex h-full flex-col justify-between p-10">
@@ -46,15 +48,18 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <ThemeToggle />
         </div>
         <div className="flex flex-1 items-center justify-center px-6 pb-12">
-          <div className="w-full max-w-sm">
-            {/* Mobile logo — only visible on small screens */}
+          <div className="w-full max-w-[420px]">
+            {/* Mobile logo */}
             <div className="mb-8 flex items-center justify-center gap-2 lg:hidden">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white">
                 C
               </div>
               <span className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
             </div>
-            {children}
+            
+            <div className="card p-8 sm:p-10 shadow-sm border border-neutral-200 dark:border-neutral-800">
+              {children}
+            </div>
           </div>
         </div>
       </div>

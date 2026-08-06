@@ -3,22 +3,23 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Send, CheckCheck, History, Phone, Mail, MapPin, Building2, StickyNote, Clock } from "lucide-react";
+import { ArrowLeft, Loader2, Send, CheckCheck, History, Phone, Mail, MapPin, Building2, StickyNote, Clock, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
+import { Badge } from "@/components/badge";
 import { Select } from "@/components/select";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatCurrency, daysSince } from "@/lib/format";
+import { getStageSlaStatus } from "@/lib/processes/sla";
 import { DOCUMENT_STATUS_LABELS, type DocumentStatus } from "../document-status";
 
-type Stage = { id: string; name: string; color: string | null; isFinal: boolean };
+type Stage = { id: string; name: string; color: string | null; isFinal: boolean; slaBusinessDays: number | null };
 
 type ProcessFull = {
   id: string;
   pipelineId: string;
   stageId: string;
-  stage: { id: string; name: string; color: string | null };
+  stage: { id: string; name: string; color: string | null; slaBusinessDays: number | null };
   pipeline: { stages: Stage[] };
-  contemplated: boolean;
-  paymentPending: boolean;
   documentStatus: DocumentStatus;
   quotaNumber: string | null;
   groupNumber: string | null;
@@ -93,6 +94,7 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   const [saving, setSaving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
 
   useEffect(() => {
     fetch(`/api/processes/${process.id}/history`)
@@ -107,8 +109,6 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   }, [process.id]);
 
   async function updateMarkers(data: {
-    contemplated?: boolean;
-    paymentPending?: boolean;
     documentStatus?: DocumentStatus;
     quotaNumber?: string | null;
     groupNumber?: string | null;
@@ -205,18 +205,58 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
     setRequests((prev) => (prev ?? []).map((r) => (r.id === requestId ? updated : r)));
   }
 
+  /** Pra quando o administrativo adicionou o negócio errado por engano — o
+   * negócio em si não é tocado, só sai do processo (some junto o histórico
+   * de etapa/solicitações/anotações DESTE processo). Volta a aparecer na
+   * busca de "Adicionar ao processo" normalmente. */
+  async function removeFromProcess() {
+    setError(null);
+    const res = await fetch(`/api/processes/${process.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error ?? "Erro ao remover do processo");
+      return;
+    }
+    router.push("/processos");
+    router.refresh();
+  }
+
   const address = fullAddress(process.contact);
   const unresolvedRequests = (requests ?? []).filter((r) => !r.resolvedAt);
 
   return (
     <div className="space-y-4">
-      <Link
-        href="/processos"
-        className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
-        Processos
-      </Link>
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          href="/processos"
+          className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
+          Processos
+        </Link>
+
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setShowRemoveConfirm(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400"
+            title="Remove o negócio deste processo — o negócio em si não é afetado, só sai do acompanhamento de pós-venda"
+          >
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+            Remover do processo
+          </button>
+        )}
+      </div>
+
+      {showRemoveConfirm && (
+        <ConfirmDialog
+          title="Remover este negócio do processo?"
+          description="O negócio continua Ganho — só sai do acompanhamento de pós-venda (histórico, solicitações e anotações somem junto). Dá pra adicionar de novo em “Adicionar ao processo”, se for engano. Não pode ser desfeita."
+          confirmLabel="Remover"
+          onClose={() => setShowRemoveConfirm(false)}
+          onConfirm={removeFromProcess}
+        />
+      )}
 
       <div className="card p-5">
         <div className="flex items-start justify-between gap-3">
@@ -273,6 +313,9 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
         <div className="card scrollbar-thin flex items-center gap-1 overflow-x-auto p-2">
           {process.pipeline.stages.map((stage) => {
             const isCurrent = stage.id === process.stageId;
+            // Só faz sentido calcular pra etapa atual — stageEnteredAt é
+            // quando o processo entrou NELA, não teria sentido pras outras.
+            const sla = isCurrent ? getStageSlaStatus(stage, new Date(process.stageEnteredAt)) : null;
             return (
               <button
                 key={stage.id}
@@ -290,9 +333,12 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
                 {stage.name}
                 {isCurrent && (
-                  <span className="inline-flex items-center gap-1 text-neutral-400 dark:text-neutral-500">
+                  <span
+                    className={`inline-flex items-center gap-1 ${sla?.overdue ? "text-red-300 dark:text-red-400" : "text-neutral-400 dark:text-neutral-500"}`}
+                  >
                     <Clock className="h-3 w-3" strokeWidth={2} />
                     {daysSince(process.stageEnteredAt)}d
+                    {sla && ` de ${sla.slaBusinessDays}d úteis`}
                   </span>
                 )}
               </button>
@@ -300,10 +346,73 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
           })}
         </div>
         {moveError && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{moveError}</p>}
+        {(() => {
+          const currentStage = process.pipeline.stages.find((s) => s.id === process.stageId);
+          const sla = currentStage ? getStageSlaStatus(currentStage, new Date(process.stageEnteredAt)) : null;
+          return sla?.overdue ? (
+            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+              <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+              {sla.daysOverdue} {sla.daysOverdue > 1 ? "dias úteis" : "dia útil"} em atraso nesta etapa (prazo: {sla.slaBusinessDays}d úteis)
+            </p>
+          ) : null;
+        })()}
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
         <div className="space-y-4 lg:col-span-2">
+          {/* Anotações do administrativo — NÃO dispara notificação nenhuma
+              (ver lib/processes/notify.ts, que só cobre etapa final e
+              solicitação); é puramente um registro que o consultor só vê
+              quando abre o processo (hasUnreadNote só marca "tem algo novo"
+              no card do Kanban, não é push). Mesmo assim fica em 1º lugar e
+              com destaque visual permanente (borda/fundo âmbar), não só
+              quando tem pendência como as outras seções desta página — é o
+              canal mais usado pelo administrativo, mesmo sendo passivo. */}
+          <div className="card space-y-3 border-amber-200 bg-amber-50/40 p-5 dark:border-amber-900 dark:bg-amber-500/10">
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300">
+                <StickyNote className="h-4 w-4" strokeWidth={2} />
+                Anotações do administrativo
+              </p>
+              {notes && notes.length > 0 && (
+                <Badge tone="warning" size="sm">
+                  {notes.length}
+                </Badge>
+              )}
+            </div>
+            {notes === null ? (
+              <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+            ) : notes.length === 0 ? (
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhuma anotação ainda.</p>
+            ) : (
+              <div className="space-y-2">
+                {notes.map((n) => (
+                  <div key={n.id} className="rounded-md border border-amber-200/70 bg-white px-3.5 py-2.5 text-sm dark:border-amber-900/50 dark:bg-neutral-900">
+                    <p className="text-neutral-800 dark:text-neutral-200">{n.body}</p>
+                    <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                      {n.user.name} · {new Date(n.createdAt).toLocaleString("pt-BR")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isAdmin && (
+              <form onSubmit={sendNote} className="flex gap-2">
+                <input
+                  value={newNoteBody}
+                  onChange={(e) => setNewNoteBody(e.target.value)}
+                  placeholder="Registrar uma anotação sobre este processo…"
+                  className="field-input flex-1 py-1.5 text-sm"
+                />
+                <button type="submit" disabled={sendingNote || !newNoteBody.trim()} className="btn-secondary shrink-0">
+                  {sendingNote ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
+                  Registrar
+                </button>
+              </form>
+            )}
+          </div>
+
           <div
             className={`card space-y-3 p-5 ${
               unresolvedRequests.length > 0 ? "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-500/10" : ""
@@ -312,9 +421,9 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">Solicitações</p>
               {unresolvedRequests.length > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                <Badge tone="warning" size="sm">
                   {unresolvedRequests.length} pendente{unresolvedRequests.length > 1 ? "s" : ""}
-                </span>
+                </Badge>
               )}
             </div>
             {requests === null ? (
@@ -362,44 +471,6 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
               </button>
             </form>
           </div>
-
-          <div className="card space-y-3 p-5">
-            <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
-              <StickyNote className="h-3.5 w-3.5" strokeWidth={2} />
-              Anotações
-            </p>
-            {notes === null ? (
-              <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
-            ) : notes.length === 0 ? (
-              <p className="text-sm text-neutral-400 dark:text-neutral-500">Nenhuma anotação ainda.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {notes.map((n) => (
-                  <div key={n.id} className="rounded-md border border-neutral-100 px-3 py-2 text-sm dark:border-neutral-800">
-                    <p className="text-neutral-700 dark:text-neutral-300">{n.body}</p>
-                    <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
-                      {n.user.name} · {new Date(n.createdAt).toLocaleString("pt-BR")}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {isAdmin && (
-              <form onSubmit={sendNote} className="flex gap-2">
-                <input
-                  value={newNoteBody}
-                  onChange={(e) => setNewNoteBody(e.target.value)}
-                  placeholder="Registrar uma anotação sobre este processo…"
-                  className="field-input flex-1 py-1.5 text-sm"
-                />
-                <button type="submit" disabled={sendingNote || !newNoteBody.trim()} className="btn-secondary shrink-0">
-                  {sendingNote ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
-                  Registrar
-                </button>
-              </form>
-            )}
-          </div>
         </div>
 
         <div className="space-y-4">
@@ -438,29 +509,6 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
                   <p className="text-sm text-neutral-600 dark:text-neutral-300">{process.groupNumber || "—"}</p>
                 )}
               </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-              <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-                <input
-                  type="checkbox"
-                  checked={process.contemplated}
-                  disabled={!isAdmin || saving}
-                  onChange={(e) => updateMarkers({ contemplated: e.target.checked })}
-                  className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
-                />
-                Contemplado
-              </label>
-              <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-                <input
-                  type="checkbox"
-                  checked={process.paymentPending}
-                  disabled={!isAdmin || saving}
-                  onChange={(e) => updateMarkers({ paymentPending: e.target.checked })}
-                  className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
-                />
-                Falta pagar
-              </label>
             </div>
 
             <div className="space-y-1 border-t border-neutral-100 pt-3 dark:border-neutral-800">

@@ -1,55 +1,32 @@
 /**
- * Cria o Processo de pós-venda de um negócio ganho — chamado tanto pelo
- * fluxo normal (PUT /api/deals/[id], transição pra WON) quanto pelo script
- * de backfill (scripts/backfill-process-pipelines.ts, pra negócio já ganho
- * antes deste recurso existir). Idempotente: nunca cria um segundo processo
- * pro mesmo negócio (Process.dealId é @unique).
+ * Cria o Processo de pós-venda de um negócio ganho — chamado a partir da
+ * ação manual "Adicionar ao processo" (ver app/api/processes/route.ts POST
+ * e app/(dashboard)/processos/add-to-process-dialog.tsx). Ganhar o negócio
+ * sozinho NÃO cria mais um processo automaticamente: o setor de
+ * contemplações decide, negócio a negócio, quando (e em qual
+ * Categoria/Subcategoria) ele entra no acompanhamento de pós-venda — ver
+ * discussão que motivou essa mudança. Idempotente: nunca cria um segundo
+ * processo pro mesmo negócio (Process.dealId é @unique).
  */
 
 import { prisma } from "@/lib/prisma";
-import { DEFAULT_PROCESS_PIPELINE_NAME, DEFAULT_PROCESS_STAGES } from "@/lib/default-process-pipeline";
 
-/** Acha o pipeline padrão da organização, ou cria um (com as etapas padrão) se ainda não existir — mesma ideia do pipeline de vendas no cadastro. */
-export async function getOrCreateDefaultProcessPipeline(organizationId: string) {
-  const existing = await prisma.processPipeline.findFirst({
-    where: { organizationId, isDefault: true },
-    include: { stages: { orderBy: { order: "asc" } } },
-  });
-  if (existing) return existing;
-
-  return prisma.processPipeline.create({
-    data: {
-      organizationId,
-      name: DEFAULT_PROCESS_PIPELINE_NAME,
-      isDefault: true,
-      order: 0,
-      stages: {
-        create: DEFAULT_PROCESS_STAGES.map((s) => ({
-          name: s.name,
-          order: s.order,
-          color: s.color,
-          isFinal: s.isFinal,
-        })),
-      },
-    },
-    include: { stages: { orderBy: { order: "asc" } } },
-  });
-}
-
-export async function createProcessForWonDeal(
+export async function createProcessForDeal(
   organizationId: string,
   deal: { id: string; contactId: string; ownerId: string },
+  pipelineId: string,
   changedById: string,
-): Promise<void> {
+): Promise<{ ok: true; processId: string } | { ok: false; error: string }> {
   const existing = await prisma.process.findUnique({ where: { dealId: deal.id }, select: { id: true } });
-  if (existing) return;
+  if (existing) return { ok: false, error: "Este negócio já tem um processo" };
 
-  const pipeline = await getOrCreateDefaultProcessPipeline(organizationId);
-  if (pipeline.stages.length === 0) {
-    console.warn(`[processes] organização ${organizationId} sem etapa de pós-venda configurada — negócio ${deal.id} não virou processo`);
-    return;
-  }
+  const pipeline = await prisma.processPipeline.findFirst({
+    where: { id: pipelineId, organizationId },
+    include: { stages: { orderBy: { order: "asc" }, take: 1 } },
+  });
+  if (!pipeline) return { ok: false, error: "Subcategoria inválida" };
   const firstStage = pipeline.stages[0];
+  if (!firstStage) return { ok: false, error: "Esta subcategoria ainda não tem nenhuma etapa configurada" };
 
   const process = await prisma.process.create({
     data: {
@@ -71,4 +48,6 @@ export async function createProcessForWonDeal(
       changedById,
     },
   });
+
+  return { ok: true, processId: process.id };
 }
