@@ -5,8 +5,9 @@ import { Plus, Calculator } from "lucide-react";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { TopNavLinks } from "./top-nav-links";
+import { AdaptiveHeaderRow } from "./adaptive-header-row";
+import { AppMain } from "./app-main";
 import { NotificationBell } from "@/components/notification-bell";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandPalette } from "@/components/command-palette";
 import { UserMenu } from "@/components/user-menu";
 import { MobileHeader } from "./mobile-header";
@@ -37,7 +38,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex min-h-dvh flex-col overflow-hidden bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+    // h-dvh (altura FIXA), não min-h-dvh — overflow-hidden só corta de
+    // verdade quando a caixa tem um teto de altura real. Com min-h-dvh (só
+    // um piso, sem teto) a caixa sempre crescia pro tamanho do conteúdo, o
+    // overflow-hidden nunca tinha o que cortar, e isso deixava a porta
+    // aberta pro <body> (compartilhado com Login/Docs, que PRECISAM crescer
+    // e rolar — por isso não dá pra travar ele globalmente) crescer junto e
+    // o navegador mostrar a rolagem de verdade da janela inteira, por cima
+    // de tudo que já estava certo aqui dentro (ver AppMain.tsx).
+    // dashboard-gradient-bg (ver globals.css) — malha de gradiente fixa do
+    // redesign, escopada aqui (não no <body> global) de propósito. relative
+    // é o que torna seguro o `position:absolute + z-index:-1` do `::before`
+    // dessa classe: nada dentro desta div tem z-index negativo pra furar
+    // por baixo, e overflow-hidden (já existia) contém a malha nos cantos.
+    <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
       <MobileHeader photoUrl={photoUrl} name={session.user.name ?? session.user.email ?? "?"} />
 
       <header className="surface-glass relative z-30 hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
@@ -48,49 +62,48 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">CRM</span>
         </Link>
 
-        <TopNavLinks isAdministrativo={isAdministrativo} />
-
-        <div className="ml-auto flex shrink-0 items-center gap-3">
-          <CommandPalette />
-          <a href="/api/simulador-sso" target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm">
-            <Calculator className="h-3.5 w-3.5" strokeWidth={2} />
-            Simulador
-          </a>
-          {!isAdministrativo && (
-            <Link href="/pipeline?novo=1" className="btn-primary btn-sm">
-              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-              Novo negócio
-            </Link>
-          )}
-          <NotificationBell />
-          <ThemeToggle />
-          <UserMenu
-            name={session.user.name ?? session.user.email ?? "?"}
-            email={session.user.email ?? ""}
-            photoUrl={photoUrl}
-            signOutAction={handleSignOut}
-          />
-        </div>
+        <AdaptiveHeaderRow
+          nav={<TopNavLinks isAdministrativo={isAdministrativo} />}
+          fullActions={
+            <>
+              <CommandPalette />
+              {!isAdministrativo && (
+                <Link href="/pipeline?novo=1" className="btn-primary btn-sm">
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  Novo negócio
+                </Link>
+              )}
+            </>
+          }
+          compactActions={
+            <>
+              <CommandPalette compact />
+              {!isAdministrativo && (
+                <Link href="/pipeline?novo=1" className="icon-btn" aria-label="Novo negócio" title="Novo negócio">
+                  <Plus className="h-4 w-4" strokeWidth={2.5} />
+                </Link>
+              )}
+            </>
+          }
+          fixedActions={
+            <>
+              <a href="/api/simulador-sso" target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm">
+                <Calculator className="h-3.5 w-3.5" strokeWidth={2} />
+                Simulador
+              </a>
+              <NotificationBell />
+              <UserMenu
+                name={session.user.name ?? session.user.email ?? "?"}
+                email={session.user.email ?? ""}
+                photoUrl={photoUrl}
+                signOutAction={handleSignOut}
+              />
+            </>
+          }
+        />
       </header>
 
-      {/* scrollbar-gutter reserva o espaço da barra de rolagem o tempo todo —
-          sem isso, trocar o filtro de período no Relatórios (ou qualquer
-          outra navegação que mude a altura do conteúdo) faz a barra
-          aparecer/sumir e o conteúdo inteiro "pular" alguns pixels pro lado.
-          padding-bottom à parte (não só `p-4`/`lg:p-8`) — senão o `lg:p-8`
-          reescreve TODOS os lados de uma vez, inclusive o de baixo.
-          pb-24 (96px) sempre, em qualquer tamanho de tela — já tentamos um
-          `lg:pb-8` (32px) menor no desktop pra "economizar" espaço nas
-          páginas com `h-full` (Kanban, Chat do WhatsApp), mas isso não ajuda
-          em nada essas páginas (o filho `h-full` só se adapta à altura que
-          sobrar, não sobra vazio nenhum) e faz toda página comum (Relatórios,
-          Configurações, Clientes, Início) voltar a ficar com o último
-          elemento colado na borda da janela — o problema real e recorrente.
-          Nunca reduza esse valor no desktop de novo sem confirmar que o
-          rodapé de uma página comprida (ex.: Configurações) sobra visível. */}
-      <main className="flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-28 [scrollbar-gutter:stable] lg:px-8 lg:pt-8 lg:pb-24">
-        <div className="mx-auto h-full w-full max-w-[1500px]">{children}</div>
-      </main>
+      <AppMain>{children}</AppMain>
 
       <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} />
       <InstallPwaPrompt />

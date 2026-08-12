@@ -21,7 +21,10 @@ function getRedirectUri(): string {
 // leads_retrieval: ler o lead completo depois do webhook de leadgen.
 // pages_show_list/pages_manage_metadata: listar as Páginas do usuário e
 // inscrever a Página no evento leadgen. ads_management/business_management:
-// mandar evento de conversão (Conversions API) usando o mesmo token.
+// mandar evento de conversão (Conversions API) E consultar a Insights API
+// (gasto/leads/CPL, ver lib/meta-ads/insights.ts) usando o token de USUÁRIO
+// de longa duração (não o de Página — ver userAccessTokenEncrypted no
+// schema).
 const SCOPES = [
   "pages_show_list",
   "pages_manage_metadata",
@@ -133,6 +136,129 @@ export async function fetchLeadDetails(leadgenId: string, pageAccessToken: strin
     formId: data.form_id,
     fields,
   };
+}
+
+// ─── Insights (gasto/leads/CPL) ─────────────────────────────────────
+
+export type MetaAdAccount = { id: string; name: string; currency: string };
+
+/**
+ * Contas de anúncio que o usuário administra — pra escolher qual reportar
+ * (ver lib/meta-ads/connection.ts, que auto-seleciona quando só existe uma).
+ * `id` já vem prefixado "act_..." da própria API, formato que as chamadas
+ * de Insights abaixo esperam no path.
+ */
+export async function listAdAccounts(userAccessToken: string): Promise<MetaAdAccount[]> {
+  const data = await request<{ data?: { id: string; name: string; currency: string }[] }>(
+    "/me/adaccounts?fields=id,name,currency&limit=200",
+    userAccessToken,
+  );
+  return (data.data ?? []).map((a) => ({ id: a.id, name: a.name, currency: a.currency }));
+}
+
+export type AdInsightsPeriod = { key: string; since: string; until: string };
+export type AdInsightsResult = { key: string; spend: number; leads: number };
+
+/**
+ * Gasto + leads por período — numa chamada só pros N períodos pedidos
+ * (`time_ranges` aceita vários intervalos de uma vez, cada um volta como
+ * uma linha própria marcada com date_start/date_stop; evita bater a
+ * Insights API uma vez por card do resumo). O tipo de ação que representa
+ * "virou lead" na Insights API varia bastante conforme onde o formulário
+ * roda (`lead`, `onsite_conversion.lead_grouped`,
+ * `offsite_conversion.fb_pixel_lead`...) — em vez de casar um valor exato e
+ * arriscar ficar sempre em zero quando a Meta usa outro, soma qualquer
+ * `action_type` que contenha "lead".
+ */
+export async function fetchAdSpendInsights(
+  adAccountId: string,
+  accessToken: string,
+  periods: AdInsightsPeriod[],
+): Promise<AdInsightsResult[]> {
+  if (periods.length === 0) return [];
+
+  const params = new URLSearchParams({
+    level: "account",
+    fields: "spend,actions,date_start,date_stop",
+    time_ranges: JSON.stringify(periods.map((p) => ({ since: p.since, until: p.until }))),
+  });
+  const data = await request<{
+    data?: { spend?: string; actions?: { action_type: string; value: string }[]; date_start: string; date_stop: string }[];
+  }>(`/${adAccountId}/insights?${params.toString()}`, accessToken);
+
+  // A resposta não referencia de volta a chave do período pedido, só
+  // date_start/date_stop — casa pela combinação exata (os 4 períodos fixos
+  // usados hoje nunca têm since/until iguais entre si, sem ambiguidade).
+  return periods.map((period) => {
+    const row = data.data?.find((d) => d.date_start === period.since && d.date_stop === period.until);
+    const leads = (row?.actions ?? [])
+      .filter((a) => a.action_type.toLowerCase().includes("lead"))
+      .reduce((sum, a) => sum + (Number(a.value) || 0), 0);
+    return { key: period.key, spend: row?.spend ? Number(row.spend) : 0, leads };
+  });
+}
+
+export type AdInsightsBreakdownRow = {
+  id: string;
+  name: string;
+  campaignId?: string;
+  campaignName?: string;
+  spend: number;
+  leads: number;
+};
+
+/**
+ * Gasto/leads detalhado por campanha OU por anúncio, pra UM período — usa o
+ * parâmetro `level` da própria Insights API (server-side, não agregação
+ * nossa) pra já vir pronto uma linha por campanha/anúncio, sem paginar
+ * manualmente. Pedido só `level: "ad"` é suficiente pra alimentar tanto a
+ * lista de anúncios quanto a de campanhas (ver lib/meta-ads/insights.ts,
+ * que soma por campaignId em vez de bater a API duas vezes) — todo anúncio
+ * pertence a exatamente uma campanha, então a soma bate.
+ *
+ * `limit: 500` sem seguir `paging.next` — generoso o bastante pro tamanho
+ * de conta que essa integração foi pensada pra atender; uma conta com mais
+ * de 500 anúncios ativos simultâneos no mesmo período ficaria com a lista
+ * truncada (documentado aqui de propósito, não um bug silencioso).
+ */
+export async function fetchInsightsBreakdown(
+  adAccountId: string,
+  accessToken: string,
+  level: "campaign" | "ad",
+  period: { since: string; until: string },
+): Promise<AdInsightsBreakdownRow[]> {
+  const fields =
+    level === "campaign" ? "campaign_id,campaign_name,spend,actions" : "ad_id,ad_name,campaign_id,campaign_name,spend,actions";
+  const params = new URLSearchParams({
+    level,
+    fields,
+    time_range: JSON.stringify({ since: period.since, until: period.until }),
+    limit: "500",
+  });
+  const data = await request<{
+    data?: {
+      campaign_id?: string;
+      campaign_name?: string;
+      ad_id?: string;
+      ad_name?: string;
+      spend?: string;
+      actions?: { action_type: string; value: string }[];
+    }[];
+  }>(`/${adAccountId}/insights?${params.toString()}`, accessToken);
+
+  return (data.data ?? []).map((row) => {
+    const leads = (row.actions ?? [])
+      .filter((a) => a.action_type.toLowerCase().includes("lead"))
+      .reduce((sum, a) => sum + (Number(a.value) || 0), 0);
+    return {
+      id: (level === "campaign" ? row.campaign_id : row.ad_id) ?? "—",
+      name: (level === "campaign" ? row.campaign_name : row.ad_name) ?? "(sem nome)",
+      campaignId: row.campaign_id,
+      campaignName: row.campaign_name,
+      spend: row.spend ? Number(row.spend) : 0,
+      leads,
+    };
+  });
 }
 
 // ─── Conversions API ────────────────────────────────────────────────

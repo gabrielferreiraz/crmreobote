@@ -77,7 +77,12 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
   const pipelineOptions = categories.find((c) => c.id === categoryId)?.pipelines ?? [];
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // min-h-0: sem isso, o container da lista (flex-1 overflow-y-auto logo
+    // abaixo) não consegue calcular altura nenhuma pra rolar por dentro —
+    // cresce pro tamanho de todos os itens e empurra a paginação embaixo,
+    // fazendo a página inteira rolar em vez de só a lista (ver mesmo ajuste
+    // em processes-view.tsx/pipeline-view.tsx).
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full sm:w-56">
           <Search

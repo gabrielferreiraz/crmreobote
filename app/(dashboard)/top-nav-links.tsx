@@ -2,9 +2,12 @@
 
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Settings } from "lucide-react";
+import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3 } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
 
+// Configurações saiu daqui — mora no menu do usuário agora (ver
+// components/user-menu.tsx), pra deixar essa fileira só com o que é
+// trabalho do dia a dia (menos itens grudados aqui em cima).
 const NAV_ITEMS = [
   { href: "/", label: "Início", icon: Home },
   { href: "/clientes", label: "Clientes", icon: Users },
@@ -13,7 +16,6 @@ const NAV_ITEMS = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/processos", label: "Processos", icon: ClipboardList },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  { href: "/configuracoes", label: "Configurações", icon: Settings, alsoActiveOn: ["/automacoes"] },
 ];
 
 /**
@@ -28,7 +30,7 @@ function NavLinkContent({ icon: Icon, label, isActive }: { icon: typeof Home; la
   const { pending } = useLinkStatus();
   return (
     <>
-      <Icon className="h-3 w-3" strokeWidth={isActive ? 2.3 : 2} />
+      <Icon className="h-3 w-3 shrink-0" strokeWidth={isActive ? 2.3 : 2} />
       {label}
       {pending && <LoadingDots />}
     </>
@@ -41,7 +43,12 @@ export function TopNavLinks({ isAdministrativo }: { isAdministrativo: boolean })
   const items = NAV_ITEMS.filter((item) => !(isAdministrativo && item.salesOnly));
 
   return (
-    <nav className="flex items-center gap-1">
+    // Nunca rola de lado (overflow-x-hidden, de propósito — nada de
+    // scrollbar aqui, feio numa fileira curta e sempre visível). O nome de
+    // cada página fica sempre visível (não é isto que deve encolher quando
+    // aperta — ver busca/"Novo negócio" em layout.tsx, que viram só ícone
+    // pra abrir espaço; o nav de páginas nunca).
+    <nav className="flex min-w-0 items-center gap-0.5 overflow-x-hidden">
       {items.map((item) => {
         const isActive =
           item.href === "/"
@@ -53,7 +60,7 @@ export function TopNavLinks({ isAdministrativo }: { isAdministrativo: boolean })
             key={item.href}
             href={item.href}
             aria-current={isActive ? "page" : undefined}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition-all duration-150 ${
               isActive
                 ? "bg-brand text-white shadow-sm dark:text-white"
                 : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"

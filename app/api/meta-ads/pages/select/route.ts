@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { encryptSecret, decryptSecret } from "@/lib/security/secret-crypto";
 import { subscribePageToLeadgen, type FacebookPage } from "@/lib/meta-ads";
+import { finalizeAdAccountAutoSelection } from "@/lib/meta-ads/connection";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 
@@ -21,8 +22,11 @@ export async function POST(req: NextRequest) {
   if (!encrypted) return NextResponse.json({ error: "Sessão de conexão expirada — comece de novo" }, { status: 400 });
 
   let pages: FacebookPage[];
+  let userAccessToken: string;
   try {
-    pages = JSON.parse(decryptSecret(encrypted)) as FacebookPage[];
+    const parsed = JSON.parse(decryptSecret(encrypted)) as { pages: FacebookPage[]; userAccessToken: string };
+    pages = parsed.pages;
+    userAccessToken = parsed.userAccessToken;
   } catch {
     return NextResponse.json({ error: "Sessão de conexão inválida — comece de novo" }, { status: 400 });
   }
@@ -54,6 +58,7 @@ export async function POST(req: NextRequest) {
         connectedById: access.userId,
       },
     });
+    await finalizeAdAccountAutoSelection(access.organizationId, userAccessToken);
   });
 
   await logAudit({

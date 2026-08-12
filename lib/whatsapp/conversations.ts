@@ -138,3 +138,21 @@ export async function listConversations(
   result.sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
   return result;
 }
+
+/**
+ * Quantas conversas (não mensagens) têm pelo menos uma mensagem recebida
+ * não lida — usado pelo card "Exige ação" do Início (ver
+ * new-design-for-claude/README.md). Mesmo escopo/critério de "não lida" que
+ * listConversations já usa acima (direction INBOUND, read false), só que
+ * contando threads em vez de somar mensagens.
+ */
+export async function countUnreadThreads(organizationId: string, scope: DealScope): Promise<number> {
+  return prisma.whatsAppThread.count({
+    where: {
+      organizationId,
+      ...whatsappScopeWhere(scope),
+      instanceId: { not: null },
+      messages: { some: { direction: "INBOUND", read: false } },
+    },
+  });
+}

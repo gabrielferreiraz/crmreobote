@@ -7,8 +7,18 @@ import { Avatar } from "@/components/avatar";
 import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { TaskDetailModal } from "./task-detail-modal";
+import { GoogleEventDetailModal } from "./google-event-detail-modal";
 
-export type GoogleEvent = { id: string; title: string; start: string; allDay: boolean; htmlLink: string };
+export type GoogleEvent = {
+  id: string;
+  title: string;
+  start: string;
+  end: string | null;
+  allDay: boolean;
+  htmlLink: string;
+  description: string | null;
+  location: string | null;
+};
 
 const WEEKDAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 const MONTH_LABELS = [
@@ -39,6 +49,7 @@ export function TaskCalendar({
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleEvent | null>(null);
   const today = useMemo(() => startOfDay(new Date()), []);
 
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -177,18 +188,19 @@ export function TaskCalendar({
                   );
                 })}
                 {visibleGoogle.map((e) => (
-                  <a
+                  <button
                     key={e.id}
-                    href={e.htmlLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
+                    type="button"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setSelectedGoogleEvent(e);
+                    }}
                     title={e.title}
                     className="flex w-full items-center gap-1 truncate rounded bg-blue-50 px-1 py-0.5 text-left text-[11px] text-blue-700 transition-colors hover:brightness-95 dark:bg-blue-500/10 dark:text-blue-400"
                   >
                     <CalendarIcon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
                     <span className="truncate">{e.title}</span>
-                  </a>
+                  </button>
                 ))}
                 {overflow > 0 && (
                   <button
@@ -217,13 +229,11 @@ export function TaskCalendar({
               <TaskRow key={t.id} task={t} onToggle={onToggle} showOwner={showOwner} />
             ))}
             {(googleEventsByDay.get(selectedDay.toDateString()) ?? []).map((e) => (
-              <a
+              <button
                 key={e.id}
-                href={e.htmlLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="card flex items-center gap-3 p-3 text-sm text-blue-700 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-500/10"
+                type="button"
+                onClick={() => setSelectedGoogleEvent(e)}
+                className="card flex w-full items-center gap-3 p-3 text-left text-sm text-blue-700 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-500/10"
               >
                 <CalendarIcon className="h-4 w-4 shrink-0" strokeWidth={2} />
                 <span className="min-w-0 flex-1 truncate">{e.title}</span>
@@ -232,7 +242,7 @@ export function TaskCalendar({
                     {new Date(e.start).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 )}
-              </a>
+              </button>
             ))}
           </div>
         </Modal>
@@ -250,6 +260,10 @@ export function TaskCalendar({
             setSelectedTask(null);
           }}
         />
+      )}
+
+      {selectedGoogleEvent && (
+        <GoogleEventDetailModal event={selectedGoogleEvent} onClose={() => setSelectedGoogleEvent(null)} />
       )}
     </div>
   );

@@ -147,7 +147,7 @@ export function Select({
           {selected ? selected.label : placeholder}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 dark:text-neutral-500 ${
+          className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${
             open ? "rotate-180" : ""
           }`}
           strokeWidth={2}
@@ -162,7 +162,7 @@ export function Select({
             ref={panelRef}
             id={`${instanceId}-listbox`}
             role="listbox"
-            className="surface-glass animate-pop-in scrollbar-thin fixed z-50 max-h-56 overflow-y-auto rounded-md p-1 pb-1.5 shadow-lg"
+            className="surface-glass-dense animate-pop-in scrollbar-thin fixed z-50 max-h-56 overflow-y-auto rounded-md p-1 pb-1.5 shadow-lg"
             style={{ top: coords.top, left: coords.left, width: coords.width }}
           >
             {options.map((opt, i) => (

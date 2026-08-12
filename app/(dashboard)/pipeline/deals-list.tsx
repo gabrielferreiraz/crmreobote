@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2, Download } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
-import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
+import { STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
+import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfDay } from "@/lib/timezone";
+import type { PipelineQuickFilter } from "./pipeline-filters";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
@@ -63,6 +65,7 @@ export function DealsList({
   canBulkMessage,
   canExport,
   restoredDraft,
+  quickFilter,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
@@ -81,6 +84,8 @@ export function DealsList({
   canBulkMessage: boolean;
   canExport: boolean;
   restoredDraft: BulkSendDraft | null;
+  /** Filtro rápido único elevado pra pipeline-view.tsx (ver pipeline-filters.ts) — mesmo que o Kanban usa, sincronizado com a URL. */
+  quickFilter: PipelineQuickFilter | null;
 }) {
   const router = useRouter();
 
@@ -102,6 +107,10 @@ export function DealsList({
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
+  const [noValueOnly, setNoValueOnly] = useState(false);
+  // Valor/Parado/Urgência (mesmo sort do Kanban, ver kanban-board.tsx) — não
+  // sincronizado com a URL de propósito, mesmo raciocínio de lá.
+  const [sort, setSort] = useState<"" | "value" | "stale" | "urgency">("");
 
   // "Eu" sempre em primeiro no filtro de Responsável.
   const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
@@ -151,6 +160,25 @@ export function DealsList({
     if (dateTo) params.set("createdTo", brazilEndOfDayUTC(dateTo).toISOString());
     if (closedFrom) params.set("closedFrom", brazilDateStringToUTC(closedFrom).toISOString());
     if (closedTo) params.set("closedTo", brazilEndOfDayUTC(closedTo).toISOString());
+    if (noValueOnly) params.set("noValue", "1");
+    if (sort) params.set("sort", sort);
+    // Filtro rápido único elevado pra pipeline-view.tsx (ver pipeline-filters.ts)
+    // — mesma tradução que o Kanban já faz (kanban-board.tsx), pro card
+    // "Exige ação" do Início linkar direto pra uma Lista já pré-filtrada.
+    switch (quickFilter) {
+      case "acao-hoje": {
+        const todayStart = brazilStartOfDay(new Date());
+        const tomorrowStart = new Date(todayStart.getTime() + 86_400_000);
+        params.set("taskDueBefore", tomorrowStart.toISOString());
+        break;
+      }
+      case "sem-tarefa":
+        params.set("hasNoOpenTask", "1");
+        break;
+      case "parados-14d":
+        params.set("stageEnteredBefore", new Date(Date.now() - STALE_DEAL_ALERT_DAYS * 86_400_000).toISOString());
+        break;
+    }
     return params;
   };
 
@@ -203,6 +231,9 @@ export function DealsList({
     dateTo,
     closedFrom,
     closedTo,
+    noValueOnly,
+    sort,
+    quickFilter,
     reloadToken,
   ]);
 
@@ -231,7 +262,9 @@ export function DealsList({
     !!dateFrom ||
     !!dateTo ||
     !!closedFrom ||
-    !!closedTo;
+    !!closedTo ||
+    noValueOnly ||
+    !!sort;
 
   function clearFilters() {
     setStatusFilter("OPEN");
@@ -247,6 +280,8 @@ export function DealsList({
     setDateTo("");
     setClosedFrom("");
     setClosedTo("");
+    setNoValueOnly(false);
+    setSort("");
     setPage(1);
   }
 
@@ -301,10 +336,12 @@ export function DealsList({
   // restoreFilters acima (já existiam pro round-trip de "+ Criar script"),
   // só acrescenta pageSize (que aquele par não guarda, por não precisar pra
   // esse outro uso). Ver lib/use-persisted-filters.ts.
-  usePersistedFilters("pipeline-lista", { ...captureFilters(), pageSize }, (saved) => {
-    const { pageSize: savedPageSize, ...filterFields } = saved;
+  usePersistedFilters("pipeline-lista", { ...captureFilters(), pageSize, noValueOnly, sort }, (saved) => {
+    const { pageSize: savedPageSize, noValueOnly: savedNoValueOnly, sort: savedSort, ...filterFields } = saved;
     restoreFilters(filterFields as Record<string, string>);
     if (typeof savedPageSize === "number") setPageSize(savedPageSize);
+    if (typeof savedNoValueOnly === "boolean") setNoValueOnly(savedNoValueOnly);
+    if (typeof savedSort === "string") setSort(savedSort as typeof sort);
   });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -649,6 +686,37 @@ export function DealsList({
               />
             </div>
           )}
+          <div className="space-y-1">
+            <label className="field-label">Ordenar por</label>
+            <Select
+              value={sort}
+              onChange={(v) => {
+                setSort(v as typeof sort);
+                setPage(1);
+              }}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Padrão (entrou na etapa)" },
+                { value: "value", label: "Valor (maior primeiro)" },
+                { value: "urgency", label: "Urgência (tarefa)" },
+                { value: "stale", label: "Parado há mais tempo" },
+              ]}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setNoValueOnly((v) => !v);
+              setPage(1);
+            }}
+            className={`inline-flex w-full items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+              noValueOnly
+                ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300"
+                : "border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+            }`}
+          >
+            Sem valor
+          </button>
           <div className="space-y-1">
             <label className="field-label">Criado em</label>
             <DateRangeField

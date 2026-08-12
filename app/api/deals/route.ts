@@ -53,6 +53,11 @@ export async function GET(req: Request) {
   const stageEnteredBefore = parseDate(searchParams.get("stageEnteredBefore"));
   const withoutProcess = searchParams.get("withoutProcess") === "1";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
+  const hasNoOpenTask = searchParams.get("hasNoOpenTask") === "1";
+  const taskDueBefore = parseDate(searchParams.get("taskDueBefore"));
+  const noValue = searchParams.get("noValue") === "1";
+  const sortParam = searchParams.get("sort");
+  const sort = sortParam === "value" || sortParam === "stale" || sortParam === "urgency" ? sortParam : undefined;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -78,10 +83,13 @@ export async function GET(req: Request) {
       closedTo,
       stageEnteredBefore,
       withoutProcess,
+      hasNoOpenTask: hasNoOpenTask || undefined,
+      taskDueBefore,
+      noValue: noValue || undefined,
     };
 
     const [deals, totalCount, sums] = await Promise.all([
-      fetchDealsList({ ...filterParams, skip, take, sortDir }),
+      fetchDealsList({ ...filterParams, skip, take, sortDir, sort }),
       countDeals(filterParams),
       aggregateDealValues(filterParams),
     ]);

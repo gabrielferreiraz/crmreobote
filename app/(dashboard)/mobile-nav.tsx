@@ -154,7 +154,7 @@ export function MobileNav({
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
             className="absolute inset-0 bg-neutral-900/40 backdrop-blur-md dark:bg-neutral-950/60"
-            style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+            style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
             onClick={() => setSheetOpen(false)}
           />
           <div

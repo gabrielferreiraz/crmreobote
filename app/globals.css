@@ -6,32 +6,105 @@
    dispositivos — este variant os mantém sempre visíveis em ponteiros grossos. */
 @custom-variant coarse (@media (pointer: coarse));
 
+/* Redesign (ver new-design-for-claude/README.md) — troca de marca completa:
+   roxo mais azulado (#5A5BE6) no lugar do #6366f1 antigo, com um gradiente
+   diagonal próprio (--brand-gradient*) pro botão primário/pill ativa em vez
+   de cor sólida. Os tons --brand-hover/--brand-active JÁ SÃO os stops do
+   gradiente (#4F50D8/#3F40C2), não valores novos inventados — states
+   sólidos (focus ring, ::selection, texto de link) e o gradiente sempre
+   terminam na mesma família de cor. */
 :root {
   --background: #f9fafb;
   --foreground: #111827;
-  --brand: #6366f1;
-  --brand-hover: #4f46e5;
-  --brand-active: #4338ca;
-  --brand-light: #eef2ff;
-  --brand-light-hover: #e0e7ff;
-  --brand-subtle: rgba(99, 102, 241, 0.08);
+  --brand: #5a5be6;
+  --brand-hover: #4f50d8;
+  --brand-active: #3f40c2;
+  --brand-light: #efeffd;
+  --brand-light-hover: #e4e4fc;
+  --brand-subtle: rgba(90, 91, 230, 0.08);
+  --brand-gradient: linear-gradient(135deg, #7274f0 0%, #4f50d8 55%, #3f40c2 100%);
+  --brand-gradient-hero: linear-gradient(140deg, #7476f2 0%, #5152da 50%, #3b3cbe 100%);
+  /* Cards escuros (ex.: "Exige ação" do Início) — mesmo valor nos dois temas
+     de propósito, já nasce escuro, não precisa de variante. */
+  --brand-gradient-dark: linear-gradient(150deg, #23262f 0%, #15171f 60%, #101219 100%);
 }
 
 .dark {
   --background: #0a0a0a;
   --foreground: #f5f5f5;
-  --brand: #818cf8;
-  --brand-hover: #a5b4fc;
-  --brand-active: #c7d2fe;
-  --brand-light: rgba(129, 140, 248, 0.12);
-  --brand-light-hover: rgba(129, 140, 248, 0.18);
-  --brand-subtle: rgba(129, 140, 248, 0.06);
+  /* Mesma relação de sempre entre claro/escuro (clareia e dessatura um pouco
+     pro roxo não "gritar" em cima de fundo escuro) — só migrada pro tom novo. */
+  --brand: #8b8df3;
+  --brand-hover: #a3a5f6;
+  --brand-active: #bebff9;
+  --brand-light: rgba(139, 141, 243, 0.14);
+  --brand-light-hover: rgba(139, 141, 243, 0.2);
+  --brand-subtle: rgba(139, 141, 243, 0.07);
+  --brand-gradient: linear-gradient(135deg, #7274f0 0%, #4f50d8 55%, #3f40c2 100%);
+  --brand-gradient-hero: linear-gradient(140deg, #7476f2 0%, #5152da 50%, #3b3cbe 100%);
+  --brand-gradient-dark: linear-gradient(150deg, #23262f 0%, #15171f 60%, #101219 100%);
 }
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 220ms;
   animation-timing-function: ease-out;
+}
+
+/* Curvas de movimento — a base do "design mais suave" pedido: em vez do
+   `ease` padrão do Tailwind (cubic-bezier(0.4,0,0.2,1), corte meio seco no
+   fim), essas desaceleram bem devagar até o repouso — a sensação de
+   app/macOS. Viram utilitário direto (ease-smooth/ease-spring/ease-sheet)
+   por causa do namespace --ease-* do Tailwind v4, então qualquer
+   `transition-* ease-smooth` novo já usa a mesma curva sem precisar de
+   cubic-bezier solto espalhado pelo código. `--ease-smooth` já era usada
+   sem nome (hardcoded) nas animações de pop-in/sheet/phone-in abaixo —
+   ganhou nome aqui e essas foram atualizadas pra referenciar a variável em
+   vez de repetir o número. */
+@theme {
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Escala de texto maior que o padrão do Tailwind, de propósito — o app
+     inteiro usa text-xs/sm/base/lg/etc. (nunca px cru), então redefinir só
+     esses tokens aqui aumenta a fonte do site inteiro numa fonte de verdade
+     só, sem precisar tocar em centenas de arquivos. Não mexe em --spacing
+     (escala separada, ver Tailwind v4) — ícone/padding/altura de linha fixa
+     de kanban virtualizado (ex.: CARD_ROW_HEIGHT) continuam do jeito que
+     estavam, só o texto em si cresce. xl pra cima sobe mais (2px na 1ª
+     rodada), títulos ganham mais peso visual de propósito — é onde a "cara
+     de elegância" mais aparece. Leading (entrelinha) sobe proporcionalmente
+     em vez de só o tamanho, pra não deixar o texto maior "espremido".
+     Tracking negativo nos tamanhos grandes (2xl+) é o mesmo truque que
+     Linear/Stripe usam pra título grande não ficar "largado" — kerning
+     mais fechado lê como mais refinado.
+
+     2ª rodada (notebook de tela menor, texto miúdo demais pra ler
+     confortável): +1px de novo só em xs/sm/base/lg — onde mora quase todo
+     o texto do dia a dia (tabela, botão, label, corpo de card) e onde a
+     dificuldade de leitura em tela pequena mais aparece. xl pra cima ficou
+     como estava — título grande já lia bem, não é ali que estava o
+     problema, e crescer mais isso arrisca espremer layout sem necessidade. */
+  --text-xs: 0.875rem; /* 14px, era 13px */
+  --text-xs--line-height: 1.125rem; /* 18px, era 17px */
+  --text-sm: 1rem; /* 16px, era 15px */
+  --text-sm--line-height: 1.4375rem; /* 23px, era 22px */
+  --text-base: 1.125rem; /* 18px, era 17px */
+  --text-base--line-height: 1.6875rem; /* 27px, era 26px */
+  --text-lg: 1.25rem; /* 20px, era 19px */
+  --text-lg--line-height: 1.9375rem; /* 31px, era 30px */
+  --text-xl: 1.375rem; /* 22px */
+  --text-xl--line-height: 1.875rem; /* 30px, era 28px */
+  --text-2xl: 1.625rem; /* 26px, era 24px */
+  --text-2xl--line-height: 2.125rem; /* 34px, era 32px */
+  --text-2xl--letter-spacing: -0.01em;
+  --text-3xl: 2rem; /* 32px, era 30px */
+  --text-3xl--line-height: 2.375rem; /* 38px, era 36px */
+  --text-3xl--letter-spacing: -0.015em;
+  --text-4xl: 2.375rem; /* 38px, era 36px */
+  --text-4xl--line-height: 2.625rem; /* 42px, era 40px */
+  --text-4xl--letter-spacing: -0.02em;
 }
 
 @theme inline {
@@ -42,7 +115,7 @@
   --color-brand-active: var(--brand-active);
   --color-brand-light: var(--brand-light);
   --color-brand-light-hover: var(--brand-light-hover);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -52,6 +125,30 @@ body {
   /* Some o flash cinza/azul padrão do navegador ao tocar em algo — já temos
      estado de "pressionado" próprio (active:scale-*) em botões e cards. */
   -webkit-tap-highlight-color: transparent;
+  /* Detalhe que ninguém aponta mas todo mundo "sente": o texto fica com os
+     traços mais finos e uniformes, mais perto de como o macOS/iOS renderiza
+     fonte do que o hinting mais pesado padrão do Windows/Chrome. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Quem liga "reduzir movimento" no sistema operacional está pedindo isso de
+   propósito (enjoo, vestibular, foco) — encurta toda transição/animação
+   praticamente a zero em vez de ignorar a preferência. `!important` (só
+   aqui) é o jeito certo: precisa vencer qualquer duration/animation
+   definida em qualquer lugar (inclusive depois deste bloco no arquivo),
+   e como é a única regra !important do arquivo a especificidade normal do
+   seletor não importa — !important sempre ganha de uma declaração normal,
+   não importa a ordem. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Abaixo de 1024px (nossa fronteira mobile/desktop): navegadores baseados em
@@ -109,7 +206,7 @@ body {
 @keyframes modal-panel-in {
   from {
     opacity: 0;
-    transform: scale(0.97) translateY(4px);
+    transform: scale(0.96) translateY(8px);
   }
 
   to {
@@ -135,7 +232,7 @@ body {
 }
 
 .animate-pop-in {
-  animation: pop-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: pop-in 150ms var(--ease-smooth);
   transform-origin: top right;
 }
 
@@ -143,7 +240,7 @@ body {
    esquerda do gatilho (ex.: emoji/anexo do composer de WhatsApp, que fica
    colado na barra de digitar embaixo da tela). */
 .animate-pop-in-bottom {
-  animation: pop-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: pop-in 150ms var(--ease-smooth);
   transform-origin: bottom left;
 }
 
@@ -158,7 +255,7 @@ body {
 }
 
 .animate-sheet-up {
-  animation: sheet-up-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: sheet-up-in 200ms var(--ease-sheet);
 }
 
 @keyframes sheet-right-in {
@@ -172,7 +269,7 @@ body {
 }
 
 .animate-sheet-right {
-  animation: sheet-right-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: sheet-right-in 200ms var(--ease-sheet);
 }
 
 /* Mockup de celular animado (ver components/whatsapp-phone-preview.tsx):
@@ -190,7 +287,7 @@ body {
 }
 
 .animate-phone-in {
-  animation: phone-in 500ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: phone-in 500ms var(--ease-smooth);
 }
 
 @keyframes bubble-in {
@@ -206,7 +303,7 @@ body {
 }
 
 .animate-bubble-in {
-  animation: bubble-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: bubble-in 220ms var(--ease-smooth);
 }
 
 @keyframes confetti-fall {
@@ -225,6 +322,43 @@ body {
   to {
     stroke-dashoffset: 0;
   }
+}
+
+/* Placeholder de carregamento — em vez do animate-pulse padrão do Tailwind
+   (opacidade batendo pra cima e pra baixo feito luz de emergência), um
+   brilho atravessa da esquerda pra direita, tipo App Store/TestFlight
+   carregando. Mesma ideia (algo está carregando), só que lê como "sutil"
+   em vez de "piscando" — ninguém consegue dizer o que mudou, só que parece
+   mais caro. Usado pelo Skeleton (components/skeleton.tsx), que é
+   reaproveitado em toda tela do sistema com estado de carregamento. */
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -50% 0;
+  }
+}
+
+.animate-skeleton-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    rgba(0, 0, 0, 0.06) 30%,
+    rgba(0, 0, 0, 0.12) 50%,
+    rgba(0, 0, 0, 0.06) 70%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+}
+
+.dark .animate-skeleton-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0.06) 30%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.06) 70%
+  );
 }
 
 @keyframes loading-fade-in {
@@ -257,7 +391,7 @@ body {
 }
 
 .animate-step-slide-in {
-  animation: step-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: step-slide-in 220ms var(--ease-smooth);
 }
 
 /* Painel auxiliar "encaixando" logo abaixo do que acabou de ganhar foco (ex.:
@@ -276,7 +410,7 @@ body {
 }
 
 .animate-reveal-below {
-  animation: reveal-below 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: reveal-below 160ms var(--ease-smooth);
 }
 
 /* Bolha de mensagem "chegando" no mockup de celular (MeetingInviteDialog) —
@@ -300,7 +434,7 @@ body {
 }
 
 .animate-bubble-pop-in {
-  animation: bubble-pop-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: bubble-pop-in 320ms var(--ease-smooth) both;
   transform-origin: bottom left;
 }
 
@@ -369,26 +503,37 @@ body {
   background-color: #737373;
 }
 
+/* Checkbox/radio nativos — cor da marca em vez do azul padrão do navegador.
+   Global de propósito, mesmo raciocínio da barra de rolagem acima: são ~15
+   lugares no sistema usando <input type="checkbox"> puro, nenhum com essa
+   cor tratada — corrigir só um deixaria ELE diferente de todos os outros. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--brand);
+}
+
 @layer components {
   .btn-primary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-all duration-150 shadow-sm hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:shadow-sm;
-    background-color: var(--brand);
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-all duration-200 ease-smooth shadow-sm hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm;
+    background: var(--brand-gradient);
   }
 
+  /* filter: brightness (não um 2º gradiente escrito por extenso) — mais
+     barato de manter, mesmo efeito de "escurecer no hover/active". */
   .btn-primary:hover {
-    background-color: var(--brand-hover);
+    filter: brightness(0.96);
   }
 
   .btn-primary:active {
-    background-color: var(--brand-active);
+    filter: brightness(0.9);
   }
 
   .btn-secondary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-all duration-150 shadow-sm hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-all duration-200 ease-smooth shadow-sm hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
   }
 
   .btn-ghost {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 transition-all duration-150 hover:bg-brand-light hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:text-neutral-400 dark:hover:bg-brand-light dark:hover:text-brand;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 transition-all duration-200 ease-smooth hover:bg-brand-light hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:text-neutral-400 dark:hover:bg-brand-light dark:hover:text-brand;
   }
 
   .btn-sm {
@@ -396,7 +541,7 @@ body {
   }
 
   .field-input {
-    @apply w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-all duration-200 ease-out placeholder:text-neutral-400 hover:border-neutral-400 focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:hover:border-neutral-600 dark:focus:border-brand dark:focus:ring-brand/20;
+    @apply w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-all duration-200 ease-smooth placeholder:text-neutral-400 hover:border-neutral-400 focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:hover:border-neutral-600 dark:focus:border-brand dark:focus:ring-brand/20;
   }
 
   .field-select {
@@ -408,33 +553,84 @@ body {
     @apply block text-left text-sm font-medium text-neutral-700 dark:text-neutral-300;
   }
 
+  /* Vidro (glassmorphism) — redesign completo, ver new-design-for-claude/
+     README.md. Fundo translúcido + blur + borda de luz em vez de branco
+     chapado; raio sobe de 8px pra 16px (rounded-2xl), acompanhando o resto
+     da escala de raio nova. No escuro, o "segredo" continua sendo o mesmo
+     de antes (borda branca bem fraca = profundidade de vidro, não outro
+     tom de cinza) — só a opacidade/blur dos valores que mudou pra bater
+     com o protótipo. Sem sombra escura borrada no escuro (comentário
+     original abaixo se aplica igual: lê como "cara de IA", não como vidro). */
   .card {
-    @apply rounded-lg border border-neutral-200/60 bg-white transition-all duration-150 dark:border-neutral-800/60 dark:bg-neutral-900 dark:shadow-none;
-    /* Sombra em camadas (perto+difusa) só faz sentido no claro — dá aquele
-       ar "flutuando" suave sem virar um card pesado/datado. No escuro a
-       borda já basta pra separar do fundo; sombra ali só sujaria. */
+    @apply rounded-2xl border transition-all duration-200 ease-smooth;
+    background: rgba(255, 255, 255, 0.68);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border-color: rgba(255, 255, 255, 0.72);
     box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.04),
-      0 10px 20px -8px rgba(0, 0, 0, 0.10),
-      0 24px 40px -16px rgba(0, 0, 0, 0.08);
+      0 1px 3px rgba(20, 24, 50, 0.06),
+      0 10px 20px -8px rgba(20, 24, 50, 0.08);
   }
 
   .card:hover {
-    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 22px -14px rgba(20, 24, 50, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .dark .card {
+    background: rgba(24, 24, 30, 0.6);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
   }
 
   .dark .card:hover {
-    border-color: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: none;
   }
 
   /* Vidro leve — menus/dropdowns pequenos (Select, DatePicker, popovers de
-     filtro). No claro a borda cinza discreta já lê bem; no escuro uma borda
-     cinza-sobre-cinza (neutral-800 num fundo neutral-900) some — o segredo
-     pra "vidro lapidado" de verdade é um fio de luz branca bem fraca
-     (white/10), não outro tom de cinza. É essa borda que faz o painel
-     parecer ter espessura/refração em vez de só "escurecido". */
+     filtro), e a barra superior fixa. No escuro, mesmo truque do .card
+     acima (borda de luz, não cinza-sobre-cinza). */
   .surface-glass {
-    @apply border border-neutral-200/60 bg-white/80 backdrop-blur-md dark:border-white/10 dark:bg-neutral-900/80;
+    @apply border;
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border-color: rgba(255, 255, 255, 0.72);
+  }
+
+  .dark .surface-glass {
+    background: rgba(20, 20, 26, 0.62);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Vidro "denso" — popover flutuando por cima de conteúdo com muita
+     cor/informação por baixo (popover de filtro, lista de opções do Select
+     quando abre sobre o Kanban/Agenda): o .surface-glass comum (blur 18px,
+     62% de tinta) deixa esse fundo nítido demais atrás do texto, brigando
+     por atenção com ele. Blur bem mais forte aqui (44px) já deixa o que
+     está atrás uma mancha sem forma reconhecível — mas mancha colorida
+     ainda "vaza" visualmente atrás do texto quando o fundo tem chip/badge
+     saturado (visto na prática sobre a grade da Agenda: dava pra ler datas
+     e cores por trás, lia como filtro quebrado, não como vidro). Por isso a
+     tinta subiu de 45% pra 90% — o blur pesado continua ali (a superfície
+     não vira um card 100% chapado), só que agora cobrindo de verdade. Usado
+     pelo FilterPopover inteiro e pela lista de opções do Select (que também
+     abre via portal direto por cima de qualquer conteúdo, não só de dentro
+     de um filtro) — nome não é "-filter" de propósito, cobre os dois. */
+  .surface-glass-dense {
+    @apply border;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(44px) saturate(140%);
+    -webkit-backdrop-filter: blur(44px) saturate(140%);
+    border-color: rgba(255, 255, 255, 0.7);
+  }
+
+  .dark .surface-glass-dense {
+    background: rgba(16, 16, 20, 0.9);
+    border-color: rgba(255, 255, 255, 0.08);
   }
 
   /* Vidro "pesado" — superfícies grandes de overlay (modal, painel lateral,
@@ -443,11 +639,21 @@ body {
      em camadas suaves só no claro (sombra escura borrada no escuro fica com
      "cara de IA" — ali só a borda iluminada de 1px já entrega profundidade). */
   .surface-glass-panel {
-    @apply border border-neutral-200/60 bg-white/90 backdrop-blur-lg shadow-2xl shadow-neutral-900/10 dark:border-white/10 dark:bg-neutral-900/85 dark:shadow-none;
+    @apply border shadow-2xl;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-color: rgba(255, 255, 255, 0.72);
+  }
+
+  .dark .surface-glass-panel {
+    background: rgba(20, 20, 26, 0.9);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
   }
 
   .icon-btn {
-    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-all duration-200 ease-smooth hover:bg-neutral-100 hover:text-neutral-700 active:scale-90 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
   }
 
   /* Pílula de variável inserida no meio do texto (ver components/variable-input.tsx)
@@ -487,15 +693,54 @@ body {
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
 }
 
+/* Fundo em malha de gradiente do shell do dashboard (ver
+   new-design-for-claude/README.md) — SÓ na raiz de app/(dashboard)/layout.tsx,
+   nunca no <body> global (compartilhado com /login e /docs, que não fazem
+   parte deste redesign). O `::before` com z-index:-1 é seguro porque aquela
+   div raiz já é `relative`/`overflow-hidden` — nada perfura por baixo dela;
+   header/main/nav (filhos em fluxo normal, sem z-index próprio relevante)
+   pintam por cima automaticamente. */
+.dashboard-gradient-bg {
+  background: #eff0f8;
+}
+
+.dashboard-gradient-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(760px 420px at 12% -6%, rgba(90, 91, 230, 0.2), transparent 62%),
+    radial-gradient(620px 380px at 92% 0%, rgba(14, 165, 165, 0.13), transparent 60%),
+    radial-gradient(900px 520px at 70% 108%, rgba(139, 92, 246, 0.14), transparent 62%),
+    linear-gradient(180deg, #f7f7fc 0%, #eff0f8 55%, #ebedf6 100%);
+}
+
+.dark .dashboard-gradient-bg {
+  background: #0b0c10;
+}
+
+.dark .dashboard-gradient-bg::before {
+  /* Mesma malha, tons bem mais escuros/baixa opacidade sobre uma base quase
+     preta — não um preto chapado, pra os cards de vidro (fundo translúcido
+     escuro) ainda lerem como "vidro sobre algo", não "vidro sobre nada". */
+  background:
+    radial-gradient(760px 420px at 12% -6%, rgba(90, 91, 230, 0.16), transparent 62%),
+    radial-gradient(620px 380px at 92% 0%, rgba(14, 165, 165, 0.1), transparent 60%),
+    radial-gradient(900px 520px at 70% 108%, rgba(139, 92, 246, 0.12), transparent 62%),
+    linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
+}
+
 /* Linha de lista com "profundidade" — eleva e ganha sombra ao passar o
    mouse, afunda de leve ao clicar (tátil). Sombra só no claro, igual o
    .card: no escuro uma sombra escura não lê como profundidade, só suja. */
 .automation-row {
   position: relative;
   transition:
-    background-color 150ms ease-out,
-    box-shadow 150ms ease-out,
-    transform 100ms ease-out;
+    background-color 200ms var(--ease-smooth),
+    box-shadow 200ms var(--ease-smooth),
+    transform 200ms var(--ease-smooth);
 }
 
 .automation-row:hover {

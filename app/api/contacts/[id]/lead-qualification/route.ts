@@ -37,15 +37,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       },
     });
 
-    // Só manda pro Conversions API se o status REALMENTE mudou (evita spam de
-    // eventos repetidos no Meta Ads Manager). Qualification === null é um
-    // "reset" e não gera evento — a Meta não tem evento de "desclassificar".
-    if (qualification && previousQualification !== qualification) {
-      notifyMetaLeadQualification(
-        organizationId,
-        { id: existing.id, email: existing.email, phone: existing.phone, whatsapp: existing.whatsapp },
-        qualification,
-      ).catch((err) => console.error("[meta-ads] falha ao enviar evento de qualificação de lead", err));
+    // Só manda pro Conversions API na transição PARA "QUALIFIED" — nem em
+    // reset (qualification === null), nem em "UNQUALIFIED" (esse fica só no
+    // relatório interno, ver lib/meta-ads/attribution.ts; não existe evento
+    // de "lead ruim" pra mandar pra Meta, e reenviar "Lead" ali só
+    // ensinaria o algoritmo a otimizar pra mais gente parecida com quem a
+    // gente não quer). E só se REALMENTE mudou (evita spam de eventos
+    // repetidos no Meta Ads Manager ao salvar o mesmo status de novo).
+    if (qualification === "QUALIFIED" && previousQualification !== "QUALIFIED") {
+      notifyMetaLeadQualification(organizationId, {
+        id: existing.id,
+        email: existing.email,
+        phone: existing.phone,
+        whatsapp: existing.whatsapp,
+      }).catch((err) => console.error("[meta-ads] falha ao enviar evento de qualificação de lead", err));
     }
 
     recordUserChange(organizationId, userId).catch((err) =>

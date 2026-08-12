@@ -48,36 +48,37 @@ export async function notifyMetaConversionWon(organizationId: string, deal: Deal
 
 /**
  * Avisa a Meta (Conversions API) quando um lead é classificado como
- * QUALIFIED ou UNQUALIFIED pelo consultor. Mesmo comportamento:
- * silencioso se não houver Meta Ads conectado ou Pixel ID cadastrado.
- * Eventos: Contact (para QUALIFIED) e Lead.UNQUALIFIED não é standard —
- * usamos "Lead" com action_source, e o próprio status é contextual
- * via eventId prefixado pra dedup.
+ * QUALIFIED pelo consultor — evento padrão "Lead", pra alimentar o
+ * algoritmo de otimização da campanha de origem. Desqualificado NUNCA
+ * manda nada pra Meta — só fica registrado no relatório interno (ver
+ * lib/meta-ads/attribution.ts). Não existe um evento "lead ruim" no
+ * vocabulário da Conversions API; mandar "Lead" de novo nesse caso só
+ * ensinaria o algoritmo a buscar MAIS gente parecida com quem a gente
+ * decidiu que não serve — por isso o chamador (PATCH
+ * /api/contacts/[id]/lead-qualification) só invoca esta função na
+ * transição PARA "QUALIFIED", nunca pra "UNQUALIFIED". Mesmo comportamento
+ * de sempre: silencioso se não houver Meta Ads conectado ou Pixel ID
+ * cadastrado.
  */
 export async function notifyMetaLeadQualification(
   organizationId: string,
   contact: ContactForConversion,
-  qualification: "QUALIFIED" | "UNQUALIFIED",
 ): Promise<void> {
   const connection = await prisma.metaAdsConnection.findUnique({ where: { organizationId } });
   if (!connection?.pixelId) return;
 
   const phone = contact.whatsapp || contact.phone;
   if (!contact.email && !phone) {
-    console.log(`[meta-ads] contato ${contact.id} ${qualification.toLowerCase()}, mas sem e-mail/telefone — nada pra mandar pro Pixel`);
+    console.log(`[meta-ads] contato ${contact.id} qualificado, mas sem e-mail/telefone — nada pra mandar pro Pixel`);
     return;
   }
 
   const accessToken = decryptSecret(connection.pageAccessTokenEncrypted);
-  const eventName = qualification === "QUALIFIED" ? "Lead" : "Lead";
-  // Usamos um custom_data leve pra distinguir os dois, sem perder a
-  // compatibilidade com o evento Lead padrão da Meta (que é o que o
-  // algoritmo de otimização de campanhas entende).
   await sendConversionEvent(connection.pixelId, accessToken, {
-    eventName,
+    eventName: "Lead",
     eventTime: new Date(),
-    eventId: `contact:${contact.id}:lead:${qualification.toLowerCase()}`,
+    eventId: `contact:${contact.id}:lead:qualified`,
     user: { email: contact.email, phone },
   });
-  console.log(`[meta-ads] evento Lead.${qualification} mandado pro Pixel — contato ${contact.id}`);
+  console.log(`[meta-ads] evento Lead mandado pro Pixel — contato ${contact.id} qualificado`);
 }

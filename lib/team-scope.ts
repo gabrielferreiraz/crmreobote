@@ -69,3 +69,13 @@ export function scopeWhere(scope: DealScope) {
 export function whatsappScopeWhere(scope: DealScope) {
   return scope.type === "owners" ? { instance: { userId: { in: scope.ownerIds } } } : {};
 }
+
+/**
+ * Mesma ideia de scopeWhere, mas pra Contact (campo é responsavelId, não
+ * ownerId). Usado pelo KPI "Clientes ativos" do Início — antes hardcoded
+ * pro usuário logado (não respeitava escopo de equipe), corrigido junto com
+ * o redesign.
+ */
+export function contactScopeWhere(scope: DealScope) {
+  return scope.type === "owners" ? { responsavelId: { in: scope.ownerIds } } : {};
+}

@@ -67,11 +67,43 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       })),
     };
 
-    const membersRaw = await prisma.organizationUser.findMany({
-      where: { organizationId, active: true },
-      orderBy: { createdAt: "asc" },
-      include: { user: { select: { id: true, name: true } } },
-    });
+    // Nenhuma das 6 depende do resultado de outra nem de nada que só exista
+    // depois de `dealRaw` (as 5 primeiras usam só organizationId; o count de
+    // não lidas usa deal.contactId, já resolvido acima) — rodar sequencial
+    // era só ordem de código, não dependência real (medido: Fase 7 da
+    // auditoria de performance, ganho real de ~60% nesse bloco). A cadeia de
+    // WhatsApp (resolveConnectedInstance/getOrCreateThreadForContact), logo
+    // abaixo, continua de fora de propósito — depende de dealRaw.ownerId e
+    // tem efeito colateral (pode criar/atualizar WhatsAppThread).
+    const [membersRaw, lossReasons, customFields, creditTypes, jobTitles, unreadCount] = await Promise.all([
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true } } },
+      }),
+      prisma.lossReason.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+      }),
+      prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "DEAL" },
+        orderBy: { order: "asc" },
+      }),
+      prisma.creditType.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+      }),
+      prisma.jobTitle.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+      }),
+      // Não lida: soma de qualquer conversa deste contato, não só a de quem
+      // está vendo a página agora (o lead pode ter respondido pra outro
+      // vendedor que já trocou mensagem com ele antes).
+      prisma.whatsAppMessage.count({
+        where: { organizationId, thread: { contactId: deal.contactId }, direction: "INBOUND", read: false },
+      }),
+    ]);
 
     const members = membersRaw.map((m) => m.user);
     // Garante que o responsável atual apareça no seletor mesmo se tiver sido
@@ -79,33 +111,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     if (!members.some((m) => m.id === deal.owner.id)) {
       members.push({ id: deal.owner.id, name: `${deal.owner.name} (inativo)` });
     }
-
-    const lossReasons = await prisma.lossReason.findMany({
-      where: { organizationId },
-      orderBy: { order: "asc" },
-    });
-
-    const customFields = await prisma.customFieldDefinition.findMany({
-      where: { organizationId, entityType: "DEAL" },
-      orderBy: { order: "asc" },
-    });
-
-    const creditTypes = await prisma.creditType.findMany({
-      where: { organizationId },
-      orderBy: { order: "asc" },
-    });
-
-    const jobTitles = await prisma.jobTitle.findMany({
-      where: { organizationId },
-      orderBy: { order: "asc" },
-    });
-
-    // Não lida: soma de qualquer conversa deste contato, não só a de quem
-    // está vendo a página agora (o lead pode ter respondido pra outro
-    // vendedor que já trocou mensagem com ele antes).
-    const unreadCount = await prisma.whatsAppMessage.count({
-      where: { organizationId, thread: { contactId: deal.contactId }, direction: "INBOUND", read: false },
-    });
 
     // A conversa é sempre a do vendedor responsável pelo negócio — é o
     // número dele que troca mensagem com esse contato. Pra quem está vendo o

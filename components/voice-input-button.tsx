@@ -20,7 +20,9 @@ export { appendDictatedText };
  * navegadores do que o modo contínuo (que tem bugs conhecidos de parar
  * sozinho no Chrome depois de alguns segundos) — pra ditar mais, clica de
  * novo. O objetivo aqui é digitar rápido um título/nota curta, não uma
- * transcrição longa.
+ * transcrição longa (pra isso, ver `keepListening` abaixo — reencadeia frase
+ * por frase sozinho, pra ditar vários campos numa sentada só sem precisar
+ * clicar de novo a cada um).
  *
  * A SpeechRecognition em si não expõe o volume do microfone — pra mostrar
  * uma reação de verdade enquanto a pessoa fala (não só um pulso genérico),
@@ -34,11 +36,25 @@ export function VoiceInputButton({
   onResult,
   lang = "pt-BR",
   className = "",
+  keepListening = false,
 }: {
   /** Chamado com o texto reconhecido (frase inteira) quando termina de falar. */
   onResult: (text: string) => void;
   lang?: string;
   className?: string;
+  /**
+   * Depois de cada frase reconhecida, reabre o microfone sozinho em vez de
+   * esperar um clique novo — pensado pra ditar VÁRIOS campos numa sentada só
+   * ("nome fulano... telefone tal... mora em tal cidade..."), não só um
+   * título/nota curta (o caso de uso padrão, ver comentário do componente).
+   * Continua sozinho até a pessoa clicar de novo pra parar, ou até um erro
+   * de verdade acontecer (mic sem permissão, sem internet etc. — aí para,
+   * não adianta tentar de novo sozinho). Não é o `continuous: true` nativo
+   * da SpeechRecognition (esse tem bug conhecido de parar sozinho no Chrome
+   * depois de alguns segundos) — é uma frase de cada vez por baixo dos
+   * panos, só reencadeada automaticamente.
+   */
+  keepListening?: boolean;
 }) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
@@ -49,6 +65,10 @@ export function VoiceInputButton({
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // false enquanto a pessoa ainda está "numa sessão" de ditado contínuo —
+  // vira true só quando ela mesma clica pra parar (ou o componente
+  // desmonta), pra onend saber se deve reabrir o microfone sozinho ou não.
+  const stoppedByUserRef = useRef(true);
 
   useEffect(() => {
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -67,6 +87,10 @@ export function VoiceInputButton({
 
   useEffect(
     () => () => {
+      // Marca "parado" ANTES do abort() — sem isso, onend via abort() via
+      // desmontagem via keepListening ainda tentava reabrir o microfone
+      // depois que o componente já tinha ido embora.
+      stoppedByUserRef.current = true;
       recognitionRef.current?.abort();
       stopVisualizer();
       if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
@@ -109,20 +133,14 @@ export function VoiceInputButton({
     }
   }
 
-  function toggle() {
-    // Trava contra clique/toque duplo: sem isso, dois cliques rápidos antes
-    // do re-render refletir `listening=true` criavam DUAS instâncias de
-    // SpeechRecognition escutando o mesmo microfone ao mesmo tempo (a
-    // segunda sobrescrevia recognitionRef sem nunca parar a primeira).
-    if (listening || recognitionRef.current) {
-      recognitionRef.current?.stop();
-      return;
-    }
-
+  /** Cria e inicia uma instância nova de reconhecimento — não reaproveita a
+   * anterior (o navegador não deixa reiniciar uma já finalizada), por isso
+   * tanto o clique inicial quanto o reencadeio automático (`keepListening`)
+   * passam por aqui. */
+  function startRecognition() {
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Ctor) return;
 
-    setError(null);
     const recognition = new Ctor();
     recognition.lang = lang;
     recognition.continuous = false;
@@ -138,12 +156,15 @@ export function VoiceInputButton({
     };
     recognition.onerror = (event) => {
       // "no-speech"/"aborted" são silêncio comum (usuário clicou e não falou
-      // nada, ou parou por conta própria) — não é erro de verdade, não avisa.
-      // Os outros códigos têm causas bem diferentes entre si (mic ausente
-      // vs. sem internet vs. permissão negada) — misturar tudo numa mensagem
-      // genérica de "tente de novo" manda o vendedor repetir uma ação que
-      // vai falhar de novo pelo mesmo motivo.
+      // nada, ou parou por conta própria) — não é erro de verdade, não avisa
+      // nem interrompe uma sessão de ditado contínuo (a pessoa pode só estar
+      // pensando no próximo campo). Os outros códigos têm causas bem
+      // diferentes entre si (mic ausente vs. sem internet vs. permissão
+      // negada) — misturar tudo numa mensagem genérica de "tente de novo"
+      // manda o vendedor repetir uma ação que vai falhar de novo pelo mesmo
+      // motivo, então esses SIM param a sessão (ver stoppedByUserRef abaixo).
       if (event.error === "no-speech" || event.error === "aborted") return;
+      stoppedByUserRef.current = true;
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         showError("Permissão de microfone negada");
       } else if (event.error === "audio-capture") {
@@ -158,14 +179,39 @@ export function VoiceInputButton({
       }
     };
     recognition.onend = () => {
+      recognitionRef.current = null;
+      // Reencadeia sozinho enquanto a sessão de ditado contínuo não foi
+      // encerrada pela própria pessoa (clique) nem por um erro de verdade —
+      // reabre o mic pro próximo campo sem exigir clicar de novo. O
+      // visualizador de volume (getUserMedia à parte) continua rodando por
+      // baixo, só a SpeechRecognition em si é trocada.
+      if (keepListening && !stoppedByUserRef.current) {
+        startRecognition();
+        return;
+      }
       setListening(false);
       stopVisualizer();
-      recognitionRef.current = null;
     };
 
     recognitionRef.current = recognition;
-    setListening(true);
     recognition.start();
+  }
+
+  function toggle() {
+    // Trava contra clique/toque duplo: sem isso, dois cliques rápidos antes
+    // do re-render refletir `listening=true` criavam DUAS instâncias de
+    // SpeechRecognition escutando o mesmo microfone ao mesmo tempo (a
+    // segunda sobrescrevia recognitionRef sem nunca parar a primeira).
+    if (listening || recognitionRef.current) {
+      stoppedByUserRef.current = true;
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    setError(null);
+    stoppedByUserRef.current = false;
+    setListening(true);
+    startRecognition();
     startVisualizer();
   }
 
@@ -177,7 +223,7 @@ export function VoiceInputButton({
         type="button"
         onClick={toggle}
         className={`icon-btn relative ${listening ? "text-red-500 dark:text-red-400" : ""} ${className}`}
-        title={listening ? "Parar ditado" : "Ditar por voz"}
+        title={listening ? "Parar ditado" : keepListening ? "Ditar por voz — fale os campos um de cada vez" : "Ditar por voz"}
         aria-label={listening ? "Parar ditado" : "Ditar por voz"}
         aria-pressed={listening}
       >
@@ -205,7 +251,9 @@ export function VoiceInputButton({
               />
             ))}
           </span>
-          <span className="text-[11px] font-medium whitespace-nowrap text-white">Ouvindo…</span>
+          <span className="text-[11px] font-medium whitespace-nowrap text-white">
+            {keepListening ? "Ouvindo… um campo de cada vez" : "Ouvindo…"}
+          </span>
         </span>
       )}
 

@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #F5F6F8; }
+  * { box-sizing: border-box; }
+  a { color: #5B5BD6; text-decoration: none; }
+  a:hover { color: #4342B8; text-decoration: underline; }
+  input, button, select, textarea { font: inherit; }
+  ::selection { background: #DEDDFB; }
+  @keyframes cFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes cSlide { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+  .c-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+  .c-scroll::-webkit-scrollbar-thumb { background: #D6D8DE; border-radius: 8px; border: 3px solid #F5F6F8; }
+  .c-scroll::-webkit-scrollbar-track { background: transparent; }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; background: #F5F6F8; color: #16181D; font-family: 'Public Sans', system-ui, sans-serif; display: flex; flex-direction: column;">
+
+  <div style="display: flex; align-items: center; gap: 22px; padding: 0 22px; height: 46px; background: #FFFFFF; border-bottom: 1px solid #E7E8EC; flex: 0 0 auto;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="width: 21px; height: 21px; border-radius: 6px; background: #5B5BD6; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;">C</span>
+      <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.02em;">CRM</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 4px;">
+      <span style="font-size: 13px; color: #6C707A; padding: 5px 10px;">Início</span>
+      <span style="font-size: 13px; color: #6C707A; padding: 5px 10px;">Clientes</span>
+      <span style="font-size: 13px; font-weight: 600; color: #FFFFFF; background: #5B5BD6; border-radius: 7px; padding: 5px 11px;">Pipeline</span>
+      <span style="font-size: 13px; color: #6C707A; padding: 5px 10px;">WhatsApp</span>
+      <span style="font-size: 13px; color: #6C707A; padding: 5px 10px;">Agenda</span>
+      <span style="font-size: 13px; color: #6C707A; padding: 5px 10px;">Relatórios</span>
+    </div>
+    <div style="flex: 1;"></div>
+    <span style="width: 26px; height: 26px; border-radius: 50%; background: #EFEFFB; color: #5B5BD6; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;">RG</span>
+  </div>
+
+  <div style="padding: 20px 22px 0; display: flex; flex-direction: column; gap: 14px;">
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 20px;">
+      <div>
+        <div style="font-size: 21px; font-weight: 700; letter-spacing: -0.025em;">Pipeline</div>
+        <div style="font-size: 13px; color: #6C707A; margin-top: 2px;">Funil de Vendas · {{ headerLine }}</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 9px;">
+        <div style="display: flex; background: #ECEDF1; border-radius: 8px; padding: 3px; gap: 2px;">
+          <button onClick="{{ showBoard }}" style="{{ boardTabStyle }}">Kanban</button>
+          <button onClick="{{ showTable }}" style="{{ tableTabStyle }}">Lista</button>
+        </div>
+        <button onClick="{{ openAdd }}" style="padding: 8px 14px; border-radius: 8px; border: none; background: #5B5BD6; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;" style-hover="background: #4342B8;">+ Novo negócio</button>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+      <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+        <button onClick="{{ m.onClick }}" style="{{ m.style }}">
+          <span style="font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; color: #6C707A; text-align: left;">{{ m.label }}</span>
+          <span style="{{ m.valueStyle }}">{{ m.value }}</span>
+          <span style="font-size: 11.5px; color: #9096A1; text-align: left; line-height: 1.3;">{{ m.hint }}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Buscar negócio ou contato" style="width: 260px; padding: 8px 12px; border-radius: 8px; border: 1px solid #DFE1E6; background: #FFFFFF; font-size: 13px; outline: none;" style-focus="border-color: #5B5BD6; box-shadow: 0 0 0 3px #E9E9FB;" />
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+        <button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button>
+      </sc-for>
+      <div style="flex: 1;"></div>
+      <span style="font-size: 12px; color: #9096A1;">Ordenar</span>
+      <sc-for list="{{ sorts }}" as="s" hint-placeholder-count="3">
+        <button onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-if value="{{ isBoard }}" hint-placeholder-val="{{ true }}">
+    <div class="c-scroll" style="flex: 1; display: flex; gap: 12px; align-items: flex-start; padding: 16px 22px 110px; overflow-x: auto;">
+      <sc-for list="{{ columns }}" as="col" hint-placeholder-count="6">
+        <div onDragOver="{{ col.onDragOver }}" onDrop="{{ col.onDrop }}" onDragLeave="{{ col.onDragLeave }}" style="width: 286px; flex: 0 0 286px; display: flex; flex-direction: column; gap: 8px;">
+
+          <div style="padding: 10px 12px; background: #FFFFFF; border: 1px solid #E7E8EC; border-radius: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                <span style="{{ col.dotStyle }}"></span>
+                <span style="font-size: 12.5px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ col.name }}</span>
+              </div>
+              <span style="font-size: 11.5px; font-weight: 600; color: #6C707A; background: #F1F2F5; border-radius: 20px; padding: 2px 8px; font-variant-numeric: tabular-nums;">{{ col.count }}</span>
+            </div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+              <span style="font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;">{{ col.total }}</span>
+              <span style="font-size: 11px; color: #9096A1;">{{ col.avg }}</span>
+            </div>
+            <div style="height: 4px; border-radius: 4px; background: #EDEEF2; overflow: hidden; display: flex;">
+              <div style="{{ col.barStyle }}"></div>
+            </div>
+            <div style="font-size: 11px; color: #9096A1;">{{ col.health }}</div>
+          </div>
+
+          <div style="{{ col.wellStyle }}">
+            <sc-for list="{{ col.deals }}" as="d" hint-placeholder-count="4">
+              <div draggable="true" onDragStart="{{ d.onDragStart }}" onDragEnd="{{ d.onDragEnd }}" onClick="{{ d.onOpen }}" style="{{ d.cardStyle }}" style-hover="border-color: #C9CBD4; box-shadow: 0 2px 8px rgba(20,24,40,0.07);">
+                <div style="display: flex; align-items: flex-start; gap: 9px;">
+                  <button onClick="{{ d.onToggle }}" style="{{ d.checkStyle }}">{{ d.checkMark }}</button>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ d.contact }}</div>
+                    <div style="font-size: 11px; color: #9096A1; margin-top: 2px; font-variant-numeric: tabular-nums;">{{ d.meta }}</div>
+                  </div>
+                  <span style="{{ d.avatarStyle }}">{{ d.initials }}</span>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                  <span style="{{ d.valueStyle }}">{{ d.value }}</span>
+                  <span style="{{ d.ageStyle }}">{{ d.age }}</span>
+                </div>
+
+                <button onClick="{{ d.onTask }}" style="{{ d.taskStyle }}">
+                  <span style="{{ d.taskDotStyle }}"></span>
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.taskLabel }}</span>
+                </button>
+
+                <div style="display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid #F0F1F4;">
+                  <button onClick="{{ d.onWhats }}" style="flex: 1; padding: 5px 0; border-radius: 6px; border: 1px solid #E7E8EC; background: #FFFFFF; font-size: 11.5px; font-weight: 600; color: #4B5563; cursor: pointer;" style-hover="background: #F3FAF6; border-color: #B7E2CB; color: #12805C;">WhatsApp</button>
+                  <button onClick="{{ d.onTask }}" style="flex: 1; padding: 5px 0; border-radius: 6px; border: 1px solid #E7E8EC; background: #FFFFFF; font-size: 11.5px; font-weight: 600; color: #4B5563; cursor: pointer;" style-hover="background: #F7F7FE; border-color: #CFCFF6; color: #4342B8;">Tarefa</button>
+                  <button onClick="{{ d.onAdvance }}" style="flex: 1; padding: 5px 0; border-radius: 6px; border: 1px solid #E7E8EC; background: #FFFFFF; font-size: 11.5px; font-weight: 600; color: #4B5563; cursor: pointer;" style-hover="background: #F7F7FE; border-color: #CFCFF6; color: #4342B8;">Avançar</button>
+                </div>
+              </div>
+            </sc-for>
+
+            <sc-if value="{{ col.hasMore }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ col.onMore }}" style="width: 100%; padding: 9px; border-radius: 9px; border: 1px dashed #D6D8DE; background: transparent; font-size: 12px; font-weight: 600; color: #6C707A; cursor: pointer;" style-hover="background: #FFFFFF; border-color: #5B5BD6; color: #5B5BD6;">{{ col.moreLabel }}</button>
+            </sc-if>
+            <sc-if value="{{ col.isEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 20px 10px; text-align: center; font-size: 12px; color: #9096A1; border: 1px dashed #DFE1E6; border-radius: 10px;">Nada aqui com esses filtros</div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isTable }}" hint-placeholder-val="{{ false }}">
+    <div style="flex: 1; padding: 16px 22px 110px;">
+      <div style="background: #FFFFFF; border: 1px solid #E7E8EC; border-radius: 11px; overflow: hidden;">
+        <div style="display: grid; grid-template-columns: 36px 1.5fr 0.9fr 1fr 1.5fr 0.7fr 0.6fr; gap: 12px; padding: 10px 14px; background: #FAFAFB; border-bottom: 1px solid #E7E8EC; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #9096A1;">
+          <span></span><span>Contato</span><span>Valor</span><span>Etapa</span><span>Próxima tarefa</span><span>Resp.</span><span>Parado</span>
+        </div>
+        <sc-for list="{{ rows }}" as="d" hint-placeholder-count="10">
+          <div onClick="{{ d.onOpen }}" style="{{ d.rowStyle }}" style-hover="background: #FAFAFB;">
+            <button onClick="{{ d.onToggle }}" style="{{ d.checkStyle }}">{{ d.checkMark }}</button>
+            <div style="min-width: 0;">
+              <div style="font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ d.contact }}</div>
+              <div style="font-size: 11px; color: #9096A1;">{{ d.meta }}</div>
+            </div>
+            <span style="{{ d.valueStyle }}">{{ d.value }}</span>
+            <span style="font-size: 12.5px; color: #4B5563;">{{ d.stageName }}</span>
+            <span style="{{ d.taskTextStyle }}">{{ d.taskLabel }}</span>
+            <span style="font-size: 12px; color: #6C707A;">{{ d.owner }}</span>
+            <span style="{{ d.ageStyle }}">{{ d.age }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px; border-radius: 12px; background: #16181D; color: #FFFFFF; box-shadow: 0 14px 34px rgba(16,20,32,0.3); animation: cFade 150ms ease-out;">
+      <span style="font-size: 12.5px; font-weight: 600;">{{ selectionLabel }}</span>
+      <span style="width: 1px; height: 18px; background: #3A3D45; margin: 0 3px;"></span>
+      <button onClick="{{ bulkTask }}" style="padding: 6px 10px; border-radius: 7px; border: 1px solid #3A3D45; background: transparent; color: #FFFFFF; font-size: 12px; cursor: pointer; white-space: nowrap;" style-hover="background: #5B5BD6; border-color: #5B5BD6;">Criar tarefa</button>
+      <span style="font-size: 11.5px; color: #9096A1; margin-left: 4px;">Mover</span>
+      <sc-for list="{{ moveTargets }}" as="s" hint-placeholder-count="6">
+        <button onClick="{{ s.onMove }}" style="padding: 6px 9px; border-radius: 7px; border: 1px solid #3A3D45; background: transparent; color: #E5E7EB; font-size: 11.5px; cursor: pointer; white-space: nowrap;" style-hover="background: #5B5BD6; border-color: #5B5BD6; color: #fff;">{{ s.short }}</button>
+      </sc-for>
+      <button onClick="{{ clearSelection }}" style="padding: 5px 8px; border-radius: 7px; border: none; background: transparent; color: #9096A1; font-size: 15px; line-height: 1; cursor: pointer;" style-hover="color: #FFFFFF;">×</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ openDeal }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDeal }}" style="position: fixed; inset: 0; background: rgba(16,20,32,0.32); z-index: 50; display: flex; justify-content: flex-end;">
+      <div onClick="{{ stop }}" class="c-scroll" style="width: 470px; max-width: 94vw; height: 100%; background: #FFFFFF; overflow-y: auto; animation: cSlide 190ms cubic-bezier(0.22,0.7,0.3,1); box-shadow: -14px 0 38px rgba(16,20,32,0.16);">
+        <div style="padding: 20px 24px 16px; border-bottom: 1px solid #EDEEF2;">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+            <div style="min-width: 0;">
+              <div style="font-size: 19px; font-weight: 700; letter-spacing: -0.02em; text-wrap: pretty;">{{ openDeal.contact }}</div>
+              <div style="font-size: 12px; color: #9096A1; margin-top: 3px;">{{ openDeal.meta }}</div>
+            </div>
+            <button onClick="{{ closeDeal }}" style="border: 1px solid #E7E8EC; background: #FFFFFF; border-radius: 8px; width: 29px; height: 29px; font-size: 15px; color: #6C707A; cursor: pointer; flex: 0 0 auto;" style-hover="background: #F1F2F5;">×</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 14px;">
+            <span style="font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">{{ openDeal.value }}</span>
+            <span style="{{ openDeal.ageStyle }}">{{ openDeal.age }}</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px;">
+            <sc-for list="{{ moveTargets }}" as="s" hint-placeholder-count="6">
+              <button onClick="{{ s.onSetOpen }}" style="{{ s.pillStyle }}">{{ s.name }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="padding: 18px 24px; border-bottom: 1px solid #EDEEF2;">
+          <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1; margin-bottom: 10px;">Próxima tarefa</div>
+          <div style="{{ openDeal.taskBoxStyle }}">
+            <span style="{{ openDeal.taskDotStyle }}"></span>
+            <span style="flex: 1; font-size: 13.5px; font-weight: 600;">{{ openDeal.taskLabel }}</span>
+            <button onClick="{{ openDeal.onTask }}" style="padding: 5px 10px; border-radius: 7px; border: 1px solid #DFE1E6; background: #FFFFFF; font-size: 12px; font-weight: 600; cursor: pointer;" style-hover="border-color: #5B5BD6; color: #4342B8;">{{ openDeal.taskCta }}</button>
+          </div>
+          <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+            <sc-for list="{{ quickTasks }}" as="q" hint-placeholder-count="3">
+              <button onClick="{{ q.onClick }}" style="padding: 6px 11px; border-radius: 20px; border: 1px solid #E7E8EC; background: #FAFAFB; font-size: 12px; color: #4B5563; cursor: pointer;" style-hover="border-color: #5B5BD6; color: #4342B8; background: #F7F7FE;">{{ q.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="padding: 18px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; border-bottom: 1px solid #EDEEF2;">
+          <div>
+            <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Responsável</div>
+            <div style="font-size: 13.5px; margin-top: 4px;">{{ openDeal.owner }}</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Origem</div>
+            <div style="font-size: 13.5px; margin-top: 4px;">{{ openDeal.source }}</div>
+          </div>
+        </div>
+
+        <div style="padding: 18px 24px 40px;">
+          <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1; margin-bottom: 12px;">Histórico</div>
+          <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+            <input value="{{ note }}" onChange="{{ onNote }}" onKeyDown="{{ onNoteKey }}" placeholder="Registrar contato ou nota…" style="flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid #DFE1E6; background: #FFFFFF; font-size: 13px; outline: none;" style-focus="border-color: #5B5BD6; box-shadow: 0 0 0 3px #E9E9FB;" />
+            <button onClick="{{ addNote }}" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #DFE1E6; background: #FAFAFB; font-size: 13px; font-weight: 600; cursor: pointer;" style-hover="background: #F1F2F5;">Salvar</button>
+          </div>
+          <div style="display: flex; flex-direction: column;">
+            <sc-for list="{{ openDeal.activity }}" as="a" hint-placeholder-count="4">
+              <div style="display: grid; grid-template-columns: 12px 1fr; gap: 12px;">
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                  <span style="{{ a.dotStyle }}"></span>
+                  <span style="flex: 1; width: 1px; background: #EDEEF2;"></span>
+                </div>
+                <div style="padding-bottom: 16px;">
+                  <div style="font-size: 13px; line-height: 1.45; color: #2B2F38; text-wrap: pretty;">{{ a.text }}</div>
+                  <div style="font-size: 11.5px; color: #9096A1; margin-top: 2px;">{{ a.when }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ addOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeAdd }}" style="position: fixed; inset: 0; background: rgba(16,20,32,0.34); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px;">
+      <div onClick="{{ stop }}" style="width: 460px; max-width: 100%; background: #FFFFFF; border-radius: 14px; box-shadow: 0 24px 56px rgba(16,20,32,0.26); animation: cFade 170ms cubic-bezier(0.22,0.7,0.3,1); overflow: hidden;">
+        <div style="padding: 18px 22px 14px; border-bottom: 1px solid #EDEEF2; font-size: 15.5px; font-weight: 700; letter-spacing: -0.015em;">Novo negócio</div>
+        <div style="padding: 18px 22px; display: flex; flex-direction: column; gap: 13px;">
+          <label style="display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Contato
+            <input value="{{ draft.contact }}" onChange="{{ onDraftContact }}" placeholder="Nome do cliente" style="padding: 9px 12px; border-radius: 8px; border: 1px solid #DFE1E6; font-size: 14px; color: #16181D; text-transform: none; letter-spacing: normal; font-weight: 400; outline: none;" style-focus="border-color: #5B5BD6; box-shadow: 0 0 0 3px #E9E9FB;" />
+          </label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 13px;">
+            <label style="display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Valor (R$)
+              <input value="{{ draft.value }}" onChange="{{ onDraftValue }}" placeholder="500000" style="padding: 9px 12px; border-radius: 8px; border: 1px solid #DFE1E6; font-size: 14px; font-variant-numeric: tabular-nums; color: #16181D; text-transform: none; letter-spacing: normal; font-weight: 400; outline: none;" style-focus="border-color: #5B5BD6; box-shadow: 0 0 0 3px #E9E9FB;" />
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Responsável
+              <input value="{{ draft.owner }}" onChange="{{ onDraftOwner }}" placeholder="Kg" style="padding: 9px 12px; border-radius: 8px; border: 1px solid #DFE1E6; font-size: 14px; color: #16181D; text-transform: none; letter-spacing: normal; font-weight: 400; outline: none;" style-focus="border-color: #5B5BD6; box-shadow: 0 0 0 3px #E9E9FB;" />
+            </label>
+          </div>
+          <label style="display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Primeira tarefa
+            <input value="{{ draft.task }}" onChange="{{ onDraftTask }}" placeholder="Ligar hoje às 14h" style="padding: 9px 12px; border-radius: 8px; border: 1px solid #DFE1E6; font-size: 14px; color: #16181D; text-transform: none; letter-spacing: normal; font-weight: 400; outline: none;" style-focus="border-color: #5B5BD6; box-shadow: 0 0 0 3px #E9E9FB;" />
+          </label>
+          <div style="display: flex; flex-direction: column; gap: 7px;">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9096A1;">Etapa</span>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <sc-for list="{{ draftStages }}" as="s" hint-placeholder-count="6">
+                <button onClick="{{ s.onPick }}" style="{{ s.pillStyle }}">{{ s.name }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 14px 22px 18px; display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid #EDEEF2;">
+          <button onClick="{{ closeAdd }}" style="padding: 9px 14px; border-radius: 8px; border: 1px solid #DFE1E6; background: #FFFFFF; font-size: 13px; cursor: pointer;" style-hover="background: #F1F2F5;">Cancelar</button>
+          <button onClick="{{ createDeal }}" style="padding: 9px 16px; border-radius: 8px; border: none; background: #5B5BD6; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;" style-hover="background: #4342B8;">Criar negócio</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Kanban&quot;,&quot;Lista&quot;],&quot;default&quot;:&quot;Kanban&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultFilter&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Tudo&quot;,&quot;Ação hoje&quot;,&quot;Sem tarefa&quot;,&quot;Parados +14d&quot;,&quot;Sem valor&quot;],&quot;default&quot;:&quot;Tudo&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const STAGES = [
+  { id: 'prospec', name: 'PROSPECÇÃO', short: 'Prospec.', color: '#9096A1', extra: 4694 },
+  { id: 'mensagem', name: 'MENSAGEM/CONTATO', short: 'Mensagem', color: '#5B5BD6', extra: 1143 },
+  { id: 'analise', name: 'EM ANÁLISE', short: 'Análise', color: '#0D9488', extra: 319 },
+  { id: 'visita', name: 'VISITA MARCADA', short: 'Visita', color: '#2563EB', extra: 226 },
+  { id: 'remkt', name: 'REMARKETING', short: 'Remkt', color: '#C2410C', extra: 781 },
+  { id: 'quente', name: 'QUENTE', short: 'Quente', color: '#DC2626', extra: 96 }
+];
+
+// [contato, empresa/detalhe, valor, etapa, resp, diasParado, tarefa|null, prazoTarefa, origem]
+const SEED = [
+  ['Osvaldo Marmoraria', '126682', 600000, 'prospec', 'KG', 15, null, '', 'Formulário site'],
+  ['Giowanna Padilha', '126680', 400000, 'prospec', 'KG', 15, 'Ligar — 2ª tentativa', 'hoje 14:00', 'Indicação'],
+  ['Tiago Portela', '126669', 0, 'prospec', 'PS', 15, null, '', 'Meta Ads'],
+  ['Giovanni Topinho', '126657', 500000, 'prospec', 'KG', 15, null, '', 'Meta Ads'],
+  ['Caio Ferreira', '126654', 0, 'prospec', 'PS', 12, 'Qualificar por WhatsApp', 'amanhã', 'Meta Ads'],
+  ['Tifany Souza', '07/26 · ADS', 0, 'mensagem', 'VC', 7, 'Enviar tabela de preços', 'hoje 11:00', 'Meta Ads'],
+  ['Pedro Marcon', '126613', 0, 'mensagem', 'VC', 10, null, '', 'Meta Ads'],
+  ['Caroline Valenti Baioco', '07/26 · ADS', 0, 'mensagem', 'VC', 10, 'Retomar conversa', 'atrasada 2d', 'Meta Ads'],
+  ['Vanessa Cirio Pedroso', '07/26 · ADS', 0, 'mensagem', 'VC', 10, null, '', 'Meta Ads'],
+  ['Ana Julia Ramos', '07/26 · ADS', 0, 'mensagem', 'VC', 9, null, '', 'Meta Ads'],
+  ['Moisés Barbosa e Souza', '#JUL-26#', 0, 'analise', 'EF', 14, null, '', 'Indicação'],
+  ['Leilaine Quiosque do Poeta', 'JUL/26', 500000, 'analise', 'RL', 14, 'Enviar proposta revisada', 'hoje 17:00', 'Indicação'],
+  ['Marcelo Moriyama', '#JUL-26#', 0, 'analise', 'EF', 14, null, '', 'Site'],
+  ['Dr. Nestor Muzzi Neto', '#JUL-26#', 320000, 'analise', 'EF', 14, 'Aguardar retorno do sócio', 'sexta', 'Indicação'],
+  ['Marcele Frota', '#JUN-26#', 0, 'analise', 'EF', 21, null, '', 'Site'],
+  ['Irene Silva', '126689', 0, 'visita', 'PS', 14, 'Confirmar visita', 'hoje 09:00', 'Indicação'],
+  ['Fernando Santa Clara', '126687', 180000, 'visita', 'PS', 14, null, '', 'Site'],
+  ['Prod. Marcelo Calábria', 'JUN/26', 260000, 'visita', 'RL', 14, 'Remarcar visita', 'atrasada 4d', 'Indicação'],
+  ['David Livingstone Alves', 'JUL/26', 0, 'visita', 'RL', 14, null, '', 'Meta Ads'],
+  ['Emp. Luiz Carlos', 'JUN/26', 145000, 'visita', 'RL', 18, null, '', 'Indicação'],
+  ['Naniara Bianca', 'LEAD FRIO', 200000, 'remkt', 'KL', 14, null, '', 'Meta Ads'],
+  ['Juliano Meta', '126668', 0, 'remkt', 'PS', 15, null, '', 'Meta Ads'],
+  ['Glaucio Bruno', '126659', 0, 'remkt', 'PS', 15, 'Reativar com oferta', 'segunda', 'Meta Ads'],
+  ['Paulo Salomão', '126453', 0, 'remkt', 'PS', 34, null, '', 'Site'],
+  ['Dr. Osmar de Campos', '07/26', 220000, 'quente', 'PS', 6, 'Fechar contrato', 'hoje 16:00', 'Indicação'],
+  ['Michele Marino', '07/26', 110000, 'quente', 'PS', 8, 'Enviar contrato p/ assinatura', 'amanhã', 'Indicação'],
+  ['Edemarcio Pereira', '126350', 0, 'quente', 'PS', 11, null, '', 'Site'],
+  ['Lauro Binex', '07/26', 600000, 'quente', 'PS', 5, 'Alinhar entrada e prazo', 'hoje 18:00', 'Indicação'],
+  ['Fabio Caxeta', '07/26', 90000, 'quente', 'PS', 9, null, '', 'Meta Ads']
+];
+
+const BASE_ACTS = [
+  ['WhatsApp — cliente respondeu sobre disponibilidade', 'há 2 dias', '#12805C'],
+  ['Ligação — 4 min, entendeu o escopo', 'há 5 dias', '#5B5BD6'],
+  ['Nota — orçamento aprovado internamente', 'há 1 semana', '#9096A1'],
+  ['Negócio criado', 'há 3 semanas', '#9096A1']
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      deals: SEED.map((d, i) => ({
+        id: 'd' + i, contact: d[0], code: d[1], amount: d[2], stage: d[3],
+        owner: d[4], days: d[5], task: d[6], due: d[7], source: d[8],
+        activity: BASE_ACTS.map((a, j) => ({ id: 'a' + i + j, text: a[0], when: a[1], color: a[2] }))
+      })),
+      view: props.defaultView === 'Lista' ? 'table' : 'board',
+      filter: props.defaultFilter && props.defaultFilter !== 'Tudo' ? props.defaultFilter : null,
+      sort: 'Valor',
+      query: '', selected: {}, openId: null, dragId: null, dragOver: null,
+      note: '', addOpen: false, expanded: {},
+      draft: { contact: '', value: '', owner: 'KG', task: '', stage: 'prospec' }
+    };
+  }
+
+  brl(n) {
+    if (!n) return 'Sem valor';
+    return 'R$ ' + n.toLocaleString('pt-BR');
+  }
+
+  compact(n) {
+    if (!n) return 'R$ 0';
+    if (n >= 1000000) return 'R$ ' + (Math.round(n / 100000) / 10).toLocaleString('pt-BR') + ' mi';
+    if (n >= 1000) return 'R$ ' + Math.round(n / 1000).toLocaleString('pt-BR') + ' mil';
+    return 'R$ ' + n;
+  }
+
+  taskState(d) {
+    if (!d.task) return 'none';
+    if (/atrasada/i.test(d.due)) return 'late';
+    if (/hoje/i.test(d.due)) return 'today';
+    return 'ok';
+  }
+
+  passes(d) {
+    const q = this.state.query.trim().toLowerCase();
+    if (q && (d.contact + ' ' + d.code + ' ' + (d.task || '')).toLowerCase().indexOf(q) === -1) return false;
+    const f = this.state.filter;
+    if (f === 'Sem tarefa') return !d.task;
+    if (f === 'Ação hoje') { const t = this.taskState(d); return t === 'today' || t === 'late'; }
+    if (f === 'Parados +14d') return d.days >= 14;
+    if (f === 'Sem valor') return !d.amount;
+    return true;
+  }
+
+  setStage(ids, stage) {
+    const name = STAGES.filter(s => s.id === stage)[0].name;
+    this.setState(s => ({
+      selected: {},
+      deals: s.deals.map(d => ids.indexOf(d.id) === -1 ? d : Object.assign({}, d, {
+        stage: stage, days: 0,
+        activity: [{ id: 'm' + Date.now() + d.id, text: 'Etapa alterada para ' + name, when: 'agora', color: '#5B5BD6' }].concat(d.activity)
+      }))
+    }));
+  }
+
+  addTask(id, label, due) {
+    this.setState(s => ({
+      deals: s.deals.map(d => d.id !== id ? d : Object.assign({}, d, {
+        task: label, due: due,
+        activity: [{ id: 't' + Date.now(), text: 'Tarefa agendada — ' + label + ' (' + due + ')', when: 'agora', color: '#5B5BD6' }].concat(d.activity)
+      }))
+    }));
+  }
+
+  decorate(d, extra) {
+    const sel = !!this.state.selected[d.id];
+    const ts = this.taskState(d);
+    const tone = ts === 'late' ? ['#FEF2F2', '#FECACA', '#B91C1C', '#DC2626']
+      : ts === 'today' ? ['#FFFBEB', '#FDE68A', '#B45309', '#F59E0B']
+        : ts === 'ok' ? ['#F6F9F7', '#D5E7DD', '#12805C', '#12805C']
+          : ['#FFFFFF', '#E7E8EC', '#9096A1', '#D6D8DE'];
+    const aged = d.days >= 21 ? ['#FEF2F2', '#B91C1C'] : d.days >= 14 ? ['#FFF7ED', '#C2410C'] : ['#F1F2F5', '#6C707A'];
+    return Object.assign({
+      id: d.id, contact: d.contact, owner: d.owner, source: d.source, activity: d.activity.map(a => Object.assign({}, a, {
+        dotStyle: 'width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; background: ' + a.color + ';'
+      })),
+      meta: d.code + ' · ' + d.owner,
+      value: this.brl(d.amount),
+      valueStyle: 'font-size: 13.5px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; ' +
+        (d.amount ? 'font-weight: 700; color: #16181D;' : 'font-weight: 500; color: #B9BDC6; font-style: italic;'),
+      stageName: STAGES.filter(s => s.id === d.stage)[0].name,
+      initials: d.owner,
+      avatarStyle: 'width: 22px; height: 22px; border-radius: 6px; background: #F1F2F5; color: #6C707A; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: 0 0 auto;',
+      age: d.days === 0 ? 'agora' : d.days + 'd parado',
+      ageStyle: 'font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 20px; white-space: nowrap; background: ' + aged[0] + '; color: ' + aged[1] + ';',
+      taskLabel: d.task ? d.task + ' · ' + d.due : 'Sem tarefa — agendar',
+      taskCta: d.task ? 'Concluir' : 'Agendar',
+      taskStyle: 'display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; padding: 6px 9px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600; background: ' + tone[0] + '; border: 1px ' + (d.task ? 'solid ' : 'dashed ') + tone[1] + '; color: ' + tone[2] + ';',
+      taskBoxStyle: 'display: flex; align-items: center; gap: 9px; padding: 11px 12px; border-radius: 9px; background: ' + tone[0] + '; border: 1px ' + (d.task ? 'solid ' : 'dashed ') + tone[1] + '; color: ' + tone[2] + ';',
+      taskDotStyle: 'width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: ' + tone[3] + ';',
+      taskTextStyle: 'font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: ' + (d.task ? tone[2] : '#B9BDC6') + '; ' + (d.task ? 'font-weight: 600;' : 'font-style: italic;'),
+      selected: sel,
+      checkMark: sel ? '✓' : '',
+      checkStyle: 'width: 16px; height: 16px; flex: 0 0 auto; margin-top: 2px; border-radius: 4px; cursor: pointer; font-size: 10px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; ' +
+        (sel ? 'background: #5B5BD6; border: 1px solid #5B5BD6; color: #fff;' : 'background: #FFFFFF; border: 1px solid #D6D8DE; color: transparent;'),
+      onToggle: (e) => {
+        e.stopPropagation();
+        this.setState(s => {
+          const n = Object.assign({}, s.selected);
+          if (n[d.id]) delete n[d.id]; else n[d.id] = true;
+          return { selected: n };
+        });
+      },
+      onOpen: () => this.setState({ openId: d.id }),
+      onTask: (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (d.task) {
+          this.setState(s => ({
+            deals: s.deals.map(x => x.id !== d.id ? x : Object.assign({}, x, {
+              task: null, due: '',
+              activity: [{ id: 'c' + Date.now(), text: 'Tarefa concluída — ' + d.task, when: 'agora', color: '#12805C' }].concat(x.activity)
+            }))
+          }));
+        } else {
+          this.addTask(d.id, 'Ligar para o cliente', 'hoje 17:00');
+        }
+      },
+      onWhats: (e) => {
+        e.stopPropagation();
+        this.setState(s => ({
+          deals: s.deals.map(x => x.id !== d.id ? x : Object.assign({}, x, {
+            days: 0,
+            activity: [{ id: 'w' + Date.now(), text: 'WhatsApp — mensagem enviada pelo pipeline', when: 'agora', color: '#12805C' }].concat(x.activity)
+          }))
+        }));
+      },
+      onAdvance: (e) => {
+        e.stopPropagation();
+        const i = STAGES.map(s => s.id).indexOf(d.stage);
+        if (i < STAGES.length - 1) this.setStage([d.id], STAGES[i + 1].id);
+      }
+    }, extra);
+  }
+
+  renderVals() {
+    const st = this.state;
+    const visible = st.deals.filter(d => this.passes(d));
+    const selectedIds = Object.keys(st.selected);
+    const all = st.deals;
+    const sortFn = st.sort === 'Valor' ? (a, b) => b.amount - a.amount
+      : st.sort === 'Parado' ? (a, b) => b.days - a.days
+        : (a, b) => {
+          const rank = { late: 0, today: 1, ok: 2, none: 3 };
+          return rank[this.taskState(a)] - rank[this.taskState(b)];
+        };
+
+    const chipStyle = (on) => 'padding: 7px 12px; border-radius: 20px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; ' +
+      (on ? 'border: 1px solid #5B5BD6; background: #5B5BD6; color: #fff;' : 'border: 1px solid #DFE1E6; background: #FFFFFF; color: #4B5563;');
+    const sortStyle = (on) => 'padding: 5px 10px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; ' +
+      (on ? 'border: 1px solid #C9CBD4; background: #FFFFFF; color: #16181D;' : 'border: 1px solid transparent; background: transparent; color: #9096A1;');
+    const pill = (on) => 'padding: 6px 11px; border-radius: 20px; font-size: 11.5px; font-weight: 600; cursor: pointer; ' +
+      (on ? 'border: 1px solid #5B5BD6; background: #5B5BD6; color: #fff;' : 'border: 1px solid #E7E8EC; background: #FAFAFB; color: #4B5563;');
+
+    const columns = STAGES.map(stage => {
+      const pool = visible.filter(d => d.stage === stage.id).sort(sortFn);
+      const shown = st.expanded[stage.id] ? pool : pool.slice(0, 4);
+      const stageAll = all.filter(d => d.stage === stage.id);
+      const sum = stageAll.reduce((a, d) => a + d.amount, 0);
+      const withTask = stageAll.filter(d => !!d.task).length;
+      const pct = stageAll.length ? Math.round((withTask / stageAll.length) * 100) : 0;
+      const hot = st.dragOver === stage.id;
+      const hidden = pool.length - shown.length + stage.extra;
+      return {
+        id: stage.id, name: stage.name,
+        count: (stageAll.length + stage.extra).toLocaleString('pt-BR'),
+        total: this.compact(sum),
+        avg: stageAll.length ? 'média ' + this.compact(Math.round(sum / stageAll.length)) : '—',
+        health: withTask + ' de ' + stageAll.length + ' com tarefa · ' + pct + '%',
+        dotStyle: 'width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: ' + stage.color + ';',
+        barStyle: 'height: 100%; width: ' + pct + '%; background: ' + (pct >= 60 ? '#12805C' : pct >= 30 ? '#F59E0B' : '#DC2626') + '; border-radius: 4px;',
+        isEmpty: pool.length === 0,
+        hasMore: hidden > 0,
+        moreLabel: 'Carregar mais ' + hidden.toLocaleString('pt-BR'),
+        onMore: () => this.setState(s => ({ expanded: Object.assign({}, s.expanded, { [stage.id]: true }) })),
+        wellStyle: 'display: flex; flex-direction: column; gap: 8px; min-height: 90px; padding: 6px; border-radius: 11px; transition: background 130ms, box-shadow 130ms; ' +
+          (hot ? 'background: #EEEEFC; box-shadow: inset 0 0 0 1.5px #5B5BD6;' : 'background: transparent;'),
+        onDragOver: (e) => { e.preventDefault(); if (st.dragOver !== stage.id) this.setState({ dragOver: stage.id }); },
+        onDragLeave: () => { if (st.dragOver === stage.id) this.setState({ dragOver: null }); },
+        onDrop: (e) => {
+          e.preventDefault();
+          const id = st.dragId;
+          this.setState({ dragOver: null, dragId: null });
+          if (id) this.setStage([id], stage.id);
+        },
+        deals: shown.map(d => this.decorate(d, {
+          cardStyle: 'display: flex; flex-direction: column; gap: 9px; padding: 11px; border-radius: 10px; background: #FFFFFF; cursor: grab; transition: border-color 120ms, box-shadow 120ms, opacity 120ms; ' +
+            (st.dragId === d.id ? 'opacity: 0.4; ' : '') +
+            (st.selected[d.id] ? 'border: 1px solid #5B5BD6; box-shadow: 0 0 0 2px #E0E0FA;' : 'border: 1px solid #E7E8EC; box-shadow: 0 1px 2px rgba(20,24,40,0.04);'),
+          onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; this.setState({ dragId: d.id }); },
+          onDragEnd: () => this.setState({ dragId: null, dragOver: null })
+        }))
+      };
+    });
+
+    const rows = visible.slice().sort(sortFn).map(d => this.decorate(d, {
+      rowStyle: 'display: grid; grid-template-columns: 36px 1.5fr 0.9fr 1fr 1.5fr 0.7fr 0.6fr; gap: 12px; align-items: center; padding: 11px 14px; border-bottom: 1px solid #F1F2F5; cursor: pointer; ' +
+        (st.selected[d.id] ? 'background: #F7F7FE;' : 'background: transparent;')
+    }));
+
+    const open = st.deals.filter(d => d.id === st.openId)[0];
+    const openDeal = open ? this.decorate(open) : null;
+
+    const noTask = all.filter(d => !d.task).length;
+    const todayish = all.filter(d => { const t = this.taskState(d); return t === 'today' || t === 'late'; }).length;
+    const stale = all.filter(d => d.days >= 14).length;
+    const totalOpen = all.reduce((a, d) => a + d.amount, 0);
+    const metricStyle = (on, accent) => 'display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 11px; cursor: pointer; text-align: left; background: #FFFFFF; transition: border-color 120ms, box-shadow 120ms; ' +
+      (on ? 'border: 1px solid ' + accent + '; box-shadow: 0 0 0 2px ' + accent + '22;' : 'border: 1px solid #E7E8EC;');
+    const mv = (c) => 'font-size: 19px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: ' + c + ';';
+    const setFilter = (f) => () => this.setState(s => ({ filter: s.filter === f ? null : f }));
+
+    return {
+      isBoard: st.view === 'board', isTable: st.view === 'table',
+      columns, rows, openDeal, query: st.query, note: st.note, addOpen: st.addOpen, draft: st.draft,
+      headerLine: all.length.toLocaleString('pt-BR') + ' negócios carregados · ' + this.compact(totalOpen) + ' em aberto',
+      boardTabStyle: 'padding: 6px 13px; border-radius: 6px; border: none; font-size: 12.5px; font-weight: 600; cursor: pointer; ' + (st.view === 'board' ? 'background: #FFFFFF; color: #16181D; box-shadow: 0 1px 2px rgba(20,24,40,0.12);' : 'background: transparent; color: #6C707A;'),
+      tableTabStyle: 'padding: 6px 13px; border-radius: 6px; border: none; font-size: 12.5px; font-weight: 600; cursor: pointer; ' + (st.view === 'table' ? 'background: #FFFFFF; color: #16181D; box-shadow: 0 1px 2px rgba(20,24,40,0.12);' : 'background: transparent; color: #6C707A;'),
+      metrics: [
+        { label: 'PRECISAM DE AÇÃO HOJE', value: String(todayish), hint: 'tarefas vencendo ou atrasadas', style: metricStyle(st.filter === 'Ação hoje', '#F59E0B'), valueStyle: mv('#B45309'), onClick: setFilter('Ação hoje') },
+        { label: 'SEM NENHUMA TAREFA', value: String(noTask), hint: 'negócio sem próximo passo definido', style: metricStyle(st.filter === 'Sem tarefa', '#DC2626'), valueStyle: mv('#B91C1C'), onClick: setFilter('Sem tarefa') },
+        { label: 'PARADOS HÁ +14 DIAS', value: String(stale), hint: 'sem interação registrada', style: metricStyle(st.filter === 'Parados +14d', '#C2410C'), valueStyle: mv('#C2410C'), onClick: setFilter('Parados +14d') },
+        { label: 'VALOR EM ABERTO', value: this.compact(totalOpen), hint: all.filter(d => !d.amount).length + ' negócios ainda sem valor', style: metricStyle(st.filter === 'Sem valor', '#5B5BD6'), valueStyle: mv('#16181D'), onClick: setFilter('Sem valor') }
+      ],
+      chips: ['Ação hoje', 'Sem tarefa', 'Parados +14d', 'Sem valor'].map(f => ({
+        label: f, style: chipStyle(st.filter === f), onClick: setFilter(f)
+      })),
+      sorts: ['Valor', 'Urgência', 'Parado'].map(s => ({
+        label: s, style: sortStyle(st.sort === s), onClick: () => this.setState({ sort: s })
+      })),
+      hasSelection: selectedIds.length > 0,
+      selectionLabel: selectedIds.length + (selectedIds.length === 1 ? ' negócio' : ' negócios'),
+      bulkTask: () => { selectedIds.forEach(id => this.addTask(id, 'Follow-up em lote', 'hoje 18:00')); this.setState({ selected: {} }); },
+      moveTargets: STAGES.map(s => ({
+        id: s.id, name: s.name, short: s.short,
+        pillStyle: pill(open && open.stage === s.id),
+        onMove: () => this.setStage(selectedIds, s.id),
+        onSetOpen: () => { if (open) this.setStage([open.id], s.id); }
+      })),
+      quickTasks: open ? [
+        { label: 'Ligar hoje 17:00', onClick: () => this.addTask(open.id, 'Ligar para o cliente', 'hoje 17:00') },
+        { label: 'WhatsApp amanhã', onClick: () => this.addTask(open.id, 'Mensagem de follow-up', 'amanhã 09:00') },
+        { label: 'Visita esta semana', onClick: () => this.addTask(open.id, 'Agendar visita', 'sexta') }
+      ] : [],
+      draftStages: STAGES.map(s => ({
+        id: s.id, name: s.name, pillStyle: pill(st.draft.stage === s.id),
+        onPick: () => this.setState(p => ({ draft: Object.assign({}, p.draft, { stage: s.id }) }))
+      })),
+      showBoard: () => this.setState({ view: 'board' }),
+      showTable: () => this.setState({ view: 'table' }),
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      clearSelection: () => this.setState({ selected: {} }),
+      closeDeal: () => this.setState({ openId: null, note: '' }),
+      stop: (e) => e.stopPropagation(),
+      onNote: (e) => this.setState({ note: e.target.value }),
+      onNoteKey: (e) => { if (e.key === 'Enter') this.saveNote(); },
+      addNote: () => this.saveNote(),
+      openAdd: () => this.setState({ addOpen: true }),
+      closeAdd: () => this.setState({ addOpen: false }),
+      onDraftContact: (e) => this.patchDraft({ contact: e.target.value }),
+      onDraftValue: (e) => this.patchDraft({ value: e.target.value.replace(/[^0-9]/g, '') }),
+      onDraftOwner: (e) => this.patchDraft({ owner: e.target.value }),
+      onDraftTask: (e) => this.patchDraft({ task: e.target.value }),
+      createDeal: () => this.createDeal()
+    };
+  }
+
+  patchDraft(patch) { this.setState(s => ({ draft: Object.assign({}, s.draft, patch) })); }
+
+  saveNote() {
+    const text = this.state.note.trim();
+    if (!text) return;
+    this.setState(s => ({
+      note: '',
+      deals: s.deals.map(d => d.id !== s.openId ? d : Object.assign({}, d, {
+        days: 0,
+        activity: [{ id: 'n' + Date.now(), text: 'Nota — ' + text, when: 'agora', color: '#9096A1' }].concat(d.activity)
+      }))
+    }));
+  }
+
+  createDeal() {
+    const dr = this.state.draft;
+    if (!dr.contact.trim()) return;
+    const id = 'd' + Date.now();
+    this.setState(s => ({
+      addOpen: false, openId: id,
+      draft: { contact: '', value: '', owner: 'KG', task: '', stage: 'prospec' },
+      deals: [{
+        id: id, contact: dr.contact.trim(), code: 'novo', amount: parseInt(dr.value || '0', 10),
+        stage: dr.stage, owner: (dr.owner || 'KG').toUpperCase().slice(0, 2), days: 0,
+        task: dr.task.trim() || null, due: dr.task.trim() ? 'hoje' : '', source: 'Cadastro manual',
+        activity: [{ id: 'c' + id, text: 'Negócio criado', when: 'agora', color: '#5B5BD6' }]
+      }].concat(s.deals)
+    }));
+  }
+}
+
+</script>
+</body>
+</html>

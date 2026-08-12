@@ -247,8 +247,10 @@ export function ConversationsMobile({
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div>
+    // min-h-0: mesmo ajuste do desktop (ver conversations-view.tsx) — sem
+    // isso a lista de conversas empurrava a tela inteira pra rolar junto.
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="shrink-0">
         <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Conversas</h1>
         <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">Todas as conversas de WhatsApp num só lugar.</p>
       </div>
@@ -311,7 +313,7 @@ export function ConversationsMobile({
         />
       )}
 
-      <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto pb-4">
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4">
         {tabConversations.length === 0 ? (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState

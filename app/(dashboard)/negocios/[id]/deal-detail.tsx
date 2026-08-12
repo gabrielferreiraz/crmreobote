@@ -524,7 +524,7 @@ export function DealDetail({
         <div className="flex items-start gap-3">
           <Avatar name={deal.contact.name} size="lg" />
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{deal.name}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">{deal.name}</h1>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
@@ -553,7 +553,7 @@ export function DealDetail({
                     ? "bg-emerald-600 text-white"
                     : s === "LOST"
                       ? "bg-red-600 text-white"
-                      : "bg-neutral-800 text-white"
+                      : "bg-[var(--brand)] text-white"
                   : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300"
               }`}
             >
@@ -589,16 +589,17 @@ export function DealDetail({
               onClick={() => moveToStage(stage.id)}
               className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs whitespace-nowrap transition-colors ${
                 isCurrent
-                  ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                  ? "text-white"
                   : "text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-800 dark:hover:text-neutral-200"
               }`}
+              style={isCurrent ? { background: "var(--brand-gradient)" } : undefined}
             >
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
               {stage.name}
               {isCurrent && (
                 <span
                   className={`inline-flex items-center gap-1 ${
-                    isStale(deal.stageEnteredAt) ? "font-medium text-red-600 dark:text-red-400" : "text-neutral-400 dark:text-neutral-500"
+                    isStale(deal.stageEnteredAt) ? "font-medium text-amber-200" : "text-white/70"
                   }`}
                 >
                   <Clock className="h-3 w-3" strokeWidth={2} />

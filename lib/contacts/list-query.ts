@@ -1,6 +1,7 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
+import { normalizePhoneNumber } from "@/lib/phone-normalize";
 
 // Reexportados por compatibilidade com quem já importava daqui — mas
 // componente "use client" deve importar de @/lib/contacts/constants
@@ -37,6 +38,7 @@ export type ContactsFilterParams = {
  */
 export function buildContactsWhere(params: ContactsFilterParams): Prisma.ContactWhereInput {
   const { organizationId, q, source, jobTitle, responsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo } = params;
+  const digits = q ? (normalizePhoneNumber(q) ?? "") : "";
 
   const where: Prisma.ContactWhereInput = {
     organizationId,
@@ -44,13 +46,32 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
     ...(source ? { source } : {}),
     ...(state ? { state } : {}),
     ...(city ? { city: { contains: city, mode: "insensitive" } } : {}),
+    // `phone`/`whatsapp` (campo cru, com formatação) saíram da busca —
+    // ILIKE '%q%' neles não tem índice que sirva (só phoneNormalized/
+    // whatsappNormalized têm trigram) e, pior, contamina o OR inteiro: com
+    // qualquer condição do OR sem índice usável, o Postgres descarta o
+    // índice das OUTRAS condições também e faz Parallel Seq Scan na tabela
+    // inteira — medido em produção, ~90-140ms mesmo com cache quente, ~350ms
+    // frio, em 141 mil linhas (só piora conforme a tabela cresce).
+    //
+    // `digits` é o mesmo dígitos-só que normalizePhoneNumber já extrai pra
+    // busca global (ver app/api/search/route.ts) — "(67) 99999-9999" e
+    // "67999999999" viram o mesmo dígitos, então buscar no campo
+    // NORMALIZADO acha o contato independente de como o usuário formatou,
+    // o que a busca antiga (no campo cru) não garantia. Guardado atrás de
+    // `digits ?` pra nunca entrar no OR quando a busca é só texto (nome/
+    // email) — sem dígito nenhum, essas 2 condições nem existem na query.
     ...(q
       ? {
           OR: [
             { name: { contains: q, mode: "insensitive" } },
             { email: { contains: q, mode: "insensitive" } },
-            { phone: { contains: q } },
-            { whatsapp: { contains: q } },
+            ...(digits
+              ? [
+                  { phoneNormalized: { contains: digits } },
+                  { whatsappNormalized: { contains: digits } },
+                ]
+              : []),
           ],
         }
       : {}),

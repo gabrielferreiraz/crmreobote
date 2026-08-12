@@ -45,6 +45,7 @@ model Organization {
   processStageHistories  ProcessStageHistory[]
   processRequests        ProcessRequest[]
   auditLogs              AuditLog[]
+  tvConfig               TvDashboardConfig?
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -127,6 +128,22 @@ model MetaAdsConnection {
   pageName                 String
   pageAccessTokenEncrypted String
   pixelId                  String?
+  // Token de USUÁRIO de longa duração (~60 dias) obtido no OAuth — separado
+  // do pageAccessTokenEncrypted acima de propósito: token de Página não
+  // consulta a Insights API de uma Ad Account (gasto/leads/CPL, ver
+  // lib/meta-ads/insights.ts), só token de usuário/sistema com escopo
+  // ads_management/business_management (já pedidos no login, ver SCOPES em
+  // lib/meta-ads.ts) serve pra isso. Nullable: conexão feita antes dessa
+  // funcionalidade existir fica sem — a UI pede pra reconectar quando falta.
+  userAccessTokenEncrypted String?
+  // Conta de anúncio escolhida pra reportar gasto/leads — auto-selecionada
+  // no momento da conexão quando só existe uma (ver
+  // lib/meta-ads/connection.ts); com mais de uma, o administrativo escolhe
+  // em Configurações → Integrações. adAccountId já vem prefixado "act_..."
+  // (formato que a própria API espera nas chamadas seguintes).
+  adAccountId              String?
+  adAccountName            String?
+  adAccountCurrency        String?
   connectedById            String
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -789,65 +806,65 @@ model PipelineStage {
 // ─── Contatos ────────────────────────────────────────────────────────
 
 model Contact {
-  id                 String    @id @default(cuid())
-  organizationId     String
-  name               String
-  email              String?
-  phone              String?
-  whatsapp           String?
-  phoneNormalized    String?
-  whatsappNormalized String?
-  source             String?
-  company            String?
-  jobTitle           String?
-  address            String?
-  addressNumber      String?
-  addressComplement  String?
-  neighborhood       String?
-  city               String?
-  state              String?
-  zipCode            String?
-  responsavelId      String?
-  tags               String[]  @default([])
+  id                  String                    @id @default(cuid())
+  organizationId      String
+  name                String
+  email               String?
+  phone               String?
+  whatsapp            String?
+  phoneNormalized     String?
+  whatsappNormalized  String?
+  source              String?
+  company             String?
+  jobTitle            String?
+  address             String?
+  addressNumber       String?
+  addressComplement   String?
+  neighborhood        String?
+  city                String?
+  state               String?
+  zipCode             String?
+  responsavelId       String?
+  tags                String[]                  @default([])
   // Dado livre vindo de integração externa (/api/v1/contacts) que não mapeia
   // pra nenhum campo conhecido — guardado como veio, só exibido, sem UI de
   // gestão de schema por organização (fora de escopo).
-  customFields       Json?
+  customFields        Json?
   // Valores dos campos personalizados definidos em CustomFieldDefinition —
   // { [customFieldDefinitionId]: string | number | boolean }. Separado do
   // customFields acima de propósito (esse é write-only da ingestão externa).
-  customFieldValues  Json?
+  customFieldValues   Json?
   // Pediu pra parar de receber mensagem de campanha/script (detectado por
   // palavra-chave numa resposta INBOUND — ver lib/whatsapp/opt-out.ts, ou
   // marcado manualmente). Uma vez setado, nunca mais entra em audiência de
   // campanha nem recebe follow-up automático — mensagem manual avulsa
   // (vendedor respondendo o próprio contato) continua permitida, isso só
   // bloqueia disparo em massa.
-  whatsappOptOutAt   DateTime?
+  whatsappOptOutAt    DateTime?
   // Atribuição de Lead Ads da Meta (Facebook/Instagram) — preenchido só
   // quando o contato chegou via formulário nativo de anúncio (ver
   // lib/meta-ads/leads.ts), nunca preenchido manualmente. metaLeadgenId
   // existe pra dedup: a Meta reenvia o mesmo webhook de leadgen mais de uma
   // vez às vezes, e não pode virar dois contatos/negócios duplicados.
   // metaCampaignName é o que os relatórios de conversão por origem agrupam.
-  metaLeadgenId      String?   @unique
-  metaAdId           String?
-  metaAdSetId        String?
-  metaCampaignId     String?
-  metaCampaignName   String?
-  metaFormId         String?
+  metaLeadgenId       String?                   @unique
+  metaAdId            String?
+  metaAdSetId         String?
+  metaCampaignId      String?
+  metaCampaignName    String?
+  metaFormId          String?
   // Qualificação manual de lead pelo consultor — o status é o que o
   // consultor classifica (QUALIFIED / UNQUALIFIED), a data registra o
   // momento, e qualificadoPor identifica o usuário. Essa info também vai
   // de volta pro Conversions API da Meta (eventos Lead.QUALIFIED e
   // Lead.UNQUALIFIED) pra alimentar a inteligência das campanhas de anúncio.
-  leadQualification  ContactLeadQualification?
+  leadQualification   ContactLeadQualification?
   leadQualificationAt DateTime?
   leadQualificationBy String?
   // "Código da Pessoa" do Agendor — mesma ideia de agendorDealId (ver Deal):
   // chave de reconciliação pra reimportar sem duplicar.
-  agendorContactId   String?   @unique
-  createdAt          DateTime  @default(now())
+  agendorContactId    String?                   @unique
+  createdAt           DateTime                  @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   responsavel        User?               @relation("ContactResponsavel", fields: [responsavelId], references: [id])
@@ -946,6 +963,17 @@ model LeadSource {
   organizationId String
   label          String
   order          Int      @default(0)
+  // Quando true, todo contato com esse texto exato em Contact.source conta
+  // como "veio de anúncio" no relatório de Facebook/Instagram (ver
+  // lib/meta-ads/attribution.ts) — mesmo sem ter passado pelo webhook de
+  // Lead Ads (metaCampaignId null). É o jeito de marcar retroativamente
+  // lead antigo (de antes da integração existir) ou lead que veio de
+  // anúncio por um caminho que não é o formulário nativo: basta a origem
+  // dele já estar (ou passar a estar) marcada aqui — não precisa editar
+  // contato por contato. Default false de propósito: autocura de
+  // origens usadas fora do gerenciador (ver configuracoes/origens/page.tsx)
+  // nunca marca sozinha, sempre opt-in manual do administrativo.
+  countsAsAd     Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1176,19 +1204,19 @@ model ProcessPipeline {
 }
 
 model ProcessStage {
-  id         String   @id @default(cuid())
-  pipelineId String
-  name       String
-  order      Int
-  color      String?
+  id              String   @id @default(cuid())
+  pipelineId      String
+  name            String
+  order           Int
+  color           String?
   // Etapa marcada como "conclusão" — entrar aqui dispara aviso (push) pro
   // time administrativo (ver lib/processes/notify.ts). Não precisa ser a
   // última etapa nem ser única.
-  isFinal    Boolean  @default(false)
+  isFinal         Boolean  @default(false)
   // Prazo da etapa em dias úteis, opcional — sem isso configurado, a etapa
   // simplesmente não participa do cálculo de atraso (ver lib/processes/sla.ts).
   slaBusinessDays Int?
-  createdAt  DateTime @default(now())
+  createdAt       DateTime @default(now())
 
   pipeline     ProcessPipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   processes    Process[]
@@ -1637,4 +1665,17 @@ model WebhookDelivery {
 
   @@index([organizationId, subscriptionId])
   @@index([status, nextAttemptAt])
+}
+
+model TvDashboardConfig {
+  id                   String   @id @default(cuid())
+  organizationId       String   @unique
+  adsUrls              Json     @default("[]")
+  churrascometroTarget Float    @default(0)
+  selectedStageIds     Json     @default("[]")
+  visibleWidgets       Json     @default("[\"sales_summary\",\"churrascometro\",\"last_sale\",\"funnels\",\"ranking\"]")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }

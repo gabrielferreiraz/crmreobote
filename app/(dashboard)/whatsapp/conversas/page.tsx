@@ -36,7 +36,7 @@ export default async function ConversasPage() {
     const myWhatsappConnected = myInstances.some((i) => i.status === "CONNECTED");
 
     return (
-      <div className="flex h-full flex-col gap-4">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <ConversationsView
           initialConversations={conversations}
           currentUserName={session!.user.name ?? undefined}

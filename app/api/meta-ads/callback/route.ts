@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { exchangeCodeForToken, exchangeForLongLivedToken } from "@/lib/meta-graph";
 import { listOwnedPages, getMetaAdsRedirectUri, subscribePageToLeadgen } from "@/lib/meta-ads";
+import { finalizeAdAccountAutoSelection } from "@/lib/meta-ads/connection";
 import { encryptSecret } from "@/lib/security/secret-crypto";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
             connectedById: access.userId,
           },
         });
+        await finalizeAdAccountAutoSelection(access.organizationId, userAccessToken);
       });
 
       await logAudit({
@@ -79,10 +81,12 @@ export async function GET(req: NextRequest) {
     }
 
     // Mais de uma Página — deixa a pessoa escolher (ver /api/meta-ads/pages e
-    // /api/meta-ads/pages/select). Guarda a lista (com os tokens de página)
-    // num cookie curto e cifrado — nunca no banco antes de saber qual foi
-    // escolhida, e nunca em texto puro (é credencial de verdade).
-    const encryptedPages = encryptSecret(JSON.stringify(pages));
+    // /api/meta-ads/pages/select). Guarda a lista (com os tokens de página) E
+    // o token de usuário (precisa sobreviver até a Página ser escolhida, pra
+    // então rodar finalizeAdAccountAutoSelection lá) num cookie curto e
+    // cifrado — nunca no banco antes de saber qual página foi escolhida, e
+    // nunca em texto puro (é credencial de verdade).
+    const encryptedPages = encryptSecret(JSON.stringify({ pages, userAccessToken }));
     const res = NextResponse.redirect(new URL(`${REDIRECT_PATH}?meta_ads=select_page`, req.url));
     res.cookies.delete("meta_ads_oauth_state");
     res.cookies.set("meta_ads_pending_pages", encryptedPages, {

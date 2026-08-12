@@ -105,7 +105,7 @@ export default async function ProcessosPage({
     }
 
     return (
-      <div className="flex h-full flex-col gap-4">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Processos</h1>

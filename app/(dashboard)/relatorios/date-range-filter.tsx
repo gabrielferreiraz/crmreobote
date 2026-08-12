@@ -105,7 +105,7 @@ export function DateRangeFilter() {
         <CalendarIcon className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
         <span className="flex-1 truncate">{activeLabel}</span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 dark:text-neutral-500 ${open ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${open ? "rotate-180" : ""}`}
           strokeWidth={2}
         />
       </button>

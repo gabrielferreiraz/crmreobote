@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
+import { useGoogleCalendarEvents } from "@/lib/use-google-calendar-events";
 import { TaskRow, type Task } from "./task-row";
 import { NewTaskDialog, type Option } from "./tasks-list";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
@@ -42,7 +43,6 @@ export function TasksListMobile({
   deals,
   members,
   openNewTask,
-  isGoogleConnected,
   isWhatsAppConnected,
   googleParam,
 }: {
@@ -50,11 +50,12 @@ export function TasksListMobile({
   deals: Option[];
   members: Option[];
   openNewTask?: boolean;
-  isGoogleConnected: boolean;
   isWhatsAppConnected: boolean;
   googleParam?: string;
 }) {
   const router = useRouter();
+  // Ver comentário equivalente em tasks-list.tsx (desktop) — mesmo hook.
+  const googleCalendar = useGoogleCalendarEvents();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
@@ -119,7 +120,11 @@ export function TasksListMobile({
 
   return (
     <div className="space-y-4">
-      <GoogleCalendarBanner isGoogleConnected={isGoogleConnected} googleParam={googleParam} />
+      <GoogleCalendarBanner
+        isGoogleConnected={googleCalendar.connected}
+        loading={googleCalendar.loading}
+        googleParam={googleParam}
+      />
 
       <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} />
 

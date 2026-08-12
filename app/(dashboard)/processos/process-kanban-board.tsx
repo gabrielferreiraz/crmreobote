@@ -360,7 +360,7 @@ export function ProcessKanbanBoard({
     if (!el) return;
     function measure() {
       const top = el!.getBoundingClientRect().top;
-      setRowHeight(Math.max(240, window.innerHeight - top - 16));
+      setRowHeight(Math.max(240, window.innerHeight - top - 4));
     }
     measure();
     window.addEventListener("resize", measure);
@@ -665,9 +665,9 @@ function StageColumn({
             </span>
           )}
           {totalValue > 0 && (
-            <span className="shrink-0 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">{formatCurrency(totalValue)}</span>
+            <span className="shrink-0 text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">{formatCurrency(totalValue)}</span>
           )}
-          <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+          <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
             {total}
           </span>
         </button>
@@ -809,7 +809,7 @@ export function ProcessCardContent({ process, dimmed }: { process: ProcessItem; 
   const sla = getStageSlaStatus(process.stage, new Date(process.stageEnteredAt));
   return (
     <div
-      className={`relative rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900 ${
+      className={`relative rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-200 ease-smooth hover:-translate-y-0.5 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900 ${
         dimmed ? "opacity-40" : ""
       }`}
     >

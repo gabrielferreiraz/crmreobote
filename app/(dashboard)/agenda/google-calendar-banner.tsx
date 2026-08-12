@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar as CalendarIcon, CheckCircle2 } from "lucide-react";
+import { Skeleton } from "@/components/skeleton";
 
 /**
  * Convite/feedback de conexão do Google Agenda direto na tela da Agenda —
@@ -11,12 +12,20 @@ import { Calendar as CalendarIcon, CheckCircle2 } from "lucide-react";
  * `googleParam` congelado em estado (não usa a prop ao vivo) igual ao
  * GoogleCalendarConnect — senão a mensagem some assim que o router.replace
  * abaixo limpa a URL.
+ *
+ * `loading`: true enquanto useGoogleCalendarEvents() ainda não recebeu a 1ª
+ * resposta — evita mostrar "conecte sua conta" por um instante pra quem já
+ * está conectado, só porque a busca (agora feita pelo cliente, depois da
+ * tela já estar de pé — ver lib/use-google-calendar-events.ts) ainda não
+ * voltou.
  */
 export function GoogleCalendarBanner({
   isGoogleConnected,
+  loading = false,
   googleParam,
 }: {
   isGoogleConnected: boolean;
+  loading?: boolean;
   googleParam?: string;
 }) {
   const router = useRouter();
@@ -47,6 +56,14 @@ export function GoogleCalendarBanner({
         Não foi possível conectar o Google Agenda. Tente novamente.
       </p>
     );
+  }
+
+  // Enquanto ainda não sabemos se está conectado (1ª busca de
+  // useGoogleCalendarEvents ainda em voo), não afirma nem uma coisa nem
+  // outra — só o espaço reservado, do mesmo tamanho do badge "integrado",
+  // pra não pular de layout quando a resposta chegar.
+  if (loading) {
+    return <Skeleton className="h-6 w-44" />;
   }
 
   if (isGoogleConnected) {

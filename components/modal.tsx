@@ -59,14 +59,14 @@ export function Modal({
           className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
             isNested ? "" : "bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
           }`}
-          style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+          style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
         >
           <div
             ref={panelRef}
-            style={{ animation: "modal-panel-in 150ms ease-out" }}
+            style={{ animation: "modal-panel-in 240ms var(--ease-smooth)" }}
             className={`surface-glass-panel scrollbar-thin w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl p-5 pb-7 ${
               isNested ? "shadow-2xl ring-1 ring-black/5 dark:ring-white/10" : ""
             }`}

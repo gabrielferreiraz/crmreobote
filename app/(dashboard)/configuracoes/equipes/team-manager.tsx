@@ -206,7 +206,7 @@ function TeamCard({
   const availableToAdd = members.filter((m) => m.teamId !== team.id);
 
   return (
-    <div className="card space-y-3 p-4">
+    <div className="card space-y-4 p-4">
       <div className="flex items-center gap-2">
         <input
           value={name}
@@ -215,76 +215,102 @@ function TeamCard({
           onBlur={() => {
             if (name.trim() && name !== team.name) onRename(team.id, name.trim());
           }}
-          className="flex-1 rounded bg-transparent px-1 text-sm font-medium text-neutral-900 dark:text-neutral-100 outline-none focus:bg-neutral-50 dark:focus:bg-neutral-800 disabled:opacity-100"
+          className="min-w-0 flex-1 truncate rounded-md bg-transparent px-1.5 py-1 text-base font-semibold text-neutral-900 outline-none transition-colors hover:bg-neutral-50 focus:bg-neutral-50 disabled:hover:bg-transparent dark:text-neutral-100 dark:hover:bg-neutral-800/60 dark:focus:bg-neutral-800/60"
         />
-        <span className="text-xs text-neutral-400 dark:text-neutral-500">{team.members.length} membros</span>
+        <Badge tone="neutral" size="sm" className="shrink-0">
+          {team.members.length} {team.members.length === 1 ? "membro" : "membros"}
+        </Badge>
         {isOwner && (
-          <button onClick={onDelete} className="icon-btn hover:text-red-600 dark:hover:text-red-400" title="Excluir equipe">
+          <button
+            onClick={onDelete}
+            className="icon-btn shrink-0 hover:text-red-600 dark:hover:text-red-400"
+            title="Excluir equipe"
+          >
             <Trash2 className="h-4 w-4" strokeWidth={2} />
           </button>
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-neutral-500 dark:text-neutral-400">Líder</span>
-        {isOwner ? (
-          <Select
-            value={team.leaderId ?? ""}
-            onChange={(v) => onSetLeader(team.id, v)}
-            className="w-auto py-1 text-xs"
-            options={[
-              { value: "", label: "Nenhum líder" },
-              ...supervisors.map((s) => ({ value: s.id, label: s.name })),
-            ]}
-          />
-        ) : (
-          <Badge tone="accent">{team.leader?.name ?? "Nenhum líder"}</Badge>
-        )}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <p className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">Líder</p>
+          {isOwner ? (
+            <Select
+              value={team.leaderId ?? ""}
+              onChange={(v) => onSetLeader(team.id, v)}
+              className="w-full py-1.5 text-xs"
+              options={[
+                { value: "", label: "Nenhum líder" },
+                ...supervisors.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
+          ) : (
+            <p>
+              <Badge tone="accent">{team.leader?.name ?? "Nenhum líder"}</Badge>
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">Gerente</p>
+          {isOwner ? (
+            <Select
+              value={team.managerId ?? ""}
+              onChange={(v) => onSetManager(team.id, v)}
+              className="w-full py-1.5 text-xs"
+              options={[
+                { value: "", label: "Nenhum gerente" },
+                ...managers.map((m) => ({ value: m.id, label: m.name })),
+              ]}
+            />
+          ) : (
+            <p>
+              <Badge tone="neutral">{team.manager?.name ?? "Nenhum gerente"}</Badge>
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-neutral-500 dark:text-neutral-400">Gerente</span>
-        {isOwner ? (
-          <Select
-            value={team.managerId ?? ""}
-            onChange={(v) => onSetManager(team.id, v)}
-            className="w-auto py-1 text-xs"
-            options={[
-              { value: "", label: "Nenhum gerente" },
-              ...managers.map((m) => ({ value: m.id, label: m.name })),
-            ]}
-          />
-        ) : (
-          <Badge tone="neutral">{team.manager?.name ?? "Nenhum gerente"}</Badge>
-        )}
-      </div>
-
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+        <p className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">Membros</p>
         {team.members.length === 0 && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500">Nenhum membro nesta equipe ainda.</p>
         )}
-        {team.members.map((m) => (
-          <div key={m.id} className="flex items-center gap-2 text-sm">
-            <Avatar name={m.user.name} src={m.user.photoUrl} size="xs" />
-            <span className="flex-1 text-neutral-800 dark:text-neutral-200">{m.user.name}</span>
-            {m.user.id === team.leaderId && <Badge tone="accent">Líder</Badge>}
-            {m.user.id === team.managerId && <Badge tone="neutral">Gerente</Badge>}
-            {isOwner && (
-              <button
-                onClick={() => onAssignMember(m.user.id, null)}
-                className="icon-btn hover:text-red-600 dark:hover:text-red-400"
-                aria-label="Remover da equipe"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            )}
-          </div>
-        ))}
+        <div className="space-y-0.5">
+          {team.members.map((m) => (
+            <div
+              key={m.id}
+              className="group flex items-center gap-2 rounded-md px-1.5 py-1 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+            >
+              <Avatar name={m.user.name} src={m.user.photoUrl} size="xs" />
+              <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-200">{m.user.name}</span>
+              {m.user.id === team.leaderId && (
+                <Badge tone="accent" size="sm">
+                  Líder
+                </Badge>
+              )}
+              {m.user.id === team.managerId && (
+                <Badge tone="neutral" size="sm">
+                  Gerente
+                </Badge>
+              )}
+              {isOwner && (
+                <button
+                  onClick={() => onAssignMember(m.user.id, null)}
+                  className="icon-btn shrink-0 opacity-0 group-hover:opacity-100 coarse:opacity-100 hover:text-red-600 dark:hover:text-red-400"
+                  aria-label="Remover da equipe"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {isOwner && availableToAdd.length > 0 && (
-        <div className="flex gap-2 pt-1">
-          <div className="flex-1">
+        <div className="flex gap-2">
+          <div className="min-w-0 flex-1">
             <Select
               value={addMemberId}
               onChange={setAddMemberId}
@@ -304,7 +330,7 @@ function TeamCard({
               onAssignMember(addMemberId, team.id);
               setAddMemberId("");
             }}
-            className="btn-secondary py-1.5 text-xs"
+            className="btn-secondary shrink-0 py-1.5 text-xs"
           >
             Adicionar
           </button>

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/security/secret-crypto";
+import { brazilDateStringToUTC } from "@/lib/timezone";
 
 /**
  * OAuth de verdade com o Google (token, refresh, ler eventos) — separado de
@@ -60,6 +61,11 @@ async function requestGoogleToken(body: Record<string, string>): Promise<GoogleT
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
+    // Sem isso, o Google lento/fora do ar prendia a carga da Agenda inteira
+    // (loadGoogleEvents é chamado dentro de um Promise.all — ver
+    // app/(dashboard)/agenda/page.tsx — que só resolve quando TODOS
+    // terminam). Falha rápido em vez de travar a página por minutos.
+    signal: AbortSignal.timeout(8_000),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -129,8 +135,11 @@ export type GoogleCalendarEvent = {
   id: string;
   title: string;
   start: Date;
+  end: Date | null;
   allDay: boolean;
   htmlLink: string;
+  description: string | null;
+  location: string | null;
 };
 
 /** Busca eventos do calendário principal da conta conectada, dentro da janela [timeMin, timeMax]. */
@@ -148,6 +157,8 @@ export async function fetchGoogleCalendarEvents(
   });
   const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    // Mesmo motivo do timeout em requestGoogleToken acima.
+    signal: AbortSignal.timeout(8_000),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -157,19 +168,42 @@ export async function fetchGoogleCalendarEvents(
     items?: Array<{
       id: string;
       summary?: string;
+      description?: string;
+      location?: string;
       start?: { date?: string; dateTime?: string };
+      end?: { date?: string; dateTime?: string };
       status?: string;
       htmlLink: string;
     }>;
   };
+
+  // Evento de dia inteiro vem só como "YYYY-MM-DD" (start.date), sem hora
+  // nem fuso — new Date("YYYY-MM-DD") cru interpreta isso como meia-noite
+  // UTC (regra do próprio JS pra string só de data), não meia-noite local.
+  // Com o Brasil 3h atrás do UTC, isso "empurrava" o evento pro dia
+  // anterior assim que o navegador lia de volta com getDate()/getMonth()
+  // (getters locais, ver task-calendar.tsx) — daí o "um dia a menos" que
+  // só acontecia com evento de dia inteiro (evento com horário já vinha
+  // com offset explícito em start.dateTime, nunca teve esse problema).
+  // brazilDateStringToUTC ancora no meio-dia... meia-noite de Brasília de
+  // verdade, então o getDate() do cliente sempre bate com o dia certo.
+  function parseGoogleDate(field: { date?: string; dateTime?: string } | undefined): Date | null {
+    if (!field) return null;
+    if (field.dateTime) return new Date(field.dateTime);
+    if (field.date) return brazilDateStringToUTC(field.date);
+    return null;
+  }
 
   return (data.items ?? [])
     .filter((item) => item.status !== "cancelled" && (item.start?.dateTime || item.start?.date))
     .map((item) => ({
       id: item.id,
       title: item.summary || "(Sem título)",
-      start: new Date((item.start!.dateTime ?? item.start!.date)!),
+      start: parseGoogleDate(item.start)!,
+      end: parseGoogleDate(item.end),
       allDay: !!item.start!.date && !item.start!.dateTime,
       htmlLink: item.htmlLink,
+      description: item.description?.trim() || null,
+      location: item.location?.trim() || null,
     }));
 }

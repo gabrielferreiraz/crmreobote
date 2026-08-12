@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope } from "@/lib/team-scope";
-import { countDealsByStage } from "@/lib/deals/list-query";
+import { countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
@@ -34,13 +34,16 @@ export async function GET(req: Request) {
   const state = searchParams.get("state") ?? undefined;
   const city = searchParams.get("city") ?? undefined;
   const stageEnteredBefore = parseDate(searchParams.get("stageEnteredBefore"));
+  const hasNoOpenTask = searchParams.get("hasNoOpenTask") === "1";
+  const taskDueBefore = parseDate(searchParams.get("taskDueBefore"));
+  const noValue = searchParams.get("noValue") === "1";
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
-    const counts = await countDealsByStage({
+    const filterParams = {
       organizationId: access.organizationId,
       pipelineId,
       scope,
@@ -53,7 +56,16 @@ export async function GET(req: Request) {
       state,
       city,
       stageEnteredBefore,
-    });
-    return NextResponse.json(counts);
+      hasNoOpenTask: hasNoOpenTask || undefined,
+      taskDueBefore,
+      noValue: noValue || undefined,
+    };
+    const counts = await countDealsByStage(filterParams);
+    // Saúde da etapa (% com tarefa) só faz sentido pras etapas que de fato
+    // têm negócio sob o filtro atual — etapa vazia não precisa de consulta.
+    const stageIdsWithDeals = Object.keys(counts);
+    const withTaskCounts =
+      stageIdsWithDeals.length > 0 ? await countDealsWithTaskByStage(filterParams, stageIdsWithDeals) : {};
+    return NextResponse.json({ counts, withTaskCounts });
   });
 }

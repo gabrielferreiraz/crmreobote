@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
+import { DM_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -16,9 +15,14 @@ const THEME_INIT_SCRIPT = `
 })();
 `;
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Redesign (ver new-design-for-claude/README.md) — DM Sans no lugar da Geist
+// Sans anterior, pesos 400-700 (a marcação do protótipo usa até 700 em
+// título/KPI). Geist_Mono continua igual — nada no redesign pede
+// monoespaçada, e o hint "⌘K" do command palette já usa font-mono de propósito.
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -46,7 +50,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#6366f1" },
+    { media: "(prefers-color-scheme: light)", color: "#5a5be6" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
   ],
 };
@@ -60,12 +64,12 @@ export default function RootLayout({
     <html
       lang="pt-BR"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
-        <Script id="theme-init" strategy="beforeInteractive">
-          {THEME_INIT_SCRIPT}
-        </Script>
         <Providers>{children}</Providers>
       </body>
     </html>

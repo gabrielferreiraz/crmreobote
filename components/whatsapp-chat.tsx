@@ -893,7 +893,7 @@ function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4"
-      style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+      style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
       onClick={onClose}
     >
       <button
@@ -933,7 +933,7 @@ function ContactPhotoLightbox({ url, onClose }: { url: string | null; onClose: (
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4"
-      style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+      style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
       onClick={onClose}
     >
       <button

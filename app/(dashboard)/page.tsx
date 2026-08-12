@@ -2,21 +2,24 @@ import Link from "next/link";
 import { ArrowUpRight, Briefcase, TrendingUp, Users, Inbox, ArrowRight } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { STALE_DEAL_DAYS } from "@/lib/stale";
-import { formatCurrency } from "@/lib/format";
+import { STALE_DEAL_DAYS, STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 import { ACTIVITY_ICON, ACTIVITY_LABEL } from "@/lib/activity-icons";
 import { TASK_TYPE_COLOR } from "@/lib/task-icons";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getDealScope, scopeWhere, contactScopeWhere } from "@/lib/team-scope";
 import { brazilGreeting, brazilStartOfMonth } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { fetchDealsList, countDeals } from "@/lib/deals/list-query";
+import { getCurrentMonthGoalProgress } from "@/lib/goals/suggestion";
+import { countUnreadThreads } from "@/lib/whatsapp/conversations";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { CountUpValue } from "@/components/count-up-value";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { HomeAdministrativo } from "./home-administrativo";
 import { StaleDealsList } from "./stale-deals-list";
+import { ActionRequiredCard } from "./action-required-card";
 
 const STALE_DEALS_PAGE_SIZE = 10;
 
@@ -51,43 +54,75 @@ export default async function HomePage() {
   });
 
   const staleDealsParams = { organizationId, scope, status: "OPEN" as const, stageEnteredBefore: staleBefore };
+  // "% da meta" no KPI "Fechado no mês" (ver getCurrentMonthGoalProgress) só
+  // faz sentido pra quem vê o funil inteiro — meta é sempre organização
+  // inteira, dividir um "fechado" já ESCOPADO pela meta do time todo daria
+  // uma % sem significado real pra quem não vê tudo (mesma decisão do
+  // Pipeline, ver pipeline/page.tsx).
+  const isOwnerForGoal = session!.user.role === "OWNER";
+  const alertBefore = new Date(Date.now() - STALE_DEAL_ALERT_DAYS * 24 * 60 * 60 * 1000);
 
-  const [openDeals, pipelineValue, wonThisMonth, activeClients, staleDeals, staleDealsCount, stageValues, upcomingTasks, recentActivities] =
-    await Promise.all([
-      prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
-      prisma.deal.aggregate({
-        where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
-        _sum: { value: true },
-      }),
-      prisma.deal.aggregate({
-        where: { organizationId, status: "WON", closedAt: { gte: startOfMonth }, ...scopeWhere(scope) },
-        _sum: { value: true },
-        _count: true,
-      }),
-      prisma.contact.count({ where: { organizationId, responsavelId: userId } }),
-      fetchDealsList({ ...staleDealsParams, take: STALE_DEALS_PAGE_SIZE, sortDir: "asc" }),
-      countDeals(staleDealsParams),
-      pipeline
-        ? prisma.deal.groupBy({
-            by: ["stageId"],
-            where: { organizationId, pipelineId: pipeline.id, status: "OPEN", ...scopeWhere(scope) },
-            _count: true,
-            _sum: { value: true },
-          })
-        : Promise.resolve([]),
-      prisma.task.findMany({
-        where: { organizationId, ownerId: userId, completedAt: null, dueAt: { gte: new Date() } },
-        orderBy: { dueAt: "asc" },
-        take: 5,
-        include: { deal: true, contact: true },
-      }),
-      prisma.activity.findMany({
-        where: { organizationId, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
-        orderBy: { createdAt: "desc" },
-        take: 6,
-        include: { user: true, deal: true, contact: true },
-      }),
-    ]);
+  const [
+    openDeals,
+    pipelineValue,
+    wonThisMonth,
+    activeClients,
+    staleDeals,
+    staleDealsCount,
+    stageValues,
+    upcomingTasks,
+    recentActivities,
+    semTarefaCount,
+    parados14dCount,
+    unreadCount,
+    goalProgress,
+  ] = await Promise.all([
+    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
+    prisma.deal.aggregate({
+      where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
+      _sum: { value: true },
+    }),
+    prisma.deal.aggregate({
+      where: { organizationId, status: "WON", closedAt: { gte: startOfMonth }, ...scopeWhere(scope) },
+      _sum: { value: true },
+      _count: true,
+    }),
+    // Antes hardcoded pro usuário logado (responsavelId: userId) — não
+    // respeitava escopo de equipe. contactScopeWhere (ver lib/team-scope.ts)
+    // segue o mesmo escopo do resto do Início: tudo pro Dono, só a própria
+    // carteira do time pra Gerente/Supervisor, só o próprio pro Consultor.
+    prisma.contact.count({ where: { organizationId, ...contactScopeWhere(scope) } }),
+    fetchDealsList({ ...staleDealsParams, take: STALE_DEALS_PAGE_SIZE, sortDir: "asc" }),
+    countDeals(staleDealsParams),
+    pipeline
+      ? prisma.deal.groupBy({
+          by: ["stageId"],
+          where: { organizationId, pipelineId: pipeline.id, status: "OPEN", ...scopeWhere(scope) },
+          _count: true,
+          _sum: { value: true },
+        })
+      : Promise.resolve([]),
+    prisma.task.findMany({
+      where: { organizationId, ownerId: userId, completedAt: null, dueAt: { gte: new Date() } },
+      orderBy: { dueAt: "asc" },
+      take: 5,
+      include: { deal: true, contact: true },
+    }),
+    prisma.activity.findMany({
+      where: { organizationId, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      include: { user: true, deal: true, contact: true },
+    }),
+    // Card "Exige ação" (ver action-required-card.tsx) — mesmo builder de
+    // filtro do Pipeline (countDeals/buildDealsWhere em lib/deals/list-query.ts),
+    // nunca duplicado à mão, pra nunca sair de sincronia com o que o link
+    // "?filter=..." de cada linha realmente mostra ao chegar lá.
+    countDeals({ organizationId, scope, status: "OPEN", hasNoOpenTask: true }),
+    countDeals({ organizationId, scope, status: "OPEN", stageEnteredBefore: alertBefore }),
+    countUnreadThreads(organizationId, scope),
+    isOwnerForGoal ? getCurrentMonthGoalProgress(organizationId) : Promise.resolve(null),
+  ]);
 
   const stageData = (pipeline?.stages ?? []).map((stage) => ({
     id: stage.id,
@@ -101,6 +136,15 @@ export default async function HomePage() {
   const maxStageValue = Math.max(1, ...stageData.map((s) => s.value));
   const avatarMap = await resolveAvatarUrlMap([...recentActivities.map((a) => a.user.image), session!.user.image]);
   const ownPhotoUrl = session!.user.image ? (avatarMap.get(session!.user.image) ?? null) : null;
+
+  const goalPct =
+    goalProgress?.goalValue && goalProgress.goalValue > 0
+      ? Math.min(100, Math.round((goalProgress.achievedValue / goalProgress.goalValue) * 100))
+      : null;
+  const wonHint =
+    goalPct !== null
+      ? `${goalPct}% da meta de ${formatCurrencyCompact(goalProgress!.goalValue)}`
+      : `${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`;
 
   return (
     <div className="space-y-6 lg:space-y-8">
@@ -127,11 +171,17 @@ export default async function HomePage() {
           label="Fechado no mês"
           value={wonThisMonth._sum.value ? Number(wonThisMonth._sum.value) : 0}
           format="currency"
-          hint={`${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`}
+          hint={wonHint}
           colorSet={STAT_COLORS.won}
         />
         <StatTile icon={Users} label="Clientes ativos" value={activeClients} colorSet={STAT_COLORS.clients} />
       </div>
+
+      <ActionRequiredCard
+        semTarefaCount={semTarefaCount}
+        parados14dCount={parados14dCount}
+        unreadCount={unreadCount}
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="card p-5 lg:col-span-2">

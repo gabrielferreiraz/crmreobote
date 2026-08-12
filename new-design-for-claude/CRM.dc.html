@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #EFF0F8; }
+  body::before { content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(760px 420px at 12% -6%, rgba(90,91,230,0.20), transparent 62%),
+      radial-gradient(620px 380px at 92% 0%, rgba(14,165,165,0.13), transparent 60%),
+      radial-gradient(900px 520px at 70% 108%, rgba(139,92,246,0.14), transparent 62%),
+      linear-gradient(180deg, #F7F7FC 0%, #EFF0F8 55%, #EBEDF6 100%); }
+  * { box-sizing: border-box; }
+  a { color: #5A5BE6; text-decoration: none; }
+  a:hover { color: #4243C7; text-decoration: underline; }
+  input, button, select, textarea { font: inherit; color: inherit; }
+  ::selection { background: #DFDFFB; }
+  @keyframes cFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @keyframes cSlide { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+  .c-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+  .c-scroll::-webkit-scrollbar-thumb { background: #D5D8E3; border-radius: 9px; border: 2px solid #F5F6FA; }
+  .c-scroll::-webkit-scrollbar-track { background: transparent; }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; position: relative; z-index: 1; color: #15171F; font-family: 'DM Sans', system-ui, sans-serif;">
+
+  <div style="position: sticky; top: 0; z-index: 30; background: rgba(255,255,255,0.62); backdrop-filter: blur(18px) saturate(150%); border-bottom: 1px solid rgba(255,255,255,0.7); box-shadow: 0 1px 0 rgba(20,24,50,0.04);">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 0 28px; height: 58px; display: flex; align-items: center; gap: 26px;">
+      <div style="display: flex; align-items: center; gap: 9px; flex: 0 0 auto;">
+        <span style="width: 27px; height: 27px; border-radius: 9px; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">C</span>
+        <span style="font-size: 15px; font-weight: 700; letter-spacing: -0.02em;">CRM</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 2px;">
+        <sc-for list="{{ nav }}" as="n" hint-placeholder-count="7">
+          <button onClick="{{ n.onClick }}" style="{{ n.style }}">
+            <span style="{{ n.dotStyle }}"></span>
+            <span>{{ n.label }}</span>
+            <span style="{{ n.badgeStyle }}">{{ n.badge }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 11px; background: #F2F3F8; width: 210px;">
+          <span style="width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid #A9AEC0; flex: 0 0 auto;"></span>
+          <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Buscar…" style="flex: 1; min-width: 0; border: none; background: transparent; font-size: 13px; outline: none;" />
+          <span style="font-size: 10.5px; font-weight: 700; color: #A9AEC0; background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 6px; padding: 2px 6px;">⌘K</span>
+        </div>
+        <button onClick="{{ openAdd }}" style="padding: 9px 15px; border-radius: 11px; border: none; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 14px -8px rgba(90,91,230,0.9); white-space: nowrap;" style-hover="background: #4243C7;">+ Novo negócio</button>
+        <span style="width: 30px; height: 30px; border-radius: 50%; background: #FFE9DE; color: #C4501B; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;">RG</span>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ isInicio }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 32px 28px 80px;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 26px;">
+        <div>
+          <div style="font-size: 27px; font-weight: 700; letter-spacing: -0.035em;">Boa noite, Reobote</div>
+          <div style="font-size: 14px; color: #7B808F; margin-top: 5px;">Funil e pendências · 10 ago 2026</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button onClick="{{ goPipeline }}" style="padding: 10px 16px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Abrir pipeline</button>
+          <button onClick="{{ goAgenda }}" style="padding: 10px 16px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Minha agenda</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
+        <sc-for list="{{ homeKpis }}" as="k" hint-placeholder-count="4">
+          <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 18px; padding: 20px 22px; box-shadow: 0 1px 3px rgba(20,24,50,0.07); display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #8B90A0;">{{ k.label }}</span>
+              <span style="{{ k.iconStyle }}"></span>
+            </div>
+            <span style="{{ k.valueStyle }}">{{ k.value }}</span>
+            <span style="font-size: 12px; color: #9AA0B0;">{{ k.hint }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-top: 14px; align-items: start;">
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em;">Funil de vendas</div>
+              <div style="font-size: 12.5px; color: #9AA0B0; margin-top: 3px;">Valor por etapa</div>
+            </div>
+            <button onClick="{{ goPipeline }}" style="border: none; background: transparent; font-size: 13px; font-weight: 700; color: #5A5BE6; cursor: pointer; padding: 0;" style-hover="color: #4243C7;">Abrir pipeline →</button>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 148px 1fr 132px; gap: 14px; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                  <span style="{{ f.dotStyle }}"></span>
+                  <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ f.name }}</span>
+                  <span style="font-size: 11.5px; color: #A9AEC0; font-variant-numeric: tabular-nums; flex: 0 0 auto;">{{ f.count }}</span>
+                </div>
+                <div style="height: 9px; border-radius: 6px; background: #F1F2F7; overflow: hidden; display: flex;">
+                  <div style="{{ f.barStyle }}"></div>
+                </div>
+                <span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; letter-spacing: -0.01em;">{{ f.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="background: linear-gradient(150deg, #23262F 0%, #15171F 60%, #101219 100%); border-radius: 20px; padding: 22px 24px; color: #FFFFFF; box-shadow: 0 14px 30px -18px rgba(21,23,31,0.9);">
+            <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #9096AC;">EXIGE AÇÃO</div>
+            <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 14px;">
+              <sc-for list="{{ attention }}" as="a" hint-placeholder-count="3">
+                <button onClick="{{ a.onClick }}" style="display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 11px 0; border: none; background: transparent; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.08);" style-hover="opacity: 0.75;">
+                  <span style="{{ a.valueStyle }}">{{ a.value }}</span>
+                  <span style="flex: 1; font-size: 12.5px; color: #C4C8D8; line-height: 1.35; text-wrap: pretty;">{{ a.label }}</span>
+                  <span style="font-size: 15px; color: #6B7189;">›</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+              <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em;">Próximas atividades</div>
+              <span style="font-size: 11px; font-weight: 700; color: #5A5BE6; background: #EFEFFD; border-radius: 20px; padding: 3px 9px;">{{ nextCount }}</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+              <sc-for list="{{ nextTasks }}" as="t" hint-placeholder-count="5">
+                <div style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #F3F4F8;">
+                  <span style="{{ t.timeStyle }}">{{ t.time }}</span>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 13px; font-weight: 600; line-height: 1.3; text-wrap: pretty;">{{ t.title }}</div>
+                    <div style="font-size: 11.5px; color: #9AA0B0; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ t.who }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <button onClick="{{ goAgenda }}" style="width: 100%; margin-top: 14px; padding: 10px; border-radius: 11px; border: none; background: #F5F6FA; font-size: 12.5px; font-weight: 700; color: #4A4F60; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Ver agenda completa</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isClientes }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 32px 28px 80px;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px;">
+        <div>
+          <div style="font-size: 27px; font-weight: 700; letter-spacing: -0.035em;">Clientes</div>
+          <div style="font-size: 14px; color: #7B808F; margin-top: 5px;">73.180 contas na carteira · {{ clientsFoundLabel }}</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button style="padding: 10px 16px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Importar</button>
+          <button style="padding: 10px 16px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Exportar</button>
+          <button style="padding: 10px 17px; border-radius: 11px; border: none; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 14px -8px rgba(90,91,230,0.9);" style-hover="background: #4243C7;">+ Novo contato</button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+        <input value="{{ clientQuery }}" onChange="{{ onClientQuery }}" placeholder="Buscar por nome, e-mail ou celular" style="width: 300px; padding: 10px 14px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; outline: none; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+        <sc-for list="{{ clientChips }}" as="c" hint-placeholder-count="4">
+          <button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button>
+        </sc-for>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.07); overflow: hidden;">
+        <div style="display: grid; grid-template-columns: 2.3fr 1.15fr 0.85fr 0.95fr 0.75fr 0.85fr; gap: 16px; padding: 14px 22px; border-bottom: 1px solid #EFF0F5; font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #A0A5B5;">
+          <span>Contato</span><span>WhatsApp</span><span>Origem</span><span>Responsável</span><span>Negócios</span><span style="text-align: right;">Em aberto</span>
+        </div>
+        <sc-for list="{{ clients }}" as="c" hint-placeholder-count="10">
+          <div style="display: grid; grid-template-columns: 2.3fr 1.15fr 0.85fr 0.95fr 0.75fr 0.85fr; gap: 16px; padding: 13px 22px; border-bottom: 1px solid #F4F5F9; align-items: center; cursor: pointer;" style-hover="background: #FAFAFD;">
+            <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+              <span style="{{ c.avatarStyle }}">{{ c.initials }}</span>
+              <div style="min-width: 0;">
+                <div style="font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ c.name }}</div>
+                <div style="{{ c.emailStyle }}">{{ c.email }}</div>
+              </div>
+            </div>
+            <span style="font-size: 12.5px; color: #4A4F60; font-variant-numeric: tabular-nums;">{{ c.phone }}</span>
+            <span style="{{ c.sourceStyle }}">{{ c.source }}</span>
+            <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+              <span style="{{ c.ownerStyle }}">{{ c.owner }}</span>
+              <span style="font-size: 12.5px; color: #4A4F60; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ c.ownerName }}</span>
+            </div>
+            <span style="font-size: 12.5px; color: #4A4F60; font-variant-numeric: tabular-nums;">{{ c.deals }}</span>
+            <span style="{{ c.valueStyle }}">{{ c.value }}</span>
+          </div>
+        </sc-for>
+        <div style="padding: 14px 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+          <span style="font-size: 12px; color: #9AA0B0;">{{ clientsPageLabel }}</span>
+          <div style="display: flex; gap: 6px;">
+            <button style="padding: 7px 12px; border-radius: 9px; border: none; background: #F5F6FA; font-size: 12.5px; font-weight: 600; color: #7B808F; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Anterior</button>
+            <button style="padding: 7px 12px; border-radius: 9px; border: none; background: #F5F6FA; font-size: 12.5px; font-weight: 600; color: #4A4F60; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Próxima</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isPipeline }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 32px 28px 90px;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 20px;">
+        <div>
+          <div style="font-size: 27px; font-weight: 700; letter-spacing: -0.035em;">Pipeline</div>
+          <div style="font-size: 14px; color: #7B808F; margin-top: 5px;">Funil de Vendas · {{ pipeHeaderLine }}</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <div style="display: flex; background: #ECEDF4; border-radius: 11px; padding: 3px; gap: 2px;">
+            <button onClick="{{ showBoard }}" style="{{ boardTabStyle }}">Kanban</button>
+            <button onClick="{{ showTable }}" style="{{ tableTabStyle }}">Lista</button>
+          </div>
+          <button style="padding: 10px 16px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Importar</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+        <div style="border-radius: 18px; padding: 19px 22px; background: linear-gradient(140deg, #7476F2 0%, #5152DA 50%, #3B3CBE 100%); color: #FFFFFF; box-shadow: 0 12px 26px -16px rgba(90,91,230,0.95); display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+            <div>
+              <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #C9CAFA;">VALOR EM ABERTO</div>
+              <div style="font-size: 26px; font-weight: 700; letter-spacing: -0.035em; margin-top: 5px; font-variant-numeric: tabular-nums;">{{ openValue }}</div>
+            </div>
+            <div style="font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums;">{{ goalPct }}</div>
+          </div>
+          <div>
+            <div style="height: 6px; border-radius: 6px; background: rgba(255,255,255,0.25); overflow: hidden; display: flex;">
+              <div style="{{ goalBarStyle }}"></div>
+            </div>
+            <div style="font-size: 11.5px; color: #D2D3FB; margin-top: 8px;">{{ goalHint }}</div>
+          </div>
+        </div>
+        <sc-for list="{{ pipeMetrics }}" as="m" hint-placeholder-count="3">
+          <button onClick="{{ m.onClick }}" style="{{ m.style }}">
+            <span style="{{ m.valueStyle }}">{{ m.value }}</span>
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #8B90A0; text-align: left;">{{ m.label }}</span>
+            <span style="font-size: 11.5px; color: #A0A5B5; text-align: left;">{{ m.hint }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+        <input value="{{ pipeQuery }}" onChange="{{ onPipeQuery }}" placeholder="Buscar negócio ou contato" style="width: 260px; padding: 10px 14px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; outline: none; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+        <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+          <button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button>
+        </sc-for>
+        <div style="flex: 1;"></div>
+        <span style="font-size: 12px; color: #A0A5B5;">Ordenar</span>
+        <div style="display: flex; background: #ECEDF4; border-radius: 10px; padding: 3px; gap: 2px;">
+          <sc-for list="{{ sorts }}" as="s" hint-placeholder-count="3">
+            <button onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+
+      <sc-if value="{{ isBoard }}" hint-placeholder-val="{{ true }}">
+        <div class="c-scroll" style="display: flex; gap: 13px; align-items: flex-start; overflow-x: auto; padding-bottom: 14px;">
+          <sc-for list="{{ columns }}" as="col" hint-placeholder-count="6">
+            <div onDragOver="{{ col.onDragOver }}" onDrop="{{ col.onDrop }}" onDragLeave="{{ col.onDragLeave }}" style="width: 284px; flex: 0 0 284px; display: flex; flex-direction: column; gap: 10px;">
+              <div style="padding: 13px 15px; background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 16px; box-shadow: 0 1px 3px rgba(20,24,50,0.07); display: flex; flex-direction: column; gap: 9px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="{{ col.dotStyle }}"></span>
+                    <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ col.name }}</span>
+                  </div>
+                  <span style="font-size: 11.5px; font-weight: 700; color: #4A4F60; background: #F2F3F8; border-radius: 20px; padding: 3px 9px; font-variant-numeric: tabular-nums;">{{ col.count }}</span>
+                </div>
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.025em;">{{ col.total }}</span>
+                  <span style="font-size: 11px; color: #A0A5B5;">{{ col.avg }}</span>
+                </div>
+                <div style="height: 5px; border-radius: 5px; background: #F1F2F7; overflow: hidden; display: flex;">
+                  <div style="{{ col.barStyle }}"></div>
+                </div>
+                <div style="font-size: 11px; color: #A0A5B5;">{{ col.health }}</div>
+              </div>
+
+              <div style="{{ col.wellStyle }}">
+                <sc-for list="{{ col.deals }}" as="d" hint-placeholder-count="4">
+                  <div draggable="true" onDragStart="{{ d.onDragStart }}" onDragEnd="{{ d.onDragEnd }}" onClick="{{ d.onOpen }}" style="{{ d.cardStyle }}" style-hover="box-shadow: 0 10px 22px -14px rgba(20,24,50,0.4); transform: translateY(-1px);">
+                    <div style="display: flex; align-items: flex-start; gap: 10px;">
+                      <button onClick="{{ d.onToggle }}" style="{{ d.checkStyle }}">{{ d.checkMark }}</button>
+                      <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 13.5px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ d.contact }}</div>
+                        <div style="font-size: 11px; color: #A0A5B5; margin-top: 3px; font-variant-numeric: tabular-nums;">{{ d.meta }}</div>
+                      </div>
+                      <span style="{{ d.avatarStyle }}">{{ d.initials }}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                      <span style="{{ d.valueStyle }}">{{ d.value }}</span>
+                      <span style="{{ d.ageStyle }}">{{ d.age }}</span>
+                    </div>
+                    <button onClick="{{ d.onTask }}" style="{{ d.taskStyle }}">
+                      <span style="{{ d.taskDotStyle }}"></span>
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.taskLabel }}</span>
+                    </button>
+                    <div style="display: flex; gap: 6px;">
+                      <button onClick="{{ d.onWhats }}" style="flex: 1; padding: 7px 0; border-radius: 10px; border: none; background: #F5F6FA; font-size: 11.5px; font-weight: 700; color: #666C7E; cursor: pointer;" style-hover="background: #E6F6EE; color: #0F7D5C;">WhatsApp</button>
+                      <button onClick="{{ d.onTask }}" style="flex: 1; padding: 7px 0; border-radius: 10px; border: none; background: #F5F6FA; font-size: 11.5px; font-weight: 700; color: #666C7E; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Tarefa</button>
+                      <button onClick="{{ d.onAdvance }}" style="flex: 1; padding: 7px 0; border-radius: 10px; border: none; background: #F5F6FA; font-size: 11.5px; font-weight: 700; color: #666C7E; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Avançar</button>
+                    </div>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ col.hasMore }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ col.onMore }}" style="width: 100%; padding: 11px; border-radius: 14px; border: none; background: rgba(255,255,255,0.7); font-size: 12px; font-weight: 700; color: #666C7E; cursor: pointer;" style-hover="background: #FFFFFF; color: #5A5BE6;">{{ col.moreLabel }}</button>
+                </sc-if>
+                <sc-if value="{{ col.isEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding: 22px 10px; text-align: center; font-size: 12px; color: #A0A5B5; border-radius: 14px; background: rgba(255,255,255,0.7);">Nada com esses filtros</div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTable }}" hint-placeholder-val="{{ false }}">
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; overflow: hidden; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <div style="display: grid; grid-template-columns: 40px 1.5fr 0.9fr 1fr 1.5fr 0.7fr 0.6fr; gap: 14px; padding: 14px 20px; border-bottom: 1px solid #EFF0F5; font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #A0A5B5;">
+            <span></span><span>Contato</span><span>Valor</span><span>Etapa</span><span>Próxima tarefa</span><span>Resp.</span><span>Parado</span>
+          </div>
+          <sc-for list="{{ rows }}" as="d" hint-placeholder-count="10">
+            <div onClick="{{ d.onOpen }}" style="{{ d.rowStyle }}" style-hover="background: #FAFAFD;">
+              <button onClick="{{ d.onToggle }}" style="{{ d.checkStyle }}">{{ d.checkMark }}</button>
+              <div style="min-width: 0;">
+                <div style="font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ d.contact }}</div>
+                <div style="font-size: 11px; color: #A0A5B5;">{{ d.meta }}</div>
+              </div>
+              <span style="{{ d.valueStyle }}">{{ d.value }}</span>
+              <span style="font-size: 12.5px; color: #666C7E;">{{ d.stageName }}</span>
+              <span style="{{ d.taskTextStyle }}">{{ d.taskLabel }}</span>
+              <span style="font-size: 12px; color: #666C7E;">{{ d.owner }}</span>
+              <span style="{{ d.ageStyle }}">{{ d.age }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 18px; border-radius: 16px; background: linear-gradient(140deg, rgba(38,41,52,0.92), rgba(16,18,25,0.94)); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.1); color: #FFFFFF; box-shadow: 0 18px 40px -16px rgba(21,23,31,0.8); animation: cFade 150ms ease-out;">
+      <span style="font-size: 12.5px; font-weight: 700;">{{ selectionLabel }}</span>
+      <span style="width: 1px; height: 18px; background: rgba(255,255,255,0.2); margin: 0 3px;"></span>
+      <button onClick="{{ bulkTask }}" style="padding: 7px 12px; border-radius: 10px; border: none; background: rgba(255,255,255,0.12); color: #FFFFFF; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;" style-hover="background: #5A5BE6;">Criar tarefa</button>
+      <span style="font-size: 11.5px; color: #9096AC; margin-left: 4px;">Mover</span>
+      <sc-for list="{{ moveTargets }}" as="s" hint-placeholder-count="6">
+        <button onClick="{{ s.onMove }}" style="padding: 7px 11px; border-radius: 10px; border: none; background: rgba(255,255,255,0.12); color: #E4E6F0; font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;" style-hover="background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff;">{{ s.short }}</button>
+      </sc-for>
+      <button onClick="{{ clearSelection }}" style="padding: 5px 9px; border-radius: 10px; border: none; background: transparent; color: #9096AC; font-size: 16px; line-height: 1; cursor: pointer;" style-hover="color: #FFFFFF;">×</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ openDeal }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDeal }}" style="position: fixed; inset: 0; background: rgba(21,23,31,0.34); z-index: 50; display: flex; justify-content: flex-end; padding: 12px;">
+      <div onClick="{{ stop }}" class="c-scroll" style="width: 468px; max-width: 96vw; height: 100%; background: rgba(255,255,255,0.94); backdrop-filter: blur(24px) saturate(140%); border: 1px solid rgba(255,255,255,0.8); border-radius: 20px; overflow-y: auto; animation: cSlide 190ms cubic-bezier(0.22,0.7,0.3,1); box-shadow: 0 24px 60px -18px rgba(21,23,31,0.5);">
+        <div style="padding: 22px 24px 20px; background: linear-gradient(140deg, #7476F2 0%, #5152DA 50%, #3B3CBE 100%); color: #FFFFFF; border-radius: 20px 20px 0 0;">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+              <span style="width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.2); font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: 0 0 auto;">{{ openDeal.initials }}</span>
+              <div style="min-width: 0;">
+                <div style="font-size: 19px; font-weight: 700; letter-spacing: -0.025em; text-wrap: pretty;">{{ openDeal.contact }}</div>
+                <div style="font-size: 12px; color: #CFD0FB; margin-top: 2px;">{{ openDeal.meta }}</div>
+              </div>
+            </div>
+            <button onClick="{{ closeDeal }}" style="border: none; background: rgba(255,255,255,0.18); border-radius: 10px; width: 30px; height: 30px; font-size: 16px; color: #FFFFFF; cursor: pointer; flex: 0 0 auto;" style-hover="background: rgba(255,255,255,0.32);">×</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 16px;">
+            <span style="font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.035em;">{{ openDeal.value }}</span>
+            <span style="font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; background: rgba(255,255,255,0.18);">{{ openDeal.age }}</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px;">
+            <sc-for list="{{ moveTargets }}" as="s" hint-placeholder-count="6">
+              <button onClick="{{ s.onSetOpen }}" style="{{ s.heroPillStyle }}">{{ s.name }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="padding: 20px 24px 6px;">
+          <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #A0A5B5; margin-bottom: 10px;">Próxima tarefa</div>
+          <div style="{{ openDeal.taskBoxStyle }}">
+            <span style="{{ openDeal.taskDotStyle }}"></span>
+            <span style="flex: 1; font-size: 13.5px; font-weight: 700;">{{ openDeal.taskLabel }}</span>
+            <button onClick="{{ openDeal.onTask }}" style="padding: 6px 12px; border-radius: 10px; border: none; background: #FFFFFF; font-size: 12px; font-weight: 700; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.12);" style-hover="color: #5A5BE6;">{{ openDeal.taskCta }}</button>
+          </div>
+          <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+            <sc-for list="{{ quickTasks }}" as="q" hint-placeholder-count="3">
+              <button onClick="{{ q.onClick }}" style="padding: 7px 12px; border-radius: 20px; border: none; background: #F5F6FA; font-size: 12px; font-weight: 600; color: #666C7E; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">{{ q.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="padding: 18px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div style="padding: 13px 15px; border-radius: 14px; background: #F7F8FC;">
+            <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Responsável</div>
+            <div style="font-size: 13.5px; font-weight: 600; margin-top: 5px;">{{ openDeal.owner }}</div>
+          </div>
+          <div style="padding: 13px 15px; border-radius: 14px; background: #F7F8FC;">
+            <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Origem</div>
+            <div style="font-size: 13.5px; font-weight: 600; margin-top: 5px;">{{ openDeal.source }}</div>
+          </div>
+        </div>
+
+        <div style="padding: 4px 24px 40px;">
+          <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #A0A5B5; margin-bottom: 12px;">Histórico</div>
+          <div style="display: flex; gap: 8px; margin-bottom: 18px;">
+            <input value="{{ note }}" onChange="{{ onNote }}" onKeyDown="{{ onNoteKey }}" placeholder="Registrar contato ou nota…" style="flex: 1; padding: 10px 13px; border-radius: 12px; border: none; background: #F2F3F8; font-size: 13px; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+            <button onClick="{{ addNote }}" style="padding: 10px 15px; border-radius: 12px; border: none; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer;" style-hover="background: #4243C7;">Salvar</button>
+          </div>
+          <div style="display: flex; flex-direction: column;">
+            <sc-for list="{{ openDeal.activity }}" as="a" hint-placeholder-count="4">
+              <div style="display: grid; grid-template-columns: 12px 1fr; gap: 13px;">
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                  <span style="{{ a.dotStyle }}"></span>
+                  <span style="flex: 1; width: 2px; background: #EFF0F5; border-radius: 2px;"></span>
+                </div>
+                <div style="padding-bottom: 18px;">
+                  <div style="font-size: 13px; line-height: 1.45; color: #2A2E3C; text-wrap: pretty;">{{ a.text }}</div>
+                  <div style="font-size: 11.5px; color: #A0A5B5; margin-top: 3px;">{{ a.when }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ addOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeAdd }}" style="position: fixed; inset: 0; background: rgba(21,23,31,0.36); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px;">
+      <div onClick="{{ stop }}" style="width: 458px; max-width: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(24px) saturate(140%); border: 1px solid rgba(255,255,255,0.8); border-radius: 20px; box-shadow: 0 26px 60px -16px rgba(21,23,31,0.5); animation: cFade 170ms cubic-bezier(0.22,0.7,0.3,1); overflow: hidden;">
+        <div style="padding: 20px 24px 16px; font-size: 16px; font-weight: 700; letter-spacing: -0.02em;">Novo negócio</div>
+        <div style="padding: 0 24px 4px; display: flex; flex-direction: column; gap: 13px;">
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Contato
+            <input value="{{ draft.contact }}" onChange="{{ onDraftContact }}" placeholder="Nome do cliente" style="padding: 11px 13px; border-radius: 12px; border: none; background: #F2F3F8; font-size: 14px; font-weight: 400; text-transform: none; letter-spacing: normal; color: #15171F; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+          </label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 13px;">
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Valor (R$)
+              <input value="{{ draft.value }}" onChange="{{ onDraftValue }}" placeholder="500000" style="padding: 11px 13px; border-radius: 12px; border: none; background: #F2F3F8; font-size: 14px; font-weight: 400; font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: normal; color: #15171F; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Responsável
+              <input value="{{ draft.owner }}" onChange="{{ onDraftOwner }}" placeholder="KG" style="padding: 11px 13px; border-radius: 12px; border: none; background: #F2F3F8; font-size: 14px; font-weight: 400; text-transform: none; letter-spacing: normal; color: #15171F; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+            </label>
+          </div>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Primeira tarefa
+            <input value="{{ draft.task }}" onChange="{{ onDraftTask }}" placeholder="Ligar hoje às 14h" style="padding: 11px 13px; border-radius: 12px; border: none; background: #F2F3F8; font-size: 14px; font-weight: 400; text-transform: none; letter-spacing: normal; color: #15171F; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+          </label>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #A0A5B5;">Etapa</span>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <sc-for list="{{ draftStages }}" as="s" hint-placeholder-count="6">
+                <button onClick="{{ s.onPick }}" style="{{ s.pillStyle }}">{{ s.name }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 18px 24px 20px; display: flex; justify-content: flex-end; gap: 9px;">
+          <button onClick="{{ closeAdd }}" style="padding: 10px 16px; border-radius: 12px; border: none; background: #F2F3F8; font-size: 13px; font-weight: 600; color: #666C7E; cursor: pointer;" style-hover="background: #E8EAF1;">Cancelar</button>
+          <button onClick="{{ createDeal }}" style="padding: 10px 18px; border-radius: 12px; border: none; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 14px -8px rgba(90,91,230,0.9);" style-hover="background: #4243C7;">Criar negócio</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isWhats }}" hint-placeholder-val="{{ false }}">
+    <div class="c-scroll" style="max-width: 1560px; margin: 0 auto; padding: 26px 28px 40px; overflow-x: auto;">
+      <div style="display: flex; align-items: center; border-bottom: 1px solid #EBECF2; margin-bottom: 20px;">
+        <sc-for list="{{ waTabs }}" as="t" hint-placeholder-count="3">
+          <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+        </sc-for>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 300px minmax(400px, 1fr) 280px; gap: 14px; height: calc(100vh - 190px); min-height: 560px; min-width: 1040px;">
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.07); display: flex; flex-direction: column; overflow: hidden;">
+          <div style="padding: 12px; display: flex; gap: 4px; background: #F2F3F8; margin: 12px 12px 0; border-radius: 14px;">
+            <sc-for list="{{ waBoxes }}" as="b" hint-placeholder-count="2">
+              <button onClick="{{ b.onClick }}" style="{{ b.style }}">
+                <span style="{{ b.labelStyle }}">{{ b.label }}</span>
+                <span style="{{ b.countStyle }}">{{ b.count }} conversas</span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="padding: 12px; display: flex; gap: 8px;">
+            <input placeholder="Buscar conversa" style="flex: 1; min-width: 0; padding: 9px 12px; border-radius: 11px; border: none; background: #F2F3F8; font-size: 12.5px; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+            <button onClick="{{ toggleUnread }}" style="{{ waUnreadStyle }}">Não lidas</button>
+          </div>
+          <div class="c-scroll" style="flex: 1; overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px;">
+            <sc-for list="{{ waConvs }}" as="c" hint-placeholder-count="8">
+              <button onClick="{{ c.onClick }}" style="{{ c.style }}">
+                <span style="{{ c.avatarStyle }}">{{ c.initials }}</span>
+                <span style="flex: 1; min-width: 0; display: block;">
+                  <span style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                    <span style="{{ c.nameStyle }}">{{ c.name }}</span>
+                    <span style="font-size: 10.5px; color: #A9AEC0; flex: 0 0 auto;">{{ c.time }}</span>
+                  </span>
+                  <span style="{{ c.previewStyle }}">{{ c.preview }}</span>
+                </span>
+                <span style="{{ c.badgeStyle }}">{{ c.unreadCount }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background: rgba(247,248,252,0.55); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.7); border-radius: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.06); display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
+          <div style="padding: 15px 20px; background: rgba(255,255,255,0.66); border-bottom: 1px solid #EFF0F5; display: flex; align-items: center; gap: 12px;">
+            <span style="{{ waActive.avatarStyle }}">{{ waActive.initials }}</span>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 14.5px; font-weight: 700; letter-spacing: -0.015em;">{{ waActive.name }}</div>
+              <div style="font-size: 12px; color: #9AA0B0; font-variant-numeric: tabular-nums;">{{ waActive.phone }}</div>
+            </div>
+            <button style="padding: 8px 13px; border-radius: 10px; border: none; background: #F2F3F8; font-size: 12.5px; font-weight: 700; color: #4A4F60; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Abrir negócio</button>
+          </div>
+          <div class="c-scroll" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+            <sc-for list="{{ waActive.messages }}" as="m" hint-placeholder-count="5">
+              <div style="{{ m.rowStyle }}">
+                <div style="{{ m.bubbleStyle }}">
+                  <span>{{ m.text }}</span>
+                  <span style="{{ m.timeStyle }}">{{ m.time }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="padding: 14px 16px; background: rgba(255,255,255,0.66); border-top: 1px solid #EFF0F5; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <sc-for list="{{ waQuick }}" as="q" hint-placeholder-count="3">
+                <button onClick="{{ q.onClick }}" style="padding: 6px 11px; border-radius: 20px; border: none; background: #F2F3F8; font-size: 11.5px; font-weight: 600; color: #666C7E; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">{{ q.label }}</button>
+              </sc-for>
+            </div>
+            <div style="display: flex; gap: 9px;">
+              <input value="{{ waDraft }}" onChange="{{ onWaDraft }}" onKeyDown="{{ onWaKey }}" placeholder="Escreva uma mensagem…" style="flex: 1; padding: 11px 14px; border-radius: 13px; border: none; background: #F2F3F8; font-size: 13.5px; outline: none;" style-focus="box-shadow: 0 0 0 3px #E2E2FB;" />
+              <button onClick="{{ sendWa }}" style="padding: 11px 20px; border-radius: 13px; border: none; background: #0F9D6E; color: #fff; font-size: 13.5px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 14px -8px rgba(15,157,110,0.9);" style-hover="background: #0F7D5C;">Enviar</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+            <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; color: #A0A5B5;">NEGÓCIO VINCULADO</div>
+            <div style="font-size: 22px; font-weight: 700; letter-spacing: -0.03em; margin-top: 10px; font-variant-numeric: tabular-nums;">{{ waActive.value }}</div>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 16px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                <span style="font-size: 12px; color: #9AA0B0;">Etapa</span>
+                <span style="font-size: 12.5px; font-weight: 700;">{{ waActive.stage }}</span>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                <span style="font-size: 12px; color: #9AA0B0;">Responsável</span>
+                <span style="font-size: 12.5px; font-weight: 700;">{{ waActive.owner }}</span>
+              </div>
+            </div>
+          </div>
+          <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+            <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; color: #A0A5B5; margin-bottom: 12px;">AÇÕES RÁPIDAS</div>
+            <div style="display: flex; flex-direction: column; gap: 7px;">
+              <button style="width: 100%; padding: 10px; border-radius: 11px; border: none; background: #F5F6FA; font-size: 12.5px; font-weight: 700; color: #4A4F60; cursor: pointer; text-align: left;" style-hover="background: #EFEFFD; color: #5A5BE6;">Agendar tarefa de follow-up</button>
+              <button style="width: 100%; padding: 10px; border-radius: 11px; border: none; background: #F5F6FA; font-size: 12.5px; font-weight: 700; color: #4A4F60; cursor: pointer; text-align: left;" style-hover="background: #EFEFFD; color: #5A5BE6;">Enviar simulação</button>
+              <button style="width: 100%; padding: 10px; border-radius: 11px; border: none; background: #F5F6FA; font-size: 12.5px; font-weight: 700; color: #4A4F60; cursor: pointer; text-align: left;" style-hover="background: #EFEFFD; color: #5A5BE6;">Mover para Quente</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isAgenda }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 32px 28px 80px;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px;">
+        <div>
+          <div style="font-size: 27px; font-weight: 700; letter-spacing: -0.035em;">Agenda</div>
+          <div style="font-size: 14px; color: #7B808F; margin-top: 5px;">Reuniões, ligações e follow-ups do time · Google Agenda integrado</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <div style="display: flex; background: #ECEDF4; border-radius: 11px; padding: 3px; gap: 2px;">
+            <sc-for list="{{ agendaViews }}" as="v" hint-placeholder-count="2">
+              <button onClick="{{ v.onClick }}" style="{{ v.style }}">{{ v.label }}</button>
+            </sc-for>
+          </div>
+          <button style="padding: 10px 17px; border-radius: 11px; border: none; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 14px -8px rgba(90,91,230,0.9);" style-hover="background: #4243C7;">+ Nova atividade</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 316px; gap: 14px; align-items: start;">
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.07); overflow: hidden;">
+          <div style="padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <div style="font-size: 17px; font-weight: 700; letter-spacing: -0.025em;">Agosto 2026</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button style="width: 30px; height: 30px; border-radius: 9px; border: none; background: #F2F3F8; font-size: 14px; color: #666C7E; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">‹</button>
+              <button style="padding: 7px 13px; border-radius: 9px; border: none; background: #F2F3F8; font-size: 12.5px; font-weight: 700; color: #4A4F60; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">Hoje</button>
+              <button style="width: 30px; height: 30px; border-radius: 9px; border: none; background: #F2F3F8; font-size: 14px; color: #666C7E; cursor: pointer;" style-hover="background: #EFEFFD; color: #5A5BE6;">›</button>
+            </div>
+          </div>
+          <sc-if value="{{ agendaIsMonth }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <div style="display: grid; grid-template-columns: repeat(7, 1fr); border-top: 1px solid #F1F2F7;">
+                <sc-for list="{{ weekDays }}" as="w" hint-placeholder-count="7">
+                  <div style="padding: 10px 9px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #A0A5B5; border-right: 1px solid #F1F2F7; border-bottom: 1px solid #F1F2F7;">{{ w }}</div>
+                </sc-for>
+              </div>
+              <sc-for list="{{ weeks }}" as="week" hint-placeholder-count="6">
+                <div style="display: grid; grid-template-columns: repeat(7, 1fr);">
+                  <sc-for list="{{ week.days }}" as="d" hint-placeholder-count="7">
+                    <div style="{{ d.cellStyle }}">
+                      <span style="{{ d.dayStyle }}">{{ d.day }}</span>
+                      <sc-for list="{{ d.events }}" as="e" hint-placeholder-count="2">
+                        <span style="{{ e.style }}">{{ e.label }}</span>
+                      </sc-for>
+                      <span style="{{ d.moreStyle }}">{{ d.moreLabel }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ agendaIsList }}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 0 22px 18px; display: flex; flex-direction: column;">
+              <sc-for list="{{ agendaList }}" as="a" hint-placeholder-count="6">
+                <div style="display: flex; gap: 14px; align-items: center; padding: 15px 0; border-top: 1px solid #F1F2F7;">
+                  <span style="{{ a.barStyle }}"></span>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 14px; font-weight: 600; letter-spacing: -0.01em;">{{ a.title }}</div>
+                    <div style="font-size: 12px; color: #9AA0B0; margin-top: 3px;">{{ a.who }}</div>
+                  </div>
+                  <span style="font-size: 12.5px; font-weight: 700; color: #4243C7; background: #EFEFFD; border-radius: 9px; padding: 6px 11px; font-variant-numeric: tabular-nums; white-space: nowrap;">{{ a.when }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 22px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px;">Compromissos agendados</div>
+          <div style="font-size: 12.5px; color: #9AA0B0; margin-bottom: 16px;">Próximos 7 dias</div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <sc-for list="{{ agendaList }}" as="a" hint-placeholder-count="6">
+              <div style="display: flex; gap: 12px;">
+                <span style="{{ a.barStyle }}"></span>
+                <div style="min-width: 0;">
+                  <div style="font-size: 13.5px; font-weight: 600; line-height: 1.35; text-wrap: pretty;">{{ a.title }}</div>
+                  <div style="font-size: 11.5px; color: #9AA0B0; margin-top: 3px;">{{ a.who }}</div>
+                  <div style="font-size: 11.5px; color: #4243C7; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums;">{{ a.when }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isProc }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 32px 28px 80px;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px;">
+        <div>
+          <div style="font-size: 27px; font-weight: 700; letter-spacing: -0.035em;">Processos</div>
+          <div style="font-size: 14px; color: #7B808F; margin-top: 5px;">Acompanhamento de pós-venda — administrativo</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button style="padding: 10px 16px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Configurar categorias</button>
+          <button style="padding: 10px 17px; border-radius: 11px; border: none; background: linear-gradient(135deg, #7274F0 0%, #4F50D8 55%, #3F40C2 100%); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 14px -8px rgba(90,91,230,0.9);" style-hover="background: #4243C7;">+ Adicionar ao processo</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px;">
+        <sc-for list="{{ procKpis }}" as="k" hint-placeholder-count="3">
+          <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 18px; padding: 19px 21px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+            <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #8B90A0;">{{ k.label }}</div>
+            <div style="font-size: 26px; font-weight: 700; letter-spacing: -0.04em; margin-top: 8px; font-variant-numeric: tabular-nums;">{{ k.value }}</div>
+            <div style="font-size: 12px; color: #9AA0B0; margin-top: 4px;">{{ k.hint }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 226px 1fr; gap: 14px; align-items: start;">
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 12px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <sc-for list="{{ procCats }}" as="c" hint-placeholder-count="9">
+            <button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button>
+          </sc-for>
+          <button style="width: 100%; text-align: left; padding: 10px 12px; margin-top: 6px; border-radius: 11px; border: none; background: transparent; font-size: 12.5px; font-weight: 700; color: #5A5BE6; cursor: pointer;" style-hover="background: #EFEFFD;">+ Nova categoria</button>
+        </div>
+
+        <div class="c-scroll" style="display: flex; gap: 13px; align-items: flex-start; overflow-x: auto; padding-bottom: 12px;">
+          <sc-for list="{{ procColumns }}" as="col" hint-placeholder-count="5">
+            <div style="width: 274px; flex: 0 0 274px; display: flex; flex-direction: column; gap: 10px;">
+              <div style="padding: 13px 15px; background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 16px; box-shadow: 0 1px 3px rgba(20,24,50,0.07); display: flex; flex-direction: column; gap: 7px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="{{ col.dotStyle }}"></span>
+                    <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ col.name }}</span>
+                  </div>
+                  <span style="font-size: 11.5px; font-weight: 700; color: #4A4F60; background: #F2F3F8; border-radius: 20px; padding: 3px 9px;">{{ col.count }}</span>
+                </div>
+                <span style="font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.025em;">{{ col.total }}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px; min-height: 120px;">
+                <sc-for list="{{ col.cards }}" as="c" hint-placeholder-count="2">
+                  <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 16px; padding: 14px; box-shadow: 0 1px 3px rgba(20,24,50,0.08); display: flex; flex-direction: column; gap: 9px; cursor: grab;" style-hover="box-shadow: 0 10px 22px -14px rgba(20,24,50,0.4);">
+                    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+                      <div style="min-width: 0;">
+                        <div style="font-size: 13.5px; font-weight: 700; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ c.name }}</div>
+                        <div style="font-size: 11px; color: #A0A5B5; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ c.code }}</div>
+                      </div>
+                      <span style="{{ c.avatarStyle }}">{{ c.owner }}</span>
+                    </div>
+                    <span style="{{ c.tagStyle }}">{{ c.tag }}</span>
+                    <span style="font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;">{{ c.value }}</span>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ col.isEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding: 26px 10px; text-align: center; font-size: 12px; color: #A0A5B5; border-radius: 14px; background: rgba(255,255,255,0.7);">Nenhum processo</div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isRel }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width: 1560px; margin: 0 auto; padding: 32px 28px 80px;">
+      <div style="display: flex; background: #ECEDF4; border-radius: 11px; padding: 3px; gap: 2px; width: fit-content; margin-bottom: 22px;">
+        <sc-for list="{{ repTabs }}" as="t" hint-placeholder-count="3">
+          <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+        </sc-for>
+      </div>
+
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px;">
+        <div style="max-width: 560px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #A0A5B5;">RELATÓRIOS</div>
+          <div style="font-size: 27px; font-weight: 700; letter-spacing: -0.035em; margin-top: 6px;">{{ repTitle }}</div>
+          <div style="font-size: 14px; color: #7B808F; margin-top: 6px; line-height: 1.5; text-wrap: pretty;">{{ repSub }}</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button style="padding: 10px 15px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Todos os funis</button>
+          <button style="padding: 10px 15px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Todo o time</button>
+          <button style="padding: 10px 15px; border-radius: 11px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #4A4F60; cursor: pointer; box-shadow: 0 1px 3px rgba(20,24,50,0.08);" style-hover="color: #5A5BE6;">Agosto 2026</button>
+        </div>
+      </div>
+
+      <div style="background: linear-gradient(150deg, #23262F 0%, #15171F 60%, #101219 100%); border-radius: 20px; padding: 22px 24px; color: #FFFFFF; display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; box-shadow: 0 14px 30px -20px rgba(21,23,31,0.9);">
+        <div>
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #9096AC;">META DE AGOSTO DE 2026</div>
+          <div style="font-size: 26px; font-weight: 700; letter-spacing: -0.035em; margin-top: 7px; font-variant-numeric: tabular-nums;">{{ metaValue }}</div>
+          <div style="font-size: 12.5px; color: #A6ABBF; margin-top: 5px;">{{ metaHint }}</div>
+        </div>
+        <button style="padding: 10px 17px; border-radius: 11px; border: none; background: rgba(255,255,255,0.12); color: #FFFFFF; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;" style-hover="background: #5A5BE6;">Usar esta meta</button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start;">
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 24px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em;">Negócios por status</div>
+          <div style="display: flex; align-items: center; gap: 28px; margin-top: 20px;">
+            <div style="{{ donutStyle }}">
+              <div style="width: 118px; height: 118px; border-radius: 50%; background: #FFFFFF; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.035em;">0%</span>
+                <span style="font-size: 11px; color: #9AA0B0;">conversão</span>
+              </div>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 13px;">
+              <sc-for list="{{ donutLegend }}" as="l" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="{{ l.dotStyle }}"></span>
+                  <span style="flex: 1; font-size: 13px; color: #4A4F60;">{{ l.label }}</span>
+                  <span style="font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;">{{ l.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+          <sc-for list="{{ repKpis }}" as="k" hint-placeholder-count="4">
+            <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 20px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+              <div style="font-size: 13px; color: #7B808F;">{{ k.label }}</div>
+              <div style="font-size: 23px; font-weight: 700; letter-spacing: -0.035em; margin-top: 8px; font-variant-numeric: tabular-nums;">{{ k.value }}</div>
+              <div style="font-size: 11.5px; color: #A0A5B5; margin-top: 4px; line-height: 1.35;">{{ k.hint }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 24px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 18px;">Ranking do time</div>
+          <div style="display: flex; flex-direction: column; gap: 15px;">
+            <sc-for list="{{ ranking }}" as="r" hint-placeholder-count="6">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 12px; font-weight: 700; color: #C6CBD9; width: 12px; font-variant-numeric: tabular-nums;">{{ r.pos }}</span>
+                <span style="{{ r.avatarStyle }}">{{ r.initials }}</span>
+                <div style="flex: 1; min-width: 0;">
+                  <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+                    <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ r.name }}</span>
+                    <span style="font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;">{{ r.value }}</span>
+                  </div>
+                  <div style="height: 5px; border-radius: 5px; background: #F1F2F7; overflow: hidden; display: flex; margin-top: 6px;">
+                    <div style="{{ r.barStyle }}"></div>
+                  </div>
+                  <div style="font-size: 11px; color: #A0A5B5; margin-top: 4px;">{{ r.deals }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); border-radius: 20px; padding: 24px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);">
+          <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 18px;">Leads por origem</div>
+          <div style="display: flex; flex-direction: column; gap: 15px;">
+            <sc-for list="{{ origins }}" as="o" hint-placeholder-count="5">
+              <div style="display: grid; grid-template-columns: 150px 1fr 48px; gap: 12px; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 9px; min-width: 0;">
+                  <span style="{{ o.dotStyle }}"></span>
+                  <span style="font-size: 13px; color: #4A4F60; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ o.label }}</span>
+                </div>
+                <div style="height: 8px; border-radius: 6px; background: #F1F2F7; overflow: hidden; display: flex;">
+                  <div style="{{ o.barStyle }}"></div>
+                </div>
+                <span style="font-size: 13px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums;">{{ o.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Início&quot;,&quot;Clientes&quot;,&quot;Pipeline&quot;,&quot;WhatsApp&quot;,&quot;Agenda&quot;,&quot;Processos&quot;,&quot;Relatórios&quot;],&quot;default&quot;:&quot;Início&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const STAGES = [
+  { id: 'prospec', name: 'PROSPECÇÃO', short: 'Prospec.', color: '#D2D4E6', extra: 4694, total: 15929259 },
+  { id: 'mensagem', name: 'MENSAGEM/CONTATO', short: 'Mensagem', color: '#BDBFEA', extra: 1143, total: 89242278 },
+  { id: 'analise', name: 'EM ANÁLISE', short: 'Análise', color: '#A2A4E8', extra: 319, total: 118180134 },
+  { id: 'visita', name: 'VISITA MARCADA', short: 'Visita', color: '#8688E7', extra: 226, total: 46537000 },
+  { id: 'remkt', name: 'REMARKETING', short: 'Remkt', color: '#6E70E6', extra: 781, total: 101500055 },
+  { id: 'quente', name: 'QUENTE', short: 'Quente', color: '#4243C7', extra: 86, total: 28149787 }
+];
+
+const EXTRA_FUNNEL = [
+  { name: 'Noshow', count: 305, total: 24402500, color: '#C6CBD9' },
+  { name: 'EXTRAS', count: 138, total: 42418002, color: '#C6CBD9' }
+];
+
+const SEED = [
+  ['Osvaldo Marmoraria', '126682', 600000, 'prospec', 'KG', 15, null, '', 'Formulário site'],
+  ['Giowanna Padilha', '126680', 400000, 'prospec', 'KG', 15, 'Ligar — 2ª tentativa', 'hoje 14:00', 'Indicação'],
+  ['Tiago Portela', '126669', 0, 'prospec', 'PS', 15, null, '', 'Meta Ads'],
+  ['Giovanni Topinho', '126657', 500000, 'prospec', 'KG', 15, null, '', 'Meta Ads'],
+  ['Caio Ferreira', '126654', 0, 'prospec', 'PS', 12, 'Qualificar por WhatsApp', 'amanhã', 'Meta Ads'],
+  ['Tifany Souza', '07/26 · ADS', 0, 'mensagem', 'VC', 7, 'Enviar tabela de preços', 'hoje 11:00', 'Meta Ads'],
+  ['Pedro Marcon', '126613', 0, 'mensagem', 'VC', 10, null, '', 'Meta Ads'],
+  ['Caroline Valenti Baioco', '07/26 · ADS', 0, 'mensagem', 'VC', 10, 'Retomar conversa', 'atrasada 2d', 'Meta Ads'],
+  ['Vanessa Cirio Pedroso', '07/26 · ADS', 0, 'mensagem', 'VC', 10, null, '', 'Meta Ads'],
+  ['Ana Julia Ramos', '07/26 · ADS', 0, 'mensagem', 'VC', 9, null, '', 'Meta Ads'],
+  ['Moisés Barbosa e Souza', '#JUL-26#', 0, 'analise', 'EF', 14, null, '', 'Indicação'],
+  ['Leilaine Quiosque do Poeta', 'JUL/26', 500000, 'analise', 'RL', 14, 'Enviar proposta revisada', 'hoje 17:00', 'Indicação'],
+  ['Marcelo Moriyama', '#JUL-26#', 0, 'analise', 'EF', 14, null, '', 'Site'],
+  ['Dr. Nestor Muzzi Neto', '#JUL-26#', 320000, 'analise', 'EF', 14, 'Aguardar retorno do sócio', 'sexta', 'Indicação'],
+  ['Marcele Frota', '#JUN-26#', 0, 'analise', 'EF', 21, null, '', 'Site'],
+  ['Irene Silva', '126689', 0, 'visita', 'PS', 14, 'Confirmar visita', 'hoje 09:00', 'Indicação'],
+  ['Fernando Santa Clara', '126687', 180000, 'visita', 'PS', 14, null, '', 'Site'],
+  ['Prod. Marcelo Calábria', 'JUN/26', 260000, 'visita', 'RL', 14, 'Remarcar visita', 'atrasada 4d', 'Indicação'],
+  ['David Livingstone Alves', 'JUL/26', 0, 'visita', 'RL', 14, null, '', 'Meta Ads'],
+  ['Emp. Luiz Carlos', 'JUN/26', 145000, 'visita', 'RL', 18, null, '', 'Indicação'],
+  ['Naniara Bianca', 'LEAD FRIO', 200000, 'remkt', 'KL', 14, null, '', 'Meta Ads'],
+  ['Juliano Meta', '126668', 0, 'remkt', 'PS', 15, null, '', 'Meta Ads'],
+  ['Glaucio Bruno', '126659', 0, 'remkt', 'PS', 15, 'Reativar com oferta', 'segunda', 'Meta Ads'],
+  ['Paulo Salomão', '126453', 0, 'remkt', 'PS', 34, null, '', 'Site'],
+  ['Dr. Osmar de Campos', '07/26', 220000, 'quente', 'PS', 6, 'Fechar contrato', 'hoje 16:00', 'Indicação'],
+  ['Michele Marino', '07/26', 110000, 'quente', 'PS', 8, 'Enviar contrato p/ assinatura', 'amanhã', 'Indicação'],
+  ['Edemarcio Pereira', '126350', 0, 'quente', 'PS', 11, null, '', 'Site'],
+  ['Lauro Binex', '07/26', 600000, 'quente', 'PS', 5, 'Alinhar entrada e prazo', 'hoje 18:00', 'Indicação'],
+  ['Fabio Caxeta', '07/26', 90000, 'quente', 'PS', 9, null, '', 'Meta Ads']
+];
+
+const BASE_ACTS = [
+  ['WhatsApp — cliente respondeu sobre disponibilidade', 'há 2 dias', '#0F9D6E'],
+  ['Ligação — 4 min, entendeu o escopo', 'há 5 dias', '#5A5BE6'],
+  ['Nota — orçamento aprovado internamente', 'há 1 semana', '#A0A5B5'],
+  ['Negócio criado', 'há 3 semanas', '#A0A5B5']
+];
+
+const CLIENTS = [
+  ['Aquisição e Reforma 500K', '', '5567988008 36', 'Meta Ads', 'KG', 'Kássio Gomes', 1, 500000],
+  ['Julho/22 — Dr. Clair (PR-Imóvel)', 'clair@clinicapr.com.br', '5546991929 51', 'Indicação', 'PS', 'Paula Serra', 1, 380000],
+  ['Bruna Lucia Meyer Stragliotto', 'bruna.meyer@gmail.com', '5679992956 65', 'SDR', 'VC', 'Vitor Costa', 1, 210000],
+  ['Hernan Faro Cifuentes', '', '5679990558 61', 'SDR', 'VC', 'Vitor Costa', 2, 640000],
+  ['Kleber Justino de Souza', 'kleber.js@outlook.com', '5679993516 41', 'SDR', 'EF', 'Elaine Freitas', 1, 175000],
+  ['Maria Joseilda de Omena', '', '5679990558 93', 'SDR', 'EF', 'Elaine Freitas', 1, 92000],
+  ['Nadir de Souza Kawassoko Ramirez', 'nadir.ramirez@uol.com.br', '5679990387 65', 'Site', 'RL', 'Rafael Lopes', 3, 1250000],
+  ['Mario Marcio da Silva Bicudo', '', '5679987190 61', 'SDR', 'PS', 'Paula Serra', 1, 148000],
+  ['Paulo Sergio Rufino', 'psrufino@gmail.com', '5679961586 32', 'Indicação', 'KL', 'Karla Lima', 2, 430000],
+  ['Luiz Antonio Lopes da Silva', '', '5679982261 53', 'SDR', 'KG', 'Kássio Gomes', 1, 260000],
+  ['Camila Franciene Duarte', 'camila.duarte@hotmail.com', '5679984412 09', 'WhatsApp', 'VC', 'Vitor Costa', 1, 320000],
+  ['Eduardo Domingues Ferreira', 'edu.domingues@gmail.com', '5567991447 88', 'Meta Ads', 'RL', 'Rafael Lopes', 2, 705000]
+];
+
+const AVATAR_TONES = {};
+const AVATAR_DEFAULT = ['#EDEEF4', '#4A4F60'];
+
+// [id, nome, hora, preview, naoLidas, avatarKey, telefone, etapa, valor, responsável]
+const WA_CONVS = [
+  ['c0', 'Camila Franciene', '15:19', 'Sim, pode mandar a simulação', 0, 'VC', '+55 67 99844-1209', 'Em análise', 320000, 'Vitor Costa'],
+  ['c1', 'Eduardo Domingues', '04/08', 'Imagem enviada', 0, 'RL', '+55 67 99144-7788', 'Visita marcada', 705000, 'Rafael Lopes'],
+  ['c2', 'Robson Candido', '24/06', 'Excelente ideia. O segredo para a…', 0, 'PS', '+55 67 99231-4477', 'Remarketing', 180000, 'Paula Serra'],
+  ['c3', 'Kassio Reobote', '09/06', 'Vou sim, guerreiro', 0, 'KG', '+55 67 99811-2233', 'Quente', 600000, 'Kássio Gomes'],
+  ['c4', 'Felipe Teles', '03/12', 'Não tá indo ainda', 1, 'EF', '+55 67 99655-8090', 'Mensagem', 0, 'Elaine Freitas'],
+  ['c5', 'Ingryd Moraes', '02/12', 'Obrigada!', 1, 'KL', '+55 67 99700-1144', 'Prospecção', 145000, 'Karla Lima'],
+  ['c6', 'Gabriel Souza', '28/11', 'Você: 5567981188146', 0, 'VC', '+55 67 98118-8146', 'Em análise', 260000, 'Vitor Costa'],
+  ['c7', 'Luiz Ferrari', '06/11', 'Fechamos na segunda então', 1, 'RL', '+55 67 99432-1180', 'Quente', 420000, 'Rafael Lopes'],
+  ['c8', 'Marcia Andrade', '02/11', 'Me manda por aqui, por favor', 1, 'PS', '+55 67 99388-7712', 'Visita marcada', 195000, 'Paula Serra']
+];
+
+const WA_MSGS = {
+  c0: [
+    ['them', 'Oi! Vi o anúncio de vocês sobre consórcio de imóvel', '14:02'],
+    ['me', 'Oi Camila, tudo bem? Sou o Vitor, do time comercial. Você busca imóvel para morar ou investir?', '14:05'],
+    ['them', 'Para investir mesmo. Faixa de 500 mil', '14:41'],
+    ['me', 'Perfeito. Consigo te mostrar duas cartas nessa faixa com parcela a partir de R$ 2.480. Posso te mandar a simulação?', '14:44'],
+    ['them', 'Sim, pode mandar a simulação', '15:19']
+  ],
+  c4: [
+    ['them', 'Boa tarde, vocês chegaram a analisar minha proposta?', '10:12'],
+    ['me', 'Boa tarde Felipe! Está em análise de crédito, te retorno hoje ainda.', '10:30'],
+    ['them', 'Não tá indo ainda', '11:02']
+  ],
+  c7: [
+    ['me', 'Luiz, consegui a redução na taxa de administração que conversamos.', '09:14'],
+    ['them', 'Show! Fechamos na segunda então', '09:40']
+  ]
+};
+
+const EV_TONE = (kind) => ({
+  done: 'background: #F5F6FA; color: #A9AEC0; text-decoration: line-through;',
+  ligacao: 'background: #EAF0FF; color: #3B5BDB;',
+  whatsapp: 'background: #E6F6EE; color: #0F7D5C;',
+  visita: 'background: #F3F0FD; color: #6D33D6;',
+  late: 'background: #FEEDEB; color: #C0392F;',
+  sep: 'background: #F2F3F8; color: #666C7E;'
+}[kind] || 'background: #F2F3F8; color: #666C7E;');
+
+const AGENDA_WEEKS = (() => {
+  const weeks = [];
+  const first = [27, 28, 29, 30, 31].map(d => ({ day: d, muted: true, key: 'j' + d }))
+    .concat([1, 2].map(d => ({ day: d, muted: false, key: 'a' + d })));
+  weeks.push(first);
+  for (let w = 0; w < 4; w++) {
+    weeks.push([0, 1, 2, 3, 4, 5, 6].map(i => {
+      const day = 3 + w * 7 + i;
+      return { day: day, muted: false, key: 'a' + day };
+    }));
+  }
+  weeks.push([{ day: 31, muted: false, key: 'a31' }].concat([1, 2, 3, 4, 5, 6].map(d => ({ day: d, muted: true, key: 's' + d }))));
+  return weeks;
+})();
+
+const AGENDA_EVENTS = {
+  j27: [['Ligação de retorno', 'done'], ['Ligação de retorno', 'done'], ['Ligação de retorno', 'done'], ['Ligação de retorno', 'done'], ['Ligação de retorno', 'done']],
+  j28: [['Ligação para oferecer', 'done'], ['Ligação de retorno', 'done'], ['Ligação de retorno', 'done'], ['Ligação de retorno', 'done']],
+  j29: [['Ligação de retorno', 'done'], ['Ligação de retorno', 'done'], ['Ligação para oferecer', 'done'], ['Ligação de retorno', 'done']],
+  j30: [['Tentando fechamento', 'done'], ['Daria retorno hoje', 'done'], ['Ligação de retorno', 'done'], ['Ligação de retorno', 'done']],
+  j31: [['Me dará um retorno', 'late'], ['Vídeo realizada. Ele…', 'late'], ['Darei um retorno até…', 'late'], ['Aguardando retorno', 'late']],
+  a1: [['Ligação · KG', 'ligacao']],
+  a3: [['Ligação para oferecer · EF', 'ligacao'], ['Ligação para oferecer · EF', 'ligacao'], ['Ligação para oferecer · EF', 'ligacao'], ['Ligação para oferecer · EF', 'ligacao']],
+  a4: [['Ligação · PS', 'ligacao'], ['Ligar ou ir pessoalmente · J', 'ligacao'], ['WhatsApp — a mesma cota · RL', 'whatsapp'], ['Ligação · PS', 'ligacao']],
+  a5: [['Ligação de retorno · EF', 'ligacao'], ['Prospecção para o mês · PS', 'ligacao'], ['Ligação · EF', 'ligacao']],
+  a6: [['Aguardar e ligar novamente · J', 'ligacao'], ['S e P', 'sep']],
+  a7: [['S e P', 'sep']],
+  a10: [['Entrar em contato · L', 'late'], ['Entrar em contato · L', 'late'], ['WhatsApp — abertura · RL', 'whatsapp'], ['Entrar em contato · L', 'late']],
+  a11: [['Ligar com oportunidade · J', 'ligacao'], ['Ligação · I', 'ligacao'], ['Visita realizada junto · J', 'visita'], ['Ligação · I', 'ligacao']],
+  a12: [['Ligar novamente para saber dos planos · L', 'ligacao'], ['S e P', 'sep']],
+  a13: [['Ligação · I', 'ligacao'], ['Ligação · I', 'ligacao'], ['S e P', 'sep']],
+  a14: [['S e P', 'sep']],
+  a17: [['Ligação para oferecer novamente · Dr. João Lucas', 'ligacao'], ['WhatsApp — fechar nova cota · William', 'whatsapp']],
+  a18: [['Visita — Fernando Santa Clara', 'visita']],
+  a20: [['Ligação · KL', 'ligacao']],
+  a24: [['Follow-up proposta · RL', 'ligacao'], ['S e P', 'sep']],
+  a26: [['Visita — Prod. Marcelo Calábria', 'visita']]
+};
+
+const AGENDA_LIST = [
+  ['Ligar novamente para saber dos planos', 'Leila Sabino', '08:52 · 12 AGO', '#5A5BE6'],
+  ['Ligação de retorno', 'Renato Gráfica Z3', '12:11 · 13 AGO', '#5A5BE6'],
+  ['Ligação', 'Dra. Larissa · Clínica São Rafael', '12:12 · 14 AGO', '#5A5BE6'],
+  ['Ligação para oferecer novamente', 'Dr. João Lucas · ADV', '03:00 · 17 AGO', '#8B5CF6'],
+  ['WhatsApp — fechar nova cota', 'William Vargas', '04:00 · 17 AGO', '#0F9D6E'],
+  ['Visita técnica no imóvel', 'Fernando Santa Clara', '09:30 · 18 AGO', '#8B5CF6']
+];
+
+const PROC_CATS = [
+  { name: 'IMÓVEL', group: true },
+  { name: 'Construção', group: false },
+  { name: 'Aquisição', group: false },
+  { name: 'Transferência', group: false },
+  { name: 'AUTOMÓVEL', group: true },
+  { name: 'Compra à vista', group: false },
+  { name: 'Troca de bem', group: false },
+  { name: 'SERVIÇOS', group: true },
+  { name: 'Reforma', group: false }
+];
+
+const PROC_COLS = [
+  { name: 'AG. DOCUMENTOS', color: '#5A5BE6', cards: [
+    ['Arthur Coldibelli', '01/25 · XP — Arthur Coldibelli', 170748, 'L', 'Pedir doc.', true],
+    ['Marina Belluco', '03/25 · Aquisição 400K', 402300, 'PS', 'Pedir doc.', true]
+  ] },
+  { name: 'COTA E GRUPO CADASTRADOS', color: '#E0952C', cards: [
+    ['Hernan Faro Cifuentes', '02/25 · Grupo 1284', 640000, 'VC', 'Aguardando assembleia', false]
+  ] },
+  { name: 'CONTEMPLADO', color: '#0F9D6E', cards: [
+    ['Nadir S. K. Ramirez', '11/24 · Grupo 1102', 1250000, 'RL', 'Avaliação do bem', false],
+    ['Paulo Sergio Rufino', '12/24 · Grupo 1150', 187432, 'KL', 'Vistoria agendada', false]
+  ] },
+  { name: 'PÓS-CONTEMPLAÇÃO', color: '#8B5CF6', cards: [
+    ['Kleber Justino de Souza', '09/24 · Grupo 1044', 175000, 'EF', 'Análise de crédito', true]
+  ] },
+  { name: 'ENTREGUE', color: '#A4A9BC', cards: [
+    ['Camila F. Duarte', '06/24 · Grupo 980', 45000, 'VC', 'Concluído', false]
+  ] }
+];
+
+const RANKING = [
+  ['Rafael Lopes', 12, 2380000, 'RL'],
+  ['Kássio Gomes', 9, 1940000, 'KG'],
+  ['Paula Serra', 8, 1520000, 'PS'],
+  ['Vitor Costa', 7, 1180000, 'VC'],
+  ['Elaine Freitas', 5, 860000, 'EF'],
+  ['Karla Lima', 4, 640000, 'KL']
+];
+
+const ORIGINS = [
+  ['Meta Ads', 46, '#4243C7'],
+  ['SDR / Prospecção', 28, '#6E70E6'],
+  ['Indicação', 15, '#8688E7'],
+  ['Site', 8, '#A2A4E8'],
+  ['WhatsApp direto', 3, '#BDBFEA']
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      screen: props.startScreen && props.startScreen !== 'Início' ? this.screenId(props.startScreen) : 'inicio',
+      deals: SEED.map((d, i) => ({
+        id: 'd' + i, contact: d[0], code: d[1], amount: d[2], stage: d[3],
+        owner: d[4], days: d[5], task: d[6], due: d[7], source: d[8],
+        activity: BASE_ACTS.map((a, j) => ({ id: 'a' + i + j, text: a[0], when: a[1], color: a[2] }))
+      })),
+      view: 'board', filter: null, sort: 'Valor',
+      query: '', pipeQuery: '', clientQuery: '', clientChip: null,
+      selected: {}, openId: null, dragId: null, dragOver: null,
+      note: '', addOpen: false, expanded: {},
+      draft: { contact: '', value: '', owner: 'KG', task: '', stage: 'prospec' },
+      waTab: 'Conversas', waBox: 'WhatsApp CRM', waConv: 'c0', waDraft: '', waUnreadOnly: false,
+      agendaView: 'Mês', agendaDay: 11,
+      procCat: 'Aquisição', repTab: 'Comercial'
+    };
+  }
+
+  screenId(label) {
+    return { 'Início': 'inicio', 'Clientes': 'clientes', 'Pipeline': 'pipeline', 'WhatsApp': 'whatsapp', 'Agenda': 'agenda', 'Processos': 'processos', 'Relatórios': 'relatorios' }[label] || 'inicio';
+  }
+
+  brl(n) { return n ? 'R$ ' + n.toLocaleString('pt-BR') : 'Sem valor'; }
+  brlFull(n) { return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  compact(n) {
+    if (!n) return 'R$ 0';
+    if (n >= 1000000) return 'R$ ' + (Math.round(n / 100000) / 10).toLocaleString('pt-BR') + ' mi';
+    if (n >= 1000) return 'R$ ' + Math.round(n / 1000).toLocaleString('pt-BR') + ' mil';
+    return 'R$ ' + n;
+  }
+
+  taskState(d) {
+    if (!d.task) return 'none';
+    if (/atrasada/i.test(d.due)) return 'late';
+    if (/hoje/i.test(d.due)) return 'today';
+    return 'ok';
+  }
+
+  passes(d) {
+    const q = this.state.pipeQuery.trim().toLowerCase();
+    if (q && (d.contact + ' ' + d.code + ' ' + (d.task || '')).toLowerCase().indexOf(q) === -1) return false;
+    const f = this.state.filter;
+    if (f === 'Sem tarefa') return !d.task;
+    if (f === 'Ação hoje') { const t = this.taskState(d); return t === 'today' || t === 'late'; }
+    if (f === 'Parados +14d') return d.days >= 14;
+    if (f === 'Sem valor') return !d.amount;
+    return true;
+  }
+
+  setStage(ids, stage) {
+    const name = STAGES.filter(s => s.id === stage)[0].name;
+    this.setState(s => ({
+      selected: {},
+      deals: s.deals.map(d => ids.indexOf(d.id) === -1 ? d : Object.assign({}, d, {
+        stage: stage, days: 0,
+        activity: [{ id: 'm' + Date.now() + d.id, text: 'Etapa alterada para ' + name, when: 'agora', color: '#5A5BE6' }].concat(d.activity)
+      }))
+    }));
+  }
+
+  addTask(id, label, due) {
+    this.setState(s => ({
+      deals: s.deals.map(d => d.id !== id ? d : Object.assign({}, d, {
+        task: label, due: due,
+        activity: [{ id: 't' + Date.now(), text: 'Tarefa agendada — ' + label + ' (' + due + ')', when: 'agora', color: '#5A5BE6' }].concat(d.activity)
+      }))
+    }));
+  }
+
+  avatar(key, size) {
+    const t = AVATAR_TONES[key] || AVATAR_DEFAULT;
+    const s = size || 26;
+    return 'width: ' + s + 'px; height: ' + s + 'px; border-radius: 50%; background: ' + t[0] + '; color: ' + t[1] + '; font-size: ' + (s <= 22 ? 9.5 : 10.5) + 'px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; letter-spacing: 0.02em;';
+  }
+
+  decorate(d, extra) {
+    const sel = !!this.state.selected[d.id];
+    const ts = this.taskState(d);
+    const tone = ts === 'late' ? ['#FEEDEB', '#F9CFCA', '#C0392F', '#E2564D']
+      : ts === 'today' ? ['#FFF7E8', '#F7E3BD', '#9A6410', '#E0952C']
+        : ts === 'ok' ? ['#E9F7F1', '#C7E8DA', '#0F7D5C', '#0F9D6E']
+          : ['#F7F8FC', '#DFE1EA', '#98A0B4', '#C6CBD9'];
+    const aged = d.days >= 21 ? ['#FEEDEB', '#C0392F'] : d.days >= 14 ? ['#FFF7E8', '#9A6410'] : ['#F2F3F8', '#666C7E'];
+    return Object.assign({
+      id: d.id, contact: d.contact, owner: d.owner, source: d.source,
+      activity: d.activity.map(a => Object.assign({}, a, {
+        dotStyle: 'width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; background: ' + a.color + ';'
+      })),
+      meta: d.code + ' · ' + d.owner,
+      value: this.brl(d.amount),
+      valueStyle: 'font-size: 14px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; ' +
+        (d.amount ? 'font-weight: 700; color: #15171F;' : 'font-weight: 500; color: #BCC1CE; font-style: italic;'),
+      stageName: STAGES.filter(s => s.id === d.stage)[0].name,
+      initials: d.owner,
+      avatarStyle: this.avatar(d.owner, 26),
+      age: d.days === 0 ? 'agora' : d.days + 'd parado',
+      ageStyle: 'font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; white-space: nowrap; background: ' + aged[0] + '; color: ' + aged[1] + ';',
+      taskLabel: d.task ? d.task + ' · ' + d.due : 'Sem tarefa — agendar',
+      taskCta: d.task ? 'Concluir' : 'Agendar',
+      taskStyle: 'display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px 11px; border-radius: 11px; cursor: pointer; font-size: 12px; font-weight: 700; background: ' + tone[0] + '; border: 1px ' + (d.task ? 'solid ' : 'dashed ') + tone[1] + '; color: ' + tone[2] + ';',
+      taskBoxStyle: 'display: flex; align-items: center; gap: 10px; padding: 13px 14px; border-radius: 14px; background: ' + tone[0] + '; border: 1px ' + (d.task ? 'solid ' : 'dashed ') + tone[1] + '; color: ' + tone[2] + ';',
+      taskDotStyle: 'width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: ' + tone[3] + ';',
+      taskTextStyle: 'font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: ' + (d.task ? tone[2] : '#BCC1CE') + '; ' + (d.task ? 'font-weight: 600;' : 'font-style: italic;'),
+      selected: sel,
+      checkMark: sel ? '✓' : '',
+      checkStyle: 'width: 17px; height: 17px; flex: 0 0 auto; margin-top: 3px; border-radius: 6px; cursor: pointer; font-size: 10px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; border: none; ' +
+        (sel ? 'background: #5A5BE6; color: #fff;' : 'background: #EDEEF4; color: transparent;'),
+      onToggle: (e) => {
+        e.stopPropagation();
+        this.setState(s => {
+          const n = Object.assign({}, s.selected);
+          if (n[d.id]) delete n[d.id]; else n[d.id] = true;
+          return { selected: n };
+        });
+      },
+      onOpen: () => this.setState({ openId: d.id }),
+      onTask: (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (d.task) {
+          this.setState(s => ({
+            deals: s.deals.map(x => x.id !== d.id ? x : Object.assign({}, x, {
+              task: null, due: '',
+              activity: [{ id: 'c' + Date.now(), text: 'Tarefa concluída — ' + d.task, when: 'agora', color: '#0F9D6E' }].concat(x.activity)
+            }))
+          }));
+        } else {
+          this.addTask(d.id, 'Ligar para o cliente', 'hoje 17:00');
+        }
+      },
+      onWhats: (e) => {
+        e.stopPropagation();
+        this.setState(s => ({
+          deals: s.deals.map(x => x.id !== d.id ? x : Object.assign({}, x, {
+            days: 0,
+            activity: [{ id: 'w' + Date.now(), text: 'WhatsApp — mensagem enviada pelo pipeline', when: 'agora', color: '#0F9D6E' }].concat(x.activity)
+          }))
+        }));
+      },
+      onAdvance: (e) => {
+        e.stopPropagation();
+        const i = STAGES.map(s => s.id).indexOf(d.stage);
+        if (i < STAGES.length - 1) this.setStage([d.id], STAGES[i + 1].id);
+      }
+    }, extra);
+  }
+
+  go(screen) { return () => this.setState({ screen: screen }); }
+
+  renderVals() {
+    const st = this.state;
+    const all = st.deals;
+    const visible = all.filter(d => this.passes(d));
+    const selectedIds = Object.keys(st.selected);
+    const sortFn = st.sort === 'Valor' ? (a, b) => b.amount - a.amount
+      : st.sort === 'Parado' ? (a, b) => b.days - a.days
+        : (a, b) => {
+          const rank = { late: 0, today: 1, ok: 2, none: 3 };
+          return rank[this.taskState(a)] - rank[this.taskState(b)];
+        };
+
+    const chipStyle = (on) => 'padding: 9px 14px; border-radius: 11px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; border: none; ' +
+      (on ? 'background: linear-gradient(135deg, #7274F0, #4F50D8); color: #fff; box-shadow: 0 8px 18px -10px rgba(79,80,216,0.95);' : 'background: rgba(255,255,255,0.66); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,0.7); color: #666C7E; box-shadow: 0 1px 3px rgba(20,24,50,0.06);');
+    const sortStyle = (on) => 'padding: 6px 11px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; ' +
+      (on ? 'background: rgba(255,255,255,0.92); color: #15171F; box-shadow: 0 1px 2px rgba(20,24,50,0.12);' : 'background: transparent; color: #7B808F;');
+    const tabStyle = (on) => 'padding: 7px 14px; border-radius: 9px; border: none; font-size: 12.5px; font-weight: 700; cursor: pointer; ' +
+      (on ? 'background: rgba(255,255,255,0.95); color: #15171F; box-shadow: 0 1px 3px rgba(20,24,50,0.14);' : 'background: transparent; color: #7B808F;');
+    const pill = (on) => 'padding: 7px 12px; border-radius: 20px; font-size: 11.5px; font-weight: 700; cursor: pointer; border: none; ' +
+      (on ? 'background: linear-gradient(135deg, #7274F0, #4F50D8); color: #fff;' : 'background: rgba(242,243,248,0.9); color: #666C7E;');
+    const heroPill = (on) => 'padding: 7px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; cursor: pointer; border: none; ' +
+      (on ? 'background: #FFFFFF; color: #4243C7;' : 'background: rgba(255,255,255,0.18); color: #E7E7FC;');
+
+    const columns = STAGES.map(stage => {
+      const pool = visible.filter(d => d.stage === stage.id).sort(sortFn);
+      const shown = st.expanded[stage.id] ? pool : pool.slice(0, 4);
+      const stageAll = all.filter(d => d.stage === stage.id);
+      const withTask = stageAll.filter(d => !!d.task).length;
+      const pct = stageAll.length ? Math.round((withTask / stageAll.length) * 100) : 0;
+      const hot = st.dragOver === stage.id;
+      const hidden = pool.length - shown.length + stage.extra;
+      const sum = stage.total;
+      const cnt = stageAll.length + stage.extra;
+      return {
+        id: stage.id, name: stage.name,
+        count: cnt.toLocaleString('pt-BR'),
+        total: this.compact(sum),
+        avg: 'média ' + this.compact(Math.round(sum / cnt)),
+        health: withTask + ' de ' + stageAll.length + ' com tarefa · ' + pct + '%',
+        dotStyle: 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: ' + stage.color + ';',
+        barStyle: 'height: 100%; width: ' + pct + '%; background: ' + (pct >= 60 ? '#0F9D6E' : pct >= 30 ? '#E0952C' : '#E2564D') + '; border-radius: 5px;',
+        isEmpty: pool.length === 0,
+        hasMore: hidden > 0,
+        moreLabel: 'Carregar mais ' + hidden.toLocaleString('pt-BR'),
+        onMore: () => this.setState(s => ({ expanded: Object.assign({}, s.expanded, { [stage.id]: true }) })),
+        wellStyle: 'display: flex; flex-direction: column; gap: 10px; min-height: 90px; padding: 6px; border-radius: 18px; transition: background 130ms, box-shadow 130ms; ' +
+          (hot ? 'background: #E4E4FC; box-shadow: inset 0 0 0 2px #5A5BE6;' : 'background: transparent;'),
+        onDragOver: (e) => { e.preventDefault(); if (st.dragOver !== stage.id) this.setState({ dragOver: stage.id }); },
+        onDragLeave: () => { if (st.dragOver === stage.id) this.setState({ dragOver: null }); },
+        onDrop: (e) => {
+          e.preventDefault();
+          const id = st.dragId;
+          this.setState({ dragOver: null, dragId: null });
+          if (id) this.setStage([id], stage.id);
+        },
+        deals: shown.map(d => this.decorate(d, {
+          cardStyle: 'display: flex; flex-direction: column; gap: 10px; padding: 13px; border-radius: 16px; background: rgba(255,255,255,0.74); backdrop-filter: blur(16px) saturate(140%); border: 1px solid rgba(255,255,255,0.75); cursor: grab; transition: box-shadow 130ms, transform 130ms, opacity 130ms; ' +
+            (st.dragId === d.id ? 'opacity: 0.4; ' : '') +
+            (st.selected[d.id] ? 'box-shadow: 0 0 0 2px #5A5BE6, 0 6px 16px -10px rgba(90,91,230,0.6);' : 'box-shadow: 0 1px 3px rgba(20,24,50,0.07);'),
+          onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; this.setState({ dragId: d.id }); },
+          onDragEnd: () => this.setState({ dragId: null, dragOver: null })
+        }))
+      };
+    });
+
+    const rows = visible.slice().sort(sortFn).map(d => this.decorate(d, {
+      rowStyle: 'display: grid; grid-template-columns: 40px 1.5fr 0.9fr 1fr 1.5fr 0.7fr 0.6fr; gap: 14px; align-items: center; padding: 13px 20px; border-bottom: 1px solid #F4F5F9; cursor: pointer; ' +
+        (st.selected[d.id] ? 'background: #F8F8FE;' : 'background: transparent;')
+    }));
+
+    const open = all.filter(d => d.id === st.openId)[0];
+    const openDeal = open ? this.decorate(open) : null;
+
+    const noTask = all.filter(d => !d.task).length;
+    const todayish = all.filter(d => { const t = this.taskState(d); return t === 'today' || t === 'late'; }).length;
+    const stale = all.filter(d => d.days >= 14).length;
+    const pipeTotal = STAGES.reduce((a, s) => a + s.total, 0) + EXTRA_FUNNEL.reduce((a, s) => a + s.total, 0);
+    const goal = 9600000;
+    const closed = 0;
+    const pctGoal = Math.round((closed / goal) * 100);
+
+    const tileStyle = (on, accent) => 'display: flex; flex-direction: column; gap: 5px; padding: 17px 19px; border-radius: 18px; cursor: pointer; text-align: left; background: rgba(255,255,255,0.68); backdrop-filter: blur(18px) saturate(140%); border: 1px solid rgba(255,255,255,0.72); transition: box-shadow 130ms; ' +
+      (on ? 'box-shadow: 0 0 0 2px ' + accent + ', 0 10px 22px -16px ' + accent + ';' : 'box-shadow: 0 1px 3px rgba(20,24,50,0.06);');
+    const tv = (c) => 'font-size: 24px; font-weight: 700; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; color: ' + c + ';';
+    const setFilter = (f) => () => this.setState(s => ({ filter: s.filter === f ? null : f, screen: 'pipeline' }));
+
+    const navDefs = [
+      ['Início', 'inicio', '', ''],
+      ['Clientes', 'clientes', '', ''],
+      ['Pipeline', 'pipeline', '', ''],
+      ['WhatsApp', 'whatsapp', '', '4'],
+      ['Agenda', 'agenda', '', ''],
+      ['Processos', 'processos', '', ''],
+      ['Relatórios', 'relatorios', '', '']
+    ];
+
+    const funnelRows = STAGES.map(s => ({ name: s.name.split('/')[0], count: s.extra + all.filter(d => d.stage === s.id).length, total: s.total, color: s.color }))
+      .concat(EXTRA_FUNNEL);
+    const funnelMax = Math.max.apply(null, funnelRows.map(f => f.total));
+
+    const clientQ = st.clientQuery.trim().toLowerCase();
+    const clients = CLIENTS.filter(c => {
+      if (clientQ && (c[0] + ' ' + c[1] + ' ' + c[2]).toLowerCase().indexOf(clientQ) === -1) return false;
+      if (st.clientChip === 'Sem e-mail') return !c[1];
+      if (st.clientChip === 'Com negócio aberto') return c[6] > 0;
+      if (st.clientChip === 'Meta Ads') return c[3] === 'Meta Ads';
+      if (st.clientChip === 'Indicação') return c[3] === 'Indicação';
+      return true;
+    }).map((c, i) => {
+      const src = ['#F2F3F8', '#5C6272'];
+      return {
+        id: 'c' + i, name: c[0],
+        initials: c[0].replace(/[^A-Za-zÀ-ú ]/g, '').trim().split(' ').filter(w => w).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'C',
+        avatarStyle: this.avatar(c[4], 30),
+        email: c[1] || 'sem e-mail',
+        emailStyle: 'font-size: 11.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ' + (c[1] ? 'color: #9AA0B0;' : 'color: #C6CBD9; font-style: italic;'),
+        phone: '+' + c[2],
+        source: c[3],
+        sourceStyle: 'font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 20px; justify-self: start; background: ' + src[0] + '; color: ' + src[1] + ';',
+        owner: c[4], ownerName: c[5], ownerStyle: this.avatar(c[4], 22),
+        deals: c[6],
+        value: this.compact(c[7]),
+        valueStyle: 'font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; letter-spacing: -0.02em;'
+      };
+    });
+
+    return {
+      isInicio: st.screen === 'inicio', isClientes: st.screen === 'clientes', isPipeline: st.screen === 'pipeline',
+      isWhats: st.screen === 'whatsapp', isAgenda: st.screen === 'agenda', isProc: st.screen === 'processos', isRel: st.screen === 'relatorios',
+      nav: navDefs.map(n => ({
+        label: n[0], badge: n[3],
+        style: 'display: flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: 10px; border: none; font-size: 13px; cursor: pointer; white-space: nowrap; ' +
+          (st.screen === n[1] ? 'background: linear-gradient(135deg, #7274F0, #4F50D8); color: #FFFFFF; font-weight: 700; box-shadow: 0 6px 14px -9px rgba(79,80,216,0.95);' : 'background: transparent; color: #666C7E; font-weight: 500;'),
+        dotStyle: 'display: none;',
+        badgeStyle: n[3] ? 'font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 20px; background: ' + (st.screen === n[1] ? 'rgba(255,255,255,0.25)' : '#FEEDEB') + '; color: ' + (st.screen === n[1] ? '#FFFFFF' : '#C0392F') + ';' : 'display: none;',
+        onClick: this.go(n[1])
+      })),
+      query: st.query, onQuery: (e) => this.setState({ query: e.target.value }),
+      goPipeline: this.go('pipeline'), goAgenda: this.go('agenda'), goWhats: this.go('whatsapp'),
+
+      homeKpis: [
+        { label: 'NEGÓCIOS ABERTOS', value: '15.679', hint: '8 etapas ativas', valueStyle: 'font-size: 28px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums;', iconStyle: 'display: none;' },
+        { label: 'PIPELINE ABERTO', value: this.compact(pipeTotal), hint: this.brlFull(pipeTotal), valueStyle: 'font-size: 28px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums;', iconStyle: 'display: none;' },
+        { label: 'FECHADO NO MÊS', value: 'R$ 0,00', hint: '0% da meta de ' + this.compact(goal), valueStyle: 'font-size: 28px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: #C0392F;', iconStyle: 'display: none;' },
+        { label: 'CLIENTES ATIVOS', value: '73.180', hint: '4.812 sem negócio aberto', valueStyle: 'font-size: 28px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums;', iconStyle: 'display: none;' }
+      ],
+      funnel: funnelRows.map(f => ({
+        name: f.name, count: '· ' + f.count.toLocaleString('pt-BR'),
+        value: this.compact(f.total),
+        dotStyle: 'width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: ' + f.color + ';',
+        barStyle: 'height: 100%; width: ' + Math.round((f.total / funnelMax) * 100) + '%; background: ' + f.color + '; border-radius: 6px;'
+      })),
+      attention: [
+        { value: '14.412', label: 'sem tarefa agendada · 92% da base', valueStyle: 'font-size: 19px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: #FFFFFF; min-width: 62px;', onClick: setFilter('Sem tarefa') },
+        { value: '3.418', label: 'parados há mais de 30 dias', valueStyle: 'font-size: 19px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: #FFFFFF; min-width: 62px;', onClick: setFilter('Parados +14d') },
+        { value: '4', label: 'conversas não lidas no WhatsApp', valueStyle: 'font-size: 19px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: #FFFFFF; min-width: 62px;', onClick: this.go('whatsapp') }
+      ],
+      nextCount: '5 hoje',
+      nextTasks: [
+        { time: '08:52', title: 'Ligar novamente para saber dos planos', who: 'Leila Sabino · 12 AGO', timeStyle: 'font-size: 11.5px; font-weight: 700; color: #4243C7; background: #EFEFFD; border-radius: 8px; padding: 4px 8px; height: fit-content; font-variant-numeric: tabular-nums;' },
+        { time: '12:11', title: 'Ligação de retorno', who: 'Renato Gráfica Z3 · 13 AGO', timeStyle: 'font-size: 11.5px; font-weight: 700; color: #4243C7; background: #EFEFFD; border-radius: 8px; padding: 4px 8px; height: fit-content; font-variant-numeric: tabular-nums;' },
+        { time: '12:12', title: 'Ligação', who: 'Dra. Larissa · Clínica São Rafael · 14 AGO', timeStyle: 'font-size: 11.5px; font-weight: 700; color: #4243C7; background: #EFEFFD; border-radius: 8px; padding: 4px 8px; height: fit-content; font-variant-numeric: tabular-nums;' },
+        { time: '03:00', title: 'Ligação para oferecer novamente', who: 'Dr. João Lucas · ADV · 17 AGO', timeStyle: 'font-size: 11.5px; font-weight: 700; color: #666C7E; background: #F2F3F8; border-radius: 8px; padding: 4px 8px; height: fit-content; font-variant-numeric: tabular-nums;' },
+        { time: '04:00', title: 'WhatsApp — fechar nova cota', who: 'William Vargas · 17 AGO', timeStyle: 'font-size: 11.5px; font-weight: 700; color: #0F7D5C; background: #E9F7F1; border-radius: 8px; padding: 4px 8px; height: fit-content; font-variant-numeric: tabular-nums;' }
+      ],
+
+      clientQuery: st.clientQuery,
+      onClientQuery: (e) => this.setState({ clientQuery: e.target.value }),
+      clients: clients,
+      clientsFoundLabel: clients.length + ' exibidas nesta página',
+      clientsPageLabel: 'Página 1 de 6.098 · 12 por página',
+      clientChips: ['Sem e-mail', 'Com negócio aberto', 'Meta Ads', 'Indicação'].map(f => ({
+        label: f, style: chipStyle(st.clientChip === f),
+        onClick: () => this.setState(s => ({ clientChip: s.clientChip === f ? null : f }))
+      })),
+
+      pipeHeaderLine: '15.679 negócios · ' + this.compact(pipeTotal) + ' em aberto',
+      isBoard: st.view === 'board', isTable: st.view === 'table',
+      columns, rows, openDeal, pipeQuery: st.pipeQuery,
+      onPipeQuery: (e) => this.setState({ pipeQuery: e.target.value }),
+      openValue: this.compact(pipeTotal),
+      goalPct: pctGoal + '%',
+      goalBarStyle: 'height: 100%; width: ' + Math.max(2, pctGoal) + '%; background: #FFFFFF; border-radius: 6px;',
+      goalHint: 'Fechado no mês vs meta de ' + this.compact(goal) + ' · 21 dias úteis restantes',
+      boardTabStyle: tabStyle(st.view === 'board'), tableTabStyle: tabStyle(st.view === 'table'),
+      pipeMetrics: [
+        { label: 'AÇÃO HOJE', value: String(todayish), hint: 'vencendo ou atrasadas', style: tileStyle(st.filter === 'Ação hoje', '#E0952C'), valueStyle: tv('#9A6410'), onClick: setFilter('Ação hoje') },
+        { label: 'SEM TAREFA', value: String(noTask), hint: 'sem próximo passo', style: tileStyle(st.filter === 'Sem tarefa', '#E2564D'), valueStyle: tv('#C0392F'), onClick: setFilter('Sem tarefa') },
+        { label: 'PARADOS +14D', value: String(stale), hint: 'sem interação', style: tileStyle(st.filter === 'Parados +14d', '#8B5CF6'), valueStyle: tv('#6D33D6'), onClick: setFilter('Parados +14d') }
+      ],
+      chips: ['Ação hoje', 'Sem tarefa', 'Parados +14d', 'Sem valor'].map(f => ({
+        label: f, style: chipStyle(st.filter === f), onClick: setFilter(f)
+      })),
+      sorts: ['Valor', 'Urgência', 'Parado'].map(s => ({
+        label: s, style: sortStyle(st.sort === s), onClick: () => this.setState({ sort: s })
+      })),
+      hasSelection: selectedIds.length > 0,
+      selectionLabel: selectedIds.length + (selectedIds.length === 1 ? ' negócio' : ' negócios'),
+      bulkTask: () => { selectedIds.forEach(id => this.addTask(id, 'Follow-up em lote', 'hoje 18:00')); this.setState({ selected: {} }); },
+      moveTargets: STAGES.map(s => ({
+        id: s.id, name: s.name, short: s.short,
+        pillStyle: pill(open && open.stage === s.id),
+        heroPillStyle: heroPill(open && open.stage === s.id),
+        onMove: () => this.setStage(selectedIds, s.id),
+        onSetOpen: () => { if (open) this.setStage([open.id], s.id); }
+      })),
+      quickTasks: open ? [
+        { label: 'Ligar hoje 17:00', onClick: () => this.addTask(open.id, 'Ligar para o cliente', 'hoje 17:00') },
+        { label: 'WhatsApp amanhã', onClick: () => this.addTask(open.id, 'Mensagem de follow-up', 'amanhã 09:00') },
+        { label: 'Visita esta semana', onClick: () => this.addTask(open.id, 'Agendar visita', 'sexta') }
+      ] : [],
+      draftStages: STAGES.map(s => ({
+        id: s.id, name: s.name, pillStyle: pill(st.draft.stage === s.id),
+        onPick: () => this.setState(p => ({ draft: Object.assign({}, p.draft, { stage: s.id }) }))
+      })),
+      showBoard: () => this.setState({ view: 'board' }),
+      showTable: () => this.setState({ view: 'table' }),
+      clearSelection: () => this.setState({ selected: {} }),
+      closeDeal: () => this.setState({ openId: null, note: '' }),
+      stop: (e) => e.stopPropagation(),
+      note: st.note,
+      onNote: (e) => this.setState({ note: e.target.value }),
+      onNoteKey: (e) => { if (e.key === 'Enter') this.saveNote(); },
+      addNote: () => this.saveNote(),
+      addOpen: st.addOpen, draft: st.draft,
+      openAdd: () => this.setState({ addOpen: true }),
+      closeAdd: () => this.setState({ addOpen: false }),
+      onDraftContact: (e) => this.patchDraft({ contact: e.target.value }),
+      onDraftValue: (e) => this.patchDraft({ value: e.target.value.replace(/[^0-9]/g, '') }),
+      onDraftOwner: (e) => this.patchDraft({ owner: e.target.value }),
+      onDraftTask: (e) => this.patchDraft({ task: e.target.value }),
+      createDeal: () => this.createDeal(),
+
+      waTabs: ['Conversas', 'Campanhas', 'Scripts'].map(t => ({
+        label: t,
+        style: 'padding: 9px 2px; margin-right: 22px; border: none; background: transparent; font-size: 13.5px; cursor: pointer; ' +
+          (st.waTab === t ? 'color: #15171F; font-weight: 700; box-shadow: inset 0 -2px 0 #5A5BE6;' : 'color: #7B808F; font-weight: 500;'),
+        onClick: () => this.setState({ waTab: t })
+      })),
+      waBoxes: [['WhatsApp CRM', 15], ['WhatsApp Geral', 69]].map(b => ({
+        label: b[0], count: String(b[1]),
+        style: 'flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; border: none; cursor: pointer; text-align: left; ' +
+          (st.waBox === b[0] ? 'background: #FFFFFF; box-shadow: 0 1px 3px rgba(20,24,50,0.12);' : 'background: transparent;'),
+        labelStyle: 'font-size: 12px; font-weight: 700; color: ' + (st.waBox === b[0] ? '#15171F' : '#7B808F') + ';',
+        countStyle: 'font-size: 11px; color: #9AA0B0;',
+        onClick: () => this.setState({ waBox: b[0] })
+      })),
+      waUnreadStyle: chipStyle(st.waUnreadOnly),
+      toggleUnread: () => this.setState(s => ({ waUnreadOnly: !s.waUnreadOnly })),
+      waConvs: WA_CONVS.filter(c => !st.waUnreadOnly || c[4] > 0).map(c => ({
+        id: c[0], name: c[1], preview: c[3], time: c[2], unread: c[4] > 0, unreadCount: String(c[4]),
+        initials: c[1].split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase(),
+        avatarStyle: this.avatar(c[5], 36),
+        style: 'display: flex; gap: 11px; align-items: center; padding: 11px 12px; border-radius: 14px; border: none; width: 100%; text-align: left; cursor: pointer; ' +
+          (st.waConv === c[0] ? 'background: #EFEFFD;' : 'background: transparent;'),
+        nameStyle: 'font-size: 13px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: ' + (c[4] > 0 ? '700' : '600') + ';',
+        previewStyle: 'font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: ' + (c[4] > 0 ? '#4A4F60' : '#9AA0B0') + ';',
+        badgeStyle: c[4] > 0 ? 'font-size: 10px; font-weight: 700; color: #FFFFFF; background: #E2564D; border-radius: 20px; padding: 2px 6px; min-width: 18px; text-align: center;' : 'display: none;',
+        onClick: () => this.setState({ waConv: c[0] })
+      })),
+      waActive: (() => {
+        const c = WA_CONVS.filter(x => x[0] === st.waConv)[0] || WA_CONVS[0];
+        const msgs = (WA_MSGS[c[0]] || WA_MSGS.c0);
+        return {
+          name: c[1], phone: c[6], initials: c[1].split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase(),
+          avatarStyle: this.avatar(c[5], 40),
+          stage: c[7], value: this.compact(c[8]), owner: c[9],
+          messages: msgs.map((m, i) => ({
+            id: 'm' + i, text: m[1], time: m[2],
+            rowStyle: 'display: flex; ' + (m[0] === 'me' ? 'justify-content: flex-end;' : 'justify-content: flex-start;'),
+            bubbleStyle: 'max-width: 74%; padding: 10px 13px; border-radius: 16px; font-size: 13.5px; line-height: 1.45; text-wrap: pretty; ' +
+              (m[0] === 'me' ? 'background: linear-gradient(135deg, #7274F0, #4F50D8); color: #FFFFFF; border-bottom-right-radius: 5px; box-shadow: 0 8px 18px -12px rgba(79,80,216,0.9);' : 'background: rgba(255,255,255,0.82); backdrop-filter: blur(14px); color: #22242E; border-bottom-left-radius: 5px; box-shadow: 0 1px 3px rgba(20,24,50,0.07);'),
+            timeStyle: 'display: block; font-size: 10.5px; margin-top: 5px; text-align: right; ' + (m[0] === 'me' ? 'color: #C9CAFA;' : 'color: #A9AEC0;')
+          }))
+        };
+      })(),
+      waDraft: st.waDraft,
+      onWaDraft: (e) => this.setState({ waDraft: e.target.value }),
+      onWaKey: (e) => { if (e.key === 'Enter') this.sendWa(); },
+      sendWa: () => this.sendWa(),
+      waQuick: ['Obrigado pelo retorno!', 'Posso te ligar agora?', 'Segue a simulação'].map(q => ({
+        label: q, onClick: () => this.setState({ waDraft: q })
+      })),
+
+      agendaViews: ['Mês', 'Lista'].map(v => ({
+        label: v, style: tabStyle(st.agendaView === v), onClick: () => this.setState({ agendaView: v })
+      })),
+      agendaIsMonth: st.agendaView === 'Mês',
+      agendaIsList: st.agendaView === 'Lista',
+      weekDays: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
+      weeks: AGENDA_WEEKS.map((week, wi) => ({
+        id: 'w' + wi,
+        days: week.map(cell => {
+          const evs = AGENDA_EVENTS[cell.key] || [];
+          const isToday = cell.day === 11 && !cell.muted;
+          return {
+            id: cell.key, day: String(cell.day),
+            dayStyle: 'font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; ' +
+              (isToday ? 'width: 22px; height: 22px; border-radius: 50%; background: #15171F; color: #FFFFFF; display: flex; align-items: center; justify-content: center;'
+                : cell.muted ? 'color: #C6CBD9;' : 'color: #4A4F60;'),
+            cellStyle: 'min-height: 116px; padding: 9px; display: flex; flex-direction: column; gap: 5px; border-right: 1px solid #F1F2F7; border-bottom: 1px solid #F1F2F7; ' +
+              (cell.muted ? 'background: #FCFCFE;' : 'background: #FFFFFF;'),
+            events: evs.slice(0, 3).map((e, i) => ({
+              id: cell.key + i, label: e[0],
+              style: 'display: block; font-size: 10.5px; font-weight: 600; padding: 4px 7px; border-radius: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ' + EV_TONE(e[1])
+            })),
+            moreLabel: evs.length > 3 ? '+' + (evs.length - 3) + ' mais' : '',
+            moreStyle: evs.length > 3 ? 'font-size: 10.5px; color: #9AA0B0; padding-left: 2px;' : 'display: none;'
+          };
+        })
+      })),
+      agendaList: AGENDA_LIST.map((a, i) => ({
+        id: 'al' + i, title: a[0], who: a[1], when: a[2],
+        barStyle: 'width: 3px; border-radius: 3px; flex: 0 0 auto; background: ' + a[3] + ';'
+      })),
+
+      procCats: PROC_CATS.map(c => ({
+        id: c.name, label: c.name, isGroup: c.group,
+        style: c.group
+          ? 'font-size: 11px; font-weight: 700; letter-spacing: 0.09em; color: #A0A5B5; padding: 12px 10px 6px; border: none; background: transparent; text-align: left; width: 100%; cursor: default;'
+          : 'display: block; width: 100%; text-align: left; padding: 9px 12px; border-radius: 11px; border: none; font-size: 13px; cursor: pointer; ' +
+            (st.procCat === c.name ? 'background: linear-gradient(135deg, #7274F0, #4F50D8); color: #FFFFFF; font-weight: 700;' : 'background: transparent; color: #666C7E; font-weight: 500;'),
+        onClick: () => this.setState({ procCat: c.name })
+      })),
+      procKpis: [
+        { label: 'PROCESSOS ATIVOS', value: '18', hint: 'em 3 categorias' },
+        { label: 'VALOR TOTAL', value: this.compact(2870480), hint: 'R$ 2.870.480,00' },
+        { label: 'COM PENDÊNCIAS', value: '5', hint: 'documentos ou prazos vencidos' }
+      ],
+      procColumns: PROC_COLS.map(col => ({
+        id: col.name, name: col.name,
+        count: String(col.cards.length),
+        total: this.compact(col.cards.reduce((a, c) => a + c[2], 0)),
+        dotStyle: 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: ' + col.color + ';',
+        isEmpty: col.cards.length === 0,
+        cards: col.cards.map((c, i) => ({
+          id: col.name + i, name: c[0], code: c[1], value: this.brl(c[2]), owner: c[3],
+          avatarStyle: this.avatar(c[3], 24),
+          tag: c[4],
+          tagStyle: 'font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 8px; align-self: flex-start; background: ' + (c[5] ? '#FEEDEB' : '#F2F3F8') + '; color: ' + (c[5] ? '#C0392F' : '#666C7E') + ';'
+        }))
+      })),
+
+      repTabs: ['Comercial', 'Facebook', 'Processos'].map(t => ({
+        label: t, style: tabStyle(st.repTab === t), onClick: () => this.setState({ repTab: t })
+      })),
+      repIsComercial: st.repTab === 'Comercial',
+      repTitle: st.repTab === 'Comercial' ? 'Panorama comercial' : st.repTab === 'Facebook' ? 'Performance de anúncios' : 'Panorama de processos',
+      repSub: st.repTab === 'Comercial' ? 'Como o funil, o time e as conversas de WhatsApp estão performando no período.' : 'Dados do período selecionado.',
+      metaValue: this.brlFull(goal),
+      metaHint: '8 consultores ativos × ' + this.compact(1200000) + ' · vale para o time inteiro',
+      donutStyle: 'width: 168px; height: 168px; border-radius: 50%; flex: 0 0 auto; background: conic-gradient(#0F9D6E 0% 0.2%, #E2564D 0.2% 0.4%, #E9EAF1 0.4% 100%); display: flex; align-items: center; justify-content: center;',
+      donutLegend: [
+        { label: 'Ganhos', value: '0%', dotStyle: 'width: 9px; height: 9px; border-radius: 50%; background: #0F9D6E; flex: 0 0 auto;' },
+        { label: 'Perdidos', value: '0,2%', dotStyle: 'width: 9px; height: 9px; border-radius: 50%; background: #E2564D; flex: 0 0 auto;' },
+        { label: 'Em aberto', value: '99,8%', dotStyle: 'width: 9px; height: 9px; border-radius: 50%; background: #C6CBD9; flex: 0 0 auto;' }
+      ],
+      repKpis: [
+        { label: 'Negócios decididos', value: '31', hint: '0 ganhos · 31 perdidos no período' },
+        { label: 'Pipeline em aberto', value: this.compact(pipeTotal), hint: '15.679 negócios · agora' },
+        { label: 'Ticket médio', value: this.compact(Math.round(pipeTotal / 15679)), hint: 'considerando negócios com valor' },
+        { label: 'Total ganho', value: 'R$ 0,00', hint: '0 negócios fechados no período' }
+      ],
+      ranking: RANKING.map((r, i) => ({
+        id: 'r' + i, pos: String(i + 1), name: r[0], deals: r[1] + ' negócios', value: this.compact(r[2]),
+        avatarStyle: this.avatar(r[3], 30),
+        initials: r[3],
+        barStyle: 'height: 100%; width: ' + Math.round((r[2] / RANKING[0][2]) * 100) + '%; background: #5A5BE6; border-radius: 5px;'
+      })),
+      origins: ORIGINS.map(o => ({
+        label: o[0], value: o[1] + '%',
+        dotStyle: 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: ' + o[2] + ';',
+        barStyle: 'height: 100%; width: ' + o[1] + '%; background: ' + o[2] + '; border-radius: 5px;'
+      }))
+    };
+  }
+
+  sendWa() {
+    const text = this.state.waDraft.trim();
+    if (!text) return;
+    const conv = this.state.waConv;
+    WA_MSGS[conv] = (WA_MSGS[conv] || []).concat([['me', text, 'agora']]);
+    this.setState({ waDraft: '' });
+  }
+
+  patchDraft(patch) { this.setState(s => ({ draft: Object.assign({}, s.draft, patch) })); }
+
+  saveNote() {
+    const text = this.state.note.trim();
+    if (!text) return;
+    this.setState(s => ({
+      note: '',
+      deals: s.deals.map(d => d.id !== s.openId ? d : Object.assign({}, d, {
+        days: 0,
+        activity: [{ id: 'n' + Date.now(), text: 'Nota — ' + text, when: 'agora', color: '#A0A5B5' }].concat(d.activity)
+      }))
+    }));
+  }
+
+  createDeal() {
+    const dr = this.state.draft;
+    if (!dr.contact.trim()) return;
+    const id = 'd' + Date.now();
+    this.setState(s => ({
+      addOpen: false, openId: id, screen: 'pipeline',
+      draft: { contact: '', value: '', owner: 'KG', task: '', stage: 'prospec' },
+      deals: [{
+        id: id, contact: dr.contact.trim(), code: 'novo', amount: parseInt(dr.value || '0', 10),
+        stage: dr.stage, owner: (dr.owner || 'KG').toUpperCase().slice(0, 2), days: 0,
+        task: dr.task.trim() || null, due: dr.task.trim() ? 'hoje' : '', source: 'Cadastro manual',
+        activity: [{ id: 'c' + id, text: 'Negócio criado', when: 'agora', color: '#5A5BE6' }]
+      }].concat(s.deals)
+    }));
+  }
+}
+
+</script>
+</body>
+</html>

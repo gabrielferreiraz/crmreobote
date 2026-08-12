@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, Search } from "lucide-react";
+import { Plus, Trash2, Loader2, Search, Megaphone } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 
 type Source = {
   id: string;
   label: string;
   contactCount: number;
+  countsAsAd: boolean;
 };
 
 export function SourceManager({ initialSources }: { initialSources: Source[] }) {
@@ -44,6 +45,16 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label }),
+    });
+    router.refresh();
+  }
+
+  async function toggleCountsAsAd(id: string, countsAsAd: boolean) {
+    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, countsAsAd } : s)));
+    await fetch(`/api/lead-sources/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ countsAsAd }),
     });
     router.refresh();
   }
@@ -117,13 +128,33 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
                 const value = e.target.value.trim();
                 if (value && value !== source.label) renameSource(source.id, value);
               }}
-              className="flex-1 rounded bg-transparent px-1 text-sm text-neutral-900 dark:text-neutral-100 outline-none focus:bg-neutral-50 dark:focus:bg-neutral-800"
+              className="min-w-0 flex-1 rounded bg-transparent px-1 text-sm text-neutral-900 dark:text-neutral-100 outline-none focus:bg-neutral-50 dark:focus:bg-neutral-800"
             />
-            <span className="text-xs text-neutral-400 dark:text-neutral-500">{source.contactCount} contatos</span>
+            <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{source.contactCount} contatos</span>
+            {/* Ver countsAsAd em prisma/schema.prisma (model LeadSource) — é
+                o jeito de fazer origem antiga/manual contar no relatório de
+                Facebook mesmo sem ter vindo pelo formulário nativo de anúncio. */}
+            <button
+              type="button"
+              onClick={() => toggleCountsAsAd(source.id, !source.countsAsAd)}
+              title={
+                source.countsAsAd
+                  ? "Conta como anúncio no relatório de Facebook — clique pra tirar"
+                  : "Marcar como anúncio: todo contato com essa origem passa a contar no relatório de Facebook"
+              }
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-all duration-200 ease-smooth ${
+                source.countsAsAd
+                  ? "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20"
+                  : "bg-neutral-100 text-neutral-400 ring-1 ring-inset ring-neutral-200 hover:text-neutral-600 dark:bg-neutral-800 dark:text-neutral-500 dark:ring-neutral-700 dark:hover:text-neutral-300"
+              }`}
+            >
+              <Megaphone className="h-3 w-3" strokeWidth={2} />
+              Anúncio
+            </button>
             <button
               onClick={() => setSourceToDelete(source)}
               disabled={source.contactCount > 0}
-              className="icon-btn hover:text-red-600 dark:hover:text-red-400"
+              className="icon-btn shrink-0 hover:text-red-600 dark:hover:text-red-400"
               title={source.contactCount > 0 ? "Existem contatos usando esta origem" : "Excluir origem"}
             >
               <Trash2 className="h-4 w-4" strokeWidth={2} />

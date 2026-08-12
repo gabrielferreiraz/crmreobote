@@ -43,7 +43,7 @@ export function TeamActivityList({ members }: { members: TeamActivityMember[] })
           </p>
         </div>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform dark:text-neutral-500 ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${open ? "rotate-180" : ""}`}
           strokeWidth={2}
         />
       </button>

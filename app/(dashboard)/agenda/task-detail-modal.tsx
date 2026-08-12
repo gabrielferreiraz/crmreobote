@@ -281,7 +281,7 @@ export function TaskDetailModal({
                   <rect x="3" y="4" width="18" height="17" rx="2" fill="#4285F4"/>
                   <path d="M3 6c0-1.1.9-2 2-2h14c1.1 0 2 .9 2 2v3H3V6z" fill="#34A853"/>
                   <rect x="6" y="9" width="12" height="9" rx="1" fill="white"/>
-                  <text x="12" y="16" fill="#4285F4" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle">31</text>
+                  <text x="12" y="16" fill="#4285F4" fontFamily="sans-serif" fontSize="8" fontWeight="bold" textAnchor="middle">31</text>
                 </svg>
                 <span>Google Agenda</span>
               </a>

@@ -367,7 +367,7 @@ export function AutomationsTable({
                     </span>
                     {rule.runCount > 0 && (
                       <ChevronDown
-                        className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 dark:text-neutral-500 ${
+                        className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${
                           isExpanded ? "rotate-180" : ""
                         }`}
                         strokeWidth={2}

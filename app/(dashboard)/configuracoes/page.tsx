@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase, ClipboardList, ShieldAlert } from "lucide-react";
+import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase, ClipboardList, ShieldAlert, Monitor } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
@@ -19,7 +19,7 @@ export default async function ConfiguracoesPage() {
   const canManageProcesses = processAccess.ok && processAccess.isAdmin;
 
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="mx-auto max-w-3xl space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Configurações</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -55,6 +55,7 @@ export default async function ConfiguracoesPage() {
           {canManageProcesses && (
             <Row href="/configuracoes/processos" icon={ClipboardList} title="Processos (pós-venda)" description="Etapas do Kanban administrativo de pós-venda." />
           )}
+          <Row href="/configuracoes/tv" icon={Monitor} title="TV Dashboard" description="Configure o painel que é exibido nas televisões." />
         </Section>
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">

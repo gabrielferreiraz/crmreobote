@@ -39,6 +39,28 @@ export function formatCurrency(value: number | string | null | undefined) {
   return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+/**
+ * Moeda compacta pra KPI/card ("R$ 639,9 mi", "R$ 500 mil") — ver
+ * new-design-for-claude/README.md, "Formatação (pt-BR)". Não existia
+ * formatador compacto nenhum no projeto antes do redesign; 1 casa decimal
+ * em milhões, sem decimal em milhares, valores abaixo de mil caem no
+ * formatCurrency comum (já é compacto o bastante nessa faixa).
+ */
+export function formatCurrencyCompact(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const num = typeof value === "string" ? Number(value) : value;
+  if (Number.isNaN(num)) return "—";
+  const sign = num < 0 ? "-" : "";
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000) {
+    return `${sign}R$ ${(abs / 1_000_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
+  }
+  if (abs >= 1_000) {
+    return `${sign}R$ ${Math.round(abs / 1000).toLocaleString("pt-BR")} mil`;
+  }
+  return formatCurrency(num);
+}
+
 export function daysSince(date: Date | string, referenceDate: Date = new Date()) {
   const d = typeof date === "string" ? new Date(date) : date;
   const diffMs = referenceDate.getTime() - d.getTime();

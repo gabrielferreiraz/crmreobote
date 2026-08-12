@@ -13,8 +13,9 @@ import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-b
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
+import { useGoogleCalendarEvents } from "@/lib/use-google-calendar-events";
 import { TaskRow, type Task } from "./task-row";
-import { TaskCalendar, type GoogleEvent } from "./task-calendar";
+import { TaskCalendar } from "./task-calendar";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
 
@@ -42,20 +43,20 @@ export function TasksList({
   initialTasks,
   deals,
   members,
-  googleEvents,
-  isGoogleConnected,
   isWhatsAppConnected,
   googleParam,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
-  googleEvents?: GoogleEvent[];
-  isGoogleConnected: boolean;
   isWhatsAppConnected: boolean;
   googleParam?: string;
 }) {
   const router = useRouter();
+  // Busca à parte, depois que a tela já está de pé — ver
+  // lib/use-google-calendar-events.ts e app/api/google-calendar/events. Não
+  // trava mais a renderização das tarefas do CRM esperando o Google.
+  const googleCalendar = useGoogleCalendarEvents();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"list" | "calendar">("calendar");
   const [search, setSearch] = useState("");
@@ -113,7 +114,11 @@ export function TasksList({
 
   return (
     <div className="space-y-6">
-      <GoogleCalendarBanner isGoogleConnected={isGoogleConnected} googleParam={googleParam} />
+      <GoogleCalendarBanner
+        isGoogleConnected={googleCalendar.connected}
+        loading={googleCalendar.loading}
+        googleParam={googleParam}
+      />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_300px] xl:items-start">
       <div className="min-w-0 space-y-6">
@@ -215,7 +220,7 @@ export function TasksList({
           />
         </div>
       ) : view === "calendar" ? (
-        <TaskCalendar tasks={filteredTasks} onToggle={toggleComplete} showOwner={showOwner} googleEvents={googleEvents} />
+        <TaskCalendar tasks={filteredTasks} onToggle={toggleComplete} showOwner={showOwner} googleEvents={googleCalendar.events} />
       ) : noResults ? (
         <div className="card">
           <EmptyState

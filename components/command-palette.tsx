@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Users, Kanban } from "lucide-react";
+import { Search, Users, Kanban, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
 
 const QUICK_LINKS = [
@@ -26,6 +26,7 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Result>({ contacts: [], deals: [] });
+  const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
     if (open) {
       setQuery("");
       setResults({ contacts: [], deals: [] });
+      setSearching(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
@@ -50,14 +52,25 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (!query.trim()) {
       setResults({ contacts: [], deals: [] });
+      setSearching(false);
       return;
     }
+    // Liga o spinner já aqui (antes do debounce de 200ms), não só depois do
+    // fetch — é o que faz o "instantâneo mas com aviso quando demora um
+    // pouco" pedido: pra uma busca rápida o spinner mal pisca, mas se a
+    // conexão/consulta atrasar ele fica visível o tempo todo, em vez de a
+    // tela ficar "parada" sem indicar que algo está acontecendo.
+    setSearching(true);
     let cancelled = false;
     const timeout = setTimeout(async () => {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok || cancelled) return;
-      const data = await res.json();
-      if (!cancelled) setResults(data);
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) setResults(data);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
     }, 200);
     return () => {
       cancelled = true;
@@ -88,11 +101,11 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="flex h-9 w-64 shrink-0 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-400 shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
+          className="flex h-9 w-48 shrink-0 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-400 shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
         >
           <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-          <span className="flex-1 truncate text-left whitespace-nowrap">Buscar clientes, negócios...</span>
-          <kbd className="shrink-0 rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
+          <span className="flex-1 truncate text-left whitespace-nowrap">Buscar...</span>
+          <kbd className="shrink-0 rounded border border-neutral-200 bg-neutral-50 px-1 py-0.5 font-mono text-[9px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
             ⌘K
           </kbd>
         </button>
@@ -101,7 +114,11 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
       {open && (
         <Modal onClose={() => setOpen(false)} maxWidth="max-w-lg">
           <div className="flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-800">
-            <Search className="h-4 w-4 shrink-0 text-neutral-400" strokeWidth={2} />
+            {searching ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" strokeWidth={2} />
+            ) : (
+              <Search className="h-4 w-4 shrink-0 text-neutral-400" strokeWidth={2} />
+            )}
             <input
               ref={inputRef}
               value={query}
@@ -112,7 +129,14 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
           </div>
 
           <div className="scrollbar-thin max-h-80 overflow-y-auto pt-2 pb-2">
-            {!hasResults && (
+            {!hasResults && searching && (
+              <p className="flex items-center justify-center gap-2 px-1 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                Buscando...
+              </p>
+            )}
+
+            {!hasResults && !searching && (
               <p className="px-1 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
                 Nada encontrado.
               </p>

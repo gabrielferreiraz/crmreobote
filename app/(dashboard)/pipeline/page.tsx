@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
-import { fetchDealsList, aggregateDealValues, countDealsByStage } from "@/lib/deals/list-query";
+import { fetchDealsList, aggregateDealValues, countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
+import { getCurrentMonthGoalProgress } from "@/lib/goals/suggestion";
 import { runWithTenant } from "@/lib/tenant-context";
 import { PipelineView } from "./pipeline-view";
 import type { Deal } from "./kanban-board";
@@ -98,7 +99,17 @@ export default async function PipelinePage({
     const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope };
     const kanbanFilterParams = { organizationId, pipelineId: activePipeline.id, scope, status: "OPEN" as const };
 
-    const [openCountByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums] = await Promise.all([
+    // % da meta no card "valor em aberto" (ver new-design-for-claude/README.md)
+    // só faz sentido pra quem vê o funil inteiro (Dono) — meta é sempre
+    // organização inteira, dividir um "aberto" já ESCOPADO (Gerente/
+    // Supervisor/Consultor) pela meta do time todo daria uma % sem
+    // significado real pra quem não vê tudo.
+    const isOwnerForGoal = session!.user.role === "OWNER";
+
+    const [openStatsByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums, goalProgress] = await Promise.all([
+      // {count, sumValue} por etapa — sumValue corrige um bug real do
+      // cabeçalho da coluna, que antes somava só os negócios já CARREGADOS
+      // (uma página), errado em qualquer etapa com mais de uma página.
       countDealsByStage(kanbanFilterParams),
       fetchDealsList({ ...kanbanFilterParams, take: KANBAN_INITIAL_CAP }),
       fetchDealsList({ ...listaFilterParams, take: LISTA_DEFAULT_PAGE_SIZE }),
@@ -106,11 +117,20 @@ export default async function PipelinePage({
         where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
       }),
       aggregateDealValues(listaFilterParams),
+      isOwnerForGoal ? getCurrentMonthGoalProgress(organizationId) : Promise.resolve(null),
     ]);
     const initialKanbanByStage: Record<string, Deal[]> = {};
     for (const deal of kanbanDeals) {
       (initialKanbanByStage[deal.stageId] ??= []).push(deal);
     }
+    // "Saúde da etapa" (ver new-design-for-claude/README.md) — % de negócios
+    // com tarefa pendente. Só pras etapas que de fato têm negócio (etapa
+    // vazia não precisa de consulta, a saúde não tem o que mostrar mesmo).
+    const openCountByStage: Record<string, number> = {};
+    for (const [stageId, stats] of Object.entries(openStatsByStage)) openCountByStage[stageId] = stats.count;
+    const stagesWithDeals = activePipeline.stages.filter((s) => (openCountByStage[s.id] ?? 0) > 0).map((s) => s.id);
+    const openWithTaskByStage =
+      stagesWithDeals.length > 0 ? await countDealsWithTaskByStage(kanbanFilterParams, stagesWithDeals) : {};
 
     // Uma consulta só, cobrindo ativos e inativos — `active desc` já deixa os
     // ativos primeiro (em createdAt asc entre si), então dá pra derivar
@@ -130,7 +150,7 @@ export default async function PipelinePage({
         ? allMembersRaw.filter((m) => scope.ownerIds.includes(m.userId))
         : allMembersRaw;
 
-  const isOwner = session!.user.role === "OWNER";
+  const isOwner = isOwnerForGoal;
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
   // Liberado pra todo mundo — a rota (app/api/deals/bulk-send-message) já
   // revalida a seleção contra getDealScope/scopeWhere do próprio papel de
@@ -154,6 +174,10 @@ export default async function PipelinePage({
         stages={activePipeline.stages}
         initialKanbanByStage={initialKanbanByStage}
         initialKanbanCountByStage={openCountByStage}
+        initialKanbanSumByStage={Object.fromEntries(
+          Object.entries(openStatsByStage).map(([stageId, stats]) => [stageId, stats.sumValue]),
+        )}
+        initialKanbanWithTaskByStage={openWithTaskByStage}
         initialListaDeals={listaDeals}
         listaTotalCount={listaTotalCount}
         listaSums={listaSums}
@@ -169,6 +193,8 @@ export default async function PipelinePage({
         canBulkDelete={isManager}
         canBulkMessage={canBulkMessage}
         openNewDeal={novo === "1"}
+        goalValue={goalProgress?.goalValue ?? null}
+        goalAchievedValue={goalProgress?.achievedValue ?? null}
       />
     </div>
   );

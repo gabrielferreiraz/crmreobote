@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle } from "lucide-react";
+import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil } from "lucide-react";
 import { VariablePills } from "@/components/variable-pills";
 import { LoadingDots } from "@/components/loading-dots";
 import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
@@ -257,9 +257,9 @@ export function ScriptEditor({
     handleEditorInput(idx);
   }
 
-  /** Abre o editor visual de variação vazio, pra inserir uma pílula nova na mensagem com foco. */
-  function openNewVariationDialog() {
-    setVariationDialog({ stepIdx: focusedStepIndex, options: ["", ""], editingChip: null });
+  /** Abre o editor visual de variação vazio pra uma mensagem específica, pra inserir uma pílula nova nela. */
+  function openNewVariationDialog(stepIdx: number) {
+    setVariationDialog({ stepIdx, options: ["", ""], editingChip: null });
   }
 
   /** Confirma o editor inline: atualiza a pílula existente no DOM, ou insere uma nova no cursor. */
@@ -315,13 +315,6 @@ export function ScriptEditor({
     [rawStepsKey, variationSeed],
   );
   const totalChars = steps.reduce((sum, s) => sum + s.text.length, 0);
-  // A caixa de "inserir variável" segue a mensagem com foco (não fica presa
-  // no fim da lista) — com várias mensagens, sem isso, cada variável exigia
-  // rolar até o fim pra inserir e rolar de volta pra conferir onde caiu. Fixa
-  // no step de um editor de variação já aberto, mesmo que o foco mude pra
-  // outro campo enquanto ele está aberto — senão o diálogo em edição
-  // "desaparecia" (o bloco todo se move junto com o foco).
-  const toolbarStepIndex = variationDialog ? variationDialog.stepIdx : focusedStepIndex;
   const canSubmit = !!name.trim() && steps.length > 0 && steps.every((s) => s.text.trim().length > 0);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -429,106 +422,145 @@ export function ScriptEditor({
         </div>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:items-start">
-          <div className="space-y-2 lg:col-span-7">
-            {steps.map((step, idx) => (
-              <div key={stepKeys[idx]} className="card overflow-hidden p-0">
-                <div className="space-y-2 p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Mensagem {idx + 1}</span>
-                    {steps.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeStep(idx)}
-                        className="icon-btn"
-                        aria-label={`Remover mensagem ${idx + 1}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <div
-                      ref={(el) => setEditorRef(idx, el)}
-                      contentEditable
-                      suppressContentEditableWarning
-                      onFocus={() => setFocusedStepIndex(idx)}
-                      onInput={() => handleEditorInput(idx)}
-                      onKeyDown={handleEditorKeyDown}
-                      onPaste={handleEditorPaste}
-                      onClick={(e) => handleEditorClick(e, idx)}
-                      className="field-input scrollbar-thin min-h-[4.5rem] cursor-text overflow-y-auto whitespace-pre-wrap"
-                    />
-                    {!step.text && (
-                      <span className="pointer-events-none absolute top-2 left-3 text-sm text-neutral-400 dark:text-neutral-500">
-                        Ex.: {"{saudacao} {primeiro_nome}"}! Vi que você atua como {"{cargo}"}...
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-neutral-400 dark:text-neutral-500">
-                    <span className="shrink-0">{step.text.length} caracteres</span>
-                    {idx < steps.length - 1 && (
-                      <label className="flex flex-wrap items-center gap-1.5">
-                        Esperar
-                        <input
-                          type="number"
-                          min={0}
-                          max={MAX_DELAY_SEC}
-                          value={step.delayAfterSec}
-                          onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
-                          className="field-input w-16 shrink-0 px-2 py-0.5"
-                        />
-                        segundos antes da próxima mensagem
-                      </label>
-                    )}
-                  </div>
-                </div>
+          <div className="space-y-3 lg:col-span-7">
+            {/* Cabeçalho do fluxo — pílulas de variável globais, não mais por
+                mensagem: inserem sempre na mensagem com foco (ver
+                insertVariable/focusedStepIndex), então não precisam mais
+                "seguir" o card ativo lá embaixo. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200/60 bg-neutral-50/60 px-4 py-3 dark:border-neutral-800/60 dark:bg-neutral-900/40">
+              <div className="flex items-center gap-2">
+                <MessageCircleMore className="h-4 w-4 text-brand" strokeWidth={2.5} />
+                <h2 className="text-xs font-semibold tracking-wide text-neutral-700 uppercase dark:text-neutral-200">
+                  Fluxo de mensagens
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Inserir:</span>
+                <VariablePills onInsert={insertVariable} />
+              </div>
+            </div>
 
-                {/* Acompanha a mensagem com foco (ver toolbarStepIndex) — fica sempre
-                    colada em quem está sendo editado, nunca presa no fim da lista. Uma
-                    seção do MESMO card (não um card à parte) — comunica visualmente
-                    que os dois são uma unidade só, não duas coisas soltas por perto. */}
-                {idx === toolbarStepIndex && (
-                  <div className="animate-reveal-below space-y-2 border-t border-neutral-100 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
-                    {/* Enquanto o editor de variação está aberto, some com as pílulas
-                        "pra mensagem" — ele tem a própria linha de pílulas embutida
-                        (pra dentro das opções), e mostrar as duas juntas convidava a
-                        clicar na errada sem perceber a diferença. */}
-                    {variationDialog ? (
-                      <MessageVariationEditor
-                        initialOptions={variationDialog.options}
-                        onCancel={() => setVariationDialog(null)}
-                        onSave={saveVariationDialog}
-                      />
-                    ) : (
-                      <>
-                        <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Inserir nesta mensagem</p>
-                        <VariablePills onInsert={insertVariable} />
+            {steps.map((step, idx) => {
+              return (
+                <div key={stepKeys[idx]} className="flex gap-3">
+                  {/* Selo numerado + linha conectando ao próximo passo — o
+                      mesmo fio visual continua até o botão "adicionar passo"
+                      no fim da lista (ver abaixo), pra ler como um fluxo só,
+                      não cards soltos. */}
+                  <div className="flex w-7 shrink-0 flex-col items-center">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white shadow-sm">
+                      {idx + 1}
+                    </span>
+                    <span className="mt-1 w-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
+                  </div>
+
+                  <div className="card flex-1 overflow-hidden p-0">
+                    <div className="space-y-2 p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
+                          {idx === 0 ? "Mensagem principal" : `Mensagem ${idx + 1}`}
+                        </span>
+                        {steps.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeStep(idx)}
+                            className="icon-btn"
+                            aria-label={`Remover mensagem ${idx + 1}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <div
+                          ref={(el) => setEditorRef(idx, el)}
+                          contentEditable
+                          suppressContentEditableWarning
+                          onFocus={() => setFocusedStepIndex(idx)}
+                          onInput={() => handleEditorInput(idx)}
+                          onKeyDown={handleEditorKeyDown}
+                          onPaste={handleEditorPaste}
+                          onClick={(e) => handleEditorClick(e, idx)}
+                          className="field-input scrollbar-thin min-h-[4.5rem] cursor-text overflow-y-auto pr-8 whitespace-pre-wrap"
+                        />
+                        {!step.text && (
+                          <span className="pointer-events-none absolute top-2 left-3 text-sm text-neutral-400 dark:text-neutral-500">
+                            Ex.: {"{saudacao} {primeiro_nome}"}! Vi que você atua como {"{cargo}"}...
+                          </span>
+                        )}
+                        {/* Só um afago visual — o campo já é editável clicando em
+                            qualquer lugar (contentEditable); isso aqui só dá o
+                            lembrete de "dá pra editar" sem precisar de texto extra. */}
                         <button
                           type="button"
-                          onClick={openNewVariationDialog}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => editorRefs.current[idx]?.focus()}
+                          className="icon-btn absolute right-1.5 bottom-1.5 h-6 w-6"
+                          aria-label={`Editar mensagem ${idx + 1}`}
+                        >
+                          <Pencil className="h-3 w-3" strokeWidth={2} />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-neutral-400 dark:text-neutral-500">
+                        <span className="shrink-0">{step.text.length} caracteres</span>
+                        {idx < steps.length - 1 && (
+                          <label className="flex flex-wrap items-center gap-1.5">
+                            Esperar
+                            <input
+                              type="number"
+                              min={0}
+                              max={MAX_DELAY_SEC}
+                              value={step.delayAfterSec}
+                              onChange={(e) => updateStepDelay(idx, Number(e.target.value))}
+                              className="field-input w-16 shrink-0 px-2 py-0.5"
+                            />
+                            segundos antes da próxima mensagem
+                          </label>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Seção de variação A/B — sempre visível neste card
+                        (não depende mais de foco), sempre a mesma unidade
+                        visual da mensagem acima dela. */}
+                    <div className="border-t border-neutral-100 p-3 dark:border-neutral-800">
+                      {variationDialog?.stepIdx === idx ? (
+                        <MessageVariationEditor
+                          initialOptions={variationDialog.options}
+                          onCancel={() => setVariationDialog(null)}
+                          onSave={saveVariationDialog}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openNewVariationDialog(idx)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-700 transition-colors hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100"
                         >
                           <Shuffle className="h-3 w-3" strokeWidth={2.5} />
-                          Adicionar variação
+                          Adicionar variação A/B
                         </button>
-                        <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                          Variação = frases alternativas que o sistema escolhe ao acaso, pra não mandar sempre o mesmo texto.
-                        </p>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
 
-            <button
-              type="button"
-              onClick={addStep}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-neutral-300 py-2.5 text-xs font-medium text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-neutral-700 dark:text-neutral-500 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
-            >
-              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-              Adicionar outra mensagem
-            </button>
+            <div className="flex gap-3">
+              <div className="flex w-7 shrink-0 justify-center">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-neutral-300 text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={addStep}
+                className="flex flex-1 items-center gap-1.5 rounded-lg border border-dashed border-neutral-300 px-3 py-2.5 text-xs font-medium text-neutral-400 transition-colors hover:border-neutral-400 hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:border-neutral-700 dark:text-neutral-500 dark:hover:border-neutral-600 dark:hover:text-neutral-300"
+              >
+                Adicionar próximo passo no fluxo
+              </button>
+            </div>
           </div>
 
           <div className="card relative space-y-3 overflow-hidden p-4 lg:sticky lg:top-4 lg:col-span-5">

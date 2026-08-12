@@ -21,7 +21,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, access.role);
-    const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
+    const existing = await prisma.deal.findFirst({
+      where: { id, organizationId, ...scopeWhere(scope) },
+      include: { contact: { select: { source: true, jobTitle: true } } },
+    });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     // pipelineId opcional — sem ele, assume que a etapa é da mesma pipeline
@@ -44,10 +47,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // Remarketing normalmente não exigem nada, já que o lead ainda está frio.
     // Aceita o valor já vir junto no mesmo request (preencher e mover numa
     // ação só); os demais campos precisam já estar preenchidos no negócio.
+    // Origem/Cargo são do Contact vinculado, não do Deal (ver
+    // lib/deal-required-fields.ts) — por isso `include: { contact }` acima.
     const missing = findMissingRequiredFields(stage.requiredFields, {
       value: value !== undefined ? value : existing.value,
       creditType: existing.creditType,
       expectedCloseAt: existing.expectedCloseAt,
+      contactSource: existing.contact.source,
+      contactJobTitle: existing.contact.jobTitle,
     });
     if (missing.length > 0) {
       return NextResponse.json(

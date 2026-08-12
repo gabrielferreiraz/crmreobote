@@ -341,7 +341,7 @@ export function MembersTable({
             return (
             <div
               key={m.id}
-              className={`grid grid-cols-1 gap-3 p-4 lg:items-center lg:gap-4 ${GRID_COLS} ${!m.active ? "opacity-60" : ""}`}
+              className={`grid grid-cols-1 gap-3 p-4 transition-colors lg:items-center lg:gap-4 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 ${GRID_COLS} ${!m.active ? "opacity-60" : ""}`}
             >
               <div className="flex min-w-0 items-center gap-2.5">
                 {isOwner ? (
@@ -364,16 +364,30 @@ export function MembersTable({
                   <Avatar name={m.user.name} src={m.photoUrl} size="sm" />
                 )}
                 <div className="min-w-0">
-                  <p className="flex items-center gap-2 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                    {m.user.name}
-                    {!m.active && <Badge tone="neutral">Inativo</Badge>}
-                    {m.active && (
-                      <Badge tone={online ? "success" : "neutral"} dot>
-                        {online ? "Online" : "Offline"}
+                  <p className="flex items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                    <span className="min-w-0 truncate">{m.user.name}</span>
+                    {!m.active && (
+                      <Badge tone="neutral" className="shrink-0">
+                        Inativo
                       </Badge>
                     )}
+                    {/* Só um pontinho — a legenda "Online agora"/"Acessado pela última
+                        vez..." logo abaixo já diz o mesmo com texto; repetir isso aqui
+                        numa pílula cheia só disputava espaço com o nome à toa. */}
+                    {m.active && (
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                          online ? "bg-emerald-500" : "bg-neutral-300 dark:bg-neutral-600"
+                        }`}
+                        title={online ? "Online" : "Offline"}
+                      />
+                    )}
                   </p>
-                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{m.user.email}</p>
+                  {/* Sem truncate de propósito — diferente do nome/status acima, o
+                      e-mail é informação que às vezes precisa ser copiada/conferida
+                      de verdade; break-all deixa quebrar linha em vez de esconder
+                      atrás de reticências. */}
+                  <p className="text-xs break-all text-neutral-500 dark:text-neutral-400">{m.user.email}</p>
                   {m.active && (
                     <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
                       {online
@@ -495,6 +509,10 @@ export function MembersTable({
                   )}
                   {m.user.id !== currentUserId && (
                     <>
+                      {/* Separa "gerenciar perfil" (nome, backup, senha) das ações que
+                          afetam o acesso da pessoa — um respiro visual antes do que
+                          precisa de mais atenção antes de clicar. */}
+                      <span className="mx-0.5 h-4 w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />
                       {m.active && (
                         <button
                           onClick={() => setMemberToDeactivate(m)}

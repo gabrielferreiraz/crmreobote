@@ -39,7 +39,14 @@ export function ProcessesView({
   const mobileProcesses = useMemo(() => Object.values(initialProcessesByStage).flat(), [initialProcessesByStage]);
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // min-h-0: deixa o filho (Kanban ou Lista) encolher de verdade até a
+    // altura disponível em vez de crescer pro tamanho do próprio conteúdo e
+    // vazar o scroll pra página inteira — mesmo ajuste de pipeline-view.tsx.
+    // Sem isso, só o Kanban ficava preso à altura da tela (mede a própria
+    // altura via JS); a Lista virava um documento normal que empurrava a
+    // paginação lá embaixo e fazia a página inteira rolar — alternar entre
+    // as duas parecia mudar a "proporção" da tela inteira.
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
           <button

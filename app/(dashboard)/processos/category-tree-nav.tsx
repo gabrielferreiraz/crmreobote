@@ -302,7 +302,7 @@ export function CategoryTreeNav({
   return (
     <>
       {/* Desktop — barra lateral fixa, sempre visível. */}
-      <nav className="hidden w-64 shrink-0 space-y-2 overflow-x-hidden overflow-y-auto scrollbar-thin lg:block">
+      <nav className="hidden h-full w-72 shrink-0 space-y-2 overflow-x-hidden overflow-y-auto scrollbar-thin lg:block">
         {treeBody}
       </nav>
 

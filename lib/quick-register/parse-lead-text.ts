@@ -196,6 +196,63 @@ const ALL_LABEL_ENTRIES: { normalized: string }[] = [
 /** Só os textos normalizados, pro formatador de ditado (não precisa saber o campo, só onde o rótulo começa/termina). */
 export const ALL_LEAD_LABELS: string[] = ALL_LABEL_ENTRIES.map((e) => e.normalized);
 
+// Rótulo de UMA palavra só ambíguo demais pra reconhecer no MEIO de uma
+// linha (só no início dela, ver matchLabelPrefix mais abaixo) — no meio de
+// uma frase qualquer vira substantivo comum e fragmentaria o texto à toa
+// ("o cliente quer..." não deveria virar um rótulo "cliente" solto). Mesma
+// lista de format-dictated-lead-text.ts (ditado por voz corre o mesmíssimo
+// risco, texto contínuo sem pontuação) — as duas pontas nunca podem
+// reconhecer palavras diferentes uma da outra.
+const AMBIGUOUS_MIDLINE_LABELS = new Set(
+  ["cliente", "contato", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
+    normalizeLabel,
+  ),
+);
+const MIDLINE_LABEL_ENTRIES = ALL_LABEL_ENTRIES.filter((e) => !AMBIGUOUS_MIDLINE_LABELS.has(e.normalized));
+const MIDLINE_LABEL_REGEX = new RegExp(
+  `\\b(?:${MIDLINE_LABEL_ENTRIES.map((e) => labelToWordPattern(e.normalized)).join("|")})\\b`,
+  "g",
+);
+
+/**
+ * "nome gabriel ferreira celular 67981783902 valor 300k" (vários rótulos
+ * colados numa linha só, sem pontuação nenhuma separando um do outro) →
+ * ["nome: gabriel ferreira", "celular: 67981783902", "valor: 300k"] — o
+ * Passo 1 (mais abaixo) já sabe separar rótulo:valor quando é UM por linha,
+ * mas nunca soube achar um 2º/3º rótulo espremido na MESMA linha (tomava "o
+ * resto da linha inteira" como valor do 1º rótulo, derrubando tudo dentro
+ * de um campo só). Só entra em ação com 2+ rótulos encontrados na mesma
+ * linha — uma linha com só um rótulo (a esmagadora maioria dos casos, ex.:
+ * "Nome: Gabriel Medeiros" já bem formatado) sai daqui idêntica ao que
+ * entrou, nunca arrisca dobrar um ":" que já existisse.
+ */
+function expandInlineLabels(line: string): string[] {
+  const folded = foldAccents(line);
+  const matches = [...folded.matchAll(MIDLINE_LABEL_REGEX)].filter((m) => m.index !== undefined);
+  if (matches.length < 2) return [line];
+
+  const result: string[] = [];
+  const preamble = line.slice(0, matches[0].index!).trim();
+  if (preamble) result.push(preamble);
+
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const labelStart = m.index!;
+    const labelEnd = labelStart + m[0].length;
+    const segmentEnd = i + 1 < matches.length ? matches[i + 1].index! : line.length;
+    const rawLabel = line.slice(labelStart, labelEnd);
+    // Pula um ":" que já existisse logo depois do rótulo — sem isso, um
+    // trecho já pontuado no meio de uma linha maior dobrava o ":" quando
+    // reconstruído logo abaixo.
+    let valueStart = labelEnd;
+    const colonMatch = line.slice(labelEnd, segmentEnd).match(/^\s*:\s*/);
+    if (colonMatch) valueStart += colonMatch[0].length;
+    const value = line.slice(valueStart, segmentEnd).trim();
+    result.push(value ? `${rawLabel}: ${value}` : `${rawLabel}:`);
+  }
+  return result;
+}
+
 // Campos de texto "nome próprio" — o ditado por voz sempre chega em
 // minúsculo (a Web Speech API nunca devolve maiúscula/pontuação sozinha),
 // então vale capitalizar antes de exibir. De propósito NÃO inclui telefone/
@@ -385,9 +442,16 @@ function parseSpokenAmount(text: string): number | null {
  * de milhar pra confiar). */
 function parseLabeledMoney(raw: string): number | null {
   const cleaned = raw.replace(/r\$/i, "").trim();
-  const mil = cleaned.match(/^(\d+(?:[.,]\d+)?)\s*mil$/i);
+  // Sem "^...$" (não exige que "mil"/"k" seja a string INTEIRA) — "crédito"
+  // é ambíguo demais pra contar como rótulo no meio de uma linha (ver
+  // AMBIGUOUS_MIDLINE_LABELS), então "valor crédito 300mil" chega aqui
+  // ainda com "crédito " grudado na frente; exigir o número bem no início
+  // fazia o padrão nunca casar, cair no fallback de dígitos crus e perder o
+  // "mil" junto (virava 300, não 300000). Mesmo padrão (sem âncora) que
+  // tryExtractMoney já usa pro valor SEM rótulo nenhum.
+  const mil = cleaned.match(/(\d+(?:[.,]\d+)?)\s*mil\b/i);
   if (mil) return parseFloat(mil[1].replace(",", ".")) * 1000;
-  const k = cleaned.match(/^(\d+(?:[.,]\d+)?)\s*k$/i);
+  const k = cleaned.match(/(\d+(?:[.,]\d+)?)\s*k\b/i);
   if (k) return parseFloat(k[1].replace(",", ".")) * 1000;
   if (/\d/.test(cleaned)) {
     const parsed = parseBrazilianNumber(cleaned.replace(/[^\d.,]/g, ""));
@@ -553,7 +617,11 @@ export function parseLeadText(raw: string): ParsedLeadFields {
     description: null,
   };
 
-  const rawLines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const rawLines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .flatMap(expandInlineLabels);
   // `null` = linha inteira já reivindicada por um campo estruturado (some da
   // descrição); string = o que sobrou dela até agora, disputado pelos
   // passos seguintes.

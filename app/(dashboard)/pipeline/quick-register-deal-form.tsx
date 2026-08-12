@@ -285,7 +285,7 @@ export function QuickRegisterDealForm({
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <label className="field-label">Colar texto do lead</label>
-          <VoiceInputButton onResult={handleDictated} />
+          <VoiceInputButton onResult={handleDictated} keepListening />
         </div>
         <textarea
           autoFocus
@@ -296,17 +296,22 @@ export function QuickRegisterDealForm({
           rows={6}
           className="field-input resize-y"
         />
-        <div className="flex items-center justify-between pt-0.5">
+        <div className="flex items-center justify-between gap-2 pt-1.5">
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
             Cole o texto e os campos abaixo preenchem sozinhos — revise antes de criar.
           </p>
+          {/* Mesmo tratamento de botão de verdade (borda + fundo) que o
+              resto do app usa — texto cinza sem contorno nenhum passava
+              batido pro consultor, especialmente quem colou o texto sem o
+              preenchimento automático já ter disparado sozinho (ver
+              handleChange/handlePaste acima). */}
           <button
             type="button"
             onClick={handleAnalyzeClick}
             disabled={!rawText.trim()}
-            className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 disabled:pointer-events-none disabled:opacity-40 dark:text-neutral-400 dark:hover:text-neutral-100"
+            className="btn-secondary btn-sm shrink-0"
           >
-            <Sparkles className="h-3 w-3" strokeWidth={2} />
+            <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
             Separar campos
           </button>
         </div>

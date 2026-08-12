@@ -111,7 +111,7 @@ export function TabSwitcher({
 
   return (
     <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
-      <div className="flex flex-1 items-center gap-1 rounded-2xl bg-neutral-100/80 p-1 dark:bg-neutral-900">
+      <div className="flex flex-1 items-center gap-0.5 rounded-xl bg-neutral-100/80 p-0.5 dark:bg-neutral-900">
         {(
           [
             { value: "crm" as const, label: "WhatsApp CRM" },
@@ -122,7 +122,7 @@ export function TabSwitcher({
             key={opt.value}
             type="button"
             onClick={() => onChange(opt.value)}
-            className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
+            className={`flex-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${
               tab === opt.value
                 ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-800 dark:text-white dark:ring-white/10"
                 : "text-neutral-500 hover:text-neutral-700 active:bg-black/5 dark:text-neutral-400 dark:hover:text-neutral-200 dark:active:bg-white/5"
@@ -137,7 +137,7 @@ export function TabSwitcher({
         <button
           type="button"
           onClick={() => onToggleNotifications(tab)}
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
             notifyEnabled
               ? "bg-brand-light text-brand dark:bg-brand-light dark:text-brand"
               : "bg-neutral-100/80 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-600 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
@@ -146,9 +146,9 @@ export function TabSwitcher({
           title={notifyEnabled ? "Notificações ativadas — clique pra desativar" : "Notificações desativadas — clique pra ativar"}
         >
           {notifyEnabled ? (
-            <Bell className="h-3.5 w-3.5" strokeWidth={2} />
+            <Bell className="h-3 w-3" strokeWidth={2} />
           ) : (
-            <BellOff className="h-3.5 w-3.5" strokeWidth={2} />
+            <BellOff className="h-3 w-3" strokeWidth={2} />
           )}
         </button>
       )}
@@ -410,7 +410,12 @@ export function ConversationsView({
 
   return (
     <div className="hidden min-h-0 flex-1 lg:flex">
-      <div className="surface-glass-panel flex shrink-0 flex-col overflow-hidden rounded-3xl" style={{ width: sidebarWidth }}>
+      {/* min-h-0: sem isso, a coluna crescia pro tamanho da lista de
+          conversas inteira em vez de ficar presa à altura da tela — a
+          página inteira acabava rolando junto (mesmo ajuste já feito em
+          pipeline-view.tsx/processes-view.tsx). Só a lista (overflow-y-auto
+          abaixo) deve rolar, nunca a tela toda. */}
+      <div className="surface-glass-panel flex min-h-0 shrink-0 flex-col overflow-hidden rounded-3xl" style={{ width: sidebarWidth }}>
         <TabSwitcher
           tab={tab}
           onChange={setTab}
@@ -477,7 +482,11 @@ export function ConversationsView({
           </div>
         )}
 
-        <div className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto p-1.5 pb-4">
+        {/* min-h-0: era o último elo faltando — sem ele, essa lista crescia pro
+            tamanho de TODAS as conversas em vez de ficar presa aqui dentro e
+            rolar sozinha, vazando a barra de rolagem pra página inteira
+            (ver comentário mais detalhado no início do componente). */}
+        <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5 pb-4">
           {tabConversations.length === 0 ? (
             <div className="relative flex h-full items-center justify-center overflow-hidden rounded-2xl">
               <div className="absolute top-1/2 left-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[70px]" />
@@ -596,10 +605,10 @@ export function ConversationsView({
           </div>
         ) : !whatsappConnected ? (
           <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-50/50 p-6 dark:bg-neutral-900/40">
-            <div className="absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/5 blur-[100px]" />
-            <div className="chat-bg-dots absolute inset-0 opacity-50" />
+            <div className="absolute top-1/2 left-1/2 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/10 blur-[100px]" />
+            <div className="chat-bg-dots absolute inset-0 opacity-70" />
             
-            <div className="relative z-10 w-full max-w-sm rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
+            <div className="relative z-10 w-full max-w-md rounded-[24px] bg-white p-8 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
               <EmptyState
                 icon={WifiOff}
                 title="Seu WhatsApp está desconectado"
@@ -614,11 +623,11 @@ export function ConversationsView({
           </div>
         ) : (
           <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-50/50 p-6 dark:bg-neutral-900/40">
-            <div className="absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[100px]" />
-            <div className="chat-bg-dots absolute inset-0 opacity-50" />
-            <WhatsAppIcon className="absolute top-1/2 left-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 text-neutral-900/5 dark:text-white/5" />
+            <div className="absolute top-1/2 left-1/2 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/10 blur-[100px]" />
+            <div className="chat-bg-dots absolute inset-0 opacity-70" />
+            <WhatsAppIcon className="absolute top-1/2 left-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 text-neutral-900/[0.07] dark:text-white/[0.07]" />
             
-            <div className="relative z-10 w-full max-w-sm rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
+            <div className="relative z-10 w-full max-w-md rounded-[24px] bg-white p-8 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
               <EmptyState
                 icon={MessageCircle}
                 title="Selecione uma conversa"

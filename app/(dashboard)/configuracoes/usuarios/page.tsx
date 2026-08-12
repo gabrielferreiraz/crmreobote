@@ -31,7 +31,15 @@ export default async function UsuariosSettingsPage() {
     );
 
     return (
-      <div className="max-w-4xl space-y-4">
+      // Sem teto de largura próprio (max-w-4xl antes) — diferente das outras
+      // telas de Configurações (listas simples de texto, ficam bem numa
+      // coluna estreita), esta é uma tabela de verdade com 6 colunas; deixar
+      // ela usar o espaço que o layout já reserva (mx-auto max-w-[1500px] em
+      // app/(dashboard)/layout.tsx) evita nome/e-mail comprimidos à toa numa
+      // tela larga. No celular isso não muda nada — MembersTable já vira uma
+      // lista de cards de uma coluna sozinha ali (ver GRID_COLS/grid-cols-1),
+      // um teto de largura nunca fez diferença pra quem já está abaixo dele.
+      <div className="space-y-4">
         <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Usuários</h1>
         <MembersTable
           initialMembers={members}

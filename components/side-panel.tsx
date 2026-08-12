@@ -24,7 +24,7 @@ export function SidePanel({
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
-      style={{ animation: "modal-backdrop-in 150ms ease-out" }}
+      style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

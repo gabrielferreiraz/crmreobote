@@ -22,7 +22,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { label } = body as { label?: string };
+  const { label, countsAsAd } = body as { label?: string; countsAsAd?: boolean };
 
   const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -40,6 +40,7 @@ export async function POST(req: Request) {
         organizationId: access.organizationId,
         label: label.trim(),
         order: (maxOrder._max.order ?? -1) + 1,
+        countsAsAd: countsAsAd === true,
       },
     });
 

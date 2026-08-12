@@ -40,6 +40,7 @@ export default async function RelatoriosPage({
     who?: string;
     view?: string;
     processPipelineId?: string;
+    breakdownPeriod?: string;
   }>;
 }) {
   const {
@@ -49,6 +50,7 @@ export default async function RelatoriosPage({
     who: whoParam,
     view: viewParam,
     processPipelineId: processPipelineIdParam,
+    breakdownPeriod: breakdownPeriodParam,
   } = await searchParams;
 
   // Administrativo (pós-venda) vê um relatório próprio — funil/metas de
@@ -92,7 +94,7 @@ export default async function RelatoriosPage({
     return (
       <div className="space-y-6">
         <ReportTabs active="facebook" />
-        <MetaAdsReportView organizationId={organizationId} />
+        <MetaAdsReportView organizationId={organizationId} breakdownPeriod={breakdownPeriodParam} />
       </div>
     );
   }

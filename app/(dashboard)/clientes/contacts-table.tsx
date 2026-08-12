@@ -950,33 +950,39 @@ export function ContactsTable({
       )}
 
       {open && (
-        <Modal onClose={() => setOpen(false)}>
+        <Modal onClose={() => setOpen(false)} maxWidth="max-w-xl">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo contato</h2>
           <form onSubmit={handleSubmit} className="space-y-3">
             <Field label="Nome" value={name} onChange={setName} required autoFocus />
-            <Field label="E-mail" value={email} onChange={setEmail} type="email" />
-            <Field label="Celular" value={phone} onChange={setPhone} />
-            <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
-            <Field label="Empresa" value={company} onChange={setCompany} />
-            <div className="space-y-1">
-              <label className="field-label">Cargo *</label>
-              <Select
-                value={jobTitle}
-                onChange={setJobTitle}
-                placeholder="Selecione o cargo"
-                options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
-              />
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Essencial pra achar o lead certo depois em filtros e relatórios.
-              </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="E-mail" value={email} onChange={setEmail} type="email" />
+              <Field label="Empresa" value={company} onChange={setCompany} />
             </div>
-            <div className="space-y-1">
-              <label className="field-label">Responsável</label>
-              <Select
-                value={responsavelId}
-                onChange={setResponsavelId}
-                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-              />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Celular" value={phone} onChange={setPhone} />
+              <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="field-label">Cargo *</label>
+                <Select
+                  value={jobTitle}
+                  onChange={setJobTitle}
+                  placeholder="Selecione o cargo"
+                  options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
+                />
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Essencial pra achar o lead certo depois.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="field-label">Responsável</label>
+                <Select
+                  value={responsavelId}
+                  onChange={setResponsavelId}
+                  options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="CEP" value={zipCode} onChange={setZipCode} />

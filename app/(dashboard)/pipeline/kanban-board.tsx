@@ -14,16 +14,18 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import Link from "next/link";
-import { Search, AlertTriangle, Loader2 } from "lucide-react";
-import { formatCurrency, daysSince } from "@/lib/format";
-import { isStale, STALE_DEAL_DAYS } from "@/lib/stale";
+import { Search, AlertTriangle, Loader2, ArrowUpDown } from "lucide-react";
+import { formatCurrency, formatCurrencyCompact, daysSince } from "@/lib/format";
+import { isStale, STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
+import { brazilStartOfDay } from "@/lib/timezone";
 import { Avatar } from "@/components/avatar";
 import { Badge, type BadgeTone } from "@/components/badge";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
-import { TASK_TYPE_ICON, TASK_TYPE_LABELS } from "@/lib/task-icons";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
+import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
+import type { PipelineQuickFilter } from "./pipeline-filters";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
@@ -50,6 +52,9 @@ export type Deal = {
   owner: { id: string; name: string; photoUrl: string | null };
   nextActivity: string | null;
   taskTypes: string[];
+  /** Prazo da mesma tarefa pendente que já vira nextActivity — alimenta a
+   * faixa de tarefa do card (ver classifyTaskUrgency em lib/task-urgency.ts). */
+  nextTaskDueAt: string | Date | null;
   hasUnreadWhatsApp: boolean;
   lossReasonId: string | null;
   lossReason: { id: string; label: string } | null;
@@ -85,17 +90,27 @@ export function KanbanBoard({
   stages,
   initialDealsByStage,
   initialCountByStage,
+  initialSumByStage,
+  initialWithTaskByStage,
   members,
   currentUserId,
   leadSources,
   jobTitles,
   newDeal,
   onNewDealConsumed,
+  quickFilter,
 }: {
   pipelineId: string;
   stages: Stage[];
   initialDealsByStage: Record<string, Deal[]>;
   initialCountByStage: Record<string, number>;
+  /** Soma de valor OPEN por etapa (banco, não só o carregado) — corrige o
+   * cabeçalho da coluna, que antes somava só os cards já carregados numa
+   * página (errado em qualquer etapa com mais de uma página). */
+  initialSumByStage: Record<string, number>;
+  /** Quantos negócios de cada etapa têm ao menos uma tarefa pendente —
+   * "saúde da etapa" (barra no cabeçalho da coluna). */
+  initialWithTaskByStage: Record<string, number>;
   members: MemberOption[];
   currentUserId?: string;
   /** Listas canônicas (Configurações → Origens/Cargos) — as opções do filtro
@@ -104,6 +119,10 @@ export function KanbanBoard({
    * aparecem em outra etapa. */
   leadSources: LabelOption[];
   jobTitles: LabelOption[];
+  /** Filtro rápido único elevado pra pipeline-view.tsx (Ação hoje/Sem
+   * tarefa/Parados +14d), sincronizado com a URL — substitui o antigo toggle
+   * local "Só parados". null = nenhum filtro rápido ativo. */
+  quickFilter: PipelineQuickFilter | null;
   /** Entrega única de "acabou de criar esse negócio" (ver pipeline-view.tsx)
    * — KanbanBoard é dono do próprio estado por coluna agora, então o pai não
    * pode mais empurrar direto num array. Consumido uma vez (onNewDealConsumed
@@ -129,10 +148,22 @@ export function KanbanBoard({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
-  const [staleOnly, setStaleOnly] = useState(false);
+  const [noValueOnly, setNoValueOnly] = useState(false);
+  // Valor/Parado/Urgência (ver lib/task-urgency.ts) — não sincronizado com a
+  // URL de propósito: só o quickFilter (elevado pra pipeline-view.tsx) precisa
+  // ser linkável (card "Exige ação" do Início), ordenação é preferência de
+  // sessão da tela, não um estado que faça sentido compartilhar por link.
+  const [sort, setSort] = useState<"" | "value" | "stale" | "urgency">("");
 
   const [dealsByStage, setDealsByStage] = useState<Record<string, Deal[]>>(initialDealsByStage);
   const [countByStage, setCountByStage] = useState<Record<string, number>>(initialCountByStage);
+  // "Saúde da etapa" — só atualiza numa busca completa (troca de filtro,
+  // pipeline ou 1ª carga), nunca durante mover-por-drag/"carregar mais": o
+  // ganho de manter essas duas contagens sempre exatas em toda interação
+  // otimista não compensa a complexidade (uma coluna que mudou por drag
+  // corrige sozinha assim que o usuário troca um filtro ou recarrega).
+  const [sumByStage, setSumByStage] = useState<Record<string, number>>(initialSumByStage);
+  const [withTaskByStage, setWithTaskByStage] = useState<Record<string, number>>(initialWithTaskByStage);
   const [stagesLoading, setStagesLoading] = useState(false);
   const [loadingMoreStages, setLoadingMoreStages] = useState<Set<string>>(new Set());
 
@@ -142,7 +173,9 @@ export function KanbanBoard({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDealsByStage(initialDealsByStage);
     setCountByStage(initialCountByStage);
-  }, [initialDealsByStage, initialCountByStage]);
+    setSumByStage(initialSumByStage);
+    setWithTaskByStage(initialWithTaskByStage);
+  }, [initialDealsByStage, initialCountByStage, initialSumByStage, initialWithTaskByStage]);
 
   // Entrega única do negócio recém-criado (ver comentário na prop acima).
   useEffect(() => {
@@ -180,24 +213,33 @@ export function KanbanBoard({
     return Array.from(set).sort();
   }, [dealsByStage, jobTitles]);
 
-  const hasFilters = !!search || !!ownerFilter || !!sourceFilter || !!jobTitleFilter || staleOnly;
+  const hasFilters = !!search || !!ownerFilter || !!sourceFilter || !!jobTitleFilter || noValueOnly || !!sort;
 
   // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
-  usePersistedFilters("pipeline-kanban", { search, ownerFilter, sourceFilter, jobTitleFilter, staleOnly }, (saved) => {
-    if (saved.search !== undefined) setSearch(saved.search);
-    if (saved.ownerFilter !== undefined) setOwnerFilter(saved.ownerFilter);
-    if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
-    if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
-    if (saved.staleOnly !== undefined) setStaleOnly(saved.staleOnly);
-  });
+  // quickFilter fica de fora de propósito: já vem controlado pela URL (ver
+  // pipeline-view.tsx), persistir os dois em paralelo daria dois "últimos
+  // valores lembrados" competindo.
+  usePersistedFilters(
+    "pipeline-kanban",
+    { search, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort },
+    (saved) => {
+      if (saved.search !== undefined) setSearch(saved.search);
+      if (saved.ownerFilter !== undefined) setOwnerFilter(saved.ownerFilter);
+      if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
+      if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
+      if (saved.noValueOnly !== undefined) setNoValueOnly(saved.noValueOnly);
+      if (saved.sort !== undefined) setSort(saved.sort);
+    },
+  );
 
   function clearFilters() {
     setSearch("");
     setOwnerFilter("");
     setSourceFilter("");
     setJobTitleFilter("");
-    setStaleOnly(false);
+    setNoValueOnly(false);
+    setSort("");
   }
 
   useEffect(() => {
@@ -209,10 +251,10 @@ export function KanbanBoard({
   // handleLoadMore abaixo) — sem isso, "Carregar mais" precisaria entrar nas
   // dependências do useCallback, e sua identidade mudaria a cada tecla
   // digitada, quebrando o memo() de StageColumn (ver comentário mais abaixo).
-  const filtersRef = useRef({ debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly });
+  const filtersRef = useRef({ debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter });
   useEffect(() => {
-    filtersRef.current = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly };
-  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly]);
+    filtersRef.current = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter };
+  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter]);
 
   // Mesmo motivo do filtersRef acima: handleLoadMore precisa saber quantos
   // negócios cada coluna já tem carregado (pro `skip`) sem depender de
@@ -230,8 +272,23 @@ export function KanbanBoard({
     if (filters.ownerFilter) params.set("ownerId", filters.ownerFilter);
     if (filters.sourceFilter) params.set("source", filters.sourceFilter);
     if (filters.jobTitleFilter) params.set("jobTitle", filters.jobTitleFilter);
-    if (filters.staleOnly) {
-      params.set("stageEnteredBefore", new Date(Date.now() - STALE_DEAL_DAYS * 86_400_000).toISOString());
+    if (filters.noValueOnly) params.set("noValue", "1");
+    if (filters.sort) params.set("sort", filters.sort);
+    // Filtro rápido único elevado pra pipeline-view.tsx (ver pipeline-filters.ts)
+    // — traduzido aqui pros mesmos parâmetros que Início/API já entendem.
+    switch (filters.quickFilter) {
+      case "acao-hoje": {
+        const todayStart = brazilStartOfDay(new Date());
+        const tomorrowStart = new Date(todayStart.getTime() + 86_400_000);
+        params.set("taskDueBefore", tomorrowStart.toISOString());
+        break;
+      }
+      case "sem-tarefa":
+        params.set("hasNoOpenTask", "1");
+        break;
+      case "parados-14d":
+        params.set("stageEnteredBefore", new Date(Date.now() - STALE_DEAL_ALERT_DAYS * 86_400_000).toISOString());
+        break;
     }
     return params;
   }
@@ -250,7 +307,7 @@ export function KanbanBoard({
     }
     let cancelled = false;
     setStagesLoading(true);
-    const filters = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly };
+    const filters = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter };
 
     // Duas consultas no total (não uma por coluna) — ver o mesmo motivo em
     // page.tsx: N consultas em paralelo (uma por etapa) chegou a estourar o
@@ -262,15 +319,28 @@ export function KanbanBoard({
     Promise.all([
       fetch(`/api/deals?${dealsParams.toString()}`).then(async (res) => (res.ok ? ((await res.json()) as Deal[]) : [])),
       fetch(`/api/deals/stage-counts?${countsParams.toString()}`).then(async (res) =>
-        res.ok ? ((await res.json()) as Record<string, number>) : {},
+        res.ok
+          ? ((await res.json()) as {
+              counts: Record<string, { count: number; sumValue: number }>;
+              withTaskCounts: Record<string, number>;
+            })
+          : { counts: {}, withTaskCounts: {} },
       ),
     ])
-      .then(([deals, counts]) => {
+      .then(([deals, stageStats]) => {
         if (cancelled) return;
         const byStage: Record<string, Deal[]> = {};
         for (const deal of deals) (byStage[deal.stageId] ??= []).push(deal);
         setDealsByStage(byStage);
+        const counts: Record<string, number> = {};
+        const sums: Record<string, number> = {};
+        for (const [stageId, stats] of Object.entries(stageStats.counts)) {
+          counts[stageId] = stats.count;
+          sums[stageId] = stats.sumValue;
+        }
         setCountByStage(counts);
+        setSumByStage(sums);
+        setWithTaskByStage(stageStats.withTaskCounts);
       })
       .finally(() => {
         if (!cancelled) setStagesLoading(false);
@@ -280,7 +350,7 @@ export function KanbanBoard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, staleOnly, pipelineId]);
+  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter, pipelineId]);
 
   // Identidade estável (deps vazias) — lida com filtros/contagem carregada
   // via ref em vez de closure, pra não recriar a função (e derrubar o
@@ -323,7 +393,7 @@ export function KanbanBoard({
     if (!el) return;
     function measure() {
       const top = el!.getBoundingClientRect().top;
-      setRowHeight(Math.max(240, window.innerHeight - top - 16));
+      setRowHeight(Math.max(240, window.innerHeight - top - 4));
     }
     measure();
     window.addEventListener("resize", measure);
@@ -451,16 +521,30 @@ export function KanbanBoard({
               />
             </div>
           )}
+          <div className="space-y-1">
+            <label className="field-label">Ordenar por</label>
+            <Select
+              value={sort}
+              onChange={(v) => setSort(v as typeof sort)}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Padrão (entrou na etapa)" },
+                { value: "value", label: "Valor (maior primeiro)" },
+                { value: "urgency", label: "Urgência (tarefa)" },
+                { value: "stale", label: "Parado há mais tempo" },
+              ]}
+            />
+          </div>
           <button
-            onClick={() => setStaleOnly((v) => !v)}
+            onClick={() => setNoValueOnly((v) => !v)}
             className={`inline-flex w-full items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
-              staleOnly
+              noValueOnly
                 ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300"
                 : "border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             }`}
           >
             <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
-            Só parados
+            Sem valor
           </button>
         </FilterPopover>
       </div>
@@ -492,6 +576,8 @@ export function KanbanBoard({
               stage={stage}
               deals={dealsByStage[stage.id] ?? EMPTY_DEALS}
               total={countByStage[stage.id] ?? dealsByStage[stage.id]?.length ?? 0}
+              sumValue={sumByStage[stage.id] ?? 0}
+              withTaskCount={withTaskByStage[stage.id] ?? 0}
               loadingMore={loadingMoreStages.has(stage.id)}
               onLoadMore={handleLoadMore}
               disabled={pending}
@@ -509,10 +595,16 @@ export function KanbanBoard({
 // (CARD_GAP, ver uso abaixo — trocado por padding-bottom já que os cartões
 // agora são posicionados de forma absoluta) — os cartões têm conteúdo
 // compacto e sempre a mesma estrutura de linhas (nome+avatar, contato+
-// crédito, tarefas, valor+dias), então a altura real varia muito pouco e uma
-// estimativa fixa é suficiente pra virtualizar sem precisar medir cada um.
-const CARD_GAP = 22;
-const ROW_HEIGHT = 108 + CARD_GAP;
+// crédito, faixa de tarefa, valor+dias), então a altura real varia muito
+// pouco e uma estimativa fixa é suficiente pra virtualizar sem precisar medir
+// cada um. Base subiu de 108→132 (redesign trocou a fileira de ícones de
+// tarefa por uma faixa com borda+padding, mais alta) — o valor antigo deixava
+// o espaçamento real MENOR que o CARD_GAP configurado (cartões quase
+// encostando um no outro, cada slot só cabia o próprio conteúdo sem sobrar
+// nada pro respiro), já que a posição de cada cartão é calculada por slot
+// fixo (i * ROW_HEIGHT), não pela altura de verdade do cartão anterior.
+const CARD_GAP = 28;
+const ROW_HEIGHT = 132 + CARD_GAP;
 // Linhas extras montadas acima/abaixo da área visível — sem essa margem, um
 // scroll rápido mostraria um instante de coluna vazia antes do próximo lote
 // de cartões terminar de montar.
@@ -536,6 +628,8 @@ const StageColumn = memo(function StageColumn({
   stage,
   deals,
   total,
+  sumValue,
+  withTaskCount,
   loadingMore,
   onLoadMore,
   disabled,
@@ -544,14 +638,21 @@ const StageColumn = memo(function StageColumn({
   stage: Stage;
   deals: Deal[];
   total: number;
+  /** Soma de valor OPEN de TODA a etapa (banco) — não só os cards carregados. */
+  sumValue: number;
+  /** Quantos negócios da etapa têm ao menos uma tarefa pendente — "saúde da etapa". */
+  withTaskCount: number;
   loadingMore: boolean;
   onLoadMore: (stageId: string) => void;
   disabled: boolean;
   activeDealId: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
-  const totalValue = deals.reduce((sum, d) => sum + (d.value ?? 0), 0);
   const hasMore = deals.length < total;
+  // Saúde da etapa: % de negócios com tarefa pendente — verde ≥60%, âmbar
+  // ≥30%, vermelho abaixo disso (ver new-design-for-claude/README.md).
+  const healthPct = total > 0 ? Math.round((withTaskCount / total) * 100) : null;
+  const healthColor = healthPct === null ? "" : healthPct >= 60 ? "bg-emerald-500" : healthPct >= 30 ? "bg-amber-500" : "bg-red-500";
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -639,15 +740,23 @@ const StageColumn = memo(function StageColumn({
         <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
           {stage.name}
         </span>
-        {totalValue > 0 && (
-          <span className="shrink-0 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
-            {formatCurrency(totalValue)}
+        {sumValue > 0 && (
+          <span className="shrink-0 text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">
+            {formatCurrencyCompact(sumValue)}
           </span>
         )}
-        <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+        <span className="ml-auto shrink-0 rounded-full bg-neutral-200/70 dark:bg-neutral-800/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
           {total}
         </span>
       </div>
+      {healthPct !== null && (
+        <div
+          className="mx-3 mb-2 h-1 shrink-0 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800/70"
+          title={`${withTaskCount} de ${total} com tarefa pendente · ${healthPct}%`}
+        >
+          <div className={`h-full rounded-full ${healthColor}`} style={{ width: `${healthPct}%` }} />
+        </div>
+      )}
       {/* overscroll-y-contain (não overscroll-contain nos dois eixos):
           quando o scroll vertical desta coluna chega no início/fim, impede
           que o "resto" do gesto passe pro ancestral (a página inteira) —
@@ -691,6 +800,24 @@ const StageColumn = memo(function StageColumn({
   );
 });
 
+// Ponto da faixa de tarefa — mesma régua atrasada→hoje→agendada→sem-tarefa
+// de lib/task-urgency.ts, só a cor do indicador visual do card.
+const URGENCY_DOT: Record<TaskUrgency, string> = {
+  atrasada: "bg-red-500",
+  hoje: "bg-amber-500",
+  agendada: "bg-emerald-500",
+  "sem-tarefa": "bg-neutral-300 dark:bg-neutral-700",
+};
+
+/** "Atrasada"/"Hoje" pro prazo mais próximo, ou dd/mm quando é uma data futura de verdade. */
+function formatTaskDue(urgency: TaskUrgency, dueAt: Deal["nextTaskDueAt"]): string {
+  if (urgency === "sem-tarefa" || !dueAt) return "";
+  if (urgency === "atrasada") return "Atrasada";
+  if (urgency === "hoje") return "Hoje";
+  const d = typeof dueAt === "string" ? new Date(dueAt) : dueAt;
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
 // memo: sem isso, o rAF-throttle do scroll (acima) perde metade do valor —
 // StageColumn ainda re-renderiza a cada frame rolado, e todo cartão visível
 // re-renderizaria junto mesmo sem nenhuma prop sua ter mudado de verdade.
@@ -706,10 +833,12 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
 
   const hasTasks = deal.taskTypes.length > 0;
   const stale = isStale(deal.stageEnteredAt);
+  const urgency = classifyTaskUrgency(deal.nextTaskDueAt);
+  const dueLabel = formatTaskDue(urgency, deal.nextTaskDueAt);
 
   const content = (
     <div
-      className={`relative rounded-lg border bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-neutral-900 ${
+      className={`relative rounded-lg border bg-white p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-200 ease-smooth hover:-translate-y-0.5 hover:shadow-md dark:bg-neutral-900 ${
         stale
           ? "border-neutral-200 border-l-2 border-l-amber-500/70 dark:border-neutral-800 dark:border-l-amber-500/50"
           : "border-neutral-200 dark:border-neutral-800"
@@ -738,25 +867,32 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
           </Badge>
         )}
       </div>
-      <div className="mt-1.5 flex items-center gap-1.5">
+      {/* Faixa de tarefa — borda sólida + ponto colorido + "texto · prazo"
+          quando tem tarefa pendente (cor pela urgência: atrasada/hoje/
+          agendada, ver lib/task-urgency.ts); tracejada quando não tem
+          nenhuma. Antes era um badge discreto ("Sem tarefa") ou uma fileira
+          de ícones sem prazo nenhum visível — a informação mais acionável do
+          card (tem prazo? venceu?) precisa ser a mais visível, não a menos. */}
+      <div className="mt-1.5">
         {hasTasks ? (
-          deal.taskTypes.map((type) => {
-            const Icon = TASK_TYPE_ICON[type] ?? TASK_TYPE_ICON.OTHER;
-            return (
-              <span key={type} title={TASK_TYPE_LABELS[type] ?? type}>
-                <Icon className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-400" strokeWidth={2} />
-              </span>
-            );
-          })
+          <div
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium ${
+              urgency === "atrasada"
+                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-500/10 dark:text-red-300"
+                : urgency === "hoje"
+                  ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300"
+                  : "border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-400"
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${URGENCY_DOT[urgency]}`} title={deal.taskTypes.join(", ")} />
+            <span className="min-w-0 truncate">{deal.nextActivity}</span>
+            {dueLabel && <span className="ml-auto shrink-0 tabular-nums">{dueLabel}</span>}
+          </div>
         ) : (
-          // Antes era vermelho, maiúsculo e piscando (animate-pulse) — o
-          // elemento mais chamativo do card inteiro, mais que o próprio nome
-          // do negócio. Continua avisando (ícone + cor de atenção), sem
-          // gritar mais alto que o resto do card.
-          <Badge tone="warning" size="sm" title="Sem tarefa agendada! Crie uma tarefa.">
-            <AlertTriangle className="h-3 w-3" strokeWidth={2.5} />
-            Sem tarefa
-          </Badge>
+          <div className="flex items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-2 py-1 text-[11px] font-medium text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
+            <AlertTriangle className="h-3 w-3 shrink-0" strokeWidth={2} />
+            Sem tarefa — agendar
+          </div>
         )}
       </div>
       <div className="mt-2.5 flex items-center justify-between">

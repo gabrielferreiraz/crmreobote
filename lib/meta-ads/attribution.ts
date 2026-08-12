@@ -1,9 +1,21 @@
 /**
  * Relatório de conversão por campanha — a pergunta que motivou a
  * integração inteira: "quais anúncios deram negócio ganho, e quais não".
- * Agrupa por metaCampaignId (ver Contact em prisma/schema.prisma) em vez de
- * consultar a Marketing API de novo — os dados já estão aqui, gravados no
- * momento em que o lead chegou (lib/meta-ads/leads.ts).
+ * Duas fontes de "isso veio de anúncio", combinadas na mesma tabela:
+ *
+ * 1. metaCampaignId preenchido (ver Contact em prisma/schema.prisma) — veio
+ *    de verdade pelo formulário nativo/webhook de Lead Ads
+ *    (lib/meta-ads/leads.ts), com campanha/anúncio/conjunto reais da Meta.
+ * 2. Contact.source bate com uma LeadSource marcada countsAsAd=true (ver
+ *    Configurações → Origens) — marcação manual, pro administrativo poder
+ *    contar lead antigo (de antes dessa integração existir) ou lead que
+ *    veio de anúncio por um caminho que não é o formulário nativo. Essas
+ *    entram como uma "campanha" sintética por origem (campaignId
+ *    `manual:<origem>`, isManual: true na linha) — sem dado real de
+ *    campanha/anúncio da Meta, só agrupadas pelo texto da Origem mesmo.
+ *
+ * Não consulta a Marketing API de novo — tudo já está gravado no contato
+ * no momento em que o lead chegou (ou foi marcado manualmente).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -11,6 +23,8 @@ import { prisma } from "@/lib/prisma";
 export type CampaignAttributionRow = {
   campaignId: string;
   campaignName: string;
+  /** true = veio da marcação manual de Origem (ver acima), não de um lead real do Facebook/Instagram. */
+  isManual: boolean;
   leads: number;
   qualifiedLeads: number;
   unqualifiedLeads: number;
@@ -25,10 +39,20 @@ export type CampaignAttributionRow = {
 };
 
 export async function getMetaAdsAttribution(organizationId: string): Promise<CampaignAttributionRow[]> {
+  const adSources = await prisma.leadSource.findMany({
+    where: { organizationId, countsAsAd: true },
+    select: { label: true },
+  });
+  const adSourceLabels = adSources.map((s) => s.label);
+
   const contacts = await prisma.contact.findMany({
-    where: { organizationId, metaCampaignId: { not: null } },
+    where: {
+      organizationId,
+      OR: [{ metaCampaignId: { not: null } }, ...(adSourceLabels.length > 0 ? [{ source: { in: adSourceLabels } }] : [])],
+    },
     select: {
       id: true,
+      source: true,
       metaCampaignId: true,
       metaCampaignName: true,
       leadQualification: true,
@@ -37,7 +61,15 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
   });
   if (contacts.length === 0) return [];
 
-  const campaignByContactId = new Map(contacts.map((c) => [c.id, { id: c.metaCampaignId!, name: c.metaCampaignName ?? c.metaCampaignId! }]));
+  // Campanha real (metaCampaignId) tem prioridade — um contato só cai no
+  // balde "manual" quando não tem atribuição de verdade da Meta.
+  const campaignByContactId = new Map(
+    contacts.map((c) =>
+      c.metaCampaignId
+        ? [c.id, { id: c.metaCampaignId, name: c.metaCampaignName ?? c.metaCampaignId, isManual: false }]
+        : [c.id, { id: `manual:${c.source}`, name: c.source ?? "Origem sem nome", isManual: true }],
+    ),
+  );
   const contactIds = contacts.map((c) => c.id);
 
   const threads = await prisma.whatsAppThread.findMany({
@@ -75,11 +107,13 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
 
   const rows = new Map<string, CampaignAttributionRow>();
   for (const contact of contacts) {
-    const campaignId = contact.metaCampaignId!;
+    const campaign = campaignByContactId.get(contact.id)!;
+    const campaignId = campaign.id;
     if (!rows.has(campaignId)) {
       rows.set(campaignId, {
         campaignId,
-        campaignName: contact.metaCampaignName ?? campaignId,
+        campaignName: campaign.name,
+        isManual: campaign.isManual,
         leads: 0,
         qualifiedLeads: 0,
         unqualifiedLeads: 0,
