@@ -461,6 +461,107 @@ body {
   animation-delay: var(--dot-delay, 0ms);
 }
 
+/* ─── TV (app/tv) ────────────────────────────────────────────────────────── */
+
+/* Troca de slide no carrossel do painel de métricas (ver tv-view.tsx) —
+   cada slide remonta com uma key diferente, essa entrada roda de novo
+   sozinha a cada troca. */
+@keyframes tv-fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tv-fade-slide-in {
+  animation: tv-fade-slide-in 700ms var(--ease-smooth);
+}
+
+/* Zoom lento contínuo nas imagens do carrossel de propaganda ("efeito Ken
+   Burns") — roda sempre, em todas as camadas empilhadas (só a ativa fica
+   visível via opacity, ver tv-view.tsx), então nunca precisa sincronizar com
+   o timer do crossfade: o que estiver por trás já está "no meio" do próprio
+   ciclo quando entra em cena, sem soluço. */
+@keyframes tv-ken-burns {
+  from {
+    transform: scale(1);
+  }
+
+  to {
+    transform: scale(1.08);
+  }
+}
+
+.animate-tv-ken-burns {
+  animation: tv-ken-burns 20s ease-in-out infinite alternate;
+}
+
+/* Comemoração de venda ganha (ver tv-win-celebration.tsx) — entrada com
+   "estica um pouco além e volta" (--ease-spring), o mesmo exagero controlado
+   que builds a sensação de "impacto" sem parecer brusco. */
+@keyframes tv-win-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82) translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-tv-win-in {
+  animation: tv-win-in 650ms var(--ease-spring);
+}
+
+/* Brilho pulsante atrás do avatar do consultor na comemoração — respiração
+   lenta, não um piscar; contínuo enquanto a comemoração estiver na tela. */
+@keyframes tv-glow-pulse {
+
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.85;
+    transform: scale(1.12);
+  }
+}
+
+.animate-tv-glow-pulse {
+  animation: tv-glow-pulse 2.4s ease-in-out infinite;
+}
+
+/* A própria foto do consultor gira no eixo Y dentro da moldura redonda que
+   ela já tem — como uma moeda girando de verdade (giro 3D via
+   rotateY + perspective no wrapper, não um truque de scaleX achatando a
+   imagem). Usado na comemoração de venda ganha (só no instante exato) e, a
+   cada 5 minutos, nas 3 fotos do pódio do ranking, como destaque periódico.
+   Sem backface-visibility:hidden de propósito — a foto não tem um "verso",
+   então na metade da volta ela aparece espelhada em vez de sumir; girando
+   contínuo isso lê como um disco girando, não como um soluço visual. */
+@keyframes tv-photo-spin {
+  from {
+    transform: rotateY(0deg);
+  }
+
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+.animate-tv-photo-spin {
+  animation: tv-photo-spin 2.4s linear infinite;
+}
+
 /* Barra de rolagem — fina, em forma de pílula, discreta em qualquer tema.
    Global de propósito (não só em elementos com uma classe específica) — pra
    nunca mais sobrar um cantinho do sistema com a barra branca/quadrada
@@ -730,6 +831,92 @@ input[type="radio"] {
     radial-gradient(620px 380px at 92% 0%, rgba(14, 165, 165, 0.1), transparent 60%),
     radial-gradient(900px 520px at 70% 108%, rgba(139, 92, 246, 0.12), transparent 62%),
     linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
+}
+
+/* TV (app/tv) — mesma técnica/malha do .dashboard-gradient-bg acima, só que
+   sempre escura (a TV não segue o tema claro/escuro do usuário, é uma tela
+   de kiosk fixa — ver o className "dark" direto na raiz de app/tv/layout.tsx,
+   que já ativa .dark .surface-glass-panel/etc. em cascata pro resto da árvore
+   sem precisar duplicar token nenhum aqui). Existia antes como um cinza
+   chapado (#2D2D2D) sem nenhuma relação com a identidade visual do resto do
+   produto — essa malha é o mesmo roxo de marca que o dashboard usa, só
+   trazido pra cá. */
+.tv-gradient-bg {
+  background: #0b0c10;
+}
+
+.tv-gradient-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 8% -8%, rgba(90, 91, 230, 0.22), transparent 62%),
+    radial-gradient(760px 460px at 96% 4%, rgba(14, 165, 165, 0.12), transparent 60%),
+    radial-gradient(1000px 600px at 60% 112%, rgba(139, 92, 246, 0.16), transparent 62%),
+    linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
+}
+
+/* TV — escala fluida com clamp(), calibrada em VMIN (o menor entre largura e
+   altura da tela), não vw puro. Breakpoint fixo (sm/md/lg) é pra conteúdo
+   que precisa "empilhar" pra caber (menu vira gaveta, coluna vira lista) — a
+   TV nunca empilha nada NESSE sentido, ela só é fisicamente menor ou maior.
+   Mas o painel de métricas (ver tv-view.tsx) EMPILHA vários cards numa
+   COLUNA — e quem decide se esse empilhamento cabe é a ALTURA disponível
+   (vh), não a largura (vw). A 1ª versão disso usava só vw: numa tela mais
+   larga-e-baixa que a referência 16:9 assumida (ex.: uma janela de
+   navegador mais "achatada", ou uma TV/monitor com proporção diferente),
+   vw ficava "gordo" (a largura mandava um valor grande) enquanto a altura
+   de verdade disponível era menor — e como cada card tem overflow-hidden
+   (necessário pros cantos arredondados), o que não coube mais dentro do
+   card sumia CORTADO, sem erro nenhum aparecer (foi o bug real que apareceu
+   na tela: "há 22 min" cortado, nome/valor do Ranking sumidos inteiros).
+   vmin = min(1vw, 1vh) — numa TV, que é sempre paisagem (largura > altura),
+   isso na prática já É a altura, então cada elemento agora respeita a
+   dimensão que realmente limita o empilhamento vertical, em vez de só a
+   largura. A largura do painel (--tv-panel-w) é a única exceção de
+   propósito — ela é uma alocação HORIZONTAL pura (não empilha nada em cima
+   dela), então continua em vw sem risco de causar esse mesmo bug.
+   Valores recalibrados pra reproduzir os tamanhos fixos que existiam antes
+   (já testados/aprovados) numa referência de 1080px de ALTURA (TV Full HD);
+   o mínimo do clamp segura a mão numa tela bem mais baixa, o máximo não
+   deixa esticar sem limite numa tela bem mais alta que o normal. */
+:root {
+  --tv-panel-w: clamp(320px, 27vw, 600px);
+  /* --tv-gap e --tv-card-py são os dois tokens que mais se repetem no
+     empilhamento vertical (gap entre CADA um dos 5 blocos + padding de
+     CIMA E DE BAIXO de cada um dos 5 cards) — reduzir um pouco cada um
+     aqui devolve espaço de verdade multiplicado várias vezes, bem mais
+     efetivo que cortar um valor usado só uma vez. */
+  --tv-gap: clamp(0.5rem, 1.4vmin, 1.125rem);
+  --tv-card-px: clamp(0.875rem, 2.3vmin, 1.75rem);
+  --tv-card-py: clamp(0.4rem, 1.5vmin, 1.25rem);
+  --tv-radius: clamp(0.75rem, 1.6vmin, 1.25rem);
+  --tv-radius-lg: clamp(1rem, 2vmin, 1.5rem);
+
+  --tv-text-label: clamp(0.6rem, 1.05vmin, 0.8125rem);
+  --tv-text-body: clamp(0.75rem, 1.35vmin, 1rem);
+  --tv-text-name: clamp(0.85rem, 1.7vmin, 1.25rem);
+  --tv-text-value-sm: clamp(1rem, 2.1vmin, 1.625rem);
+  --tv-text-value-md: clamp(1.2rem, 2.7vmin, 2.25rem);
+  --tv-text-value-lg: clamp(1.5rem, 3.4vmin, 3rem);
+  --tv-text-hero: clamp(1.75rem, 5.2vmin, 4rem);
+
+  --tv-icon-sm: clamp(0.75rem, 1.1vmin, 1rem);
+  --tv-icon-md: clamp(0.95rem, 1.75vmin, 1.375rem);
+  --tv-icon-lg: clamp(1.15rem, 2.4vmin, 1.875rem);
+
+  /* Avatares do pódio (ver PODIUM_AVATAR_VAR/RankingPodiumSlot em
+     tv-view.tsx) — o 1º lugar é o maior elemento único de todo o painel de
+     métricas; reduzir um pouco o coeficiente aqui é o 2º maior ganho de
+     espaço depois de --tv-gap/--tv-card-py. */
+  --tv-avatar-md: clamp(2.25rem, 4.8vmin, 3.75rem);
+  --tv-avatar-lg: clamp(3.25rem, 8.2vmin, 6.5rem);
+
+  --tv-clock-time: clamp(1rem, 2.3vmin, 2.125rem);
+  --tv-clock-date: clamp(0.55rem, 0.9vmin, 0.6875rem);
+  --tv-logo-h: clamp(1.5rem, 3.3vmin, 3.25rem);
 }
 
 /* Linha de lista com "profundidade" — eleva e ganha sombra ao passar o

@@ -203,3 +203,65 @@ export async function getChatMediaObject(key: string): Promise<{ body: Uint8Arra
     return null;
   }
 }
+
+// ─── Propagandas da TV (Configurações > TV) ─────────────────────────────────
+
+// Bucket PÚBLICO separado (ver .env) — diferente de avatar/mídia do WhatsApp
+// (sempre privados, resolvidos por URL assinada de curta duração), a TV fica
+// ligada dias seguidos rodando o carrossel sozinha; uma URL assinada
+// expiraria no meio disso. Conteúdo de propaganda não é sensível, então
+// bucket público é a troca certa aqui — nunca usar esse mesmo padrão pra
+// avatar/mídia de cliente.
+const TV_ADS_BUCKET = process.env.R2_TV_ADS_BUCKET;
+const TV_ADS_PUBLIC_URL = process.env.R2_TV_ADS_PUBLIC_URL;
+
+const TV_AD_MAX_SIZE = 10 * 1024 * 1024; // 10MB — mesmo teto do avatar
+
+export class TvAdUploadError extends Error {}
+
+export function assertValidTvAd(contentType: string, size: number, buffer: Buffer) {
+  if (!ALLOWED_TYPES.has(contentType)) {
+    throw new TvAdUploadError("Formato inválido. Envie um JPEG, PNG ou WebP.");
+  }
+  if (size > TV_AD_MAX_SIZE) {
+    throw new TvAdUploadError("Arquivo maior que 10MB.");
+  }
+  if (!matchesFileSignature(buffer, contentType)) {
+    throw new TvAdUploadError("O conteúdo do arquivo não corresponde ao formato declarado.");
+  }
+}
+
+/** Chave imprevisível, namespaced por organização — mesmo padrão de buildChatMediaKey. */
+export function buildTvAdKey(organizationId: string, contentType: string) {
+  const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `tv-ads/${organizationId}/${random}.${ext}`;
+}
+
+/** Sobe pro bucket público e já devolve a URL final pronta pra usar — sem
+ * indireção de "chave salva, resolve depois" como avatar/mídia do WhatsApp,
+ * porque não tem assinatura nenhuma aqui: a URL não expira. */
+export async function uploadTvAd(key: string, body: Buffer, contentType: string): Promise<string> {
+  await client.send(
+    new PutObjectCommand({
+      Bucket: TV_ADS_BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    }),
+  );
+  return `${TV_ADS_PUBLIC_URL}/${key}`;
+}
+
+/**
+ * Recebe a URL pública salva em TvDashboardConfig.adsUrls e apaga do bucket
+ * — só se a URL for de fato uma que a gente hospedou (prefixo bate com
+ * TV_ADS_PUBLIC_URL); link externo colado à mão antes dessa funcionalidade
+ * existir não tem o que apagar aqui, só sai da lista mesmo (ver
+ * tv-config-form.tsx).
+ */
+export async function deleteTvAdByUrl(url: string): Promise<void> {
+  if (!TV_ADS_PUBLIC_URL || !url.startsWith(`${TV_ADS_PUBLIC_URL}/`)) return;
+  const key = url.slice(`${TV_ADS_PUBLIC_URL}/`.length);
+  await client.send(new DeleteObjectCommand({ Bucket: TV_ADS_BUCKET, Key: key }));
+}

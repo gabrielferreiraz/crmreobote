@@ -13,16 +13,18 @@ export default async function CreditTypesSettingsPage() {
   const organizationId = session.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    const creditTypes = await prisma.creditType.findMany({
-      where: { organizationId },
-      orderBy: { order: "asc" },
-    });
-
-    const counts = await prisma.deal.groupBy({
-      by: ["creditType"],
-      where: { organizationId, creditType: { not: null } },
-      _count: { _all: true },
-    });
+    // As duas não dependem uma da outra — rodavam em sequência sem motivo.
+    const [creditTypes, counts] = await Promise.all([
+      prisma.creditType.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+      }),
+      prisma.deal.groupBy({
+        by: ["creditType"],
+        where: { organizationId, creditType: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
     const countByCreditType = new Map(counts.map((c) => [c.creditType, c._count._all]));
 
     return (

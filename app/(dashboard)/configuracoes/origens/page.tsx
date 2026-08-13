@@ -13,22 +13,33 @@ export default async function LeadSourcesSettingsPage() {
   const organizationId = session.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    let sources = await prisma.leadSource.findMany({
-      where: { organizationId },
-      orderBy: { order: "asc" },
-    });
+    // As 2 abaixo não dependem uma da outra — rodavam em sequência sem
+    // motivo. Igual à correção em cargos/page.tsx: `contact.groupBy` sozinho
+    // já dá o conjunto de origens distintas em uso (via as chaves do
+    // agrupamento) — a 3ª consulta que existia antes só pra achar isso
+    // (`contact.findMany` com `distinct`) custava ~1-2,5s sozinha (medido em
+    // cargos/page.tsx, mesmo formato de consulta): o `distinct` do Prisma
+    // nesse formato busca as linhas com origem preenchida e deduplica no
+    // Node em vez de empurrar isso pro SQL. Eliminada, não só reordenada.
+    const [sourcesInitial, counts] = await Promise.all([
+      prisma.leadSource.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+      }),
+      prisma.contact.groupBy({
+        by: ["source"],
+        where: { organizationId, source: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
 
+    let sources = sourcesInitial;
+    const existingLabels = new Set(sources.map((s) => s.label));
     // Mesma autocura de cargos/page.tsx: origem digitada fora daqui
     // (migração, importação, integração externa) nunca passou por "+
     // Adicionar" — sem isso ficava invisível aqui mesmo com contatos usando.
-    const distinctUsed = await prisma.contact.findMany({
-      where: { organizationId, source: { not: null } },
-      distinct: ["source"],
-      select: { source: true },
-    });
-    const existingLabels = new Set(sources.map((s) => s.label));
-    const missing = distinctUsed
-      .map((d) => d.source)
+    const missing = counts
+      .map((c) => c.source)
       .filter((label): label is string => !!label && !existingLabels.has(label));
     if (missing.length > 0) {
       const maxOrder = await prisma.leadSource.aggregate({ where: { organizationId }, _max: { order: true } });
@@ -38,11 +49,6 @@ export default async function LeadSourcesSettingsPage() {
       sources = await prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } });
     }
 
-    const counts = await prisma.contact.groupBy({
-      by: ["source"],
-      where: { organizationId, source: { not: null } },
-      _count: { _all: true },
-    });
     const countBySource = new Map(counts.map((c) => [c.source, c._count._all]));
 
     return (

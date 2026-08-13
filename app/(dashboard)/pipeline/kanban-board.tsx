@@ -889,7 +889,7 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
             {dueLabel && <span className="ml-auto shrink-0 tabular-nums">{dueLabel}</span>}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-2 py-1 text-[11px] font-medium text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
+          <div className="flex items-center gap-1.5 rounded-md border border-dashed border-red-400 px-2 py-1 text-[11px] font-medium text-red-500 dark:border-red-800/80 dark:text-red-400">
             <AlertTriangle className="h-3 w-3 shrink-0" strokeWidth={2} />
             Sem tarefa — agendar
           </div>

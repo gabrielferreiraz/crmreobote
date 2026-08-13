@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
+import { resolveAvatarUrlMap } from "@/lib/r2";
+import { brazilStartOfMonth, brazilStartOfYear, getBrazilParts } from "@/lib/timezone";
 
 export async function getTvConfig(organizationId: string) {
   try {
@@ -39,10 +40,21 @@ export async function getTvConfig(organizationId: string) {
 
 export async function getTvMetrics(organizationId: string) {
   const now = new Date();
-  const startMonth = startOfMonth(now);
-  const endMonth = endOfMonth(now);
-  const startYear = startOfYear(now);
-  const endYear = endOfYear(now);
+  // Sempre calendário de Brasília, nunca o do servidor (container roda em
+  // UTC — ver o aviso no topo de lib/timezone.ts). Antes isso usava
+  // date-fns puro (startOfMonth/endOfMonth/startOfYear/endOfYear) direto em
+  // cima de `now`, ou seja, no fuso do SERVIDOR: o mês virava (e o
+  // Churrascômetro zerava) 3h mais cedo do que a meia-noite real de
+  // Brasília, e nas primeiras 3h de cada mês novo (00h-03h em Brasília) a
+  // consulta ainda considerava o mês ANTERIOR como o atual.
+  //
+  // Sem limite superior nas consultas abaixo de propósito — `gte: início do
+  // mês/ano` já é suficiente pra "até agora" (não existe negócio com
+  // closedAt no futuro), mesmo padrão que getCurrentMonthGoalProgress
+  // (lib/goals/suggestion.ts) e o KPI "Fechado no mês" de Relatórios já usam.
+  const monthStart = brazilStartOfMonth(now);
+  const yearStart = brazilStartOfYear(now);
+  const nowParts = getBrazilParts(now);
 
   const config = await getTvConfig(organizationId);
   const selectedStageIds = config.selectedStageIds;
@@ -58,7 +70,7 @@ export async function getTvMetrics(organizationId: string) {
         where: {
           organizationId,
           status: "WON",
-          closedAt: { gte: startMonth, lte: endMonth },
+          closedAt: { gte: monthStart },
         },
         select: {
           ownerId: true,
@@ -80,13 +92,17 @@ export async function getTvMetrics(organizationId: string) {
         salesByUser.set(deal.ownerId, existing);
       }
 
-      const ranking = Array.from(salesByUser.values())
+      const rankingRaw = Array.from(salesByUser.values())
         .sort((a, b) => b.total - a.total)
         .slice(0, 3);
 
       const totalVendasMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.value || 0), 0);
 
-      // 2. Última venda
+      // 2. Última venda — id e closedAt junto pra tv-view.tsx saber DE
+      // VERDADE quando é uma venda nova (não só "o valor mudou", que também
+      // aconteceria se o MESMO negócio fosse reaberto/editado) e disparar a
+      // comemoração de confete só nesse caso, nunca a cada refresh (ver
+      // METRICS_POLL_MS em tv-view.tsx).
       const lastSale = await prisma.deal.findFirst({
         where: {
           organizationId,
@@ -94,18 +110,29 @@ export async function getTvMetrics(organizationId: string) {
         },
         orderBy: { closedAt: "desc" },
         select: {
+          id: true,
           value: true,
           closedAt: true,
           owner: { select: { name: true, image: true } },
         },
       });
 
+      // `image` de User guarda ou uma chave privada do R2 ("avatars/...",
+      // precisa virar URL assinada) ou uma URL externa já pronta (foto de
+      // conta Google) — sem esse resolve, uma chave R2 crua ia pro cliente
+      // como está, e um <img src="avatars/xxx.jpg"> vira um caminho relativo
+      // quebrado (foto sempre em branco no Ranking/Última Venda da TV). Um
+      // resolve só, batendo os dois widgets de uma vez (nunca resolve a
+      // mesma chave duas vezes, ver resolveAvatarUrlMap em lib/r2.ts).
+      const avatarMap = await resolveAvatarUrlMap([...rankingRaw.map((r) => r.image), lastSale?.owner?.image]);
+      const ranking = rankingRaw.map((r) => ({ ...r, image: r.image ? (avatarMap.get(r.image) ?? null) : null }));
+
       // 3. Vendas Anuais
       const wonDealsThisYear = await prisma.deal.aggregate({
         where: {
           organizationId,
           status: "WON",
-          closedAt: { gte: startYear, lte: endYear },
+          closedAt: { gte: yearStart },
         },
         _sum: { value: true },
       });
@@ -129,12 +156,15 @@ export async function getTvMetrics(organizationId: string) {
       // mas aqui para manter simples vamos retornar o anual até o usuário pedir alteração)
       const vendasCotas = vendasAnuais;
 
-      // 6. Meta do mês (Churrascômetro)
+      // 6. Meta do mês (Churrascômetro) — year/month de getBrazilParts, não
+      // now.getFullYear()/getMonth() nativos (mesmo motivo do comentário lá
+      // em cima): perto da virada do mês, o servidor (UTC) já podia estar
+      // num mês diferente do de Brasília e buscar a meta do mês errado.
       const monthlyGoal = await prisma.monthlyGoal.findFirst({
         where: {
           organizationId,
-          year: now.getFullYear(),
-          month: now.getMonth() + 1,
+          year: nowParts.year,
+          month: nowParts.month + 1,
         }
       });
       const churrascometroTarget = monthlyGoal ? Number(monthlyGoal.value) : 0;
@@ -145,8 +175,9 @@ export async function getTvMetrics(organizationId: string) {
         vendasMes: totalVendasMes,
         lastSale: lastSale
           ? {
+              id: lastSale.id,
               name: lastSale.owner?.name || "Desconhecido",
-              image: lastSale.owner?.image,
+              image: lastSale.owner?.image ? (avatarMap.get(lastSale.owner.image) ?? null) : null,
               value: Number(lastSale.value || 0),
               date: lastSale.closedAt || new Date(),
             }

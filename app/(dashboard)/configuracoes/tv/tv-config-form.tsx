@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, ExternalLink, ChevronDown } from "lucide-react";
 import { saveTvConfig } from "./actions";
 import { MessageDialog } from "@/components/message-dialog";
+import { TvAdCropDialog } from "./tv-ad-crop-dialog";
+import { TV_AD_ASPECT_RATIO } from "./tv-ad-aspect";
 
 export const AVAILABLE_WIDGETS = [
   { id: "sales_summary", label: "Resumo de Vendas (Anuais, Cotas, Agosto)" },
@@ -36,7 +38,13 @@ export function TvConfigForm({
   const [message, setMessage] = useState<{ tone: "success" | "error"; title: string } | null>(null);
 
   const [adsUrls, setAdsUrls] = useState<string[]>(initialAdsUrls);
-  const [newAdUrl, setNewAdUrl] = useState("");
+  const adFileInputRef = useRef<HTMLInputElement>(null);
+  // Arquivo escolhido, ainda não cortado — abre a ferramenta de corte (ver
+  // tv-ad-crop-dialog.tsx) ANTES de subir qualquer coisa pro bucket; o
+  // upload de verdade só acontece depois que a área é confirmada. Enquanto
+  // isso estiver preenchido, o Modal cobre a tela inteira — progresso/erro
+  // do envio vivem dentro do próprio diálogo (ver TvAdCropDialog), não aqui.
+  const [pendingAd, setPendingAd] = useState<{ file: File; objectUrl: string } | null>(null);
 
   const [visibleWidgets, setVisibleWidgets] = useState<string[]>(initialVisibleWidgets);
   const [selectedStageIds, setSelectedStageIds] = useState<string[]>(initialSelectedStageIds);
@@ -79,6 +87,51 @@ export function TvConfigForm({
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
     );
   };
+
+  // Não sobe direto — primeiro abre a ferramenta de corte (ver
+  // tv-ad-crop-dialog.tsx), travada no formato exato da tela de propaganda
+  // da TV. O upload de verdade só acontece em uploadCroppedAd, depois que a
+  // área é confirmada.
+  function handleAdFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPendingAd({ file, objectUrl: URL.createObjectURL(file) });
+  }
+
+  function closeCropDialog() {
+    if (pendingAd) URL.revokeObjectURL(pendingAd.objectUrl);
+    setPendingAd(null);
+  }
+
+  // Lança o erro em vez de engolir — TvAdCropDialog é quem decide o que
+  // fazer com ele (mostra dentro do próprio diálogo, que fica por cima de
+  // tudo; um erro guardado aqui no formulário ficaria escondido atrás do
+  // Modal, invisível até a comemoração... digo, até fechar o diálogo).
+  async function uploadCroppedAd(blob: Blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "propaganda.jpg");
+
+    const res = await fetch("/api/tv/ads", { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Erro ao enviar imagem");
+
+    setAdsUrls((prev) => [...prev, data.url]);
+    closeCropDialog();
+  }
+
+  // Remove da lista local na hora e já apaga do bucket em segundo plano —
+  // link colado à mão antes dessa funcionalidade existir (ou base64 salvo
+  // por engano) não bate o prefixo do bucket público, então a rota só tira
+  // da lista sem tentar apagar nada (ver deleteTvAdByUrl em lib/r2.ts).
+  function removeAd(url: string) {
+    setAdsUrls((prev) => prev.filter((u) => u !== url));
+    fetch("/api/tv/ads", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }).catch(() => {});
+  }
 
   const handleSave = async () => {
     setBusy(true);
@@ -206,49 +259,45 @@ export function TvConfigForm({
           <label className="mb-2 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Propagandas (Imagens)
           </label>
-          
-          <div className="mb-4 space-y-2">
-            {adsUrls.map((url, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={url}
-                  readOnly
-                  className="field-input flex-1 bg-neutral-50 dark:bg-neutral-800"
-                />
-                <button
-                  type="button"
-                  onClick={() => setAdsUrls((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="rounded bg-red-100 p-2 text-red-600 hover:bg-red-200 dark:bg-red-900/20 dark:text-red-400"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-          </div>
 
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="https://exemplo.com/imagem.jpg"
-              value={newAdUrl}
-              onChange={(e) => setNewAdUrl(e.target.value)}
-              className="field-input flex-1"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (newAdUrl) {
-                  setAdsUrls([...adsUrls, newAdUrl]);
-                  setNewAdUrl("");
-                }
-              }}
-              className="inline-flex items-center gap-1 rounded bg-neutral-100 px-3 py-2 text-sm font-medium hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar
-            </button>
-          </div>
+          {adsUrls.length > 0 && (
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {adsUrls.map((url, i) => (
+                <div
+                  key={url}
+                  style={{ aspectRatio: TV_AD_ASPECT_RATIO }}
+                  className="group relative overflow-hidden rounded-md border border-neutral-200 bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800"
+                >
+                  <img src={url} alt={`Propaganda ${i + 1}`} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeAd(url)}
+                    aria-label="Remover imagem"
+                    className="absolute top-1.5 right-1.5 rounded bg-black/60 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100 coarse:opacity-100 hover:bg-red-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={adFileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={handleAdFileSelected}
+          />
+          <button
+            type="button"
+            onClick={() => adFileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded bg-neutral-100 px-3 py-2 text-sm font-medium hover:bg-neutral-200 disabled:opacity-50 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+          >
+            <Plus className="h-4 w-4" />
+            Enviar imagem
+          </button>
+          <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">JPEG, PNG ou WebP · até 10MB.</p>
         </div>
 
         <div className="pt-4">
@@ -264,6 +313,10 @@ export function TvConfigForm({
       </div>
 
       {message && <MessageDialog tone={message.tone} title={message.title} onClose={() => setMessage(null)} />}
+
+      {pendingAd && (
+        <TvAdCropDialog imageSrc={pendingAd.objectUrl} onCancel={closeCropDialog} onConfirm={uploadCroppedAd} />
+      )}
     </div>
   );
 }

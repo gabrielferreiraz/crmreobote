@@ -87,6 +87,12 @@ export function brazilStartOfDay(date: Date = new Date()): Date {
   return new Date(Date.UTC(year, month, day, 3, 0, 0, 0));
 }
 
+/** Meia-noite do dia 1 de janeiro do ano corrente, no calendário de Brasília — mesma lógica de brazilStartOfMonth, granularidade ano. */
+export function brazilStartOfYear(date: Date = new Date()): Date {
+  const { year } = getBrazilParts(date);
+  return new Date(Date.UTC(year, 0, 1, 3, 0, 0, 0));
+}
+
 /**
  * Meia-noite (Brasília) do dia "YYYY-MM-DD" recebido, como instante UTC —
  * usar para converter um filtro de data vindo da URL/UI (que representa um

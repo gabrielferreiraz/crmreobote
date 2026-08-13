@@ -14,15 +14,23 @@ export default async function EquipesSettingsPage() {
   const organizationId = session.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    const teamsRaw = await prisma.team.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "asc" },
-      include: {
-        leader: { select: { id: true, name: true } },
-        manager: { select: { id: true, name: true } },
-        members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
-      },
-    });
+    // As duas não dependem uma da outra — rodavam em sequência sem motivo.
+    const [teamsRaw, members] = await Promise.all([
+      prisma.team.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: "asc" },
+        include: {
+          leader: { select: { id: true, name: true } },
+          manager: { select: { id: true, name: true } },
+          members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
+        },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+    ]);
 
     const avatarMap = await resolveAvatarUrlMap(
       teamsRaw.flatMap((t) => t.members.map((m) => m.user.image)),
@@ -39,12 +47,6 @@ export default async function EquipesSettingsPage() {
         },
       })),
     }));
-
-    const members = await prisma.organizationUser.findMany({
-      where: { organizationId, active: true },
-      orderBy: { createdAt: "asc" },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    });
 
     return (
       <div className="max-w-2xl space-y-4">

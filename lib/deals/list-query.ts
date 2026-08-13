@@ -460,6 +460,18 @@ export type LiteDeal = {
   owner: { name: string };
 };
 
+const LITE_SELECT = {
+  id: true,
+  name: true,
+  value: true,
+  contact: { select: { name: true } },
+  owner: { select: { name: true } },
+} as const;
+
+function mapLiteDeal(d: { id: string; name: string; value: Prisma.Decimal | null; contact: { name: string }; owner: { name: string } }): LiteDeal {
+  return { id: d.id, name: d.name, value: d.value != null ? Number(d.value) : null, contact: d.contact, owner: d.owner };
+}
+
 /**
  * Versão enxuta de fetchDealsList — só os 5 campos que uma busca tipo
  * autocomplete (ex.: "Adicionar ao processo") de fato mostra. `fetchDealsList`
@@ -468,26 +480,50 @@ export type LiteDeal = {
  * é uma ida-e-volta a mais (R2 inclusive, não só banco), e nenhuma aparece
  * numa lista de resultado de busca. Medido: ~900ms com fetchDealsList vs
  * a consulta única daqui.
+ *
+ * Busca por nome em 2 fases, não 1 consulta só — bug reportado: como
+ * buildDealsWhere junta negócio/cliente/responsável no mesmo OR sem
+ * prioridade nenhuma, e o resultado só vem ordenado por criação (não por
+ * relevância), um responsável com muitos negócios recentes ("Eduardo
+ * Fujiyama") enterrava qualquer CLIENTE que realmente se chamasse "Eduardo"
+ * pra fora do `take` — a lista inteira virava só negócios daquele
+ * responsável, nunca o cliente buscado. Cliente/nome do negócio (o que a
+ * tela promete primeiro: "pelo nome do cliente ou do responsável") preenche
+ * primeiro; responsável só entra pra completar o que sobrar do limite.
  */
 export async function fetchDealsLite(params: DealsFilterParams & { take: number }): Promise<LiteDeal[]> {
-  const rows = await prisma.deal.findMany({
-    where: buildDealsWhere(params),
-    select: {
-      id: true,
-      name: true,
-      value: true,
-      contact: { select: { name: true } },
-      owner: { select: { name: true } },
+  const { q, take, ...rest } = params;
+
+  if (!q) {
+    const rows = await prisma.deal.findMany({ where: buildDealsWhere(params), select: LITE_SELECT, orderBy: { createdAt: "desc" }, take });
+    return rows.map(mapLiteDeal);
+  }
+
+  const baseWhere = buildDealsWhere(rest);
+
+  const byName = await prisma.deal.findMany({
+    where: {
+      AND: [
+        baseWhere,
+        { OR: [{ name: { contains: q, mode: "insensitive" } }, { contact: { name: { contains: q, mode: "insensitive" } } }] },
+      ],
     },
+    select: LITE_SELECT,
     orderBy: { createdAt: "desc" },
-    take: params.take,
+    take,
   });
 
-  return rows.map((d) => ({
-    id: d.id,
-    name: d.name,
-    value: d.value != null ? Number(d.value) : null,
-    contact: d.contact,
-    owner: d.owner,
-  }));
+  if (byName.length >= take) return byName.map(mapLiteDeal);
+
+  const byOwner = await prisma.deal.findMany({
+    where: {
+      AND: [baseWhere, { owner: { name: { contains: q, mode: "insensitive" } } }],
+      id: { notIn: byName.map((d) => d.id) },
+    },
+    select: LITE_SELECT,
+    orderBy: { createdAt: "desc" },
+    take: take - byName.length,
+  });
+
+  return [...byName, ...byOwner].map(mapLiteDeal);
 }

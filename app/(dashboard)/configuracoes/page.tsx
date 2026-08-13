@@ -13,9 +13,14 @@ export default async function ConfiguracoesPage() {
   const organizationId = session!.user.organizationId!;
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
-  const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+  // As duas não dependem uma da outra (organizationId já vem da sessão) —
+  // rodavam em sequência sem motivo técnico, mesmo padrão já corrigido no
+  // detalhe de Negócio (ver auditoria de performance).
+  const [organization, processAccess] = await Promise.all([
+    prisma.organization.findUnique({ where: { id: organizationId } }),
+    requireProcessAccess(),
+  ]);
   const isOwner = session!.user.role === "OWNER";
-  const processAccess = await requireProcessAccess();
   const canManageProcesses = processAccess.ok && processAccess.isAdmin;
 
   return (
