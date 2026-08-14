@@ -34,6 +34,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   META_ADS_DISCONNECTED: "Meta Ads desconectado",
   GOOGLE_CALENDAR_CONNECTED: "Google Agenda conectado",
   GOOGLE_CALENDAR_DISCONNECTED: "Google Agenda desconectado",
+  DEALS_IMPORTED: "Negócios importados",
 };
 
 const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warning"> = {
@@ -52,6 +53,7 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   META_ADS_DISCONNECTED: "warning",
   GOOGLE_CALENDAR_CONNECTED: "success",
   GOOGLE_CALENDAR_DISCONNECTED: "warning",
+  DEALS_IMPORTED: "neutral",
 };
 
 function actionLabel(action: string): string {

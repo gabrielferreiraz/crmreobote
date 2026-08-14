@@ -21,7 +21,8 @@ export type AuditAction =
   | "META_ADS_CONNECTED"
   | "META_ADS_DISCONNECTED"
   | "GOOGLE_CALENDAR_CONNECTED"
-  | "GOOGLE_CALENDAR_DISCONNECTED";
+  | "GOOGLE_CALENDAR_DISCONNECTED"
+  | "DEALS_IMPORTED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está

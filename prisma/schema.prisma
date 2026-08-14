@@ -46,6 +46,7 @@ model Organization {
   processRequests        ProcessRequest[]
   auditLogs              AuditLog[]
   tvConfig               TvDashboardConfig?
+  importBatches          ImportBatch[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ model User {
   whatsappThreadsOwned        WhatsAppThread[]          @relation("WhatsAppThreadOwner")
   auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
   automationRulesCreated      AutomationRule[]          @relation("AutomationRuleCreatedBy")
+  importBatchesCreated        ImportBatch[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -864,11 +866,15 @@ model Contact {
   // "Código da Pessoa" do Agendor — mesma ideia de agendorDealId (ver Deal):
   // chave de reconciliação pra reimportar sem duplicar.
   agendorContactId    String?                   @unique
+  // De qual importação de planilha (ver ImportBatch) este contato veio —
+  // null pra contato criado manualmente/por API/webhook de anúncio/etc.
+  importBatchId       String?
   createdAt           DateTime                  @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   responsavel        User?               @relation("ContactResponsavel", fields: [responsavelId], references: [id])
   qualifiedBy        User?               @relation("ContactLeadQualifiedBy", fields: [leadQualificationBy], references: [id])
+  importBatch        ImportBatch?        @relation(fields: [importBatchId], references: [id])
   deals              Deal[]
   tasks              Task[]
   activities         Activity[]
@@ -884,6 +890,7 @@ model Contact {
   // Usado pelo relatório de conversão por campanha (agrupa Deal via Contact
   // por metaCampaignId) — ver app/api/reports/meta-ads-attribution.
   @@index([organizationId, metaCampaignId])
+  @@index([organizationId, importBatchId])
   // Cobre o ORDER BY createdAt DESC da listagem paginada de Clientes — sem
   // isso, o índice de organizationId sozinho acha as linhas certas mas o
   // Postgres ainda precisa ordenar TODAS elas em memória antes de aplicar o
@@ -1091,6 +1098,10 @@ model Deal {
   // por este campo) mesmo rodando o import várias vezes ao longo do tempo,
   // conforme mais consultores forem migrando aos poucos.
   agendorDealId     String?  @unique
+  // De qual importação de planilha (ver ImportBatch abaixo) este negócio
+  // veio — null pra negócio criado manualmente/por API/outra integração.
+  // É o que permite achar "o que esse arquivo criou" depois do fato.
+  importBatchId     String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1100,6 +1111,7 @@ model Deal {
   contact            Contact             @relation(fields: [contactId], references: [id])
   owner              User                @relation(fields: [ownerId], references: [id])
   lossReason         LossReason?         @relation(fields: [lossReasonId], references: [id])
+  importBatch        ImportBatch?        @relation(fields: [importBatchId], references: [id])
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
@@ -1129,12 +1141,59 @@ model Deal {
   // filtro de período (ex.: "Este mês") ainda exigia varrer TODOS os negócios
   // decididos daquele status antes de descartar os fora do intervalo.
   @@index([organizationId, status, closedAt])
+  // "O que essa importação criou" (ver ImportBatch) — usado pra revisar/
+  // conferir um lote depois do fato.
+  @@index([organizationId, importBatchId])
 }
 
 enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+// ─── Importação de planilha (negócios/contatos em lote) ────────────────
+//
+// Um registro por arquivo importado — não guarda os dados em si (isso já
+// virou Contact/Deal de verdade, ver importBatchId nos dois), só metadados
+// de auditoria: quem importou, quando, de qual arquivo, quantas linhas
+// entraram/foram ignoradas. Existe pra responder "o que esse arquivo
+// criou" depois do fato (ver app/api/deals/import/route.ts) — antes não
+// tinha nenhum jeito de rastrear isso.
+model ImportBatch {
+  id             String    @id @default(cuid())
+  organizationId String
+  createdById    String
+  // "deals" hoje (ver rota acima) — campo aberto (não enum) porque outros
+  // tipos de importação (contatos, ex.: app/api/contacts/import) podem
+  // passar a usar o mesmo model no futuro sem migração nova.
+  type           String
+  fileName       String
+  rowsTotal      Int
+  rowsCreated    Int
+  rowsSkipped    Int
+  // Linhas que NÃO viraram negócio (sem nome de contato, duplicidade
+  // evitada, etc.) com o motivo de cada uma — mesmo formato de
+  // ResolvedRow["issues"] em lib/deals/import-resolve.ts. Guardado aqui
+  // (não recalculado depois) pra "baixar planilha de erros" continuar
+  // funcionando mesmo que o arquivo original já tenha sido descartado.
+  // Capado nas primeiras 500 pra não inflar a linha à toa numa importação
+  // de 1000 linhas todas com o mesmo problema.
+  issueRows      Json?
+  // Preenchido quando alguém desfaz a importação (ver DELETE
+  // /api/deals/import/[id]) — os negócios/contatos que ainda dava pra
+  // apagar com segurança já foram removidos nesse momento; o registro em
+  // si continua existindo (não é deletado) só pra manter no histórico que
+  // essa importação aconteceu E foi desfeita, não sumir sem explicação.
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id])
+  deals        Deal[]
+  contacts     Contact[]
+
+  @@index([organizationId, createdAt])
 }
 
 // Classificação manual de lead pelo consultor responsável — QUALIFIED
@@ -1395,7 +1454,7 @@ enum TaskType {
 // ─── Histórico de Atividades ─────────────────────────────────────────
 
 model Activity {
-  id             String       @id @default(cuid())
+  id             String                  @id @default(cuid())
   organizationId String
   dealId         String?
   contactId      String?
@@ -1406,7 +1465,7 @@ model Activity {
   userId         String
   type           ActivityType
   body           String?
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime                @default(now())
   // "Código da tarefa" do Agendor — só preenchido pra Activity de Reunião/
   // Visita geradas pelo backfill de scripts/agendor/backfill-meeting-visit-activities.ts,
   // que reconstrói o registro de "isso aconteceu" a partir da Task migrada
@@ -1421,6 +1480,14 @@ model Activity {
   // /api/processes/[id]/activities). Nunca preenchido/lido pra qualquer
   // outro tipo de Activity (Negócio, etc.) — sempre null ali, inofensivo.
   readAt         DateTime?
+  // Só faz sentido (e só é perguntado na UI) pra type MEETING/VISIT — ver
+  // ACTIVITY_BODY_TEMPLATES/outcome em negocios/[id]/deal-detail.tsx.
+  // Qualquer outro type fica sempre null. Histórico anterior a essa coluna
+  // existir também fica null — tratado como "compareceu" nas contagens
+  // (ver lib/meta-ads/attribution.ts), não como "desconhecido/some da
+  // conta": não dá pra saber retroativamente, e assumir não-comparecimento
+  // pra tudo que é antigo inflaria o no-show artificialmente.
+  meetingOutcome ActivityMeetingOutcome?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
@@ -1445,6 +1512,18 @@ enum ActivityType {
   // nunca criada pelo usuário, renderizada como uma linha minimalista na
   // timeline em vez do cartão das atividades manuais.
   SYSTEM
+}
+
+// Resultado de uma Activity type MEETING/VISIT — perguntado no momento de
+// registrar ela (não é um status que muda depois, é o que aconteceu
+// naquele encontro). Alimenta o "quantos no-show tomamos" do relatório de
+// Facebook (ver lib/meta-ads/attribution.ts) — sem isso, todo MEETING/VISIT
+// registrado contava como reunião de verdade, mesmo quando o lead nunca
+// apareceu.
+enum ActivityMeetingOutcome {
+  ATTENDED
+  NO_SHOW
+  RESCHEDULED
 }
 
 // ─── Atividade diária por usuário (tempo no CRM + nº de alterações) ────

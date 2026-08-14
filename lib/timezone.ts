@@ -1,14 +1,24 @@
 /**
  * O servidor roda em UTC (padrão em container Docker) — qualquer
  * `new Date().getHours()/getDay()/getDate()` direto dá a hora de Londres,
- * não a de Brasília (3h de diferença). Isso já causou bug real: a saudação
- * "Bom dia"/"Boa tarde" errada, e a automação de horário fixo (SCHEDULED)
- * disparando 3h mais cedo do que o configurado. Sempre usar as funções
- * abaixo em vez dos getters nativos quando o resultado depender de "que
- * horas são agora" ou "que dia é hoje" no Brasil.
+ * não a de Campo Grande/MS, onde a operação de verdade fica (4h de
+ * diferença). Isso já causou bug real: a saudação "Bom dia"/"Boa tarde"
+ * errada, e a automação de horário fixo (SCHEDULED) disparando mais cedo
+ * do que o configurado. Sempre usar as funções abaixo em vez dos getters
+ * nativos quando o resultado depender de "que horas são agora" ou "que dia
+ * é hoje".
+ *
+ * Importante: NÃO é "America/Sao_Paulo" (UTC-3) — Mato Grosso do Sul fica
+ * em "America/Campo_Grande" (UTC-4), um fuso diferente do de São Paulo
+ * mesmo os dois sendo "horário do Brasil". Usar Sao_Paulo aqui deixava tudo
+ * 1h adiantado (relógio da TV, virada de dia/mês/ano, janela de campanha).
+ * Nenhum dos dois observa horário de verão desde a extinção nacional em 2019
+ * — os offsets abaixo (Date.UTC com hora fixa) são seguros o ano inteiro.
  */
 
-const BRAZIL_TZ = "America/Sao_Paulo";
+const BRAZIL_TZ = "America/Campo_Grande";
+/** Offset fixo de America/Campo_Grande em relação a UTC (sem horário de verão desde 2019). */
+export const BRAZIL_UTC_OFFSET_HOURS = 4;
 
 const WEEKDAY_INDEX: Record<string, number> = {
   Sun: 0,
@@ -70,49 +80,49 @@ export function brazilGreeting(date: Date = new Date()): "Bom dia" | "Boa tarde"
 }
 
 /**
- * Meia-noite do dia 1 do mês corrente, no calendário de Brasília — meia-noite
- * em Brasília (UTC-3, sem horário de verão desde 2019) é 03:00 UTC do mesmo
- * dia civil. Usar isso em vez de `new Date().setDate(1)`, que nem zera a
- * hora (deixa passar deals fechados de madrugada no dia 1) nem considera que
- * o UTC já pode estar num dia/mês diferente do de Brasília perto da virada.
+ * Meia-noite do dia 1 do mês corrente, no calendário de Campo Grande/MS —
+ * meia-noite lá (UTC-4, sem horário de verão desde 2019) é 04:00 UTC do
+ * mesmo dia civil. Usar isso em vez de `new Date().setDate(1)`, que nem zera
+ * a hora (deixa passar deals fechados de madrugada no dia 1) nem considera
+ * que o UTC já pode estar num dia/mês diferente do local perto da virada.
  */
 export function brazilStartOfMonth(date: Date = new Date()): Date {
   const { year, month } = getBrazilParts(date);
-  return new Date(Date.UTC(year, month, 1, 3, 0, 0, 0));
+  return new Date(Date.UTC(year, month, 1, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/** Meia-noite de hoje, no calendário de Brasília — mesma lógica de brazilStartOfMonth, granularidade dia. */
+/** Meia-noite de hoje, no calendário local — mesma lógica de brazilStartOfMonth, granularidade dia. */
 export function brazilStartOfDay(date: Date = new Date()): Date {
   const { year, month, day } = getBrazilParts(date);
-  return new Date(Date.UTC(year, month, day, 3, 0, 0, 0));
+  return new Date(Date.UTC(year, month, day, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/** Meia-noite do dia 1 de janeiro do ano corrente, no calendário de Brasília — mesma lógica de brazilStartOfMonth, granularidade ano. */
+/** Meia-noite do dia 1 de janeiro do ano corrente, no calendário local — mesma lógica de brazilStartOfMonth, granularidade ano. */
 export function brazilStartOfYear(date: Date = new Date()): Date {
   const { year } = getBrazilParts(date);
-  return new Date(Date.UTC(year, 0, 1, 3, 0, 0, 0));
+  return new Date(Date.UTC(year, 0, 1, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
 /**
- * Meia-noite (Brasília) do dia "YYYY-MM-DD" recebido, como instante UTC —
- * usar para converter um filtro de data vindo da URL/UI (que representa um
- * dia civil de Brasília) no limite inferior de uma busca no banco. `new
+ * Meia-noite local do dia "YYYY-MM-DD" recebido, como instante UTC — usar
+ * para converter um filtro de data vindo da URL/UI (que representa um dia
+ * civil local) no limite inferior de uma busca no banco. `new
  * Date("YYYY-MM-DDT00:00:00")` sem isso vira meia-noite UTC (server roda em
- * UTC), 3h adiantada em relação à meia-noite real de Brasília.
+ * UTC), adiantada em relação à meia-noite real local.
  */
 export function brazilDateStringToUTC(dateStr: string): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day, 3, 0, 0, 0));
+  return new Date(Date.UTC(year, month - 1, day, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/** Fim do dia (23:59:59.999 em Brasília) do dia "YYYY-MM-DD" recebido, como instante UTC — usar como limite superior de um filtro de período. */
+/** Fim do dia (23:59:59.999 local) do dia "YYYY-MM-DD" recebido, como instante UTC — usar como limite superior de um filtro de período. */
 export function brazilEndOfDayUTC(dateStr: string): Date {
   return new Date(brazilDateStringToUTC(dateStr).getTime() + 86_400_000 - 1);
 }
 
 /**
- * Combina o dia "YYYY-MM-DD" (calendário de Brasília) escolhido pelo usuário
- * com a hora/minuto/segundo ATUAIS (também em Brasília) — usado quando a UI só
+ * Combina o dia "YYYY-MM-DD" (calendário local) escolhido pelo usuário
+ * com a hora/minuto/segundo ATUAIS (também locais) — usado quando a UI só
  * deixa escolher o dia (ex.: "quando esse negócio foi ganho/perdido?"), mas o
  * timestamp gravado ainda precisa de uma hora plausível em vez de meia-noite
  * (que faria um negócio "ganho hoje" parecer ganho às 00:00).
@@ -120,5 +130,7 @@ export function brazilEndOfDayUTC(dateStr: string): Date {
 export function brazilDateStringWithNowTimeToUTC(dateStr: string, now: Date = new Date()): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   const { hour, minute } = getBrazilParts(now);
-  return new Date(Date.UTC(year, month - 1, day, hour + 3, minute, now.getUTCSeconds(), now.getUTCMilliseconds()));
+  return new Date(
+    Date.UTC(year, month - 1, day, hour + BRAZIL_UTC_OFFSET_HOURS, minute, now.getUTCSeconds(), now.getUTCMilliseconds()),
+  );
 }

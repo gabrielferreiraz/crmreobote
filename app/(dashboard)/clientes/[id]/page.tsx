@@ -118,76 +118,88 @@ export default async function ContactPage({
         {fromDeal ? "Negócio" : "Clientes"}
       </Link>
 
-      <div className="flex items-center gap-3">
-        <Avatar name={contact.name} size="lg" />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{contact.name}</h1>
-          <p className="mt-0.5 truncate text-sm text-neutral-500 dark:text-neutral-400">{contact.source ?? "Origem não informada"}</p>
+      {/* Cabeçalho e abas compartilham a mesma largura/centro (max-w-xl
+          mx-auto, acompanha o max-w-xl do cartão de "Dados de contato" em
+          contact-tabs.tsx) — antes o cabeçalho ocupava a página inteira
+          enquanto o cartão de baixo ficava estreito e colado à esquerda,
+          deixando o lápis de editar solto, longe do cartão. Agora os dois
+          formam uma coluna só, centralizada. */}
+      <div className="mx-auto max-w-xl space-y-6">
+        <div className="flex items-center gap-3">
+          <Avatar name={contact.name} size="lg" />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{contact.name}</h1>
+            <p className="mt-0.5 truncate text-sm text-neutral-500 dark:text-neutral-400">{contact.source ?? "Origem não informada"}</p>
+          </div>
+          <EditContactDialog
+            contact={{
+              id: contact.id,
+              name: contact.name,
+              email: contact.email,
+              phone: contact.phone,
+              whatsapp: contact.whatsapp,
+              source: contact.source,
+              company: contact.company,
+              jobTitle: contact.jobTitle,
+              address: contact.address,
+              addressNumber: contact.addressNumber,
+              addressComplement: contact.addressComplement,
+              neighborhood: contact.neighborhood,
+              city: contact.city,
+              state: contact.state,
+              zipCode: contact.zipCode,
+              tags: contact.tags,
+              responsavelId: contact.responsavelId,
+              customFieldValues,
+            }}
+            sources={sources}
+            jobTitles={jobTitles}
+            members={members}
+            customFields={customFields}
+            // Mais chamativo que o .icon-btn discreto padrão — pedido
+            // explícito pra esse lápis ficar mais visível aqui no topo do
+            // Cliente-detalhe (é a única forma de editar nesta tela).
+            triggerClassName="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-all duration-200 ease-spring hover:border-neutral-300 hover:text-neutral-900 hover:shadow-md active:scale-90 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
+          />
         </div>
-        <EditContactDialog
-          contact={{
-            id: contact.id,
-            name: contact.name,
-            email: contact.email,
-            phone: contact.phone,
-            whatsapp: contact.whatsapp,
-            source: contact.source,
-            company: contact.company,
-            jobTitle: contact.jobTitle,
-            address: contact.address,
-            addressNumber: contact.addressNumber,
-            addressComplement: contact.addressComplement,
-            neighborhood: contact.neighborhood,
-            city: contact.city,
-            state: contact.state,
-            zipCode: contact.zipCode,
-            tags: contact.tags,
-            responsavelId: contact.responsavelId,
-            customFieldValues,
-          }}
-          sources={sources}
-          jobTitles={jobTitles}
-          members={members}
-          customFields={customFields}
+
+        <ContactTabs
+          deals={contact.deals.map((deal) => ({
+            id: deal.id,
+            name: deal.name,
+            status: deal.status,
+            value: deal.value ? Number(deal.value) : null,
+            stageName: deal.stage.name,
+          }))}
+          infoRows={[
+            { label: "E-mail", value: contact.email ?? "—" },
+            { label: "Celular", value: contact.phone ?? "—" },
+            { label: "WhatsApp", value: contact.whatsapp ?? "—" },
+            { label: "Empresa", value: contact.company ?? "—" },
+            { label: "Cargo", value: contact.jobTitle ?? "—" },
+            { label: "Origem", value: contact.source ?? "—" },
+            { label: "Responsável", value: contact.responsavel?.name ?? "—" },
+            ...customFields
+              .map((def) => ({ label: def.label, value: stringifyCustomFieldValue(def, customFieldValues[def.id] ?? null) }))
+              .filter((row) => row.value),
+          ]}
+          addressLines={formatAddress(contact)}
+          tags={contact.tags}
+          whatsapp={
+            whatsappThread
+              ? {
+                  threadId: whatsappThread.id,
+                  contactId: contact.id,
+                  contactName: contact.name,
+                  contactPhone: contact.whatsapp || contact.phone,
+                  currentUserName: session!.user.name ?? undefined,
+                  currentUserPhotoUrl,
+                  sendAsAlternate,
+                }
+              : null
+          }
         />
       </div>
-
-      <ContactTabs
-        deals={contact.deals.map((deal) => ({
-          id: deal.id,
-          name: deal.name,
-          status: deal.status,
-          value: deal.value ? Number(deal.value) : null,
-          stageName: deal.stage.name,
-        }))}
-        infoRows={[
-          { label: "E-mail", value: contact.email ?? "—" },
-          { label: "Celular", value: contact.phone ?? "—" },
-          { label: "WhatsApp", value: contact.whatsapp ?? "—" },
-          { label: "Empresa", value: contact.company ?? "—" },
-          { label: "Cargo", value: contact.jobTitle ?? "—" },
-          { label: "Origem", value: contact.source ?? "—" },
-          { label: "Responsável", value: contact.responsavel?.name ?? "—" },
-          ...customFields
-            .map((def) => ({ label: def.label, value: stringifyCustomFieldValue(def, customFieldValues[def.id] ?? null) }))
-            .filter((row) => row.value),
-        ]}
-        addressLines={formatAddress(contact)}
-        tags={contact.tags}
-        whatsapp={
-          whatsappThread
-            ? {
-                threadId: whatsappThread.id,
-                contactId: contact.id,
-                contactName: contact.name,
-                contactPhone: contact.whatsapp || contact.phone,
-                currentUserName: session!.user.name ?? undefined,
-                currentUserPhotoUrl,
-                sendAsAlternate,
-              }
-            : null
-        }
-      />
     </div>
   );
   });

@@ -130,17 +130,19 @@ export function ContactEditForm({
   return (
     <>
       <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Editar contato</h2>
+      {/* 3 colunas em vez de 2 (modal ficou mais largo, ver maxWidth no
+          EditContactDialog abaixo) — a mesma quantidade de campos cabe em
+          bem menos linhas, então o formulário cresce pros lados em vez de
+          rolar tanto pra baixo. */}
       <form onSubmit={handleSubmit} className="space-y-3">
         <Field label="Nome" value={name} onChange={setName} required autoFocus />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="E-mail" value={email} onChange={setEmail} type="email" />
           <Field label="Celular" value={phone} onChange={setPhone} />
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
-          <Field label="Empresa" value={company} onChange={setCompany} />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Empresa" value={company} onChange={setCompany} />
           <div className="space-y-1">
             <label className="field-label">Cargo *</label>
             <Select
@@ -159,31 +161,31 @@ export function ContactEditForm({
             />
           </div>
         </div>
-        <div className="space-y-1">
-          <label className="field-label">Responsável</label>
-          <Select
-            value={responsavelId}
-            onChange={setResponsavelId}
-            options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <label className="field-label">Responsável</label>
+            <Select
+              value={responsavelId}
+              onChange={setResponsavelId}
+              options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+            />
+          </div>
           <Field label="CEP" value={zipCode} onChange={setZipCode} />
           <Field label="Cidade" value={city} onChange={setCity} />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Endereço" value={address} onChange={setAddress} />
           <div className="space-y-1">
             <label className="field-label">Estado</label>
             <Select value={state} onChange={setState} placeholder="Selecione o estado" options={[{ value: "", label: "—" }, ...ESTADOS_BR]} />
           </div>
+          <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
           <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
           <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
+          <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
         </div>
-        <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
         <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -216,12 +218,18 @@ export function EditContactDialog({
   jobTitles,
   members,
   customFields,
+  triggerClassName,
 }: {
   contact: Contact;
   sources: { id: string; label: string }[];
   jobTitles: { id: string; label: string }[];
   members: { id: string; name: string }[];
   customFields: CustomFieldDefinitionInput[];
+  /** Estilo do botão-gatilho — padrão é o `.icon-btn` discreto de sempre
+   * (linha de tabela, cabeçalho denso). Passe algo mais chamativo (borda,
+   * fundo) em contextos onde o lápis precisa se destacar mais, ex.: topo do
+   * Cliente-detalhe. */
+  triggerClassName?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -234,14 +242,14 @@ export function EditContactDialog({
           e.stopPropagation();
           setOpen(true);
         }}
-        className="icon-btn"
+        className={triggerClassName ?? "icon-btn"}
         aria-label="Editar contato"
       >
         <Pencil className="h-4 w-4" strokeWidth={2} />
       </button>
 
       {open && (
-        <Modal onClose={() => setOpen(false)}>
+        <Modal onClose={() => setOpen(false)} maxWidth="max-w-2xl">
           <ContactEditForm
             contact={contact}
             sources={sources}

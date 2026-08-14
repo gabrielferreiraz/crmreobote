@@ -17,7 +17,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getContactsWithUnreadWhatsApp } from "@/lib/processes/whatsapp-signals";
 import { isStale, STALE_DEAL_DAYS } from "@/lib/stale";
 import { daysSince, formatDuration, formatCurrency } from "@/lib/format";
-import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfMonth, getBrazilParts } from "@/lib/timezone";
+import { brazilDateStringToUTC, brazilEndOfDayUTC, getBrazilParts } from "@/lib/timezone";
 import { Avatar } from "@/components/avatar";
 import { Leaderboard } from "@/components/leaderboard";
 import { TrendAreaChart } from "@/components/charts/trend-area-chart";
@@ -25,19 +25,8 @@ import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
 import { ProcessPipelineFilter } from "./process-pipeline-filter";
-
-/** Média e mediana juntas — média sozinha é enganosa quando tem 1-2 processo
- * que demorou muito mais que o normal (comum em pós-venda, um cliente com
- * pendência de documentação pode travar meses); a mediana mostra o caso
- * "típico" sem esse puxão. */
-function stats(values: number[]): { avgMs: number | null; medianMs: number | null; count: number } {
-  if (values.length === 0) return { avgMs: null, medianMs: null, count: 0 };
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const medianMs = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-  const avgMs = values.reduce((a, b) => a + b, 0) / values.length;
-  return { avgMs, medianMs, count: values.length };
-}
+import { defaultTrendWindow, buildMonthlyBuckets, findBucket } from "@/lib/reports/trend";
+import { summarizeDurations as stats } from "@/lib/reports/stats";
 
 /**
  * Relatório do Administrativo (pós-venda) — substitui o dashboard de
@@ -248,47 +237,14 @@ export async function AdminReportsView({
   // (ver nota acima), então isto é o que "contemplações por mês" queria
   // dizer na prática: quando cada cliente entrou no acompanhamento de
   // pós-venda. Período filtrado, ou os últimos 6 meses por padrão (mesma
-  // janela do gráfico de evolução do relatório comercial).
-  const trendEnd = rangeTo ?? new Date();
-  const trendStart =
-    rangeFrom ??
-    (() => {
-      const d = brazilStartOfMonth(trendEnd);
-      d.setUTCMonth(d.getUTCMonth() - 5);
-      return d;
-    })();
-  const processesByMonth: {
-    year: number;
-    month: number;
-    label: string;
-    tooltipLabel: string;
-    value: number;
-    breakdown: { label: string; value: number }[];
-    byOwner: Map<string, number>;
-  }[] = [];
-  {
-    const startParts = getBrazilParts(trendStart);
-    const endParts = getBrazilParts(trendEnd);
-    let year = startParts.year;
-    let month = startParts.month;
-    while (year < endParts.year || (year === endParts.year && month <= endParts.month)) {
-      const labelDate = new Date(Date.UTC(year, month, 1));
-      processesByMonth.push({
-        year,
-        month,
-        label: labelDate.toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" }),
-        tooltipLabel: labelDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }),
-        value: 0,
-        breakdown: [],
-        byOwner: new Map(),
-      });
-      month += 1;
-      if (month > 11) {
-        month = 0;
-        year += 1;
-      }
-    }
-  }
+  // janela do gráfico de evolução do relatório comercial — ver
+  // lib/reports/trend.ts, compartilhado entre os dois relatórios).
+  const { trendStart, trendEnd } = defaultTrendWindow(rangeFrom, rangeTo);
+  const processesByMonth = buildMonthlyBuckets(trendStart, trendEnd).map((b) => ({
+    ...b,
+    breakdown: [] as { label: string; value: number }[],
+    byOwner: new Map<string, number>(),
+  }));
 
   for (const process of processes) {
     const history = historyByProcess.get(process.id) ?? [];
@@ -323,7 +279,7 @@ export async function AdminReportsView({
 
     if (process.createdAt >= trendStart && process.createdAt <= trendEnd) {
       const parts = getBrazilParts(process.createdAt);
-      const bucket = processesByMonth.find((b) => b.year === parts.year && b.month === parts.month);
+      const bucket = findBucket(processesByMonth, false, parts);
       if (bucket) {
         bucket.value += 1;
         // Chave por ownerId, não por nome — dois responsáveis com o mesmo

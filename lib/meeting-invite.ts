@@ -60,8 +60,8 @@ export function buildMeetingInviteVariables(params: {
   return {
     cliente: contactName,
     consultor: consultorName,
-    data: dueAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" }),
-    hora: dueAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }),
+    data: dueAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Campo_Grande" }),
+    hora: dueAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" }),
     link,
   };
 }

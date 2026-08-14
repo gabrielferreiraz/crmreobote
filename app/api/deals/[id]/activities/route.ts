@@ -32,7 +32,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { type, activityBody } = body as { type?: string; activityBody?: string };
+  const { type, activityBody, meetingOutcome } = body as { type?: string; activityBody?: string; meetingOutcome?: string };
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -41,6 +41,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const validTypes = ["NOTE", "EMAIL", "CALL", "WHATSAPP", "PROPOSAL", "MEETING", "VISIT"];
   if (!type || !validTypes.includes(type)) {
     return NextResponse.json({ error: "type inválido" }, { status: 400 });
+  }
+
+  // Só cabe pergunta de "o que aconteceu" pra Reunião/Visita — outro tipo
+  // de atividade (nota, ligação, e-mail...) não tem um "resultado" desse
+  // jeito, ver ActivityMeetingOutcome no schema.
+  const validOutcomes = ["ATTENDED", "NO_SHOW", "RESCHEDULED"];
+  if (meetingOutcome !== undefined && !validOutcomes.includes(meetingOutcome)) {
+    return NextResponse.json({ error: "meetingOutcome inválido" }, { status: 400 });
+  }
+  if (meetingOutcome !== undefined && type !== "MEETING" && type !== "VISIT") {
+    return NextResponse.json({ error: "meetingOutcome só se aplica a Reunião/Visita" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
@@ -63,6 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           | "MEETING"
           | "VISIT",
         body: activityBody,
+        meetingOutcome: meetingOutcome as "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | undefined,
       },
       include: { user: true },
     });

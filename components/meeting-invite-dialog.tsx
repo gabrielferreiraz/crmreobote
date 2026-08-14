@@ -21,19 +21,19 @@ export type MeetingInviteTask = {
   owner: { name: string };
 };
 
-// Força horário de Brasília explicitamente — sem isso, usa o fuso do
-// NAVEGADOR de quem está vendo a tela, que só bate com Brasília por
-// coincidência. A variável {hora} do próprio template (buildMeetingInviteVariables,
-// lib/meeting-invite.ts) já força America/Sao_Paulo; sem forçar aqui também,
-// o cabeçalho deste diálogo podia mostrar um horário diferente do que vai na
-// mensagem de verdade.
+// Força o horário local da operação (Campo Grande/MS) explicitamente — sem
+// isso, usa o fuso do NAVEGADOR de quem está vendo a tela, que só bate com
+// o fuso certo por coincidência. A variável {hora} do próprio template
+// (buildMeetingInviteVariables, lib/meeting-invite.ts) já força
+// America/Campo_Grande; sem forçar aqui também, o cabeçalho deste diálogo
+// podia mostrar um horário diferente do que vai na mensagem de verdade.
 function formatDateTime(d: Date): string {
   return d.toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "America/Sao_Paulo",
+    timeZone: "America/Campo_Grande",
   });
 }
 

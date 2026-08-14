@@ -52,7 +52,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // dessa classe: nada dentro desta div tem z-index negativo pra furar
     // por baixo, e overflow-hidden (já existia) contém a malha nos cantos.
     <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
-      <MobileHeader photoUrl={photoUrl} name={session.user.name ?? session.user.email ?? "?"} />
+      <MobileHeader
+        photoUrl={photoUrl}
+        name={session.user.name ?? session.user.email ?? "?"}
+        email={session.user.email ?? ""}
+        signOutAction={handleSignOut}
+      />
 
       <header className="surface-glass relative z-30 hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
         <Link href="/" className="flex shrink-0 items-center gap-2">

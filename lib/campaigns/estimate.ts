@@ -7,7 +7,7 @@
  * já que falhas/respostas/pausas mudam o ritmo real.
  */
 
-import { brazilStartOfDay, brazilWeekday, getBrazilParts } from "@/lib/timezone";
+import { BRAZIL_UTC_OFFSET_HOURS, brazilStartOfDay, brazilWeekday, getBrazilParts } from "@/lib/timezone";
 
 export type CampaignScheduleConfig = {
   delayMinSec: number;
@@ -94,10 +94,11 @@ export function nextAllowedSendWindow(campaign: CampaignWindowConfig, from: Date
     const { year, month, day, weekday } = getBrazilParts(candidateDay);
     if (!campaign.allowedWeekdays.includes(weekday)) continue;
 
-    // Meia-noite em Brasília (UTC-3, fixo) é 03:00 UTC do mesmo dia civil —
-    // mesma conta de brazilStartOfMonth/brazilStartOfDay em lib/timezone.ts.
-    const windowStart = new Date(Date.UTC(year, month, day, campaign.windowStartHour + 3, 0, 0));
-    const windowEnd = new Date(Date.UTC(year, month, day, campaign.windowEndHour + 3, 0, 0));
+    // Meia-noite local (Campo Grande/MS, UTC-4 fixo) é 04:00 UTC do mesmo
+    // dia civil — mesma conta de brazilStartOfMonth/brazilStartOfDay em
+    // lib/timezone.ts.
+    const windowStart = new Date(Date.UTC(year, month, day, campaign.windowStartHour + BRAZIL_UTC_OFFSET_HOURS, 0, 0));
+    const windowEnd = new Date(Date.UTC(year, month, day, campaign.windowEndHour + BRAZIL_UTC_OFFSET_HOURS, 0, 0));
 
     if (from.getTime() < windowStart.getTime()) return windowStart;
     if (from.getTime() < windowEnd.getTime()) return from;

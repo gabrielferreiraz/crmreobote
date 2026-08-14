@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Megaphone, Plus, Loader2, Trash2, Play, Pause, Copy, ListChecks, Send, Pencil, X, Users } from "lucide-react";
+import { Megaphone, Plus, Loader2, Trash2, Play, Pause, Copy, ListChecks, Send, Pencil, X, Users, Smartphone, MessageSquare, Clock, Repeat } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -435,6 +435,35 @@ function ChipInput({
   );
 }
 
+/** Bloco com ícone+título em maiúsculas pequenas — agrupa visualmente o
+ * formulário de campanha (antes era uma lista achatada de campos, um atrás
+ * do outro, sem nenhuma hierarquia). `right` é pra um indicador ao lado do
+ * título (ex.: badge de "N contatos" no bloco de Público). */
+function DialogSection({
+  icon: Icon,
+  title,
+  right,
+  children,
+}: {
+  icon: typeof Users;
+  title: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2.5 rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/30">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
+          <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          {title}
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function ScriptPicker({
   scripts,
   selectedIds,
@@ -456,7 +485,9 @@ function ScriptPicker({
           <div
             key={s.id}
             className={`flex items-start gap-2 rounded-md border p-2.5 text-sm transition-colors ${
-              checked ? "border-neutral-900 dark:border-white" : "border-neutral-200 dark:border-neutral-800"
+              checked
+                ? "border-[var(--brand)] bg-[var(--brand-light)] dark:bg-[var(--brand-subtle)]"
+                : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
             }`}
           >
             <input
@@ -679,51 +710,72 @@ function CampaignDialog({
   const canSubmit =
     !!name.trim() && hasAudienceFilter && !!instanceId && selectedScriptIds.length > 0 && allowedWeekdays.length > 0;
 
+  const audienceBadge = hasAudienceFilter ? (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+        audienceLoading || audienceCount === null
+          ? "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+          : audienceCount === 0
+            ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
+            : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+      }`}
+    >
+      {audienceLoading || audienceCount === null
+        ? "Calculando..."
+        : `${audienceCount} contato${audienceCount === 1 ? "" : "s"}`}
+    </span>
+  ) : undefined;
+
   return (
-    <Modal onClose={onClose} maxWidth="max-w-lg">
-      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-        {isEdit ? "Editar campanha" : "Nova campanha"}
-      </h2>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="space-y-1">
-          <label className="field-label">Nome</label>
-          <input
-            autoFocus
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Ex.: Prospecção Advogados CG"
-            className="field-input"
-          />
+    <Modal onClose={onClose} maxWidth="max-w-xl">
+      <div className="mb-5 flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-light)] text-[var(--brand)] dark:bg-[var(--brand-subtle)]">
+          <Megaphone className="h-5 w-5" strokeWidth={2} />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            {isEdit ? "Editar campanha" : "Nova campanha"}
+          </h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Defina o público, as mensagens e o ritmo de envio.</p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label className="field-label">Nome</label>
+            <input
+              autoFocus
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex.: Prospecção Advogados CG"
+              className="field-input"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Enviar por</label>
+            <Select
+              value={instanceId}
+              onChange={setInstanceId}
+              options={instances.map((i) => ({ value: i.id, label: i.label }))}
+            />
+          </div>
         </div>
 
-        <div className="space-y-2 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+        <DialogSection icon={Users} title="Público" right={audienceBadge}>
           <ChipInput label="Cargo (um ou mais)" values={jobTitles} onChange={setJobTitles} placeholder="Ex.: Advogado — Enter pra adicionar" />
           <ChipInput label="Tags do contato" values={tags} onChange={setTags} placeholder="Ex.: lead-quente" />
           <ChipInput label="Cidade" values={cities} onChange={setCities} placeholder="Ex.: Campo Grande" />
-          <p className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-            <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-            {!hasAudienceFilter
-              ? "Defina ao menos um critério pra ver quantos contatos batem."
-              : audienceLoading || audienceCount === null
-                ? "Calculando público..."
-                : audienceCount === 0
-                  ? "Nenhum contato encontrado com esse público."
-                  : `${audienceCount} contato${audienceCount === 1 ? "" : "s"} encontrado${audienceCount === 1 ? "" : "s"}.`}
-          </p>
-        </div>
+          {!hasAudienceFilter && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Defina ao menos um critério pra ver quantos contatos batem.</p>
+          )}
+          {hasAudienceFilter && audienceCount === 0 && !audienceLoading && (
+            <p className="text-xs text-red-600 dark:text-red-400">Nenhum contato encontrado com esse público.</p>
+          )}
+        </DialogSection>
 
-        <div className="space-y-1">
-          <label className="field-label">Enviar pelo WhatsApp de</label>
-          <Select
-            value={instanceId}
-            onChange={setInstanceId}
-            options={instances.map((i) => ({ value: i.id, label: i.label }))}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="field-label">Scripts (variantes de mensagem)</label>
+        <DialogSection icon={MessageSquare} title="Mensagens">
           {scripts.length === 0 ? (
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               Nenhum script cadastrado ainda —{" "}
@@ -742,127 +794,131 @@ function CampaignDialog({
             />
           )}
           <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada envio sorteia um dos scripts marcados, proporcional ao peso.</p>
-        </div>
 
-        {previewSteps.length > 0 && (
-          <div className="space-y-1.5 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
-            <p className="field-label">Prévia (com dados de exemplo)</p>
-            <div className="space-y-1">
-              {previewSteps.map((s, i) => (
-                <div key={i} className="max-w-[85%] rounded-lg bg-emerald-50 px-2.5 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200">
-                  {s.text}
-                </div>
+          {previewSteps.length > 0 && (
+            <div className="space-y-1.5 rounded-md border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900">
+              <p className="field-label">Prévia (com dados de exemplo)</p>
+              <div className="space-y-1">
+                {previewSteps.map((s, i) => (
+                  <div key={i} className="max-w-[85%] rounded-lg bg-emerald-50 px-2.5 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200">
+                    {s.text}
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <input
+                  value={testPhone}
+                  onChange={(e) => setTestPhone(e.target.value)}
+                  placeholder="Seu número p/ testar (com DDD)"
+                  className="field-input w-56"
+                />
+                <button
+                  type="button"
+                  disabled={testSending || !testPhone.trim() || !instanceId}
+                  onClick={sendTest}
+                  className="btn-ghost"
+                >
+                  {testSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Send className="h-3.5 w-3.5" strokeWidth={2} />}
+                  Enviar teste
+                </button>
+                {testResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{testResult}</span>}
+              </div>
+            </div>
+          )}
+        </DialogSection>
+
+        <DialogSection icon={Clock} title="Ritmo de envio">
+          <div className="space-y-1">
+            <label className="field-label">Intervalo entre envios</label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">de</span>
+              <input
+                type="number"
+                min={1}
+                value={delayMinSec}
+                onChange={(e) => setDelayMinSec(e.target.value)}
+                className="field-input w-20 text-center"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">a</span>
+              <input
+                type="number"
+                min={1}
+                value={delayMaxSec}
+                onChange={(e) => setDelayMaxSec(e.target.value)}
+                className="field-input w-20 text-center"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">segundos</span>
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Aleatório dentro da faixa — ajuda a não parecer automatizado.</p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="field-label">Horário de envio</label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">das</span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={windowStartHour}
+                onChange={(e) => setWindowStartHour(e.target.value)}
+                className="field-input w-16 text-center"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">às</span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={windowEndHour}
+                onChange={(e) => setWindowEndHour(e.target.value)}
+                className="field-input w-16 text-center"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">h</span>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="field-label">Dias permitidos</label>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEKDAY_LABELS.map((label, day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleWeekday(day)}
+                  className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    allowedWeekdays.includes(day)
+                      ? "border-[var(--brand)] bg-[var(--brand)] text-white"
+                      : "border-neutral-300 bg-white text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {label}
+                </button>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <input
-                value={testPhone}
-                onChange={(e) => setTestPhone(e.target.value)}
-                placeholder="Seu número p/ testar (com DDD)"
-                className="field-input w-56"
-              />
-              <button
-                type="button"
-                disabled={testSending || !testPhone.trim() || !instanceId}
-                onClick={sendTest}
-                className="btn-ghost"
-              >
-                {testSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Send className="h-3.5 w-3.5" strokeWidth={2} />}
-                Enviar teste
-              </button>
-              {testResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{testResult}</span>}
-            </div>
           </div>
-        )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <label className="field-label">Delay mínimo (segundos)</label>
+            <label className="field-label">Teto diário (opcional)</label>
             <input
               type="number"
               min={1}
-              value={delayMinSec}
-              onChange={(e) => setDelayMinSec(e.target.value)}
-              className="field-input"
+              value={dailyCap}
+              onChange={(e) => setDailyCap(e.target.value)}
+              placeholder="Sem limite"
+              className="field-input w-32"
             />
           </div>
-          <div className="space-y-1">
-            <label className="field-label">Delay máximo (segundos)</label>
-            <input
-              type="number"
-              min={1}
-              value={delayMaxSec}
-              onChange={(e) => setDelayMaxSec(e.target.value)}
-              className="field-input"
-            />
-          </div>
-        </div>
+        </DialogSection>
 
-        <div className="space-y-1">
-          <label className="field-label">Teto diário (opcional)</label>
-          <input
-            type="number"
-            min={1}
-            value={dailyCap}
-            onChange={(e) => setDailyCap(e.target.value)}
-            placeholder="Sem limite"
-            className="field-input"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="field-label">Dias permitidos</label>
-          <div className="flex flex-wrap gap-1.5">
-            {WEEKDAY_LABELS.map((label, day) => (
-              <button
-                key={day}
-                type="button"
-                onClick={() => toggleWeekday(day)}
-                className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  allowedWeekdays.includes(day)
-                    ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                    : "border-neutral-300 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <label className="field-label">Horário inicial</label>
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={windowStartHour}
-              onChange={(e) => setWindowStartHour(e.target.value)}
-              className="field-input"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="field-label">Horário final</label>
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={windowEndHour}
-              onChange={(e) => setWindowEndHour(e.target.value)}
-              className="field-input"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
-          <label className="flex items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+        <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/30">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
             <input
               type="checkbox"
               checked={followUpEnabled}
               onChange={(e) => setFollowUpEnabled(e.target.checked)}
               className="accent-neutral-900 dark:accent-white"
             />
+            <Repeat className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
             Reenvio automático pra quem não responder (remarketing)
           </label>
 

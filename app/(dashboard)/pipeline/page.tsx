@@ -159,11 +159,12 @@ export default async function PipelinePage({
   const canBulkMessage = true;
 
   return (
+    // Sem <h1>Pipeline</h1> + nome do funil aqui de propósito — redundante
+    // com o seletor de funil que já mostra o mesmo nome logo abaixo (ver
+    // PipelineView), e como Pipeline não tem scroll de página (só o board
+    // rola por dentro, ver app-main.tsx/APP_SHELL_ROUTES), cada linha daqui
+    // de cima é altura a menos sobrando pra coluna do Kanban.
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Pipeline</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{activePipeline.name}</p>
-      </div>
       <PipelineView
         pipelineId={activePipeline.id}
         pipelines={pipelines.map((p) => ({
@@ -191,6 +192,7 @@ export default async function PipelinePage({
         jobTitles={jobTitles.map((j) => ({ label: j.label }))}
         isOwner={isOwner}
         canBulkDelete={isManager}
+        canViewImportHistory={isManager}
         canBulkMessage={canBulkMessage}
         openNewDeal={novo === "1"}
         goalValue={goalProgress?.goalValue ?? null}

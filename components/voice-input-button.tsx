@@ -34,12 +34,22 @@ export { appendDictatedText };
  */
 export function VoiceInputButton({
   onResult,
+  onListeningChange,
   lang = "pt-BR",
   className = "",
   keepListening = false,
 }: {
   /** Chamado com o texto reconhecido (frase inteira) quando termina de falar. */
   onResult: (text: string) => void;
+  /**
+   * Avisa quando o microfone liga/desliga de verdade — pensado pra quem
+   * precisa saber exatamente quando a SESSÃO INTEIRA de ditado acabou (ex.:
+   * só processar/distribuir o texto ditado quando a pessoa clicar pra
+   * parar, não a cada frase reconhecida no meio do caminho, que ainda pode
+   * vir mais coisa). `false` dispara tanto no clique de parar quanto num
+   * erro real que encerra a sessão (ver onerror abaixo).
+   */
+  onListeningChange?: (listening: boolean) => void;
   lang?: string;
   className?: string;
   /**
@@ -69,6 +79,19 @@ export function VoiceInputButton({
   // vira true só quando ela mesma clica pra parar (ou o componente
   // desmonta), pra onend saber se deve reabrir o microfone sozinho ou não.
   const stoppedByUserRef = useRef(true);
+  // Os handlers da SpeechRecognition (onresult/onend) são montados uma vez
+  // dentro de startRecognition() e o reencadeio automático (keepListening)
+  // reusa essa MESMA closure a cada frase nova, sem o componente re-
+  // renderizar no meio — se lessem `onResult`/`onListeningChange` direto
+  // dos props, ficariam presos na versão de quando a sessão começou. Ref
+  // sempre atualizada evita isso, mesmo sem nunca ter se confirmado como
+  // causa de um bug visto (é barato garantir, então garante).
+  const onResultRef = useRef(onResult);
+  const onListeningChangeRef = useRef(onListeningChange);
+  useEffect(() => {
+    onResultRef.current = onResult;
+    onListeningChangeRef.current = onListeningChange;
+  });
 
   useEffect(() => {
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -152,7 +175,7 @@ export function VoiceInputButton({
         .map((_, i) => event.results[i][0].transcript)
         .join(" ")
         .trim();
-      if (transcript) onResult(transcript);
+      if (transcript) onResultRef.current(transcript);
     };
     recognition.onerror = (event) => {
       // "no-speech"/"aborted" são silêncio comum (usuário clicou e não falou
@@ -191,6 +214,11 @@ export function VoiceInputButton({
       }
       setListening(false);
       stopVisualizer();
+      // Só agora a sessão acabou de verdade (clique de parar, ou erro real
+      // — nunca no meio de uma frase reencadeada pelo keepListening). É o
+      // sinal que quem consome isso pra distribuir campos/analisar o texto
+      // ditado espera pra só então processar o texto INTEIRO de uma vez.
+      onListeningChangeRef.current?.(false);
     };
 
     recognitionRef.current = recognition;
@@ -213,6 +241,7 @@ export function VoiceInputButton({
     setListening(true);
     startRecognition();
     startVisualizer();
+    onListeningChangeRef.current?.(true);
   }
 
   if (!supported) return null;

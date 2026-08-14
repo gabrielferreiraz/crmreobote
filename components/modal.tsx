@@ -66,7 +66,11 @@ export function Modal({
         >
           <div
             ref={panelRef}
-            style={{ animation: "modal-panel-in 240ms var(--ease-smooth)" }}
+            // --ease-spring (não --ease-smooth) só no painel, não no fundo
+            // acima: o painel é o que "chega" na tela, o fundo só esmaece —
+            // dar um pouco de "estica além e volta" nele é o que lê como
+            // apresentação nativa (iOS/macOS), não como um <div> aparecendo.
+            style={{ animation: "modal-panel-in 280ms var(--ease-spring)" }}
             className={`surface-glass-panel scrollbar-thin w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl p-5 pb-7 ${
               isNested ? "shadow-2xl ring-1 ring-black/5 dark:ring-white/10" : ""
             }`}

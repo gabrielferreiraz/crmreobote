@@ -26,6 +26,7 @@ import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
+import { PipelineQuickFilterButtons } from "./pipeline-quick-filter-buttons";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
@@ -99,6 +100,8 @@ export function KanbanBoard({
   newDeal,
   onNewDealConsumed,
   quickFilter,
+  onToggleQuickFilter,
+  onTotalsChange,
 }: {
   pipelineId: string;
   stages: Stage[];
@@ -123,6 +126,18 @@ export function KanbanBoard({
    * tarefa/Parados +14d), sincronizado com a URL — substitui o antigo toggle
    * local "Só parados". null = nenhum filtro rápido ativo. */
   quickFilter: PipelineQuickFilter | null;
+  /** Alterna o filtro rápido único (ver pipeline-view.tsx) — os botões Ação
+   * hoje/Sem tarefa/Parados +14d ficam aqui na fileira de busca (ver JSX
+   * abaixo), não mais em tiles grandes lá em cima. */
+  onToggleQuickFilter: (value: PipelineQuickFilter) => void;
+  /** Soma/contagem de valor aberto que bate com o filtro ATUAL do Kanban (o
+   * mesmo que alimenta o cabeçalho de cada coluna) — reportado pro pai a
+   * cada mudança pra alimentar o card "Valor em aberto" (ver
+   * pipeline-view.tsx). Sem isso, aquele card mostrava sempre o total do
+   * funil inteiro (carga inicial do servidor), mesmo com busca/filtro/
+   * filtro rápido aplicados escondendo a maior parte dos negócios — o valor
+   * exibido não batia com o que a tela realmente mostrava. */
+  onTotalsChange?: (totals: { sum: number; count: number }) => void;
   /** Entrega única de "acabou de criar esse negócio" (ver pipeline-view.tsx)
    * — KanbanBoard é dono do próprio estado por coluna agora, então o pai não
    * pode mais empurrar direto num array. Consumido uma vez (onNewDealConsumed
@@ -189,6 +204,22 @@ export function KanbanBoard({
     onNewDealConsumed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newDeal]);
+
+  // Reporta a soma/contagem total (todas as etapas) pro pai toda vez que
+  // sumByStage/countByStage mudam — carga inicial, troca de filtro OU criação
+  // de negócio (a entrega acima já soma no countByStage, mas não no
+  // sumByStage: o valor do negócio recém-criado só entra na soma na próxima
+  // busca completa, mesma simplificação de "saúde da etapa" logo abaixo,
+  // comentada onde sumByStage é declarado). Mover por drag não muda o total
+  // (negócio continua aberto, só troca de coluna), por isso não precisa
+  // entrar nas dependências.
+  useEffect(() => {
+    onTotalsChange?.({
+      sum: Object.values(sumByStage).reduce((acc, v) => acc + v, 0),
+      count: Object.values(countByStage).reduce((acc, v) => acc + v, 0),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sumByStage, countByStage]);
 
   // "Eu" sempre em primeiro no filtro de Responsável — acha a si mesmo na
   // hora, sem procurar o próprio nome no meio da lista de consultores.
@@ -386,6 +417,15 @@ export function KanbanBoard({
   // esticada dentro dela) sempre termina exatamente onde a tela do usuário
   // termina, não importa o que aconteça acima na árvore. Recalcula ao
   // redimensionar a janela.
+  //
+  // Desconta também a barra de navegação inferior do celular (#mobile-bottom-nav,
+  // ver mobile-nav.tsx) — ela é `position:fixed`, fica POR CIMA do conteúdo
+  // em vez de empurrá-lo (não entra no fluxo normal), então window.innerHeight
+  // sozinho não sabe que aquela faixa de baixo está coberta. Sem descontar
+  // isso, a fileira calculava altura demais, e o fim de cada coluna
+  // (últimos cartões) ficava escondido atrás da barra, inalcançável mesmo
+  // rolando. Em telas lg+ a barra some (lg:hidden) e getBoundingClientRect
+  // já retorna altura 0 sozinho, sem precisar de tratamento especial aqui.
   const rowRef = useRef<HTMLDivElement>(null);
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
@@ -393,7 +433,9 @@ export function KanbanBoard({
     if (!el) return;
     function measure() {
       const top = el!.getBoundingClientRect().top;
-      setRowHeight(Math.max(240, window.innerHeight - top - 4));
+      const mobileNav = document.getElementById("mobile-bottom-nav");
+      const bottomReserved = mobileNav ? mobileNav.getBoundingClientRect().height : 0;
+      setRowHeight(Math.max(240, window.innerHeight - top - bottomReserved - 4));
     }
     measure();
     window.addEventListener("resize", measure);
@@ -547,6 +589,7 @@ export function KanbanBoard({
             Sem valor
           </button>
         </FilterPopover>
+        <PipelineQuickFilterButtons quickFilter={quickFilter} onToggle={onToggleQuickFilter} />
       </div>
 
       {moveError && (

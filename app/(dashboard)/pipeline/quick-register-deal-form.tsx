@@ -41,6 +41,13 @@ export function QuickRegisterDealForm({
   const [rawText, setRawText] = useState("");
   const [analyzed, setAnalyzed] = useState(false);
   const justPasted = useRef(false);
+  // Sempre o valor mais recente de rawText, lido por handleDictationStopped
+  // (ver abaixo) — não pelo `rawText` fechado na hora que o VoiceInputButton
+  // guardou a referência do callback, que pode estar um passo atrasado.
+  const rawTextRef = useRef(rawText);
+  useEffect(() => {
+    rawTextRef.current = rawText;
+  }, [rawText]);
 
   const [name, setName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
@@ -206,12 +213,32 @@ export function QuickRegisterDealForm({
   // como um bloco só ("nome fulano telefone tal cidade tal"), então
   // appendDictatedLeadText primeiro reescreve isso pro formato "Rótulo:
   // valor" por linha (ver lib/quick-register/format-dictated-lead-text.ts)
-  // antes de emendar no que já tinha no campo. Já dispara a separação de
-  // campos na hora, igual colar — não devia precisar de mais um clique.
+  // antes de emendar no que já tinha no campo.
+  //
+  // SÓ emenda o texto aqui — não analisa ainda. keepListening reencadeia a
+  // escuta frase por frase sozinho, e handleDictated é chamado UMA VEZ POR
+  // FRASE; se analisasse (applyParsed) a cada chamada, no meio de "nome
+  // fulano... telefone tal..." a 1ª frase já disparava a separação de
+  // campos com o texto pela metade, e a pessoa via os campos mudando/
+  // "brigando" enquanto ainda estava ditando o resto. A análise de verdade
+  // só acontece quando o microfone realmente desliga (ver
+  // handleDictationStopped, chamado por onListeningChange) — processa o
+  // texto completo de uma vez, depois de tudo já dito.
+  //
+  // Atualiza via forma funcional (prev => ...), não fechando sobre `rawText`
+  // direto — VoiceInputButton pode chamar isso várias vezes rapidamente
+  // (frase após frase) antes do React terminar de re-renderizar entre uma
+  // chamada e outra; fechar sobre `rawText` arriscava cada nova frase
+  // "pisar" na anterior em vez de emendar (a causa mais provável do texto
+  // parecendo se sobrescrever em vez de complementar).
   function handleDictated(text: string) {
-    const next = appendDictatedLeadText(rawText, text);
-    setRawText(next);
-    applyParsed(parseLeadText(next));
+    setRawText((prev) => appendDictatedLeadText(prev, text));
+  }
+
+  /** Chamado só quando o microfone desliga de verdade (ver VoiceInputButton.onListeningChange) — processa o texto ditado inteiro de uma vez, nunca no meio da fala. */
+  function handleDictationStopped(listening: boolean) {
+    if (listening) return;
+    applyParsed(parseLeadText(rawTextRef.current));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -285,7 +312,7 @@ export function QuickRegisterDealForm({
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <label className="field-label">Colar texto do lead</label>
-          <VoiceInputButton onResult={handleDictated} keepListening />
+          <VoiceInputButton onResult={handleDictated} onListeningChange={handleDictationStopped} keepListening />
         </div>
         <textarea
           autoFocus

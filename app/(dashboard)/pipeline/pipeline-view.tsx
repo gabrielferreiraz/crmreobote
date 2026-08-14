@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Kanban, List, Upload, Plus, CalendarClock, ClipboardX, Clock3, TrendingUp } from "lucide-react";
-import { ImportDialog } from "@/components/import-dialog";
+import { Kanban, List, Upload, History, Plus, TrendingUp } from "lucide-react";
+import { DealImportDialog } from "@/components/deal-import-dialog";
+import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { Select } from "@/components/select";
 import { NewDealDialog } from "./new-deal-dialog";
 import { KanbanBoard, type Deal } from "./kanban-board";
@@ -21,12 +22,6 @@ type LabelOption = { label: string };
 type Stage = { id: string; name: string; color: string | null; order: number };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 type Sums = { wonSum: number; lostSum: number; totalSum: number };
-
-const QUICK_FILTER_TILES: { value: PipelineQuickFilter; label: string; icon: typeof CalendarClock }[] = [
-  { value: "acao-hoje", label: "Ação hoje", icon: CalendarClock },
-  { value: "sem-tarefa", label: "Sem tarefa", icon: ClipboardX },
-  { value: "parados-14d", label: "Parados +14d", icon: Clock3 },
-];
 
 export function PipelineView({
   pipelineId,
@@ -50,6 +45,7 @@ export function PipelineView({
   isOwner,
   canBulkDelete,
   canBulkMessage,
+  canViewImportHistory,
   openNewDeal,
   goalValue,
   goalAchievedValue,
@@ -83,6 +79,8 @@ export function PipelineView({
   isOwner: boolean;
   canBulkDelete: boolean;
   canBulkMessage: boolean;
+  /** Botão "Histórico" ao lado de "Importar" (abre o ImportHistoryDialog) — só quem tem papel Dono/Gerente vê, mesmo gate de /api/deals/import/history. */
+  canViewImportHistory: boolean;
   openNewDeal?: boolean;
   /** Meta do mês corrente — sempre organização inteira, só vem preenchida pro Dono (ver page.tsx). null = não se aplica a este papel. */
   goalValue: number | null;
@@ -111,8 +109,17 @@ export function PipelineView({
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
 
-  const totalAberto = Object.values(initialKanbanSumByStage).reduce((sum, v) => sum + v, 0);
-  const totalAbertoCount = Object.values(initialKanbanCountByStage).reduce((sum, v) => sum + v, 0);
+  // Começa com o total do funil inteiro (carga do servidor, sem filtro) e o
+  // Kanban reporta de novo (ver onTotalsChange abaixo) toda vez que o filtro
+  // dele muda — assim o card "Valor em aberto" sempre bate com os negócios
+  // que estão de fato aparecendo na tela, não com um total parado da 1ª
+  // carga escondido atrás de busca/filtro/filtro rápido aplicados depois.
+  const [kanbanTotals, setKanbanTotals] = useState({
+    sum: Object.values(initialKanbanSumByStage).reduce((sum, v) => sum + v, 0),
+    count: Object.values(initialKanbanCountByStage).reduce((sum, v) => sum + v, 0),
+  });
+  const totalAberto = kanbanTotals.sum;
+  const totalAbertoCount = kanbanTotals.count;
   const goalPct =
     goalValue && goalValue > 0 ? Math.min(100, Math.round(((goalAchievedValue ?? 0) / goalValue) * 100)) : null;
   // KanbanBoard é dono do próprio estado por coluna (ver kanban-board.tsx) —
@@ -124,6 +131,7 @@ export function PipelineView({
   // novo" quando um negócio é criado ou uma importação termina.
   const [listaReloadToken, setListaReloadToken] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
 
@@ -134,6 +142,18 @@ export function PipelineView({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewDeal]);
+
+  // Ressincroniza quando o funil ativo muda (troca no seletor, ver
+  // pipelineId acima) — sem isso, kanbanTotals ficava preso ao total do
+  // funil anterior até o Kanban terminar de buscar e reportar de novo
+  // (mesmo instante em que o resto da tela já mudou de funil).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setKanbanTotals({
+      sum: Object.values(initialKanbanSumByStage).reduce((sum, v) => sum + v, 0),
+      count: Object.values(initialKanbanCountByStage).reduce((sum, v) => sum + v, 0),
+    });
+  }, [initialKanbanSumByStage, initialKanbanCountByStage]);
 
   // Volta de "+ Criar script" (ver components/bulk-send-message-dialog.tsx) —
   // restaura a view Lista e repassa filtro/seleção pra deals-list.tsx
@@ -155,65 +175,41 @@ export function PipelineView({
     // em vez de crescer pro tamanho do próprio conteúdo e vazar o scroll pra
     // página inteira.
     <div className="flex h-full min-h-0 flex-col gap-3">
-      {/* Card "valor em aberto" (gradiente de marca) + tiles de filtro rápido —
-          ver new-design-for-claude/README.md. O total vem da 1ª carga do
-          servidor (não recalcula a cada filtro client-side aplicado no
-          Kanban/Lista) — é um indicador de saúde do funil, não um resultado
-          filtrado. */}
-      <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,1fr))]">
-        <div
-          className="relative overflow-hidden rounded-xl px-4 py-2.5 text-white"
-          style={{ background: "var(--brand-gradient-hero, var(--brand-gradient))" }}
-        >
-          <p className="text-[10px] leading-none font-medium tracking-wide text-white/75 uppercase">Valor em aberto</p>
-          <p className="mt-1 text-xl leading-none font-semibold tabular-nums">{formatCurrencyCompact(totalAberto)}</p>
-          {goalPct !== null ? (
-            <div className="mt-1.5">
-              <div className="flex items-center gap-1.5 text-[10px] font-medium text-white/85">
-                <TrendingUp className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
-                {goalPct}% da meta de {formatCurrencyCompact(goalValue)} fechado no mês
-              </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20">
-                <div className="h-full rounded-full bg-white/85" style={{ width: `${goalPct}%` }} />
-              </div>
-            </div>
-          ) : (
-            <p className="mt-1.5 text-[10px] font-medium text-white/70">
-              {totalAbertoCount} negócio{totalAbertoCount === 1 ? "" : "s"} em andamento no funil
-            </p>
-          )}
+      {/* Card "valor em aberto" sozinho, no canto, numa linha própria acima
+          do seletor de funil — não mais centralizado/dividindo a fileira com
+          seletor+toggle e os botões de ação. Os 3 tiles de filtro rápido
+          (Ação hoje/Sem tarefa/Parados +14d) que moravam do lado do card
+          viraram botões pequenos na fileira de busca/filtro do Kanban e da
+          Lista (ver PipelineQuickFilterButtons). */}
+      <div
+        className="relative w-64 shrink-0 overflow-hidden rounded-xl px-4 py-2.5 text-white"
+        style={{ background: "var(--brand-gradient-hero, var(--brand-gradient))" }}
+      >
+        <p className="text-[10px] leading-none font-medium tracking-wide text-white/75 uppercase">Valor em aberto</p>
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <p className="text-xl leading-none font-semibold tabular-nums">{formatCurrencyCompact(totalAberto)}</p>
+          {/* Quantidade em unidade (não valor) — sempre visível, independente
+              de ter % de meta pra mostrar ou não (antes só aparecia pra quem
+              não tinha meta, escondida pra quem tinha). */}
+          <p className="text-[10px] leading-none font-medium text-white/70 tabular-nums">
+            {totalAbertoCount} negócio{totalAbertoCount === 1 ? "" : "s"}
+          </p>
         </div>
-        {QUICK_FILTER_TILES.map(({ value, label, icon: Icon }) => {
-          const active = quickFilter === value;
-          return (
-            <button
-              key={value}
-              onClick={() => toggleQuickFilter(value)}
-              className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                active
-                  ? "border-[var(--brand)] bg-[var(--brand-light)] dark:bg-[var(--brand-subtle)] ring-1 ring-[var(--brand)]"
-                  : "card hover:border-neutral-300 dark:hover:border-neutral-700"
-              }`}
-            >
-              <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                  active ? "bg-[var(--brand)] text-white" : "bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-              </span>
-              <span
-                className={`text-sm font-medium ${active ? "text-[var(--brand)]" : "text-neutral-700 dark:text-neutral-300"}`}
-              >
-                {label}
-              </span>
-            </button>
-          );
-        })}
+        {goalPct !== null && (
+          <div className="mt-1.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-medium text-white/85">
+              <TrendingUp className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
+              {goalPct}% da meta de {formatCurrencyCompact(goalValue)} fechado no mês
+            </div>
+            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20">
+              <div className="h-full rounded-full bg-white/85" style={{ width: `${goalPct}%` }} />
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {pipelines.length > 1 && (
             <Select
               value={pipelineId}
@@ -255,6 +251,11 @@ export function PipelineView({
             <Upload className="h-4 w-4" strokeWidth={2} />
             Importar
           </button>
+          {canViewImportHistory && (
+            <button onClick={() => setImportHistoryOpen(true)} className="icon-btn" title="Histórico de importações">
+              <History className="h-4 w-4" strokeWidth={2} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -273,6 +274,8 @@ export function PipelineView({
           newDeal={newDeal}
           onNewDealConsumed={() => setNewDeal(null)}
           quickFilter={quickFilter}
+          onToggleQuickFilter={toggleQuickFilter}
+          onTotalsChange={setKanbanTotals}
         />
       ) : (
         <DealsList
@@ -291,6 +294,7 @@ export function PipelineView({
           canExport={isOwner}
           restoredDraft={restoredDraft}
           quickFilter={quickFilter}
+          onToggleQuickFilter={toggleQuickFilter}
         />
       )}
 
@@ -310,26 +314,20 @@ export function PipelineView({
       />
 
       {importOpen && (
-        <ImportDialog
-          title="Importar negócios"
-          hint="Arquivo .csv ou .xlsx com colunas: contato (obrigatório), whatsapp, telefone/celular (número 2, usado se o WhatsApp não funcionar), email, origem, negocio, valor, etapa, responsavel, tipo de credito."
-          endpoint="/api/deals/import"
-          extraFields={{ pipelineId }}
+        <DealImportDialog
+          pipelineId={pipelineId}
+          members={members}
+          stages={stages}
+          creditTypes={creditTypes}
           onClose={() => setImportOpen(false)}
           onImported={() => {
             router.refresh();
             setListaReloadToken((t) => t + 1);
           }}
-          renderSummary={(r) => {
-            const parts: string[] = [];
-            if (r.skipped > 0) parts.push(`${r.skipped} linhas ignoradas por falta de contato`);
-            if (r.stageFallbacks) parts.push(`${r.stageFallbacks} caíram na etapa padrão (texto da coluna 'etapa' não encontrado)`);
-            if (r.ownerFallbacks) parts.push(`${r.ownerFallbacks} caíram em responsável automático (texto da coluna 'responsavel' não encontrado)`);
-            if (r.valueParseFailures) parts.push(`${r.valueParseFailures} ficaram sem valor (não consegui ler o número)`);
-            return `${r.created} de ${r.total} negócios importados.${parts.length > 0 ? ` ${parts.join("; ")}.` : ""}`;
-          }}
         />
       )}
+
+      {importHistoryOpen && <ImportHistoryDialog onClose={() => setImportHistoryOpen(false)} />}
     </div>
   );
 }

@@ -32,13 +32,31 @@ export type CampaignAttributionRow = {
   whatsappMessagesOutbound: number;
   whatsappMessagesInbound: number;
   whatsappRespondedLeads: number;
+  /** Teve conversa iniciada no WhatsApp mas nunca respondeu nada (withWhatsappThread menos whatsappRespondedLeads) — não inclui quem nunca chegou a ter conversa iniciada. */
+  noResponseLeads: number;
+  /** Ao menos uma Activity tipo Reunião/Visita com outcome ATTENDED (ou sem outcome registrado — histórico anterior à essa coluna existir, ver ActivityMeetingOutcome no schema). */
+  meetingLeads: number;
+  /** Ao menos uma Activity tipo Reunião/Visita com outcome NO_SHOW — não é mutuamente exclusivo com meetingLeads (um lead pode ter levado um no-show e depois comparecido numa remarcação). */
+  noShowLeads: number;
   won: number;
   lost: number;
   open: number;
   wonValue: number;
 };
 
-export async function getMetaAdsAttribution(organizationId: string): Promise<CampaignAttributionRow[]> {
+/**
+ * `period`: filtra por Contact.createdAt (quando o LEAD entrou) — não pela
+ * data em que o negócio fechou. De propósito: um lead que chegou este mês e
+ * só fecha o próximo continua contando no mês em que CHEGOU (é o mês em que
+ * o gasto de anúncio que trouxe ele foi feito) — filtrar por data de
+ * fechamento em vez disso subcontaria conversão de lead recente, ainda em
+ * andamento. Sem `period`: comportamento de sempre, todo contato atribuído
+ * desde sempre.
+ */
+export async function getMetaAdsAttribution(
+  organizationId: string,
+  period?: { since: Date; until: Date },
+): Promise<CampaignAttributionRow[]> {
   const adSources = await prisma.leadSource.findMany({
     where: { organizationId, countsAsAd: true },
     select: { label: true },
@@ -49,6 +67,7 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
     where: {
       organizationId,
       OR: [{ metaCampaignId: { not: null } }, ...(adSourceLabels.length > 0 ? [{ source: { in: adSourceLabels } }] : [])],
+      ...(period ? { createdAt: { gte: period.since, lte: period.until } } : {}),
     },
     select: {
       id: true,
@@ -105,6 +124,29 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
     select: { contactId: true, status: true, value: true },
   });
 
+  // Reunião/visita já realizada (Activity, não Task — Task é o agendamento,
+  // Activity é o "aconteceu de fato", mesma fonte que o resto de Relatórios
+  // usa pro ranking de reuniões). Sem filtro de data aqui de propósito: um
+  // lead que entrou este mês mas só teve a reunião marcada semana que vem
+  // continua contando pra esse período (mesmo raciocínio do won/lost acima,
+  // não filtrar por closedAt). Busca TODAS as linhas (não só contactId
+  // distinct) porque precisa do outcome de cada uma pra separar
+  // compareceu/no-show — um contato pode ter mais de uma Activity dessas
+  // (ex.: no-show numa data, compareceu na remarcação).
+  const meetingActivities = await prisma.activity.findMany({
+    where: { organizationId, contactId: { in: contactIds }, type: { in: ["MEETING", "VISIT"] } },
+    select: { contactId: true, meetingOutcome: true },
+  });
+  const meetingContactIds = new Set<string>();
+  const noShowContactIds = new Set<string>();
+  for (const a of meetingActivities) {
+    if (!a.contactId) continue;
+    // null = histórico anterior à coluna existir — tratado como
+    // "compareceu" (ver comentário no schema), nunca como no-show.
+    if (a.meetingOutcome === "NO_SHOW") noShowContactIds.add(a.contactId);
+    else if (a.meetingOutcome !== "RESCHEDULED") meetingContactIds.add(a.contactId);
+  }
+
   const rows = new Map<string, CampaignAttributionRow>();
   for (const contact of contacts) {
     const campaign = campaignByContactId.get(contact.id)!;
@@ -121,6 +163,9 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
         whatsappMessagesOutbound: 0,
         whatsappMessagesInbound: 0,
         whatsappRespondedLeads: 0,
+        noResponseLeads: 0,
+        meetingLeads: 0,
+        noShowLeads: 0,
         won: 0,
         lost: 0,
         open: 0,
@@ -131,6 +176,8 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
     row.leads += 1;
     if (contact.leadQualification === "QUALIFIED") row.qualifiedLeads += 1;
     if (contact.leadQualification === "UNQUALIFIED") row.unqualifiedLeads += 1;
+    if (meetingContactIds.has(contact.id)) row.meetingLeads += 1;
+    if (noShowContactIds.has(contact.id)) row.noShowLeads += 1;
 
     const contactThreadIds = threadByContactId.get(contact.id) ?? [];
     let hasThreadWithInbound = false;
@@ -162,6 +209,14 @@ export async function getMetaAdsAttribution(organizationId: string): Promise<Cam
     } else {
       row.open += 1;
     }
+  }
+
+  // noResponseLeads é derivado (nunca acumulado direto no loop acima) —
+  // "teve conversa iniciada mas nunca respondeu nada", não "nunca teve
+  // conversa nenhuma" (esse último não é o mesmo problema: um é "sumiu", o
+  // outro é "nem foi abordado ainda").
+  for (const row of rows.values()) {
+    row.noResponseLeads = row.withWhatsappThread - row.whatsappRespondedLeads;
   }
 
   return Array.from(rows.values()).sort((a, b) => b.leads - a.leads);

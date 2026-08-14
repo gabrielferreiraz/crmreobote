@@ -1,70 +1,40 @@
 import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
-import { parseSpreadsheet, normalizeHeader } from "@/lib/parse-spreadsheet";
-import { buildDealName } from "@/lib/deal-name";
-import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
-import { parseBrazilianCurrency } from "@/lib/format";
+import { parseSpreadsheet } from "@/lib/parse-spreadsheet";
+import { brazilianMobileVariants } from "@/lib/phone-normalize";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
+import { resolveImportPlan, type ImportField } from "@/lib/deals/import-resolve";
+import { logAudit } from "@/lib/audit-log";
+import { getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const MAX_ROWS = 1000;
 
-const CONTACT_HEADERS = ["contato", "cliente", "nome do contato", "nome"];
-const PHONE_HEADERS = [
-  "telefone",
-  "celular",
-  "phone",
-  "fone",
-  "celular 2",
-  "celular2",
-  "telefone 2",
-  "telefone2",
-  "segundo celular",
-  "segundo telefone",
-];
-const WHATSAPP_HEADERS = ["whatsapp", "whats"];
-const EMAIL_HEADERS = ["email", "e-mail"];
-const SOURCE_HEADERS = ["origem", "source"];
-const DEAL_NAME_HEADERS = ["negocio", "nome do negocio", "titulo"];
-const VALUE_HEADERS = ["valor", "value"];
-const CREDIT_TYPE_HEADERS = ["tipo de credito", "tipo", "credittype"];
-const STAGE_HEADERS = ["etapa", "stage"];
-const OWNER_HEADERS = ["responsavel", "vendedor", "owner"];
-
-/** Resultado da resolução de contato de uma linha — ou já existe no banco, ou vai ser criado nesta importação. */
-type ContactRef =
-  | { kind: "existing"; id: string; name: string; source: string | null }
-  | { kind: "new"; pendingIndex: number; name: string; source: string | null };
-
-type PendingContact = {
-  name: string;
-  phone?: string;
-  whatsapp?: string;
-  email?: string;
-  source?: string;
-  phoneNormalized: string | null;
-  whatsappNormalized: string | null;
-};
-
 export async function POST(req: Request) {
-  const { organizationId, userId: sessionUserId } = await requireSession();
+  const { organizationId, userId: sessionUserId, session } = await requireSession();
   if (!organizationId || !sessionUserId)
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   const userId: string = sessionUserId;
+  const actorName = session?.user.name ?? session?.user.email ?? "?";
 
   // Cada chamada pode criar até MAX_ROWS negócios/contatos — sem limite de
   // quantas vezes por hora, dava pra inundar a organização de registros.
+  // Chave separada da prévia (ver preview/route.ts) — analisar um arquivo
+  // várias vezes ajustando o mapeamento de coluna não deveria gastar essa
+  // cota, só a gravação de verdade gasta.
   const rateLimited = rateLimitOrResponse(`import:${organizationId}`, 5, 60 * 60_000);
   if (rateLimited) return rateLimited;
 
   const formData = await req.formData();
   const file = formData.get("file");
   const pipelineId = formData.get("pipelineId");
+  const columnOverridesRaw = formData.get("columnOverrides");
+  const fieldDefaultsRaw = formData.get("fieldDefaults");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
@@ -75,6 +45,22 @@ export async function POST(req: Request) {
   if (file.size > MAX_FILE_SIZE) {
     return NextResponse.json({ error: "Arquivo maior que 5MB" }, { status: 400 });
   }
+  let columnOverrides: Partial<Record<ImportField, number>> | undefined;
+  if (typeof columnOverridesRaw === "string" && columnOverridesRaw) {
+    try {
+      columnOverrides = JSON.parse(columnOverridesRaw);
+    } catch {
+      return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
+    }
+  }
+  let fieldDefaults: Partial<Record<"owner" | "stage" | "source" | "creditType", string>> | undefined;
+  if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
+    try {
+      fieldDefaults = JSON.parse(fieldDefaultsRaw);
+    } catch {
+      return NextResponse.json({ error: "fieldDefaults inválido" }, { status: 400 });
+    }
+  }
 
   return runWithTenant(organizationId, async () => {
     const pipeline = await prisma.pipeline.findFirst({
@@ -84,7 +70,6 @@ export async function POST(req: Request) {
     if (!pipeline || pipeline.stages.length === 0) {
       return NextResponse.json({ error: "Pipeline inválido" }, { status: 400 });
     }
-    const defaultStageId = pipeline.stages[0].id;
 
     const buffer = Buffer.from(await file.arrayBuffer());
     let rows: string[][];
@@ -101,10 +86,7 @@ export async function POST(req: Request) {
     }
 
     if (rows.length < 2) {
-      return NextResponse.json(
-        { error: "Arquivo vazio ou sem linhas de dados" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Arquivo vazio ou sem linhas de dados" }, { status: 400 });
     }
 
     const totalDataRows = rows.length - 1;
@@ -114,38 +96,13 @@ export async function POST(req: Request) {
       // ia notar depois. Recusa e deixa claro quanto precisa cortar, em vez
       // de importar uma fração sem dizer.
       return NextResponse.json(
-        {
-          error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_ROWS}. Divida em arquivos menores e importe em partes.`,
-        },
+        { error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_ROWS}. Divida em arquivos menores e importe em partes.` },
         { status: 400 },
       );
     }
 
     const dataRows = rows.slice(1, 1 + MAX_ROWS);
-    const headerRow = rows[0].map(normalizeHeader);
-
-    function columnIndex(candidates: string[]) {
-      return headerRow.findIndex((h) => candidates.includes(h));
-    }
-
-    const contactIdx = columnIndex(CONTACT_HEADERS);
-    if (contactIdx === -1) {
-      return NextResponse.json(
-        { error: "Não encontrei uma coluna 'contato' ou 'nome' no arquivo" },
-        { status: 400 },
-      );
-    }
-    const phoneIdx = columnIndex(PHONE_HEADERS);
-    const whatsappIdx = columnIndex(WHATSAPP_HEADERS);
-    const emailIdx = columnIndex(EMAIL_HEADERS);
-    const sourceIdx = columnIndex(SOURCE_HEADERS);
-    const dealNameIdx = columnIndex(DEAL_NAME_HEADERS);
-    const valueIdx = columnIndex(VALUE_HEADERS);
-    const creditTypeIdx = columnIndex(CREDIT_TYPE_HEADERS);
-    const stageIdx = columnIndex(STAGE_HEADERS);
-    const ownerIdx = columnIndex(OWNER_HEADERS);
-
-    const cell = (row: string[], idx: number) => (idx === -1 ? "" : (row[idx] ?? "").trim());
+    const rawHeaderRow = rows[0];
 
     const [members, existingContacts, openLoads] = await Promise.all([
       prisma.organizationUser.findMany({
@@ -153,169 +110,132 @@ export async function POST(req: Request) {
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
       }),
+      // Só quem tem WhatsApp preenchido — é o único campo usado pra
+      // reconhecer contato já existente na importação (ver decisão em
+      // lib/deals/import-resolve.ts), Telefone/E-mail não entram nisso.
       prisma.contact.findMany({
-        where: {
-          organizationId,
-          OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }],
-        },
-        select: { id: true, name: true, source: true, phoneNormalized: true, whatsappNormalized: true },
+        where: { organizationId, whatsappNormalized: { not: null } },
+        select: { id: true, name: true, source: true, whatsappNormalized: true },
       }),
-      // Base pro rodízio de responsável (ver pickAutoOwner abaixo) — mesma
+      // Base pro rodízio de responsável (ver pickAutoOwner em lib/deals/import-resolve.ts) — mesma
       // lógica de lib/auto-assign.ts, só que resolvida uma vez em memória
       // pra todo o arquivo em vez de reconsultar o banco a cada linha.
       prisma.deal.groupBy({ by: ["ownerId"], where: { organizationId, status: "OPEN" }, _count: true }),
     ]);
 
-    const stageByName = new Map(pipeline.stages.map((s) => [normalizeHeader(s.name), s.id]));
-    const memberByName = new Map(members.map((m) => [normalizeHeader(m.user.name), m.user.id]));
-    const memberByEmail = new Map(members.map((m) => [m.user.email.toLowerCase(), m.user.id]));
+    // Contato que já tem negócio ABERTO nesse MESMO funil — ver
+    // ResolveImportInput.contactIdsWithOpenDeal em import-resolve.ts.
+    // Sem isso, reimportar a mesma planilha (ou uma planilha com um contato
+    // que já está em andamento) criava um segundo negócio duplicado pro
+    // mesmo lead, sem aviso nenhum. Sem filtrar por contactId IN (...) de
+    // propósito — numa organização com base grande de contatos, esse IN
+    // vinha com dezenas de milhares de parâmetros e estourava o limite de
+    // parâmetros do Postgres (P2029). Não precisa filtrar: o resultado só é
+    // usado como Set de consulta (ref.id in contactIdsWithOpenDeal),
+    // trazer contactId de deal aberto "a mais" (de contato que nem aparece
+    // nesta importação) é inofensivo, só sobra sem nunca ser consultado.
+    const openDealContacts = await prisma.deal.findMany({
+      where: { organizationId, pipelineId, status: "OPEN" },
+      select: { contactId: true },
+      distinct: ["contactId"],
+    });
 
-    const loadByUser = new Map<string, number>(openLoads.map((l) => [l.ownerId, l._count]));
-    function pickAutoOwner(): string {
-      if (members.length === 0) return userId;
-      let picked = members[0].userId;
-      let lowest = loadByUser.get(picked) ?? 0;
-      for (const m of members) {
-        const count = loadByUser.get(m.userId) ?? 0;
-        if (count < lowest) {
-          lowest = count;
-          picked = m.userId;
-        }
-      }
-      // Conta a partir daqui como se o negócio já tivesse sido criado, pra
-      // próxima linha sem responsável não cair na mesma pessoa de novo —
-      // mesmo efeito do reconsulta-a-cada-linha de antes, sem o round-trip.
-      loadByUser.set(picked, (loadByUser.get(picked) ?? 0) + 1);
-      return picked;
+    const plan = resolveImportPlan({
+      dataRows,
+      rawHeaderRow,
+      columnOverrides,
+      fieldDefaults,
+      stages: pipeline.stages,
+      members: members.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email })),
+      existingContacts,
+      contactIdsWithOpenDeal: new Set(openDealContacts.map((d) => d.contactId)),
+      openLoadByOwnerId: new Map(openLoads.map((l) => [l.ownerId, l._count])),
+      fallbackOwnerId: userId,
+      includeWrites: true,
+    });
+
+    if (plan.missingRequiredColumns.length > 0) {
+      return NextResponse.json(
+        { error: `Não encontrei a coluna obrigatória "${plan.missingRequiredColumns[0].label}" no arquivo` },
+        { status: 400 },
+      );
     }
 
-    // ─── Passo 1: resolve todo mundo em memória, sem escrever no banco ainda.
-    // Registra por VARIANTE (com/sem o 9º dígito do celular), não só pela
-    // chave exata — mesmo problema documentado em phone-normalize.ts's
-    // brazilianMobileVariants: uma linha da planilha com o número num formato
-    // de dígitos diferente do já salvo (ou de outra linha do mesmo arquivo)
-    // não reconhecia o mesmo contato e criava um segundo, duplicado.
-    const contactRefByNumber = new Map<string, ContactRef>();
-    function registerRef(normalized: string | null, ref: ContactRef) {
-      if (!normalized) return;
-      for (const variant of brazilianMobileVariants(normalized)) contactRefByNumber.set(variant, ref);
-    }
-    function lookupRef(normalized: string | null): ContactRef | undefined {
-      if (!normalized) return undefined;
-      for (const variant of brazilianMobileVariants(normalized)) {
-        const ref = contactRefByNumber.get(variant);
-        if (ref) return ref;
-      }
-      return undefined;
-    }
-
-    for (const c of existingContacts) {
-      const ref: ContactRef = { kind: "existing", id: c.id, name: c.name, source: c.source };
-      registerRef(c.phoneNormalized, ref);
-      registerRef(c.whatsappNormalized, ref);
-    }
-
-    const pendingNewContacts: PendingContact[] = [];
-    const rowContactRef: (ContactRef | null)[] = [];
-    let skipped = 0;
-
-    for (const row of dataRows) {
-      const contactName = cell(row, contactIdx);
-      if (!contactName) {
-        skipped += 1;
-        rowContactRef.push(null);
-        continue;
-      }
-
-      const phone = cell(row, phoneIdx) || undefined;
-      const whatsapp = cell(row, whatsappIdx) || undefined;
-      const email = cell(row, emailIdx) || undefined;
-      const source = cell(row, sourceIdx) || undefined;
-      const phoneNormalized = normalizePhoneNumber(phone);
-      const whatsappNormalized = normalizePhoneNumber(whatsapp);
-
-      let ref = lookupRef(phoneNormalized) ?? lookupRef(whatsappNormalized) ?? null;
-
-      if (!ref) {
-        const pendingIndex = pendingNewContacts.length;
-        pendingNewContacts.push({ name: contactName, phone, whatsapp, email, source, phoneNormalized, whatsappNormalized });
-        ref = { kind: "new", pendingIndex, name: contactName, source: source ?? null };
-        // Registra já como se existisse — uma linha seguinte com o mesmo
-        // telefone/whatsapp (em qualquer variante) reaproveita este contato
-        // em vez de duplicar.
-        registerRef(phoneNormalized, ref);
-        registerRef(whatsappNormalized, ref);
-      }
-      rowContactRef.push(ref);
-    }
-
-    // Conta quando o texto da planilha não bateu com nada conhecido e caiu
-    // no padrão em silêncio — sem isso, um "Proposta enviada" que não existe
-    // no funil (etapa certa é só "Proposta") joga a linha inteira na etapa
-    // default sem deixar rastro nenhum na resposta.
-    let stageFallbacks = 0;
-    let ownerFallbacks = 0;
-    let valueParseFailures = 0;
-
-    // ─── Passo 2: cria os contatos novos e os negócios em poucas instruções
-    // em lote (não uma por linha) — tudo numa transação real, então um erro
-    // no meio não deixa metade dos registros presos no banco.
-    const { createdCount: created, newContactsForThreadLink } = await prismaRaw.$transaction(async (tx) => {
+    const { pendingIndexToRealId, newContactsForThreadLink, importBatchId, actualCreated } = await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, organizationId);
 
+      // Rastro de auditoria (ver ImportBatch no schema) — na MESMA
+      // transação que cria os contatos/negócios: se algo falhar adiante e
+      // o rollback acontecer, o registro do lote também desfaz junto, nunca
+      // sobra um ImportBatch órfão apontando pra nada.
+      const batch = await tx.importBatch.create({
+        data: {
+          organizationId,
+          createdById: userId,
+          type: "deals",
+          fileName: file.name,
+          rowsTotal: plan.summary.totalRows,
+          rowsCreated: plan.summary.toCreate,
+          rowsSkipped: plan.summary.totalRows - plan.summary.toCreate,
+          // Cap de 500 — não guarda a lista inteira de 1000 linhas quando
+          // quase todas têm o mesmo aviso, só o suficiente pra "baixar
+          // planilha de erros" (ver /api/deals/import/[id]/errors) ser útil.
+          issueRows: plan.rows.filter((r) => r.issues.length > 0).slice(0, 500),
+        },
+      });
+
       const pendingIndexToRealId = new Map<number, string>();
+      const newContacts = plan.writes!.newContacts;
 
       // Contatos sem telefone/whatsapp nunca colidem (a constraint única é
       // só em cima desses dois campos) — createManyAndReturn devolve todo
       // mundo, na mesma ordem da entrada, sem risco de "sumir" nenhuma linha.
-      const withoutNumber = pendingNewContacts
-        .map((data, pendingIndex) => ({ data, pendingIndex }))
-        .filter((e) => !e.data.phoneNormalized && !e.data.whatsappNormalized);
+      const withoutNumber = newContacts.filter((c) => !c.phoneNormalized && !c.whatsappNormalized);
       if (withoutNumber.length > 0) {
-        const rows = await tx.contact.createManyAndReturn({
-          data: withoutNumber.map((e) => ({
+        const created = await tx.contact.createManyAndReturn({
+          data: withoutNumber.map((c) => ({
             organizationId,
-            name: e.data.name,
-            phone: e.data.phone,
-            whatsapp: e.data.whatsapp,
-            email: e.data.email,
-            source: e.data.source,
+            name: c.name,
+            phone: c.phone,
+            whatsapp: c.whatsapp,
+            email: c.email,
+            source: c.source,
+            importBatchId: batch.id,
           })),
         });
-        rows.forEach((r, i) => pendingIndexToRealId.set(withoutNumber[i].pendingIndex, r.id));
+        created.forEach((r, i) => pendingIndexToRealId.set(withoutNumber[i].pendingIndex, r.id));
       }
 
       // Contatos com telefone/whatsapp podem colidir com a constraint única
       // (concorrência com outra importação/cadastro rodando ao mesmo tempo,
       // fora do que já foi deduplicado em memória acima) — usa skipDuplicates
       // e recupera pelo próprio número quem entrou, sem depender de ordem.
-      const withNumber = pendingNewContacts
-        .map((data, pendingIndex) => ({ data, pendingIndex }))
-        .filter((e) => e.data.phoneNormalized || e.data.whatsappNormalized);
+      const withNumber = newContacts.filter((c) => c.phoneNormalized || c.whatsappNormalized);
       if (withNumber.length > 0) {
-        const rows = await tx.contact.createManyAndReturn({
-          data: withNumber.map((e) => ({
+        const created = await tx.contact.createManyAndReturn({
+          data: withNumber.map((c) => ({
             organizationId,
-            name: e.data.name,
-            phone: e.data.phone,
-            whatsapp: e.data.whatsapp,
-            email: e.data.email,
-            source: e.data.source,
-            phoneNormalized: e.data.phoneNormalized,
-            whatsappNormalized: e.data.whatsappNormalized,
+            name: c.name,
+            phone: c.phone,
+            whatsapp: c.whatsapp,
+            email: c.email,
+            source: c.source,
+            phoneNormalized: c.phoneNormalized,
+            whatsappNormalized: c.whatsappNormalized,
+            importBatchId: batch.id,
           })),
           skipDuplicates: true,
         });
         const idByNumber = new Map<string, string>();
-        for (const r of rows) {
+        for (const r of created) {
           if (r.phoneNormalized) for (const v of brazilianMobileVariants(r.phoneNormalized)) idByNumber.set(v, r.id);
           if (r.whatsappNormalized) for (const v of brazilianMobileVariants(r.whatsappNormalized)) idByNumber.set(v, r.id);
         }
-        const strays = withNumber.filter((e) => {
+        const strays = withNumber.filter((c) => {
           const id =
-            (e.data.phoneNormalized && brazilianMobileVariants(e.data.phoneNormalized).map((v) => idByNumber.get(v)).find(Boolean)) ??
-            (e.data.whatsappNormalized && brazilianMobileVariants(e.data.whatsappNormalized).map((v) => idByNumber.get(v)).find(Boolean));
-          if (id) pendingIndexToRealId.set(e.pendingIndex, id);
+            (c.phoneNormalized && brazilianMobileVariants(c.phoneNormalized).map((v) => idByNumber.get(v)).find(Boolean)) ??
+            (c.whatsappNormalized && brazilianMobileVariants(c.whatsappNormalized).map((v) => idByNumber.get(v)).find(Boolean));
+          if (id) pendingIndexToRealId.set(c.pendingIndex, id);
           return !id;
         });
         // Raríssimo (perdeu uma corrida de criação concorrente pro mesmo
@@ -327,40 +247,39 @@ export async function POST(req: Request) {
           const conflicting = await tx.contact.findMany({
             where: {
               organizationId,
-              OR: strays.flatMap((e) => [
-                ...(strayVariants(e.data.phoneNormalized).length
+              OR: strays.flatMap((c) => [
+                ...(strayVariants(c.phoneNormalized).length
                   ? [
-                      { phoneNormalized: { in: strayVariants(e.data.phoneNormalized) } },
-                      { whatsappNormalized: { in: strayVariants(e.data.phoneNormalized) } },
+                      { phoneNormalized: { in: strayVariants(c.phoneNormalized) } },
+                      { whatsappNormalized: { in: strayVariants(c.phoneNormalized) } },
                     ]
                   : []),
-                ...(strayVariants(e.data.whatsappNormalized).length
+                ...(strayVariants(c.whatsappNormalized).length
                   ? [
-                      { phoneNormalized: { in: strayVariants(e.data.whatsappNormalized) } },
-                      { whatsappNormalized: { in: strayVariants(e.data.whatsappNormalized) } },
+                      { phoneNormalized: { in: strayVariants(c.whatsappNormalized) } },
+                      { whatsappNormalized: { in: strayVariants(c.whatsappNormalized) } },
                     ]
                   : []),
               ]),
             },
           });
-          for (const e of strays) {
-            const phoneVariants = strayVariants(e.data.phoneNormalized);
-            const whatsappVariants = strayVariants(e.data.whatsappNormalized);
+          for (const c of strays) {
+            const phoneVariants = strayVariants(c.phoneNormalized);
+            const whatsappVariants = strayVariants(c.whatsappNormalized);
             const match = conflicting.find(
-              (c) =>
-                (c.phoneNormalized && (phoneVariants.includes(c.phoneNormalized) || whatsappVariants.includes(c.phoneNormalized))) ||
-                (c.whatsappNormalized && (phoneVariants.includes(c.whatsappNormalized) || whatsappVariants.includes(c.whatsappNormalized))),
+              (row) =>
+                (row.phoneNormalized && (phoneVariants.includes(row.phoneNormalized) || whatsappVariants.includes(row.phoneNormalized))) ||
+                (row.whatsappNormalized && (phoneVariants.includes(row.whatsappNormalized) || whatsappVariants.includes(row.whatsappNormalized))),
             );
-            if (match) pendingIndexToRealId.set(e.pendingIndex, match.id);
+            if (match) pendingIndexToRealId.set(c.pendingIndex, match.id);
           }
         }
       }
 
-      function resolveContactId(ref: ContactRef): string | undefined {
+      function resolveContactId(ref: { kind: "existing"; id: string } | { kind: "new"; pendingIndex: number }): string | undefined {
         return ref.kind === "existing" ? ref.id : pendingIndexToRealId.get(ref.pendingIndex);
       }
 
-      let createdCount = 0;
       const dealsData: {
         organizationId: string;
         pipelineId: string;
@@ -370,71 +289,63 @@ export async function POST(req: Request) {
         name: string;
         value?: number;
         creditType?: string;
+        importBatchId: string;
       }[] = [];
 
-      for (let i = 0; i < dataRows.length; i++) {
-        const ref = rowContactRef[i];
-        if (!ref) continue; // sem nome de contato — já contado em `skipped`
-        const contactId = resolveContactId(ref);
-        if (!contactId) {
-          skipped += 1;
-          continue;
-        }
-
-        const row = dataRows[i];
-        const stageNameRaw = cell(row, stageIdx);
-        let stageId = defaultStageId;
-        if (stageNameRaw) {
-          const matched = stageByName.get(normalizeHeader(stageNameRaw));
-          if (matched) {
-            stageId = matched;
-          } else {
-            stageFallbacks += 1;
-          }
-        }
-
-        const ownerNameRaw = cell(row, ownerIdx);
-        let ownerId = ownerNameRaw
-          ? (memberByEmail.get(ownerNameRaw.toLowerCase()) ?? memberByName.get(normalizeHeader(ownerNameRaw)))
-          : undefined;
-        if (!ownerId) {
-          if (ownerNameRaw) ownerFallbacks += 1;
-          ownerId = pickAutoOwner();
-        }
-
-        const valueRaw = cell(row, valueIdx);
-        const value = valueRaw ? parseBrazilianCurrency(valueRaw) : undefined;
-        if (valueRaw && value === undefined) valueParseFailures += 1;
-
-        const dealNameRaw = cell(row, dealNameIdx);
-        const name = dealNameRaw || buildDealName(ref.name, ref.source ?? undefined);
-
+      for (const dealPlan of plan.writes!.dealPlans) {
+        const ref = plan.writes!.rowContactRefs[dealPlan.rowIndex];
+        const contactId = ref ? resolveContactId(ref) : undefined;
+        if (!contactId) continue; // não deveria acontecer (linha já tinha ref resolvida) — defensivo
         dealsData.push({
           organizationId,
           pipelineId: pipeline.id,
-          stageId,
+          stageId: dealPlan.stageId,
           contactId,
-          ownerId,
-          name,
-          value,
-          creditType: cell(row, creditTypeIdx) || undefined,
+          ownerId: dealPlan.ownerId,
+          name: dealPlan.name,
+          value: dealPlan.value,
+          creditType: dealPlan.creditType,
+          importBatchId: batch.id,
         });
-        createdCount += 1;
       }
 
-      if (dealsData.length > 0) {
-        await tx.deal.createMany({ data: dealsData });
+      // Rede de segurança final: como o dedup de contato agora é só por
+      // WhatsApp (ver lib/deals/import-resolve.ts), duas linhas com o
+      // mesmo Telefone mas WhatsApp diferente/ausente são tratadas como
+      // dois contatos "novos" distintos na resolução em memória — mas
+      // Contact.phoneNormalized ainda tem constraint única no banco, então
+      // uma delas pode ter sido descartada (skipDuplicates acima) e as
+      // duas terem resolvido pro MESMO contactId real. Sem isso, viraria 2
+      // negócios pro mesmo contato. Mantém a 1ª ocorrência de cada
+      // contactId, descarta o resto — mesmo espírito da guarda de
+      // duplicidade da resolução, só que na verdade final pós-criação.
+      const seenContactIds = new Set<string>();
+      const dealsToCreate = dealsData.filter((d) => {
+        if (seenContactIds.has(d.contactId)) return false;
+        seenContactIds.add(d.contactId);
+        return true;
+      });
+
+      if (dealsToCreate.length > 0) {
+        await tx.deal.createMany({ data: dealsToCreate });
+      }
+      // Se a rede de segurança acima descartou alguma linha, o rowsCreated
+      // gravado no início (calculado antes de saber que ia colidir) ficou
+      // otimista demais — corrige pra bater com o que realmente foi criado.
+      const actualCreated = dealsToCreate.length;
+      if (actualCreated !== plan.summary.toCreate) {
+        await tx.importBatch.update({ where: { id: batch.id }, data: { rowsCreated: actualCreated, rowsSkipped: plan.summary.totalRows - actualCreated } });
       }
 
       // Pra promover conversas de WhatsApp avulsas depois da transação (ver
       // chamada abaixo) — mesmo comportamento que toda outra rota que cria
       // Contact já tem (cadastro manual, importação de contatos, API
-      // externa), só que a importação de negócios nunca fazia essa ligação.
-      const newContactsForThreadLink = pendingNewContacts
-        .map((data, pendingIndex) => ({ data, id: pendingIndexToRealId.get(pendingIndex) }))
-        .filter((e): e is { data: PendingContact; id: string } => !!e.id);
+      // externa).
+      const newContactsForThreadLink = newContacts
+        .map((c) => ({ data: c, id: pendingIndexToRealId.get(c.pendingIndex) }))
+        .filter((e): e is { data: (typeof newContacts)[number]; id: string } => !!e.id);
 
-      return { createdCount, newContactsForThreadLink };
+      return { pendingIndexToRealId, newContactsForThreadLink, importBatchId: batch.id, actualCreated };
     });
 
     // Fora da transação de propósito — não precisa ser atômico com a
@@ -446,13 +357,34 @@ export async function POST(req: Request) {
       }
     }
 
+    logAudit({
+      organizationId,
+      actorUserId: userId,
+      actorName,
+      action: "DEALS_IMPORTED",
+      targetType: "ImportBatch",
+      targetId: importBatchId,
+      detail: `${file.name} — ${actualCreated} de ${plan.summary.totalRows} negócios criados`,
+      ip: getClientIp(req),
+    }).catch((err) => console.error("[audit-log] falha ao registrar DEALS_IMPORTED", err));
+
     return NextResponse.json({
-      total: dataRows.length,
-      created,
-      skipped,
-      stageFallbacks,
-      ownerFallbacks,
-      valueParseFailures,
+      total: plan.summary.totalRows,
+      created: actualCreated,
+      skipped: plan.summary.totalRows - actualCreated,
+      newContacts: plan.summary.newContacts,
+      existingContactsMatched: plan.summary.existingContactsMatched,
+      duplicateDeals: plan.summary.duplicateDeals,
+      skippedNoContact: plan.summary.skippedNoContact,
+      stageFallbacks: plan.summary.stageFallbacks,
+      ownerFallbacks: plan.summary.ownerFallbacks,
+      valueParseFailures: plan.summary.valueParseFailures,
+      importBatchId,
+      // Linhas com problema, pra quem quiser conferir o que exatamente não
+      // bateu — antes só existia a contagem agregada (ver revisão que
+      // motivou essa mudança). Cap de 200 pra não estourar o payload numa
+      // importação de 1000 linhas todas com o mesmo aviso.
+      issueRows: plan.rows.filter((r) => r.issues.length > 0).slice(0, 200),
     });
   });
 }

@@ -54,15 +54,15 @@ export function ContactTabs({
 
   return (
     <div>
-      <div className="relative mb-4 flex w-full max-w-[300px] rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
+      <div className="relative mb-4 flex w-full max-w-[320px] rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
         <div
-          className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-out dark:bg-neutral-900"
+          className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-spring dark:bg-neutral-900"
           style={{ transform: tab === "info" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
         />
         <button
           type="button"
           onClick={() => setTab("deals")}
-          className={`relative z-10 flex-1 rounded px-3 py-1.5 text-sm font-medium transition-colors active:scale-[0.97] ${
+          className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors active:scale-[0.97] ${
             tab === "deals" ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"
           }`}
         >
@@ -71,7 +71,7 @@ export function ContactTabs({
         <button
           type="button"
           onClick={() => setTab("info")}
-          className={`relative z-10 flex-1 rounded px-3 py-1.5 text-sm font-medium transition-colors active:scale-[0.97] ${
+          className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors active:scale-[0.97] ${
             tab === "info" ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"
           }`}
         >
@@ -80,7 +80,7 @@ export function ContactTabs({
       </div>
 
       {tab === "deals" ? (
-        <div className="space-y-2">
+        <div className="animate-bubble-in space-y-2">
           {deals.length === 0 ? (
             <div className="card">
               <EmptyState icon={Inbox} title="Nenhum negócio vinculado" />
@@ -107,7 +107,7 @@ export function ContactTabs({
           )}
         </div>
       ) : (
-        <div className="card max-w-lg space-y-2 p-4 text-sm">
+        <div className="card animate-bubble-in max-w-xl space-y-2 p-4 text-sm">
           {infoRows.map((row) => (
             <Row key={row.label} label={row.label} value={row.value} />
           ))}

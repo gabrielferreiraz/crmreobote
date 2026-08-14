@@ -23,15 +23,16 @@ export type ScheduleMessageTask = {
   };
 };
 
-// Mesmo motivo de meeting-invite-dialog.tsx: força horário de Brasília
-// explicitamente, senão usa o fuso do NAVEGADOR de quem está vendo a tela.
+// Mesmo motivo de meeting-invite-dialog.tsx: força o horário local da
+// operação (Campo Grande/MS) explicitamente, senão usa o fuso do NAVEGADOR
+// de quem está vendo a tela.
 function formatDateTime(d: Date): string {
   return d.toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "America/Sao_Paulo",
+    timeZone: "America/Campo_Grande",
   });
 }
 
@@ -172,8 +173,8 @@ export function ScheduleMessageDialog({
           <AnimatedCheck className="h-10 w-10 text-emerald-500" justDrawn />
           <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
             Mensagem programada! Vai sair pro WhatsApp de {task.contact.name} dia{" "}
-            {dueAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" })} às{" "}
-            {dueAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}.
+            {dueAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Campo_Grande" })} às{" "}
+            {dueAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })}.
           </p>
         </div>
       )}

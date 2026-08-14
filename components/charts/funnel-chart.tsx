@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { formatCurrency } from "@/lib/format";
 
-type FunnelStage = { id: string; label: string; count: number; value: number; color?: string | null };
+/** `value`/`unit` opcionais — quando ausentes, a linha some (nem toda etapa
+ * de todo funil tem um valor em R$ que faça sentido mostrar, ex.: "Leads"
+ * de um funil de anúncio) ou usa "neg." como antes (compatível com o uso já
+ * existente, que sempre é negócio do pipeline). */
+type FunnelStage = { id: string; label: string; count: number; value?: number; unit?: string; color?: string | null };
 
 /** Barras cinza semitransparentes na forma de um funil decrescente — ocupa o
  * mesmo espaço físico que o gráfico populado teria, em vez de um ícone com
@@ -93,8 +97,10 @@ export function FunnelChart({ stages }: { stages: FunnelStage[] }) {
                 />
               </div>
               <div className="w-24 shrink-0 text-right text-xs tabular-nums whitespace-nowrap text-neutral-500 dark:text-neutral-400 sm:w-32">
-                <p className={isHovered ? "font-semibold text-neutral-900 dark:text-neutral-100" : ""}>{stage.count} neg.</p>
-                <p>{formatCurrency(stage.value)}</p>
+                <p className={isHovered ? "font-semibold text-neutral-900 dark:text-neutral-100" : ""}>
+                  {stage.count} {stage.unit ?? "neg."}
+                </p>
+                {stage.value !== undefined && <p>{formatCurrency(stage.value)}</p>}
               </div>
             </div>
           </div>

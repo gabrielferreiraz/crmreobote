@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
-import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES } from "@/lib/activity-icons";
+import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
 import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
@@ -50,6 +50,7 @@ type Activity = {
   type: string;
   body: string | null;
   createdAt: string | Date;
+  meetingOutcome: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | null;
   user: { name: string; photoUrl: string | null };
 };
 
@@ -134,7 +135,20 @@ function ActivityItem({ activity, highlighted }: { activity: Activity; highlight
         <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
-        {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
+        <div className="flex items-start justify-between gap-2">
+          {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
+          {activity.meetingOutcome && activity.meetingOutcome !== "ATTENDED" && (
+            <span
+              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                activity.meetingOutcome === "NO_SHOW"
+                  ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
+                  : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+              }`}
+            >
+              {MEETING_OUTCOME_OPTIONS.find((o) => o.value === activity.meetingOutcome)?.label}
+            </span>
+          )}
+        </div>
         <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
           <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
           {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
@@ -188,6 +202,11 @@ export function DealDetail({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
+  // Só pedido (e só mandado pro servidor) quando activeTab é Reunião/Visita
+  // — ver seletor perto do botão "Registrar". Default "compareceu" de
+  // propósito: é o caso mais comum, minimiza clique pra quem só quer
+  // registrar rápido; quem precisa marcar diferente muda antes de enviar.
+  const [meetingOutcome, setMeetingOutcome] = useState<"ATTENDED" | "NO_SHOW" | "RESCHEDULED">("ATTENDED");
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
   const [wonDialogOpen, setWonDialogOpen] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
@@ -454,10 +473,15 @@ export function DealDetail({
     if (!body.trim()) return;
     setSaving(true);
 
+    const isMeetingOrVisit = activeTab === "MEETING" || activeTab === "VISIT";
     await fetch(`/api/deals/${deal.id}/activities`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: activeTab, activityBody: body }),
+      body: JSON.stringify({
+        type: activeTab,
+        activityBody: body,
+        ...(isMeetingOrVisit ? { meetingOutcome } : {}),
+      }),
     });
 
     if (dueDate) {
@@ -654,6 +678,23 @@ export function DealDetail({
                   className="absolute top-1.5 right-1.5"
                 />
               </div>
+              {(activeTab === "MEETING" || activeTab === "VISIT") && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
+                  {MEETING_OUTCOME_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setMeetingOutcome(opt.value)}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                        meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex items-end justify-between gap-3">
                 <div className="flex gap-2">
                   <div className="space-y-1">
@@ -951,12 +992,12 @@ export function DealDetail({
       <div className="lg:hidden">
         <div className="relative mb-3 flex w-full max-w-[240px] rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
           <div
-            className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-out dark:bg-neutral-900"
+            className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-spring dark:bg-neutral-900"
             style={{ transform: mobileTab === "details" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
           />
           <button
             onClick={() => setMobileTab("activities")}
-            className={`relative z-10 flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
+            className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium transition-colors active:scale-[0.97] ${
               mobileTab === "activities"
                 ? "text-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 dark:text-neutral-400"
@@ -966,7 +1007,7 @@ export function DealDetail({
           </button>
           <button
             onClick={() => setMobileTab("details")}
-            className={`relative z-10 flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
+            className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium transition-colors active:scale-[0.97] ${
               mobileTab === "details"
                 ? "text-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 dark:text-neutral-400"
@@ -977,7 +1018,7 @@ export function DealDetail({
         </div>
 
         {mobileTab === "activities" ? (
-          <div className="space-y-4">
+          <div className="animate-bubble-in space-y-4">
             <div className="card p-4">
               <div className="mb-3 flex gap-1 overflow-x-auto">
                 {ACTIVITY_TABS.map((tab) => (
@@ -1009,6 +1050,23 @@ export function DealDetail({
                     className="absolute top-1.5 right-1.5"
                   />
                 </div>
+                {(activeTab === "MEETING" || activeTab === "VISIT") && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
+                    {MEETING_OUTCOME_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setMeetingOutcome(opt.value)}
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                          meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="space-y-1">
                     <label className="text-xs text-neutral-500 dark:text-neutral-400">Prazo</label>
@@ -1047,7 +1105,7 @@ export function DealDetail({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="animate-bubble-in space-y-4">
             <DealValueCard value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
 
             {!chatOpen && whatsappThreadId && (

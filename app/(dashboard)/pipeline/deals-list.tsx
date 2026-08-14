@@ -8,6 +8,7 @@ import { formatCurrency, daysSince } from "@/lib/format";
 import { STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
 import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfDay } from "@/lib/timezone";
 import type { PipelineQuickFilter } from "./pipeline-filters";
+import { PipelineQuickFilterButtons } from "./pipeline-quick-filter-buttons";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
@@ -66,6 +67,7 @@ export function DealsList({
   canExport,
   restoredDraft,
   quickFilter,
+  onToggleQuickFilter,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
@@ -86,6 +88,9 @@ export function DealsList({
   restoredDraft: BulkSendDraft | null;
   /** Filtro rápido único elevado pra pipeline-view.tsx (ver pipeline-filters.ts) — mesmo que o Kanban usa, sincronizado com a URL. */
   quickFilter: PipelineQuickFilter | null;
+  /** Alterna o filtro rápido único — botões Ação hoje/Sem tarefa/Parados +14d
+   * na fileira de busca (ver JSX abaixo), mesmo componente que o Kanban usa. */
+  onToggleQuickFilter: (value: PipelineQuickFilter) => void;
 }) {
   const router = useRouter();
 
@@ -744,6 +749,7 @@ export function DealsList({
             />
           </div>
         </FilterPopover>
+        <PipelineQuickFilterButtons quickFilter={quickFilter} onToggle={onToggleQuickFilter} />
         {canExport && (
           <a href={`/api/deals/export?${buildFilterParams().toString()}`} className="btn-secondary btn-sm" title="Exporta só os negócios que batem com a busca e os filtros atuais">
             <Download className="h-3.5 w-3.5" strokeWidth={2} />

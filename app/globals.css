@@ -231,8 +231,12 @@ body {
   }
 }
 
+/* --ease-spring aqui (não --ease-smooth): é a entrada mais repetida do
+   sistema inteiro (todo Select, DatePicker, FilterPopover, UserMenu,
+   NotificationBell...) — um pouco de "estica além e volta" nesse único
+   lugar já muda a sensação de "menu nativo" em toda tela do app de uma vez. */
 .animate-pop-in {
-  animation: pop-in 150ms var(--ease-smooth);
+  animation: pop-in 180ms var(--ease-spring);
   transform-origin: top right;
 }
 
@@ -240,7 +244,7 @@ body {
    esquerda do gatilho (ex.: emoji/anexo do composer de WhatsApp, que fica
    colado na barra de digitar embaixo da tela). */
 .animate-pop-in-bottom {
-  animation: pop-in 150ms var(--ease-smooth);
+  animation: pop-in 180ms var(--ease-spring);
   transform-origin: bottom left;
 }
 
@@ -615,8 +619,17 @@ input[type="radio"] {
 
 @layer components {
   .btn-primary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-all duration-200 ease-smooth shadow-sm hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white shadow-sm hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm;
     background: var(--brand-gradient);
+    /* Cor/sombra continuam na curva "smooth" de sempre — só o transform
+       (o "tato" do toque: sobe no hover, afunda um pouco no clique) ganha
+       a curva "spring" (estica um pouco além e volta), o mesmo exagero
+       controlado do botão de fechar negócio na TV — é o que faz um botão
+       "responder" ao toque em vez de só desligar/ligar um estado. */
+    transition:
+      filter 200ms var(--ease-smooth),
+      box-shadow 200ms var(--ease-smooth),
+      transform 200ms var(--ease-spring);
   }
 
   /* filter: brightness (não um 2º gradiente escrito por extenso) — mais
@@ -630,11 +643,20 @@ input[type="radio"] {
   }
 
   .btn-secondary {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition-all duration-200 ease-smooth shadow-sm hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 shadow-sm hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800;
+    transition:
+      border-color 200ms var(--ease-smooth),
+      background-color 200ms var(--ease-smooth),
+      box-shadow 200ms var(--ease-smooth),
+      transform 200ms var(--ease-spring);
   }
 
   .btn-ghost {
-    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 transition-all duration-200 ease-smooth hover:bg-brand-light hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:text-neutral-400 dark:hover:bg-brand-light dark:hover:text-brand;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-neutral-500 hover:bg-brand-light hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] dark:text-neutral-400 dark:hover:bg-brand-light dark:hover:text-brand;
+    transition:
+      background-color 200ms var(--ease-smooth),
+      color 200ms var(--ease-smooth),
+      transform 200ms var(--ease-spring);
   }
 
   .btn-sm {
@@ -754,7 +776,11 @@ input[type="radio"] {
   }
 
   .icon-btn {
-    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-all duration-200 ease-smooth hover:bg-neutral-100 hover:text-neutral-700 active:scale-90 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 active:scale-90 active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
+    transition:
+      background-color 200ms var(--ease-smooth),
+      color 200ms var(--ease-smooth),
+      transform 150ms var(--ease-spring);
   }
 
   /* Pílula de variável inserida no meio do texto (ver components/variable-input.tsx)

@@ -2,20 +2,22 @@
 
 import { useEffect, useState } from "react";
 
-// Sempre horário de Brasília, não o fuso de onde quer que o servidor rode —
-// mesmo raciocínio de lib/timezone.ts pro resto do app, só que formatado
-// direto aqui (client-only, não precisa de cálculo de boundary de dia, só
-// de exibição).
+// Sempre o horário local da operação (Campo Grande/MS, America/Campo_Grande,
+// UTC-4), não o fuso de onde quer que o servidor rode e NÃO
+// "America/Sao_Paulo" — são fusos diferentes (SP é UTC-3), usar o de SP aqui
+// deixava o relógio da TV 1h adiantado. Mesmo raciocínio de lib/timezone.ts
+// pro resto do app, só que formatado direto aqui (client-only, não precisa
+// de cálculo de boundary de dia, só de exibição).
 const TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
   hour: "2-digit",
   minute: "2-digit",
-  timeZone: "America/Sao_Paulo",
+  timeZone: "America/Campo_Grande",
 });
 const DATE_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
   weekday: "long",
   day: "2-digit",
   month: "long",
-  timeZone: "America/Sao_Paulo",
+  timeZone: "America/Campo_Grande",
 });
 
 /**

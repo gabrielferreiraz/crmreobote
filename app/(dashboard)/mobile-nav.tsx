@@ -115,7 +115,18 @@ export function MobileNav({
         </Link>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-200/60 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg dark:border-white/10 dark:bg-neutral-900/80 lg:hidden">
+      {/* id estável — kanban-board.tsx mede a altura real desta barra (via
+          getBoundingClientRect) pra descontar do cálculo de altura da
+          fileira do Kanban no celular. Sem isso, a fileira era medida até
+          window.innerHeight puro, ignorando essa barra fixa por cima do
+          conteúdo, e o fim de cada coluna ficava parcialmente escondido
+          atrás dela. Em telas lg+ (onde esta barra some via lg:hidden), o
+          elemento ainda existe no DOM só sem renderizar — getBoundingClientRect
+          já retorna altura 0 sozinho, não precisa de tratamento especial. */}
+      <nav
+        id="mobile-bottom-nav"
+        className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-200/60 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg dark:border-white/10 dark:bg-neutral-900/80 lg:hidden"
+      >
         {primaryItems.map((item) => {
           const isActive = item.exact
             ? pathname === item.href

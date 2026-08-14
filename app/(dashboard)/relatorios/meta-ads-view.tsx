@@ -1,22 +1,20 @@
 import Link from "next/link";
-import { Megaphone, MessageCircle, MessageSquare, PenLine, ThumbsDown, ThumbsUp, Trophy, Wallet } from "lucide-react";
+import { Megaphone, MessagesSquare, ThumbsDown, Users, CalendarCheck, CalendarX, Trophy, TrendingUp, Wallet } from "lucide-react";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getMetaAdsAttribution, type CampaignAttributionRow } from "@/lib/meta-ads/attribution";
-import {
-  getAdSpendSummary,
-  getAdCampaignBreakdown,
-  AD_SPEND_PERIODS,
-  type AdSpendSummary,
-  type AdCampaignBreakdown,
-  type AdSpendPeriodKey,
-} from "@/lib/meta-ads/insights";
+import { getAdSpendSummary, type AdSpendSummary } from "@/lib/meta-ads/insights";
+import { getCampaignPerformance, type CampaignPerformance, type CampaignPerformanceRow } from "@/lib/meta-ads/performance";
 import { CampaignBreakdownTable } from "./campaign-breakdown-table";
+import { DateRangeFilter } from "./date-range-filter";
+import { buildQuickRanges } from "@/lib/date-ranges";
 import { formatCurrency } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
+import { FunnelChart } from "@/components/charts/funnel-chart";
+import { DonutChart } from "@/components/charts/donut-chart";
 
-// Os dois tipos de resultado (resumo por período e detalhamento por
-// campanha/anúncio) usam o mesmo formato de erro — mesma mensagem serve
-// pros dois (ver AdSpendCards e AdBreakdownSection abaixo).
+// Os dois tipos de resultado (resumo de gasto por período e o cruzamento
+// gasto×funil por campanha) usam o mesmo formato de erro — mesma mensagem
+// serve pros dois (ver AdSpendCards abaixo; o cruzamento tem seu próprio
+// tratamento porque o motivo "no_data" não existe pro resumo de gasto).
 const SPEND_ERROR_MESSAGE: Record<"not_connected" | "token_missing" | "no_ad_account" | "error", string> = {
   not_connected: "Conecte o Meta Ads em Configurações → Integrações pra ver o gasto aqui.",
   token_missing: "Essa conexão é de antes do resumo de gasto existir — reconecte em Configurações → Integrações.",
@@ -24,53 +22,8 @@ const SPEND_ERROR_MESSAGE: Record<"not_connected" | "token_missing" | "no_ad_acc
   error: "Não foi possível consultar o gasto no Facebook agora — tente de novo em alguns minutos.",
 };
 
-const DEFAULT_BREAKDOWN_PERIOD: AdSpendPeriodKey = "month";
-
-function isValidPeriodKey(value: string | undefined): value is AdSpendPeriodKey {
-  return AD_SPEND_PERIODS.some((p) => p.key === value);
-}
-
-/** Detalhamento por campanha (com anúncios aninhados) do período escolhido — período trocado via link (?breakdownPeriod=...), sem JS nenhum pra isso, só a tabela em si (expandir/colapsar campanha) é client. */
-function AdBreakdownSection({ breakdown, activePeriod }: { breakdown: AdCampaignBreakdown; activePeriod: AdSpendPeriodKey }) {
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-          <Megaphone className="h-3.5 w-3.5" strokeWidth={2} />
-          Detalhamento por campanha e anúncio
-        </div>
-        <div className="flex gap-1">
-          {AD_SPEND_PERIODS.map((p) => (
-            <Link
-              key={p.key}
-              href={`/relatorios?view=facebook&breakdownPeriod=${p.key}`}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-200 ease-smooth ${
-                p.key === activePeriod
-                  ? "bg-brand text-white"
-                  : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-              }`}
-            >
-              {p.label}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {!breakdown.ok ? (
-        <div className="card flex items-center gap-2 p-4 text-sm text-neutral-500 dark:text-neutral-400">
-          <Megaphone className="h-4 w-4 shrink-0" strokeWidth={2} />
-          <span>
-            {SPEND_ERROR_MESSAGE[breakdown.reason]}
-            {breakdown.reason === "error" && breakdown.message ? ` (${breakdown.message})` : ""}
-          </span>
-        </div>
-      ) : (
-        <div className="card overflow-x-auto p-0">
-          <CampaignBreakdownTable campaigns={breakdown.campaigns} />
-        </div>
-      )}
-    </div>
-  );
+function rate(part: number, total: number): number {
+  return total > 0 ? (part / total) * 100 : 0;
 }
 
 /** Cards de gasto/leads/CPL por período (ver lib/meta-ads/insights.ts) — falha soft: se a Insights API não responder, mostra um aviso em vez de derrubar o resto do relatório. */
@@ -117,28 +70,259 @@ function AdSpendCards({ summary }: { summary: AdSpendSummary }) {
   );
 }
 
-function rate(part: number, total: number): number {
-  return total > 0 ? (part / total) * 100 : 0;
-}
-
-function funnelSummary(rows: CampaignAttributionRow[]) {
+/**
+ * Soma os totais de todas as campanhas do período pra virar os 6 cards do
+ * topo — custo/lead, custo/reunião, custo/venda e ROI são recalculados a
+ * partir dos TOTAIS agregados aqui, não a média das razões por campanha
+ * (média de razão engana quando as campanhas têm tamanhos bem diferentes;
+ * total sobre total não).
+ */
+function aggregatePerformance(rows: CampaignPerformanceRow[]) {
   const agg = rows.reduce(
     (acc, r) => ({
+      spend: acc.spend + (r.spend ?? 0),
+      hasSpend: acc.hasSpend || r.spend != null,
       leads: acc.leads + r.leads,
-      withWhatsappThread: acc.withWhatsappThread + r.withWhatsappThread,
-      whatsappRespondedLeads: acc.whatsappRespondedLeads + r.whatsappRespondedLeads,
       qualifiedLeads: acc.qualifiedLeads + r.qualifiedLeads,
+      unqualifiedLeads: acc.unqualifiedLeads + r.unqualifiedLeads,
+      noResponseLeads: acc.noResponseLeads + r.noResponseLeads,
+      meetingLeads: acc.meetingLeads + r.meetingLeads,
+      noShowLeads: acc.noShowLeads + r.noShowLeads,
       won: acc.won + r.won,
       wonValue: acc.wonValue + r.wonValue,
     }),
-    { leads: 0, withWhatsappThread: 0, whatsappRespondedLeads: 0, qualifiedLeads: 0, won: 0, wonValue: 0 },
+    {
+      spend: 0,
+      hasSpend: false,
+      leads: 0,
+      qualifiedLeads: 0,
+      unqualifiedLeads: 0,
+      noResponseLeads: 0,
+      meetingLeads: 0,
+      noShowLeads: 0,
+      won: 0,
+      wonValue: 0,
+    },
   );
-  return agg;
+  const spend = agg.hasSpend ? agg.spend : null;
+  return {
+    ...agg,
+    spend,
+    costPerLead: spend != null && agg.leads > 0 ? spend / agg.leads : null,
+    costPerMeeting: spend != null && agg.meetingLeads > 0 ? spend / agg.meetingLeads : null,
+    costPerWon: spend != null && agg.won > 0 ? spend / agg.won : null,
+    roi: spend != null && spend > 0 ? (agg.wonValue - spend) / spend : null,
+  };
 }
 
 /**
- * Aba "Facebook" de Relatórios — leads recebidos via formulário nativo do
- * Facebook/Instagram, agrupados por campanha (mesma ideia de
+ * Cards de resumo do período — hierarquia em duas camadas em vez dos 7 com o
+ * mesmo peso visual de antes: 4 números que decidem se a campanha vale a
+ * pena (Leads → Reunião/Visita → Vendas, o funil de dinheiro em si, + ROI)
+ * em destaque; 3 números de diagnóstico (por que um lead NÃO virou venda)
+ * menores e discretos logo abaixo — pra bater o olho no que importa primeiro.
+ */
+function PerformanceSummaryCards({ agg }: { agg: ReturnType<typeof aggregatePerformance> }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="card space-y-1 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <Megaphone className="h-3.5 w-3.5" />
+            Leads
+          </div>
+          <div className="text-3xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{agg.leads}</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+            {agg.costPerLead != null ? `${formatCurrency(agg.costPerLead)}/lead` : "sem dado de gasto"}
+          </div>
+        </div>
+        <div className="card space-y-1 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <CalendarCheck className="h-3.5 w-3.5" />
+            Reunião/Visita
+          </div>
+          <div className="text-3xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{agg.meetingLeads}</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+            {agg.costPerMeeting != null ? `${formatCurrency(agg.costPerMeeting)}/reunião` : "sem dado de gasto"}
+          </div>
+        </div>
+        <div className="card space-y-1 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <Trophy className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+            Vendas
+          </div>
+          <div className="text-3xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{agg.won}</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+            {agg.costPerWon != null ? `${formatCurrency(agg.costPerWon)}/venda` : "sem dado de gasto"}
+          </div>
+        </div>
+        <div className="card space-y-1 p-4">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <TrendingUp className="h-3.5 w-3.5" />
+            ROI
+          </div>
+          {agg.roi != null ? (
+            <div className={`text-3xl font-semibold tabular-nums ${agg.roi >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+              {agg.roi >= 0 ? "+" : ""}
+              {(agg.roi * 100).toFixed(0)}%
+            </div>
+          ) : (
+            <div className="text-3xl font-semibold text-neutral-400 dark:text-neutral-500">—</div>
+          )}
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+            {formatCurrency(agg.wonValue)} ganho{agg.spend != null ? ` · ${formatCurrency(agg.spend)} gasto` : ""}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/30">
+          <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <ThumbsDown className="h-3 w-3" />
+            Desqualificados
+          </div>
+          <div className="mt-0.5 text-lg font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{agg.unqualifiedLeads}</div>
+          <div className="text-[11px] text-neutral-400 dark:text-neutral-500">{rate(agg.unqualifiedLeads, agg.leads).toFixed(0)}% dos leads</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/30">
+          <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <MessagesSquare className="h-3 w-3" />
+            Não responderam
+          </div>
+          <div className="mt-0.5 text-lg font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{agg.noResponseLeads}</div>
+          <div className="text-[11px] text-neutral-400 dark:text-neutral-500">tiveram conversa iniciada, ficaram em silêncio</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/30">
+          <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <CalendarX className="h-3 w-3" />
+            No-show
+          </div>
+          <div
+            className={`mt-0.5 text-lg font-semibold tabular-nums ${agg.noShowLeads > 0 ? "text-red-600 dark:text-red-400" : "text-neutral-700 dark:text-neutral-300"}`}
+          >
+            {agg.noShowLeads}
+          </div>
+          <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
+            {rate(agg.noShowLeads, agg.meetingLeads + agg.noShowLeads).toFixed(0)}% dos encontros marcados
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Duas leituras complementares dos mesmos leads: progressão (funil — quantos
+ * avançam etapa a etapa, onde a maior parte "vaza") e composição (rosca —
+ * dos leads já classificados, quantos são bons ou ruins). Uma NÃO re-soma a
+ * outra de propósito: qualificação e reunião/resposta são classificações
+ * independentes no CRM (ver notas no rodapé da página), então tratar tudo
+ * como uma única jornada linear fingiria uma relação que os números não têm.
+ */
+function LeadFunnelOverview({ agg }: { agg: ReturnType<typeof aggregatePerformance> }) {
+  const notClassified = Math.max(0, agg.leads - agg.qualifiedLeads - agg.unqualifiedLeads);
+
+  return (
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="card space-y-3 p-4">
+        <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Funil de conversão</p>
+        <FunnelChart
+          stages={[
+            { id: "leads", label: "Leads", count: agg.leads, unit: "leads", color: "#a1a1aa" },
+            { id: "qualified", label: "Qualificados", count: agg.qualifiedLeads, unit: "leads", color: "#818cf8" },
+            { id: "meeting", label: "Reunião/Visita", count: agg.meetingLeads, unit: "leads", color: "#6366f1" },
+            { id: "won", label: "Vendas", count: agg.won, value: agg.wonValue, unit: "vendas", color: "#10b981" },
+          ]}
+        />
+      </div>
+      <div className="card space-y-3 p-4">
+        <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Classificação dos leads</p>
+        {agg.leads > 0 ? (
+          <DonutChart
+            centerValue={String(agg.leads)}
+            centerLabel={agg.leads === 1 ? "lead" : "leads"}
+            slices={[
+              { label: "Qualificados", value: agg.qualifiedLeads, color: "#10b981" },
+              { label: "Desqualificados", value: agg.unqualifiedLeads, color: "#ef4444" },
+              { label: "Não classificados ainda", value: notClassified, color: "#d4d4d8" },
+            ]}
+          />
+        ) : (
+          <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">Sem leads nesse período.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Tabela de desempenho por campanha (gasto × funil, anúncios aninhados) do
+ * período escolhido — mesmo filtro de período (?from=&to=) do resto de
+ * Relatórios (ver date-range-filter.tsx): atalhos de mês + calendário
+ * personalizado, em vez dos 4 botões fixos (Hoje/Últimos 7 dias/Este mês/
+ * Este ano) de antes. DateRangeFilter é client e lê a URL sozinho — não
+ * precisa de prop nenhuma vinda daqui. */
+function PerformanceSection({ performance }: { performance: CampaignPerformance }) {
+  // Calculado uma vez só aqui (quando há dados) — LeadFunnelOverview e
+  // PerformanceSummaryCards leem os mesmos totais em vez de cada um agregar
+  // performance.rows de novo por conta própria.
+  const agg = performance.ok ? aggregatePerformance(performance.rows) : null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+          <Users className="h-3.5 w-3.5" strokeWidth={2} />
+          Desempenho por campanha e anúncio
+        </div>
+        <DateRangeFilter />
+      </div>
+
+      {!performance.ok || !agg ? (
+        <div className="card">
+          <EmptyState
+            icon={Megaphone}
+            title="Nenhum lead de anúncio nesse período"
+            description="Assim que um formulário nativo do Facebook/Instagram gerar um lead (ou um contato antigo for marcado com uma Origem de anúncio), ele aparece aqui agrupado por campanha."
+          />
+        </div>
+      ) : (
+        <>
+          <LeadFunnelOverview agg={agg} />
+          <PerformanceSummaryCards agg={agg} />
+          {performance.spendFetchError ? (
+            // Diferente de "nunca conectado" abaixo — a conexão existe, só a
+            // chamada à Insights API falhou dessa vez (rate limit, token
+            // expirado, instabilidade da Meta). Sem isso, o usuário via as
+            // mesmas colunas de custo vazias de uma campanha manual e não
+            // tinha como saber que era uma falha temporária, não o esperado.
+            <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <Wallet className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+              {SPEND_ERROR_MESSAGE.error} ({performance.spendFetchError})
+            </p>
+          ) : (
+            !performance.spendConnected && (
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Sem conexão de gasto ativa — as colunas de custo/ROI ficam vazias até você conectar (ou reconectar) o Meta Ads em{" "}
+                <Link href="/configuracoes/integracoes" className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
+                  Configurações → Integrações
+                </Link>
+                .
+              </p>
+            )
+          )}
+          <div className="card overflow-x-auto p-0">
+            <CampaignBreakdownTable rows={performance.rows} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Aba "Facebook" de Relatórios — gasto cruzado com o funil de leads
+ * (qualificação, resposta no WhatsApp, reunião/visita, venda), por
+ * campanha e por anúncio, pro período escolhido (mesma ideia de
  * AdminReportsView: Server Component auto-contido, busca os próprios dados,
  * chamado direto de relatorios/page.tsx sem passar props). Antes vivia
  * sozinho em /relatorios/meta-ads sem nenhum link pra ele em lugar nenhum do
@@ -146,20 +330,28 @@ function funnelSummary(rows: CampaignAttributionRow[]) {
  */
 export async function MetaAdsReportView({
   organizationId,
-  breakdownPeriod,
+  from,
+  to,
 }: {
   organizationId: string;
-  breakdownPeriod?: string;
+  /** "YYYY-MM-DD" (calendário de Brasília), vindo de ?from=&to= — mesmo
+   * parâmetro de URL que o resto de Relatórios usa (ver date-range-filter.tsx).
+   * Só usa o range da URL quando os DOIS vierem preenchidos (é como
+   * DateRangeFilter sempre define os dois juntos, nunca um sozinho); faltando
+   * qualquer um dos dois, cai em "este mês" — mesmo padrão-de-quem-nunca-
+   * escolheu-nada que a aba Comercial já usa (ver lib/reports/commercial-data.ts). */
+  from?: string;
+  to?: string;
 }) {
-  const activePeriod = isValidPeriodKey(breakdownPeriod) ? breakdownPeriod : DEFAULT_BREAKDOWN_PERIOD;
+  const thisMonth = buildQuickRanges().find((q) => q.key === "this-month")!.range();
+  const since = from && to ? from : thisMonth.from;
+  const until = from && to ? to : thisMonth.to;
 
   return runWithTenant(organizationId, async () => {
-    const [rows, adSpendSummary, adBreakdown] = await Promise.all([
-      getMetaAdsAttribution(organizationId),
+    const [adSpendSummary, performance] = await Promise.all([
       getAdSpendSummary(organizationId),
-      getAdCampaignBreakdown(organizationId, activePeriod),
+      getCampaignPerformance(organizationId, { since, until }),
     ]);
-    const summary = funnelSummary(rows);
 
     return (
       <div className="space-y-6 lg:space-y-8">
@@ -169,165 +361,26 @@ export async function MetaAdsReportView({
               Funil de Leads do Facebook Ads
             </h1>
             <p className="mt-1 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
-              Leads recebidos via formulário nativo do Facebook/Instagram, agrupados por campanha — mais os
-              marcados manualmente como anúncio pela Origem (ver Configurações → Origens). Acompanhe a jornada
-              completa: formulário → WhatsApp → resposta → qualificação → venda.
+              Leads recebidos via formulário nativo do Facebook/Instagram — mais os marcados manualmente como
+              anúncio pela Origem (ver Configurações → Origens) — cruzados com gasto, qualificação, resposta no
+              WhatsApp, reunião/visita e venda.
             </p>
           </div>
         </div>
 
         <AdSpendCards summary={adSpendSummary} />
 
-        <AdBreakdownSection breakdown={adBreakdown} activePeriod={activePeriod} />
+        <PerformanceSection performance={performance} />
 
-        {rows.length === 0 ? (
-          <div className="card">
-            <EmptyState
-              icon={Megaphone}
-              title="Nenhum lead de anúncio ainda"
-              description="Assim que um formulário nativo do Facebook/Instagram gerar um lead, ele aparece aqui agrupado por campanha. Confira em Configurações → Integrações se o Meta Ads já está conectado."
-            />
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              <div className="card space-y-1 p-4">
-                <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                  <Megaphone className="h-3.5 w-3.5" />
-                  Leads recebidos
-                </div>
-                <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{summary.leads}</div>
-              </div>
-              <div className="card space-y-1 p-4">
-                <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  Conversa aberta no WhatsApp
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{summary.withWhatsappThread}</div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400">{rate(summary.withWhatsappThread, summary.leads).toFixed(1)}%</div>
-                </div>
-              </div>
-              <div className="card space-y-1 p-4">
-                <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  Leads que responderam
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{summary.whatsappRespondedLeads}</div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400">{rate(summary.whatsappRespondedLeads, summary.withWhatsappThread).toFixed(1)}%</div>
-                </div>
-              </div>
-              <div className="card space-y-1 p-4">
-                <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                  <ThumbsUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Leads qualificados
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <div className="text-2xl font-semibold text-emerald-700 dark:text-emerald-400">{summary.qualifiedLeads}</div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400">{rate(summary.qualifiedLeads, summary.leads).toFixed(1)}%</div>
-                </div>
-              </div>
-              <div className="card space-y-1 p-4">
-                <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                  <Trophy className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  Negócios ganhos
-                </div>
-                <div className="flex flex-col">
-                  <div className="flex items-baseline gap-2">
-                    <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{summary.won}</div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400">{rate(summary.won, summary.leads).toFixed(1)}%</div>
-                  </div>
-                  <div className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{formatCurrency(summary.wonValue)}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card overflow-x-auto p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-100 text-left text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                    <th className="px-3 py-2.5 font-medium">Campanha</th>
-                    <th className="px-3 py-2.5 font-medium">Leads</th>
-                    <th className="px-3 py-2.5 font-medium">WhatsApp</th>
-                    <th className="px-3 py-2.5 font-medium">Respondidos</th>
-                    <th className="px-3 py-2.5 font-medium">Mensagens ↔</th>
-                    <th className="px-3 py-2.5 font-medium">Qualificado</th>
-                    <th className="px-3 py-2.5 font-medium">Desqualificado</th>
-                    <th className="px-3 py-2.5 font-medium">Ganhos</th>
-                    <th className="px-3 py-2.5 font-medium">Perdidos</th>
-                    <th className="px-3 py-2.5 font-medium">Andamento</th>
-                    <th className="px-3 py-2.5 font-medium">% venda</th>
-                    <th className="px-3 py-2.5 font-medium">Valor ganho</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const conversionRate = rate(row.won, row.leads);
-                    const responseRate = rate(row.whatsappRespondedLeads, row.withWhatsappThread);
-                    const qualifyRate = rate(row.qualifiedLeads, row.leads);
-                    return (
-                      <tr key={row.campaignId} className="border-b border-neutral-50 last:border-0 dark:border-neutral-900 align-top">
-                        <td className="px-3 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
-                          {row.campaignName}
-                          {row.isManual && (
-                            <span
-                              title="Atribuição manual — Origem marcada como anúncio, não veio pelo formulário nativo do Facebook/Instagram"
-                              className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-neutral-100 px-1.5 py-0.5 align-middle text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-                            >
-                              <PenLine className="h-2.5 w-2.5" strokeWidth={2} />
-                              manual
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-neutral-700 dark:text-neutral-300">{row.leads}</td>
-                        <td className="px-3 py-2.5 text-neutral-600 dark:text-neutral-400">
-                          <span className="font-medium text-neutral-800 dark:text-neutral-200">{row.withWhatsappThread}</span>
-                          <span className="block text-[11px] text-neutral-500 dark:text-neutral-500">{rate(row.withWhatsappThread, row.leads).toFixed(1)}% dos leads</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-neutral-600 dark:text-neutral-400">
-                          <span className="font-medium text-neutral-800 dark:text-neutral-200">{row.whatsappRespondedLeads}</span>
-                          <span className="block text-[11px] text-neutral-500 dark:text-neutral-500">{responseRate.toFixed(1)}% dos contatos</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                          <span className="text-emerald-600 dark:text-emerald-400">↓ {row.whatsappMessagesInbound}</span>
-                          <span className="mx-1 text-neutral-300 dark:text-neutral-700">/</span>
-                          <span className="text-blue-600 dark:text-blue-400">↑ {row.whatsappMessagesOutbound}</span>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[12px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20">
-                            <ThumbsUp className="h-3 w-3" />
-                            {row.qualifiedLeads}
-                          </span>
-                          <span className="block text-[11px] text-neutral-500 dark:text-neutral-500 mt-0.5">{qualifyRate.toFixed(1)}% dos leads</span>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-[12px] font-medium text-neutral-700 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700">
-                            <ThumbsDown className="h-3 w-3" />
-                            {row.unqualifiedLeads}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-emerald-600 dark:text-emerald-400 font-medium">{row.won}</td>
-                        <td className="px-3 py-2.5 text-red-600 dark:text-red-400">{row.lost}</td>
-                        <td className="px-3 py-2.5 text-neutral-500 dark:text-neutral-400">{row.open}</td>
-                        <td className="px-3 py-2.5 text-neutral-700 dark:text-neutral-300 font-medium">{conversionRate.toFixed(1)}%</td>
-                        <td className="px-3 py-2.5 text-neutral-700 dark:text-neutral-300 font-medium">{formatCurrency(row.wonValue)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="card p-4 text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
-              <div>• <strong className="text-neutral-700 dark:text-neutral-300">WhatsApp:</strong> quantos leads possuem ao menos uma conversa aberta no WhatsApp (thread vinculada).</div>
-              <div>• <strong className="text-neutral-700 dark:text-neutral-300">Respondidos:</strong> quantos leads únicos receberam ao menos uma mensagem de retorno INBOUND no WhatsApp.</div>
-              <div>• <strong className="text-neutral-700 dark:text-neutral-300">Mensagens ↔:</strong> total de mensagens recebidas (↓) e enviadas (↑) para todos os leads da campanha.</div>
-              <div>• <strong className="text-neutral-700 dark:text-neutral-300">Qualificado/Desqualificado:</strong> classificação manual aplicada na página do negócio. Só "Qualificado" dispara um evento &quot;Lead&quot; para a Conversions API da Meta (se a conexão Meta Ads estiver ativa) — "Desqualificado" fica só neste relatório, nunca é enviado pra Meta.</div>
-              <div>• <strong className="text-neutral-700 dark:text-neutral-300">manual:</strong> campanha não veio de um lead real do Facebook/Instagram — é um agrupamento pela Origem do contato, marcada como anúncio em Configurações → Origens (útil pra lead antigo ou que chegou por outro caminho).</div>
-            </div>
-          </>
-        )}
+        <div className="card p-4 text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Período:</strong> conta pela data em que o LEAD chegou, não pela data em que fechou — um lead que chegou este mês e só vira venda mês que vem continua contando neste mês (é quando o gasto que trouxe ele foi feito).</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Não responderam:</strong> teve conversa de WhatsApp iniciada mas nunca respondeu nada — não inclui quem nunca chegou a ser contatado.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Reunião/Visita:</strong> ao menos um encontro marcado como "Compareceu" (ver seletor ao registrar Reunião/Visita na página do negócio) — sem resposta registrada (histórico anterior a essa opção existir) também conta aqui, nunca como no-show.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">No-show:</strong> ao menos um encontro marcado como "Não compareceu". Não é o oposto de Reunião/Visita — um lead pode ter levado um no-show numa data e comparecido na remarcação, contando nos dois.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Qualificado/Desqualificado:</strong> classificação manual na página do negócio. Só "Qualificado" dispara um evento &quot;Lead&quot; pra Conversions API da Meta — "Desqualificado" fica só neste relatório.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">ROI:</strong> (valor ganho − gasto) ÷ gasto, no período. Sem dado de gasto (campanha manual, ou Meta Ads não conectado), fica sem número em vez de mostrar 0%.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">manual:</strong> campanha sem lead real do Facebook/Instagram — é um agrupamento pela Origem do contato marcada como anúncio, sem gasto associado (a Meta não sabe que ela existe).</div>
+        </div>
       </div>
     );
   });

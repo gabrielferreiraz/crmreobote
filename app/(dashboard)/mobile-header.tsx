@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CommandPalette } from "@/components/command-palette";
 import { NotificationBell } from "@/components/notification-bell";
-import { Avatar } from "@/components/avatar";
+import { UserMenu } from "@/components/user-menu";
 
 const SECTION_NAMES: { match: (p: string) => boolean; label: string }[] = [
   { match: (p) => p === "/", label: "Início" },
@@ -22,7 +22,17 @@ const SECTION_NAMES: { match: (p: string) => boolean; label: string }[] = [
  * na barra inferior (mobile-nav.tsx); aqui só sobra o essencial: marca,
  * busca e o que precisa estar sempre à mão (avisos, perfil).
  */
-export function MobileHeader({ photoUrl, name }: { photoUrl: string | null; name: string }) {
+export function MobileHeader({
+  photoUrl,
+  name,
+  email,
+  signOutAction,
+}: {
+  photoUrl: string | null;
+  name: string;
+  email: string;
+  signOutAction: () => Promise<void>;
+}) {
   const pathname = usePathname();
   const section = SECTION_NAMES.find((s) => s.match(pathname));
 
@@ -45,9 +55,9 @@ export function MobileHeader({ photoUrl, name }: { photoUrl: string | null; name
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <CommandPalette compact />
         <NotificationBell />
-        <Link href="/configuracoes/perfil" aria-label="Perfil" className="ml-1">
-          <Avatar name={name} src={photoUrl} size="sm" />
-        </Link>
+        <div className="ml-1">
+          <UserMenu name={name} email={email} photoUrl={photoUrl} signOutAction={signOutAction} />
+        </div>
       </div>
     </header>
   );
