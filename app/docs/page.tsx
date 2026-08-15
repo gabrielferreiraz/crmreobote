@@ -18,6 +18,8 @@ const NAV_ITEMS = [
   { id: "contatos", label: "Contatos" },
   { id: "contatos-lote", label: "Contatos (lote)" },
   { id: "negocios", label: "Negócios" },
+  { id: "disponibilidade", label: "Disponibilidade" },
+  { id: "agendamento", label: "Agendamento" },
   { id: "webhooks", label: "Webhooks de saída" },
   { id: "assinatura", label: "Validando a assinatura" },
 ];
@@ -111,6 +113,12 @@ export default function DocsPage() {
               </li>
               <li>
                 <Code>POST /api/v1/deals</Code>: 30 requisições/minuto por chave.
+              </li>
+              <li>
+                <Code>GET /api/v1/availability</Code>: 60 requisições/minuto por chave.
+              </li>
+              <li>
+                <Code>POST /api/v1/appointments</Code>: 30 requisições/minuto por chave.
               </li>
             </ul>
             <P>
@@ -403,6 +411,144 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
     "stage": { "id": "cm...", "name": "Novo lead" }
   }
 }`}</CodeBlock>
+          </Section>
+
+          <Section
+            id="disponibilidade"
+            title="Disponibilidade"
+            endpoint={{ method: "GET", path: "/api/v1/availability" }}
+          >
+            <P>
+              Grade de horários pra agendar reunião com um consultor — pensado pra última etapa de um formulário de
+              captação de leads (ex.: landing page de anúncios) antes de <Code>POST /api/v1/appointments</Code>.
+            </P>
+            <P>
+              <strong className="font-medium">5 horários fixos por dia útil</strong> (segunda a sexta), de 1h30 em
+              1h30 a partir das 08:30 — <Code>08:30</Code>, <Code>10:00</Code>, <Code>11:30</Code>, <Code>13:00</Code>,{" "}
+              <Code>14:30</Code>. A reunião em si costuma durar só 20-30min; o resto do intervalo é folga do
+              consultor pra prospectar outros leads ou absorver um no-show. Timezone:{" "}
+              <Code>America/Campo_Grande</Code> (fuso de Mato Grosso do Sul, UTC-4 —{" "}
+              <strong className="font-medium">não</strong> é o mesmo fuso de São Paulo/UTC-3, mesmo os dois sendo
+              &quot;horário do Brasil&quot;; todo horário devolvido pela API já está nesse fuso).
+            </P>
+            <P>
+              <strong className="font-medium">Como funciona a cascata de dias:</strong> a API nunca oferece o mesmo
+              dia — a regra de negócio é reduzir no-show, então o lead só marca pro{" "}
+              <strong className="font-medium">próximo dia útil</strong>. Ela sempre olha primeiro pro próximo dia
+              útil a partir de agora; se esse dia já não tem mais nenhum dos 5 horários livres (todos ocupados ou em
+              conflito), ela passa pro dia útil seguinte, e assim por diante, até achar um dia com pelo menos 1
+              horário livre — <strong className="font-medium">só esse dia é devolvido, nunca mais de um por
+              chamada</strong>. Se o formulário demorar muito pra ser preenchido, chame este endpoint de novo antes
+              de reservar: a grade pode ter mudado.
+            </P>
+            <P>
+              Um horário é considerado ocupado se já existe uma reunião reservada pra aquele consultor naquele exato
+              horário — nesta API, ou marcada direto no Google Agenda dele, quando ele tem uma conta conectada
+              (Perfil → Google Agenda).
+            </P>
+            <SubHeading>Request</SubHeading>
+            <CodeBlock lang="http">{`GET /api/v1/availability?consultorId=cm...
+Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
+            <P>
+              <Code>consultorId</Code> é o <Code>id</Code> do consultor — mesmo <Code>id</Code> de{" "}
+              <a href="#membros" className="underline underline-offset-2">
+                Membros do time
+              </a>
+              , precisa ser um usuário ativo desta organização.
+            </P>
+            <SubHeading>Response</SubHeading>
+            <CodeBlock lang="json">{`{
+  "success": true,
+  "data": {
+    "consultorId": "cm...",
+    "date": "2026-08-17",
+    "timezone": "America/Campo_Grande",
+    "slots": [
+      { "time": "08:30", "available": true },
+      { "time": "10:00", "available": false },
+      { "time": "11:30", "available": true },
+      { "time": "13:00", "available": true },
+      { "time": "14:30", "available": true }
+    ],
+    "googleCalendarConnected": true
+  }
+}`}</CodeBlock>
+            <P>
+              <Code>googleCalendarConnected: false</Code> significa que o consultor ainda não conectou o Google
+              Agenda dele no CRM — os horários mostrados continuam válidos (checados só contra as reuniões já
+              marcadas por aqui), só não levam em conta compromissos que ele tenha marcado direto no Google.
+            </P>
+            <P>
+              <strong className="font-medium">Erros:</strong> <Code>401</Code> (chave inválida/revogada),{" "}
+              <Code>404</Code> (<Code>consultorId</Code> não existe ou não pertence a esta organização).
+            </P>
+          </Section>
+
+          <Section id="agendamento" title="Agendamento" endpoint={{ method: "POST", path: "/api/v1/appointments" }}>
+            <P>
+              Reserva um dos horários devolvidos por{" "}
+              <a href="#disponibilidade" className="underline underline-offset-2">
+                Disponibilidade
+              </a>
+              . Assim como <Code>/api/v1/deals</Code>, aceita <Code>contactId</Code> (contato já existente){" "}
+              <strong className="font-medium">ou</strong> <Code>contact</Code> (mesmo formato de{" "}
+              <Code>/api/v1/contacts</Code> — cria/atualiza o contato na mesma chamada). <Code>dealId</Code> é
+              opcional — se vier, a reunião fica vinculada a esse negócio.
+            </P>
+            <P>
+              <Code>date</Code>/<Code>time</Code> são <strong className="font-medium">revalidados no servidor</strong>{" "}
+              — a API nunca confia que um horário que apareceu como <Code>available: true</Code> num <Code>GET</Code>{" "}
+              anterior ainda está livre agora (dois leads podem escolher o mesmo horário ao mesmo tempo). Se o
+              horário não estiver mais livre no momento da reserva, a resposta é <Code>409</Code> com{" "}
+              <Code>error: &quot;slot_unavailable&quot;</Code> — chame <Code>GET /api/v1/availability</Code> de novo
+              pra pegar a grade atualizada e deixe o lead escolher outro horário.
+            </P>
+            <SubHeading>Request</SubHeading>
+            <CodeBlock lang="json">{`{
+  "consultorId": "cm...",
+  "date": "2026-08-17",
+  "time": "08:30",
+  "contact": { "name": "Maria Silva", "phone": "67991234567", "source": "Facebook Ads" }
+}`}</CodeBlock>
+            <SubHeading>
+              Response (<Code>201</Code>)
+            </SubHeading>
+            <CodeBlock lang="json">{`{
+  "success": true,
+  "data": {
+    "taskId": "cm...",
+    "contactId": "cm...",
+    "dealId": null,
+    "scheduledAt": "2026-08-17T12:30:00.000Z",
+    "googleCalendarSynced": true
+  }
+}`}</CodeBlock>
+            <P>
+              <Code>scheduledAt</Code> vem em UTC (<Code>Z</Code>), igual todo outro timestamp desta API —{" "}
+              <Code>12:30:00.000Z</Code> é exatamente <Code>08:30</Code> em <Code>America/Campo_Grande</Code>{" "}
+              (UTC-4). <Code>googleCalendarSynced: false</Code> significa que a reunião foi reservada normalmente
+              (<Code>taskId</Code> sempre é retornado), mas não deu pra criar o evento no Google Agenda do consultor
+              nessa hora (token revogado, API do Google fora do ar, ou o consultor não tem conexão) — a reserva{" "}
+              <strong className="font-medium">não é perdida</strong> por causa disso, só não aparece
+              automaticamente no Google dele.
+            </P>
+            <P>
+              <strong className="font-medium">Erros:</strong>
+            </P>
+            <ul className="list-disc space-y-1.5 pl-5 text-sm text-neutral-600 dark:text-neutral-300">
+              <li>
+                <Code>400</Code> — corpo inválido, <Code>date</Code>/<Code>time</Code> fora da grade (ou anteriores
+                ao próximo dia útil), <Code>consultorId</Code>/<Code>contactId</Code>/<Code>dealId</Code> mal
+                formados.
+              </li>
+              <li>
+                <Code>404</Code> — <Code>consultorId</Code> não existe ou não pertence a esta organização.
+              </li>
+              <li>
+                <Code>409</Code> com <Code>error: &quot;slot_unavailable&quot;</Code> — o horário escolhido não está
+                mais livre; peça a grade de novo.
+              </li>
+            </ul>
           </Section>
 
           <Section id="webhooks" title="Webhooks de saída">
