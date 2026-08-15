@@ -359,10 +359,12 @@ export async function fetchDealsList(
     skip?: number;
     take: number;
     sortDir?: "asc" | "desc";
-    /** "value"/"stale" = Valor/Parado do redesign (orderBy trivial);
+    /** "value"/"date" = Valor/Data, clicáveis no cabeçalho da tabela (ver
+     * deals-list.tsx) — os dois respeitam `sortDir`. "stale" = Parado do
+     * redesign (sempre mais tempo parado primeiro, não tem sentido inverter);
      * "urgency" = Urgência (ver fetchDealsRawByUrgency); ausente = ordenação
      * padrão de sempre (stageEnteredAt, respeitando sortDir). */
-    sort?: "value" | "stale" | "urgency";
+    sort?: "value" | "date" | "stale" | "urgency";
   },
 ): Promise<EnrichedDeal[]> {
   const { organizationId, skip = 0, take, sortDir = "desc", sort } = params;
@@ -375,10 +377,12 @@ export async function fetchDealsList(
           select: DEAL_LIST_SELECT,
           orderBy:
             sort === "value"
-              ? { value: "desc" }
-              : sort === "stale"
-                ? { stageEnteredAt: "asc" } // mais tempo parado primeiro
-                : { stageEnteredAt: sortDir }, // padrão de sempre — sortDir chegava até aqui mas nunca era aplicado (bug pré-existente, corrigido de passagem)
+              ? { value: sortDir }
+              : sort === "date"
+                ? { createdAt: sortDir } // mesma coluna "Data" da tabela sempre mostra pra negócio aberto; ganho/perdido usa closedAt na exibição, mas ordenar por criação continua um critério estável e previsível pros dois casos
+                : sort === "stale"
+                  ? { stageEnteredAt: "asc" } // mais tempo parado primeiro
+                  : { stageEnteredAt: sortDir }, // padrão de sempre — sortDir chegava até aqui mas nunca era aplicado (bug pré-existente, corrigido de passagem)
           skip,
           take,
         });

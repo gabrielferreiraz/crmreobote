@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2, Download } from "lucide-react";
+import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2, Download, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
 import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfDay } from "@/lib/timezone";
@@ -113,9 +113,31 @@ export function DealsList({
   const [originFilter, setOriginFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [noValueOnly, setNoValueOnly] = useState(false);
-  // Valor/Parado/Urgência (mesmo sort do Kanban, ver kanban-board.tsx) — não
-  // sincronizado com a URL de propósito, mesmo raciocínio de lá.
-  const [sort, setSort] = useState<"" | "value" | "stale" | "urgency">("");
+  // Valor/Data/Parado/Urgência (Valor/Parado/Urgência = mesmo sort do
+  // Kanban, ver kanban-board.tsx; Data é só desta Lista, clicável no
+  // cabeçalho da tabela) — não sincronizado com a URL de propósito, mesmo
+  // raciocínio de lá.
+  const [sort, setSort] = useState<"" | "value" | "date" | "stale" | "urgency">("");
+  // Só tem efeito de verdade quando `sort` é "value" ou "date" (os dois
+  // clicáveis no cabeçalho) — "stale"/"urgency" sempre ordenam do mesmo
+  // jeito fixo, e sem sort nenhum ainda define a direção do padrão
+  // (stageEnteredAt), ver fetchDealsList.
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  /** Clique no cabeçalho "Data"/"Valor": 1º clique ordena descendente
+   * (mais novo/maior primeiro — o que a maioria procura primeiro), clique
+   * de novo na MESMA coluna inverte a direção. Clicar numa coluna diferente
+   * troca de coluna já começando descendente, não herda a direção da
+   * anterior. */
+  function toggleColumnSort(column: "value" | "date") {
+    if (sort === column) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSort(column);
+      setSortDir("desc");
+    }
+    setPage(1);
+  }
 
   // "Eu" sempre em primeiro no filtro de Responsável.
   const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
@@ -167,6 +189,7 @@ export function DealsList({
     if (closedTo) params.set("closedTo", brazilEndOfDayUTC(closedTo).toISOString());
     if (noValueOnly) params.set("noValue", "1");
     if (sort) params.set("sort", sort);
+    if (sortDir !== "desc") params.set("sortDir", sortDir);
     // Filtro rápido único elevado pra pipeline-view.tsx (ver pipeline-filters.ts)
     // — mesma tradução que o Kanban já faz (kanban-board.tsx), pro card
     // "Exige ação" do Início linkar direto pra uma Lista já pré-filtrada.
@@ -238,6 +261,7 @@ export function DealsList({
     closedTo,
     noValueOnly,
     sort,
+    sortDir,
     quickFilter,
     reloadToken,
   ]);
@@ -269,7 +293,8 @@ export function DealsList({
     !!closedFrom ||
     !!closedTo ||
     noValueOnly ||
-    !!sort;
+    !!sort ||
+    sortDir !== "desc";
 
   function clearFilters() {
     setStatusFilter("OPEN");
@@ -287,6 +312,7 @@ export function DealsList({
     setClosedTo("");
     setNoValueOnly(false);
     setSort("");
+    setSortDir("desc");
     setPage(1);
   }
 
@@ -341,12 +367,13 @@ export function DealsList({
   // restoreFilters acima (já existiam pro round-trip de "+ Criar script"),
   // só acrescenta pageSize (que aquele par não guarda, por não precisar pra
   // esse outro uso). Ver lib/use-persisted-filters.ts.
-  usePersistedFilters("pipeline-lista", { ...captureFilters(), pageSize, noValueOnly, sort }, (saved) => {
-    const { pageSize: savedPageSize, noValueOnly: savedNoValueOnly, sort: savedSort, ...filterFields } = saved;
+  usePersistedFilters("pipeline-lista", { ...captureFilters(), pageSize, noValueOnly, sort, sortDir }, (saved) => {
+    const { pageSize: savedPageSize, noValueOnly: savedNoValueOnly, sort: savedSort, sortDir: savedSortDir, ...filterFields } = saved;
     restoreFilters(filterFields as Record<string, string>);
     if (typeof savedPageSize === "number") setPageSize(savedPageSize);
     if (typeof savedNoValueOnly === "boolean") setNoValueOnly(savedNoValueOnly);
     if (typeof savedSort === "string") setSort(savedSort as typeof sort);
+    if (savedSortDir === "asc" || savedSortDir === "desc") setSortDir(savedSortDir);
   });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -532,8 +559,16 @@ export function DealsList({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+    // Pipeline é rota "app shell" (ver app-main.tsx/APP_SHELL_ROUTES) — o
+    // <main> em volta NUNCA rola (overflow-y-hidden de propósito lá), então
+    // essa lista precisa da própria rolagem interna de ponta a ponta, igual
+    // o Kanban já faz (ver kanban-board.tsx, mesmo h-full/min-h-0/flex-col
+    // aqui em cima + flex-1 min-h-0 overflow-y-auto na região que rola).
+    // Antes disso faltava inteiro: a lista virava um bloco comum
+    // (space-y-3) que só cresce, sem nenhuma área rolável — com o <main>
+    // travado, o que passasse da tela ficava simplesmente inacessível.
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="shrink-0 flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search
             className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
@@ -692,17 +727,25 @@ export function DealsList({
             </div>
           )}
           <div className="space-y-1">
+            {/* Mesmo controle de "Valor"/"Data" que já dá pra clicar direto
+                no cabeçalho da tabela (desktop) — este dropdown é o único
+                jeito de mudar isso no celular, que não tem tabela. Escolher
+                aqui sempre reseta a direção pra combinar com o rótulo (ex.:
+                "maior primeiro" = descendente) — clicar de novo no cabeçalho
+                depois ainda inverte normalmente. */}
             <label className="field-label">Ordenar por</label>
             <Select
               value={sort}
               onChange={(v) => {
                 setSort(v as typeof sort);
+                setSortDir("desc");
                 setPage(1);
               }}
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Padrão (entrou na etapa)" },
                 { value: "value", label: "Valor (maior primeiro)" },
+                { value: "date", label: "Data (mais recente primeiro)" },
                 { value: "urgency", label: "Urgência (tarefa)" },
                 { value: "stale", label: "Parado há mais tempo" },
               ]}
@@ -815,13 +858,14 @@ export function DealsList({
           </div>
         )}
       </div>
-      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
+      {bulkError && <p className="shrink-0 text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 
-      <p className="text-xs text-neutral-400 dark:text-neutral-500">
+      <p className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
         Ganhos: <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.wonSum)}</span> · Perdidos:{" "}
         <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.lostSum)}</span>
       </p>
 
+      <div className="min-h-0 flex-1 overflow-y-auto">
       {totalCount === 0 ? (
         <div className="card">
           <EmptyState icon={Inbox} title="Nenhum negócio cadastrado" description="Crie o primeiro negócio para começar a preencher o funil." />
@@ -900,9 +944,17 @@ export function DealsList({
           </div>
 
           {/* Desktop: tabela */}
-          <div className="card hidden overflow-x-auto lg:block">
+          {/* overflow-y-hidden explícito (não só "sem overflow-x-auto do
+              outro eixo") — CSS trata overflow-x não-visible + overflow-y
+              visible como os DOIS virando "auto" (mesma regra documentada
+              no MDN), então sem isso este card virava sem querer um 2º
+              ancestral rolável verticalmente, e o <thead sticky> abaixo
+              colava nele (que nunca rola de verdade sozinho) em vez de
+              colar no wrapper de fora que realmente rola a lista inteira —
+              o cabeçalho ficava "preso" fora do lugar ao rolar. */}
+          <div className="card hidden overflow-x-auto overflow-y-hidden lg:block">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-white dark:bg-neutral-900">
                 <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
                   <th className="px-3 py-2 font-medium">
                     <input
@@ -919,8 +971,16 @@ export function DealsList({
                   <th className="px-3 py-2 font-medium whitespace-nowrap">Status</th>
                   <th className="px-3 py-2 font-medium whitespace-nowrap">Responsável</th>
                   <th className="px-3 py-2 font-medium whitespace-nowrap">Próx. atividade</th>
-                  <th className="px-3 py-2 font-medium whitespace-nowrap">Data</th>
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Valor</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    <SortableColumnHeader column="date" sort={sort} sortDir={sortDir} onClick={toggleColumnSort}>
+                      Data
+                    </SortableColumnHeader>
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                    <SortableColumnHeader column="value" sort={sort} sortDir={sortDir} onClick={toggleColumnSort} align="right">
+                      Valor
+                    </SortableColumnHeader>
+                  </th>
                   <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Parado</th>
                 </tr>
               </thead>
@@ -1010,19 +1070,22 @@ export function DealsList({
           </div>
         </>
       )}
+      </div>
 
-      <Pagination
-        page={page}
-        pageSize={pageSize}
-        totalCount={totalCount}
-        onPageChange={setPage}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPage(1);
-        }}
-        pageSizeOptions={PAGE_SIZE_OPTIONS}
-        itemLabel="negócios"
-      />
+      <div className="shrink-0">
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          itemLabel="negócios"
+        />
+      </div>
 
       {confirmBulkDelete && (
         <ConfirmDialog
@@ -1049,5 +1112,48 @@ export function DealsList({
         />
       )}
     </div>
+  );
+}
+
+/** Cabeçalho clicável de "Data"/"Valor" — mesmo estado de sort/sortDir do
+ * dropdown "Ordenar por" (ver acima), só que direto no lugar onde a coluna
+ * já está, sem precisar abrir o popover de filtro. Seta cheia = essa é a
+ * coluna ativa (mostra a direção); seta dupla apagada = coluna clicável mas
+ * ainda não é a ordenação atual. */
+function SortableColumnHeader({
+  column,
+  sort,
+  sortDir,
+  onClick,
+  align = "left",
+  children,
+}: {
+  column: "value" | "date";
+  sort: string;
+  sortDir: "asc" | "desc";
+  onClick: (column: "value" | "date") => void;
+  align?: "left" | "right";
+  children: React.ReactNode;
+}) {
+  const active = sort === column;
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(column)}
+      className={`inline-flex w-full items-center gap-1 transition-colors hover:text-neutral-900 dark:hover:text-neutral-100 ${
+        align === "right" ? "justify-end" : "justify-start"
+      } ${active ? "text-neutral-900 dark:text-neutral-100" : ""}`}
+    >
+      {children}
+      {active ? (
+        sortDir === "desc" ? (
+          <ArrowDown className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+        ) : (
+          <ArrowUp className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+        )
+      ) : (
+        <ArrowUpDown className="h-3 w-3 shrink-0 opacity-30" strokeWidth={2} />
+      )}
+    </button>
   );
 }

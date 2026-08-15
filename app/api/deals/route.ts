@@ -57,7 +57,10 @@ export async function GET(req: Request) {
   const taskDueBefore = parseDate(searchParams.get("taskDueBefore"));
   const noValue = searchParams.get("noValue") === "1";
   const sortParam = searchParams.get("sort");
-  const sort = sortParam === "value" || sortParam === "stale" || sortParam === "urgency" ? sortParam : undefined;
+  const sort =
+    sortParam === "value" || sortParam === "stale" || sortParam === "urgency" || sortParam === "date"
+      ? sortParam
+      : undefined;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
