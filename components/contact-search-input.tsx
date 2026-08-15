@@ -135,8 +135,14 @@ export function ContactSearchInput({
             // z-40 o dropdown (incluindo o botão "Adicionar") ficava coberto
             // pelo fundo do modal, e o clique caía no backdrop e fechava o
             // modal inteiro em vez de abrir a criação rápida de contato.
-            className="surface-glass animate-pop-in scrollbar-thin fixed z-[60] max-h-56 overflow-y-auto rounded-md pb-1 shadow-lg"
-            style={{ top: coords.top, left: coords.left, width: coords.width }}
+            className="surface-glass animate-pop-in scrollbar-thin fixed z-[60] overflow-y-auto rounded-md pb-1 shadow-lg"
+            style={{
+              top: coords.top,
+              bottom: coords.bottom,
+              left: coords.left,
+              width: coords.width,
+              maxHeight: Math.min(224, coords.maxHeight),
+            }}
           >
             {loading ? (
               <p className="px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">Buscando...</p>

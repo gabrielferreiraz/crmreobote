@@ -86,10 +86,15 @@ export function TimePicker({
         createPortal(
           <div
             ref={panelRef}
-            className="surface-glass animate-pop-in fixed z-50 w-32 rounded-md p-1 shadow-lg"
-            style={{ top: coords.top, left: coords.left }}
+            className="surface-glass animate-pop-in fixed z-50 flex w-32 flex-col overflow-hidden rounded-md p-1 shadow-lg"
+            style={{
+              top: coords.top,
+              bottom: coords.bottom,
+              left: coords.left,
+              maxHeight: coords.maxHeight,
+            }}
           >
-            <div ref={listRef} className="scrollbar-thin max-h-48 overflow-y-auto pb-1">
+            <div ref={listRef} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto pb-1">
               {TIMES.map((t) => (
                 <button
                   key={t}
@@ -106,7 +111,7 @@ export function TimePicker({
                 </button>
               ))}
             </div>
-            <div className="mt-1 flex items-center justify-between border-t border-neutral-200/60 pt-1 text-xs dark:border-neutral-800/60">
+            <div className="mt-1 flex shrink-0 items-center justify-between border-t border-neutral-200/60 pt-1 text-xs dark:border-neutral-800/60">
               <button
                 type="button"
                 onClick={() => {

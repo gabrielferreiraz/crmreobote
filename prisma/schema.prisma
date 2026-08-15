@@ -1424,6 +1424,13 @@ model Task {
   // agendorTaskId aparece então em mais de uma linha de propósito; o que
   // precisa ser único é a combinação com o dono (ver @@unique abaixo).
   agendorTaskId            String?
+  // Id do evento criado no Google Agenda do consultor quando a reunião foi
+  // marcada via API v1 (ver app/api/v1/appointments/route.ts) — permite
+  // atualizar/cancelar o evento de verdade depois. Nulo em toda Task que
+  // não é uma reunião sincronizada (todo o resto do CRM, e até reunião
+  // marcada por lá quando o consultor não tem GoogleCalendarConnection ou
+  // a chamada ao Google falhou nessa hora).
+  googleEventId            String?
   createdAt                DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1438,6 +1445,13 @@ model Task {
   // (Dono/Gerente, sem filtro de ownerId) — o índice acima (com ownerId) só
   // ajuda a ordenação quando o filtro de dono também está presente.
   @@index([organizationId, completedAt, dueAt])
+  // Trava "1 reunião por horário por consultor" (agendamento via API v1)
+  // vive só na migration como índice único PARCIAL (WHERE type='MEETING'),
+  // sem representação aqui — Prisma não tem sintaxe pra índice filtrado.
+  // Ver 20260814120000_task_meeting_scheduling/migration.sql e
+  // feedback_prisma_migrate_gotchas (memória): uma `prisma migrate dev`
+  // futura pode tentar gerar um DROP INDEX pra ele por não "ver" essa
+  // constraint aqui — checar antes de aplicar.
 }
 
 enum TaskType {

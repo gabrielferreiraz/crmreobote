@@ -162,8 +162,12 @@ export function Select({
             ref={panelRef}
             id={`${instanceId}-listbox`}
             role="listbox"
-            className="surface-glass-dense animate-pop-in scrollbar-thin fixed z-50 max-h-56 overflow-y-auto rounded-md p-1 pb-1.5 shadow-lg"
-            style={{ top: coords.top, left: coords.left, width: coords.width }}
+            className="surface-glass-dense animate-pop-in scrollbar-thin fixed z-50 overflow-y-auto rounded-md p-1 pb-1.5 shadow-lg"
+            // 224px (max-h-56 de antes) como teto PREFERIDO, mas nunca mais
+            // que o espaço seguro calculado pelo hook — gatilho perto da
+            // borda da tela usa o menor dos dois (e agora pode abrir pra
+            // cima também, ver coords.bottom).
+            style={{ top: coords.top, bottom: coords.bottom, left: coords.left, width: coords.width, maxHeight: Math.min(224, coords.maxHeight) }}
           >
             {options.map((opt, i) => (
               <button

@@ -134,3 +134,15 @@ export function brazilDateStringWithNowTimeToUTC(dateStr: string, now: Date = ne
     Date.UTC(year, month - 1, day, hour + BRAZIL_UTC_OFFSET_HOURS, minute, now.getUTCSeconds(), now.getUTCMilliseconds()),
   );
 }
+
+/**
+ * Combina o dia "YYYY-MM-DD" e a hora "HH:MM" (ambos no calendário/relógio
+ * local) num instante UTC — diferente de brazilDateStringWithNowTimeToUTC
+ * (que usa a hora ATUAL), aqui a hora também é escolhida (ex.: grade de
+ * horário de reunião — ver lib/scheduling/meeting-availability.ts).
+ */
+export function brazilDateTimeStringToUTC(dateStr: string, timeStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const [hour, minute] = timeStr.split(":").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, hour + BRAZIL_UTC_OFFSET_HOURS, minute, 0, 0));
+}

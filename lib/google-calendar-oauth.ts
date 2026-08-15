@@ -27,7 +27,15 @@ function getClientCredentials(): { clientId: string; clientSecret: string } {
 }
 
 const SCOPES = [
-  "https://www.googleapis.com/auth/calendar.readonly",
+  // calendar.events (leitura+escrita de eventos) substituiu calendar.readonly
+  // quando o agendamento via API v1 passou a criar evento de verdade no
+  // Google (ver createGoogleCalendarEvent abaixo) — conexões feitas ANTES
+  // desta mudança só têm o escopo de leitura antigo e precisam reconectar
+  // (Perfil → Google Agenda → desconectar e conectar de novo) pra ganhar
+  // permissão de escrita; até lá, createGoogleCalendarEvent falha com 403
+  // pra elas, o que é tratado como "sincronização falhou" sem derrubar o
+  // agendamento (ver app/api/v1/appointments/route.ts).
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
@@ -108,7 +116,7 @@ export async function fetchGoogleUserEmail(accessToken: string): Promise<string 
   }
 }
 
-type GoogleConnection = { id: string; accessToken: string; refreshToken: string; expiresAt: Date };
+export type GoogleConnection = { id: string; accessToken: string; refreshToken: string; expiresAt: Date };
 
 /**
  * Renova o access token se estiver perto de expirar, já salvando o novo no
@@ -206,4 +214,48 @@ export async function fetchGoogleCalendarEvents(
       description: item.description?.trim() || null,
       location: item.location?.trim() || null,
     }));
+}
+
+export type CreateGoogleCalendarEventInput = {
+  title: string;
+  description?: string | null;
+  start: Date;
+  end: Date;
+};
+
+/**
+ * Contraparte de escrita de fetchGoogleCalendarEvents — cria o evento de
+ * verdade no calendário principal da conta conectada. Usada só pelo
+ * agendamento de reunião via API v1 (ver
+ * app/api/v1/appointments/route.ts); precisa do escopo calendar.events (ver
+ * SCOPES acima) — uma conexão antiga (só leitura) falha aqui com 403 até o
+ * consultor reconectar.
+ */
+export async function createGoogleCalendarEvent(
+  accessToken: string,
+  input: CreateGoogleCalendarEventInput,
+): Promise<{ id: string; htmlLink: string }> {
+  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      summary: input.title,
+      description: input.description ?? undefined,
+      start: { dateTime: input.start.toISOString() },
+      end: { dateTime: input.end.toISOString() },
+    }),
+    // Mesmo motivo do timeout em requestGoogleToken/fetchGoogleCalendarEvents
+    // acima — falha rápido em vez de segurar a resposta do agendamento
+    // esperando o Google.
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Falha ao criar evento no Google Agenda: ${res.status} ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { id: string; htmlLink: string };
+  return { id: data.id, htmlLink: data.htmlLink };
 }

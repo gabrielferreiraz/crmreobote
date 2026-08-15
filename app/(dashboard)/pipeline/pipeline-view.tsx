@@ -175,40 +175,18 @@ export function PipelineView({
     // em vez de crescer pro tamanho do próprio conteúdo e vazar o scroll pra
     // página inteira.
     <div className="flex h-full min-h-0 flex-col gap-3">
-      {/* Card "valor em aberto" sozinho, no canto, numa linha própria acima
-          do seletor de funil — não mais centralizado/dividindo a fileira com
-          seletor+toggle e os botões de ação. Os 3 tiles de filtro rápido
-          (Ação hoje/Sem tarefa/Parados +14d) que moravam do lado do card
-          viraram botões pequenos na fileira de busca/filtro do Kanban e da
-          Lista (ver PipelineQuickFilterButtons). */}
-      <div
-        className="relative w-64 shrink-0 overflow-hidden rounded-xl px-4 py-2.5 text-white"
-        style={{ background: "var(--brand-gradient-hero, var(--brand-gradient))" }}
-      >
-        <p className="text-[10px] leading-none font-medium tracking-wide text-white/75 uppercase">Valor em aberto</p>
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <p className="text-xl leading-none font-semibold tabular-nums">{formatCurrencyCompact(totalAberto)}</p>
-          {/* Quantidade em unidade (não valor) — sempre visível, independente
-              de ter % de meta pra mostrar ou não (antes só aparecia pra quem
-              não tinha meta, escondida pra quem tinha). */}
-          <p className="text-[10px] leading-none font-medium text-white/70 tabular-nums">
-            {totalAbertoCount} negócio{totalAbertoCount === 1 ? "" : "s"}
-          </p>
-        </div>
-        {goalPct !== null && (
-          <div className="mt-1.5">
-            <div className="flex items-center gap-1.5 text-[10px] font-medium text-white/85">
-              <TrendingUp className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
-              {goalPct}% da meta de {formatCurrencyCompact(goalValue)} fechado no mês
-            </div>
-            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20">
-              <div className="h-full rounded-full bg-white/85" style={{ width: `${goalPct}%` }} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+      {/* Card "valor em aberto" empilhado em cima do grupo Novo negócio/
+          Importar/Histórico, à direita — não mais em cima do seletor de
+          funil (à esquerda) nem do "Novo negócio" do header (esse aqui é o
+          da barra de ferramentas do Pipeline). Seletor+toggle (esquerda) e
+          o bloco à direita (card + botões) ficam lado a lado, cada um
+          alinhado ao próprio topo — items-start em vez de items-center,
+          senão o seletor/toggle (mais baixos) ficariam centralizados na
+          altura do bloco maior à direita. Os 3 tiles de filtro rápido (Ação
+          hoje/Sem tarefa/Parados +14d) que moravam do lado do card viraram
+          botões pequenos na fileira de busca/filtro do Kanban e da Lista
+          (ver PipelineQuickFilterButtons). */}
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           {pipelines.length > 1 && (
             <Select
@@ -242,20 +220,55 @@ export function PipelineView({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => setDealDialogOpen(true)} className="btn-primary">
-            <Plus className="h-4 w-4" strokeWidth={2.5} />
-            Novo negócio
-          </button>
-          <button onClick={() => setImportOpen(true)} className="btn-secondary">
-            <Upload className="h-4 w-4" strokeWidth={2} />
-            Importar
-          </button>
-          {canViewImportHistory && (
-            <button onClick={() => setImportHistoryOpen(true)} className="icon-btn" title="Histórico de importações">
-              <History className="h-4 w-4" strokeWidth={2} />
-            </button>
+        <div className="flex flex-col items-end gap-2">
+          {/* DESATIVADO TEMPORARIAMENTE a pedido — "quero ver como fica sem
+              ele". {false && ...} em vez de comentário JSX porque tem um
+              comentário aninhado aqui dentro (JSX não permite comentário
+              dentro de comentário). Pra religar, troca `false` por `true`. */}
+          {false && (
+            <div
+              className="relative w-64 shrink-0 overflow-hidden rounded-xl px-4 py-2.5 text-white"
+              style={{ background: "var(--brand-gradient-hero, var(--brand-gradient))" }}
+            >
+              <p className="text-[10px] leading-none font-medium tracking-wide text-white/75 uppercase">Valor em aberto</p>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <p className="text-xl leading-none font-semibold tabular-nums">{formatCurrencyCompact(totalAberto)}</p>
+                {/* Quantidade em unidade (não valor) — sempre visível, independente
+                    de ter % de meta pra mostrar ou não (antes só aparecia pra quem
+                    não tinha meta, escondida pra quem tinha). */}
+                <p className="text-[10px] leading-none font-medium text-white/70 tabular-nums">
+                  {totalAbertoCount} negócio{totalAbertoCount === 1 ? "" : "s"}
+                </p>
+              </div>
+              {goalPct !== null && (
+                <div className="mt-1.5">
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-white/85">
+                    <TrendingUp className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
+                    {goalPct}% da meta de {formatCurrencyCompact(goalValue)} fechado no mês
+                  </div>
+                  <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20">
+                    <div className="h-full rounded-full bg-white/85" style={{ width: `${goalPct}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
           )}
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button onClick={() => setDealDialogOpen(true)} className="btn-primary">
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              Novo negócio
+            </button>
+            <button onClick={() => setImportOpen(true)} className="btn-secondary">
+              <Upload className="h-4 w-4" strokeWidth={2} />
+              Importar
+            </button>
+            {canViewImportHistory && (
+              <button onClick={() => setImportHistoryOpen(true)} className="icon-btn" title="Histórico de importações">
+                <History className="h-4 w-4" strokeWidth={2} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -317,6 +330,7 @@ export function PipelineView({
         <DealImportDialog
           pipelineId={pipelineId}
           members={members}
+          currentUserId={currentUserId}
           stages={stages}
           creditTypes={creditTypes}
           onClose={() => setImportOpen(false)}

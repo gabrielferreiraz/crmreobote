@@ -756,6 +756,29 @@ const StageColumn = memo(function StageColumn({
     };
   }, []);
 
+  // A carga inicial busca no máximo KANBAN_INITIAL_CAP negócios NO TOTAL
+  // (não por etapa, ver comentário em page.tsx) e agrupa por etapa depois —
+  // numa etapa com poucos/nenhum desses primeiros N, essa coluna monta com 0
+  // (ou poucos) cartões, mesmo `total` mostrando centenas/milhares no
+  // cabeçalho. handleScroll acima só busca mais quando o usuário ROLA perto
+  // do fim — mas uma coluna vazia/quase vazia não tem o que rolar, então
+  // esse gatilho nunca disparava e a coluna ficava presa em "Nenhum negócio"
+  // pra sempre. Este efeito cobre exatamente esse caso: sempre que o
+  // conteúdo carregado não enche (nem ultrapassa) a área visível — ou seja,
+  // fisicamente não dá pra rolar até o threshold — e ainda tem mais pra
+  // buscar, pede o próximo lote sozinho, sem esperar um scroll que nunca ia
+  // acontecer. Mesma conta de handleScroll, só calculada como se já
+  // estivesse com scrollTop=0 (distanceToBottom = scrollHeight - viewportHeight).
+  useEffect(() => {
+    if (!hasMore || loadingMore || loadMoreRequestedRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight <= viewportHeight + LOAD_MORE_THRESHOLD_PX) {
+      loadMoreRequestedRef.current = true;
+      onLoadMore(stage.id);
+    }
+  }, [hasMore, loadingMore, onLoadMore, stage.id, deals.length, viewportHeight]);
+
   // Só monta no DOM os cartões (com listener de drag, avatar etc.) que estão
   // dentro ou perto da área visível da coluna — sem isso, uma etapa com
   // milhares de negócios montava todos de uma vez, mesmo os que nunca
@@ -793,11 +816,20 @@ const StageColumn = memo(function StageColumn({
         </span>
       </div>
       {healthPct !== null && (
-        <div
-          className="mx-3 mb-2 h-1 shrink-0 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800/70"
-          title={`${withTaskCount} de ${total} com tarefa pendente · ${healthPct}%`}
-        >
-          <div className={`h-full rounded-full ${healthColor}`} style={{ width: `${healthPct}%` }} />
+        // % sempre visível ao lado (não só no title/hover) — numa coluna com
+        // milhares de negócios, 2-3% vira um traço tão fino que ficava
+        // indistinguível de 0%, parecendo quebrado em vez de só "muito
+        // baixo mesmo". Math.max(healthPct, 4) garante uma fatia mínima
+        // visível sempre que for >0% de verdade — só fica com largura 0 se
+        // for exatamente 0%.
+        <div className="mx-3 mb-2 flex shrink-0 items-center gap-1.5" title={`${withTaskCount} de ${total} com tarefa pendente`}>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-200/70 dark:bg-neutral-800/70">
+            <div
+              className={`h-full rounded-full ${healthColor}`}
+              style={{ width: `${healthPct > 0 ? Math.max(healthPct, 4) : 0}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[10px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">{healthPct}%</span>
         </div>
       )}
       {/* overscroll-y-contain (não overscroll-contain nos dois eixos):

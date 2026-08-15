@@ -178,3 +178,35 @@ export async function upsertContactFromIntegration(
     throw err;
   }
 }
+
+export type ResolveContactResult =
+  | { ok: true; contact: { id: string; name: string; source: string | null }; warnings: string[] }
+  | { ok: false; error: string };
+
+/**
+ * "contactId (existente) OU contact{} (novo)" — mesma regra usada em
+ * POST /api/v1/deals, extraída aqui pra ser reaproveitada por
+ * POST /api/v1/appointments sem duplicar a lógica. Não usada de volta em
+ * /api/v1/deals pra não mexer numa rota já em produção só por DRY.
+ */
+export async function resolveContactForApiV1(
+  organizationId: string,
+  input: { contactId?: string; contact?: Record<string, unknown> },
+  fallbackSource?: string,
+): Promise<ResolveContactResult> {
+  if (input.contact) {
+    const result = await upsertContactFromIntegration(organizationId, {
+      ...input.contact,
+      source: (input.contact as { source?: unknown }).source ?? fallbackSource,
+    });
+    if (!result.ok) return result;
+    return { ok: true, contact: result.contact, warnings: result.warnings };
+  }
+
+  const found = await prisma.contact.findFirst({
+    where: { id: input.contactId, organizationId },
+    select: { id: true, name: true, source: true },
+  });
+  if (!found) return { ok: false, error: "contactId inválido" };
+  return { ok: true, contact: found, warnings: [] };
+}

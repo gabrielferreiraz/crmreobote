@@ -214,8 +214,13 @@ export default async function HomePage() {
                       className="h-full rounded-full transition-all duration-300 group-hover/bar:opacity-100"
                       style={{
                         width: `${Math.max(4, (stage.value / maxStageValue) * 100)}%`,
-                        backgroundColor: stage.color,
-                        opacity: 0.8,
+                        // Degradê na própria cor da etapa (não uma cor fixa
+                        // pra todo mundo) — vai da cor cheia até uma versão
+                        // clareada dela mesma, então cada etapa continua
+                        // reconhecível pela cor (mesmo código da bolinha ao
+                        // lado do nome), só ganha profundidade.
+                        background: `linear-gradient(90deg, ${stage.color} 0%, color-mix(in srgb, ${stage.color} 55%, white) 100%)`,
+                        opacity: 0.85,
                       }}
                     />
                   </div>

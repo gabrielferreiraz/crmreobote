@@ -573,8 +573,13 @@ function StageColumn({
             createPortal(
               <div
                 ref={colorPanelRef}
-                className="surface-glass animate-pop-in fixed z-50 flex w-[120px] flex-wrap gap-1 rounded-md p-2 shadow-lg coarse:w-[156px]"
-                style={{ top: colorCoords.top, left: colorCoords.left }}
+                className="surface-glass animate-pop-in fixed z-50 flex w-[120px] flex-wrap gap-1 overflow-y-auto rounded-md p-2 shadow-lg coarse:w-[156px]"
+                style={{
+                  top: colorCoords.top,
+                  bottom: colorCoords.bottom,
+                  left: colorCoords.left,
+                  maxHeight: colorCoords.maxHeight,
+                }}
               >
                 {COLOR_PRESETS.map((c) => (
                   <button

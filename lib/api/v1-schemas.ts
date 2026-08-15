@@ -72,6 +72,26 @@ export const dealInputSchema = z
     message: "Envie 'contactId' (contato existente) ou 'contact' (dados pra criar/atualizar)",
   });
 
+/**
+ * POST /api/v1/appointments — agendamento de reunião (ver
+ * lib/scheduling/meeting-availability.ts pra grade/cascata de horários).
+ * `date`/`time` são revalidados no servidor contra a grade de verdade
+ * (nunca confiar que o que o cliente mandou como "disponível" ainda está
+ * livre — ver o endpoint).
+ */
+export const appointmentInputSchema = z
+  .object({
+    consultorId: z.string().trim().min(1).max(100),
+    date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "date precisa estar no formato YYYY-MM-DD"),
+    time: z.string().trim().regex(/^\d{2}:\d{2}$/, "time precisa estar no formato HH:MM"),
+    contactId: z.string().trim().min(1).max(100).optional(),
+    contact: contactInputSchema.optional(),
+    dealId: z.string().trim().min(1).max(100).optional(),
+  })
+  .refine((data) => !!data.contactId || !!data.contact, {
+    message: "Envie 'contactId' (contato existente) ou 'contact' (dados pra criar/atualizar)",
+  });
+
 /** Formata o primeiro erro do Zod numa mensagem curta, no mesmo estilo das mensagens de apiError já usadas nessas rotas. */
 export function firstZodMessage(error: z.ZodError): string {
   const issue = error.issues[0];

@@ -1,8 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { SlidersHorizontal, X } from "lucide-react";
+import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
+/**
+ * O painel usava `position: absolute` relativo ao próprio botão — parecia
+ * funcionar, mas era cortado por QUALQUER ancestral com overflow não-visível
+ * entre ele e a tela (o `<main>` das rotas "app shell" como Pipeline tem
+ * `overflow-y-hidden` de propósito, ver app-main.tsx). Um `max-height` no
+ * painel não resolve isso: o corte acontece na borda do ANCESTRAL, antes do
+ * tamanho do próprio painel importar. Mesmo problema que `<Select>` já tinha
+ * resolvido (ver comentário de useFloatingDropdown) — agora reaproveita a
+ * mesma solução: `createPortal` pro body (escapa de qualquer ancestral) +
+ * coordenadas calculadas a partir da posição real do botão na tela.
+ */
 export function FilterPopover({
   active,
   onClear,
@@ -13,28 +26,21 @@ export function FilterPopover({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      // O <Select> de dentro do filtro renderiza a lista de opções via portal
-      // direto no document.body (pra não ficar cortado por um ancestral com
-      // overflow) — sem essa checagem, o clique numa opção conta como "fora"
-      // daqui, fecha o FilterPopover antes do onChange do Select disparar, e
-      // o filtro nunca é aplicado de verdade.
-      if (target.closest('[role="listbox"]')) return;
-      if (containerRef.current && !containerRef.current.contains(target)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const coords = useFloatingDropdown({
+    open,
+    onClose: () => setOpen(false),
+    triggerRef,
+    panelRef,
+    align: "right",
+  });
 
   return (
-    <div ref={containerRef} className="relative">
+    <>
       <button
+        ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
         aria-label="Filtros"
         className={`icon-btn relative h-9 w-9 border ${
@@ -49,23 +55,44 @@ export function FilterPopover({
         )}
       </button>
 
-      {open && (
-        <div className="surface-glass-dense animate-pop-in absolute right-0 z-40 mt-2 w-72 space-y-3 rounded-lg p-3 shadow-xl">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Filtros</p>
-            {active && onClear && (
-              <button
-                onClick={onClear}
-                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
-              >
-                <X className="h-3 w-3" strokeWidth={2} />
-                Limpar
-              </button>
-            )}
-          </div>
-          {children}
-        </div>
-      )}
-    </div>
+      {open &&
+        coords &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            // 512px (32rem) como teto PREFERIDO, mas nunca mais que o
+            // espaço seguro calculado pelo hook (coords.maxHeight já
+            // considera onde o gatilho está de verdade na tela, inclusive
+            // abrindo pra CIMA — coords.bottom — quando sobra pouco espaço
+            // embaixo dele). Um max-h fixo tipo "100vh menos uma margem"
+            // (o que era usado antes) ignora a posição do gatilho e ainda
+            // estoura quando ele está perto do fim da página.
+            style={{
+              top: coords.top,
+              bottom: coords.bottom,
+              right: coords.right,
+              left: coords.left,
+              maxHeight: Math.min(512, coords.maxHeight),
+            }}
+            className="surface-glass-dense animate-pop-in fixed z-40 flex w-72 flex-col overflow-hidden rounded-lg shadow-xl"
+          >
+            <div className="flex shrink-0 items-center justify-between p-3 pb-0">
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Filtros</p>
+              {active && onClear && (
+                <button
+                  onClick={onClear}
+                  className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                >
+                  <X className="h-3 w-3" strokeWidth={2} />
+                  Limpar
+                </button>
+              )}
+            </div>
+            <div className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto p-3">{children}</div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

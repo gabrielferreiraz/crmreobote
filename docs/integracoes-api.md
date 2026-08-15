@@ -21,6 +21,8 @@ outra. Não existe recuperação.
 - `POST /api/v1/contacts`: 60 requisições/minuto por chave.
 - `POST /api/v1/contacts/bulk`: 10 requisições/minuto por chave (até 500 contatos por chamada).
 - `POST /api/v1/deals`: 30 requisições/minuto por chave.
+- `GET /api/v1/availability`: 60 requisições/minuto por chave.
+- `POST /api/v1/appointments`: 30 requisições/minuto por chave.
 
 Ao estourar, a resposta é `429` com header `Retry-After` (segundos).
 
@@ -353,6 +355,146 @@ curl -X POST https://api.seudominio.com/api/v1/deals \
   }
 }
 ```
+
+---
+
+## Agendamento de reunião
+
+Pensado pra landing page externa de captação de leads (Meta Ads): depois de
+criar o contato (`POST /api/v1/contacts`) e o negócio (`POST /api/v1/deals`),
+a última etapa do formulário deixa o lead escolher um horário de reunião com
+o consultor responsável. Dois passos: `GET /api/v1/availability` pra
+mostrar a grade, `POST /api/v1/appointments` pra reservar.
+
+**Grade fixa por consultor, por dia útil (segunda a sexta):**
+
+| Horário | 
+|---|
+| 08:30 |
+| 10:00 |
+| 11:30 |
+| 13:00 |
+| 14:30 |
+
+5 horários fixos, de 1h30 em 1h30 a partir das 08:30 (a reunião em si dura
+20-30min — o resto do intervalo é folga do consultor pra prospectar outros
+leads ou absorver um no-show). Timezone: `America/Campo_Grande` (fuso de
+Mato Grosso do Sul, UTC-4 — **não** é o mesmo fuso de São Paulo/UTC-3,
+mesmo os dois sendo "horário do Brasil"; todo horário devolvido pela API já
+está nesse fuso).
+
+**Como funciona a cascata de dias:** a API nunca oferece o mesmo dia (regra
+de negócio pra reduzir no-show — o lead só marca pro **próximo dia útil**).
+Ela sempre olha primeiro pro próximo dia útil a partir de agora; se esse dia
+já não tem mais nenhum dos 5 horários livres (todos ocupados ou em
+conflito), ela passa pro dia útil seguinte, e assim por diante, até achar um
+dia com pelo menos 1 horário livre — só esse dia é devolvido. Se seu
+formulário mostrar "sem vaga" depois que o lead demorou muito pra preencher,
+chame `GET /api/v1/availability` de novo: a grade pode ter mudado.
+
+Um horário é considerado ocupado se já existe uma reunião reservada pra
+aquele consultor naquele exato horário (nesta API ou marcada direto no
+Google Agenda dele, quando ele tem uma conta conectada).
+
+### `GET /api/v1/availability?consultorId={id}`
+
+`consultorId` é o `id` do consultor (mesmo `id` de `GET /api/v1/members`) —
+precisa ser um usuário ativo desta organização.
+
+**Request**
+
+```bash
+curl -X GET "https://api.seudominio.com/api/v1/availability?consultorId=cm..." \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+**Response**
+
+```json
+{
+  "success": true,
+  "data": {
+    "consultorId": "cm...",
+    "date": "2026-08-17",
+    "timezone": "America/Campo_Grande",
+    "slots": [
+      { "time": "08:30", "available": true },
+      { "time": "10:00", "available": false },
+      { "time": "11:30", "available": true },
+      { "time": "13:00", "available": true },
+      { "time": "14:30", "available": true }
+    ],
+    "googleCalendarConnected": true
+  }
+}
+```
+
+`googleCalendarConnected: false` significa que o consultor ainda não
+conectou o Google Agenda dele no CRM — os horários mostrados continuam
+válidos (checados só contra as reuniões já marcadas por aqui), só não
+levam em conta compromissos que ele tenha marcado direto no Google.
+
+**Erros:** `401` (chave inválida/revogada), `404` (`consultorId` não existe
+ou não pertence a esta organização).
+
+### `POST /api/v1/appointments`
+
+Reserva um dos horários devolvidos por `GET /api/v1/availability`. Assim
+como `/api/v1/deals`, aceita `contactId` (contato já existente) **ou**
+`contact` (mesmo formato de `/api/v1/contacts` — cria/atualiza o contato na
+mesma chamada). `dealId` é opcional — se vier, a reunião fica vinculada a
+esse negócio.
+
+`date`/`time` são **revalidados no servidor** — a API nunca confia que um
+horário que apareceu como `available: true` num `GET` anterior ainda está
+livre agora (dois leads podem escolher o mesmo horário ao mesmo tempo). Se
+o horário não estiver mais livre no momento da reserva, a resposta é `409`
+com `error: "slot_unavailable"` — chame `GET /api/v1/availability` de novo
+pra pegar a grade atualizada e deixe o lead escolher outro horário.
+
+**Request**
+
+```bash
+curl -X POST https://api.seudominio.com/api/v1/appointments \
+  -H "Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "consultorId": "cm...",
+    "date": "2026-08-17",
+    "time": "08:30",
+    "contact": { "name": "Maria Silva", "phone": "67991234567", "source": "Facebook Ads" }
+  }'
+```
+
+**Response** (`201`)
+
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "cm...",
+    "contactId": "cm...",
+    "dealId": null,
+    "scheduledAt": "2026-08-17T12:30:00.000Z",
+    "googleCalendarSynced": true
+  }
+}
+```
+
+`scheduledAt` vem em UTC (`Z`), igual todo outro timestamp desta API —
+`12:30:00.000Z` é exatamente `08:30` em `America/Campo_Grande` (UTC-4).
+`googleCalendarSynced: false` significa que a reunião foi reservada
+normalmente (`taskId` sempre é retornado), mas não deu pra criar o evento
+no Google Agenda do consultor nessa hora (token revogado, API do Google
+fora do ar, ou o consultor não tem conexão) — a reserva **não é perdida**
+por causa disso, só não aparece automaticamente no Google dele.
+
+**Erros:**
+- `400` — corpo inválido, `date`/`time` fora da grade (ou anteriores ao
+  próximo dia útil), `consultorId`/`contactId`/`dealId` mal formados.
+- `404` — `consultorId` não existe ou não pertence a esta organização.
+- `409` com `error: "slot_unavailable"` — o horário escolhido não está mais
+  livre; peça a grade de novo.
 
 ---
 

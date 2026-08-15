@@ -104,10 +104,15 @@ export function DatePicker({
         createPortal(
           <div
             ref={panelRef}
-            className="surface-glass animate-pop-in fixed z-50 w-64 rounded-md p-3 shadow-lg"
-            style={{ top: coords.top, left: coords.left }}
+            className="surface-glass animate-pop-in fixed z-50 flex w-64 flex-col overflow-hidden rounded-md p-3 shadow-lg"
+            style={{
+              top: coords.top,
+              bottom: coords.bottom,
+              left: coords.left,
+              maxHeight: coords.maxHeight,
+            }}
           >
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex shrink-0 items-center justify-between">
               <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                 {MONTH_LABELS[viewDate.getMonth()]} de {viewDate.getFullYear()}
               </span>
@@ -131,7 +136,7 @@ export function DatePicker({
               </div>
             </div>
 
-            <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
+            <div className="grid shrink-0 grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
               {WEEKDAY_LABELS.map((w, i) => (
                 <span key={i} className="py-1">
                   {w}
@@ -139,37 +144,39 @@ export function DatePicker({
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-0.5">
-              {weeks.flatMap((week, wi) =>
-                week.map((day, di) => {
-                  const inMonth = day.getMonth() === viewDate.getMonth();
-                  const isSelected = !!selected && isSameDay(day, selected);
-                  const isToday = isSameDay(day, today);
-                  return (
-                    <button
-                      key={`${wi}-${di}`}
-                      type="button"
-                      onClick={() => selectDay(day)}
-                      className={`flex h-7 w-7 items-center justify-center rounded-md text-xs transition-colors ${
-                        isSelected
-                          ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                          : inMonth
-                            ? "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                            : "text-neutral-300 hover:bg-neutral-50 dark:text-neutral-700 dark:hover:bg-neutral-800/50"
-                      } ${
-                        isToday && !isSelected
-                          ? "font-semibold text-neutral-900 ring-1 ring-inset ring-neutral-900 dark:text-neutral-100 dark:ring-white"
-                          : ""
-                      }`}
-                    >
-                      {day.getDate()}
-                    </button>
-                  );
-                }),
-              )}
+            <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
+              <div className="grid grid-cols-7 gap-0.5">
+                {weeks.flatMap((week, wi) =>
+                  week.map((day, di) => {
+                    const inMonth = day.getMonth() === viewDate.getMonth();
+                    const isSelected = !!selected && isSameDay(day, selected);
+                    const isToday = isSameDay(day, today);
+                    return (
+                      <button
+                        key={`${wi}-${di}`}
+                        type="button"
+                        onClick={() => selectDay(day)}
+                        className={`flex h-7 w-7 items-center justify-center rounded-md text-xs transition-colors ${
+                          isSelected
+                            ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                            : inMonth
+                              ? "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                              : "text-neutral-300 hover:bg-neutral-50 dark:text-neutral-700 dark:hover:bg-neutral-800/50"
+                        } ${
+                          isToday && !isSelected
+                            ? "font-semibold text-neutral-900 ring-1 ring-inset ring-neutral-900 dark:text-neutral-100 dark:ring-white"
+                            : ""
+                        }`}
+                      >
+                        {day.getDate()}
+                      </button>
+                    );
+                  }),
+                )}
+              </div>
             </div>
 
-            <div className="mt-2 flex items-center justify-between border-t border-neutral-200/60 pt-2 text-xs dark:border-neutral-800/60">
+            <div className="mt-2 flex shrink-0 items-center justify-between border-t border-neutral-200/60 pt-2 text-xs dark:border-neutral-800/60">
               <button
                 type="button"
                 onClick={() => {

@@ -7,6 +7,7 @@ import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
 import { Badge } from "./badge";
 import { formatCurrency } from "@/lib/format";
+import { sortSelfFirst } from "@/lib/sort-self-first";
 
 type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "creditType" | "stage" | "owner";
 
@@ -143,6 +144,7 @@ function StatChip({ label, value, tone }: { label: string; value: number; tone?:
 export function DealImportDialog({
   pipelineId,
   members,
+  currentUserId,
   stages,
   creditTypes,
   onClose,
@@ -150,11 +152,21 @@ export function DealImportDialog({
 }: {
   pipelineId: string;
   members: { id: string; name: string }[];
+  /** Quem está importando — vira o responsável padrão pré-selecionado (ver
+   * fieldDefaults abaixo) em vez de "Distribuir automaticamente" vir marcado
+   * sozinho. Um consultor testando a importação esperava que os negócios
+   * virassem dele; com o rodízio como padrão anterior, eles espalhavam pro
+   * time inteiro e ele só via a fatia que calhou de cair nele mesmo (ver
+   * conversa que motivou essa mudança). */
+  currentUserId: string;
   stages: { id: string; name: string }[];
   creditTypes: { id: string; label: string }[];
   onClose: () => void;
   onImported: () => void;
 }) {
+  // "Eu" sempre em primeiro na lista — mesma convenção de todo filtro de
+  // Responsável no app (ver lib/sort-self-first.ts).
+  const orderedMembers = sortSelfFirst(members, currentUserId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
@@ -164,7 +176,13 @@ export function DealImportDialog({
   // Valor único pra todo mundo quando a coluna não existe no arquivo (ver
   // DEFAULTABLE_FIELDS acima) — ex.: planilha sem coluna "responsavel",
   // escolhe um responsável fixo em vez do rodízio automático de sempre.
-  const [fieldDefaults, setFieldDefaults] = useState<Partial<Record<DefaultableField, string>>>({});
+  // owner começa preenchido com quem está importando (não vazio) — é o
+  // padrão esperado ("importei, são meus negócios"), diferente de
+  // stage/source/creditType, que continuam sem valor nenhum até a pessoa
+  // escolher. Ainda dá pra trocar pra "Distribuir automaticamente" na
+  // tela de prévia (ver Select abaixo) quando isso for o que se quer de
+  // verdade.
+  const [fieldDefaults, setFieldDefaults] = useState<Partial<Record<DefaultableField, string>>>({ owner: currentUserId });
   // Rascunho local do campo "Origem" (texto livre, não Select) — digitar
   // não deve disparar uma reanálise no servidor a cada tecla; só confirma
   // (e reanalisa) ao sair do campo. Os outros 3 campos são Select (uma
@@ -218,9 +236,10 @@ export function DealImportDialog({
     if (!picked) return;
     setFile(picked);
     setOverrides({});
-    setFieldDefaults({});
+    const initialFieldDefaults = { owner: currentUserId };
+    setFieldDefaults(initialFieldDefaults);
     setSourceDraft("");
-    runPreview(picked, {}, {});
+    runPreview(picked, {}, initialFieldDefaults);
   }
 
   function updateOverride(field: ImportField, index: number) {
@@ -332,7 +351,21 @@ export function DealImportDialog({
     const hasMissingDefaultableColumn = preview.columns.some(
       (col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField),
     );
-    const mappingExpanded = showColumnMapping || hasBlockingIssue;
+    // WhatsApp é o único campo usado pra reconhecer contato já existente E
+    // pra poder mandar mensagem pro lead depois (ver lib/deals/import-resolve.ts)
+    // — diferente dos outros opcionais (telefone, e-mail, valor, nome do
+    // negócio), que só ficam vazios se não encontrados. Sem essa coluna,
+    // toda linha vira contato "novo" (mesmo já existindo) e ninguém no time
+    // consegue conversar com esse lead pelo CRM depois — merece um aviso
+    // explícito, não só a seção técnica escondida.
+    const hasMissingWhatsappColumn = preview.columns.some((col) => col.field === "whatsapp" && col.index === -1);
+    // Qualquer outro campo opcional não reconhecido não bloqueia nem merece
+    // um aviso do tamanho do de cima, mas também não deveria ficar
+    // completamente escondido — abre a grade técnica sozinha (em vez de só
+    // quando falta algo obrigatório) pra dar pra notar e corrigir sem
+    // precisar saber que o botão "Ver detalhes técnicos" existe.
+    const hasAnyMissingOptionalColumn = preview.columns.some((col) => !col.required && col.index === -1);
+    const mappingExpanded = showColumnMapping || hasBlockingIssue || hasAnyMissingOptionalColumn;
     const visibleRows = showAllRows ? preview.rows : preview.rows.slice(0, PREVIEW_ROWS_COLLAPSED);
     const hiddenRowCount = preview.rows.length - visibleRows.length;
 
@@ -381,6 +414,25 @@ export function DealImportDialog({
           </div>
         </div>
 
+        {/* WhatsApp não é um campo "opcional" comum — sem ele, todo contato
+            entra como "novo" (mesmo já existindo) e ninguém consegue
+            conversar com esse lead pelo CRM depois. Aviso explícito, igual
+            em peso ao de baixo (que pergunta o responsável padrão), não só
+            a grade técnica escondida. */}
+        {hasMissingWhatsappColumn && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
+            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-300">Não encontramos uma coluna de WhatsApp nessa planilha</p>
+              <p className="mt-0.5 text-amber-700 dark:text-amber-400">
+                Sem isso, não dá pra reconhecer um contato que já existe (todo mundo entra como novo) nem mandar mensagem
+                pra esse lead depois pelo CRM. Se a planilha tiver essa coluna com outro nome, aponte ela em
+                &quot;Ver detalhes técnicos&quot; logo abaixo.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Campo sem coluna correspondente na planilha — pedido direto,
             sempre visível quando se aplica (é uma decisão que precisa de
             resposta, não fica escondido atrás do "Ajustar colunas"). */}
@@ -399,10 +451,13 @@ export function DealImportDialog({
                       <span className="text-xs text-neutral-500 dark:text-neutral-400">{col.label}</span>
                       {field === "owner" ? (
                         <Select
-                          value={fieldDefaults.owner ?? ""}
+                          value={fieldDefaults.owner ?? currentUserId}
                           onChange={(v) => updateFieldDefault("owner", v)}
                           className="w-40 py-1 text-xs"
-                          options={[{ value: "", label: "Distribuir automaticamente" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                          options={[
+                            { value: "", label: "Distribuir automaticamente" },
+                            ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
+                          ]}
                         />
                       ) : field === "stage" ? (
                         <Select
