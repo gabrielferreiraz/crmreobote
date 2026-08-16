@@ -37,11 +37,16 @@ function isSameDay(a: Date, b: Date) {
 export function TaskCalendar({
   tasks,
   onToggle,
+  onDelete,
+  canDelete,
   showOwner,
   googleEvents = [],
 }: {
   tasks: Task[];
   onToggle: (id: string, completed: boolean) => void;
+  onDelete?: (id: string) => Promise<void> | void;
+  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  canDelete?: boolean;
   showOwner: boolean;
   /** Eventos importados do Google Agenda da pessoa (ver components/google-calendar-connect.tsx) — só leitura, nunca editáveis aqui. */
   googleEvents?: GoogleEvent[];
@@ -226,7 +231,7 @@ export function TaskCalendar({
           </h2>
           <div className="scrollbar-thin max-h-[60vh] space-y-2 overflow-y-auto pb-2">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
-              <TaskRow key={t.id} task={t} onToggle={onToggle} showOwner={showOwner} />
+              <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} />
             ))}
             {(googleEventsByDay.get(selectedDay.toDateString()) ?? []).map((e) => (
               <button
@@ -259,6 +264,8 @@ export function TaskCalendar({
             onToggle(selectedTask.id, next);
             setSelectedTask(null);
           }}
+          canDelete={canDelete}
+          onDelete={onDelete}
         />
       )}
 

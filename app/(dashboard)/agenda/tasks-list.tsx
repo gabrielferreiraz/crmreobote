@@ -45,14 +45,18 @@ export function TasksList({
   members,
   isWhatsAppConnected,
   googleParam,
+  currentUserRole,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
   isWhatsAppConnected: boolean;
   googleParam?: string;
+  /** Excluir tarefa é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
+  currentUserRole?: string;
 }) {
   const router = useRouter();
+  const canDelete = currentUserRole === "OWNER";
   // Busca à parte, depois que a tela já está de pé — ver
   // lib/use-google-calendar-events.ts e app/api/google-calendar/events. Não
   // trava mais a renderização das tarefas do CRM esperando o Google.
@@ -109,6 +113,11 @@ export function TasksList({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed }),
     });
+    router.refresh();
+  }
+
+  async function deleteTask(taskId: string) {
+    await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
     router.refresh();
   }
 
@@ -220,7 +229,14 @@ export function TasksList({
           />
         </div>
       ) : view === "calendar" ? (
-        <TaskCalendar tasks={filteredTasks} onToggle={toggleComplete} showOwner={showOwner} googleEvents={googleCalendar.events} />
+        <TaskCalendar
+          tasks={filteredTasks}
+          onToggle={toggleComplete}
+          onDelete={deleteTask}
+          canDelete={canDelete}
+          showOwner={showOwner}
+          googleEvents={googleCalendar.events}
+        />
       ) : noResults ? (
         <div className="card">
           <EmptyState
@@ -231,17 +247,17 @@ export function TasksList({
         </div>
       ) : (
         <div className="space-y-6">
-          <TaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} showOwner={showOwner} />
-          <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} showOwner={showOwner} />
-          <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} showOwner={showOwner} />
-          <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} showOwner={showOwner} />
-          <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
+          <TaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} muted showOwner={showOwner} />
         </div>
       )}
       </div>
 
       <div className="xl:sticky xl:top-4">
-        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} />
+        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} />
       </div>
       </div>
 
@@ -266,6 +282,8 @@ function TaskGroup({
   tone,
   muted,
   onToggle,
+  onDelete,
+  canDelete,
   showOwner,
 }: {
   title: string;
@@ -273,6 +291,8 @@ function TaskGroup({
   tone?: "red";
   muted?: boolean;
   onToggle: (id: string, completed: boolean) => void;
+  onDelete?: (id: string) => Promise<void> | void;
+  canDelete?: boolean;
   showOwner: boolean;
 }) {
   if (tasks.length === 0) return null;
@@ -288,7 +308,7 @@ function TaskGroup({
       </h2>
       <div className="space-y-2">
         {tasks.map((task) => (
-          <TaskRow key={task.id} task={task} onToggle={onToggle} muted={muted} showOwner={showOwner} />
+          <TaskRow key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} muted={muted} showOwner={showOwner} />
         ))}
       </div>
     </div>

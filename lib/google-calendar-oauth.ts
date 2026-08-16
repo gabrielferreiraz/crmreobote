@@ -39,6 +39,22 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
+const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+/**
+ * Confere se o escopo REALMENTE concedido por uma conexão (gravado em
+ * GoogleCalendarConnection.scope na hora da troca do código OAuth — ver
+ * app/api/google-calendar/callback/route.ts) inclui permissão de escrita.
+ * Não basta olhar o SCOPES atual do código: uma conexão feita antes desta
+ * constante ganhar calendar.events continua só com o escopo antigo
+ * (leitura) até a pessoa reconectar — usado tanto pela tela de Perfil
+ * (avisar "reconecte" sem esperar o 403 do Google) quanto por
+ * GET /api/google-calendar/status.
+ */
+export function hasCalendarWriteScope(scope: string | null | undefined): boolean {
+  return !!scope && scope.includes(CALENDAR_WRITE_SCOPE);
+}
+
 export function buildGoogleAuthUrl(state: string): string {
   const { clientId } = getClientCredentials();
   const params = new URLSearchParams({

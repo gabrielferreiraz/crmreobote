@@ -1,0 +1,13 @@
+-- Guarda o escopo OAuth de fato concedido pela pessoa na tela de
+-- consentimento do Google (ver app/api/google-calendar/callback/route.ts),
+-- em vez de só supor que toda conexão tem o escopo que o SCOPES atual do
+-- código pede. Necessário porque escopo de OAuth não se estende
+-- retroativamente: conexões feitas antes de SCOPES ganhar permissão de
+-- escrita (lib/google-calendar-oauth.ts, calendar.events) continuam só
+-- com leitura até a pessoa desconectar e conectar de novo — este campo é
+-- o que deixa a tela de Perfil (components/google-calendar-connect.tsx)
+-- avisar "reconecte" só pra quem realmente precisa, sem esperar o 403 do
+-- Google pra descobrir. Sem policy de RLS nova: GoogleCalendarConnection
+-- não tem organizationId (é por userId), não é coberta por RLS
+-- multi-tenant — ADD COLUMN simples não muda isso.
+ALTER TABLE "GoogleCalendarConnection" ADD COLUMN "scope" TEXT;

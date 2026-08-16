@@ -106,6 +106,18 @@ model GoogleCalendarConnection {
   // E-mail da conta Google conectada — só pra mostrar "conectado como
   // fulano@gmail.com" na tela de perfil, nunca usado pra autenticar nada.
   calendarEmail String?
+  // Escopo de verdade concedido pelo usuário na tela de consentimento do
+  // Google (string espaço-separada, como o Google devolve — ver `scope` em
+  // GoogleTokenResponse/lib/google-calendar-oauth.ts), gravado na hora da
+  // troca do código OAuth. Existe porque escopo NÃO se estende
+  // retroativamente num token já emitido: quando SCOPES (lib/google-
+  // calendar-oauth.ts) ganhou permissão de escrita pro agendamento via API
+  // v1, toda conexão feita ANTES continuou só com o escopo antigo (leitura)
+  // até reconectar de novo. Guardar o que foi concedido de fato (em vez de
+  // supor que bate com o SCOPES atual do código) é o que permite a tela de
+  // Perfil avisar "reconecte" só pra quem precisa, sem esperar o 403 do
+  // Google pra descobrir.
+  scope         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

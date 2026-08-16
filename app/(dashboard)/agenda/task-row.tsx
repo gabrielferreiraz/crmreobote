@@ -61,11 +61,16 @@ export function scheduledMessageStatus(task: Task): { label: string; tone: "neut
 export function TaskRow({
   task,
   onToggle,
+  onDelete,
+  canDelete,
   muted,
   showOwner,
 }: {
   task: Task;
   onToggle: (id: string, completed: boolean) => void;
+  onDelete?: (id: string) => Promise<void> | void;
+  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  canDelete?: boolean;
   muted?: boolean;
   showOwner?: boolean;
 }) {
@@ -203,6 +208,8 @@ export function TaskRow({
             handleToggle();
             setModalOpen(false);
           }}
+          canDelete={canDelete}
+          onDelete={onDelete}
         />
       )}
     </>

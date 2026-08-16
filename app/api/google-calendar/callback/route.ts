@@ -64,12 +64,14 @@ export async function GET(req: NextRequest) {
           refreshToken: encryptedRefreshToken,
           expiresAt,
           calendarEmail: email,
+          scope: tokens.scope,
         },
         update: {
           accessToken: encryptedAccessToken,
           refreshToken: encryptedRefreshToken,
           expiresAt,
           calendarEmail: email,
+          scope: tokens.scope,
         },
       }),
     );

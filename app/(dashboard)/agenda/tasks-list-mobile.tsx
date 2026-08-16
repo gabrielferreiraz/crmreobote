@@ -45,6 +45,7 @@ export function TasksListMobile({
   openNewTask,
   isWhatsAppConnected,
   googleParam,
+  currentUserRole,
 }: {
   initialTasks: Task[];
   deals: Option[];
@@ -52,8 +53,11 @@ export function TasksListMobile({
   openNewTask?: boolean;
   isWhatsAppConnected: boolean;
   googleParam?: string;
+  /** Excluir tarefa é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
+  currentUserRole?: string;
 }) {
   const router = useRouter();
+  const canDelete = currentUserRole === "OWNER";
   // Ver comentário equivalente em tasks-list.tsx (desktop) — mesmo hook.
   const googleCalendar = useGoogleCalendarEvents();
   const [open, setOpen] = useState(false);
@@ -118,6 +122,11 @@ export function TasksListMobile({
     router.refresh();
   }
 
+  async function deleteTask(taskId: string) {
+    await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    router.refresh();
+  }
+
   return (
     <div className="space-y-4">
       <GoogleCalendarBanner
@@ -126,9 +135,17 @@ export function TasksListMobile({
         googleParam={googleParam}
       />
 
-      <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} />
+      <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} />
 
-      {!isEmpty && <CompactMonthCalendar tasks={initialTasks} onToggle={toggleComplete} showOwner={showOwner} />}
+      {!isEmpty && (
+        <CompactMonthCalendar
+          tasks={initialTasks}
+          onToggle={toggleComplete}
+          onDelete={deleteTask}
+          canDelete={canDelete}
+          showOwner={showOwner}
+        />
+      )}
 
       {!isEmpty && (
         <div className="flex items-center gap-2">
@@ -201,11 +218,11 @@ export function TasksListMobile({
         </div>
       ) : (
         <div className="space-y-5">
-          <MobileTaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} showOwner={showOwner} />
-          <MobileTaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} showOwner={showOwner} />
-          <MobileTaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} showOwner={showOwner} />
-          <MobileTaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} showOwner={showOwner} />
-          <MobileTaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} muted showOwner={showOwner} />
+          <MobileTaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <MobileTaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <MobileTaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <MobileTaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
+          <MobileTaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} muted showOwner={showOwner} />
         </div>
       )}
 
@@ -230,6 +247,8 @@ function MobileTaskGroup({
   tone,
   muted,
   onToggle,
+  onDelete,
+  canDelete,
   showOwner,
 }: {
   title: string;
@@ -237,6 +256,8 @@ function MobileTaskGroup({
   tone?: "red";
   muted?: boolean;
   onToggle: (id: string, completed: boolean) => void;
+  onDelete?: (id: string) => Promise<void> | void;
+  canDelete?: boolean;
   showOwner: boolean;
 }) {
   if (tasks.length === 0) return null;
@@ -252,7 +273,7 @@ function MobileTaskGroup({
       </h2>
       <div className="space-y-2">
         {tasks.map((task) => (
-          <TaskRow key={task.id} task={task} onToggle={onToggle} muted={muted} showOwner={showOwner} />
+          <TaskRow key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} muted={muted} showOwner={showOwner} />
         ))}
       </div>
     </div>

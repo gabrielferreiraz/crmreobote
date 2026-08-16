@@ -1,29 +1,32 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { 
-  X, 
-  CalendarPlus, 
-  CircleAlert, 
-  CheckCircle2, 
-  Clock, 
-  Briefcase, 
-  User, 
-  Phone, 
-  Tag, 
-  FileText, 
-  ExternalLink, 
-  CircleDot, 
-  Mail, 
-  MessageSquare, 
+import {
+  X,
+  CalendarPlus,
+  CircleAlert,
+  CheckCircle2,
+  Clock,
+  Briefcase,
+  User,
+  Phone,
+  Tag,
+  FileText,
+  ExternalLink,
+  CircleDot,
+  Mail,
+  MessageSquare,
   Calendar,
-  UserCheck
+  UserCheck,
+  Trash2,
 } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
 import { AnimatedCheck } from "@/components/animated-check";
 import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
 import { Modal } from "@/components/modal";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { renderTemplate } from "@/lib/campaigns/spintax";
 import { brazilGreeting } from "@/lib/timezone";
 import { type Task, scheduledMessageStatus } from "./task-row";
@@ -72,18 +75,24 @@ export function TaskDetailModal({
   justCompleted,
   onClose,
   onToggle,
+  canDelete,
+  onDelete,
 }: {
   task: Task;
   completed: boolean;
   justCompleted: boolean;
   onClose: () => void;
   onToggle: () => void;
+  /** Só o Dono da organização pode excluir — ver app/api/tasks/[id]/route.ts (DELETE restrito a OWNER). */
+  canDelete?: boolean;
+  onDelete?: (id: string) => Promise<void> | void;
 }) {
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
   const overdue = !completed && !!task.dueAt && new Date(task.dueAt) < new Date();
   const rel = relativeTime(task.dueAt, completed);
   const msgStatus = scheduledMessageStatus(task);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Link para o chat interno do CRM
   const crmChatUrl = task.contact ? `/whatsapp/conversas?contactId=${task.contact.id}` : "";
@@ -288,20 +297,53 @@ export function TaskDetailModal({
             )}
           </div>
 
-          {/* Botão de Finalizar/Reabrir */}
-          <button
-            type="button"
-            onClick={onToggle}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-[0.98] ${
-              completed
-                ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
-                : "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 dark:bg-blue-500 dark:hover:bg-blue-600 dark:active:bg-blue-750"
-            }`}
-          >
-            {completed ? "REABRIR" : "FINALIZAR"}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Excluir — só o Dono vê este botão (ver DELETE /api/tasks/[id], restrito a OWNER). */}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                className="icon-btn text-neutral-400 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400"
+                aria-label="Excluir"
+                title="Excluir"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2} />
+              </button>
+            )}
+
+            {/* Botão de Finalizar/Reabrir */}
+            <button
+              type="button"
+              onClick={onToggle}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-[0.98] ${
+                completed
+                  ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
+                  : "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 dark:bg-blue-500 dark:hover:bg-blue-600 dark:active:bg-blue-750"
+              }`}
+            >
+              {completed ? "REABRIR" : "FINALIZAR"}
+            </button>
+          </div>
         </div>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Excluir "${task.title}"?`}
+          description={
+            task.type === "MEETING"
+              ? "Não pode ser desfeito. Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar."
+              : "Não pode ser desfeito."
+          }
+          confirmLabel="Excluir"
+          onClose={() => setConfirmingDelete(false)}
+          onConfirm={async () => {
+            await onDelete?.(task.id);
+            setConfirmingDelete(false);
+            onClose();
+          }}
+        />
+      )}
     </Modal>
   );
 }

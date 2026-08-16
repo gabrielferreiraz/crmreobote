@@ -163,6 +163,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           isWhatsAppConnected={!!whatsappThread}
           sendAsAlternate={sendAsAlternate}
           canEditDetails={canEditDetails}
+          currentUserRole={session!.user.role}
         />
       </Suspense>
     );

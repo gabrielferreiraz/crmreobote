@@ -22,9 +22,14 @@ function formatWhen(date: Date): string {
 export function UpcomingAppointmentsCard({
   tasks,
   onToggle,
+  onDelete,
+  canDelete,
 }: {
   tasks: Task[];
   onToggle: (id: string, completed: boolean) => void;
+  onDelete?: (id: string) => Promise<void> | void;
+  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  canDelete?: boolean;
 }) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
@@ -71,6 +76,8 @@ export function UpcomingAppointmentsCard({
             onToggle(openTask.id, true);
             setOpenTaskId(null);
           }}
+          canDelete={canDelete}
+          onDelete={onDelete}
         />
       )}
     </>

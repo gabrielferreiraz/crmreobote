@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2 } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
 import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CurrencyInput } from "@/components/currency-input";
@@ -172,6 +173,7 @@ export function DealDetail({
   isWhatsAppConnected,
   sendAsAlternate,
   canEditDetails,
+  currentUserRole,
 }: {
   deal: Deal;
   members: MemberOption[];
@@ -190,9 +192,12 @@ export function DealDetail({
   sendAsAlternate?: { threadId: string; label: string } | null;
   /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
   canEditDetails: boolean;
+  /** Excluir tarefa (Reunião/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
+  currentUserRole?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const canDeleteTask = currentUserRole === "OWNER";
   const [activeTab, setActiveTab] = useState("NOTE");
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
@@ -426,6 +431,11 @@ export function DealDetail({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed }),
     });
+    router.refresh();
+  }
+
+  async function deleteTask(taskId: string) {
+    await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
     router.refresh();
   }
 
@@ -1378,6 +1388,11 @@ export function DealDetail({
         <EditTaskModal
           task={editingTask}
           onClose={() => setEditingTask(null)}
+          canDelete={canDeleteTask}
+          onDelete={async () => {
+            await deleteTask(editingTask.id);
+            setEditingTask(null);
+          }}
           onSave={async (fields) => {
             const result = await saveTask(editingTask.id, fields);
             // Reagendou uma Reunião com data definida — mesmo convite
@@ -1581,16 +1596,22 @@ function EditTaskModal({
   task,
   onClose,
   onSave,
+  canDelete,
+  onDelete,
 }: {
-  task: { id: string; title: string; dueAt: string | Date | null };
+  task: { id: string; title: string; type?: string; dueAt: string | Date | null };
   onClose: () => void;
   onSave: (fields: { title: string; dueAt: string | null }) => Promise<{ ok: boolean; error?: string }>;
+  /** Só o Dono da organização pode excluir — ver DELETE /api/tasks/[id]. */
+  canDelete?: boolean;
+  onDelete?: () => Promise<void> | void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [dueDate, setDueDate] = useState(toDateInputValue(task.dueAt));
   const [dueTime, setDueTime] = useState(toTimeInputValue(task.dueAt));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1635,23 +1656,56 @@ function EditTaskModal({
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="btn-ghost">
-            Cancelar
-          </button>
-          <button type="submit" disabled={saving || !title.trim()} className="btn-primary">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {saving ? (
-              <span className="inline-flex items-center gap-1">
-                Salvando
-                <LoadingDots />
-              </span>
-            ) : (
-              "Salvar"
-            )}
-          </button>
+        <div className="flex items-center justify-between gap-2 pt-2">
+          {/* Excluir — só o Dono vê este botão (ver DELETE /api/tasks/[id], restrito a OWNER). */}
+          {canDelete ? (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="icon-btn text-neutral-400 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400"
+              aria-label="Excluir"
+              title="Excluir"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={2} />
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="btn-ghost">
+              Cancelar
+            </button>
+            <button type="submit" disabled={saving || !title.trim()} className="btn-primary">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+              {saving ? (
+                <span className="inline-flex items-center gap-1">
+                  Salvando
+                  <LoadingDots />
+                </span>
+              ) : (
+                "Salvar"
+              )}
+            </button>
+          </div>
         </div>
       </form>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Excluir "${task.title}"?`}
+          description={
+            task.type === "MEETING"
+              ? "Não pode ser desfeito. Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar."
+              : "Não pode ser desfeito."
+          }
+          confirmLabel="Excluir"
+          onClose={() => setConfirmingDelete(false)}
+          onConfirm={async () => {
+            await onDelete?.();
+            setConfirmingDelete(false);
+          }}
+        />
+      )}
     </Modal>
   );
 }

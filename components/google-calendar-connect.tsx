@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar as CalendarIcon, Loader2, Unplug } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, TriangleAlert, Unplug } from "lucide-react";
 
 type Status = "loading" | "disconnected" | "connected";
 
@@ -18,6 +18,9 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
   const [email, setEmail] = useState<string | null>(null);
+  // null enquanto não sabemos ainda (ou desconectado) — só é true/false com
+  // uma conexão de verdade carregada (ver GET /api/google-calendar/status).
+  const [hasWriteScope, setHasWriteScope] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googleParam, setGoogleParam] = useState(initialGoogleParam);
@@ -28,6 +31,7 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
     const data = await res.json();
     setEmail(data.email ?? null);
     setStatus(data.connected ? "connected" : "disconnected");
+    setHasWriteScope(data.hasWriteScope ?? null);
   }
 
   useEffect(() => {
@@ -47,6 +51,7 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
       await fetch("/api/google-calendar/disconnect", { method: "POST" });
       setStatus("disconnected");
       setEmail(null);
+      setHasWriteScope(null);
     } catch {
       setError("Falha de conexão. Tente novamente.");
     } finally {
@@ -95,8 +100,22 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
       )}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
+      {status === "connected" && hasWriteScope === false && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          <p>
+            Esta conexão foi feita antes do agendamento automático de reunião existir e só tem permissão de
+            <strong className="font-medium"> leitura</strong>. Reuniões marcadas pela landing page não estão sendo
+            criadas no seu Google Agenda até você <strong className="font-medium">desconectar e conectar de novo</strong> —
+            a reserva no CRM continua acontecendo normalmente, só não aparece automaticamente no Google.
+          </p>
+        </div>
+      )}
+
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        Só lemos os eventos da sua agenda pra mostrar na Agenda do CRM — nunca criamos, editamos nem apagamos nada na sua conta Google.
+        Lemos os eventos da sua agenda pra mostrar na Agenda do CRM, e criamos o evento da reunião quando um lead
+        agenda um horário pela landing page (Configurações → API e webhooks) — nunca editamos nem apagamos nada que
+        você mesmo criou direto no Google.
       </p>
     </div>
   );
