@@ -2,11 +2,11 @@
  * Grade de horários pra agendar reunião com um consultor — usado só pela
  * landing page externa de captação de leads (Meta Ads) via API v1 (ver
  * app/api/v1/availability/route.ts e app/api/v1/appointments/route.ts), sem
- * UI correspondente dentro do CRM. Regras de negócio (pedido original):
- * 5 slots fixos por dia útil, de 1h30 em 1h30 a partir das 08:30, nunca
- * oferece o mesmo dia (só a partir de amanhã), e libera em cascata pro
- * próximo dia útil quando o dia corrente não tem mais vaga nenhuma — nunca
- * mais de 1 dia por chamada.
+ * UI correspondente dentro do CRM. Regras de negócio: 5 slots fixos por dia
+ * útil, de 1h30 em 1h30 a partir das 08:30, HOJE entra na roda se ainda for
+ * dia útil e tiver slot com antecedência mínima (ver MIN_LEAD_TIME_MINUTES),
+ * e libera em cascata pro próximo dia útil quando o dia corrente não tem
+ * mais vaga nenhuma — nunca mais de 1 dia por chamada.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -31,6 +31,12 @@ export function isMeetingSlotTime(value: string): value is MeetingSlotTime {
 // gravado em lugar nenhum, é só o "fim" do intervalo comparado contra os
 // eventos existentes no Google.
 const MEETING_CHECK_DURATION_MINUTES = 30;
+
+// Antecedência mínima pra um slot de HOJE ainda ser oferecido — não basta
+// "não passou", precisa sobrar tempo do consultor ver o aviso (WhatsApp/
+// notificação) antes do horário chegar. Não faz diferença nenhuma pros
+// slots de outros dias (sempre muito mais longe de "agora" que isso).
+const MIN_LEAD_TIME_MINUTES = 45;
 
 /**
  * Feriados nacionais: fora de escopo nesta primeira versão (pedido
@@ -68,11 +74,16 @@ function firstBusinessDayOnOrAfter(year: number, month: number, day: number) {
   return candidate;
 }
 
-/** Primeiro dia útil elegível pra agendar a partir de "agora" — nunca hoje, nunca no passado. */
+/**
+ * Primeiro dia útil elegível pra agendar a partir de "agora" — pode ser HOJE
+ * (se hoje for dia útil), nunca antes de hoje. Hoje ainda pode acabar sem
+ * nenhum slot de verdade depois do filtro de antecedência mínima em
+ * getSlotsForDay — quem decide isso é a cascata (findNextAvailableDay), não
+ * esta função.
+ */
 function earliestBookableDate(now: Date) {
   const today = getBrazilParts(now);
-  const tomorrow = addDays(today.year, today.month, today.day, 1);
-  return firstBusinessDayOnOrAfter(tomorrow.year, tomorrow.month, tomorrow.day);
+  return firstBusinessDayOnOrAfter(today.year, today.month, today.day);
 }
 
 /**
@@ -93,17 +104,20 @@ export type SlotStatus = { time: MeetingSlotTime; available: boolean };
 
 /**
  * Disponibilidade dos 5 slots fixos de um dia pra um consultor — ocupado se
- * (a) já existe Task type=MEETING dele nesse exato horário, OU (b) o Google
- * Agenda dele tem evento conflitando nesse intervalo. Sem
- * GoogleCalendarConnection, só a checagem (a) vale — não bloqueia o fluxo
- * inteiro por falta de conexão Google (pedido original); o mesmo vale se a
- * chamada ao Google falhar (token revogado, API fora do ar etc.).
+ * (a) o horário já passou (ou está a menos de MIN_LEAD_TIME_MINUTES de
+ * "agora" — só importa de verdade pra HOJE, dias futuros nunca chegam perto
+ * disso), (b) já existe Task type=MEETING ou VISIT dele nesse exato
+ * horário, OU (c) o Google Agenda dele tem evento conflitando nesse
+ * intervalo. Sem GoogleCalendarConnection, só (a)+(b) valem — não bloqueia
+ * o fluxo inteiro por falta de conexão Google (pedido original); o mesmo
+ * vale se a chamada ao Google falhar (token revogado, API fora do ar etc.).
  */
 export async function getSlotsForDay(
   organizationId: string,
   consultorId: string,
   dateKey: string,
   connection: GoogleConnection | null,
+  now: Date = new Date(),
 ): Promise<SlotStatus[]> {
   const slotTimes = MEETING_SLOT_TIMES.map((time) => ({ time, dueAt: brazilDateTimeStringToUTC(dateKey, time) }));
 
@@ -111,7 +125,7 @@ export async function getSlotsForDay(
     where: {
       organizationId,
       ownerId: consultorId,
-      type: "MEETING",
+      type: { in: ["MEETING", "VISIT"] },
       dueAt: { in: slotTimes.map((s) => s.dueAt) },
     },
     select: { dueAt: true },
@@ -133,7 +147,10 @@ export async function getSlotsForDay(
     }
   }
 
+  const earliestOfferable = now.getTime() + MIN_LEAD_TIME_MINUTES * 60_000;
+
   return slotTimes.map(({ time, dueAt }) => {
+    if (dueAt.getTime() <= earliestOfferable) return { time, available: false };
     if (bookedTimes.has(dueAt.getTime())) return { time, available: false };
     const slotEnd = new Date(dueAt.getTime() + MEETING_CHECK_DURATION_MINUTES * 60_000);
     const conflictsWithGoogle = googleEvents.some((event) => {
@@ -145,15 +162,16 @@ export async function getSlotsForDay(
   });
 }
 
-/** Revalida um único slot específico contra a mesma checagem (a)+(b) de getSlotsForDay — usado na hora de gravar a reserva. */
+/** Revalida um único slot específico contra a mesma checagem (a)+(b)+(c) de getSlotsForDay — usado na hora de gravar a reserva. */
 export async function isSlotStillAvailable(
   organizationId: string,
   consultorId: string,
   dateKey: string,
   time: MeetingSlotTime,
   connection: GoogleConnection | null,
+  now: Date = new Date(),
 ): Promise<boolean> {
-  const slots = await getSlotsForDay(organizationId, consultorId, dateKey, connection);
+  const slots = await getSlotsForDay(organizationId, consultorId, dateKey, connection, now);
   return slots.find((s) => s.time === time)?.available ?? false;
 }
 
@@ -164,10 +182,10 @@ export type AvailabilityResult = {
 };
 
 /**
- * Cascata: acha o primeiro dia útil, a partir de amanhã, com pelo menos 1
- * slot livre — nunca devolve mais de 1 dia por chamada. Teto de 60 dias
- * úteis é só segurança contra loop infinito (ex.: bug futuro em isHoliday
- * marcando tudo como feriado) — nenhum lead real chega perto disso.
+ * Cascata: acha o primeiro dia útil, a partir de HOJE, com pelo menos 1 slot
+ * livre — nunca devolve mais de 1 dia por chamada. Teto de 60 dias úteis é
+ * só segurança contra loop infinito (ex.: bug futuro em isHoliday marcando
+ * tudo como feriado) — nenhum lead real chega perto disso.
  */
 export async function findNextAvailableDay(
   organizationId: string,
@@ -183,7 +201,7 @@ export async function findNextAvailableDay(
 
   for (let guard = 0; guard < 60; guard++) {
     lastDateKey = dateKeyOf(candidate.year, candidate.month, candidate.day);
-    lastSlots = await getSlotsForDay(organizationId, consultorId, lastDateKey, connection);
+    lastSlots = await getSlotsForDay(organizationId, consultorId, lastDateKey, connection, now);
     if (lastSlots.some((s) => s.available)) {
       return { date: lastDateKey, slots: lastSlots, googleCalendarConnected };
     }

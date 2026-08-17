@@ -92,6 +92,15 @@ export const appointmentInputSchema = z
     message: "Envie 'contactId' (contato existente) ou 'contact' (dados pra criar/atualizar)",
   });
 
+/**
+ * PATCH /api/v1/deals/:id — anexa uma nota à descrição de um negócio já
+ * existente (nunca sobrescreve o que já tinha, ver a rota). Um único campo
+ * de propósito — isto não é uma edição geral do negócio.
+ */
+export const dealNoteInputSchema = z.object({
+  note: z.string().trim().min(1).max(2000),
+});
+
 /** Formata o primeiro erro do Zod numa mensagem curta, no mesmo estilo das mensagens de apiError já usadas nessas rotas. */
 export function firstZodMessage(error: z.ZodError): string {
   const issue = error.issues[0];

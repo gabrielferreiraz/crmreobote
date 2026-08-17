@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { id: "contatos", label: "Contatos" },
   { id: "contatos-lote", label: "Contatos (lote)" },
   { id: "negocios", label: "Negócios" },
+  { id: "negocios-nota", label: "Nota em negócio" },
   { id: "disponibilidade", label: "Disponibilidade" },
   { id: "agendamento", label: "Agendamento" },
   { id: "webhooks", label: "Webhooks de saída" },
@@ -113,6 +114,9 @@ export default function DocsPage() {
               </li>
               <li>
                 <Code>POST /api/v1/deals</Code>: 30 requisições/minuto por chave.
+              </li>
+              <li>
+                <Code>PATCH /api/v1/deals/:id</Code>: 30 requisições/minuto por chave.
               </li>
               <li>
                 <Code>GET /api/v1/availability</Code>: 60 requisições/minuto por chave.
@@ -414,6 +418,54 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
           </Section>
 
           <Section
+            id="negocios-nota"
+            title="Nota em negócio"
+            endpoint={{ method: "PATCH", path: "/api/v1/deals/:id" }}
+          >
+            <P>
+              Anexa uma nota à descrição de um negócio <strong className="font-medium">já criado</strong> — não
+              sobrescreve o que já tinha, concatena numa linha nova (com data/hora na frente) no final da descrição
+              existente.
+            </P>
+            <P>
+              Pensado pro fluxo de agendamento da landing page: o negócio já foi criado por{" "}
+              <a href="#negocios" className="underline underline-offset-2">
+                POST /api/v1/deals
+              </a>{" "}
+              com a descrição de sempre, e só depois, na tela de agendamento, se nenhum horário de{" "}
+              <a href="#disponibilidade" className="underline underline-offset-2">
+                GET /api/v1/availability
+              </a>{" "}
+              servir, o lead escreve um horário preferido em texto livre — isso <strong className="font-medium">
+                não
+              </strong>{" "}
+              é um agendamento de verdade (não cria nada em <Code>POST /api/v1/appointments</Code>, não abre negócio
+              novo), só um registro na descrição pro consultor ver e ligar combinando um horário por fora.
+            </P>
+            <P>
+              Um único campo de propósito: <Code>note</Code> (texto, obrigatório, até 2000 caracteres). Não é uma
+              edição geral do negócio — pra isso, é só chamar o CRM por dentro.
+            </P>
+            <SubHeading>Request</SubHeading>
+            <CodeBlock lang="json">{`{
+  "note": "Prefere ser contatado depois das 18h, disse que nenhum horário da grade serve essa semana."
+}`}</CodeBlock>
+            <SubHeading>Response</SubHeading>
+            <CodeBlock lang="json">{`{
+  "success": true,
+  "data": {
+    "id": "cm...",
+    "description": "Lead veio do formulário X.\\n\\n[17/08/2026 14:32] Prefere ser contatado depois das 18h, disse que nenhum horário da grade serve essa semana."
+  }
+}`}</CodeBlock>
+            <P>
+              <strong className="font-medium">Erros:</strong> <Code>400</Code> (corpo inválido ou <Code>note</Code>{" "}
+              vazia/maior que 2000 caracteres), <Code>401</Code> (chave inválida/revogada), <Code>404</Code> (
+              <Code>id</Code> não existe ou não pertence a esta organização).
+            </P>
+          </Section>
+
+          <Section
             id="disponibilidade"
             title="Disponibilidade"
             endpoint={{ method: "GET", path: "/api/v1/availability" }}
@@ -432,29 +484,43 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
               &quot;horário do Brasil&quot;; todo horário devolvido pela API já está nesse fuso).
             </P>
             <P>
-              <strong className="font-medium">Como funciona a cascata de dias:</strong> a API nunca oferece o mesmo
-              dia — a regra de negócio é reduzir no-show, então o lead só marca pro{" "}
-              <strong className="font-medium">próximo dia útil</strong>. Ela sempre olha primeiro pro próximo dia
-              útil a partir de agora; se esse dia já não tem mais nenhum dos 5 horários livres (todos ocupados ou em
-              conflito), ela passa pro dia útil seguinte, e assim por diante, até achar um dia com pelo menos 1
-              horário livre — <strong className="font-medium">só esse dia é devolvido, nunca mais de um por
-              chamada</strong>. Se o formulário demorar muito pra ser preenchido, chame este endpoint de novo antes
-              de reservar: a grade pode ter mudado.
+              <strong className="font-medium">Sem <Code>?date=</Code> (cascata):</strong> a API olha primeiro pro dia
+              útil de <strong className="font-medium">hoje</strong>; se hoje já não tem mais nenhum dos 5 horários
+              livres (passaram, estão ocupados, ou em conflito), ela passa pro dia útil seguinte, e assim por diante,
+              até achar um dia com pelo menos 1 horário livre —{" "}
+              <strong className="font-medium">só esse dia é devolvido, nunca mais de um por chamada</strong>. Se o
+              formulário demorar muito pra ser preenchido, chame este endpoint de novo antes de reservar: a grade
+              pode ter mudado.
             </P>
             <P>
-              Um horário é considerado ocupado se já existe uma reunião reservada pra aquele consultor naquele exato
-              horário — nesta API, ou marcada direto no Google Agenda dele, quando ele tem uma conta conectada
-              (Perfil → Google Agenda).
+              <strong className="font-medium">
+                Com <Code>?date=YYYY-MM-DD</Code>:
+              </strong>{" "}
+              devolve os slots exatamente desse dia (mesmo formato de resposta), sem cascata — pra quando você quiser
+              mostrar mais de um dia de uma vez (ex.: um calendário na landing page com hoje e o próximo dia útil já
+              coloridos) em vez de deixar o CRM escolher sozinho qual dia mostrar. <Code>date</Code> precisa ser um
+              dia útil válido a partir de hoje, senão a chamada é rejeitada com <Code>400</Code> — mesma validação
+              usada em <Code>POST /api/v1/appointments</Code>.
+            </P>
+            <P>
+              Horário de <strong className="font-medium">hoje</strong> só aparece disponível com pelo menos 45
+              minutos de antecedência a partir de agora (dá tempo do consultor ver o aviso antes da reunião) — os
+              horários já passados ou muito em cima da hora vêm como <Code>available: false</Code>, nunca somem da
+              lista. Um horário também é considerado ocupado se já existe uma reunião ou visita reservada pra aquele
+              consultor naquele exato horário — nesta API, ou marcada direto no Google Agenda dele, quando ele tem
+              uma conta conectada (Perfil → Google Agenda).
             </P>
             <SubHeading>Request</SubHeading>
             <CodeBlock lang="http">{`GET /api/v1/availability?consultorId=cm...
+Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
+            <CodeBlock lang="http">{`GET /api/v1/availability?consultorId=cm...&date=2026-08-18
 Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</CodeBlock>
             <P>
               <Code>consultorId</Code> é o <Code>id</Code> do consultor — mesmo <Code>id</Code> de{" "}
               <a href="#membros" className="underline underline-offset-2">
                 Membros do time
               </a>
-              , precisa ser um usuário ativo desta organização.
+              , precisa ser um usuário ativo desta organização. <Code>date</Code> é opcional.
             </P>
             <SubHeading>Response</SubHeading>
             <CodeBlock lang="json">{`{
@@ -475,12 +541,13 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
 }`}</CodeBlock>
             <P>
               <Code>googleCalendarConnected: false</Code> significa que o consultor ainda não conectou o Google
-              Agenda dele no CRM — os horários mostrados continuam válidos (checados só contra as reuniões já
+              Agenda dele no CRM — os horários mostrados continuam válidos (checados só contra as reuniões/visitas já
               marcadas por aqui), só não levam em conta compromissos que ele tenha marcado direto no Google.
             </P>
             <P>
-              <strong className="font-medium">Erros:</strong> <Code>401</Code> (chave inválida/revogada),{" "}
-              <Code>404</Code> (<Code>consultorId</Code> não existe ou não pertence a esta organização).
+              <strong className="font-medium">Erros:</strong> <Code>400</Code> (<Code>date</Code> mal formada ou fora
+              da faixa elegível, só quando enviada), <Code>401</Code> (chave inválida/revogada), <Code>404</Code> (
+              <Code>consultorId</Code> não existe ou não pertence a esta organização).
             </P>
           </Section>
 
@@ -537,9 +604,12 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
             </P>
             <ul className="list-disc space-y-1.5 pl-5 text-sm text-neutral-600 dark:text-neutral-300">
               <li>
-                <Code>400</Code> — corpo inválido, <Code>date</Code>/<Code>time</Code> fora da grade (ou anteriores
-                ao próximo dia útil), <Code>consultorId</Code>/<Code>contactId</Code>/<Code>dealId</Code> mal
-                formados.
+                <Code>400</Code> — corpo inválido, <Code>date</Code>/<Code>time</Code> fora da grade (dia não útil,
+                anterior a hoje, ou horário de hoje sem antecedência mínima — ver{" "}
+                <a href="#disponibilidade" className="underline underline-offset-2">
+                  Disponibilidade
+                </a>
+                ), <Code>consultorId</Code>/<Code>contactId</Code>/<Code>dealId</Code> mal formados.
               </li>
               <li>
                 <Code>404</Code> — <Code>consultorId</Code> não existe ou não pertence a esta organização.

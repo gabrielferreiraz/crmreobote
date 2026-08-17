@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     return apiError("time inválido — precisa ser um dos horários da grade (08:30, 10:00, 11:30, 13:00, 14:30)", 400);
   }
   if (!isLegitimateBookableDate(date)) {
-    return apiError("date inválida — precisa ser um dia útil a partir de amanhã", 400);
+    return apiError("date inválida — precisa ser um dia útil a partir de hoje", 400);
   }
 
   return runWithTenant(access.organizationId, async () => {
