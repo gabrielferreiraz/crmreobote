@@ -256,6 +256,44 @@ export function DealsList({
     if (savedSortDir === "asc" || savedSortDir === "desc") setSortDir(savedSortDir);
   });
 
+  // Busca a página/filtro ATUAIS — extraído do efeito principal (logo
+  // abaixo) pra também poder ser chamado direto depois de uma ação em massa
+  // (apagar/trocar de funil/etapa/responsável). Antes, essas ações só davam
+  // router.refresh() — que refaz a consulta do Server Component (page.tsx),
+  // mas NUNCA chega a re-sincronizar `deals`/`totalCount`/`sums` aqui: são
+  // estado local, inicializado uma vez a partir de `initialDeals` (só na
+  // montagem, sem efeito nenhum observando a prop mudar depois) — a tela
+  // ficava com as linhas apagadas/desatualizadas até o usuário mexer em
+  // algum filtro (o que dispara o efeito principal) ou navegar pra outro
+  // lugar e voltar.
+  async function fetchCurrentPage(): Promise<{ deals: Deal[]; totalCount: number; sums: Sums } | null> {
+    const params = buildFilterParams();
+    params.set("skip", String((page - 1) * pageSize));
+    params.set("limit", String(pageSize));
+    const res = await fetch(`/api/deals?${params.toString()}`);
+    if (!res.ok) return null;
+    const data: Deal[] = await res.json();
+    return {
+      deals: data,
+      totalCount: Number(res.headers.get("X-Total-Count") ?? data.length),
+      sums: {
+        wonSum: Number(res.headers.get("X-Won-Sum") ?? 0),
+        lostSum: Number(res.headers.get("X-Lost-Sum") ?? 0),
+        totalSum: Number(res.headers.get("X-Total-Sum") ?? 0),
+      },
+    };
+  }
+
+  /** Busca de novo e aplica ao state — usado pelas 4 ações em massa abaixo depois de completar. */
+  async function refreshCurrentPage() {
+    const result = await fetchCurrentPage();
+    if (result) {
+      setDeals(result.deals);
+      setTotalCount(result.totalCount);
+      setSums(result.sums);
+    }
+  }
+
   useEffect(() => {
     // Espera a restauração do localStorage terminar (ver usePersistedFilters
     // acima) antes de decidir buscar ou não — decidir com base no
@@ -274,22 +312,12 @@ export function DealsList({
     }
     let cancelled = false;
     setLoading(true);
-    const params = buildFilterParams();
-    params.set("skip", String((page - 1) * pageSize));
-    params.set("limit", String(pageSize));
-
-    fetch(`/api/deals?${params.toString()}`)
-      .then(async (res) => {
-        if (!res.ok || cancelled) return;
-        const data: Deal[] = await res.json();
-        if (cancelled) return;
-        setDeals(data);
-        setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
-        setSums({
-          wonSum: Number(res.headers.get("X-Won-Sum") ?? 0),
-          lostSum: Number(res.headers.get("X-Lost-Sum") ?? 0),
-          totalSum: Number(res.headers.get("X-Total-Sum") ?? 0),
-        });
+    fetchCurrentPage()
+      .then((result) => {
+        if (cancelled || !result) return;
+        setDeals(result.deals);
+        setTotalCount(result.totalCount);
+        setSums(result.sums);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -519,6 +547,10 @@ export function DealsList({
         setBulkError("Alguns negócios não puderam ser apagados.");
       }
       clearSelection();
+      // router.refresh() sozinho não atualiza a tabela (ver comentário em
+      // fetchCurrentPage) — busca a página atual de novo pra os negócios
+      // apagados somirem na hora.
+      await refreshCurrentPage();
       router.refresh();
     } finally {
       setBulkBusy(false);
@@ -547,6 +579,7 @@ export function DealsList({
         setBulkError("Alguns negócios não puderam ser movidos de funil.");
       }
       clearSelection();
+      await refreshCurrentPage();
       router.refresh();
     } finally {
       setBulkBusy(false);
@@ -573,6 +606,7 @@ export function DealsList({
         setBulkError("Alguns negócios não puderam mudar de etapa (a etapa de destino pode exigir algum campo que falta preencher).");
       }
       clearSelection();
+      await refreshCurrentPage();
       router.refresh();
     } finally {
       setBulkBusy(false);
@@ -596,6 +630,7 @@ export function DealsList({
         setBulkError("Alguns negócios não puderam trocar de responsável.");
       }
       clearSelection();
+      await refreshCurrentPage();
       router.refresh();
     } finally {
       setBulkBusy(false);

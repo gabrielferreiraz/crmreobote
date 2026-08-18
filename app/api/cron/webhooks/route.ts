@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runWebhookDeliveries } from "@/lib/webhooks/engine";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
+import { recordCronRun } from "@/lib/cron-run";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ async function handleCron() {
     );
   }
   try {
-    const result = await runWebhookDeliveries();
+    const result = await recordCronRun(CRON_NAME, runWebhookDeliveries);
     return NextResponse.json(result);
   } finally {
     await lock.release().catch((err) =>

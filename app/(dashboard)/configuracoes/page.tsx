@@ -191,6 +191,13 @@ export default async function ConfiguracoesPage() {
                 description: "Login, chaves de API, gestão de membros e conexões externas — quem fez o quê e de onde.",
                 keywords: ["log", "histórico", "segurança", "quem fez", "auditoria"],
               },
+              {
+                href: "/configuracoes/saude-do-sistema",
+                icon: "HeartPulse",
+                title: "Saúde do sistema",
+                description: "Última execução de cada cron (automações, campanhas, backup, webhooks) e falhas recentes.",
+                keywords: ["erro", "falha", "cron", "backup", "automação", "webhook", "monitoramento", "status", "quebrou"],
+              },
             ],
           },
         ]

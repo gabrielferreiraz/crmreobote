@@ -22,6 +22,7 @@ import {
   ClipboardList,
   ShieldAlert,
   Monitor,
+  HeartPulse,
 } from "lucide-react";
 
 export type ConfigItem = {
@@ -57,6 +58,7 @@ const ICONS: Record<string, IconComponent> = {
   ClipboardList,
   ShieldAlert,
   Monitor,
+  HeartPulse,
 };
 
 /** Remove acento e caixa — "compartilhamento" e "COMPARTILHAMENTO" e "compartilhaménto" batem igual. */

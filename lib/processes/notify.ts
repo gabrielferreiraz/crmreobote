@@ -44,3 +44,19 @@ export async function notifyProcessRequestCreated(
     ),
   );
 }
+
+/**
+ * Direção oposta de notifyProcessRequestCreated: administrativo mandou um
+ * modelo pedindo algo AO consultor (ver "Enviar modelo" em
+ * process-detail.tsx) — só ele precisa saber, não todo admin.
+ */
+export async function notifyProcessTemplateToConsultant(
+  process: { id: string; contactName: string; ownerId: string },
+  templateName: string,
+): Promise<void> {
+  await sendPushToUser(process.ownerId, {
+    title: "Documento solicitado",
+    body: `Pedido "${templateName}" para ${process.contactName}`,
+    url: `/processos/${process.id}`,
+  }).catch((err) => console.error("[processes] falha ao mandar push de modelo pro consultor", err));
+}

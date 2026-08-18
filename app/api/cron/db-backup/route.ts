@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runDbBackup } from "@/lib/db-backup";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
+import { recordCronRun } from "@/lib/cron-run";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,11 @@ async function handleCron() {
     );
   }
   try {
-    const result = await runDbBackup();
+    // recordCronRun grava sucesso/falha em CronRun e manda e-mail pro Dono
+    // se falhar (ver lib/cron-run.ts) — o backup é o cron mais arriscado de
+    // falhar em silêncio (erro só voltava numa resposta HTTP que ninguém
+    // olhava), por isso este é o motivo original de existir essa gravação.
+    const result = await recordCronRun(CRON_NAME, runDbBackup);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("[cron:db-backup] falha", err);

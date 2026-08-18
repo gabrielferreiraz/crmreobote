@@ -3,6 +3,7 @@ import { runAutomations } from "@/lib/automations/engine";
 import { sendDueScheduledTaskMessages } from "@/lib/tasks/scheduled-whatsapp";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
+import { recordCronRun } from "@/lib/cron-run";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,10 @@ async function handleCron() {
     );
   }
   try {
-    const result = await runCronTick();
+    // recordCronRun grava sucesso/falha em CronRun (ver "Saúde do sistema"
+    // em Configurações) e manda e-mail pro Dono se o tick inteiro quebrar —
+    // ver lib/cron-run.ts.
+    const result = await recordCronRun(CRON_NAME, runCronTick);
     return NextResponse.json(result);
   } finally {
     await lock.release().catch((err) =>

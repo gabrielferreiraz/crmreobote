@@ -48,6 +48,8 @@ model Organization {
   tvConfig               TvDashboardConfig?
   importBatches          ImportBatch[]
   shareGroups            ShareGroup[]
+  processTemplates       ProcessTemplate[]
+  processTemplateUsages  ProcessTemplateUsage[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -84,7 +86,10 @@ model User {
   processesOwned              Process[]                 @relation("ProcessOwner")
   processStageHistoryChanges  ProcessStageHistory[]     @relation("ProcessStageHistoryChangedBy")
   processRequestsCreated      ProcessRequest[]          @relation("ProcessRequestRequestedBy")
+  processRequestsTargeted     ProcessRequest[]          @relation("ProcessRequestTargetUser")
   processRequestsResolved     ProcessRequest[]          @relation("ProcessRequestResolvedBy")
+  processTemplatesCreated     ProcessTemplate[]
+  processTemplateUsages       ProcessTemplateUsage[]
   whatsappMessagesSentAs      WhatsAppMessage[]         @relation("WhatsAppMessageSentBy")
   whatsappThreadsOwned        WhatsAppThread[]          @relation("WhatsAppThreadOwner")
   auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
@@ -1336,9 +1341,10 @@ model ProcessStage {
   slaBusinessDays Int?
   createdAt       DateTime @default(now())
 
-  pipeline     ProcessPipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  processes    Process[]
-  stageHistory ProcessStageHistory[] @relation("ProcessStageHistoryToStage")
+  pipeline       ProcessPipeline        @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  processes      Process[]
+  stageHistory   ProcessStageHistory[]  @relation("ProcessStageHistoryToStage")
+  templateUsages ProcessTemplateUsage[]
 
   @@index([pipelineId])
 }
@@ -1375,18 +1381,19 @@ model Process {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pipeline     ProcessPipeline       @relation(fields: [pipelineId], references: [id])
-  stage        ProcessStage          @relation(fields: [stageId], references: [id])
-  deal         Deal                  @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  contact      Contact               @relation(fields: [contactId], references: [id])
-  owner        User                  @relation("ProcessOwner", fields: [ownerId], references: [id])
-  stageHistory ProcessStageHistory[]
-  requests     ProcessRequest[]
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline       ProcessPipeline        @relation(fields: [pipelineId], references: [id])
+  stage          ProcessStage           @relation(fields: [stageId], references: [id])
+  deal           Deal                   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact        Contact                @relation(fields: [contactId], references: [id])
+  owner          User                   @relation("ProcessOwner", fields: [ownerId], references: [id])
+  stageHistory   ProcessStageHistory[]
+  requests       ProcessRequest[]
+  templateUsages ProcessTemplateUsage[]
   // Notas do administrativo sobre este processo (Activity.type = NOTE,
   // reaproveitando o mesmo model do Negócio — ver Activity.processId) —
   // alimenta o feed de "anotações" no início do Administrativo.
-  activities   Activity[]
+  activities     Activity[]
 
   @@index([organizationId])
   @@index([organizationId, ownerId])
@@ -1416,15 +1423,20 @@ model ProcessStageHistory {
   @@index([organizationId])
 }
 
-// Consultor só enxerga (nunca edita) o processo do próprio cliente — este é
-// o botão "Solicitar" pra ele avisar o administrativo de algo (documento
-// pronto, cliente perguntando, etc.) sem precisar de acesso de edição.
+// De mão dupla: (a) consultor avisando o administrativo de algo (botão
+// "Solicitar", sem precisar de acesso de edição) — `targetUserId` null,
+// resolve = admin; (b) administrativo pedindo algo AO consultor (via "Enviar
+// modelo", ver ProcessTemplate) — `targetUserId` = o consultor (dono do
+// processo), resolve = ele mesmo (ou admin, se quiser fechar por ele).
 model ProcessRequest {
   id             String    @id @default(cuid())
   processId      String
   organizationId String
   message        String
   requestedById  String
+  // Preenchido só na direção (b) — quem precisa resolver esta, além do
+  // admin. Null = direção (a) de sempre (só admin resolve).
+  targetUserId   String?
   resolvedAt     DateTime?
   resolvedById   String?
   createdAt      DateTime  @default(now())
@@ -1432,10 +1444,71 @@ model ProcessRequest {
   process      Process      @relation(fields: [processId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   requestedBy  User         @relation("ProcessRequestRequestedBy", fields: [requestedById], references: [id])
+  targetUser   User?        @relation("ProcessRequestTargetUser", fields: [targetUserId], references: [id])
   resolvedBy   User?        @relation("ProcessRequestResolvedBy", fields: [resolvedById], references: [id])
 
   @@index([organizationId, resolvedAt])
   @@index([processId])
+}
+
+// ─── Modelos de solicitação (documentação/petição) ────────────────────
+// Biblioteca de mensagens reaproveitáveis que o administrativo usa pra
+// pedir algo (documento, petição) ao consultor ou direto ao cliente — ver
+// "Enviar modelo" em process-detail.tsx. Consultor: vira um ProcessRequest
+// com targetUserId (ele resolve marcando pronto). Cliente: manda WhatsApp
+// direto (lib/whatsapp/send.ts), sem "resolver" — só fica registrado como
+// nota + ProcessTemplateUsage.
+model ProcessTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  // Texto livre, aceita {{cliente.nome}}/{{responsavel.nome}}/{{negocio.nome}}
+  // (mesma sintaxe/motor de lib/automations/variables.ts, reaproveitado).
+  message        String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User                   @relation(fields: [createdById], references: [id])
+  usages       ProcessTemplateUsage[]
+
+  @@index([organizationId])
+}
+
+// Toda vez que um modelo é de fato ENVIADO (não só criado/editado) — serve
+// de log de auditoria E de fonte pra ordenar o seletor de modelos de forma
+// "inteligente" (ver lib/processes/templates.ts): modelo já usado NESTE
+// processo fica pra trás na lista (evita reenviar sem querer), e entre os
+// que ainda não foram usados aqui, o mais usado NESTA ETAPA aparece
+// primeiro — `stageId` sozinho já basta pra isso porque uma etapa pertence
+// a exatamente uma subcategoria (ProcessPipeline) dentro de exatamente uma
+// categoria (ProcessCategory), então contar por etapa já conta pelos 3
+// níveis de uma vez.
+model ProcessTemplateUsage {
+  id             String                @id @default(cuid())
+  organizationId String
+  templateId     String
+  processId      String
+  stageId        String
+  target         ProcessTemplateTarget
+  usedById       String
+  createdAt      DateTime              @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template     ProcessTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  process      Process         @relation(fields: [processId], references: [id], onDelete: Cascade)
+  stage        ProcessStage    @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  usedBy       User            @relation(fields: [usedById], references: [id])
+
+  @@index([organizationId])
+  @@index([templateId, stageId])
+  @@index([processId, templateId])
+}
+
+enum ProcessTemplateTarget {
+  CONSULTANT
+  LEAD
 }
 
 // ─── Tarefas ─────────────────────────────────────────────────────────
@@ -1496,6 +1569,13 @@ model Task {
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
   contact      Contact?     @relation(fields: [contactId], references: [id])
   owner        User         @relation(fields: [ownerId], references: [id])
+  // Trava "1 reunião por horário por consultor" (agendamento via API v1)
+  // vive só na migration como índice único PARCIAL (WHERE type='MEETING'),
+  // sem representação aqui — Prisma não tem sintaxe pra índice filtrado.
+  // Ver 20260814120000_task_meeting_scheduling/migration.sql e
+  // feedback_prisma_migrate_gotchas (memória): uma `prisma migrate dev`
+  // futura pode tentar gerar um DROP INDEX pra ele por não "ver" essa
+  // constraint aqui — checar antes de aplicar.
 
   @@unique([agendorTaskId, ownerId])
   @@index([organizationId, ownerId, dueAt])
@@ -1504,13 +1584,6 @@ model Task {
   // (Dono/Gerente, sem filtro de ownerId) — o índice acima (com ownerId) só
   // ajuda a ordenação quando o filtro de dono também está presente.
   @@index([organizationId, completedAt, dueAt])
-  // Trava "1 reunião por horário por consultor" (agendamento via API v1)
-  // vive só na migration como índice único PARCIAL (WHERE type='MEETING'),
-  // sem representação aqui — Prisma não tem sintaxe pra índice filtrado.
-  // Ver 20260814120000_task_meeting_scheduling/migration.sql e
-  // feedback_prisma_migrate_gotchas (memória): uma `prisma migrate dev`
-  // futura pode tentar gerar um DROP INDEX pra ele por não "ver" essa
-  // constraint aqui — checar antes de aplicar.
 }
 
 enum TaskType {
@@ -1780,6 +1853,25 @@ model AuditLog {
   actorUser    User?        @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
+}
+
+// ─── Saúde dos crons (infraestrutura, não é dado de organização) ──────
+// Registro de CADA execução de um cron (automations/campaigns/db-backup/
+// webhooks/whatsapp-health) — sucesso ou falha, com detalhe. Sem
+// organizationId de propósito e SEM RLS: um cron quebrado afeta todo mundo
+// que usa este deploy igual, não é dado de um tenant específico (mesmo
+// raciocínio de Organization, que também não tem RLS — ver
+// 20260706172705_init). Ver lib/cron-run.ts (grava) e a página "Saúde do
+// sistema" em Configurações, OWNER-only (lê).
+model CronRun {
+  id         String    @id @default(cuid())
+  name       String
+  startedAt  DateTime
+  finishedAt DateTime?
+  success    Boolean
+  detail     String?
+
+  @@index([name, startedAt])
 }
 
 model WebhookSubscription {

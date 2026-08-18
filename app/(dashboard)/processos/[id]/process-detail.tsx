@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Send, CheckCheck, History, Phone, Mail, MapPin, Building2, StickyNote, Clock, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Send, CheckCheck, History, Phone, Mail, MapPin, Building2, StickyNote, Clock, Trash2, FileText } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Select } from "@/components/select";
@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { getStageSlaStatus } from "@/lib/processes/sla";
 import { DOCUMENT_STATUS_LABELS, type DocumentStatus } from "../document-status";
+import { SendTemplateDialog } from "./send-template-dialog";
 
 type Stage = { id: string; name: string; color: string | null; isFinal: boolean; slaBusinessDays: number | null };
 
@@ -58,6 +59,8 @@ type RequestEntry = {
   createdAt: string;
   resolvedAt: string | null;
   requestedBy: { id: string; name: string };
+  /** Preenchido só quando o administrativo mandou (ver "Enviar modelo") — quem precisa resolver esta. Null = direção de sempre, consultor avisando o administrativo. */
+  targetUserId: string | null;
   resolvedBy: { id: string; name: string } | null;
 };
 
@@ -95,17 +98,27 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   const [moveError, setMoveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [showSendTemplate, setShowSendTemplate] = useState(false);
+
+  function reloadRequests() {
+    fetch(`/api/processes/${process.id}/requests`)
+      .then((r) => r.json())
+      .then(setRequests);
+  }
+
+  function reloadNotes() {
+    fetch(`/api/processes/${process.id}/activities`)
+      .then((r) => r.json())
+      .then(setNotes);
+  }
 
   useEffect(() => {
     fetch(`/api/processes/${process.id}/history`)
       .then((r) => r.json())
       .then(setHistory);
-    fetch(`/api/processes/${process.id}/requests`)
-      .then((r) => r.json())
-      .then(setRequests);
-    fetch(`/api/processes/${process.id}/activities`)
-      .then((r) => r.json())
-      .then(setNotes);
+    reloadRequests();
+    reloadNotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [process.id]);
 
   async function updateMarkers(data: {
@@ -236,17 +249,34 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
         </Link>
 
         {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setShowRemoveConfirm(true)}
-            className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400"
-            title="Remove o negócio deste processo — o negócio em si não é afetado, só sai do acompanhamento de pós-venda"
-          >
-            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-            Remover do processo
-          </button>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setShowSendTemplate(true)} className="btn-secondary btn-sm">
+              <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+              Enviar modelo
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowRemoveConfirm(true)}
+              className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400"
+              title="Remove o negócio deste processo — o negócio em si não é afetado, só sai do acompanhamento de pós-venda"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+              Remover do processo
+            </button>
+          </div>
         )}
       </div>
+
+      {showSendTemplate && (
+        <SendTemplateDialog
+          process={{ id: process.id, contact: process.contact, owner: process.owner, deal: process.deal }}
+          onClose={() => setShowSendTemplate(false)}
+          onSent={() => {
+            reloadRequests();
+            reloadNotes();
+          }}
+        />
+      )}
 
       {showRemoveConfirm && (
         <ConfirmDialog
@@ -442,13 +472,27 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
                     }`}
                   >
                     <div>
-                      <p>{r.message}</p>
+                      <p className="flex items-center gap-1.5">
+                        {r.message}
+                        {/* targetUserId preenchido = veio do administrativo via "Enviar modelo" (ver
+                            process-detail.tsx/schema.prisma) — direção oposta da solicitação de sempre
+                            (consultor avisando o administrativo), vale distinguir visualmente. */}
+                        {r.targetUserId && (
+                          <Badge tone="accent" size="sm">
+                            pedido ao consultor
+                          </Badge>
+                        )}
+                      </p>
                       <p className="mt-0.5 text-xs opacity-70">
                         {r.requestedBy.name} · {new Date(r.createdAt).toLocaleString("pt-BR")}
                         {r.resolvedAt && ` · resolvida por ${r.resolvedBy?.name ?? "—"}`}
                       </p>
                     </div>
-                    {isAdmin && !r.resolvedAt && (
+                    {/* Quem resolve depende da direção: sem alvo (consultor → admin, de sempre) só
+                        admin resolve; com alvo (admin → consultor) só quem está vendo o PRÓPRIO
+                        processo como não-admin resolve — não-admin só chega a ver processo que já é
+                        seu (ver processScopeWhere), então não precisa comparar userId aqui. */}
+                    {(isAdmin ? !r.targetUserId : !!r.targetUserId) && !r.resolvedAt && (
                       <button onClick={() => resolveRequest(r.id)} className="icon-btn shrink-0" title="Marcar como resolvida">
                         <CheckCheck className="h-4 w-4" strokeWidth={2} />
                       </button>
