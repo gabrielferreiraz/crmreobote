@@ -63,15 +63,32 @@ export async function ensurePipelines(dryRun: boolean): Promise<void> {
     for (let j = 0; j < stages.length; j++) {
       const stageName = stages[j];
       const cacheKey = `${funilName}::${stageName}`;
-      if (dryRun) {
+
+      // Pipeline em si ainda não existe (nem em dry-run dava pra achar
+      // etapa nenhuma dela) — só aí cai pro id falso de propósito.
+      if (!pipeline) {
         stageCache.set(cacheKey, { pipelineId: `dry-run:${funilName}`, stageId: `dry-run:${cacheKey}` });
         continue;
       }
-      let stage = await prisma.pipelineStage.findFirst({ where: { pipelineId: pipeline!.id, name: stageName } });
-      if (!stage) {
-        stage = await prisma.pipelineStage.create({ data: { pipelineId: pipeline!.id, name: stageName, order: j } });
+
+      // Mesmo em dry-run, se a etapa JÁ existe de verdade no banco, usa o
+      // id real dela (busca é leitura, não grava nada) — sem isso, toda
+      // comparação de "mudou de etapa?" em syncExistingDeal (import-
+      // negocios.ts) comparava um id falso contra o id real do negócio já
+      // existente e dava "diferente" pra TODO negócio, mesmo os que não
+      // mudaram nada — poluía o dry-run inteiro com falsos positivos tipo
+      // "etapa Fechamento → Fechamento". Só usa id falso pra etapa que
+      // seria criada agora (essa sim ainda não existe, não tem id real
+      // pra usar).
+      let stage = await prisma.pipelineStage.findFirst({ where: { pipelineId: pipeline.id, name: stageName } });
+      if (!stage && dryRun) {
+        stageCache.set(cacheKey, { pipelineId: `dry-run:${funilName}`, stageId: `dry-run:${cacheKey}` });
+        continue;
       }
-      stageCache.set(cacheKey, { pipelineId: pipeline!.id, stageId: stage.id });
+      if (!stage) {
+        stage = await prisma.pipelineStage.create({ data: { pipelineId: pipeline.id, name: stageName, order: j } });
+      }
+      stageCache.set(cacheKey, { pipelineId: pipeline.id, stageId: stage.id });
     }
   }
 }

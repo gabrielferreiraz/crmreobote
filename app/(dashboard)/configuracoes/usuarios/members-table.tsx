@@ -19,11 +19,24 @@ type Member = {
   active: boolean;
   canManageProcesses: boolean;
   area: "VENDAS" | "ADMINISTRATIVO";
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; birthDate: Date | string | null };
   team: { id: string; name: string } | null;
   photoUrl: string | null;
   lastActiveAt: Date | string | null;
 };
+
+/** "2026-07-12" → "12/07" (dia/mês, sem ano — pra mostrar sob o e-mail na tabela, ver aniversário). */
+function formatBirthDateShort(value: Member["user"]["birthDate"]): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** "2026-07-12T00:00:00.000Z" → "2026-07-12", o formato que <input type="date"> espera. */
+function toDateInputValue(value: Member["user"]["birthDate"]): string {
+  if (!value) return "";
+  return new Date(value).toISOString().slice(0, 10);
+}
 
 const ROLE_LABELS: Record<Member["role"], string> = {
   OWNER: "Dono",
@@ -88,6 +101,11 @@ export function MembersTable({
   const [resetSuccessName, setResetSuccessName] = useState<string | null>(null);
   const [memberToRename, setMemberToRename] = useState<Member | null>(null);
   const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  // "de nascimento" — mesmo diálogo de editar nome, ver renameMember abaixo
+  // (nome "rename" ficou curto pro que o diálogo faz agora, mas não vale o
+  // risco de renomear função/estado usados em vários lugares só por isso).
+  const [newBirthDate, setNewBirthDate] = useState("");
   const [renameLoading, setRenameLoading] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -258,18 +276,19 @@ export function MembersTable({
     const res = await fetch(`/api/org/members/${memberToRename.user.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName }),
+      body: JSON.stringify({ name: newName, email: newEmail, birthDate: newBirthDate || null }),
     });
     const data = await res.json().catch(() => ({}));
     setRenameLoading(false);
 
     if (!res.ok) {
-      setRenameError(data.error ?? "Erro ao alterar nome");
+      setRenameError(data.error ?? "Erro ao salvar perfil");
       return;
     }
 
     setMemberToRename(null);
     setNewName("");
+    setNewBirthDate("");
     router.refresh();
   }
 
@@ -388,6 +407,9 @@ export function MembersTable({
                       de verdade; break-all deixa quebrar linha em vez de esconder
                       atrás de reticências. */}
                   <p className="text-xs break-all text-neutral-500 dark:text-neutral-400">{m.user.email}</p>
+                  {formatBirthDateShort(m.user.birthDate) && (
+                    <p className="text-xs text-neutral-400 dark:text-neutral-500">🎂 {formatBirthDateShort(m.user.birthDate)}</p>
+                  )}
                   {m.active && (
                     <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
                       {online
@@ -473,10 +495,12 @@ export function MembersTable({
                     onClick={() => {
                       setMemberToRename(m);
                       setNewName(m.user.name);
+                      setNewEmail(m.user.email);
+                      setNewBirthDate(toDateInputValue(m.user.birthDate));
                     }}
                     className="icon-btn"
-                    title="Alterar nome"
-                    aria-label={`Alterar nome de ${m.user.name}`}
+                    title="Editar perfil"
+                    aria-label={`Editar perfil de ${m.user.name}`}
                   >
                     <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
                   </button>
@@ -704,11 +728,13 @@ export function MembersTable({
           onClose={() => {
             setMemberToRename(null);
             setNewName("");
+            setNewEmail("");
+            setNewBirthDate("");
             setRenameError(null);
           }}
         >
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Alterar nome de {memberToRename.user.name}
+            Editar perfil de {memberToRename.user.name}
           </h2>
           <form onSubmit={renameMember} className="space-y-3">
             <div className="space-y-1">
@@ -721,6 +747,31 @@ export function MembersTable({
                 className="field-input"
               />
             </div>
+            <div className="space-y-1">
+              <label className="field-label">E-mail</label>
+              <input
+                type="email"
+                required
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                className="field-input"
+              />
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                É o login da pessoa — trocar aqui muda com o que ela entra no CRM.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Data de nascimento (opcional)</label>
+              <input
+                type="date"
+                value={newBirthDate}
+                onChange={(e) => setNewBirthDate(e.target.value)}
+                className="field-input"
+              />
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Usada pra mostrar os aniversariantes do mês no dashboard da TV.
+              </p>
+            </div>
 
             {renameError && <p className="text-sm text-red-600 dark:text-red-400">{renameError}</p>}
 
@@ -730,13 +781,15 @@ export function MembersTable({
                 onClick={() => {
                   setMemberToRename(null);
                   setNewName("");
+                  setNewEmail("");
+                  setNewBirthDate("");
                   setRenameError(null);
                 }}
                 className="btn-ghost"
               >
                 Cancelar
               </button>
-              <button type="submit" disabled={renameLoading || !newName.trim()} className="btn-primary">
+              <button type="submit" disabled={renameLoading || !newName.trim() || !newEmail.trim()} className="btn-primary">
                 {renameLoading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                 {renameLoading ? (
                   <span className="inline-flex items-center gap-1">

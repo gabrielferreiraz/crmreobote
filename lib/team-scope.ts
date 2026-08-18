@@ -60,14 +60,30 @@ export function scopeWhere(scope: DealScope) {
 }
 
 /**
- * Mesma ideia de scopeWhere, mas pra qualquer model com uma relação
- * "instance" (WhatsAppThread, WhatsAppMessage) — cada vendedor tem seu
- * próprio número conectado (WhatsAppInstance.userId), então "minhas
- * conversas" é filtrado pela instância que enviou/recebeu, não por
- * Deal.ownerId (a conversa pode existir mesmo sem negócio nenhum ainda).
+ * Mesma ideia de scopeWhere, mas pra WhatsAppMessage (não tem campo de dono
+ * próprio, só a relação "instance" — cada vendedor tem seu próprio número
+ * conectado, WhatsAppInstance.userId). Filtrar por relação obriga um JOIN;
+ * pra WhatsAppThread use whatsappThreadScopeWhere abaixo em vez desta —
+ * WhatsAppThread TEM um campo denormalizado (ownerUserId, indexado junto
+ * com organizationId) exatamente pra evitar esse join, e usar esta função
+ * nele por engano já causou timeout de transação em produção (a lista de
+ * Conversas, ver lib/whatsapp/conversations.ts, roda a cada poucos segundos
+ * via polling — qualquer query lenta ali dói rápido).
  */
 export function whatsappScopeWhere(scope: DealScope) {
   return scope.type === "owners" ? { instance: { userId: { in: scope.ownerIds } } } : {};
+}
+
+/**
+ * Escopo de "minhas conversas" pra WhatsAppThread especificamente — via
+ * ownerUserId (denormalizado, sobrevive à instância ser apagada de verdade
+ * quando o dono é desativado, ver o campo no schema), já indexado junto com
+ * organizationId. Mesmo campo que toda checagem de autorização de thread já
+ * usa (ver app/api/whatsapp/messages/[threadId]/route.ts e afins) — esta
+ * função só reaproveita o mesmo padrão pra filtro de lista.
+ */
+export function whatsappThreadScopeWhere(scope: DealScope) {
+  return scope.type === "owners" ? { ownerUserId: { in: scope.ownerIds } } : {};
 }
 
 /**

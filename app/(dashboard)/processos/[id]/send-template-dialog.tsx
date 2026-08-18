@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Loader2, Send, Plus, Pencil, Trash2, MessageCircle, User, Check } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
+import { VariablePills, type VariablePillOption } from "@/components/variable-pills";
 import { interpolateAutomationTemplate } from "@/lib/automations/variables";
+
+// Mesma sintaxe {{token}} de lib/automations/variables.ts (o que
+// interpolate() abaixo entende de verdade) — igual ao que o editor de
+// Scripts faz com o próprio conjunto de variáveis (ver components/
+// variable-pills.tsx), só que aqui o campo é uma <textarea> comum, então
+// clicar insere o texto cru na posição do cursor (ver insertVariable).
+const PROCESS_TEMPLATE_VARIABLES: VariablePillOption[] = [
+  { token: "{{cliente.nome}}", label: "Nome do cliente" },
+  { token: "{{responsavel.nome}}", label: "Nome do consultor" },
+  { token: "{{negocio.nome}}", label: "Nome do negócio" },
+];
 
 type RankedTemplate = {
   id: string;
@@ -51,14 +63,38 @@ export function SendTemplateDialog({
 
   const [newName, setNewName] = useState("");
   const [newMessage, setNewMessage] = useState("");
+  const newMessageRef = useRef<HTMLTextAreaElement>(null);
 
   const [editName, setEditName] = useState("");
   const [editMessage, setEditMessage] = useState("");
+  const editMessageRef = useRef<HTMLTextAreaElement>(null);
 
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
   const canUseLead = !!(process.contact.whatsapp || process.contact.phone);
+
+  /**
+   * Insere `token` na posição do cursor de uma <textarea> comum (não
+   * contentEditable — o modelo em si é texto puro, diferente do editor de
+   * Scripts) — mesmo espírito do "Adicionar variável" de lá, versão mais
+   * simples pro campo mais simples. onMouseDown com preventDefault nos
+   * botões da pílula (ver VariablePills) já garante que o cursor lembrado
+   * (selectionStart/End) ainda é válido quando este código roda.
+   */
+  function insertVariable(ref: React.RefObject<HTMLTextAreaElement | null>, setValue: (v: string) => void, token: string) {
+    const el = ref.current;
+    if (!el) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = el.value.slice(0, start) + token + el.value.slice(end);
+    setValue(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
 
   function loadTemplates() {
     setLoadError(null);
@@ -194,10 +230,15 @@ export function SendTemplateDialog({
                   <div key={t.id} className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
                     <input value={editName} onChange={(e) => setEditName(e.target.value)} className="field-input w-full py-1.5 text-sm" />
                     <textarea
+                      ref={editMessageRef}
                       value={editMessage}
                       onChange={(e) => setEditMessage(e.target.value)}
                       rows={3}
                       className="field-input w-full resize-none py-1.5 text-sm"
+                    />
+                    <VariablePills
+                      variables={PROCESS_TEMPLATE_VARIABLES}
+                      onInsert={(token) => insertVariable(editMessageRef, setEditMessage, token)}
                     />
                     <div className="flex justify-end gap-2">
                       <button onClick={() => setEditingId(null)} className="btn-ghost btn-sm">
@@ -273,19 +314,20 @@ export function SendTemplateDialog({
                 className="field-input w-full"
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <label className="field-label">Mensagem</label>
               <textarea
+                ref={newMessageRef}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 rows={4}
                 placeholder="Ex.: Olá {{cliente.nome}}, poderia enviar seu RG e CPF, por favor?"
                 className="field-input w-full resize-none"
               />
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Variáveis disponíveis: <code>{"{{cliente.nome}}"}</code>, <code>{"{{responsavel.nome}}"}</code>,{" "}
-                <code>{"{{negocio.nome}}"}</code>
-              </p>
+              <VariablePills
+                variables={PROCESS_TEMPLATE_VARIABLES}
+                onInsert={(token) => insertVariable(newMessageRef, setNewMessage, token)}
+              />
             </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">

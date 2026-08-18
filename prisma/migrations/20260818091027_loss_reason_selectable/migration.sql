@@ -1,0 +1,1 @@
+ALTER TABLE "LossReason" ADD COLUMN "selectable" BOOLEAN NOT NULL DEFAULT true;

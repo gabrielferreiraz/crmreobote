@@ -6,7 +6,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
+import { whatsappThreadScopeWhere, type DealScope } from "@/lib/team-scope";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
 
 const PREVIEW_FALLBACK: Record<string, string> = {
@@ -53,7 +53,7 @@ export async function listConversations(
   const threads = await prisma.whatsAppThread.findMany({
     where: {
       organizationId,
-      ...whatsappScopeWhere(scope),
+      ...whatsappThreadScopeWhere(scope),
       // Thread sem nenhuma mensagem ainda (ex.: criada mas o envio falhou logo
       // depois) não é uma conversa de verdade — lastMessageAt só é gravado
       // depois da 1ª mensagem (ver touchThreadLastMessage), então esse filtro
@@ -150,7 +150,7 @@ export async function countUnreadThreads(organizationId: string, scope: DealScop
   return prisma.whatsAppThread.count({
     where: {
       organizationId,
-      ...whatsappScopeWhere(scope),
+      ...whatsappThreadScopeWhere(scope),
       instanceId: { not: null },
       messages: { some: { direction: "INBOUND", read: false } },
     },

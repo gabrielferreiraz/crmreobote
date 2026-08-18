@@ -1,6 +1,9 @@
 "use client";
 
-const VARIABLES: { token: string; label: string }[] = [
+export type VariablePillOption = { token: string; label: string };
+
+/** Padrão do editor de Scripts (chip contentEditable, ver script-editor.tsx/variable-input.tsx) — `{token}` de uma chave só, sem ponto. */
+export const SCRIPT_VARIABLES: VariablePillOption[] = [
   { token: "{nome}", label: "Nome" },
   { token: "{primeiro_nome}", label: "1º nome" },
   { token: "{cargo}", label: "Cargo" },
@@ -10,11 +13,24 @@ const VARIABLES: { token: string; label: string }[] = [
   { token: "{saudacao}", label: "Saudação" },
 ];
 
-/** Botões estilo "pílula" que inserem a variável no campo de texto focado (ver ScriptEditor.insertVariable). */
-export function VariablePills({ onInsert }: { onInsert: (token: string) => void }) {
+/**
+ * Botões estilo "pílula" que inserem a variável no campo de texto focado —
+ * usado tanto no editor de Scripts (ScriptEditor.insertVariable, chip
+ * contentEditable) quanto em qualquer campo mais simples que só precise
+ * inserir o token cru na posição do cursor (ver
+ * app/(dashboard)/processos/[id]/send-template-dialog.tsx, textarea comum).
+ * `variables` deixa o conjunto de tokens plugável — cada tela usa o seu.
+ */
+export function VariablePills({
+  variables = SCRIPT_VARIABLES,
+  onInsert,
+}: {
+  variables?: VariablePillOption[];
+  onInsert: (token: string) => void;
+}) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {VARIABLES.map((v) => (
+      {variables.map((v) => (
         <button
           key={v.token}
           type="button"

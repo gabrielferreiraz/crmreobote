@@ -18,6 +18,7 @@ import { NO_CONTACT_TAG } from "@/scripts/agendor/import-pessoas";
 import { type CanonicalMap, resolveCanonicalPersonId } from "@/scripts/agendor/phone-dedup";
 import { loadSheet, getHeaders, colIndex, cellText, cellDate, cellNumber } from "@/scripts/agendor/xlsx-utils";
 import { runConcurrent } from "@/scripts/agendor/concurrency";
+import { findAllPaged } from "@/scripts/agendor/pagination";
 
 const CONCURRENCY = 16;
 
@@ -294,30 +295,51 @@ export async function importNegocios(
     skippedOlderData: 0,
   };
 
-  // Pré-carga em bloco (1 consulta cada, não 1 por linha): negócios já
+  // Pré-carga em bloco (poucas consultas, não 1 por linha): negócios já
   // importados (agora com o suficiente pra decidir se sincroniza, não só um
   // Set de ids) + contatos existentes indexados pelas 3 chaves usadas na
   // resolução de contato abaixo. Isso é o que torna 117 mil linhas viável —
   // sem isso seriam ~3 consultas por linha só de leitura.
+  //
+  // PAGINADO (não um findMany só): cada operação do Prisma aqui roda dentro
+  // de uma mini-transação de até 15s (SET_CONFIG do RLS, ver withTenantRls
+  // em lib/prisma.ts) — um findMany sem paginação trazendo ~118 mil
+  // negócios (11 colunas + JOIN em PipelineStage pro nome da etapa) ou ~140
+  // mil contatos passa desse tempo em banco remoto e estoura
+  // "Transaction API error: A commit cannot be executed on an expired
+  // transaction" (confirmado rodando de verdade — não é hipotético).
+  // Paginar dá a cada página sua própria janela de 15s do zero.
   const [existingDealsRaw, allContacts] = await Promise.all([
-    prisma.deal.findMany({
-      where: { agendorDealId: { not: null } },
-      select: {
-        id: true,
-        agendorDealId: true,
-        ownerId: true,
-        pipelineId: true,
-        stageId: true,
-        stage: { select: { name: true } },
-        status: true,
-        value: true,
-        description: true,
-        lostReason: true,
-        closedAt: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.contact.findMany({ select: { id: true, agendorContactId: true, phoneNormalized: true, whatsappNormalized: true } }),
+    findAllPaged((skip, take) =>
+      prisma.deal.findMany({
+        where: { agendorDealId: { not: null } },
+        select: {
+          id: true,
+          agendorDealId: true,
+          ownerId: true,
+          pipelineId: true,
+          stageId: true,
+          stage: { select: { name: true } },
+          status: true,
+          value: true,
+          description: true,
+          lostReason: true,
+          closedAt: true,
+          updatedAt: true,
+        },
+        orderBy: { id: "asc" },
+        skip,
+        take,
+      }),
+    ),
+    findAllPaged((skip, take) =>
+      prisma.contact.findMany({
+        select: { id: true, agendorContactId: true, phoneNormalized: true, whatsappNormalized: true },
+        orderBy: { id: "asc" },
+        skip,
+        take,
+      }),
+    ),
   ]);
   const existingDealByAgendorId = new Map<string, ExistingDealSnapshot>(
     existingDealsRaw.map((d) => [

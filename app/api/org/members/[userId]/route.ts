@@ -15,13 +15,16 @@ export async function PATCH(
 ) {
   const { userId } = await params;
   const body = await req.json();
-  const { role, teamId, active, name, canManageProcesses, area } = body as {
+  const { role, teamId, active, name, canManageProcesses, area, birthDate, email } = body as {
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
     name?: string;
     canManageProcesses?: boolean;
     area?: "VENDAS" | "ADMINISTRATIVO";
+    /** "YYYY-MM-DD" (dia civil puro, ver User.birthDate no schema) ou null pra limpar. */
+    birthDate?: string | null;
+    email?: string;
   };
 
   const access = await requireRole(["OWNER"]);
@@ -37,13 +40,34 @@ export async function PATCH(
     active === undefined &&
     name === undefined &&
     canManageProcesses === undefined &&
-    area === undefined
+    area === undefined &&
+    birthDate === undefined &&
+    email === undefined
   ) {
-    return NextResponse.json({ error: "role, teamId, active, name, canManageProcesses ou area é obrigatório" }, { status: 400 });
+    return NextResponse.json(
+      { error: "role, teamId, active, name, canManageProcesses, area, birthDate ou email é obrigatório" },
+      { status: 400 },
+    );
   }
 
   if (name !== undefined && !name.trim()) {
     return NextResponse.json({ error: "Nome não pode ficar vazio" }, { status: 400 });
+  }
+
+  // Mesma checagem simples de formato usada no cadastro (ver register/page.tsx
+  // e app/api/org/members/route.ts) — e-mail é o login da pessoa, não pode
+  // ficar vazio nem ir sem @ pro banco.
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (email !== undefined && (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))) {
+    return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+  }
+
+  if (
+    birthDate !== undefined &&
+    birthDate !== null &&
+    (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(new Date(birthDate).getTime()))
+  ) {
+    return NextResponse.json({ error: "Data de nascimento inválida" }, { status: 400 });
   }
 
   if (active === false && userId === access.userId) {
@@ -77,19 +101,39 @@ export async function PATCH(
       if (!team) return NextResponse.json({ error: "Equipe inválida" }, { status: 400 });
     }
 
+    // E-mail é o login — único no sistema inteiro, não só nesta organização
+    // (User não tem organizationId, ver schema.prisma). Checa ANTES da
+    // transação (mesmo padrão do POST em app/api/org/members/route.ts, que
+    // já faz essa mesma busca sem runWithTenant — User é model global, RLS
+    // não se aplica) pra devolver um erro claro em vez de estourar a
+    // constraint única lá na escrita.
+    if (normalizedEmail) {
+      const existingWithEmail = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+      if (existingWithEmail && existingWithEmail.id !== userId) {
+        return NextResponse.json({ error: "Esse e-mail já está em uso por outro usuário" }, { status: 409 });
+      }
+    }
+
     const clearsLeadership = (role && role !== "SUPERVISOR") || active === false;
     const clearsManagement = (role && role !== "MANAGER") || active === false;
 
     const updated = await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, access.organizationId);
 
-      // Nome vive em User (compartilhado entre organizações, se a pessoa fizer
-      // parte de mais de uma — ver POST em app/api/org/members/route.ts, que
-      // reaproveita o User existente pelo e-mail). Editar aqui muda o nome em
-      // toda organização da pessoa, não só nesta — aceitável no momento porque
-      // não há hoje nenhuma noção de "nome de exibição por organização".
-      if (name !== undefined) {
-        await tx.user.update({ where: { id: userId }, data: { name: name.trim() } });
+      // Nome, e-mail e data de nascimento vivem em User (compartilhado entre
+      // organizações, se a pessoa fizer parte de mais de uma — ver POST em
+      // app/api/org/members/route.ts, que reaproveita o User existente pelo
+      // e-mail). Editar aqui muda os três em toda organização da pessoa, não
+      // só nesta — aceitável no momento porque não há hoje nenhuma noção de
+      // "perfil por organização". Trocar o e-mail troca o login também —
+      // sessão já aberta em outro aparelho continua valendo até expirar ou
+      // ser renovada (JWT, ver lib/auth.config.ts), não derruba na hora.
+      const userUpdateData: { name?: string; birthDate?: Date | null; email?: string } = {};
+      if (name !== undefined) userUpdateData.name = name.trim();
+      if (birthDate !== undefined) userUpdateData.birthDate = birthDate ? new Date(birthDate) : null;
+      if (normalizedEmail) userUpdateData.email = normalizedEmail;
+      if (Object.keys(userUpdateData).length > 0) {
+        await tx.user.update({ where: { id: userId }, data: userUpdateData });
       }
 
       const updatedMembership = await tx.organizationUser.update({

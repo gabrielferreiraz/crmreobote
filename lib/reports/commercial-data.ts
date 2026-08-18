@@ -219,8 +219,11 @@ export async function getCommercialReportData(params: {
     // foram de cada tipo (ver breakdown no card). Activity não tem
     // pipelineId direto (pode nem estar ligada a negócio nenhum), então não
     // aplica esse filtro — é uma métrica de pessoa, não de funil.
+    // meetingOutcome entra no agrupamento pra alimentar também a taxa de
+    // comparecimento (ver meetingVisitByUser abaixo) — mesma consulta,
+    // sem custo extra de ida ao banco só pra isso.
     prisma.activity.groupBy({
-      by: ["userId", "type"],
+      by: ["userId", "type", "meetingOutcome"],
       where: { organizationId, type: { in: ["MEETING", "VISIT"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
       _count: true,
     }),
@@ -332,11 +335,22 @@ export async function getCommercialReportData(params: {
   // mais foi falar com o lead direto, não importa o meio — mas cada tipo
   // continua contado à parte pra alimentar o "40 visitas e 10 reuniões" no
   // detalhamento do card.
-  const meetingVisitByUser = new Map<string, { meetingCount: number; visitCount: number }>();
+  //
+  // Taxa de comparecimento (attended/noShow) usa a MESMA régua já
+  // estabelecida em lib/meta-ads/attribution.ts: outcome null (histórico
+  // anterior à coluna existir) conta como compareceu, nunca como no-show;
+  // RESCHEDULED fica de fora da taxa (não é um resultado final — o
+  // encontro só foi remarcado, ainda não se sabe se vai comparecer ou não).
+  const meetingVisitByUser = new Map<
+    string,
+    { meetingCount: number; visitCount: number; attendedCount: number; noShowCount: number }
+  >();
   for (const row of meetingsAndVisitsByOwner) {
-    const prev = meetingVisitByUser.get(row.userId) ?? { meetingCount: 0, visitCount: 0 };
+    const prev = meetingVisitByUser.get(row.userId) ?? { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0 };
     if (row.type === "MEETING") prev.meetingCount += row._count;
     else if (row.type === "VISIT") prev.visitCount += row._count;
+    if (row.meetingOutcome === "NO_SHOW") prev.noShowCount += row._count;
+    else if (row.meetingOutcome !== "RESCHEDULED") prev.attendedCount += row._count;
     meetingVisitByUser.set(row.userId, prev);
   }
 
@@ -349,7 +363,10 @@ export async function getCommercialReportData(params: {
     const lostCountForOwner = lostByOwnerMap.get(id)?._count ?? 0;
     const closedForOwner = wonCountForOwner + lostCountForOwner;
     const activity = activityByUser.get(id) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
-    const meetingVisit = meetingVisitByUser.get(id) ?? { meetingCount: 0, visitCount: 0 };
+    const meetingVisit = meetingVisitByUser.get(id) ?? { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0 };
+    // Denominador da taxa = só resultados finais (compareceu ou no-show) —
+    // RESCHEDULED fica de fora (ver comentário em meetingVisitByUser acima).
+    const attendanceResolved = meetingVisit.attendedCount + meetingVisit.noShowCount;
     return {
       id,
       name: personName(id),
@@ -361,6 +378,9 @@ export async function getCommercialReportData(params: {
       meetingCount: meetingVisit.meetingCount,
       visitCount: meetingVisit.visitCount,
       meetingsAndVisitsCount: meetingVisit.meetingCount + meetingVisit.visitCount,
+      attendedCount: meetingVisit.attendedCount,
+      noShowCount: meetingVisit.noShowCount,
+      attendanceRate: attendanceResolved > 0 ? Math.round((meetingVisit.attendedCount / attendanceResolved) * 100) : null,
       activeSeconds: activity.activeSeconds,
       changeCount: activity.changeCount,
       activeDayCount: activity.activeDayCount,
@@ -392,6 +412,37 @@ export async function getCommercialReportData(params: {
       primaryValue: `${o.meetingsAndVisitsCount} ${o.meetingsAndVisitsCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
       secondaryValue: `${o.visitCount} visita${o.visitCount === 1 ? "" : "s"} e ${o.meetingCount} reuni${o.meetingCount === 1 ? "ão" : "ões"}`,
     }));
+
+  // Taxa de comparecimento por consultor — de quem marcou reunião/visita
+  // (attendedCount + noShowCount > 0, ver ownerStats acima), quantos % de
+  // fato compareceram. Ordenado pelo total de encontros RESOLVIDOS (não
+  // pela taxa em si) — sem isso, um consultor com 1 reunião e 100% de
+  // comparecimento apareceria acima de outro com 40 reuniões e 85%, o que
+  // não ajuda a achar quem realmente tem volume suficiente pra a taxa
+  // significar algo.
+  const attendanceRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => o.attendedCount + o.noShowCount > 0)
+    .sort((a, b) => b.attendedCount + b.noShowCount - (a.attendedCount + a.noShowCount))
+    .slice(0, 8)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: `${o.attendanceRate}% de comparecimento`,
+      secondaryValue: `${o.attendedCount} compareceu${o.attendedCount === 1 ? "" : "ram"} · ${o.noShowCount} no-show`,
+    }));
+
+  // Mesmo total, sem quebrar por pessoa — alimenta o resumo no topo do card
+  // (ver page.tsx), pra bater o olho na taxa geral do time antes de abrir o
+  // detalhamento por consultor.
+  const attendanceSummary = ownerStats.reduce(
+    (acc, o) => ({ attended: acc.attended + o.attendedCount, noShow: acc.noShow + o.noShowCount }),
+    { attended: 0, noShow: 0 },
+  );
+  const attendanceRateOverall =
+    attendanceSummary.attended + attendanceSummary.noShow > 0
+      ? Math.round((attendanceSummary.attended / (attendanceSummary.attended + attendanceSummary.noShow)) * 100)
+      : null;
 
   const conversionRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => o.winRate !== null)
@@ -1344,6 +1395,9 @@ export async function getCommercialReportData(params: {
     stageData,
     dealsClosedRanking,
     meetingsRanking,
+    attendanceRanking,
+    attendanceSummary,
+    attendanceRateOverall,
     conversionRanking,
     crmTimeRanking,
     crmChangesRanking,

@@ -110,6 +110,9 @@ export default async function RelatoriosPage({
     stageData,
     dealsClosedRanking,
     meetingsRanking,
+    attendanceRanking,
+    attendanceSummary,
+    attendanceRateOverall,
     conversionRanking,
     crmTimeRanking,
     crmChangesRanking,
@@ -313,24 +316,50 @@ export default async function RelatoriosPage({
         <SectionHeading
           eyebrow="Time"
           title="Ranking do time"
-          description="Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita) e quem converte melhor."
+          description="Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), a taxa de comparecimento desses encontros e quem converte melhor."
         />
         <div className="grid grid-cols-12 gap-5">
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
             <div className="mb-1 flex items-center gap-2">
               <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Negócios fechados</h3>
             </div>
             <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
           </div>
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
             <div className="mb-1 flex items-center gap-2">
               <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas</h3>
             </div>
             <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita registrada ainda" />
           </div>
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-4">
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de comparecimento</h3>
+              </div>
+              {/* Total do time (não por consultor) — bate o olho na taxa
+                  geral antes de abrir o detalhamento por pessoa logo abaixo.
+                  Mesma régua do ranking: só conta quem já teve reunião/visita
+                  com resultado final (compareceu ou no-show), remarcado fica
+                  de fora — ver comentário em lib/reports/commercial-data.ts. */}
+              {attendanceRateOverall !== null && (
+                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
+                  {attendanceRateOverall}%
+                </span>
+              )}
+            </div>
+            {attendanceRateOverall !== null && (
+              <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+                {attendanceSummary.attended} compareceu{attendanceSummary.attended === 1 ? "" : "ram"} de{" "}
+                {attendanceSummary.attended + attendanceSummary.noShow} marcado
+                {attendanceSummary.attended + attendanceSummary.noShow === 1 ? "" : "s"} ({attendanceSummary.noShow} no-show)
+              </p>
+            )}
+            <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
+          </div>
+          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
             <div className="mb-1 flex items-center gap-2">
               <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>

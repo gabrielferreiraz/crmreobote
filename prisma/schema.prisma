@@ -62,6 +62,13 @@ model User {
   image         String?
   password      String?
   createdAt     DateTime  @default(now())
+  // Dia/mês/ano de nascimento — @db.Date (não DateTime) de propósito: é um
+  // dia civil puro, sem hora nem fuso, igual RG/CPF. Usar DateTime aqui
+  // reabriria o mesmo tipo de bug de fuso já corrigido em lib/timezone.ts
+  // (a data podia "voltar" um dia dependendo de como fosse lida). Alimenta
+  // o carrossel de aniversariantes do dashboard da TV (mês/dia atual, ver
+  // app/tv) — nenhuma automação usa isso ainda.
+  birthDate     DateTime? @db.Date
 
   accounts                    Account[]
   sessions                    Session[]
@@ -980,6 +987,14 @@ model LossReason {
   label          String
   order          Int      @default(0)
   createdAt      DateTime @default(now())
+  // false = só histórico (ex.: motivos migrados do Agendor, rotulados "...
+  // (CRM anterior)") — não aparece no seletor de "por que esse negócio foi
+  // perdido?" pra negócio novo (ver LossReasonDialog em deal-detail.tsx),
+  // mas continua contando normal em relatório/filtro/automação, que usam
+  // outras consultas sem esse filtro de propósito (é histórico de verdade,
+  // não deveria sumir de onde já aconteceu, só não pode ser escolhido de
+  // novo daqui pra frente).
+  selectable Boolean @default(true)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deals        Deal[]

@@ -86,24 +86,40 @@
      dificuldade de leitura em tela pequena mais aparece. xl pra cima ficou
      como estava — título grande já lia bem, não é ali que estava o
      problema, e crescer mais isso arrisca espremer layout sem necessidade. */
-  --text-xs: 0.875rem; /* 14px, era 13px */
-  --text-xs--line-height: 1.125rem; /* 18px, era 17px */
-  --text-sm: 1rem; /* 16px, era 15px */
-  --text-sm--line-height: 1.4375rem; /* 23px, era 22px */
-  --text-base: 1.125rem; /* 18px, era 17px */
-  --text-base--line-height: 1.6875rem; /* 27px, era 26px */
-  --text-lg: 1.25rem; /* 20px, era 19px */
-  --text-lg--line-height: 1.9375rem; /* 31px, era 30px */
-  --text-xl: 1.375rem; /* 22px */
-  --text-xl--line-height: 1.875rem; /* 30px, era 28px */
-  --text-2xl: 1.625rem; /* 26px, era 24px */
-  --text-2xl--line-height: 2.125rem; /* 34px, era 32px */
+  --text-xs: 0.875rem;
+  /* 14px, era 13px */
+  --text-xs--line-height: 1.125rem;
+  /* 18px, era 17px */
+  --text-sm: 1rem;
+  /* 16px, era 15px */
+  --text-sm--line-height: 1.4375rem;
+  /* 23px, era 22px */
+  --text-base: 1.125rem;
+  /* 18px, era 17px */
+  --text-base--line-height: 1.6875rem;
+  /* 27px, era 26px */
+  --text-lg: 1.25rem;
+  /* 20px, era 19px */
+  --text-lg--line-height: 1.9375rem;
+  /* 31px, era 30px */
+  --text-xl: 1.375rem;
+  /* 22px */
+  --text-xl--line-height: 1.875rem;
+  /* 30px, era 28px */
+  --text-2xl: 1.625rem;
+  /* 26px, era 24px */
+  --text-2xl--line-height: 2.125rem;
+  /* 34px, era 32px */
   --text-2xl--letter-spacing: -0.01em;
-  --text-3xl: 2rem; /* 32px, era 30px */
-  --text-3xl--line-height: 2.375rem; /* 38px, era 36px */
+  --text-3xl: 2rem;
+  /* 32px, era 30px */
+  --text-3xl--line-height: 2.375rem;
+  /* 38px, era 36px */
   --text-3xl--letter-spacing: -0.015em;
-  --text-4xl: 2.375rem; /* 38px, era 36px */
-  --text-4xl--line-height: 2.625rem; /* 42px, era 40px */
+  --text-4xl: 2.375rem;
+  /* 38px, era 36px */
+  --text-4xl--line-height: 2.625rem;
+  /* 42px, era 40px */
   --text-4xl--letter-spacing: -0.02em;
 }
 
@@ -141,6 +157,7 @@ body {
    seletor não importa — !important sempre ganha de uma declaração normal,
    não importa a ordem. */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
@@ -156,6 +173,7 @@ body {
    que 16px. Isso NÃO muda nada visualmente no desktop — só evita esse zoom
    indesejado ao tocar num input no celular. */
 @media (max-width: 1023.98px) {
+
   input,
   select,
   textarea {
@@ -346,23 +364,19 @@ body {
 }
 
 .animate-skeleton-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    rgba(0, 0, 0, 0.06) 30%,
-    rgba(0, 0, 0, 0.12) 50%,
-    rgba(0, 0, 0, 0.06) 70%
-  );
+  background-image: linear-gradient(100deg,
+      rgba(0, 0, 0, 0.06) 30%,
+      rgba(0, 0, 0, 0.12) 50%,
+      rgba(0, 0, 0, 0.06) 70%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.8s ease-in-out infinite;
 }
 
 .dark .animate-skeleton-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    rgba(255, 255, 255, 0.06) 30%,
-    rgba(255, 255, 255, 0.12) 50%,
-    rgba(255, 255, 255, 0.06) 70%
-  );
+  background-image: linear-gradient(100deg,
+      rgba(255, 255, 255, 0.06) 30%,
+      rgba(255, 255, 255, 0.12) 50%,
+      rgba(255, 255, 255, 0.06) 70%);
 }
 
 @keyframes loading-fade-in {
@@ -942,7 +956,7 @@ input[type="radio"] {
 
   --tv-clock-time: clamp(1rem, 2.3vmin, 2.125rem);
   --tv-clock-date: clamp(0.55rem, 0.9vmin, 0.6875rem);
-  --tv-logo-h: clamp(1.5rem, 3.3vmin, 3.25rem);
+  --tv-logo-h: clamp(6rem, 8.2vmin, 3.25rem);
 }
 
 /* Linha de lista com "profundidade" — eleva e ganha sombra ao passar o

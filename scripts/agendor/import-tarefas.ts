@@ -12,6 +12,7 @@ import { ORGANIZATION_ID, resolveUserId } from "@/scripts/agendor/users";
 import { resolveCanonicalPersonId, type CanonicalMap } from "@/scripts/agendor/phone-dedup";
 import { loadSheet, getHeaders, colIndex, cellText, cellDate } from "@/scripts/agendor/xlsx-utils";
 import { runConcurrent } from "@/scripts/agendor/concurrency";
+import { findAllPaged } from "@/scripts/agendor/pagination";
 
 const CONCURRENCY = 16;
 
@@ -56,12 +57,39 @@ export async function importTarefas(
 
   // Pré-carga em bloco: deals (id + contactId por agendorDealId), contatos
   // (id por agendorContactId) e tarefas já importadas ((agendorTaskId,
-  // ownerId) já existentes) — 3 consultas no total em vez de até 3 por
+  // ownerId) já existentes) — poucas consultas no total em vez de até 3 por
   // linha (e essa fase tem ~101 mil linhas, expandidas por responsável).
+  // Paginado (ver findAllPaged) — mesmo motivo de import-negocios.ts: um
+  // findMany sem paginação nessas tabelas grandes estoura o teto de 15s da
+  // mini-transação do RLS num banco remoto (confirmado rodando de verdade).
   const [deals, contacts, existingTasks] = await Promise.all([
-    prisma.deal.findMany({ where: { agendorDealId: { not: null } }, select: { id: true, agendorDealId: true, contactId: true } }),
-    prisma.contact.findMany({ where: { agendorContactId: { not: null } }, select: { id: true, agendorContactId: true } }),
-    prisma.task.findMany({ where: { agendorTaskId: { not: null } }, select: { agendorTaskId: true, ownerId: true } }),
+    findAllPaged((skip, take) =>
+      prisma.deal.findMany({
+        where: { agendorDealId: { not: null } },
+        select: { id: true, agendorDealId: true, contactId: true },
+        orderBy: { id: "asc" },
+        skip,
+        take,
+      }),
+    ),
+    findAllPaged((skip, take) =>
+      prisma.contact.findMany({
+        where: { agendorContactId: { not: null } },
+        select: { id: true, agendorContactId: true },
+        orderBy: { id: "asc" },
+        skip,
+        take,
+      }),
+    ),
+    findAllPaged((skip, take) =>
+      prisma.task.findMany({
+        where: { agendorTaskId: { not: null } },
+        select: { agendorTaskId: true, ownerId: true },
+        orderBy: { id: "asc" },
+        skip,
+        take,
+      }),
+    ),
   ]);
   const dealByAgendorId = new Map(deals.map((d) => [d.agendorDealId as string, { id: d.id, contactId: d.contactId }]));
   const contactByAgendorId = new Map(contacts.map((c) => [c.agendorContactId as string, c.id]));

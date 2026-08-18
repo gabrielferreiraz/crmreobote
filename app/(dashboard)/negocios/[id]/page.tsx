@@ -82,8 +82,13 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true } } },
       }),
+      // selectable: true — exclui os motivos só-histórico migrados do
+      // Agendor ("... (CRM anterior)", ver scripts/backfill-legacy-loss-reasons.ts).
+      // Continuam existindo pra relatório/filtro (ver pipeline/page.tsx, que
+      // busca sem esse filtro de propósito), só não podem ser escolhidos de
+      // novo daqui pra frente.
       prisma.lossReason.findMany({
-        where: { organizationId },
+        where: { organizationId, selectable: true },
         orderBy: { order: "asc" },
       }),
       prisma.customFieldDefinition.findMany({

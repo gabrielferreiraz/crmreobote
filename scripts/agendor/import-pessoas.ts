@@ -15,6 +15,7 @@ import { ORGANIZATION_ID, resolveUserId } from "@/scripts/agendor/users";
 import { loadSheet, getHeaders, colIndex, cellText, cellDate } from "@/scripts/agendor/xlsx-utils";
 import { type CanonicalMap, resolveCanonicalPersonId } from "@/scripts/agendor/phone-dedup";
 import { runConcurrent } from "@/scripts/agendor/concurrency";
+import { findAllPaged } from "@/scripts/agendor/pagination";
 
 const CONCURRENCY = 16;
 
@@ -73,13 +74,22 @@ export async function importPessoas(
   // (em vez de 1 findUnique por linha) — é isso que faz a idempotência ficar
   // essencialmente de graça mesmo com dezenas de milhares de linhas: rodar
   // de novo mais pra frente (novo lote de consultor migrando) só paga essa
-  // consulta 1x, não 1x por linha já existente.
+  // consulta 1x, não 1x por linha já existente. Paginado (ver
+  // findAllPaged): mesmo com 1 coluna só, ~140 mil contatos já
+  // demonstraram estourar o teto de 15s da mini-transação do RLS num banco
+  // remoto sob carga real (ver import-negocios.ts) — mais seguro paginar
+  // aqui também do que confiar que sempre vai caber no tempo.
   const alreadyImported = new Set(
     (
-      await prisma.contact.findMany({
-        where: { agendorContactId: { not: null } },
-        select: { agendorContactId: true },
-      })
+      await findAllPaged((skip, take) =>
+        prisma.contact.findMany({
+          where: { agendorContactId: { not: null } },
+          select: { agendorContactId: true },
+          orderBy: { id: "asc" },
+          skip,
+          take,
+        }),
+      )
     ).map((c) => c.agendorContactId as string),
   );
 

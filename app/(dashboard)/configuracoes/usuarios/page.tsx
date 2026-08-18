@@ -18,7 +18,7 @@ export default async function UsuariosSettingsPage() {
       where: { organizationId },
       orderBy: { createdAt: "asc" },
       include: {
-        user: { select: { id: true, name: true, email: true, image: true } },
+        user: { select: { id: true, name: true, email: true, image: true, birthDate: true } },
         team: { select: { id: true, name: true } },
       },
     });
