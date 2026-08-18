@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
-import { getDealScope } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
-    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const scope = await getSharedScope(access.organizationId, access.userId, access.role, "shareDeals");
     const filterParams = {
       organizationId: access.organizationId,
       pipelineId,

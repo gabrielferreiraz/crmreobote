@@ -1527,10 +1527,22 @@ function LossReasonDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // "Outro" não diz nada sozinho — sem o detalhe, o motivo real do negócio
+  // perdido some (ninguém vai saber depois o que "Outro" queria dizer).
+  // Comparação normalizada (não só === "Outro") porque o label é editável
+  // livremente em Configurações → Motivos de perda (ver reason-manager.tsx),
+  // um espaço a mais ou maiúscula diferente não deveria quebrar essa regra.
+  const selectedReason = lossReasons.find((r) => r.id === reasonId);
+  const requiresNote = selectedReason?.label.trim().toLowerCase() === "outro";
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!reasonId) {
       setError("Selecione um motivo");
+      return;
+    }
+    if (requiresNote && !note.trim()) {
+      setError('Descreva o motivo em "Detalhes" — "Outro" sozinho não diz o que aconteceu');
       return;
     }
     setLoading(true);
@@ -1556,11 +1568,16 @@ function LossReasonDialog({
           />
         </div>
         <div className="space-y-1">
-          <label className="field-label">Detalhes (opcional)</label>
+          <label className="field-label">
+            Detalhes {requiresNote ? <span className="text-red-500">*</span> : "(opcional)"}
+          </label>
           <textarea
+            autoFocus={requiresNote}
+            required={requiresNote}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
+            placeholder={requiresNote ? "O que aconteceu, já que não se encaixa nos outros motivos?" : undefined}
             className="field-input"
           />
         </div>

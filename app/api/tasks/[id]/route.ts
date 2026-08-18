@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 
@@ -21,7 +22,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
-    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    // Colaborativo: quem compartilha a agenda OU o negócio ligado a esta
+    // tarefa (qualquer um dos dois já basta) pode editar/concluir como
+    // coautor — este endpoint é usado tanto pela Agenda quanto pelo
+    // detalhe do negócio (ver lib/share-groups.ts).
+    const scope = await getSharedScope(access.organizationId, access.userId, access.role, ["shareAgenda", "shareDeals"]);
     const existing = await prisma.task.findFirst({
       where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
     });

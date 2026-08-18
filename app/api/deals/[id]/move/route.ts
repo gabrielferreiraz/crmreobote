@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
@@ -20,7 +21,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });
 
   return runWithTenant(organizationId, async () => {
-    const scope = await getDealScope(organizationId, userId, access.role);
+    // Colaborativo: quem compartilha o negócio via grupo também pode mover
+    // de etapa como coautor (ver lib/share-groups.ts).
+    const scope = await getSharedScope(organizationId, userId, access.role, "shareDeals");
     const existing = await prisma.deal.findFirst({
       where: { id, organizationId, ...scopeWhere(scope) },
       include: { contact: { select: { source: true, jobTitle: true } } },

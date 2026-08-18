@@ -4,7 +4,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
@@ -17,7 +18,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
 
   return runWithTenant(organizationId, async () => {
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
+    const scope = await getSharedScope(organizationId, userId, session!.user.role, "shareDeals");
     const dealRaw = await prisma.deal.findFirst({
       where: { id, organizationId, ...scopeWhere(scope) },
       include: {

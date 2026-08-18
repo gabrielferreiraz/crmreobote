@@ -47,6 +47,7 @@ model Organization {
   auditLogs              AuditLog[]
   tvConfig               TvDashboardConfig?
   importBatches          ImportBatch[]
+  shareGroups            ShareGroup[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -89,6 +90,8 @@ model User {
   auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
   automationRulesCreated      AutomationRule[]          @relation("AutomationRuleCreatedBy")
   importBatchesCreated        ImportBatch[]
+  shareGroupsCreated          ShareGroup[]              @relation("ShareGroupCreatedBy")
+  shareGroupMemberships       ShareGroupMember[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -737,6 +740,50 @@ model Team {
   // então precisa ser indexado, não só o organizationId sozinho.
   @@index([organizationId, leaderId])
   @@index([organizationId, managerId])
+}
+
+// ─── Compartilhamento entre consultores (agenda / negócios / clientes) ─
+// Ortogonal a Team: um "setor" que compartilha (ex.: um time interno de
+// marketing digital que cuida de leads de tráfego pago, ou duas pessoas que
+// viajam juntas e cuidam dos mesmos negócios) pode cruzar equipes de vendas
+// diferentes — por isso é um grupo à parte, não mais um uso do Team já
+// existente. Dentro de um grupo, TODO MEMBRO vê o que foi ligado (agenda e/
+// ou negócios e/ou clientes) de TODO MEMBRO (simétrico) — ver
+// getSharedOwnerIds em lib/share-groups.ts. Cada recurso é um interruptor
+// independente: um grupo pode compartilhar só agenda, só negócios, ou
+// qualquer combinação — nunca afeta Relatórios (que continuam só com a
+// visão normal de getDealScope, sem o que foi compartilhado aqui).
+model ShareGroup {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  // Dono do grupo pra fins de permissão: Dono da organização pode mexer em
+  // qualquer grupo; Gerente/Supervisor só no que ele mesmo criou (ver
+  // app/api/share-groups) — evita um Supervisor mexer num grupo multi-
+  // equipe que um Gerente/Dono montou.
+  createdById    String
+  shareAgenda    Boolean  @default(true)
+  shareDeals     Boolean  @default(false)
+  shareContacts  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User               @relation("ShareGroupCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  members      ShareGroupMember[]
+
+  @@index([organizationId])
+}
+
+model ShareGroupMember {
+  id      String @id @default(cuid())
+  groupId String
+  userId  String
+
+  group ShareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
 }
 
 // ─── Auth.js (NextAuth v5) ───────────────────────────────────────────

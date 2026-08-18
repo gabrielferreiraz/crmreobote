@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import type { Prisma } from "@/app/generated/prisma/client";
@@ -85,7 +86,7 @@ export async function POST(req: Request) {
     // Nunca confia na seleção vinda do cliente — revalida contra o escopo
     // de negócios que este usuário de fato enxerga (mesmo padrão de toda
     // rota de negócio, ver lib/team-scope.ts).
-    const scope = await getDealScope(organizationId, userId, role);
+    const scope = await getSharedScope(organizationId, userId, role, "shareDeals");
     const deals = await prisma.deal.findMany({
       where: { id: { in: dealIds }, organizationId, ...scopeWhere(scope) },
       include: { contact: true, owner: { select: { id: true, name: true } } },

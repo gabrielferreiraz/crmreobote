@@ -1,9 +1,21 @@
 /**
  * Orquestrador da migração completa do Agendor → CRM próprio. Roda as 3
- * fases em ordem (Pessoas → Negócios → Tarefas), sempre create-only por
- * agendorContactId/agendorDealId/(agendorTaskId,ownerId) — seguro pra
- * rodar de novo mais pra frente sem duplicar (novo lote de consultor
- * migrando, Agendor continuando em paralelo pra quem ainda não migrou).
+ * fases em ordem (Pessoas → Negócios → Tarefas) — seguro pra rodar de novo
+ * mais pra frente com uma planilha atualizada (novo lote de consultor
+ * migrando, ou Agendor continuando em paralelo enquanto o CRM já está em
+ * uso de verdade). Regra por fase:
+ *
+ * - Pessoas e Tarefas: create-only por agendorContactId/(agendorTaskId,ownerId)
+ *   — já existe, pula; nunca atualiza um Contact/Task já importado.
+ * - Negócios: create-only por agendorDealId SE o negócio ainda não existia;
+ *   se já existe, em vez de pular, SINCRONIZA etapa/status/valor — mas só
+ *   aplica se a "Ultima atualização" da planilha nova for mais recente que
+ *   o `updatedAt` já gravado aqui (protege contra reverter progresso feito
+ *   ao vivo no CRM com um dado desatualizado do Agendor). Ver
+ *   syncExistingDeal em scripts/agendor/import-negocios.ts pra regra
+ *   completa, inclusive o que fica de fora de propósito (nunca reatribui
+ *   responsável, nunca dispara webhook/automação — só grava o negócio +
+ *   uma Activity type=SYSTEM registrando a sincronização).
  *
  * Uso:
  *   npx tsx --env-file=.env scripts/import-agendor.ts \
@@ -12,7 +24,7 @@
  *     [--dry-run]
  *
  * --dry-run roda toda a resolução/validação e imprime as contagens que
- * SERIAM criadas, sem gravar nada no banco — rode isso primeiro.
+ * SERIAM criadas/sincronizadas, sem gravar nada no banco — rode isso primeiro.
  */
 
 import { prisma } from "@/lib/prisma";

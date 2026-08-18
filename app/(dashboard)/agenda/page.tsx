@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
@@ -18,7 +19,10 @@ export default async function AgendaPage({
   const { novo, google } = await searchParams;
 
   return runWithTenant(organizationId, async () => {
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
+    // getSharedScope = getDealScope (visão normal) + quem compartilha
+    // agenda com este usuário via grupo (ver lib/share-groups.ts) — nunca
+    // afeta Relatórios.
+    const scope = await getSharedScope(organizationId, userId, session!.user.role, "shareAgenda");
 
     // Tarefa concluída nunca mais some sozinha (fica pra sempre no banco) —
     // sem uma janela, a Agenda de uma organização antiga carregaria anos de

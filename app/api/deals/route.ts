@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
-import { getDealScope } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, countDeals, aggregateDealValues } from "@/lib/deals/list-query";
 import { buildDealName } from "@/lib/deal-name";
 import { pickOwnerId } from "@/lib/auto-assign";
@@ -66,7 +66,9 @@ export async function GET(req: Request) {
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
-    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    // getSharedScope = getDealScope (visão normal) + quem compartilha
+    // negócio com este usuário via grupo (ver lib/share-groups.ts).
+    const scope = await getSharedScope(access.organizationId, access.userId, access.role, "shareDeals");
     const filterParams = {
       organizationId: access.organizationId,
       pipelineId,

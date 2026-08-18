@@ -39,6 +39,33 @@ const DEFAULT_PAGE_SIZE = 50;
  * caminho de código separado pra esse caso. */
 const IMPOSSIBLE_OWNER_ID = "__none__";
 
+// Precisa bater EXATAMENTE com os valores iniciais dos useState de todo
+// filtro/ordenação/pageSize logo abaixo (a mesma forma que captureFilters()
+// devolve, + pageSize/noValueOnly/sort/sortDir na mesma ordem que a chamada
+// de usePersistedFilters usa) — é contra isso que o filtro restaurado do
+// localStorage é comparado pra decidir se a 1ª busca pós-hidratação pode
+// ser pulada (ver o efeito de busca principal).
+const LISTA_DEFAULT_FILTERS_JSON = JSON.stringify({
+  search: "",
+  statusFilter: "OPEN",
+  ownerFilter: "",
+  ownerStatusFilter: "",
+  stageFilter: "",
+  lossReasonFilter: "",
+  jobTitleFilter: "",
+  originFilter: "",
+  stateFilter: "",
+  cityFilter: "",
+  dateFrom: "",
+  dateTo: "",
+  closedFrom: "",
+  closedTo: "",
+  pageSize: DEFAULT_PAGE_SIZE,
+  noValueOnly: false,
+  sort: "",
+  sortDir: "desc",
+});
+
 type MemberOption = { id: string; name: string; active: boolean };
 type Stage = { id: string; name: string; color: string | null };
 type LossReasonOption = { id: string; label: string };
@@ -155,8 +182,8 @@ export function DealsList({
   }, [search]);
 
   // 1ª renderização já tem os dados certos (vieram prontos do servidor,
-  // página 1, sem filtro) — sem essa guarda, esse efeito dispararia uma
-  // busca redundante assim que montasse.
+  // página 1, sem nenhum destes filtros locais aplicado) — sem essa guarda,
+  // esse efeito dispararia uma busca redundante assim que montasse.
   const skipNextFetch = useRef(true);
 
   // Monta só os parâmetros de FILTRO (sem paginação) — reaproveitado tanto
@@ -210,10 +237,40 @@ export function DealsList({
     return params;
   };
 
+  // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
+  // voltar, ou navegar pra outra tela e voltar) — reaproveita captureFilters/
+  // restoreFilters (definidas mais abaixo como function declaration, por
+  // isso já dá pra chamar aqui em cima — hoisting; já existiam pro
+  // round-trip de "+ Criar script"), só acrescenta pageSize (que aquele par
+  // não guarda, por não precisar pra esse outro uso). Precisa vir ANTES do
+  // efeito de busca logo abaixo — ele depende de `hydrated`/
+  // `persistedFilterValues` pra saber se pode pular a 1ª busca. Ver
+  // lib/use-persisted-filters.ts.
+  const persistedFilterValues = { ...captureFilters(), pageSize, noValueOnly, sort, sortDir };
+  const { hydrated } = usePersistedFilters("pipeline-lista", persistedFilterValues, (saved) => {
+    const { pageSize: savedPageSize, noValueOnly: savedNoValueOnly, sort: savedSort, sortDir: savedSortDir, ...filterFields } = saved;
+    restoreFilters(filterFields as Record<string, string>);
+    if (typeof savedPageSize === "number") setPageSize(savedPageSize);
+    if (typeof savedNoValueOnly === "boolean") setNoValueOnly(savedNoValueOnly);
+    if (typeof savedSort === "string") setSort(savedSort as typeof sort);
+    if (savedSortDir === "asc" || savedSortDir === "desc") setSortDir(savedSortDir);
+  });
+
   useEffect(() => {
+    // Espera a restauração do localStorage terminar (ver usePersistedFilters
+    // acima) antes de decidir buscar ou não — decidir com base no
+    // valor ainda-não-restaurado é o que fazia essa 1ª busca pós-restauração
+    // ficar refém de um outro efeito disparar por acaso, deixando a tela
+    // presa mostrando os dados SEM filtro até o usuário mexer no filtro de
+    // novo manualmente.
+    if (!hydrated) return;
     if (skipNextFetch.current) {
       skipNextFetch.current = false;
-      return;
+      // Só pula esta 1ª busca se o que foi restaurado (ou a ausência de
+      // qualquer coisa salva) bate exatamente com o que o servidor já usou
+      // pra montar initialDeals — senão os dados iniciais (sem filtro local
+      // nenhum) ficam desatualizados pra sempre.
+      if (JSON.stringify(persistedFilterValues) === LISTA_DEFAULT_FILTERS_JSON) return;
     }
     let cancelled = false;
     setLoading(true);
@@ -242,6 +299,7 @@ export function DealsList({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    hydrated,
     pipelineId,
     page,
     pageSize,
@@ -361,20 +419,6 @@ export function DealsList({
     if (f.closedTo !== undefined) setClosedTo(f.closedTo);
     setPage(1);
   }
-
-  // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
-  // voltar, ou navegar pra outra tela e voltar) — reaproveita captureFilters/
-  // restoreFilters acima (já existiam pro round-trip de "+ Criar script"),
-  // só acrescenta pageSize (que aquele par não guarda, por não precisar pra
-  // esse outro uso). Ver lib/use-persisted-filters.ts.
-  usePersistedFilters("pipeline-lista", { ...captureFilters(), pageSize, noValueOnly, sort, sortDir }, (saved) => {
-    const { pageSize: savedPageSize, noValueOnly: savedNoValueOnly, sort: savedSort, sortDir: savedSortDir, ...filterFields } = saved;
-    restoreFilters(filterFields as Record<string, string>);
-    if (typeof savedPageSize === "number") setPageSize(savedPageSize);
-    if (typeof savedNoValueOnly === "boolean") setNoValueOnly(savedNoValueOnly);
-    if (typeof savedSort === "string") setSort(savedSort as typeof sort);
-    if (savedSortDir === "asc" || savedSortDir === "desc") setSortDir(savedSortDir);
-  });
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);

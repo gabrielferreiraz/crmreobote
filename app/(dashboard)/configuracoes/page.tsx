@@ -1,12 +1,9 @@
-import Link from "next/link";
-import type { ComponentType } from "react";
-import { Kanban, Users, ChevronRight, XCircle, UsersRound, UserCircle, SlidersHorizontal, Mail, Zap, Plug, Tag, CreditCard, Briefcase, ClipboardList, ShieldAlert, Monitor } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
+import { canManageShareGroups } from "@/lib/share-groups";
 import { TestEmailButton } from "./test-email-button";
-
-type IconComponent = ComponentType<{ className?: string; strokeWidth?: number }>;
+import { ConfigSearch, type ConfigSection } from "./config-search";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -22,6 +19,183 @@ export default async function ConfiguracoesPage() {
   ]);
   const isOwner = session!.user.role === "OWNER";
   const canManageProcesses = processAccess.ok && processAccess.isAdmin;
+  // Supervisor também entra no item "Equipes" (diferente do resto de
+  // "Espaço de trabalho", restrito a Dono/Gerente) — precisa alcançar o
+  // compartilhamento entre consultores (agora dentro de Equipes, ver
+  // configuracoes/equipes/page.tsx) pra própria equipe.
+  const canManageSharing = canManageShareGroups(session!.user.role);
+
+  // Dados puros (sem JSX) — o componente de busca (config-search.tsx)
+  // precisa de uma lista plana pra filtrar por termo, incluindo `keywords`
+  // (sinônimos/termos relacionados que a pessoa pode digitar sem bater
+  // exatamente no título/descrição — ver comentário lá sobre a busca
+  // "inteligente"). Cada Section só existe se tiver pelo menos 1 item
+  // (papel do usuário já filtrou o resto antes de chegar aqui).
+  const sections: ConfigSection[] = [
+    {
+      title: "Conta",
+      items: [
+        {
+          href: "/configuracoes/perfil",
+          icon: "UserCircle",
+          title: "Perfil e preferências",
+          description: "Foto, notificações push e conexão do WhatsApp.",
+          keywords: ["foto", "avatar", "notificação", "push", "whatsapp", "senha", "perfil"],
+        },
+        {
+          href: "/automacoes",
+          icon: "Zap",
+          title: "Automações",
+          description: "Regras que disparam ação sozinhas nos seus negócios (tarefa, e-mail, WhatsApp, push).",
+          keywords: ["automação", "regra", "gatilho", "trigger", "ação automática"],
+        },
+      ],
+    },
+    {
+      title: "Espaço de trabalho",
+      items: [
+        ...(isManager
+          ? [
+              {
+                href: "/configuracoes/usuarios",
+                icon: "Users",
+                title: "Usuários",
+                description: "Gerenciar time e permissões.",
+                keywords: ["usuário", "membro", "permissão", "acesso", "desativar", "papel", "cargo de usuário"],
+              },
+            ]
+          : []),
+        ...(isManager || canManageSharing
+          ? [
+              {
+                href: "/configuracoes/equipes",
+                icon: "UsersRound",
+                title: "Equipes",
+                description: "Agrupar vendedores sob um supervisor e configurar compartilhamento entre consultores.",
+                keywords: [
+                  "equipe",
+                  "time",
+                  "squad",
+                  "supervisor",
+                  "gerente",
+                  "compartilhar",
+                  "compartilhamento",
+                  "compartilhado",
+                  "agenda compartilhada",
+                  "negócio compartilhado",
+                  "marketing digital",
+                  "setor",
+                  "grupo",
+                ],
+              },
+            ]
+          : []),
+        ...(isManager
+          ? [
+              {
+                href: "/configuracoes/pipeline",
+                icon: "Kanban",
+                title: "Pipeline",
+                description: "Etapas, cores e regras do funil.",
+                keywords: ["funil", "etapa", "kanban", "estágio", "cor", "fase"],
+              },
+              {
+                href: "/configuracoes/motivos-perda",
+                icon: "XCircle",
+                title: "Motivos de perda",
+                description: "Usados ao marcar um negócio como perdido.",
+                keywords: ["perda", "perdido", "motivo", "razão"],
+              },
+              {
+                href: "/configuracoes/origens",
+                icon: "Tag",
+                title: "Origens",
+                description: "De onde vêm os leads (Facebook, Indicação...).",
+                keywords: ["origem", "fonte", "canal", "facebook", "instagram", "anúncio", "lead", "tráfego pago"],
+              },
+              {
+                href: "/configuracoes/tipos-de-credito",
+                icon: "CreditCard",
+                title: "Tipos de crédito",
+                description: "Imóvel, veículo e outras categorias do negócio.",
+                keywords: ["crédito", "imóvel", "veículo", "consórcio", "categoria"],
+              },
+              {
+                href: "/configuracoes/cargos",
+                icon: "Briefcase",
+                title: "Cargos",
+                description: "Profissão/ocupação usada no cadastro de clientes.",
+                keywords: ["cargo", "profissão", "ocupação", "cliente"],
+              },
+              {
+                href: "/configuracoes/campos-personalizados",
+                icon: "SlidersHorizontal",
+                title: "Campos personalizados",
+                description: "Adicione campos a clientes e negócios.",
+                keywords: ["campo", "customizado", "personalizado", "extra", "adicional"],
+              },
+              ...(canManageProcesses
+                ? [
+                    {
+                      href: "/configuracoes/processos",
+                      icon: "ClipboardList",
+                      title: "Processos (pós-venda)",
+                      description: "Etapas do Kanban administrativo de pós-venda.",
+                      keywords: ["processo", "pós-venda", "kanban administrativo", "contemplação"],
+                    },
+                  ]
+                : []),
+              {
+                href: "/configuracoes/tv",
+                icon: "Monitor",
+                title: "TV Dashboard",
+                description: "Configure o painel que é exibido nas televisões.",
+                keywords: ["tv", "televisão", "painel", "dashboard", "monitor"],
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      title: "Integrações",
+      items: [
+        {
+          href: "/configuracoes/perfil",
+          icon: "Mail",
+          title: "Google Agenda",
+          description: "Conecte sua conta pra ver seus eventos na Agenda do CRM e receber reuniões marcadas pela landing page.",
+          keywords: ["agenda", "calendário", "google", "reunião", "evento", "sincronizar"],
+        },
+        ...(isManager
+          ? [
+              {
+                href: "/configuracoes/integracoes",
+                icon: "Plug",
+                title: "API e webhooks",
+                description: "Chaves de API pra ingestão externa e webhooks de saída (negócio ganho/perdido, contato criado).",
+                keywords: ["api", "webhook", "chave", "integração", "token", "zapier", "make", "n8n"],
+              },
+            ]
+          : []),
+      ],
+    },
+    ...(isOwner
+      ? [
+          {
+            title: "Segurança",
+            items: [
+              {
+                href: "/configuracoes/auditoria",
+                icon: "ShieldAlert",
+                title: "Auditoria",
+                description: "Login, chaves de API, gestão de membros e conexões externas — quem fez o quê e de onde.",
+                keywords: ["log", "histórico", "segurança", "quem fez", "auditoria"],
+              },
+            ],
+          },
+        ]
+      : []),
+  ].filter((section) => section.items.length > 0);
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -32,128 +206,24 @@ export default async function ConfiguracoesPage() {
         </p>
       </div>
 
-      <Section title="Conta">
-        <Row
-          href="/configuracoes/perfil"
-          icon={UserCircle}
-          title="Perfil e preferências"
-          description="Foto, notificações push e conexão do WhatsApp."
-        />
-        <Row
-          href="/automacoes"
-          icon={Zap}
-          title="Automações"
-          description="Regras que disparam ação sozinhas nos seus negócios (tarefa, e-mail, WhatsApp, push)."
-        />
-      </Section>
+      <ConfigSearch sections={sections} />
 
-      {isManager ? (
-        <Section title="Espaço de trabalho">
-          <Row href="/configuracoes/usuarios" icon={Users} title="Usuários" description="Gerenciar time e permissões." />
-          <Row href="/configuracoes/equipes" icon={UsersRound} title="Equipes" description="Agrupar vendedores sob um supervisor." />
-          <Row href="/configuracoes/pipeline" icon={Kanban} title="Pipeline" description="Etapas, cores e regras do funil." />
-          <Row href="/configuracoes/motivos-perda" icon={XCircle} title="Motivos de perda" description="Usados ao marcar um negócio como perdido." />
-          <Row href="/configuracoes/origens" icon={Tag} title="Origens" description="De onde vêm os leads (Facebook, Indicação...)." />
-          <Row href="/configuracoes/tipos-de-credito" icon={CreditCard} title="Tipos de crédito" description="Imóvel, veículo e outras categorias do negócio." />
-          <Row href="/configuracoes/cargos" icon={Briefcase} title="Cargos" description="Profissão/ocupação usada no cadastro de clientes." />
-          <Row href="/configuracoes/campos-personalizados" icon={SlidersHorizontal} title="Campos personalizados" description="Adicione campos a clientes e negócios." />
-          {canManageProcesses && (
-            <Row href="/configuracoes/processos" icon={ClipboardList} title="Processos (pós-venda)" description="Etapas do Kanban administrativo de pós-venda." />
-          )}
-          <Row href="/configuracoes/tv" icon={Monitor} title="TV Dashboard" description="Configure o painel que é exibido nas televisões." />
-        </Section>
-      ) : (
+      {!isManager && !canManageSharing && (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Apenas donos e gerentes podem alterar configurações do time.
         </p>
       )}
 
-      <Section title="Integrações">
-        <Row
-          href="/configuracoes/perfil"
-          icon={Mail}
-          title="Google Agenda"
-          description="Conecte sua conta pra ver seus eventos na Agenda do CRM e receber reuniões marcadas pela landing page."
-        />
-        {isManager && (
-          <Row
-            href="/configuracoes/integracoes"
-            icon={Plug}
-            title="API e webhooks"
-            description="Chaves de API pra ingestão externa e webhooks de saída (negócio ganho/perdido, contato criado)."
-          />
-        )}
-      </Section>
-
       {isOwner && (
-        <Section title="Segurança">
-          <Row
-            href="/configuracoes/auditoria"
-            icon={ShieldAlert}
-            title="Auditoria"
-            description="Login, chaves de API, gestão de membros e conexões externas — quem fez o quê e de onde."
-          />
-        </Section>
-      )}
-
-      {isOwner && (
-        <Section title="Alertas por e-mail">
-          <TestEmailButton />
-        </Section>
+        <div className="space-y-2">
+          <h2 className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+            Alertas por e-mail
+          </h2>
+          <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
+            <TestEmailButton />
+          </div>
+        </div>
       )}
     </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <h2 className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">{title}</h2>
-      <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">{children}</div>
-    </div>
-  );
-}
-
-function Row({
-  icon: Icon,
-  title,
-  description,
-  href,
-}: {
-  icon: IconComponent;
-  title: string;
-  description: string;
-  href?: string;
-}) {
-  const content = (
-    <>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
-        <Icon className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className={`font-medium ${href ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"}`}>
-          {title}
-        </p>
-        <p className="mt-0.5 text-sm text-neutral-400 dark:text-neutral-500">{description}</p>
-      </div>
-    </>
-  );
-
-  if (!href) {
-    return (
-      <div className="flex items-center gap-3 p-4 text-sm">
-        {content}
-        <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
-          Em breve
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <Link href={href} className="group flex items-center gap-3 p-4 text-sm transition-colors hover:bg-brand-light/50 dark:hover:bg-brand-light/30">
-      {content}
-      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand dark:text-neutral-600 dark:group-hover:text-brand" strokeWidth={2} />
-    </Link>
   );
 }

@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, aggregateDealValues, countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
 import { getCurrentMonthGoalProgress } from "@/lib/goals/suggestion";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -31,7 +32,7 @@ export default async function PipelinePage({
       leadSources,
       jobTitles,
     ] = await Promise.all([
-      getDealScope(organizationId, userId, session!.user.role),
+      getSharedScope(organizationId, userId, session!.user.role, "shareDeals"),
       prisma.pipeline.findMany({
         where: { organizationId },
         orderBy: { order: "asc" },

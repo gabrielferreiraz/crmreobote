@@ -85,6 +85,19 @@ const KANBAN_STAGE_PAGE_SIZE = 60;
 // ideia, só que ali é a carga inicial do servidor).
 const KANBAN_INITIAL_CAP = 400;
 const SEARCH_DEBOUNCE_MS = 300;
+// Precisa bater EXATAMENTE com os valores iniciais dos useState de
+// search/ownerFilter/sourceFilter/jobTitleFilter/noValueOnly/sort logo
+// abaixo — é contra isso que o filtro restaurado do localStorage é
+// comparado pra decidir se a 1ª busca pós-hidratação pode ser pulada (ver
+// o efeito de busca principal).
+const KANBAN_DEFAULT_FILTERS_JSON = JSON.stringify({
+  search: "",
+  ownerFilter: "",
+  sourceFilter: "",
+  jobTitleFilter: "",
+  noValueOnly: false,
+  sort: "",
+});
 
 export function KanbanBoard({
   pipelineId,
@@ -251,18 +264,15 @@ export function KanbanBoard({
   // quickFilter fica de fora de propósito: já vem controlado pela URL (ver
   // pipeline-view.tsx), persistir os dois em paralelo daria dois "últimos
   // valores lembrados" competindo.
-  usePersistedFilters(
-    "pipeline-kanban",
-    { search, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort },
-    (saved) => {
-      if (saved.search !== undefined) setSearch(saved.search);
-      if (saved.ownerFilter !== undefined) setOwnerFilter(saved.ownerFilter);
-      if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
-      if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
-      if (saved.noValueOnly !== undefined) setNoValueOnly(saved.noValueOnly);
-      if (saved.sort !== undefined) setSort(saved.sort);
-    },
-  );
+  const persistedFilterValues = { search, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort };
+  const { hydrated } = usePersistedFilters("pipeline-kanban", persistedFilterValues, (saved) => {
+    if (saved.search !== undefined) setSearch(saved.search);
+    if (saved.ownerFilter !== undefined) setOwnerFilter(saved.ownerFilter);
+    if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
+    if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
+    if (saved.noValueOnly !== undefined) setNoValueOnly(saved.noValueOnly);
+    if (saved.sort !== undefined) setSort(saved.sort);
+  });
 
   function clearFilters() {
     setSearch("");
@@ -325,16 +335,25 @@ export function KanbanBoard({
   }
 
   // 1ª renderização já tem os dados certos (vieram prontos do servidor, sem
-  // filtro) — sem essa guarda, esse efeito dispararia uma busca redundante
-  // assim que montasse. Se um filtro salvo (usePersistedFilters acima)
-  // mudar o estado logo em seguida, o efeito roda de novo com a guarda já
-  // desarmada e busca certo.
+  // nenhum destes filtros locais aplicado) — sem essa guarda, esse efeito
+  // dispararia uma busca redundante assim que montasse.
   const skipNextFetch = useRef(true);
 
   useEffect(() => {
+    // Espera a restauração do localStorage terminar (ver usePersistedFilters
+    // acima) antes de decidir buscar ou não — decidir com base no valor
+    // ainda-não-restaurado é exatamente o que fazia essa 1ª busca pós-
+    // restauração ficar refém de um outro efeito disparar por acaso (ou não
+    // disparar nunca), deixando a tela presa mostrando os dados SEM filtro
+    // até o usuário mexer no filtro de novo manualmente.
+    if (!hydrated) return;
     if (skipNextFetch.current) {
       skipNextFetch.current = false;
-      return;
+      // Só pula esta 1ª busca se o que foi restaurado (ou a ausência de
+      // qualquer coisa salva) bate exatamente com o que o servidor já usou
+      // pra montar initialDealsByStage — senão os dados iniciais (sem
+      // filtro local nenhum) ficam desatualizados pra sempre.
+      if (JSON.stringify(persistedFilterValues) === KANBAN_DEFAULT_FILTERS_JSON) return;
     }
     let cancelled = false;
     setStagesLoading(true);
@@ -381,7 +400,7 @@ export function KanbanBoard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter, pipelineId]);
+  }, [hydrated, debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter, pipelineId]);
 
   // Identidade estável (deps vazias) — lida com filtros/contagem carregada
   // via ref em vez de closure, pra não recriar a função (e derrubar o

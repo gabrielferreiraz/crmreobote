@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
@@ -21,7 +22,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
-    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    // getSharedScope = getDealScope + quem compartilha negócio via grupo
+    // (ver lib/share-groups.ts) — só leitura/edição, nunca DELETE (ver
+    // handler abaixo, deliberadamente restrito a getDealScope puro).
+    const scope = await getSharedScope(access.organizationId, access.userId, access.role, "shareDeals");
     const deal = await prisma.deal.findFirst({
       where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
       include: {
@@ -74,7 +78,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { organizationId, userId } = access;
 
   return runWithTenant(organizationId, async () => {
-    const scope = await getDealScope(organizationId, userId, access.role);
+    // Colaborativo: quem compartilha o negócio via grupo pode editar campos/
+    // mover etapa/marcar Ganho-Perdido como coautor (ver lib/share-groups.ts).
+    const scope = await getSharedScope(organizationId, userId, access.role, "shareDeals");
     const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
@@ -231,6 +237,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
+    // getDealScope PURO de propósito (não getSharedScope) — compartilhar um
+    // negócio via grupo dá acesso colaborativo (ver GET/PUT acima), mas
+    // apagar de vez continua exclusivo de quem já enxergava o negócio pela
+    // visão normal (dono/equipe/gerência), nunca por só compartilhamento.
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
     const existing = await prisma.deal.findFirst({
       where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
