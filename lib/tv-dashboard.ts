@@ -156,6 +156,36 @@ export async function getTvMetrics(organizationId: string) {
       // mas aqui para manter simples vamos retornar o anual até o usuário pedir alteração)
       const vendasCotas = vendasAnuais;
 
+      // 6b. Aniversariantes do mês — alimenta o carrossel do card Ranking (ver
+      // tv-view.tsx: depois de alguns minutos mostrando o pódio, gira pra
+      // mostrar quem faz aniversário este mês, destacando quem faz HOJE). Só
+      // membros ativos com data de nascimento cadastrada (ver User.birthDate
+      // no schema — opcional, então a maioria pode não ter ainda). Mês/dia
+      // sempre por getUTCMonth()/getUTCDate() (nunca getMonth()/getDate()
+      // locais) porque birthDate é @db.Date, um dia civil puro sem fuso — o
+      // Prisma devolve isso como meia-noite UTC, então os getters LOCAIS
+      // (que dependeriam do fuso de quem roda o processo) podiam ler o dia
+      // ANTERIOR dependendo de onde o servidor está — mesma armadilha que
+      // lib/timezone.ts já resolve pra Deal.closedAt, só que aqui não tem
+      // conversão de fuso nenhuma a fazer, é literalmente ler os componentes
+      // UTC do valor já gravado como estão.
+      const membersWithBirthday = await prisma.organizationUser.findMany({
+        where: { organizationId, active: true, user: { birthDate: { not: null } } },
+        select: { user: { select: { id: true, name: true, image: true, birthDate: true } } },
+      });
+      const birthdaysThisMonthRaw = membersWithBirthday
+        .map((m) => m.user)
+        .filter((u): u is typeof u & { birthDate: Date } => u.birthDate !== null && u.birthDate.getUTCMonth() === nowParts.month)
+        .sort((a, b) => a.birthDate.getUTCDate() - b.birthDate.getUTCDate());
+      const birthdayAvatarMap = await resolveAvatarUrlMap(birthdaysThisMonthRaw.map((u) => u.image));
+      const birthdaysThisMonth = birthdaysThisMonthRaw.map((u) => ({
+        id: u.id,
+        name: u.name,
+        image: u.image ? (birthdayAvatarMap.get(u.image) ?? null) : null,
+        day: u.birthDate.getUTCDate(),
+        isToday: u.birthDate.getUTCDate() === nowParts.day,
+      }));
+
       // 6. Meta do mês (Churrascômetro) — year/month de getBrazilParts, não
       // now.getFullYear()/getMonth() nativos (mesmo motivo do comentário lá
       // em cima): perto da virada do mês, o servidor (UTC) já podia estar
@@ -184,6 +214,7 @@ export async function getTvMetrics(organizationId: string) {
           : null,
         leadsInFunnels,
         ranking,
+        birthdaysThisMonth,
         churrascometroProgress:
           churrascometroTarget > 0 ? (totalVendasMes / churrascometroTarget) * 100 : 0,
         adsUrls: config.adsUrls,
@@ -200,6 +231,7 @@ export async function getTvMetrics(organizationId: string) {
       lastSale: null,
       leadsInFunnels: [],
       ranking: [],
+      birthdaysThisMonth: [],
       churrascometroProgress: 0,
       adsUrls: config.adsUrls,
       visibleWidgets: config.visibleWidgets,

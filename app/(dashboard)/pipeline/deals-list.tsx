@@ -125,6 +125,17 @@ export function DealsList({
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [sums, setSums] = useState(initialSums);
   const [loading, setLoading] = useState(false);
+  // false só durante a janela entre montar e a 1ª busca pós-restauração do
+  // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
+  // volta pra esta tela com um filtro salvo via localStorage via TODOS os
+  // negócios (initialDeals, sem filtro nenhum — o servidor não sabe do
+  // localStorage) por um instante, até a busca filtrada terminar e trocar a
+  // lista debaixo do usuário. `loading` sozinho não resolve: ele já existia,
+  // mas só controla um spinner ao lado da busca — a tabela errada continuava
+  // visível por baixo enquanto isso. Uma vez true, nunca mais volta a false
+  // (troca de filtro pelo usuário depois mostra loading normalmente, sem
+  // esconder a lista antiga — só a 1ª carga precisa desse cuidado extra).
+  const [filtersReady, setFiltersReady] = useState(false);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -308,7 +319,11 @@ export function DealsList({
       // qualquer coisa salva) bate exatamente com o que o servidor já usou
       // pra montar initialDeals — senão os dados iniciais (sem filtro local
       // nenhum) ficam desatualizados pra sempre.
-      if (JSON.stringify(persistedFilterValues) === LISTA_DEFAULT_FILTERS_JSON) return;
+      if (JSON.stringify(persistedFilterValues) === LISTA_DEFAULT_FILTERS_JSON) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setFiltersReady(true);
+        return;
+      }
     }
     let cancelled = false;
     setLoading(true);
@@ -320,7 +335,10 @@ export function DealsList({
         setSums(result.sums);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setFiltersReady(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -945,7 +963,14 @@ export function DealsList({
       </p>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-      {totalCount === 0 ? (
+      {!filtersReady ? (
+        // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
+        // filtersReady acima) — evita piscar `initialDeals` (sem o filtro
+        // salvo) antes de trocar pra lista filtrada de verdade.
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-5 w-5 animate-spin text-neutral-300 dark:text-neutral-700" strokeWidth={2} />
+        </div>
+      ) : totalCount === 0 ? (
         <div className="card">
           <EmptyState icon={Inbox} title="Nenhum negócio cadastrado" description="Crie o primeiro negócio para começar a preencher o funil." />
         </div>

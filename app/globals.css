@@ -340,6 +340,59 @@ body {
   }
 }
 
+/* Foguete de destaque da comemoração de venda na TV (ver tv-win-celebration.tsx)
+   — único elemento feito à mão ali (o resto do show é a lib fireworks-js):
+   nasce deslocado (--heroDx/--heroDy, a distância do canto de partida até o
+   ponto de estouro) e "chega" em translate(0,0), onde o flash/raios já
+   estão posicionados. */
+@keyframes tv-hero-travel {
+  from {
+    transform: translate(var(--heroDx), var(--heroDy));
+    opacity: 1;
+  }
+
+  to {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes tv-hero-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+
+  30% {
+    opacity: 1;
+    transform: scale(3);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(3.6);
+  }
+}
+
+/* Só escala/some — a rotação de cada raio já é fixa, aplicada estaticamente
+   (não animada) no wrapper pai de cada um, ver tv-win-celebration.tsx. */
+@keyframes tv-hero-ray {
+  0% {
+    opacity: 1;
+    transform: scaleY(0.15);
+  }
+
+  25% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scaleY(1.25);
+  }
+}
+
 @keyframes check-draw {
   to {
     stroke-dashoffset: 0;
@@ -498,6 +551,76 @@ body {
 
 .animate-tv-fade-slide-in {
   animation: tv-fade-slide-in 700ms var(--ease-smooth);
+}
+
+/* Carrossel do painel de métricas inteiro (conteúdo normal ↔
+   aniversariantes, ver tv-view.tsx) — o lado que ENTRA (tv-slide-in-*) e o
+   lado que SAI (tv-slide-out-*) ficam montados ao mesmo tempo por
+   SLIDE_TRANSITION_MS (ver outgoingSlide em tv-view.tsx), os dois se
+   deslocando juntos, um cruzando o outro — é isso que passa a sensação de
+   "arrastar pro lado" de verdade, não só um conteúdo novo aparecendo depois
+   do antigo já ter sumido. translateX(100%)/(-100%) inteiro (não uns pixels
+   só) reforça isso: cada lado atravessa a largura do próprio painel, como um
+   cartão sendo empurrado pra fora/puxado pra dentro. Sem fade de propósito
+   — opacidade mudando ao mesmo tempo lia mais como "surgindo", e aqui o
+   objetivo é o movimento em si. "pra direita"/"pra esquerda" é de onde o
+   conteúdo entra ou pra onde sai, não a direção do carrossel em si (ver
+   tv-view.tsx: entrando pra 1 vem da direita/sai pra esquerda, voltando pro
+   0 é o oposto — o giro é sempre simétrico, "de ida e volta"). */
+@keyframes tv-slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes tv-slide-in-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes tv-slide-out-to-left {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes tv-slide-out-to-right {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.animate-tv-slide-in-from-right {
+  animation: tv-slide-in-from-right 650ms var(--ease-smooth);
+}
+
+.animate-tv-slide-in-from-left {
+  animation: tv-slide-in-from-left 650ms var(--ease-smooth);
+}
+
+.animate-tv-slide-out-to-left {
+  animation: tv-slide-out-to-left 650ms var(--ease-smooth);
+}
+
+.animate-tv-slide-out-to-right {
+  animation: tv-slide-out-to-right 650ms var(--ease-smooth);
 }
 
 /* Zoom lento contínuo nas imagens do carrossel de propaganda ("efeito Ken
@@ -956,7 +1079,14 @@ input[type="radio"] {
 
   --tv-clock-time: clamp(1rem, 2.3vmin, 2.125rem);
   --tv-clock-date: clamp(0.55rem, 0.9vmin, 0.6875rem);
-  --tv-logo-h: clamp(6rem, 8.2vmin, 3.25rem);
+  /* min/max estavam invertidos aqui (6rem, ..., 3.25rem) — como o piso já
+     era maior que o teto, o clamp() sempre resolvia pro piso fixo (6rem =
+     96px, CONSTANTE, nunca escalava de verdade com o vmin no meio, apesar
+     da aparência de fluido). É por isso que a logo sempre renderizava
+     grande, era um bug, não só uma preferência. Corrigido a ordem e reduzido
+     um pouco o teto de propósito (6.5rem → 4.5rem) — pedido explícito de
+     diminuir. */
+  --tv-logo-h: clamp(2.25rem, 6.2vmin, 4.5rem);
 }
 
 /* Linha de lista com "profundidade" — eleva e ganha sombra ao passar o

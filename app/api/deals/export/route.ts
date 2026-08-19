@@ -35,7 +35,7 @@ async function writeDealsWorkbook(filterParams: DealsFilterParams, output: PassT
   sheet.columns = [
     { header: "Nome", key: "name", width: 32 },
     { header: "Contato", key: "contact", width: 26 },
-    { header: "Celular", key: "phone", width: 16 },
+    { header: "WhatsApp", key: "phone", width: 16 },
     { header: "Pipeline", key: "pipeline", width: 18 },
     { header: "Etapa", key: "stage", width: 18 },
     { header: "Status", key: "status", width: 14 },
@@ -65,7 +65,10 @@ async function writeDealsWorkbook(filterParams: DealsFilterParams, output: PassT
           .addRow({
             name: sanitizeCell(deal.name),
             contact: sanitizeCell(deal.contact.name),
-            phone: sanitizeCell(deal.contact.phone ?? ""),
+            // Prioriza WhatsApp — é o número usado de verdade pra mandar
+            // mensagem (importar numa lista de disparo, etc.); só cai pro
+            // celular comum quando o contato não tem WhatsApp cadastrado.
+            phone: sanitizeCell(deal.contact.whatsapp || deal.contact.phone || ""),
             pipeline: sanitizeCell(deal.pipeline.name),
             stage: sanitizeCell(deal.stage.name),
             status: STATUS_LABEL[deal.status] ?? deal.status,

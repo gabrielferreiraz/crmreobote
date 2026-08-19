@@ -31,7 +31,10 @@ export default async function PerfilPage({
       <div className="card p-4">
         <PushNotificationsToggle />
       </div>
-      <div className="card p-4">
+      {/* id="whatsapp" — âncora usada pelo resultado de busca "Conectar
+          WhatsApp" em configuracoes/page.tsx, pra levar direto pra esta
+          seção em vez de só pro topo da página. */}
+      <div id="whatsapp" className="card scroll-mt-20 p-4">
         <WhatsAppConnect />
       </div>
       <div className="card p-4">

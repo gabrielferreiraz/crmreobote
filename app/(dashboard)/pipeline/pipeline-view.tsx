@@ -13,6 +13,7 @@ import { popBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-d
 import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fieldset";
 import { formatCurrencyCompact } from "@/lib/format";
 import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filters";
+import { usePersistedFilters } from "@/lib/use-persisted-filters";
 
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
@@ -90,6 +91,18 @@ export function PipelineView({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [view, setView] = useState<"kanban" | "lista">("kanban");
+
+  // Lembra a última visão usada (Kanban/Lista) nesta tela, neste navegador —
+  // sem isso, o link "Pipeline" de volta em negócios/[id]/clientes/etc. é um
+  // <Link href="/pipeline"> estático (sem ?view=), então PipelineView sempre
+  // remontava do zero no valor padrão do useState acima ("kanban"): editar/
+  // apagar um negócio a partir da visão Lista e voltar sempre caía em
+  // Kanban, nunca em Lista. Mesmo padrão de lib/use-persisted-filters.ts já
+  // usado pelos filtros do Kanban/Lista (ver kanban-board.tsx/deals-list.tsx)
+  // — só que aqui é a visão em si, não um filtro dentro dela.
+  usePersistedFilters("pipeline-view", { view }, (saved) => {
+    if (saved.view) setView(saved.view);
+  });
 
   // Filtro rápido único (Ação hoje/Sem tarefa/Parados +14d) — sincronizado com
   // a URL (?filter=) pra o card "Exige ação" do Início conseguir linkar direto

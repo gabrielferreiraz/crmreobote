@@ -8,7 +8,6 @@ import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { TempPasswordDialog } from "@/components/temp-password-dialog";
 import { PasswordInput } from "@/components/password-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
@@ -89,9 +88,13 @@ export function MembersTable({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Member["role"]>("MEMBER");
   const [area, setNewMemberArea] = useState<Member["area"]>("VENDAS");
+  // Só o Dono cria usuário, e SEMPRE digitando a senha aqui — nunca mais
+  // gerada pelo sistema (ver POST /api/org/members). O botão "Adicionar
+  // usuário" abaixo já é isOwner-only, então este campo só existe pra quem
+  // pode preenchê-lo.
+  const [createPassword, setCreatePassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [memberToRemove, setMemberToRemove] = useState<Member | null>(null);
   const [memberToDeactivate, setMemberToDeactivate] = useState<Member | null>(null);
   const [memberToReset, setMemberToReset] = useState<Member | null>(null);
@@ -151,7 +154,7 @@ export function MembersTable({
     const res = await fetch("/api/org/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, role, area }),
+      body: JSON.stringify({ name, email, role, area, password: createPassword }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -162,15 +165,12 @@ export function MembersTable({
       return;
     }
 
-    if (data.tempPassword) {
-      setTempPassword(data.tempPassword);
-    } else {
-      setOpen(false);
-    }
+    setOpen(false);
     setName("");
     setEmail("");
     setRole("MEMBER");
     setNewMemberArea("VENDAS");
+    setCreatePassword("");
     router.refresh();
   }
 
@@ -331,10 +331,17 @@ export function MembersTable({
             Inativos ({inactiveMembers.length})
           </button>
         </div>
-        <button onClick={() => setOpen(true)} className="btn-primary">
-          <Plus className="h-4 w-4" strokeWidth={2.5} />
-          Adicionar usuário
-        </button>
+        {/* Só o Dono cria usuário — é quem também define a senha na hora
+            (ver formulário abaixo), então Gerente nunca chega a abrir este
+            diálogo. Reforçado também no servidor (POST /api/org/members é
+            OWNER-only), esta checagem aqui é só pra não oferecer um botão
+            que ia devolver 403. */}
+        {isOwner && (
+          <button onClick={() => setOpen(true)} className="btn-primary">
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
+            Adicionar usuário
+          </button>
+        )}
       </div>
 
       {visibleMembers.length === 0 ? (
@@ -587,6 +594,14 @@ export function MembersTable({
               <input value={name} onChange={(e) => setName(e.target.value)} className="field-input" />
             </div>
             <div className="space-y-1">
+              <label className="field-label">Senha (se ainda não existir)</label>
+              <PasswordInput value={createPassword} onChange={setCreatePassword} minLength={8} />
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Só o Dono define essa senha — a pessoa nunca cria a própria. Se o e-mail já for de um usuário
+                existente (de outra organização), este campo é ignorado — a senha dele continua a mesma.
+              </p>
+            </div>
+            <div className="space-y-1">
               <label className="field-label">Papel</label>
               <Select
                 value={role}
@@ -633,18 +648,6 @@ export function MembersTable({
             </div>
           </form>
         </Modal>
-      )}
-
-      {tempPassword && (
-        <TempPasswordDialog
-          title="Usuário criado"
-          description="Compartilhe a senha temporária abaixo — ela não será mostrada novamente."
-          password={tempPassword}
-          onClose={() => {
-            setTempPassword(null);
-            setOpen(false);
-          }}
-        />
       )}
 
       {memberToRemove && (

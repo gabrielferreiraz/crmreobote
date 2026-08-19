@@ -76,7 +76,8 @@ export async function POST(req: Request) {
     });
 
     // fullKey só existe nesta resposta — não é persistida em lugar nenhum,
-    // nunca mais recuperável depois (mesmo padrão de tempPassword em org/members).
+    // nunca mais recuperável depois (mesmo padrão de mostrar-uma-vez do
+    // TempPasswordDialog, ver components/temp-password-dialog.tsx).
     return NextResponse.json(
       { id: apiKey.id, name: apiKey.name, keyPrefix: apiKey.keyPrefix, fullKey, expiresAt: apiKey.expiresAt, createdAt: apiKey.createdAt },
       { status: 201 },

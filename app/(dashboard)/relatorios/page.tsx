@@ -645,7 +645,7 @@ export default async function RelatoriosPage({
             ) : (
               <div className="space-y-2.5">
                 {lossBreakdown.map((l) => (
-                  <BarRow key={l.id} label={l.label} value={l.count} max={maxLossCount} displayValue={String(l.count)} />
+                  <BarRow key={l.id} label={l.label} value={l.count} max={maxLossCount} displayValue={String(l.count)} wrapLabel />
                 ))}
               </div>
             )}

@@ -10,6 +10,7 @@ export function BarRow({
   max,
   displayValue,
   color,
+  wrapLabel = false,
 }: {
   label: string;
   value: number;
@@ -17,6 +18,13 @@ export function BarRow({
   displayValue: string;
   /** Cor da barra (ex.: a cor já configurada da etapa) — cai no azul padrão se omitida. */
   color?: string | null;
+  /** true = rótulo longo quebra em até 2 linhas em vez de cortar com "..."
+   * (ver motivos de perda em page.tsx, que agora inclui "(CRM anterior)" —
+   * ficava ilegível truncado, ex.: "Não Respondeu (CR..."). false (padrão)
+   * mantém o corte de sempre — os outros usos deste componente (ver
+   * admin-reports-view.tsx) têm rótulos curtos e contam com a largura fixa
+   * pra manter as barras alinhadas entre si. */
+  wrapLabel?: boolean;
 }) {
   const targetPct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
   const [pct, setPct] = useState(0);
@@ -34,7 +42,14 @@ export function BarRow({
 
   return (
     <div className="group/row -mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
-      <span className="w-40 shrink-0 truncate text-neutral-500 dark:text-neutral-400">{label}</span>
+      <span
+        title={wrapLabel ? undefined : label}
+        className={`shrink-0 text-neutral-500 dark:text-neutral-400 ${
+          wrapLabel ? "w-48 leading-tight whitespace-normal" : "w-40 truncate"
+        }`}
+      >
+        {label}
+      </span>
       <div className="relative h-2.5 flex-1 rounded-full bg-neutral-100 dark:bg-neutral-800">
         <div
           className="h-full rounded-full transition-[width,filter] duration-700 ease-out group-hover/row:brightness-110"

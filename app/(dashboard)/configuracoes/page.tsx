@@ -42,6 +42,19 @@ export default async function ConfiguracoesPage() {
           description: "Foto, notificações push e conexão do WhatsApp.",
           keywords: ["foto", "avatar", "notificação", "push", "whatsapp", "senha", "perfil"],
         },
+        // Sub-item da própria "Perfil e preferências" (mesmo href, com
+        // âncora direto pra seção — ver id="whatsapp" em
+        // configuracoes/perfil/page.tsx) — só aparece buscando, com
+        // "Perfil e preferências" como legenda acima (ver config-search.tsx).
+        {
+          href: "/configuracoes/perfil#whatsapp",
+          icon: "MessageCircle",
+          title: "Conectar WhatsApp",
+          description: "QR Code ou WhatsApp Oficial (Meta) — o número que envia/recebe mensagem pelo CRM.",
+          keywords: ["whatsapp", "instância", "instancia", "conectar", "qr code", "número", "conexão"],
+          hiddenUnlessMatched: true,
+          parentLabel: "Perfil e preferências",
+        },
         {
           href: "/automacoes",
           icon: "Zap",

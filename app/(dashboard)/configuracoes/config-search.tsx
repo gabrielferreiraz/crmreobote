@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Monitor,
   HeartPulse,
+  MessageCircle,
 } from "lucide-react";
 
 export type ConfigItem = {
@@ -33,6 +34,17 @@ export type ConfigItem = {
   description: string;
   /** Sinônimos/termos relacionados que a pessoa pode digitar sem bater no título/descrição — é isso que faz a busca parecer "inteligente" (ver normalize/matches). */
   keywords?: string[];
+  /**
+   * Sub-item de uma página maior (ex.: "Conectar WhatsApp" dentro de "Perfil
+   * e preferências") — some da navegação normal (evita empilhar granularidade
+   * demais quando ninguém tá buscando nada), só aparece quando a BUSCA bate
+   * nele especificamente, com `parentLabel` como legenda acima do título —
+   * mesmo padrão da busca de Configurações do Android/Samsung: acha e já
+   * manda direto pro trecho certo da página, não só pro topo dela.
+   */
+  hiddenUnlessMatched?: boolean;
+  /** Título da página-mãe — vira a legenda acima do nome quando este item aparece num resultado de busca (só faz sentido junto de hiddenUnlessMatched). */
+  parentLabel?: string;
 };
 
 export type ConfigSection = {
@@ -59,6 +71,7 @@ const ICONS: Record<string, IconComponent> = {
   ShieldAlert,
   Monitor,
   HeartPulse,
+  MessageCircle,
 };
 
 /** Remove acento e caixa — "compartilhamento" e "COMPARTILHAMENTO" e "compartilhaménto" batem igual. */
@@ -88,13 +101,20 @@ function matchesQuery(item: ConfigItem, query: string): boolean {
 
 export function ConfigSearch({ sections }: { sections: ConfigSection[] }) {
   const [query, setQuery] = useState("");
+  const isSearching = !!query.trim();
 
   const filteredSections = useMemo(() => {
-    if (!query.trim()) return sections;
+    if (!isSearching) {
+      // Navegação normal: nunca mostra hiddenUnlessMatched (ver comentário
+      // no type) — só a busca ativa revela esses sub-itens.
+      return sections
+        .map((section) => ({ ...section, items: section.items.filter((item) => !item.hiddenUnlessMatched) }))
+        .filter((section) => section.items.length > 0);
+    }
     return sections
       .map((section) => ({ ...section, items: section.items.filter((item) => matchesQuery(item, query)) }))
       .filter((section) => section.items.length > 0);
-  }, [sections, query]);
+  }, [sections, query, isSearching]);
 
   return (
     <div className="space-y-6">
@@ -142,7 +162,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Row({ icon, title, description, href }: ConfigItem) {
+function Row({ icon, title, description, href, parentLabel }: ConfigItem) {
   const Icon = ICONS[icon] ?? Kanban;
   return (
     <Link href={href} className="group flex items-center gap-3 p-4 text-sm transition-colors hover:bg-brand-light/50 dark:hover:bg-brand-light/30">
@@ -150,6 +170,12 @@ function Row({ icon, title, description, href }: ConfigItem) {
         <Icon className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
       </div>
       <div className="min-w-0 flex-1">
+        {/* Breadcrumb da página-mãe — só aparece em sub-itens revelados pela
+            busca (ver hiddenUnlessMatched), mesmo padrão do Android/Samsung
+            de mostrar onde aquele resultado mora antes do nome dele. */}
+        {parentLabel && (
+          <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{parentLabel}</p>
+        )}
         <p className="font-medium text-neutral-900 dark:text-neutral-100">{title}</p>
         <p className="mt-0.5 text-sm text-neutral-400 dark:text-neutral-500">{description}</p>
       </div>

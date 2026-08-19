@@ -162,6 +162,18 @@ export function KanbanBoard({
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
+  // false só durante a janela entre montar e a 1ª busca pós-restauração do
+  // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
+  // volta pra esta tela com um filtro salvo via localStorage vê TODOS os
+  // negócios (initialDealsByStage, sem filtro nenhum — o servidor não sabe
+  // do localStorage) por um instante, até a busca filtrada terminar e trocar
+  // as colunas debaixo do usuário. `stagesLoading` sozinho não resolve: ele
+  // já existia, mas só controla um spinner ao lado da busca — o board errado
+  // continuava visível por baixo enquanto isso. Uma vez true, nunca mais
+  // volta a false (troca de filtro pelo usuário depois mostra stagesLoading
+  // normalmente, sem esconder o board antigo — só a 1ª carga precisa desse
+  // cuidado extra).
+  const [filtersReady, setFiltersReady] = useState(false);
   // Mouse: começa a arrastar assim que o ponteiro se move um pouco (não
   // precisa segurar). Toque: precisa segurar ~escondido uns 250ms parado —
   // senão TODO arrastar de dedo (inclusive um simples scroll da lista pro
@@ -353,7 +365,11 @@ export function KanbanBoard({
       // qualquer coisa salva) bate exatamente com o que o servidor já usou
       // pra montar initialDealsByStage — senão os dados iniciais (sem
       // filtro local nenhum) ficam desatualizados pra sempre.
-      if (JSON.stringify(persistedFilterValues) === KANBAN_DEFAULT_FILTERS_JSON) return;
+      if (JSON.stringify(persistedFilterValues) === KANBAN_DEFAULT_FILTERS_JSON) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setFiltersReady(true);
+        return;
+      }
     }
     let cancelled = false;
     setStagesLoading(true);
@@ -393,7 +409,10 @@ export function KanbanBoard({
         setWithTaskByStage(stageStats.withTaskCounts);
       })
       .finally(() => {
-        if (!cancelled) setStagesLoading(false);
+        if (!cancelled) {
+          setStagesLoading(false);
+          setFiltersReady(true);
+        }
       });
 
     return () => {
@@ -632,20 +651,29 @@ export function KanbanBoard({
           style={rowHeight != null ? { height: rowHeight, flex: "0 0 auto" } : undefined}
           className="scrollbar-thin flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4"
         >
-          {stages.map((stage) => (
-            <StageColumn
-              key={stage.id}
-              stage={stage}
-              deals={dealsByStage[stage.id] ?? EMPTY_DEALS}
-              total={countByStage[stage.id] ?? dealsByStage[stage.id]?.length ?? 0}
-              sumValue={sumByStage[stage.id] ?? 0}
-              withTaskCount={withTaskByStage[stage.id] ?? 0}
-              loadingMore={loadingMoreStages.has(stage.id)}
-              onLoadMore={handleLoadMore}
-              disabled={pending}
-              activeDealId={activeDeal?.id ?? null}
-            />
-          ))}
+          {!filtersReady ? (
+            // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
+            // filtersReady acima) — evita piscar initialDealsByStage (sem o
+            // filtro salvo) antes de trocar pro board filtrado de verdade.
+            <div className="flex w-full items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-neutral-300 dark:text-neutral-700" />
+            </div>
+          ) : (
+            stages.map((stage) => (
+              <StageColumn
+                key={stage.id}
+                stage={stage}
+                deals={dealsByStage[stage.id] ?? EMPTY_DEALS}
+                total={countByStage[stage.id] ?? dealsByStage[stage.id]?.length ?? 0}
+                sumValue={sumByStage[stage.id] ?? 0}
+                withTaskCount={withTaskByStage[stage.id] ?? 0}
+                loadingMore={loadingMoreStages.has(stage.id)}
+                onLoadMore={handleLoadMore}
+                disabled={pending}
+                activeDealId={activeDeal?.id ?? null}
+              />
+            ))
+          )}
         </div>
         <DragOverlay>{activeDeal ? <DealCard deal={activeDeal} overlay /> : null}</DragOverlay>
       </DndContext>

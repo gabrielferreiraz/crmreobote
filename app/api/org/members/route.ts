@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
-import { generateTempPassword } from "@/lib/generate-temp-password";
 import { runWithTenant } from "@/lib/tenant-context";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
@@ -26,14 +25,21 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { name, email, role, area } = body as {
+  const { name, email, role, area, password } = body as {
     name?: string;
     email?: string;
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     area?: "VENDAS" | "ADMINISTRATIVO";
+    password?: string;
   };
 
-  const access = await requireRole(["OWNER", "MANAGER"]);
+  // Só o Dono cria usuário — não é só "quem pode convidar com qual papel"
+  // (isso já era restrito abaixo), é a própria senha: a pessoa criada nunca
+  // define a senha dela, só o Dono, na hora da criação (nunca mais gerada
+  // pelo sistema, ver validação de `password` abaixo). Gerente não tem mais
+  // esse botão na UI (ver members-table.tsx) — reforça aqui pra não
+  // depender só do frontend escondendo o botão.
+  const access = await requireRole(["OWNER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!email || !role) {
@@ -42,17 +48,9 @@ export async function POST(req: Request) {
   if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
-  // Gerente convida só papéis abaixo do próprio (Supervisor/Consultor) — sem
-  // isso, um Gerente podia se auto-promover em dobro criando outro Gerente
-  // (ou até um Dono) via convite, contornando a regra que a edição de papel
-  // existente já aplica (PATCH em [userId]/route.ts é OWNER-only).
-  if ((role === "OWNER" || role === "MANAGER") && access.role !== "OWNER") {
-    return NextResponse.json({ error: "Apenas o dono pode convidar com esse papel" }, { status: 403 });
-  }
 
   return runWithTenant(access.organizationId, async () => {
     let user = await prisma.user.findUnique({ where: { email } });
-    let tempPassword: string | undefined;
 
     if (user) {
       const existingMembership = await prisma.organizationUser.findUnique({
@@ -61,10 +59,17 @@ export async function POST(req: Request) {
       if (existingMembership) {
         return NextResponse.json({ error: "Usuário já faz parte da organização" }, { status: 409 });
       }
+      // E-mail já é de um usuário existente (de outra organização, ou
+      // convidado antes e removido) — a senha dele já existe, não é criada
+      // agora, então `password` (se veio) é ignorado de propósito aqui.
     } else {
       if (!name) return NextResponse.json({ error: "Nome é obrigatório para novo usuário" }, { status: 400 });
-      tempPassword = generateTempPassword();
-      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+      // Mesmo mínimo de PasswordInput/"Trocar senha" (ver reset-password/route.ts)
+      // — a senha É o que o Dono digitou no formulário, nunca gerada aqui.
+      if (!password || password.length < 8) {
+        return NextResponse.json({ error: "Senha é obrigatória (mínimo 8 caracteres)" }, { status: 400 });
+      }
+      const hashedPassword = await bcrypt.hash(password, 10);
       user = await prisma.user.create({ data: { name, email, password: hashedPassword } });
     }
 
@@ -84,6 +89,6 @@ export async function POST(req: Request) {
       ip: getClientIp(req),
     });
 
-    return NextResponse.json({ membership, tempPassword }, { status: 201 });
+    return NextResponse.json({ membership }, { status: 201 });
   });
 }

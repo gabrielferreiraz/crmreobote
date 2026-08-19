@@ -2,12 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import { AUTOMATION_VARIABLE_GROUPS } from "@/lib/automations/variables";
+import { AUTOMATION_VARIABLE_GROUPS, type AutomationVariableGroup } from "@/lib/automations/variables";
 
-const TOKEN_LABEL = new Map(AUTOMATION_VARIABLE_GROUPS.flatMap((g) => g.variables.map((v) => [v.token, v.label] as const)));
-
-function buildChipHtml(token: string): string {
-  const label = TOKEN_LABEL.get(token) ?? token;
+function buildChipHtml(token: string, tokenLabel: Map<string, string>): string {
+  const label = tokenLabel.get(token) ?? token;
   return `<span contenteditable="false" data-token="${token}" class="variable-pill">${label}</span> `;
 }
 
@@ -26,14 +24,14 @@ function serializeEditor(root: HTMLElement): string {
 }
 
 /** string com `{{token}}` → DOM (pílulas + texto) — só roda uma vez, no mount (ver comentário no useEffect abaixo). */
-function deserializeIntoEditor(root: HTMLElement, value: string) {
+function deserializeIntoEditor(root: HTMLElement, value: string, tokenLabel: Map<string, string>) {
   root.innerHTML = "";
   const parts = value.split(/(\{\{[\w.]+\}\})/g);
   for (const part of parts) {
     const match = part.match(/^\{\{([\w.]+)\}\}$/);
     if (match) {
       const wrapper = document.createElement("span");
-      wrapper.innerHTML = buildChipHtml(match[1]);
+      wrapper.innerHTML = buildChipHtml(match[1], tokenLabel);
       while (wrapper.firstChild) root.appendChild(wrapper.firstChild);
     } else if (part) {
       part.split("\n").forEach((line, i) => {
@@ -56,6 +54,13 @@ function deserializeIntoEditor(root: HTMLElement, value: string) {
  * contentEditable controlado). Como este componente só é usado dentro de um
  * Modal que desmonta ao fechar, um reset externo já vem de graça via
  * remount, sem precisar resync via prop.
+ *
+ * `groups` é plugável (default AUTOMATION_VARIABLE_GROUPS) — cada tela só
+ * deve oferecer as variáveis que o PRÓPRIO backend dela sabe resolver na
+ * hora de interpolar de verdade; oferecer uma variável "solta" que existe
+ * noutro contexto mas não é resolvida aqui faria a pílula aparecer normal
+ * no editor e, na mensagem final, sumir em branco silenciosamente (ver
+ * interpolateAutomationTemplate, que troca token desconhecido por "").
  */
 export function VariableInput({
   value,
@@ -63,20 +68,25 @@ export function VariableInput({
   placeholder,
   multiline = false,
   rows = 3,
+  groups = AUTOMATION_VARIABLE_GROUPS,
+  addButtonLabel = "Adicionar variável do negócio",
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   multiline?: boolean;
   rows?: number;
+  groups?: AutomationVariableGroup[];
+  addButtonLabel?: string;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isEmpty, setIsEmpty] = useState(!value);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const tokenLabel = new Map(groups.flatMap((g) => g.variables.map((v) => [v.token, v.label] as const)));
 
   useEffect(() => {
-    if (editorRef.current) deserializeIntoEditor(editorRef.current, value);
+    if (editorRef.current) deserializeIntoEditor(editorRef.current, value, tokenLabel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -130,7 +140,7 @@ export function VariableInput({
 
   function insertVariable(token: string) {
     ensureFocusInsideEditor();
-    document.execCommand("insertHTML", false, buildChipHtml(token));
+    document.execCommand("insertHTML", false, buildChipHtml(token, tokenLabel));
     setPickerOpen(false);
     handleInput();
   }
@@ -158,11 +168,11 @@ export function VariableInput({
       <div ref={pickerRef} className="relative inline-block">
         <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setPickerOpen((v) => !v)} className="btn-ghost btn-sm">
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-          Adicionar variável do negócio
+          {addButtonLabel}
         </button>
         {pickerOpen && (
           <div className="surface-glass animate-pop-in scrollbar-thin absolute z-30 mt-1 max-h-72 w-64 overflow-y-auto rounded-md p-1 shadow-lg">
-            {AUTOMATION_VARIABLE_GROUPS.map((group) => (
+            {groups.map((group) => (
               <div key={group.label} className="mb-1 last:mb-0">
                 <p className="px-2 pt-1.5 pb-1 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
                   {group.label}
