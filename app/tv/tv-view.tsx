@@ -253,11 +253,6 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
   const churrascoGradient = churrascoGoalHit
     ? "linear-gradient(90deg, #eab308, #fbbf24, #fde68a)"
     : "linear-gradient(90deg, #ef4444, #f97316, #fbbf24)";
-  // Maior contagem entre as etapas do funil — referência pra desenhar a
-  // barrinha de cada etapa (ver showFunnels mais abaixo) proporcional à
-  // etapa mais cheia, não a um teto arbitrário. Math.max(..., 1): nunca
-  // divide por zero se todas as etapas vierem zeradas.
-  const maxFunnelCount = Math.max(...metrics.leadsInFunnels.map((s) => s.count), 1);
 
   // Conteúdo de cada lado do card ÚLTIMA VENDA (0 = venda mais recente, 1 =
   // aniversário de hoje) — função em vez de JSX duplicado, porque o MESMO
@@ -789,40 +784,27 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
                   </p>
                 </div>
                 {metrics.leadsInFunnels.length > 0 ? (
-                  // Barrinha proporcional por etapa (não mais pílula) — além
-                  // de mais sofisticado, lê como um FUNIL de verdade (a
-                  // etapa mais cheia rende a barra mais longa), não só uma
-                  // lista de números soltos. `mx-auto` + `max-width` fixo
-                  // centraliza o bloco inteiro no card, sempre — 1, 2 ou 5
-                  // etapas, nunca "escorrega" pra esquerda.
+                  // Sem caixa nenhuma agora (nem pílula, nem tile com
+                  // borda/fundo) — mesma gramática visual já usada logo
+                  // ACIMA, no card "Vendas do mês" (Anuais | Cotas: colunas
+                  // separadas só por um fio fino, sem contorno em cada
+                  // uma). Reaproveitar o mesmo padrão em vez de inventar um
+                  // 3º estilo é o que dá a leveza pedida — e ainda deixa os
+                  // dois cards consistentes entre si.
                   <div
-                    className="relative mx-auto flex flex-col text-left"
-                    style={{ marginTop: "var(--tv-gap)", gap: "calc(var(--tv-gap) * 0.55)", maxWidth: "min(100%, 22rem)" }}
+                    className="relative flex divide-x divide-white/10"
+                    style={{ marginTop: "var(--tv-gap)" }}
                   >
                     {metrics.leadsInFunnels.map((stage) => (
-                      <div key={stage.id}>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="min-w-0 truncate font-medium text-neutral-300 text-[length:var(--tv-text-body)]">
-                            {stage.name}
-                          </span>
-                          <span
-                            className="shrink-0 font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
-                            style={{ color: "var(--brand)" }}
-                          >
-                            {stage.count}
-                          </span>
-                        </div>
+                      <div key={stage.id} className="min-w-0 flex-1 px-2">
                         <div
-                          className="mt-1 overflow-hidden rounded-full bg-white/10"
-                          style={{ height: "clamp(0.3rem, 0.5vw, 0.4rem)" }}
+                          className="font-extrabold tabular-nums text-[length:var(--tv-text-value-md)]"
+                          style={{ color: "var(--brand)" }}
                         >
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{
-                              width: `${Math.max(6, (stage.count / maxFunnelCount) * 100)}%`,
-                              background: "linear-gradient(90deg, var(--brand), #a5a6f8)",
-                            }}
-                          />
+                          {stage.count}
+                        </div>
+                        <div className="mt-1 truncate font-medium text-neutral-400 text-[length:var(--tv-text-label)]">
+                          {stage.name}
                         </div>
                       </div>
                     ))}

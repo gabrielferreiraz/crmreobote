@@ -28,6 +28,14 @@ export type PessoasImportResult = {
   skippedDuplicate: number; // linha não-canônica, já coberta pela canônica
   skippedEmptyNameOld: number;
   skippedAlreadyImported: number;
+  // A "vencedora" do dedup desta leva (ver phone-dedup.ts) já tem o
+  // telefone dela pertencendo a um Contact que existe de uma leva
+  // ANTERIOR (sob outro Código da Pessoa) — dedup.ts só compara linhas
+  // DENTRO do arquivo atual entre si, não sabe quem já foi importado
+  // antes. Sem essa checagem, isso batia na constraint única do banco e
+  // virava um "falha ao criar contato" — agora é detectado antes e
+  // pulado sem erro nenhum.
+  skippedPhoneAlreadyExists: number;
 };
 
 async function ensureCpfFieldDefinition(dryRun: boolean): Promise<string> {
@@ -67,31 +75,43 @@ export async function importPessoas(
   const idxCadastro = colIndex(headers, "Data de cadastro");
   const idxAtualizacao = colIndex(headers, "Ultima atualização");
 
-  const result: PessoasImportResult = { created: 0, skippedDuplicate: 0, skippedEmptyNameOld: 0, skippedAlreadyImported: 0 };
+  const result: PessoasImportResult = {
+    created: 0,
+    skippedDuplicate: 0,
+    skippedEmptyNameOld: 0,
+    skippedAlreadyImported: 0,
+    skippedPhoneAlreadyExists: 0,
+  };
   const fourMonthsAgo = new Date(Date.now() - FOUR_MONTHS_MS);
 
-  // Pré-carrega TODOS os agendorContactId já importados numa única consulta
-  // (em vez de 1 findUnique por linha) — é isso que faz a idempotência ficar
-  // essencialmente de graça mesmo com dezenas de milhares de linhas: rodar
-  // de novo mais pra frente (novo lote de consultor migrando) só paga essa
-  // consulta 1x, não 1x por linha já existente. Paginado (ver
-  // findAllPaged): mesmo com 1 coluna só, ~140 mil contatos já
+  // Pré-carrega TODO Contact da organização numa passada só (em vez de 1
+  // findUnique/findFirst por linha) — é isso que faz a idempotência (e
+  // agora também a checagem de telefone abaixo) ficar essencialmente de
+  // graça mesmo com dezenas/centenas de milhares de linhas. Paginado (ver
+  // findAllPaged): mesmo com poucas colunas, ~140 mil contatos já
   // demonstraram estourar o teto de 15s da mini-transação do RLS num banco
-  // remoto sob carga real (ver import-negocios.ts) — mais seguro paginar
-  // aqui também do que confiar que sempre vai caber no tempo.
-  const alreadyImported = new Set(
-    (
-      await findAllPaged((skip, take) =>
-        prisma.contact.findMany({
-          where: { agendorContactId: { not: null } },
-          select: { agendorContactId: true },
-          orderBy: { id: "asc" },
-          skip,
-          take,
-        }),
-      )
-    ).map((c) => c.agendorContactId as string),
+  // remoto sob carga real (ver import-negocios.ts).
+  //
+  // `existingPhoneNumbers` cobre QUALQUER contato já existente (não só os
+  // com agendorContactId — pode ter vindo do CRM ao vivo, de outra
+  // integração, etc.) porque a constraint única do banco também não olha
+  // a origem: o que importa é que já existe alguém com esse telefone.
+  const allExistingContacts = await findAllPaged((skip, take) =>
+    prisma.contact.findMany({
+      where: { organizationId: ORGANIZATION_ID },
+      select: { agendorContactId: true, phoneNormalized: true, whatsappNormalized: true },
+      orderBy: { id: "asc" },
+      skip,
+      take,
+    }),
   );
+  const alreadyImported = new Set<string>();
+  const existingPhoneNumbers = new Set<string>();
+  for (const c of allExistingContacts) {
+    if (c.agendorContactId) alreadyImported.add(c.agendorContactId);
+    if (c.phoneNormalized) existingPhoneNumbers.add(c.phoneNormalized);
+    if (c.whatsappNormalized) existingPhoneNumbers.add(c.whatsappNormalized);
+  }
 
   const rows: number[] = [];
   for (let r = 2; r <= sheet.rowCount; r++) rows.push(r);
@@ -130,13 +150,40 @@ export async function importPessoas(
     const cpf = cellText(row, idxCpf);
     const responsavel = cellText(row, idxResponsavel);
 
+    // Calculado ANTES do dryRun (não só antes do create de verdade) — pra
+    // dry-run também prever corretamente esse caso, não só o real. Mesma
+    // função usada na gravação de verdade logo abaixo (não uma
+    // aproximação): os telefones finais são sempre os mesmos dos dois lados.
+    //
+    // phone E whatsapp são DUAS colunas com constraint única cada uma — não
+    // basta checar uma só (bug que eu mesmo cometi na 1ª versão desta
+    // correção: um WhatsApp novo passava, mas o Celular por trás dele já
+    // era de outro contato, e ainda batia na constraint de phoneNormalized).
+    const whatsappFallback = fallbackWhatsappToPhone(celularRaw, normalizePhoneNumber(celularRaw), whatsappRaw, normalizePhoneNumber(whatsappRaw));
+    const phoneCollision =
+      (whatsappFallback.phoneNormalized && existingPhoneNumbers.has(whatsappFallback.phoneNormalized)) ||
+      (whatsappFallback.whatsappNormalized && existingPhoneNumbers.has(whatsappFallback.whatsappNormalized));
+    if (phoneCollision) {
+      result.skippedPhoneAlreadyExists++;
+      return;
+    }
+    // "Reserva" os dois números AGORA, antes de qualquer await — cobre o
+    // caso de duas linhas DIFERENTES deste mesmo arquivo (não agrupadas
+    // pelo dedup, que só olha 1 coluna por vez — ver comentário acima)
+    // compartilharem um Celular ou WhatsApp entre si (não com um contato
+    // pré-existente). Seguro sem lock/promise-em-voo como em
+    // import-negocios.ts porque JS roda isto tudo de um fôlego só, sem
+    // `await` no meio — nenhum outro worker do runConcurrent consegue
+    // "entrar" entre a checagem acima e este ponto.
+    if (whatsappFallback.phoneNormalized) existingPhoneNumbers.add(whatsappFallback.phoneNormalized);
+    if (whatsappFallback.whatsappNormalized) existingPhoneNumbers.add(whatsappFallback.whatsappNormalized);
+
     if (dryRun) {
       result.created++;
       return;
     }
 
     const ownerId = await resolveUserId(responsavel, dryRun);
-    const whatsappFallback = fallbackWhatsappToPhone(celularRaw, normalizePhoneNumber(celularRaw), whatsappRaw, normalizePhoneNumber(whatsappRaw));
 
     try {
       await prisma.contact.create({

@@ -14,6 +14,7 @@ import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fiel
 import { formatCurrencyCompact } from "@/lib/format";
 import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filters";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
+import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
 
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
@@ -204,7 +205,14 @@ export function PipelineView({
           {pipelines.length > 1 && (
             <Select
               value={pipelineId}
-              onChange={(v) => router.push(`/pipeline?pipelineId=${v}`)}
+              onChange={(v) => {
+                // Grava em cookie (não só na URL) — é o que faz um link
+                // ESTÁTICO de volta pro Pipeline (sem ?pipelineId=, ex.: "←
+                // Pipeline" no detalhe do negócio) continuar caindo neste
+                // funil, e não voltar pro padrão. Ver PIPELINE_LAST_ID_COOKIE.
+                document.cookie = `${PIPELINE_LAST_ID_COOKIE}=${v}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+                router.push(`/pipeline?pipelineId=${v}`);
+              }}
               className="w-auto py-1.5 text-sm"
               options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
             />

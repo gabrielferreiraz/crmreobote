@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { scopeWhere } from "@/lib/team-scope";
@@ -5,6 +6,7 @@ import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, aggregateDealValues, countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
 import { getCurrentMonthGoalProgress } from "@/lib/goals/suggestion";
 import { runWithTenant } from "@/lib/tenant-context";
+import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineView } from "./pipeline-view";
 import type { Deal } from "./kanban-board";
 
@@ -17,6 +19,12 @@ export default async function PipelinePage({
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
   const { pipelineId: pipelineIdParam, novo } = await searchParams;
+  // Cookie do último funil escolhido (ver PIPELINE_LAST_ID_COOKIE) — 2ª
+  // prioridade, atrás só de um `?pipelineId=` explícito na URL. É o que
+  // resolve um link ESTÁTICO de volta pro Pipeline (sem esse parâmetro, ex.:
+  // "← Pipeline" no detalhe do negócio) continuar no funil que a pessoa
+  // tinha escolhido, em vez de sempre cair no padrão de novo.
+  const lastPipelineId = (await cookies()).get(PIPELINE_LAST_ID_COOKIE)?.value;
 
   return runWithTenant(organizationId, async () => {
     // Agrupa todas as consultas de metadados e escopo que não dependem do funil
@@ -67,6 +75,7 @@ export default async function PipelinePage({
 
     const activePipeline =
       pipelines.find((p) => p.id === pipelineIdParam) ??
+      pipelines.find((p) => p.id === lastPipelineId) ??
       pipelines.find((p) => p.isDefault) ??
       pipelines[0];
 

@@ -247,8 +247,20 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
   // verdade em tempo real (nunca pro eco do que o próprio vendedor mandou,
   // nem pra uma mensagem antiga vinda do backfill de histórico).
   if (direction === "INBOUND" && options.notify) {
-    const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
-    if (shouldNotify) {
+    const shouldNotifyInstanceOwner = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
+    // Dono do negócio aberto vinculado ao contato, se houver — só buscado
+    // quando existe contactId, já que "WhatsApp Geral" nunca tem negócio.
+    const openDealOwnerId = thread.contactId
+      ? (
+          await prisma.deal.findFirst({
+            where: { organizationId: instance.organizationId, contactId: thread.contactId, status: "OPEN" },
+            orderBy: { createdAt: "desc" },
+            select: { ownerId: true },
+          })
+        )?.ownerId
+      : undefined;
+
+    if (shouldNotifyInstanceOwner || (openDealOwnerId && openDealOwnerId !== instance.userId)) {
       let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
       if (thread.contactId) {
         const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
@@ -257,9 +269,25 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
       const preview =
         body ||
         (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
-      sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
-        console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
-      );
+      const pushPayload = { title: displayName, body: preview, url: "/whatsapp/conversas" };
+
+      if (shouldNotifyInstanceOwner) {
+        sendPushToUser(instance.userId, pushPayload).catch((err) =>
+          console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
+        );
+      }
+      // Além de quem tem o WhatsApp conectado, avisa também o dono do
+      // negócio, quando for uma pessoa diferente — um número central (ex.:
+      // "Reobote TI") recebendo mensagem de um lead já atribuído a outro
+      // consultor não devia deixar esse consultor sem saber (mesmo
+      // raciocínio de "responsável" em lib/whatsapp/conversations.ts, que já
+      // documenta essa distinção). sendPushToUser já é no-op sozinho se a
+      // pessoa nunca ativou push neste navegador/dispositivo.
+      if (openDealOwnerId && openDealOwnerId !== instance.userId) {
+        sendPushToUser(openDealOwnerId, pushPayload).catch((err) =>
+          console.error("[wa:webhook] falha ao enviar push pro responsável pelo negócio", err),
+        );
+      }
     }
 
     handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>

@@ -53,7 +53,9 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
               {rank}
             </span>
             {entry.photoUrl !== undefined && <Avatar name={entry.name} src={entry.photoUrl} size="xs" className="shrink-0" />}
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">
+            {/* Sem truncate de propósito — nome cortado ("Karen L...") obriga a
+                passar o mouse pra saber quem é; quebra linha em vez de cortar. */}
+            <span className="min-w-0 flex-1 text-sm font-medium break-words text-neutral-800 dark:text-neutral-200">
               {entry.name}
             </span>
             <div className="shrink-0 text-right">

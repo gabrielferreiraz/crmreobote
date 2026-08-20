@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
@@ -219,6 +219,7 @@ export default async function RelatoriosPage({
               label="Total ganho"
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
+              emphasize
             />
           </div>
         </div>
@@ -319,22 +320,30 @@ export default async function RelatoriosPage({
           description="Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), a taxa de comparecimento desses encontros e quem converte melhor."
         />
         <div className="grid grid-cols-12 gap-5">
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex items-center gap-2">
+          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
               <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Negócios fechados</h3>
             </div>
-            <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
+            {/* Time inteiro, não só o top 8 (ver comentário em
+                lib/reports/commercial-data.ts) — rola dentro do card em vez
+                de esticar o card (e a fileira inteira, já que os 4 dividem
+                altura por causa do grid) até o tamanho do time. */}
+            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+              <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
+            </div>
           </div>
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex items-center gap-2">
+          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
               <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas</h3>
             </div>
-            <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita registrada ainda" />
+            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita registrada ainda" />
+            </div>
           </div>
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <UserCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
                 <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de comparecimento</h3>
@@ -351,20 +360,24 @@ export default async function RelatoriosPage({
               )}
             </div>
             {attendanceRateOverall !== null && (
-              <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+              <p className="mb-2 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
                 {attendanceSummary.attended} compareceu{attendanceSummary.attended === 1 ? "" : "ram"} de{" "}
                 {attendanceSummary.attended + attendanceSummary.noShow} marcado
                 {attendanceSummary.attended + attendanceSummary.noShow === 1 ? "" : "s"} ({attendanceSummary.noShow} no-show)
               </p>
             )}
-            <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
+            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+              <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
+            </div>
           </div>
-          <div className="card col-span-12 p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex items-center gap-2">
+          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
               <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>
             </div>
-            <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio decidido ainda" />
+            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+              <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
+            </div>
           </div>
         </div>
 
@@ -880,7 +893,22 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/** `emphasize`: destaque visual (fundo/borda esmeralda, valor maior) — reservado
+ * pra UM stat por linha no máximo (hoje só "Total ganho"), pra continuar
+ * chamando atenção; virar padrão em todo card tiraria o próprio destaque. */
+function Stat({ label, value, hint, emphasize }: { label: string; value: string; hint?: string; emphasize?: boolean }) {
+  if (emphasize) {
+    return (
+      <div className="card border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/60 dark:bg-emerald-500/10">
+        <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+          <Wallet className="h-4 w-4 shrink-0" strokeWidth={2} />
+          {label}
+        </p>
+        <p className="mt-2 text-3xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{value}</p>
+        {hint && <p className="mt-1 text-xs text-emerald-700/70 dark:text-emerald-400/70">{hint}</p>}
+      </div>
+    );
+  }
   return (
     <div className="card p-5">
       <p className="text-sm text-neutral-500 dark:text-neutral-400">{label}</p>

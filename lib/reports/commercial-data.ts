@@ -195,6 +195,7 @@ export async function getCommercialReportData(params: {
     prisma.deal.groupBy({
       by: ["ownerId"],
       where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter },
+      _count: true,
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
@@ -356,12 +357,23 @@ export async function getCommercialReportData(params: {
 
   const wonByOwnerMap = new Map(wonByOwner.map((w) => [w.ownerId, w]));
   const lostByOwnerMap = new Map(lostByOwner.map((l) => [l.ownerId, l]));
+  const openByOwnerMap = new Map(openByOwner.map((o) => [o.ownerId, o]));
   const ownerStats = peopleIds.map((id) => {
     const wonForOwner = wonByOwnerMap.get(id);
     const wonCountForOwner = wonForOwner?._count ?? 0;
     const wonValueForOwner = wonForOwner?._sum.value ? Number(wonForOwner._sum.value) : 0;
     const lostCountForOwner = lostByOwnerMap.get(id)?._count ?? 0;
-    const closedForOwner = wonCountForOwner + lostCountForOwner;
+    const openCountForOwner = openByOwnerMap.get(id)?._count ?? 0;
+    // Denominador da conversão = TUDO que a pessoa está/esteve com a mão —
+    // aberto (agora, nunca do período — mesmo raciocínio de "pipeline em
+    // aberto continua sempre 'agora'" usado no resto do relatório) + ganho e
+    // perdido do período. De propósito NÃO é só ganho+perdido: isso fazia um
+    // consultor com pouquíssimos negócios DECIDIDOS (o resto ainda aberto)
+    // aparecer com 100% só por nunca ter marcado nada como perdido, e
+    // penalizava quem tem a higiene de marcar perda de verdade — a taxa
+    // precisa refletir conversão em VENDA sobre o que a pessoa de fato
+    // carrega, não um placar de "ganhos entre decisões".
+    const dealsHandledForOwner = wonCountForOwner + lostCountForOwner + openCountForOwner;
     const activity = activityByUser.get(id) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
     const meetingVisit = meetingVisitByUser.get(id) ?? { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0 };
     // Denominador da taxa = só resultados finais (compareceu ou no-show) —
@@ -374,7 +386,8 @@ export async function getCommercialReportData(params: {
       wonCount: wonCountForOwner,
       wonValue: wonValueForOwner,
       lostCount: lostCountForOwner,
-      winRate: closedForOwner > 0 ? Math.round((wonCountForOwner / closedForOwner) * 100) : null,
+      dealsHandled: dealsHandledForOwner,
+      conversionRate: dealsHandledForOwner > 0 ? Math.round((wonCountForOwner / dealsHandledForOwner) * 100) : null,
       meetingCount: meetingVisit.meetingCount,
       visitCount: meetingVisit.visitCount,
       meetingsAndVisitsCount: meetingVisit.meetingCount + meetingVisit.visitCount,
@@ -389,10 +402,11 @@ export async function getCommercialReportData(params: {
     };
   });
 
+  // Sem slice(0, 8) de propósito — os 4 cards de "Ranking do time" mostram o
+  // time inteiro (rola dentro do card, ver page.tsx), não só o top 8.
   const dealsClosedRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => o.wonCount > 0)
     .sort((a, b) => b.wonCount - a.wonCount || b.wonValue - a.wonValue)
-    .slice(0, 8)
     .map((o) => ({
       id: o.id,
       name: o.name,
@@ -404,7 +418,6 @@ export async function getCommercialReportData(params: {
   const meetingsRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => o.meetingsAndVisitsCount > 0)
     .sort((a, b) => b.meetingsAndVisitsCount - a.meetingsAndVisitsCount)
-    .slice(0, 8)
     .map((o) => ({
       id: o.id,
       name: o.name,
@@ -423,7 +436,6 @@ export async function getCommercialReportData(params: {
   const attendanceRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => o.attendedCount + o.noShowCount > 0)
     .sort((a, b) => b.attendedCount + b.noShowCount - (a.attendedCount + a.noShowCount))
-    .slice(0, 8)
     .map((o) => ({
       id: o.id,
       name: o.name,
@@ -444,16 +456,19 @@ export async function getCommercialReportData(params: {
       ? Math.round((attendanceSummary.attended / (attendanceSummary.attended + attendanceSummary.noShow)) * 100)
       : null;
 
+  // "Vendas ÷ tudo que a pessoa carrega" (aberto + ganho + perdido do
+  // período, ver dealsHandled em ownerStats acima) — não "ganho ÷ decidido".
+  // Só entra quem tem pelo menos 1 negócio na mão; não exige ter decidido
+  // nada ainda (diferente da régua antiga).
   const conversionRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.winRate !== null)
-    .sort((a, b) => (b.winRate ?? 0) - (a.winRate ?? 0) || b.wonCount - a.wonCount)
-    .slice(0, 8)
+    .filter((o) => o.conversionRate !== null)
+    .sort((a, b) => (b.conversionRate ?? 0) - (a.conversionRate ?? 0) || b.wonCount - a.wonCount)
     .map((o) => ({
       id: o.id,
       name: o.name,
       photoUrl: o.photoUrl,
-      primaryValue: `${o.winRate}%`,
-      secondaryValue: `${o.wonCount + o.lostCount} decidido${o.wonCount + o.lostCount === 1 ? "" : "s"}`,
+      primaryValue: `${o.conversionRate}%`,
+      secondaryValue: `${o.wonCount} venda${o.wonCount === 1 ? "" : "s"} de ${o.dealsHandled} negócio${o.dealsHandled === 1 ? "" : "s"}`,
     }));
 
   const crmTimeRanking: LeaderboardEntry[] = ownerStats
