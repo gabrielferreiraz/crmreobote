@@ -11,10 +11,8 @@ const CRON_NAME = "db-backup";
 async function handleCron() {
   const lock = await acquireCronLock(CRON_NAME);
   if (!lock) {
-    return NextResponse.json(
-      { ok: false, error: "Outra execução do cron já está em andamento" },
-      { status: 409 },
-    );
+    // 200 de propósito — ver comentário no catch abaixo.
+    return NextResponse.json({ ok: false, skipped: true, error: "Outra execução do cron já está em andamento" });
   }
   try {
     // recordCronRun grava sucesso/falha em CronRun e manda e-mail pro Dono
@@ -25,10 +23,12 @@ async function handleCron() {
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("[cron:db-backup] falha", err);
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    // 200 mesmo em falha de verdade (não mais 500) — cron-job.org desativa
+    // um job sozinho depois de falhas repetidas com status de erro. O
+    // e-mail que recordCronRun já mandou é o alerta de verdade; um 500 aqui
+    // só arriscaria o cron-job.org desligar o job e a gente parar de saber
+    // quando o backup volta a funcionar.
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   } finally {
     await lock.release().catch((err) =>
       console.error("[cron:db-backup] falha ao liberar lock", err),

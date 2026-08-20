@@ -24,6 +24,8 @@ import {
   Monitor,
   HeartPulse,
   MessageCircle,
+  Clock,
+  Building2,
 } from "lucide-react";
 
 export type ConfigItem = {
@@ -49,6 +51,14 @@ export type ConfigItem = {
 
 export type ConfigSection = {
   title: string;
+  /** Legenda curta embaixo do título, dentro do próprio card — mesmo padrão
+   * do Windows Settings ("Configurações recentes e comumente usadas" embaixo
+   * de "Configurações recomendadas"). Opcional: nem toda seção precisa. */
+  description?: string;
+  /** Ícone do CABEÇALHO do card (chave de ICONS abaixo) — diferente do
+   * `icon` de cada ConfigItem (esse é por LINHA, dentro da seção). Cai pro
+   * ícone genérico (ver SECTION_FALLBACK_ICON) se omitido. */
+  icon?: string;
   items: ConfigItem[];
 };
 
@@ -72,7 +82,10 @@ const ICONS: Record<string, IconComponent> = {
   Monitor,
   HeartPulse,
   MessageCircle,
+  Clock,
+  Building2,
 };
+const SECTION_FALLBACK_ICON = SlidersHorizontal;
 
 /** Remove acento e caixa — "compartilhamento" e "COMPARTILHAMENTO" e "compartilhaménto" batem igual. */
 function normalize(s: string): string {
@@ -139,9 +152,16 @@ export function ConfigSearch({ sections }: { sections: ConfigSection[] }) {
           </p>
         </div>
       ) : (
-        <div className="space-y-8">
+        // Colunas CSS (não grid) de propósito — é a técnica mais simples que
+        // dá o efeito "bento" do Windows Settings (cards de altura BEM
+        // diferente — uma seção com 2 itens e outra com 8 — se encaixando
+        // sem vão vazio): o navegador distribui cada card na coluna mais
+        // curta sozinho, sem precisar calcular row-span manualmente como um
+        // CSS grid exigiria. `break-inside-avoid` em cada card (ver Section)
+        // é o que impede um card ser cortado ao meio na quebra de coluna.
+        <div className="columns-1 gap-5 lg:columns-2">
           {filteredSections.map((section) => (
-            <Section key={section.title} title={section.title}>
+            <Section key={section.title} title={section.title} description={section.description} icon={section.icon}>
               {section.items.map((item) => (
                 <Row key={item.href + item.title} {...item} />
               ))}
@@ -153,11 +173,40 @@ export function ConfigSearch({ sections }: { sections: ConfigSection[] }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** Card auto-contido (ícone + título + legenda opcional NO TOPO, dentro da
+ * mesma caixa — não mais um rótulo solto acima de um card separado) — é
+ * essa mudança que faz a página ler como um mosaico de "widgets", cada um
+ * completo em si, em vez de uma lista de listas. */
+function Section({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon?: string;
+  children: React.ReactNode;
+}) {
+  const Icon = (icon && ICONS[icon]) || SECTION_FALLBACK_ICON;
   return (
-    <div className="space-y-2">
-      <h2 className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">{title}</h2>
-      <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">{children}</div>
+    <div className="card mb-5 break-inside-avoid overflow-hidden p-0">
+      {/* Cabeçalho com peso visual BEM maior que uma linha comum — ícone
+          sólido (fundo cor cheia, não o tom clarinho das linhas), título
+          maior, e um fundo levemente tintado só nessa faixa — antes o
+          cabeçalho usava quase o mesmo peso das opções abaixo (ícone
+          clarinho do mesmo tamanho, título só um pouco mais forte),
+          confundia "isto é o tópico" com "isto é uma opção". */}
+      <div className="flex items-center gap-3 bg-brand-light/40 p-4 dark:bg-white/[0.04]">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand shadow-sm shadow-brand/30">
+          <Icon className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{title}</h2>
+          {description && <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{description}</p>}
+        </div>
+      </div>
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-800">{children}</div>
     </div>
   );
 }

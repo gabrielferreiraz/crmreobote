@@ -32,7 +32,15 @@ export const VALID_TRIGGERS: $Enums.AutomationTrigger[] = [
   "CONTACT_NO_DEAL",
   "SCHEDULED",
   "TASK_DUE_SOON",
+  "MESSAGE_RECEIVED",
 ];
+
+const VALID_MESSAGE_MATCH_TYPES = ["EXACT", "CONTAINS", "STARTS_WITH", "ENDS_WITH"];
+const VALID_BUSINESS_HOURS_MODES = ["ALWAYS", "INSIDE_BUSINESS_HOURS", "OUTSIDE_BUSINESS_HOURS"];
+const VALID_CONTACT_CONTEXTS = ["ANY", "NEW_LEAD", "HAS_OPEN_DEAL"];
+/** Limite generoso o bastante pra qualquer caso de uso real, curto o bastante pra não virar vetor de abuso (regra com milhares de palavras-chave). */
+const MAX_KEYWORDS = 50;
+const MAX_KEYWORD_LENGTH = 100;
 
 export const VALID_ACTIONS: $Enums.AutomationAction[] = [
   "CREATE_TASK",
@@ -114,6 +122,40 @@ export async function validateTriggerConfig(
       where: { organizationId, userId: config.assigneeId, active: true },
     });
     if (!member) return "Responsável inválido";
+  }
+
+  if (trigger === "MESSAGE_RECEIVED") {
+    const config = triggerConfig as {
+      messageMatchType?: string;
+      messageKeywords?: string[];
+      businessHoursMode?: string;
+      contactContext?: string;
+      stopOnMatch?: unknown;
+      ignoreIfHumanActive?: unknown;
+    } | undefined;
+
+    if (config?.messageMatchType !== undefined && !VALID_MESSAGE_MATCH_TYPES.includes(config.messageMatchType)) {
+      return "Tipo de correspondência de palavra-chave inválido";
+    }
+    if (config?.messageKeywords !== undefined) {
+      if (!Array.isArray(config.messageKeywords)) return "Palavras-chave inválidas";
+      if (config.messageKeywords.length > MAX_KEYWORDS) return `No máximo ${MAX_KEYWORDS} palavras-chave por regra`;
+      if (config.messageKeywords.some((k) => typeof k !== "string" || k.length > MAX_KEYWORD_LENGTH)) {
+        return `Cada palavra-chave deve ter no máximo ${MAX_KEYWORD_LENGTH} caracteres`;
+      }
+    }
+    if (config?.businessHoursMode !== undefined && !VALID_BUSINESS_HOURS_MODES.includes(config.businessHoursMode)) {
+      return "Modo de horário de atendimento inválido";
+    }
+    if (config?.contactContext !== undefined && !VALID_CONTACT_CONTEXTS.includes(config.contactContext)) {
+      return "Contexto de contato inválido";
+    }
+    if (config?.stopOnMatch !== undefined && typeof config.stopOnMatch !== "boolean") {
+      return "Configuração de 'parar outras regras' inválida";
+    }
+    if (config?.ignoreIfHumanActive !== undefined && typeof config.ignoreIfHumanActive !== "boolean") {
+      return "Configuração de 'pausa por atendimento humano' inválida";
+    }
   }
 
   const conditions = triggerConfig?.customFieldConditions as CustomFieldCondition[] | undefined;

@@ -19,9 +19,9 @@ import { matchesCustomFieldConditions, type CustomFieldCondition } from "@/lib/a
 import { coerceCustomFieldValue, stringifyCustomFieldValue, type CustomFieldDefinitionLike } from "@/lib/custom-fields";
 
 /** Resultado de uma ação executada — vira o `success`/`detail` gravados em AutomationExecution, exibidos no "Ver detalhes" do histórico. */
-type ActionResult = { success: boolean; detail: string };
+export type ActionResult = { success: boolean; detail: string };
 
-type TriggerConfig = {
+export type TriggerConfig = {
   days?: number;
   stageId?: string;
   minHours?: number;
@@ -33,8 +33,18 @@ type TriggerConfig = {
   minutesBefore?: number;
   /** Só avaliado nos triggers cuja entidade principal é Deal ou Contact — ver findMatches. */
   customFieldConditions?: CustomFieldCondition[];
+  // ─── MESSAGE_RECEIVED (ver lib/automations/message-trigger.ts) ───
+  messageMatchType?: "EXACT" | "CONTAINS" | "STARTS_WITH" | "ENDS_WITH";
+  /** Vazio/ausente = dispara em qualquer mensagem (gatilho coringa). */
+  messageKeywords?: string[];
+  businessHoursMode?: "ALWAYS" | "INSIDE_BUSINESS_HOURS" | "OUTSIDE_BUSINESS_HOURS";
+  contactContext?: "ANY" | "NEW_LEAD" | "HAS_OPEN_DEAL";
+  /** Se esta regra bater e executar com sucesso, para de avaliar as próximas regras pra essa mesma mensagem. Padrão false (todas que baterem disparam, igual ao resto do motor). */
+  stopOnMatch?: boolean;
+  /** Suprime o disparo se um atendente humano mandou mensagem na conversa recentemente. Padrão true. */
+  ignoreIfHumanActive?: boolean;
 };
-type ActionConfig = {
+export type ActionConfig = {
   title?: string;
   dueInDays?: number;
   note?: string;
@@ -62,7 +72,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type Entity = {
+export type Entity = {
   entityId: string;
   organizationId: string;
   dealId?: string;
@@ -70,7 +80,7 @@ type Entity = {
   ownerId: string;
 };
 
-type RuleWithOrg = {
+export type RuleWithOrg = {
   id: string;
   organizationId: string;
   name: string;
@@ -108,9 +118,14 @@ async function filterUnexecuted(ruleId: string, candidateIds: string[]): Promise
   return new Set(candidateIds.filter((id) => !executedSet.has(id)));
 }
 
-async function recordExecution(ruleId: string, entityId: string): Promise<string | null> {
+/**
+ * `threadId` só é preenchido pelo gatilho MESSAGE_RECEIVED (ver
+ * lib/automations/message-trigger.ts) — sustenta a janela de rate-limit por
+ * conversa. Os demais gatilhos continuam chamando sem esse 3º argumento.
+ */
+export async function recordExecution(ruleId: string, entityId: string, threadId?: string): Promise<string | null> {
   try {
-    const execution = await prisma.automationExecution.create({ data: { ruleId, entityId } });
+    const execution = await prisma.automationExecution.create({ data: { ruleId, entityId, threadId } });
     return execution.id;
   } catch (err) {
     // P2002: outra execução concorrente já registrou esse par (ruleId, entityId) primeiro.
@@ -126,7 +141,7 @@ async function recordExecution(ruleId: string, entityId: string): Promise<string
  * preenchem o que existir — token sem valor vira string vazia na hora de
  * interpolar, nunca quebra o envio.
  */
-async function resolveTemplateValues(entity: Entity): Promise<Record<string, string>> {
+export async function resolveTemplateValues(entity: Entity): Promise<Record<string, string>> {
   const values: Record<string, string> = {};
 
   if (entity.dealId) {
@@ -167,7 +182,7 @@ async function resolveTemplateValues(entity: Entity): Promise<Record<string, str
   return values;
 }
 
-async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionResult> {
+export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionResult> {
   const actionConfig = (rule.actionConfig ?? {}) as ActionConfig;
 
   if (rule.action === "CREATE_TASK") {
@@ -287,7 +302,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
           instanceId: instance.id,
           phoneNormalized: target.phoneNormalized,
         });
-        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: message });
+        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: message, automationRuleId: rule.id });
         sent += 1;
       } catch (err) {
         // Falha de envio (ex.: WhatsApp desconectado) não deve travar o
@@ -387,7 +402,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
         // lib/campaigns/engine.ts): uma regra que dispara pra várias
         // entidades no mesmo tick não deve ficar presa atrás de um único
         // script de várias mensagens.
-        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[0].text });
+        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[0].text, automationRuleId: rule.id });
         sent += 1;
 
         if (steps.length > 1) {
@@ -395,7 +410,7 @@ async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionR
             for (let i = 0; i < steps.length - 1; i++) {
               if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
               try {
-                await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[i + 1].text });
+                await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[i + 1].text, automationRuleId: rule.id });
               } catch (err) {
                 console.error(
                   `[automations] falha ao enviar passo ${i + 2}/${steps.length} do script (regra "${rule.name}")`,
@@ -771,6 +786,28 @@ async function findMatches(rule: RuleWithOrg, customFieldDefs: CustomFieldDefini
   return matches;
 }
 
+/**
+ * Só o teste de alvo (Todos/Eu/Usuários/Equipe) pra UM ownerId já conhecido —
+ * usado por lib/automations/message-trigger.ts, que resolve sua própria
+ * entidade (a mensagem recebida) em vez de escanear o banco procurando
+ * candidatos, então não se beneficia do batch que `findMatches` acima faz
+ * pros outros gatilhos (que varrem muitas entidades por tick).
+ */
+export async function matchesTarget(rule: RuleWithOrg, ownerId: string): Promise<boolean> {
+  if (rule.targetType === "EVERYONE") return true;
+  if (rule.targetType === "SELF") return !rule.createdById || ownerId === rule.createdById;
+  if (rule.targetType === "USERS") return rule.targetUserIds.includes(ownerId);
+  if (rule.targetType === "TEAM") {
+    if (!rule.targetTeamId) return false;
+    const member = await prisma.organizationUser.findFirst({
+      where: { organizationId: rule.organizationId, teamId: rule.targetTeamId, userId: ownerId },
+      select: { userId: true },
+    });
+    return !!member;
+  }
+  return true;
+}
+
 async function runRule(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<number> {
   const matches = await findMatches(rule, customFieldDefs);
 
@@ -808,7 +845,15 @@ export async function runAutomations(): Promise<{ rulesEvaluated: number; action
 
   for (const org of organizations) {
     const orgResult = await runWithTenant(org.id, async () => {
-      const rules = await prisma.automationRule.findMany({ where: { enabled: true } });
+      // MESSAGE_RECEIVED não é varrido aqui — dispara inline pelo webhook do
+      // WhatsApp (ver dispatchMessageReceivedAutomations em
+      // lib/automations/message-trigger.ts, chamado de
+      // lib/whatsapp/events.ts), porque já nasce sabendo org/contato/thread
+      // (evento, não estado) — incluir aqui só repetiria trabalho sem
+      // nenhum ganho, já que findMatchesRaw não tem case pra ele mesmo.
+      const rules = await prisma.automationRule.findMany({
+        where: { enabled: true, trigger: { not: "MESSAGE_RECEIVED" } },
+      });
       const customFieldDefs = await prisma.customFieldDefinition.findMany({ where: { organizationId: org.id } });
 
       let fired = 0;

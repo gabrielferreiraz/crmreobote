@@ -14,6 +14,16 @@ model Organization {
   name      String
   slug      String   @unique
   createdAt DateTime @default(now())
+  /**
+   * Horário de atendimento — janela única pra organização inteira (não por
+   * regra de automação), usada pelo gatilho MESSAGE_RECEIVED via
+   * `businessHoursMode` (ver lib/automations/message-trigger.ts). Formato:
+   * `{ start: "08:00", end: "18:00", days: [1,2,3,4,5], timezone:
+   * "America/Campo_Grande", holidays: ["2026-12-25"] }`. Null = sem horário
+   * configurado (regras com modo diferente de ALWAYS simplesmente nunca
+   * disparam até alguém configurar).
+   */
+  businessHours Json?
 
   users                  OrganizationUser[]
   pipelines              Pipeline[]
@@ -410,7 +420,20 @@ model WhatsAppMessage {
   // antigo, automático, da página de Negócio (Dono/Gerente abrindo o chat do
   // negócio de outro vendedor, sempre atrelado ao WhatsApp do responsável).
   // Nunca sai daqui pro WhatsApp em si — é só rastro interno de auditoria.
+  // IMPORTANTE: isso NÃO é "enviado por humano" — a esmagadora maioria das
+  // mensagens humanas normais (consultor mandando pela própria instância)
+  // tem esse campo nulo, igual mensagem de automação. Ver automationRuleId
+  // abaixo pra essa distinção.
   sentByUserId   String?
+  // Mesma ideia que campaignId acima, só que pra automação em vez de
+  // campanha — marca a origem quando SEND_WHATSAPP/SEND_SCRIPT do motor de
+  // Automações mandou esta mensagem (qualquer gatilho, não só
+  // MESSAGE_RECEIVED). Sustenta a detecção de "atendente humano ativo
+  // recentemente" (ver hasRecentHumanMessage em
+  // lib/automations/message-trigger.ts: OUTBOUND sem campaignId e sem
+  // automationRuleId = humano de verdade) e, de brinde, separa mensagem de
+  // automação de mensagem manual nos relatórios.
+  automationRuleId String?
   createdAt      DateTime                 @default(now())
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -420,11 +443,13 @@ model WhatsAppMessage {
   replies      WhatsAppMessage[] @relation("WhatsAppMessageReplies")
   campaign     Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   sentBy       User?             @relation("WhatsAppMessageSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
+  automationRule AutomationRule? @relation(fields: [automationRuleId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, threadId, createdAt])
   @@index([organizationId, instanceId])
   @@index([organizationId, threadId, direction, read])
   @@index([organizationId, campaignId])
+  @@index([organizationId, threadId, automationRuleId])
   // Relatórios (app/(dashboard)/relatorios/page.tsx) agrupam por
   // instanceId/threadId filtrando organizationId+direction+campaignId (nulo
   // ou não) + intervalo de data SEM informar threadId — nenhum índice
@@ -1747,6 +1772,7 @@ model AutomationRule {
   createdBy    User?                 @relation("AutomationRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   targetTeam   Team?                 @relation("AutomationRuleTargetTeam", fields: [targetTeamId], references: [id], onDelete: SetNull)
   executions   AutomationExecution[]
+  whatsappMessages WhatsAppMessage[]
 
   @@index([organizationId])
   @@index([organizationId, createdById])
@@ -1785,10 +1811,21 @@ model AutomationExecution {
    */
   detail    String?
   createdAt DateTime @default(now())
+  /**
+   * Só usado por MESSAGE_RECEIVED — o mesmo `@@unique([ruleId, entityId])`
+   * abaixo já impede a MESMA mensagem disparar a MESMA regra duas vezes
+   * (entityId = messageId, protege contra reenvio de webhook), mas essa
+   * dimensão a mais é o que sustenta a janela deslizante de rate-limit por
+   * conversa (ver checkMessageRateLimit em lib/automations/message-trigger.ts)
+   * — sem ela não daria pra contar "quantas vezes essa regra disparou pra
+   * essa conversa nos últimos 5 minutos" sem escanear a tabela toda.
+   */
+  threadId String?
 
   rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   @@unique([ruleId, entityId])
+  @@index([ruleId, threadId, createdAt])
 }
 
 enum AutomationTrigger {
@@ -1802,6 +1839,14 @@ enum AutomationTrigger {
   CONTACT_NO_DEAL
   SCHEDULED
   TASK_DUE_SOON
+  /**
+   * Mensagem de WhatsApp recebida — ao contrário dos demais (varridos por um
+   * cron periódico, ver runAutomations em lib/automations/engine.ts), este é
+   * disparado inline pelo próprio webhook (lib/whatsapp/events.ts), porque já
+   * nasce sabendo a organização/contato/thread — evento, não estado. Ver
+   * lib/automations/message-trigger.ts.
+   */
+  MESSAGE_RECEIVED
 }
 
 enum AutomationAction {

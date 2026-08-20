@@ -44,17 +44,17 @@ const DAILY_RELOAD_HOUR = 4;
 // acontece quando uma venda de verdade acontece).
 const RANKING_SPIN_INTERVAL_MS = 5 * 60 * 1000;
 const RANKING_SPIN_VISIBLE_MS = 6000;
-// Carrossel do PAINEL DE MÉTRICAS inteiro (não só do card Ranking — ver
-// showHero..showRanking dentro do componente abaixo, todos entram/saem
-// juntos como um bloco só) — a cada intervalo, alterna entre o conteúdo
-// normal (Vendas do mês, Última venda, Funil, Ranking) e os aniversariantes
-// do mês, mesma lógica de "roda sozinho num intervalo fixo" que o carrossel
-// de propaganda já usa (ver AD_DURATION_MS). Só entra nesse rodízio quando
-// tem pelo menos um aniversariante este mês (ver showBirthdayCarousel mais
-// abaixo) — sem ninguém fazendo aniversário, o painel fica só no conteúdo
-// normal pra sempre, não tem o que revezar. A logo fica de fora de
-// propósito (renderizada ANTES deste bloco, não dentro) — nunca participa
-// do carrossel.
+// Carrossel de SÓ 2 cards do painel (Última venda e Ranking — ver
+// renderLastSaleContent/renderRankingContent no componente abaixo, cada um
+// com seu próprio slide independente) — alterna entre o conteúdo normal de
+// cada card e um conteúdo de aniversário, mesma lógica de "roda sozinho num
+// intervalo fixo" que o carrossel de propaganda já usa (ver AD_DURATION_MS).
+// Vendas do mês e Leads no funil NUNCA trocam de conteúdo — ficam estáticos
+// o tempo todo. Só entra nesse rodízio quando alguém faz aniversário este
+// mês (ver hasBirthdayThisMonth mais abaixo) — sem ninguém fazendo
+// aniversário no mês, os dois cards ficam só no conteúdo normal pra sempre.
+// Quem faz aniversário especificamente HOJE ainda ganha destaque à parte
+// dentro do conteúdo (ver renderLastSaleContent/renderRankingContent).
 // TESTE: 5s em vez de 3min, só pra validar o carrossel rápido — voltar pra
 // `3 * 60 * 1000` depois.
 const RANKING_CAROUSEL_INTERVAL_MS = 5 * 1000;
@@ -97,12 +97,12 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
   // Giro nas fotos do pódio do Ranking — liga a cada 5min, desliga sozinho
   // alguns segundos depois (ver RANKING_SPIN_INTERVAL_MS/RANKING_SPIN_VISIBLE_MS).
   const [rankingSpinActive, setRankingSpinActive] = useState(false);
-  // Qual "lado" do carrossel do painel de métricas está visível — 0 =
-  // conteúdo normal (Vendas do mês..Ranking), 1 = aniversariantes do mês
-  // (ver RANKING_CAROUSEL_INTERVAL_MS). Alterna (não avança sempre pro mesmo
-  // lado) de propósito — com só 2 conteúdos, ping-pong é o carrossel mais
-  // simples que ainda dá a sensação de "girar", sem precisar de um 3º estado
-  // só pra voltar.
+  // Qual "lado" está visível nos cards Última venda/Ranking — 0 = conteúdo
+  // normal, 1 = aniversário de hoje (ver RANKING_CAROUSEL_INTERVAL_MS). Os
+  // dois cards trocam JUNTOS, no mesmo instante (um estado só controla os
+  // dois). Alterna (não avança sempre pro mesmo lado) de propósito — com só
+  // 2 conteúdos, ping-pong é o carrossel mais simples que ainda dá a
+  // sensação de "girar", sem precisar de um 3º estado só pra voltar.
   const [rankingSlide, setRankingSlide] = useState<0 | 1>(0);
   // Lado que acabou de SAIR — fica montado por SLIDE_TRANSITION_MS depois de
   // cada troca de rankingSlide só pra poder animar arrastando pra fora da
@@ -181,16 +181,30 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
     return () => clearInterval(interval);
   }, []);
 
-  // Carrossel do painel de métricas inteiro (conteúdo normal ↔
+  // Dois gatilhos diferentes, um pra cada card — `birthdaysThisMonth` já vem
+  // do servidor filtrado pelo mês/dia ATUAIS de verdade (getBrazilParts(new
+  // Date()) em lib/tv-dashboard.ts, nunca um valor fixo), recorrente ano
+  // após ano.
+  // - hasBirthdayThisMonth: liga o TIMER do carrossel (compartilhado pelos
+  //   dois cards) — o Ranking mostra a lista do mês inteiro assim que tem
+  //   qualquer aniversariante no mês.
+  // - hasBirthdayToday: além do timer estar ligado, o card Última venda só
+  //   participa da troca quando alguém faz aniversário HOJE de verdade — 2
+  //   dias antes/depois não é suficiente pra ele sair do lugar (pedido
+  //   explícito); nesse caso ele fica sempre no conteúdo normal, mesmo com
+  //   o Ranking girando ao lado (ver JSX mais abaixo).
+  const hasBirthdayThisMonth = metrics.birthdaysThisMonth.length > 0;
+  const hasBirthdayToday = metrics.birthdaysThisMonth.some((b) => b.isToday);
+
+  // Carrossel dos cards Última venda/Ranking (conteúdo normal ↔
   // aniversariantes, ver RANKING_CAROUSEL_* acima) — só roda quando há de
   // fato algum aniversariante este mês; sem isso, ligar o intervalo do mesmo
-  // jeito faria o painel "girar" pra um slide de aniversariantes vazio a
-  // cada 3min, à toa. Reavalia sempre que a contagem de aniversariantes
-  // mudar (troca de mês, alguém novo cadastrado) — se o carrossel estava
-  // ativo e a lista esvaziar, volta pro conteúdo normal e para de girar
-  // sozinho.
+  // jeito faria os cards "girarem" pra um conteúdo de aniversário vazio, à
+  // toa. Reavalia a cada refresh de métricas — se o carrossel estava ativo e
+  // a lista esvaziar (virou o mês), volta pro conteúdo normal e para de
+  // girar sozinho.
   useEffect(() => {
-    if (metrics.birthdaysThisMonth.length === 0) {
+    if (!hasBirthdayThisMonth) {
       setRankingSlide(0);
       return;
     }
@@ -198,7 +212,7 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
       setRankingSlide((s) => (s === 0 ? 1 : 0));
     }, RANKING_CAROUSEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [metrics.birthdaysThisMonth.length]);
+  }, [hasBirthdayThisMonth]);
 
   // Recarga diária de madrugada (ver DAILY_RELOAD_HOUR) — calcula os ms até
   // a próxima ocorrência UMA vez ao montar; depois do reload, a página monta
@@ -239,216 +253,286 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
   const churrascoGradient = churrascoGoalHit
     ? "linear-gradient(90deg, #eab308, #fbbf24, #fde68a)"
     : "linear-gradient(90deg, #ef4444, #f97316, #fbbf24)";
+  // Maior contagem entre as etapas do funil — referência pra desenhar a
+  // barrinha de cada etapa (ver showFunnels mais abaixo) proporcional à
+  // etapa mais cheia, não a um teto arbitrário. Math.max(..., 1): nunca
+  // divide por zero se todas as etapas vierem zeradas.
+  const maxFunnelCount = Math.max(...metrics.leadsInFunnels.map((s) => s.count), 1);
 
-  // Conteúdo de cada lado do carrossel do painel (0 = normal, 1 =
-  // aniversariantes) — função em vez de JSX duplicado, porque o MESMO lado
-  // pode precisar ser desenhado duas vezes ao mesmo tempo durante uma troca:
-  // uma vez como o que está ENTRANDO (rankingSlide atual) e, por
+  // Conteúdo de cada lado do card ÚLTIMA VENDA (0 = venda mais recente, 1 =
+  // aniversário de hoje) — função em vez de JSX duplicado, porque o MESMO
+  // lado pode precisar ser desenhado duas vezes ao mesmo tempo durante uma
+  // troca: uma vez como o que está ENTRANDO (rankingSlide atual) e, por
   // SLIDE_TRANSITION_MS, também como o que acabou de SAIR (outgoingSlide,
   // ver JSX mais abaixo) — arrastando pra fora enquanto o outro arrasta pra
-  // dentro, ao mesmo tempo.
-  const renderSlideContent = (slide: 0 | 1) => {
+  // dentro, ao mesmo tempo. Slide 1 usa a MESMA forma visual do slide 0
+  // (avatar + rótulo/nome/linha colorida) de propósito — o card não muda de
+  // "formato" ao trocar, só de conteúdo/cor.
+  const renderLastSaleContent = (slide: 0 | 1) => {
     if (slide === 1) {
+      // Só chega aqui quando hasBirthdayToday é verdadeiro (ver JSX mais
+      // abaixo, que nem monta este carrossel senão) — então todo mundo em
+      // `todayBirthdays` faz aniversário HOJE de verdade, nunca uma
+      // "prévia" de outro dia do mês.
+      const todayBirthdays = metrics.birthdaysThisMonth.filter((b) => b.isToday);
       return (
-        <GlassCard
-          className="flex flex-col items-center justify-center text-center"
-          style={{ minHeight: "clamp(22rem, 48vh, 42rem)" }}
-        >
-          <BirthdaySlide birthdays={metrics.birthdaysThisMonth} />
-        </GlassCard>
-      );
-    }
-    return (
-      <div className="flex flex-col" style={{ gap: "var(--tv-gap)" }}>
-        {showHero && (
-          <GlassCard delay={90} className="text-center">
-            <Glow color="var(--brand)" />
-            <div className="relative flex items-center justify-center gap-2">
-              <TrendingUp
-                className="shrink-0"
-                style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
-                strokeWidth={2.5}
-              />
-              <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-                Vendas do mês
-              </p>
-            </div>
-            <div
-              className="relative mt-2 font-extrabold tabular-nums text-[length:var(--tv-text-hero)]"
-              style={{ color: "var(--brand)" }}
-            >
-              {formatCurrencyCompact(metrics.vendasMes)}
-            </div>
-            <div
-              className="relative flex divide-x divide-white/10 border-t border-white/10 text-[length:var(--tv-text-body)]"
-              style={{ marginTop: "var(--tv-gap)", paddingTop: "var(--tv-gap)" }}
-            >
-              <div className="flex-1">
-                <div className="font-semibold text-neutral-400">Anuais</div>
-                <div className="mt-1 font-bold text-[length:var(--tv-text-value-sm)]">
-                  {formatCurrencyCompact(metrics.vendasAnuais)}
-                </div>
-              </div>
-              <div className="flex-1">
-                <div className="font-semibold text-neutral-400">Cotas</div>
-                <div className="mt-1 font-bold text-[length:var(--tv-text-value-sm)]">
-                  {formatCurrencyCompact(metrics.vendasCotas)}
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        )}
-
-        {showLastSale && (
-          <GlassCard delay={180}>
-            <Glow color="var(--brand)" />
-            {metrics.lastSale ? (
-              <div className="relative flex items-center" style={{ gap: "calc(var(--tv-gap) * 0.8)" }}>
-                {metrics.lastSale.image ? (
+        <div className="relative flex flex-wrap items-center justify-center" style={{ gap: "calc(var(--tv-gap) * 1.2)" }}>
+          {todayBirthdays.map((b) => (
+            <div key={b.id} className="flex items-center" style={{ gap: "calc(var(--tv-gap) * 0.8)" }}>
+              {/* Mesmo pacote de comemoração do card Ranking (ver
+                  renderRankingContent) — foto girando 3D + sparkles
+                  pulsando, pra quem faz aniversário hoje ganhar mais
+                  destaque que só a borda colorida. */}
+              <div className="relative shrink-0" style={{ width: "var(--tv-avatar-md)", height: "var(--tv-avatar-md)", perspective: "800px" }}>
+                <span
+                  className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-60 blur-lg"
+                  style={{ inset: "-25%", backgroundColor: BIRTHDAY_COLOR }}
+                />
+                <Sparkles
+                  className="absolute -top-1.5 -right-1.5 animate-pulse"
+                  style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }}
+                  strokeWidth={2.5}
+                />
+                <Sparkles
+                  className="absolute -bottom-1 -left-1.5 animate-pulse"
+                  style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR, animationDelay: "0.6s" }}
+                  strokeWidth={2.5}
+                />
+                {b.image ? (
                   <img
-                    id="tv-last-sale-avatar"
-                    src={metrics.lastSale.image}
-                    alt={metrics.lastSale.name}
-                    className="shrink-0 rounded-full object-cover shadow-lg"
-                    style={{
-                      width: "var(--tv-avatar-md)",
-                      height: "var(--tv-avatar-md)",
-                      outline: "2px solid var(--brand)",
-                      outlineOffset: 2,
-                    }}
+                    src={b.image}
+                    alt={b.name}
+                    className="animate-tv-photo-spin relative h-full w-full rounded-full object-cover shadow-lg"
+                    style={{ border: `2px solid ${BIRTHDAY_COLOR}` }}
                   />
                 ) : (
                   <div
-                    id="tv-last-sale-avatar"
-                    className="flex shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-value-sm)]"
-                    style={{
-                      width: "var(--tv-avatar-md)",
-                      height: "var(--tv-avatar-md)",
-                      outline: "2px solid var(--brand)",
-                      outlineOffset: 2,
-                    }}
+                    className="animate-tv-photo-spin relative flex h-full w-full items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-value-sm)]"
+                    style={{ border: `2px solid ${BIRTHDAY_COLOR}` }}
                   >
-                    {metrics.lastSale.name?.charAt(0)}
+                    {b.name.charAt(0)}
                   </div>
                 )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles
-                      className="shrink-0"
-                      style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: "var(--brand)" }}
-                      strokeWidth={2.5}
-                    />
-                    <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-                      Última venda
-                    </p>
-                  </div>
-                  <p className="truncate font-medium text-[length:var(--tv-text-name)]">{metrics.lastSale.name}</p>
-                  <div className="flex items-baseline gap-2">
-                    <p
-                      className="font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
-                      style={{ color: "var(--brand)" }}
-                    >
-                      {formatCurrencyCompact(metrics.lastSale.value)}
-                    </p>
-                    <p
-                      className="text-neutral-500 text-[length:var(--tv-text-label)]"
-                      title={metrics.lastSale.date.toLocaleString("pt-BR")}
-                    >
-                      {formatRelativeTime(metrics.lastSale.date)}
-                    </p>
-                  </div>
-                </div>
               </div>
-            ) : (
-              <div className="relative">
+              <div className="min-w-0 max-w-[240px] text-left">
                 <div className="flex items-center gap-1.5">
-                  <Sparkles
-                    style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: "var(--brand)" }}
+                  <Cake
+                    className="shrink-0"
+                    style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }}
                     strokeWidth={2.5}
                   />
                   <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-                    Última venda
+                    Aniversário hoje
                   </p>
                 </div>
-                <p className="mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">Nenhuma venda registrada.</p>
+                <p className="truncate font-medium text-[length:var(--tv-text-name)]">{b.name}</p>
+                <p className="font-extrabold text-[length:var(--tv-text-value-sm)]" style={{ color: BIRTHDAY_COLOR }}>
+                  <span className="inline-block animate-bounce">🎉</span> Parabéns!
+                </p>
               </div>
-            )}
-          </GlassCard>
-        )}
-
-        {showFunnels && (
-          <GlassCard delay={270}>
-            <Glow color="var(--brand)" />
-            <div className="relative flex items-center gap-2">
-              <Waypoints
-                style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
-                strokeWidth={2.5}
-              />
-              <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-                Leads no funil
-              </p>
             </div>
-            {metrics.leadsInFunnels.length > 0 ? (
-              <div className="relative flex flex-wrap gap-1.5" style={{ marginTop: "calc(var(--tv-gap) * 0.7)" }}>
-                {metrics.leadsInFunnels.map((stage) => (
-                  <div
-                    key={stage.id}
-                    className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5"
-                    style={{ padding: "clamp(0.25rem, 0.4vw, 0.4rem) clamp(0.45rem, 0.8vw, 0.7rem)" }}
-                  >
-                    <span
-                      className="font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
-                      style={{ color: "var(--brand)" }}
-                    >
-                      {stage.count}
-                    </span>
-                    <span className="max-w-[130px] truncate font-medium text-neutral-400 text-[length:var(--tv-text-body)]">
-                      {stage.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="relative mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">
-                Nenhum funil selecionado.
-              </p>
-            )}
-          </GlassCard>
+          ))}
+        </div>
+      );
+    }
+    return metrics.lastSale ? (
+      <div className="relative flex items-center justify-center" style={{ gap: "calc(var(--tv-gap) * 0.8)" }}>
+        {metrics.lastSale.image ? (
+          <img
+            id="tv-last-sale-avatar"
+            src={metrics.lastSale.image}
+            alt={metrics.lastSale.name}
+            className="shrink-0 rounded-full object-cover shadow-lg"
+            style={{
+              width: "var(--tv-avatar-md)",
+              height: "var(--tv-avatar-md)",
+              outline: "2px solid var(--brand)",
+              outlineOffset: 2,
+            }}
+          />
+        ) : (
+          <div
+            id="tv-last-sale-avatar"
+            className="flex shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-value-sm)]"
+            style={{
+              width: "var(--tv-avatar-md)",
+              height: "var(--tv-avatar-md)",
+              outline: "2px solid var(--brand)",
+              outlineOffset: 2,
+            }}
+          >
+            {metrics.lastSale.name?.charAt(0)}
+          </div>
         )}
-
-        {showRanking && (
-          <GlassCard delay={360} className="text-center">
-            <Glow color="#eab308" />
-            <div className="relative flex items-center justify-center gap-2">
-              <Trophy
-                style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "#eab308" }}
-                strokeWidth={2.5}
-              />
-              <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-                Ranking do mês
-              </p>
-            </div>
-            {metrics.ranking.length > 0 ? (
-              <div
-                className="relative flex items-end justify-center"
-                style={{ gap: "var(--tv-gap)", marginTop: "var(--tv-gap)" }}
-              >
-                {podiumOrder(metrics.ranking).map(({ user, place }) => (
-                  <RankingPodiumSlot key={user.id} user={user} place={place} spinPhoto={rankingSpinActive} />
-                ))}
-              </div>
-            ) : (
-              <p className="relative mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">
-                Sem vendas este mês ainda.
-              </p>
-            )}
-          </GlassCard>
-        )}
-
-        {nothingEnabled && (
-          <p className="text-center text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum widget habilitado.</p>
-        )}
+        {/* min-w-0 sem flex-1 de propósito — sem flex-1 o bloco de texto some
+            ao seu próprio tamanho em vez de esticar até preencher o resto do
+            card, o que é o que deixa o par avatar+texto centralizar como uma
+            unidade só via justify-center acima, em vez de ficar "grudado" à
+            esquerda com um vão vazio sobrando à direita. */}
+        <div className="min-w-0 max-w-[240px] text-left">
+          <div className="flex items-center gap-1.5">
+            <Sparkles
+              className="shrink-0"
+              style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: "var(--brand)" }}
+              strokeWidth={2.5}
+            />
+            <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+              Última venda
+            </p>
+          </div>
+          <p className="truncate font-medium text-[length:var(--tv-text-name)]">{metrics.lastSale.name}</p>
+          <div className="flex items-baseline gap-2">
+            <p className="font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]" style={{ color: "var(--brand)" }}>
+              {formatCurrencyCompact(metrics.lastSale.value)}
+            </p>
+            <p
+              className="text-neutral-500 text-[length:var(--tv-text-label)]"
+              title={metrics.lastSale.date.toLocaleString("pt-BR")}
+            >
+              {formatRelativeTime(metrics.lastSale.date)}
+            </p>
+          </div>
+        </div>
       </div>
+    ) : (
+      <div className="relative">
+        <div className="flex items-center justify-center gap-1.5">
+          <Sparkles style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: "var(--brand)" }} strokeWidth={2.5} />
+          <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+            Última venda
+          </p>
+        </div>
+        <p className="mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">Nenhuma venda registrada.</p>
+      </div>
+    );
+  };
+
+  // Conteúdo de cada lado do card RANKING (0 = pódio, 1 = aniversariantes do
+  // mês) — mesmo motivo de renderLastSaleContent acima (precisa poder
+  // desenhar o mesmo lado 2x ao mesmo tempo durante uma troca). Slide 1
+  // mostra o MÊS inteiro (ver hasBirthdayThisMonth); quem faz aniversário
+  // HOJE ganha borda rosa pra se destacar dentro da lista.
+  const renderRankingContent = (slide: 0 | 1) => {
+    if (slide === 1) {
+      return (
+        <>
+          <div className="relative flex items-center justify-center gap-2">
+            <Cake style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: BIRTHDAY_COLOR }} strokeWidth={2.5} />
+            <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+              Aniversariantes do mês
+            </p>
+          </div>
+          {/* Mesma linguagem visual do pódio (avatar em círculo com anel
+              colorido, nome truncado embaixo, legenda pequena embaixo do
+              nome) em vez da pílula com fundo/borda de antes — aquilo
+              destoava do resto do dashboard (nenhum outro card usa esse
+              estilo de chip pra pessoas, só pra contagem tipo "Leads no
+              funil"). Quem faz aniversário HOJE ganha anel mais grosso +
+              halo pulsante, igual o destaque do 1º lugar do pódio — o resto
+              do mês fica discreto, anel fino neutro. */}
+          <div
+            className="relative flex flex-wrap items-start justify-center"
+            style={{ gap: "calc(var(--tv-gap) * 1.1)", marginTop: "var(--tv-gap)" }}
+          >
+            {metrics.birthdaysThisMonth.map((b) => (
+              <div key={b.id} className="flex flex-col items-center">
+                {/* Quem faz aniversário HOJE ganha o pacote completo de
+                    "comemoração" — mesma linguagem já usada na TV pra venda
+                    fechada: foto girando 3D (animate-tv-photo-spin, mesma
+                    animação do pódio/win-celebration — `perspective` no PAI,
+                    não no elemento que gira), sparkles pulsando nos cantos, e
+                    o emoji quicando (animate-bounce, nativo do Tailwind). O
+                    resto do mês fica parado, sem competir com o destaque. */}
+                <div
+                  className="relative"
+                  style={{
+                    width: "var(--tv-avatar-lg)",
+                    height: "var(--tv-avatar-lg)",
+                    perspective: b.isToday ? "800px" : undefined,
+                  }}
+                >
+                  {b.isToday && (
+                    <>
+                      <span
+                        className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-60 blur-lg"
+                        style={{ inset: "-25%", backgroundColor: BIRTHDAY_COLOR }}
+                      />
+                      <Sparkles
+                        className="absolute -top-1.5 -right-1.5 animate-pulse"
+                        style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }}
+                        strokeWidth={2.5}
+                      />
+                      <Sparkles
+                        className="absolute -bottom-1 -left-1.5 animate-pulse"
+                        style={{
+                          width: "var(--tv-icon-sm)",
+                          height: "var(--tv-icon-sm)",
+                          color: BIRTHDAY_COLOR,
+                          animationDelay: "0.6s",
+                        }}
+                        strokeWidth={2.5}
+                      />
+                    </>
+                  )}
+                  {b.image ? (
+                    <img
+                      src={b.image}
+                      alt={b.name}
+                      className={`relative h-full w-full rounded-full object-cover shadow-lg ${b.isToday ? "animate-tv-photo-spin" : ""}`}
+                      style={{ border: `${b.isToday ? 5 : 4}px solid ${b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED}` }}
+                    />
+                  ) : (
+                    <div
+                      className={`relative flex h-full w-full items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-name)] ${b.isToday ? "animate-tv-photo-spin" : ""}`}
+                      style={{ border: `${b.isToday ? 5 : 4}px solid ${b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED}` }}
+                    >
+                      {b.name.charAt(0)}
+                    </div>
+                  )}
+                </div>
+                <p
+                  className={`mt-1.5 max-w-[130px] truncate text-[length:var(--tv-text-body)] ${b.isToday ? "font-bold text-white" : "font-medium"}`}
+                  style={b.isToday ? undefined : { color: BIRTHDAY_COLOR_MUTED }}
+                  title={b.name}
+                >
+                  {b.name}
+                </p>
+                <p
+                  className="font-semibold text-[length:var(--tv-text-body)]"
+                  style={{ color: b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED }}
+                >
+                  {b.isToday ? (
+                    <>
+                      <span className="inline-block animate-bounce">🎉</span> hoje
+                    </>
+                  ) : (
+                    `dia ${b.day}`
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      );
+    }
+    return (
+      <>
+        <div className="relative flex items-center justify-center gap-2">
+          <Trophy style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "#eab308" }} strokeWidth={2.5} />
+          <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+            Ranking do mês
+          </p>
+        </div>
+        {metrics.ranking.length > 0 ? (
+          <div className="relative flex items-end justify-center" style={{ gap: "var(--tv-gap)", marginTop: "var(--tv-gap)" }}>
+            {podiumOrder(metrics.ranking).map(({ user, place }) => (
+              <RankingPodiumSlot key={user.id} user={user} place={place} spinPhoto={rankingSpinActive} />
+            ))}
+          </div>
+        ) : (
+          <p className="relative mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">Sem vendas este mês ainda.</p>
+        )}
+      </>
     );
   };
 
@@ -609,39 +693,176 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
             />
           </div>
 
-          {/* Carrossel do PAINEL INTEIRO — arrasta de verdade pro lado: o
-              lado que está SAINDO (outgoingSlide) fica montado por cima
-              (absolute), animando pra fora, ao mesmo tempo em que o lado que
-              está ENTRANDO anima vindo do lado oposto — os dois cruzando a
-              tela juntos, não só um aparecendo sozinho depois do outro sumir
-              (ver SLIDE_TRANSITION_MS/renderSlideContent acima e as
-              animações tv-slide-in-from-... / tv-slide-out-to-... em
-              globals.css).
-
-              `relative flex-1 min-h-0 justify-center`: o conteúdo centraliza
+          {/* `relative flex-1 min-h-0 justify-center`: o conteúdo centraliza
               sozinho no espaço que sobra ABAIXO da logo — a logo é IRMÃ
               deste wrapper (está fora dele, acima), então nunca se move
-              quando o conteúdo do carrossel muda de altura entre os dois
-              lados (antes o `justify-center` estava no painel inteiro,
-              incluindo a logo como filha — a logo "caía" junto toda vez que
-              a altura do conteúdo abaixo mudava, porque o grupo inteiro se
-              recentralizava). */}
-          <div className="relative flex min-h-0 flex-1 flex-col justify-center">
-            {outgoingSlide !== null && (
-              <div
-                className={`absolute top-0 left-0 w-full ${
-                  outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
-                }`}
-              >
-                {renderSlideContent(outgoingSlide)}
-              </div>
+              quando a altura de algum card abaixo mudar (ex.: os dois cards
+              com carrossel próprio, ver mais abaixo). */}
+          <div className="flex min-h-0 flex-1 flex-col justify-center" style={{ gap: "var(--tv-gap)" }}>
+            {showHero && (
+              <GlassCard delay={90} className="text-center">
+                <Glow color="var(--brand)" />
+                <div className="relative flex items-center justify-center gap-2">
+                  <TrendingUp
+                    className="shrink-0"
+                    style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
+                    strokeWidth={2.5}
+                  />
+                  <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+                    Vendas do mês
+                  </p>
+                </div>
+                <div
+                  className="relative mt-2 font-extrabold tabular-nums text-[length:var(--tv-text-hero)]"
+                  style={{ color: "var(--brand)" }}
+                >
+                  {formatCurrencyCompact(metrics.vendasMes)}
+                </div>
+                <div
+                  className="relative flex divide-x divide-white/10 border-t border-white/10 text-[length:var(--tv-text-body)]"
+                  style={{ marginTop: "var(--tv-gap)", paddingTop: "var(--tv-gap)" }}
+                >
+                  <div className="flex-1">
+                    <div className="font-semibold text-neutral-400">Anuais</div>
+                    <div className="mt-1 font-bold text-[length:var(--tv-text-value-sm)]">
+                      {formatCurrencyCompact(metrics.vendasAnuais)}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-semibold text-neutral-400">Cotas</div>
+                    <div className="mt-1 font-bold text-[length:var(--tv-text-value-sm)]">
+                      {formatCurrencyCompact(metrics.vendasCotas)}
+                    </div>
+                  </div>
+                </div>
+              </GlassCard>
             )}
-            <div
-              key={rankingSlide}
-              className={rankingSlide === 1 ? "animate-tv-slide-in-from-right" : "animate-tv-slide-in-from-left"}
-            >
-              {renderSlideContent(rankingSlide)}
-            </div>
+
+            {/* Carrossel PRÓPRIO deste card (não do painel inteiro) — só
+                participa da troca quando alguém faz aniversário HOJE de
+                verdade (hasBirthdayToday, não hasBirthdayThisMonth — pedido
+                explícito: 2 dias antes/depois não é suficiente pra este
+                card sair do lugar). Sem isso, fica sempre no conteúdo
+                normal, MESMO com o Ranking girando ao lado por causa de
+                outro dia do mês — os dois cards têm o próprio gatilho,
+                embora compartilhem o mesmo relógio (`rankingSlide`) pra
+                trocar junto quando os dois estão de fato ativos.
+
+                Quando ativo: o lado que está SAINDO (outgoingSlide) fica
+                sobreposto (absolute inset-0) animando pra fora, ao mesmo
+                tempo em que o lado que está ENTRANDO (normal, no fluxo)
+                anima vindo do lado oposto — os dois cruzando dentro do
+                próprio card. */}
+            {showLastSale && (
+              <GlassCard delay={180} className="text-center">
+                <Glow color="var(--brand)" />
+                {hasBirthdayToday && outgoingSlide !== null && (
+                  <div
+                    className={`absolute inset-0 flex items-center justify-center ${
+                      outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
+                    }`}
+                  >
+                    {renderLastSaleContent(outgoingSlide)}
+                  </div>
+                )}
+                <div
+                  key={hasBirthdayToday ? rankingSlide : 0}
+                  className={
+                    hasBirthdayToday && rankingSlide === 1 ? "animate-tv-slide-in-from-right" : "animate-tv-slide-in-from-left"
+                  }
+                >
+                  {renderLastSaleContent(hasBirthdayToday ? rankingSlide : 0)}
+                </div>
+              </GlassCard>
+            )}
+
+            {showFunnels && (
+              <GlassCard delay={270} className="text-center">
+                <Glow color="var(--brand)" />
+                <div className="relative flex items-center justify-center gap-2">
+                  <Waypoints
+                    style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
+                    strokeWidth={2.5}
+                  />
+                  <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+                    Leads no funil
+                  </p>
+                </div>
+                {metrics.leadsInFunnels.length > 0 ? (
+                  // Barrinha proporcional por etapa (não mais pílula) — além
+                  // de mais sofisticado, lê como um FUNIL de verdade (a
+                  // etapa mais cheia rende a barra mais longa), não só uma
+                  // lista de números soltos. `mx-auto` + `max-width` fixo
+                  // centraliza o bloco inteiro no card, sempre — 1, 2 ou 5
+                  // etapas, nunca "escorrega" pra esquerda.
+                  <div
+                    className="relative mx-auto flex flex-col text-left"
+                    style={{ marginTop: "var(--tv-gap)", gap: "calc(var(--tv-gap) * 0.55)", maxWidth: "min(100%, 22rem)" }}
+                  >
+                    {metrics.leadsInFunnels.map((stage) => (
+                      <div key={stage.id}>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="min-w-0 truncate font-medium text-neutral-300 text-[length:var(--tv-text-body)]">
+                            {stage.name}
+                          </span>
+                          <span
+                            className="shrink-0 font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
+                            style={{ color: "var(--brand)" }}
+                          >
+                            {stage.count}
+                          </span>
+                        </div>
+                        <div
+                          className="mt-1 overflow-hidden rounded-full bg-white/10"
+                          style={{ height: "clamp(0.3rem, 0.5vw, 0.4rem)" }}
+                        >
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${Math.max(6, (stage.count / maxFunnelCount) * 100)}%`,
+                              background: "linear-gradient(90deg, var(--brand), #a5a6f8)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="relative mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">
+                    Nenhum funil selecionado.
+                  </p>
+                )}
+              </GlassCard>
+            )}
+
+            {/* Carrossel PRÓPRIO deste card — mesmo mecanismo do card Última
+                venda acima, ver comentário lá. minHeight evita o card
+                encolher/crescer demais entre o pódio (mais alto) e a lista
+                de aniversariantes (mais baixa). */}
+            {showRanking && (
+              <GlassCard delay={360} className="text-center" style={{ minHeight: "clamp(13rem, 24vh, 19rem)" }}>
+                <Glow color="#eab308" />
+                {outgoingSlide !== null && (
+                  <div
+                    className={`absolute inset-0 flex flex-col items-center justify-center ${
+                      outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
+                    }`}
+                  >
+                    {renderRankingContent(outgoingSlide)}
+                  </div>
+                )}
+                <div
+                  key={rankingSlide}
+                  className={rankingSlide === 1 ? "animate-tv-slide-in-from-right" : "animate-tv-slide-in-from-left"}
+                >
+                  {renderRankingContent(rankingSlide)}
+                </div>
+              </GlassCard>
+            )}
+
+            {nothingEnabled && (
+              <p className="text-center text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum widget habilitado.</p>
+            )}
           </div>
         </div>
       </div>
@@ -886,104 +1107,16 @@ function RankingPodiumSlot({
 }
 
 const BIRTHDAY_COLOR = "#f472b6";
-type BirthdayUser = Metrics["birthdaysThisMonth"][number];
-
-/**
- * Outro lado do carrossel do painel de métricas (ver rankingSlide em
- * tv-view.tsx acima) — quem faz aniversário HOJE ganha destaque grande
- * (mesmo tratamento de avatar que "Última venda" usa), o resto do mês vira
- * uma fileira de chips (mesmo padrão visual de "Leads no funil", ordenados
- * por dia) — mas nome e avatar bem maiores que um chip comum, de propósito:
- * este slide ocupa o painel inteiro sozinho agora (ver renderSlideContent em
- * tv-view.tsx), tem espaço de sobra e é sobre reconhecer pessoas, não só
- * exibir números — dá pra ler o nome de longe sem apertar os olhos. Sem
- * ninguém fazendo aniversário hoje, pula direto pra fileira — não sobra vão
- * vazio onde o destaque estaria (ver "others" abaixo, que já cobre os dois
- * casos sem duplicar nome nenhum na tela).
- */
-function BirthdaySlide({ birthdays }: { birthdays: BirthdayUser[] }) {
-  const today = birthdays.filter((b) => b.isToday);
-  const others = today.length > 0 ? birthdays.filter((b) => !b.isToday) : birthdays;
-
-  return (
-    <>
-      <Glow color={BIRTHDAY_COLOR} />
-      <div className="relative flex items-center justify-center gap-2">
-        <Cake style={{ width: "var(--tv-icon-lg)", height: "var(--tv-icon-lg)", color: BIRTHDAY_COLOR }} strokeWidth={2.5} />
-        <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-body)]">
-          Aniversariantes do mês
-        </p>
-      </div>
-
-      {today.length > 0 && (
-        <div
-          className="relative flex flex-wrap items-center justify-center"
-          style={{ gap: "calc(var(--tv-gap) * 1.5)", marginTop: "calc(var(--tv-gap) * 1.5)" }}
-        >
-          {today.map((b) => (
-            <div key={b.id} className="flex flex-col items-center">
-              {b.image ? (
-                <img
-                  src={b.image}
-                  alt={b.name}
-                  className="rounded-full object-cover shadow-lg"
-                  style={{ width: "var(--tv-avatar-lg)", height: "var(--tv-avatar-lg)", border: `4px solid ${BIRTHDAY_COLOR}` }}
-                />
-              ) : (
-                <div
-                  className="flex items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-value-md)]"
-                  style={{ width: "var(--tv-avatar-lg)", height: "var(--tv-avatar-lg)", border: `4px solid ${BIRTHDAY_COLOR}` }}
-                >
-                  {b.name.charAt(0)}
-                </div>
-              )}
-              <p className="mt-3 max-w-[260px] truncate font-bold text-[length:var(--tv-text-value-sm)]" title={b.name}>
-                {b.name}
-              </p>
-              <p className="font-bold text-[length:var(--tv-text-name)]" style={{ color: BIRTHDAY_COLOR }}>
-                🎉 Hoje!
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {others.length > 0 && (
-        <div
-          className="relative flex flex-wrap items-center justify-center"
-          style={{ gap: "calc(var(--tv-gap) * 0.7)", marginTop: "calc(var(--tv-gap) * 1.5)" }}
-        >
-          {others.map((b) => (
-            <div
-              key={b.id}
-              className="flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5"
-              style={{ padding: "clamp(0.4rem, 0.7vw, 0.6rem) clamp(0.8rem, 1.3vw, 1.2rem)" }}
-            >
-              {b.image ? (
-                <img
-                  src={b.image}
-                  alt={b.name}
-                  className="shrink-0 rounded-full object-cover"
-                  style={{ width: "var(--tv-avatar-md)", height: "var(--tv-avatar-md)" }}
-                />
-              ) : (
-                <div
-                  className="flex shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-name)]"
-                  style={{ width: "var(--tv-avatar-md)", height: "var(--tv-avatar-md)" }}
-                >
-                  {b.name.charAt(0)}
-                </div>
-              )}
-              <span className="max-w-[220px] truncate font-semibold text-neutral-200 text-[length:var(--tv-text-name)]">
-                {b.name}
-              </span>
-              <span className="shrink-0 font-semibold tabular-nums text-neutral-500 text-[length:var(--tv-text-body)]">
-                dia {b.day}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
+// Versão apagada da mesma cor — pro anel/legenda de quem NÃO faz
+// aniversário hoje, na lista do mês (ver renderRankingContent em
+// tv-view.tsx). Antes era cinza neutro (mesmo tom do pódio sem posição),
+// lia como "sem cor nenhuma" — isso aqui já é a cor do tema de aniversário,
+// só discreta, pra quem faz hoje continuar claramente se destacando com a
+// cor cheia ao lado.
+//
+// Cor SÓLIDA (não rgba com opacidade) de propósito — a 1ª tentativa usava
+// `rgba(244,114,182,0.55)`, que misturado com o fundo quase preto do card
+// vira um tom escuro/dessaturado, lendo como "cinza" de novo numa TV vista
+// de longe (foi exatamente o que aconteceu: opacidade some contra fundo
+// escuro, sólido não).
+const BIRTHDAY_COLOR_MUTED = "#d98fb8";

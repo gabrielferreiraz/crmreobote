@@ -42,6 +42,7 @@ import { getOrCreateThread, touchThreadLastMessage } from "@/lib/whatsapp/thread
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
 import { isOptOutMessage } from "@/lib/whatsapp/opt-out";
+import { dispatchMessageReceivedAutomations } from "@/lib/automations/message-trigger";
 import { shouldResetWarmup } from "@/lib/whatsapp/warmup";
 import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
@@ -263,6 +264,14 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
 
     handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>
       console.error("[wa:webhook] falha ao processar resposta de campanha", err),
+    );
+
+    // Motor de Automações — gatilho MESSAGE_RECEIVED (palavra-chave, horário
+    // de atendimento, contexto do contato — ver lib/automations/
+    // message-trigger.ts). Fire-and-forget, mesmo padrão de sempre neste
+    // arquivo: já roda dentro do runWithTenant que o webhook ativou.
+    dispatchMessageReceivedAutomations(instance.organizationId, instance, thread, saved).catch((err) =>
+      console.error("[wa:webhook] falha ao disparar gatilho de mensagem recebida", err),
     );
 
     // Opt-out (ver lib/whatsapp/opt-out.ts) só faz sentido pra quem já é um

@@ -82,6 +82,15 @@ export type WhatsAppOutgoingMessage = {
   /** Só o motor de campanhas preenche isso — marca a mensagem como disparo de lista fria (ver relatórios). */
   campaignId?: string;
   /**
+   * Só o motor de Automações preenche isso (SEND_WHATSAPP/SEND_SCRIPT, ver
+   * lib/automations/engine.ts) — mesma ideia que campaignId acima, marca a
+   * mensagem como vinda de uma regra em vez de digitada por alguém. Sustenta
+   * a detecção de "atendente humano ativo recentemente" (ver
+   * hasRecentHumanMessage em lib/automations/message-trigger.ts) e separa
+   * mensagem de automação de mensagem manual nos relatórios.
+   */
+  automationRuleId?: string;
+  /**
    * Só o motor de campanhas (lib/campaigns/engine.ts) preenche isso — simula
    * "digitando…" antes de mandar (ver simulateTyping em lib/evolution.ts).
    * Nunca usado em mensagem manual (o vendedor já está digitando de verdade)
@@ -99,7 +108,7 @@ export type WhatsAppOutgoingMessage = {
 };
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
-  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId, simulateTypingFirst, sentByUserId } = params;
+  const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId, automationRuleId, simulateTypingFirst, sentByUserId } = params;
 
   const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
   if (!thread) throw new WhatsAppSendError("Conversa não encontrada");
@@ -273,6 +282,7 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       replyToId,
       status: "SENT",
       campaignId,
+      automationRuleId,
       sentByUserId: sentByUserId && sentByUserId !== instance.userId ? sentByUserId : undefined,
     },
   });

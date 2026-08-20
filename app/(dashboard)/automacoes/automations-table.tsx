@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
+import { Switch } from "@/components/switch";
 import { VariableInput } from "@/components/variable-input";
 import { RecipientPicker, type RecipientEntry } from "./recipient-picker";
 import { X } from "lucide-react";
@@ -47,7 +48,28 @@ type Trigger =
   | "DEAL_NO_OPEN_TASK"
   | "CONTACT_NO_DEAL"
   | "SCHEDULED"
-  | "TASK_DUE_SOON";
+  | "TASK_DUE_SOON"
+  | "MESSAGE_RECEIVED";
+type MessageMatchType = "EXACT" | "CONTAINS" | "STARTS_WITH" | "ENDS_WITH";
+type BusinessHoursMode = "ALWAYS" | "INSIDE_BUSINESS_HOURS" | "OUTSIDE_BUSINESS_HOURS";
+type ContactContext = "ANY" | "NEW_LEAD" | "HAS_OPEN_DEAL";
+
+const MESSAGE_MATCH_TYPE_LABELS: Record<MessageMatchType, string> = {
+  EXACT: "É exatamente",
+  CONTAINS: "Contém",
+  STARTS_WITH: "Começa com",
+  ENDS_WITH: "Termina com",
+};
+const BUSINESS_HOURS_MODE_LABELS: Record<BusinessHoursMode, string> = {
+  ALWAYS: "Sempre",
+  INSIDE_BUSINESS_HOURS: "Só no horário de atendimento",
+  OUTSIDE_BUSINESS_HOURS: "Só fora do horário de atendimento",
+};
+const CONTACT_CONTEXT_LABELS: Record<ContactContext, string> = {
+  ANY: "Qualquer contato",
+  NEW_LEAD: "Só lead novo (nunca teve negócio)",
+  HAS_OPEN_DEAL: "Só quem já tem negócio em aberto",
+};
 type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL" | "SET_CUSTOM_FIELD" | "SEND_SCRIPT";
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
@@ -97,6 +119,7 @@ const TRIGGER_LABELS: Record<Trigger, string> = {
   CONTACT_NO_DEAL: "Contato sem negócio",
   SCHEDULED: "Agendamento (horário fixo)",
   TASK_DUE_SOON: "Tarefa perto do prazo",
+  MESSAGE_RECEIVED: "Mensagem recebida (WhatsApp)",
 };
 
 const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
@@ -110,6 +133,7 @@ const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
   CONTACT_NO_DEAL: "Pega contatos (ex.: importados via planilha) que continuam sem nenhum negócio depois de N dias.",
   SCHEDULED: "Dispara num horário recorrente (ex.: toda segunda às 8h), sem depender de nenhuma mudança em negócio. A checagem roda de hora em hora, então o disparo acontece em algum momento dentro da hora escolhida.",
   TASK_DUE_SOON: "Dispara pouco antes do prazo de uma tarefa (ex.: lembrar de uma visita 15 minutos antes). Combine com \"Enviar notificação push\" pra virar um lembrete no celular. Importante: só funciona com a granularidade da checagem periódica das automações — se ela rodar de hora em hora, um aviso de 15 minutos pode não ser exato.",
+  MESSAGE_RECEIVED: "Dispara em tempo real quando um lead manda uma mensagem de WhatsApp — com ou sem palavra-chave configurada (sem nenhuma, dispara em qualquer mensagem de texto). Suprime sozinho se um atendente já respondeu a conversa há pouco.",
 };
 
 const ACTION_LABELS: Record<Action, string> = {
@@ -219,6 +243,10 @@ export function AutomationsTable({
       }
       if (frequency === "monthly") return `todo dia ${config.dayOfMonth ?? 1} às ${time} · ${assigneeName}`;
       return null;
+    }
+    if (rule.trigger === "MESSAGE_RECEIVED") {
+      const keywords = config.messageKeywords as string[] | undefined;
+      return keywords?.length ? `"${keywords.join('", "')}"` : "qualquer mensagem";
     }
     return null;
   }
@@ -628,6 +656,20 @@ function AutomationDialog({
   const [dayOfWeek, setDayOfWeek] = useState(String((tc.dayOfWeek as number | undefined) ?? 1));
   const [dayOfMonth, setDayOfMonth] = useState(String((tc.dayOfMonth as number | undefined) ?? 1));
   const [assigneeId, setAssigneeId] = useState((tc.assigneeId as string | undefined) ?? members[0]?.id ?? "");
+  const [messageMatchType, setMessageMatchType] = useState<MessageMatchType>(
+    (tc.messageMatchType as MessageMatchType | undefined) ?? "CONTAINS",
+  );
+  const [messageKeywordsText, setMessageKeywordsText] = useState(
+    ((tc.messageKeywords as string[] | undefined) ?? []).join(", "),
+  );
+  const [businessHoursMode, setBusinessHoursMode] = useState<BusinessHoursMode>(
+    (tc.businessHoursMode as BusinessHoursMode | undefined) ?? "ALWAYS",
+  );
+  const [contactContext, setContactContext] = useState<ContactContext>(
+    (tc.contactContext as ContactContext | undefined) ?? "ANY",
+  );
+  const [stopOnMatch, setStopOnMatch] = useState((tc.stopOnMatch as boolean | undefined) ?? false);
+  const [ignoreIfHumanActive, setIgnoreIfHumanActive] = useState((tc.ignoreIfHumanActive as boolean | undefined) ?? true);
   const [taskTitle, setTaskTitle] = useState((ac.title as string | undefined) ?? "");
   const [taskDueInDays, setTaskDueInDays] = useState(String((ac.dueInDays as number | undefined) ?? 1));
   const [note, setNote] = useState((ac.note as string | undefined) ?? "");
@@ -693,7 +735,19 @@ function AutomationDialog({
                       dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
                       assigneeId,
                     }
-                  : {};
+                  : trigger === "MESSAGE_RECEIVED"
+                    ? {
+                        messageMatchType,
+                        messageKeywords: messageKeywordsText
+                          .split(",")
+                          .map((k) => k.trim())
+                          .filter(Boolean),
+                        businessHoursMode,
+                        contactContext,
+                        stopOnMatch,
+                        ignoreIfHumanActive,
+                      }
+                    : {};
 
     const triggerConfig = conditionEntityType && customFieldConditions.length > 0
       ? { ...triggerConfigBase, customFieldConditions }
@@ -973,6 +1027,62 @@ function AutomationDialog({
               className="field-input"
             />
           </div>
+        )}
+
+        {trigger === "MESSAGE_RECEIVED" && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Palavras-chave (vazio = qualquer mensagem)</label>
+              <input
+                value={messageKeywordsText}
+                onChange={(e) => setMessageKeywordsText(e.target.value)}
+                placeholder="Ex.: preço, valor, quanto custa"
+                className="field-input"
+              />
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Separe várias por vírgula — qualquer uma delas dispara.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Tipo de correspondência</label>
+              <Select
+                value={messageMatchType}
+                onChange={(v) => setMessageMatchType(v as MessageMatchType)}
+                options={Object.entries(MESSAGE_MATCH_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Horário de atendimento</label>
+              <Select
+                value={businessHoursMode}
+                onChange={(v) => setBusinessHoursMode(v as BusinessHoursMode)}
+                options={Object.entries(BUSINESS_HOURS_MODE_LABELS).map(([value, label]) => ({ value, label }))}
+              />
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Janela configurada em Configurações → Horário de atendimento.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Contexto do contato</label>
+              <Select
+                value={contactContext}
+                onChange={(v) => setContactContext(v as ContactContext)}
+                options={Object.entries(CONTACT_CONTEXT_LABELS).map(([value, label]) => ({ value, label }))}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+              <div>
+                <p className="text-sm text-neutral-800 dark:text-neutral-200">Parar outras regras se esta disparar</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">Útil quando duas palavras-chave se sobrepõem (ex.: "comprar" e "comprar casa").</p>
+              </div>
+              <Switch checked={stopOnMatch} onChange={setStopOnMatch} />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
+              <div>
+                <p className="text-sm text-neutral-800 dark:text-neutral-200">Pausar se um atendente já respondeu</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">Não dispara se alguém do time mandou mensagem na conversa nos últimos 20 minutos.</p>
+              </div>
+              <Switch checked={ignoreIfHumanActive} onChange={setIgnoreIfHumanActive} />
+            </div>
+          </>
         )}
 
         {conditionEntityType && (

@@ -167,7 +167,25 @@ export function Select({
             // que o espaço seguro calculado pelo hook — gatilho perto da
             // borda da tela usa o menor dos dois (e agora pode abrir pra
             // cima também, ver coords.bottom).
-            style={{ top: coords.top, bottom: coords.bottom, left: coords.left, width: coords.width, maxHeight: Math.min(224, coords.maxHeight) }}
+            //
+            // Largura: nunca menor que o gatilho (minWidth), mas cresce até
+            // caber a opção mais larga (width: max-content) — um gatilho
+            // compacto (ex.: o seletor de Responsável no negócio, com
+            // `py-1 text-xs`) não deve forçar nomes longos a truncar dentro
+            // do próprio painel aberto, já que aqui (diferente do gatilho
+            // fechado) sobra a tela toda pra mostrar o texto inteiro.
+            // maxWidth trava no espaço real até a borda da tela a partir de
+            // `left` — sem isso, uma opção MUITO longa com o gatilho perto
+            // da borda direita empurraria o painel pra fora da viewport.
+            style={{
+              top: coords.top,
+              bottom: coords.bottom,
+              left: coords.left,
+              minWidth: coords.width,
+              width: "max-content",
+              maxWidth: `calc(100vw - ${(coords.left ?? 0) + 16}px)`,
+              maxHeight: Math.min(224, coords.maxHeight),
+            }}
           >
             {options.map((opt, i) => (
               <button

@@ -1,3 +1,4 @@
+import { Mail } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
@@ -34,6 +35,8 @@ export default async function ConfiguracoesPage() {
   const sections: ConfigSection[] = [
     {
       title: "Conta",
+      description: "Seu perfil, notificações e automações pessoais",
+      icon: "UserCircle",
       items: [
         {
           href: "/configuracoes/perfil",
@@ -66,6 +69,8 @@ export default async function ConfiguracoesPage() {
     },
     {
       title: "Espaço de trabalho",
+      description: "Times, pipeline e dados do negócio",
+      icon: "Building2",
       items: [
         ...(isManager
           ? [
@@ -147,6 +152,13 @@ export default async function ConfiguracoesPage() {
                 description: "Adicione campos a clientes e negócios.",
                 keywords: ["campo", "customizado", "personalizado", "extra", "adicional"],
               },
+              {
+                href: "/configuracoes/horario-atendimento",
+                icon: "Clock",
+                title: "Horário de atendimento",
+                description: "Janela usada pela automação de mensagem recebida (ex.: responder só fora do expediente).",
+                keywords: ["horário", "atendimento", "expediente", "feriado", "business hours", "automação", "mensagem recebida"],
+              },
               ...(canManageProcesses
                 ? [
                     {
@@ -171,6 +183,8 @@ export default async function ConfiguracoesPage() {
     },
     {
       title: "Integrações",
+      description: "Conecte serviços externos ao CRM",
+      icon: "Plug",
       items: [
         {
           href: "/configuracoes/perfil",
@@ -196,6 +210,8 @@ export default async function ConfiguracoesPage() {
       ? [
           {
             title: "Segurança",
+            description: "Auditoria e monitoramento do sistema",
+            icon: "ShieldAlert",
             items: [
               {
                 href: "/configuracoes/auditoria",
@@ -218,7 +234,11 @@ export default async function ConfiguracoesPage() {
   ].filter((section) => section.items.length > 0);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    // max-w-5xl (não mais 3xl) — as duas colunas do mosaico (ver
+    // config-search.tsx) precisam de espaço de sobra pra não ficarem
+    // apertadas; 3xl (768px) mal cabia uma coluna confortável, virava 2
+    // colunas espremidas demais pra ler como o Windows Settings pedido.
+    <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Configurações</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -234,14 +254,21 @@ export default async function ConfiguracoesPage() {
         </p>
       )}
 
+      {/* Mesmo card auto-contido (ícone + título no topo) que cada seção de
+          ConfigSearch usa — antes era um rótulo solto acima de um card
+          separado, um estilo diferente do resto da página; agora fala a
+          mesma língua visual do mosaico acima, mesmo ficando de fora do
+          grid de colunas (não é filtrável pela busca, não faz sentido
+          embaralhar posição junto com o resto ao digitar). */}
       {isOwner && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
-            Alertas por e-mail
-          </h2>
-          <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
-            <TestEmailButton />
+        <div className="card max-w-md overflow-hidden p-0">
+          <div className="flex items-center gap-3 bg-brand-light/40 p-4 dark:bg-white/[0.04]">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand shadow-sm shadow-brand/30">
+              <Mail className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">Alertas por e-mail</h2>
           </div>
+          <TestEmailButton />
         </div>
       )}
     </div>

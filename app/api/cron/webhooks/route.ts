@@ -11,14 +11,19 @@ const CRON_NAME = "webhooks";
 async function handleCron() {
   const lock = await acquireCronLock(CRON_NAME);
   if (!lock) {
-    return NextResponse.json(
-      { error: "Outra execução do cron já está em andamento" },
-      { status: 409 },
-    );
+    // 200 de propósito — ver comentário no catch abaixo.
+    return NextResponse.json({ ok: false, skipped: true, error: "Outra execução do cron já está em andamento" });
   }
   try {
     const result = await recordCronRun(CRON_NAME, runWebhookDeliveries);
-    return NextResponse.json(result);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    // 200 mesmo em falha de verdade — cron-job.org desativa um job sozinho
+    // depois de falhas repetidas com status de erro (404/500). recordCronRun
+    // acima já gravou a falha e mandou e-mail pro Dono (ver lib/cron-run.ts/
+    // lib/system-alerts.ts) — esse já é o alerta de verdade; um 500 aqui só
+    // arriscaria o cron-job.org desligar o job sozinho.
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   } finally {
     await lock.release().catch((err) =>
       console.error("[cron:webhooks] falha ao liberar lock", err),
