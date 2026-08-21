@@ -225,11 +225,16 @@ export function TaskCalendar({
       </div>
 
       {selectedDay && (
-        <Modal onClose={() => setSelectedDay(null)} maxWidth="max-w-xl">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-900 capitalize dark:text-neutral-100">
+        // max-w-3xl (era xl) + max-h-[75vh] na lista (era 60vh) — o painel
+        // do Modal em si já suporta até 90vh (ver components/modal.tsx),
+        // mas esse card ficava artificialmente pequeno preso num teto de
+        // 60vh dentro de um painel de 576px — bem menos espaço do que o
+        // Modal já tinha disponível.
+        <Modal onClose={() => setSelectedDay(null)} maxWidth="max-w-3xl">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900 capitalize dark:text-neutral-100">
             {selectedDay.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
           </h2>
-          <div className="scrollbar-thin max-h-[60vh] space-y-2 overflow-y-auto pb-2">
+          <div className="scrollbar-thin max-h-[75vh] space-y-2.5 overflow-y-auto pb-2">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
               <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} />
             ))}

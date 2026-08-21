@@ -60,7 +60,7 @@ export default async function ContactPage({
 
   if (!contact) notFound();
 
-  const [sources, jobTitles, customFields, membersRaw] = await Promise.all([
+  const [sources, jobTitles, customFields, membersRaw, pipelinesRaw, creditTypes] = await Promise.all([
     prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
     prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
     prisma.customFieldDefinition.findMany({
@@ -72,8 +72,17 @@ export default async function ContactPage({
       orderBy: { createdAt: "asc" },
       include: { user: { select: { id: true, name: true } } },
     }),
+    // Pra "Novo negócio" direto desta tela (ver create-deal-for-contact-dialog.tsx)
+    // — mesmo formato mínimo (id/nome + etapas em ordem) que pipeline/page.tsx já busca.
+    prisma.pipeline.findMany({
+      where: { organizationId },
+      orderBy: { order: "asc" },
+      include: { stages: { orderBy: { order: "asc" }, select: { id: true, name: true } } },
+    }),
+    prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
   ]);
   const members = membersRaw.map((m) => m.user);
+  const pipelines = pipelinesRaw.map((p) => ({ id: p.id, name: p.name, stages: p.stages }));
   const customFieldValues = (contact.customFieldValues as Record<string, CustomFieldValue>) ?? {};
 
   const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
@@ -164,6 +173,7 @@ export default async function ContactPage({
         </div>
 
         <ContactTabs
+          contactId={contact.id}
           deals={contact.deals.map((deal) => ({
             id: deal.id,
             name: deal.name,
@@ -171,6 +181,12 @@ export default async function ContactPage({
             value: deal.value ? Number(deal.value) : null,
             stageName: deal.stage.name,
           }))}
+          pipelines={pipelines}
+          members={members}
+          creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
+          // Mesmo critério de canBulkDelete em pipeline/page.tsx — apagar é
+          // destrutivo, só Dono/Gerente, não todo mundo que enxerga o negócio.
+          canDeleteDeals={["OWNER", "MANAGER"].includes(session!.user.role ?? "")}
           infoRows={[
             { label: "E-mail", value: contact.email ?? "—" },
             { label: "Celular", value: contact.phone ?? "—" },

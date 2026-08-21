@@ -840,7 +840,11 @@ function AutomationDialog({
               options={(Object.entries(TARGET_TYPE_LABELS) as [TargetType, string][]).map(([value, label]) => ({ value, label }))}
             />
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              O gatilho continua olhando a organização inteira — isso só decide quais negócios/contatos/tarefas contam, pelo responsável.
+              O gatilho continua olhando a organização inteira — isso só filtra pelo <strong>responsável</strong> (dono do negócio do contato,{" "}
+              {trigger === "MESSAGE_RECEIVED"
+                ? "não quem tem o WhatsApp conectado — uma mensagem recebida num número central só conta pra \"Só eu\"/\"Usuários\" se o contato tiver negócio seu"
+                : "não necessariamente quem criou/mexeu por último"}
+              ). Sem negócio vinculado, cai no dono da instância.
             </p>
             {targetType === "USERS" && (
               <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-700">

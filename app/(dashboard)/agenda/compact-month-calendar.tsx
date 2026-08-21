@@ -149,11 +149,11 @@ export function CompactMonthCalendar({
       </div>
 
       {selectedDay && (
-        <Modal onClose={() => setSelectedDay(null)} maxWidth="max-w-lg">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-900 capitalize dark:text-neutral-100">
+        <Modal onClose={() => setSelectedDay(null)} maxWidth="max-w-2xl">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900 capitalize dark:text-neutral-100">
             {selectedDay.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
           </h2>
-          <div className="scrollbar-thin max-h-[60vh] space-y-2 overflow-y-auto pb-2">
+          <div className="scrollbar-thin max-h-[72vh] space-y-2.5 overflow-y-auto pb-2">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
               <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} />
             ))}

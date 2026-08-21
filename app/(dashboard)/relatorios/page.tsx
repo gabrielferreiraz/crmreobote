@@ -209,17 +209,17 @@ export default async function RelatoriosPage({
           </div>
           <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-7">
             <Stat
-              label="Negócios decididos"
-              value={String(closedCount)}
-              hint={`${wonCount} ganho${wonCount === 1 ? "" : "s"} · ${lostCount} perdido${lostCount === 1 ? "" : "s"} no período`}
-            />
-            <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
-            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
-            <Stat
               label="Total ganho"
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               emphasize
+            />
+            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
+            <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
+            <Stat
+              label="Negócios decididos"
+              value={String(closedCount)}
+              hint={`${wonCount} ganho${wonCount === 1 ? "" : "s"} · ${lostCount} perdido${lostCount === 1 ? "" : "s"} no período`}
             />
           </div>
         </div>
