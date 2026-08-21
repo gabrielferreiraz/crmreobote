@@ -174,6 +174,7 @@ export default async function ContactPage({
 
         <ContactTabs
           contactId={contact.id}
+          contactName={contact.name}
           deals={contact.deals.map((deal) => ({
             id: deal.id,
             name: deal.name,
@@ -185,8 +186,12 @@ export default async function ContactPage({
           members={members}
           creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
           // Mesmo critério de canBulkDelete em pipeline/page.tsx — apagar é
-          // destrutivo, só Dono/Gerente, não todo mundo que enxerga o negócio.
+          // destrutivo, só Dono/Gerente, não todo mundo que enxerga o negócio/contato.
+          // A API de apagar CONTATO já é OWNER/MANAGER-only por conta própria
+          // (ver app/api/contacts/[id]/route.ts) — isso aqui só evita mostrar
+          // um botão que ia dar 403 pra quem não pode.
           canDeleteDeals={["OWNER", "MANAGER"].includes(session!.user.role ?? "")}
+          canDeleteContact={["OWNER", "MANAGER"].includes(session!.user.role ?? "")}
           infoRows={[
             { label: "E-mail", value: contact.email ?? "—" },
             { label: "Celular", value: contact.phone ?? "—" },

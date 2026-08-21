@@ -175,7 +175,26 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     const existing = await prisma.contact.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-    await prisma.contact.delete({ where: { id } });
+    try {
+      await prisma.contact.delete({ where: { id } });
+    } catch (err) {
+      // Deal.contactId não tem onDelete: Cascade (de propósito — apagar um
+      // cliente não deveria conseguir levar negócio nenhum junto sem querer
+      // de verdade), então o Postgres barra com uma violação de FK (P2003)
+      // quando ainda existe negócio apontando pra este contato. Sem esse
+      // catch, isso vazava como 500 cru pro cliente (stack trace nos logs,
+      // sem mensagem nenhuma explicando o motivo real) — a UI (ver
+      // contact-tabs.tsx) já evita chegar aqui desabilitando o botão
+      // enquanto houver negócio vinculado, mas isso continua sendo a defesa
+      // de verdade (2 abas abertas, chamada direta à API, etc.).
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+        return NextResponse.json(
+          { error: "Esse contato ainda tem negócio vinculado — apague os negócios primeiro." },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
     recordUserChange(access.organizationId, access.userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );

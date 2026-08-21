@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Inbox, Trash2 } from "lucide-react";
+import { Inbox, Trash2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -45,6 +46,7 @@ type CreditTypeOption = { id: string; label: string };
  */
 export function ContactTabs({
   contactId,
+  contactName,
   deals: initialDeals,
   infoRows,
   addressLines,
@@ -54,8 +56,10 @@ export function ContactTabs({
   members,
   creditTypes,
   canDeleteDeals,
+  canDeleteContact,
 }: {
   contactId: string;
+  contactName: string;
   deals: Deal[];
   infoRows: InfoRow[];
   addressLines: string | null;
@@ -66,13 +70,18 @@ export function ContactTabs({
   creditTypes: CreditTypeOption[];
   /** Só Dono/Gerente — mesmo critério de canBulkDelete em pipeline/page.tsx (apagar negócio é destrutivo, não liberado pra todo mundo que só CONSEGUE ver o negócio). */
   canDeleteDeals: boolean;
+  /** Idem, pro contato inteiro — ver app/api/contacts/[id]/route.ts. */
+  canDeleteContact: boolean;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<"deals" | "info">("deals");
   // Estado local (semeado do server, ver `deals: initialDeals` acima) — cria/
   // apaga aqui reflete na hora, sem esperar um refresh de página inteiro.
   const [deals, setDeals] = useState(initialDeals);
   const [deleteTarget, setDeleteTarget] = useState<Deal | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteContactOpen, setDeleteContactOpen] = useState(false);
+  const [deleteContactError, setDeleteContactError] = useState<string | null>(null);
 
   // ConfirmDialog já mostra o próprio estado de "carregando" enquanto essa
   // Promise não resolve (ver components/confirm-dialog.tsx) — não precisa
@@ -89,6 +98,24 @@ export function ContactTabs({
       setDeleteError("Não foi possível apagar esse negócio.");
     }
     setDeleteTarget(null);
+  }
+
+  // Apaga o CONTATO inteiro — diferente do negócio, sai desta página de
+  // volta pra lista (o contato deixou de existir, não tem mais o que
+  // mostrar aqui). Postgres barra com FK (P2003 → 409, ver a rota) se ainda
+  // sobrar negócio vinculado; o botão já fica desabilitado nesse caso (ver
+  // JSX abaixo), então só chega aqui uma mensagem de erro em caso de
+  // corrida rara (2 abas abertas, negócio criado em outra aba etc.).
+  async function handleDeleteContactConfirmed() {
+    setDeleteContactError(null);
+    const res = await fetch(`/api/contacts/${contactId}`, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/clientes");
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    setDeleteContactError(data.error ?? "Não foi possível apagar esse contato.");
+    setDeleteContactOpen(false);
   }
 
   return (
@@ -187,40 +214,89 @@ export function ContactTabs({
           )}
         </div>
       ) : (
-        <div className="card animate-bubble-in max-w-xl space-y-2 p-4 text-sm">
-          {infoRows.map((row) => (
-            <Row key={row.label} label={row.label} value={row.value} />
-          ))}
-          {addressLines && (
-            <div className="space-y-0.5">
-              <span className="text-neutral-500 dark:text-neutral-400">Endereço</span>
-              <p className="text-right text-neutral-800 dark:text-neutral-200">{addressLines}</p>
-            </div>
-          )}
-          {tags.length > 0 && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-neutral-500 dark:text-neutral-400">Tags</span>
-              <div className="flex flex-wrap justify-end gap-1">
-                {tags.map((tag) => (
-                  <Badge key={tag} tone="neutral">
-                    {tag}
-                  </Badge>
-                ))}
+        <div className="animate-bubble-in max-w-xl space-y-3">
+          <div className="card space-y-2 p-4 text-sm">
+            {infoRows.map((row) => (
+              <Row key={row.label} label={row.label} value={row.value} />
+            ))}
+            {addressLines && (
+              <div className="space-y-0.5">
+                <span className="text-neutral-500 dark:text-neutral-400">Endereço</span>
+                <p className="text-right text-neutral-800 dark:text-neutral-200">{addressLines}</p>
               </div>
+            )}
+            {tags.length > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-neutral-500 dark:text-neutral-400">Tags</span>
+                <div className="flex flex-wrap justify-end gap-1">
+                  {tags.map((tag) => (
+                    <Badge key={tag} tone="neutral">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {whatsapp && (
+              <WhatsAppChat
+                threadId={whatsapp.threadId}
+                contactId={whatsapp.contactId}
+                contactName={whatsapp.contactName}
+                contactPhone={whatsapp.contactPhone}
+                currentUserName={whatsapp.currentUserName}
+                currentUserPhotoUrl={whatsapp.currentUserPhotoUrl}
+                sendAsAlternate={whatsapp.sendAsAlternate}
+              />
+            )}
+          </div>
+
+          {/* "Zona de perigo" — card separado do resto, de propósito (não é
+              mais um dado do contato, é uma ação destrutiva sobre ele). Só
+              Dono/Gerente vê (ver canDeleteContact). Desabilitado enquanto
+              houver negócio vinculado — apagar em cascata sem avisar seria
+              perigoso demais, e o Postgres já barra isso de qualquer jeito
+              (FK, ver app/api/contacts/[id]/route.ts); melhor explicar ANTES
+              de deixar clicar do que deixar clicar e devolver erro. */}
+          {canDeleteContact && (
+            <div className="card space-y-2 border-red-100 p-4 text-sm dark:border-red-900/40">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-neutral-900 dark:text-neutral-100">Apagar contato</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                    {deals.length > 0
+                      ? "Apague os negócios vinculados primeiro — não dá pra apagar o contato enquanto algum negócio ainda apontar pra ele."
+                      : "Remove o contato e seus dados de vez. Essa ação não pode ser desfeita."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={deals.length > 0}
+                  onClick={() => setDeleteContactOpen(true)}
+                  className="btn-secondary btn-sm shrink-0 border-red-200 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  Apagar
+                </button>
+              </div>
+              {deleteContactError && (
+                <p className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                  {deleteContactError}
+                </p>
+              )}
             </div>
-          )}
-          {whatsapp && (
-            <WhatsAppChat
-              threadId={whatsapp.threadId}
-              contactId={whatsapp.contactId}
-              contactName={whatsapp.contactName}
-              contactPhone={whatsapp.contactPhone}
-              currentUserName={whatsapp.currentUserName}
-              currentUserPhotoUrl={whatsapp.currentUserPhotoUrl}
-              sendAsAlternate={whatsapp.sendAsAlternate}
-            />
           )}
         </div>
+      )}
+
+      {deleteContactOpen && (
+        <ConfirmDialog
+          title={`Apagar "${contactName}"?`}
+          description="Essa ação não pode ser desfeita — o contato e seus dados somem de vez."
+          confirmLabel="Apagar"
+          onConfirm={handleDeleteContactConfirmed}
+          onClose={() => setDeleteContactOpen(false)}
+        />
       )}
 
       {deleteTarget && (
