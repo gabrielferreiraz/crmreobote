@@ -180,7 +180,7 @@ export type IncomingMessageRef = {
 export async function dispatchMessageReceivedAutomations(
   organizationId: string,
   instance: { id: string; userId: string },
-  thread: { id: string; contactId: string | null },
+  thread: { id: string; contactId: string | null; phoneNormalized: string },
   message: IncomingMessageRef,
 ): Promise<void> {
   // Áudio/figurinha/imagem sem legenda etc. — não tem palavra-chave pra
@@ -208,6 +208,10 @@ export async function dispatchMessageReceivedAutomations(
     organizationId,
     contactId: thread.contactId ?? undefined,
     ownerId: contactContext.ownerId,
+    // Último recurso pro destinatário "Cliente" (ver
+    // lib/automations/recipients.ts) — número de quem mandou ESTA mensagem,
+    // já conhecido pela conversa mesmo sem Contact cadastrado ainda.
+    clientPhoneNormalized: thread.phoneNormalized,
   };
 
   for (const rule of rules) {

@@ -78,6 +78,8 @@ export type Entity = {
   dealId?: string;
   contactId?: string;
   ownerId: string;
+  /** Só preenchido pelo MESSAGE_RECEIVED — ver EntityRef.clientPhoneNormalized em lib/automations/recipients.ts. */
+  clientPhoneNormalized?: string;
 };
 
 export type RuleWithOrg = {
@@ -290,7 +292,12 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
       ? actionConfig.whatsappRecipients
       : [{ type: "CLIENT" as const }];
     const targets = await resolveWhatsappRecipients(
-      { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
+      {
+        organizationId: entity.organizationId,
+        ownerId: entity.ownerId,
+        contactId: entity.contactId,
+        clientPhoneNormalized: entity.clientPhoneNormalized,
+      },
       recipientConfig,
     );
     if (targets.length === 0) return { success: false, detail: "Nenhum destinatário resolvido para o envio." };
@@ -341,7 +348,12 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
       ? actionConfig.scriptRecipients
       : [{ type: "CLIENT" as const }];
     const targets = await resolveWhatsappRecipients(
-      { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
+      {
+        organizationId: entity.organizationId,
+        ownerId: entity.ownerId,
+        contactId: entity.contactId,
+        clientPhoneNormalized: entity.clientPhoneNormalized,
+      },
       recipientConfig,
     );
     if (targets.length === 0) return { success: false, detail: "Nenhum destinatário resolvido para o envio." };
@@ -441,7 +453,12 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
       ? actionConfig.emailRecipients
       : [{ type: "RESPONSIBLE" as const }];
     const addresses = await resolveEmailAddresses(
-      { organizationId: entity.organizationId, ownerId: entity.ownerId, contactId: entity.contactId },
+      {
+        organizationId: entity.organizationId,
+        ownerId: entity.ownerId,
+        contactId: entity.contactId,
+        clientPhoneNormalized: entity.clientPhoneNormalized,
+      },
       recipientConfig,
     );
     if (addresses.size === 0) return { success: false, detail: "Nenhum destinatário de e-mail resolvido." };

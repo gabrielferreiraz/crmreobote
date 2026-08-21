@@ -18,7 +18,21 @@ export type RecipientEntry =
   | { type: "OWNER"; userId: string }
   | { type: "CUSTOM"; value: string };
 
-type EntityRef = { organizationId: string; ownerId: string; contactId?: string };
+type EntityRef = {
+  organizationId: string;
+  ownerId: string;
+  contactId?: string;
+  /**
+   * Só preenchido pelo gatilho MESSAGE_RECEIVED (ver
+   * lib/automations/message-trigger.ts) — o número de quem mandou a
+   * mensagem, já conhecido pela própria conversa mesmo sem Contact
+   * cadastrado. Usado como último recurso pro destinatário "Cliente"
+   * abaixo, quando não há contactId pra consultar (número desconhecido
+   * ainda, "WhatsApp Geral") — sem isso, "Cliente" simplesmente desistia de
+   * mandar pra alguém que literalmente acabou de escrever pro CRM.
+   */
+  clientPhoneNormalized?: string;
+};
 
 /** Líder da equipe de quem é dono da entidade — null se ele não tiver equipe/líder, ou se ele mesmo for o líder (não faz sentido "supervisionar" a si mesmo). */
 async function resolveSupervisorUserId(organizationId: string, ownerId: string): Promise<string | null> {
@@ -86,13 +100,16 @@ export async function resolveWhatsappRecipients(
       continue;
     }
     if (entry.type === "CLIENT") {
-      if (!entity.contactId) continue;
-      const contact = await prisma.contact.findUnique({
-        where: { id: entity.contactId },
-        select: { whatsapp: true, phone: true },
-      });
-      const normalized = normalizePhoneNumber(contact?.whatsapp || contact?.phone);
-      if (normalized) result.push({ phoneNormalized: normalized });
+      if (entity.contactId) {
+        const contact = await prisma.contact.findUnique({
+          where: { id: entity.contactId },
+          select: { whatsapp: true, phone: true },
+        });
+        const normalized = normalizePhoneNumber(contact?.whatsapp || contact?.phone);
+        if (normalized) result.push({ phoneNormalized: normalized });
+      } else if (entity.clientPhoneNormalized) {
+        result.push({ phoneNormalized: entity.clientPhoneNormalized });
+      }
       continue;
     }
     const userId = await resolveUserId(entity, entry);
