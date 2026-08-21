@@ -63,7 +63,12 @@ export const dealInputSchema = z
     stageId: z.string().trim().min(1).max(100).optional(),
     ownerId: z.string().trim().min(1).max(100).optional(),
     name: z.string().trim().max(200).optional(),
-    value: z.number().finite().optional(),
+    // "Valor líquido" na UI — nome do campo ficou como já era (ver
+    // Deal.value no schema). Nonnegative fecha uma lacuna que já existia
+    // (nunca era validado antes).
+    value: z.number().finite().nonnegative().optional(),
+    // "Valor bruto" — independente de `value`, nunca derivado dele.
+    grossValue: z.number().finite().nonnegative().optional(),
     creditType: shortText(),
     description: z.string().trim().max(5000).optional(),
     source: shortText(),

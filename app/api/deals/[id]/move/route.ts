@@ -13,12 +13,20 @@ export const dynamic = "force-dynamic";
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { stageId, value, pipelineId } = body as { stageId?: string; value?: number | null; pipelineId?: string };
+  const { stageId, value, grossValue, pipelineId } = body as {
+    stageId?: string;
+    value?: number | null;
+    grossValue?: number | null;
+    pipelineId?: string;
+  };
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   const { organizationId, userId } = access;
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });
+  if ((value != null && value < 0) || (grossValue != null && grossValue < 0)) {
+    return NextResponse.json({ error: "Valor não pode ser negativo" }, { status: 400 });
+  }
 
   return runWithTenant(organizationId, async () => {
     // Colaborativo: quem compartilha o negócio via grupo também pode mover
@@ -54,6 +62,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // lib/deal-required-fields.ts) — por isso `include: { contact }` acima.
     const missing = findMissingRequiredFields(stage.requiredFields, {
       value: value !== undefined ? value : existing.value,
+      grossValue: grossValue !== undefined ? grossValue : existing.grossValue,
       creditType: existing.creditType,
       expectedCloseAt: existing.expectedCloseAt,
       contactSource: existing.contact.source,
@@ -73,6 +82,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         stageId,
         stageEnteredAt: new Date(),
         ...(value !== undefined ? { value } : {}),
+        ...(grossValue !== undefined ? { grossValue } : {}),
       },
       include: { contact: true, owner: true, stage: true },
     });

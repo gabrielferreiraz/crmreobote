@@ -5,7 +5,6 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Kanban, List, Upload, History, Plus, TrendingUp } from "lucide-react";
 import { DealImportDialog } from "@/components/deal-import-dialog";
 import { ImportHistoryDialog } from "@/components/import-history-dialog";
-import { Select } from "@/components/select";
 import { NewDealDialog } from "./new-deal-dialog";
 import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
@@ -15,6 +14,7 @@ import { formatCurrencyCompact } from "@/lib/format";
 import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filters";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
+import { PipelineTitleSelect } from "./pipeline-title-select";
 
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
@@ -123,6 +123,15 @@ export function PipelineView({
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
 
+  function changePipeline(id: string) {
+    // Grava em cookie (não só na URL) — é o que faz um link ESTÁTICO de
+    // volta pro Pipeline (sem ?pipelineId=, ex.: "← Pipeline" no detalhe do
+    // negócio) continuar caindo neste funil, e não voltar pro padrão. Ver
+    // PIPELINE_LAST_ID_COOKIE.
+    document.cookie = `${PIPELINE_LAST_ID_COOKIE}=${id}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    router.push(`/pipeline?pipelineId=${id}`);
+  }
+
   // Começa com o total do funil inteiro (carga do servidor, sem filtro) e o
   // Kanban reporta de novo (ver onTotalsChange abaixo) toda vez que o filtro
   // dele muda — assim o card "Valor em aberto" sempre bate com os negócios
@@ -189,34 +198,28 @@ export function PipelineView({
     // em vez de crescer pro tamanho do próprio conteúdo e vazar o scroll pra
     // página inteira.
     <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* Nome do funil como TÍTULO da página (mesma fonte do <h1> de
+          "Processos", ver PipelineTitleSelect) — antes vivia encaixotado
+          num <Select> pequeno dentro da barra de ferramentas abaixo, quase
+          invisível perto dos botões; agora tem a própria linha, continua
+          sendo o seletor de verdade (clicar no nome troca de funil). */}
+      <div className="shrink-0">
+        <PipelineTitleSelect pipelines={pipelines} activeId={pipelineId} onSelect={changePipeline} />
+      </div>
+
       {/* Card "valor em aberto" empilhado em cima do grupo Novo negócio/
           Importar/Histórico, à direita — não mais em cima do seletor de
           funil (à esquerda) nem do "Novo negócio" do header (esse aqui é o
-          da barra de ferramentas do Pipeline). Seletor+toggle (esquerda) e
-          o bloco à direita (card + botões) ficam lado a lado, cada um
-          alinhado ao próprio topo — items-start em vez de items-center,
-          senão o seletor/toggle (mais baixos) ficariam centralizados na
+          da barra de ferramentas do Pipeline). Toggle Kanban/Lista
+          (esquerda) e o bloco à direita (card + botões) ficam lado a lado,
+          cada um alinhado ao próprio topo — items-start em vez de
+          items-center, senão o toggle (mais baixo) ficaria centralizado na
           altura do bloco maior à direita. Os 3 tiles de filtro rápido (Ação
           hoje/Sem tarefa/Parados +14d) que moravam do lado do card viraram
           botões pequenos na fileira de busca/filtro do Kanban e da Lista
           (ver PipelineQuickFilterButtons). */}
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          {pipelines.length > 1 && (
-            <Select
-              value={pipelineId}
-              onChange={(v) => {
-                // Grava em cookie (não só na URL) — é o que faz um link
-                // ESTÁTICO de volta pro Pipeline (sem ?pipelineId=, ex.: "←
-                // Pipeline" no detalhe do negócio) continuar caindo neste
-                // funil, e não voltar pro padrão. Ver PIPELINE_LAST_ID_COOKIE.
-                document.cookie = `${PIPELINE_LAST_ID_COOKIE}=${v}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
-                router.push(`/pipeline?pipelineId=${v}`);
-              }}
-              className="w-auto py-1.5 text-sm"
-              options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
-            />
-          )}
           <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
             <button
               onClick={() => setView("kanban")}

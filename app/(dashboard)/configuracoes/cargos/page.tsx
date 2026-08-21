@@ -56,7 +56,7 @@ export default async function JobTitlesSettingsPage() {
     const countByJobTitle = new Map(countsInitial.map((c) => [c.jobTitle, c._count._all]));
 
     return (
-      <div className="max-w-lg space-y-4">
+      <div className="mx-auto max-w-lg space-y-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Cargos</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">

@@ -288,6 +288,7 @@ export async function POST(req: Request) {
         ownerId: string;
         name: string;
         value?: number;
+        grossValue?: number;
         creditType?: string;
         importBatchId: string;
       }[] = [];
@@ -304,6 +305,7 @@ export async function POST(req: Request) {
           ownerId: dealPlan.ownerId,
           name: dealPlan.name,
           value: dealPlan.value,
+          grossValue: dealPlan.grossValue,
           creditType: dealPlan.creditType,
           importBatchId: batch.id,
         });
@@ -379,6 +381,7 @@ export async function POST(req: Request) {
       stageFallbacks: plan.summary.stageFallbacks,
       ownerFallbacks: plan.summary.ownerFallbacks,
       valueParseFailures: plan.summary.valueParseFailures,
+      grossValueParseFailures: plan.summary.grossValueParseFailures,
       importBatchId,
       // Linhas com problema, pra quem quiser conferir o que exatamente não
       // bateu — antes só existia a contagem agregada (ver revisão que

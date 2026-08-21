@@ -28,6 +28,7 @@ export type ImportField =
   | "source"
   | "dealName"
   | "value"
+  | "grossValue"
   | "creditType"
   | "stage"
   | "owner";
@@ -43,7 +44,8 @@ const FIELD_META: Record<ImportField, { candidates: string[]; required: boolean;
   email: { required: false, label: "E-mail", candidates: ["email", "e-mail"] },
   source: { required: false, label: "Origem", candidates: ["origem", "source"] },
   dealName: { required: false, label: "Nome do negócio", candidates: ["negocio", "nome do negocio", "titulo"] },
-  value: { required: false, label: "Valor", candidates: ["valor", "value"] },
+  value: { required: false, label: "Valor líquido", candidates: ["valor liquido", "valor líquido", "valor", "value", "net value", "netvalue"] },
+  grossValue: { required: false, label: "Valor bruto", candidates: ["valor bruto", "gross value", "grossvalue", "bruto"] },
   creditType: { required: false, label: "Tipo de crédito", candidates: ["tipo de credito", "tipo", "credittype"] },
   stage: { required: false, label: "Etapa", candidates: ["etapa", "stage"] },
   owner: { required: false, label: "Responsável", candidates: ["responsavel", "vendedor", "owner"] },
@@ -92,7 +94,8 @@ export type RowIssueCode =
   | "DUPLICATE_DEAL"
   | "STAGE_NOT_FOUND"
   | "OWNER_NOT_FOUND"
-  | "VALUE_UNREADABLE";
+  | "VALUE_UNREADABLE"
+  | "GROSS_VALUE_UNREADABLE";
 
 export type ResolvedRow = {
   /** 1-based, contando a linha de cabeçalho como 1 — bate com o número de linha que a pessoa vê ao abrir a planilha. */
@@ -104,6 +107,7 @@ export type ResolvedRow = {
   stageName: string | null;
   ownerName: string | null;
   value: number | null;
+  grossValue: number | null;
   issues: { code: RowIssueCode; message: string }[];
 };
 
@@ -117,6 +121,7 @@ export type ImportPlanSummary = {
   stageFallbacks: number;
   ownerFallbacks: number;
   valueParseFailures: number;
+  grossValueParseFailures: number;
 };
 
 export type ImportPlan = {
@@ -145,6 +150,7 @@ export type ImportPlan = {
       ownerId: string;
       name: string;
       value?: number;
+      grossValue?: number;
       creditType?: string;
     }[];
   };
@@ -280,6 +286,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   let stageFallbacks = 0;
   let ownerFallbacks = 0;
   let valueParseFailures = 0;
+  let grossValueParseFailures = 0;
 
   for (let i = 0; i < input.dataRows.length; i++) {
     const row = input.dataRows[i];
@@ -290,7 +297,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (!contactName) {
       skippedNoContact += 1;
       issues.push({ code: "NO_CONTACT_NAME", message: "Sem nome de contato — linha ignorada" });
-      rows.push({ rowNumber, willImport: false, contactName: null, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, issues });
+      rows.push({ rowNumber, willImport: false, contactName: null, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, grossValue: null, issues });
       rowContactRefs.push(null);
       continue;
     }
@@ -346,7 +353,14 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     const value = valueRaw ? parseBrazilianCurrency(valueRaw) : undefined;
     if (valueRaw && value === undefined) {
       valueParseFailures += 1;
-      issues.push({ code: "VALUE_UNREADABLE", message: `Valor "${valueRaw}" não reconhecido — negócio criado sem valor` });
+      issues.push({ code: "VALUE_UNREADABLE", message: `Valor líquido "${valueRaw}" não reconhecido — negócio criado sem valor líquido` });
+    }
+
+    const grossValueRaw = cell(row, "grossValue");
+    const grossValue = grossValueRaw ? parseBrazilianCurrency(grossValueRaw) : undefined;
+    if (grossValueRaw && grossValue === undefined) {
+      grossValueParseFailures += 1;
+      issues.push({ code: "GROSS_VALUE_UNREADABLE", message: `Valor bruto "${grossValueRaw}" não reconhecido — negócio criado sem valor bruto` });
     }
 
     const dealNameRaw = cell(row, "dealName");
@@ -364,7 +378,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (alreadyHasDeal) {
       duplicateDeals += 1;
       issues.push({ code: "DUPLICATE_DEAL", message: "Esse contato já tem negócio aberto neste funil — negócio não duplicado" });
-      rows.push({ rowNumber, willImport: false, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, issues });
+      rows.push({ rowNumber, willImport: false, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, grossValue: grossValue ?? null, issues });
       rowContactRefs.push(ref.kind === "existing" ? { kind: "existing", id: ref.id } : { kind: "new", pendingIndex: ref.pendingIndex });
       continue;
     }
@@ -373,10 +387,10 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     else newContactPendingIndexWithDeal.add(ref.pendingIndex);
 
     toCreate += 1;
-    rows.push({ rowNumber, willImport: true, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, issues });
+    rows.push({ rowNumber, willImport: true, contactName, contactStatus, dealName, stageName, ownerName, value: value ?? null, grossValue: grossValue ?? null, issues });
     rowContactRefs.push(ref.kind === "existing" ? { kind: "existing", id: ref.id } : { kind: "new", pendingIndex: ref.pendingIndex });
     const creditType = cell(row, "creditType") || input.fieldDefaults?.creditType || undefined;
-    dealPlans.push({ rowIndex: i, stageId, ownerId, name: dealName, value, creditType });
+    dealPlans.push({ rowIndex: i, stageId, ownerId, name: dealName, value, grossValue, creditType });
   }
 
   const summary: ImportPlanSummary = {
@@ -389,6 +403,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     stageFallbacks,
     ownerFallbacks,
     valueParseFailures,
+    grossValueParseFailures,
   };
 
   return {

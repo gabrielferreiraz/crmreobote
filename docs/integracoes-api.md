@@ -298,9 +298,11 @@ então não existe a regra de responsável "grudento" aqui — cada chamada
 decide o `ownerId` daquele negócio novo, sem herdar nada de negócios
 anteriores.
 
-`value`, `name`, `creditType`, `description` e `source`, quando enviados,
-precisam ser do tipo certo (`value` número; os demais, texto) — um tipo
-errado é rejeitado com `400`, não vira erro genérico.
+`value` (valor líquido), `grossValue` (valor bruto — independente de
+`value`, nunca calculado a partir dele), `name`, `creditType`, `description`
+e `source`, quando enviados, precisam ser do tipo certo (`value`/
+`grossValue` número, não-negativo; os demais, texto) — um tipo errado é
+rejeitado com `400`, não vira erro genérico.
 
 Mandando `contact` (contato novo), o `adAttribution` descrito em
 `POST /api/v1/contacts` funciona igual aqui dentro do objeto `contact` — é
@@ -316,6 +318,7 @@ curl -X POST https://api.seudominio.com/api/v1/deals \
   -d '{
     "contact": { "name": "Maria Silva", "phone": "67991234567", "source": "Facebook Ads" },
     "value": 350000,
+    "grossValue": 380000,
     "creditType": "Imóvel"
   }'
 ```
@@ -344,6 +347,7 @@ curl -X POST https://api.seudominio.com/api/v1/deals \
     "name": "07/26 - Maria Silva FACEBOOK ADS",
     "status": "OPEN",
     "value": 350000,
+    "grossValue": 380000,
     "creditType": "Imóvel",
     "description": null,
     "pipelineId": "cm...",

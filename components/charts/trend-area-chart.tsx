@@ -66,9 +66,19 @@ function smoothPath(points: { x: number; y: number }[]): string {
 export function TrendAreaChart({
   data,
   format = { type: "currency" },
+  showValueLabels = false,
 }: {
   data: Point[];
   format?: TrendValueFormat;
+  /** Valor de cada ponto rotulado sempre visível, pequeno, acima do ponto —
+   * sem precisar passar o mouse (o balão de hover continua existindo, com
+   * mais detalhe/breakdown). Opt-in: por padrão fica desligado porque um
+   * gráfico com muitos pontos (ex.: 31 dias) rotulado sempre vira poluição
+   * visual — só liga onde o valor em si é a informação principal do card
+   * (ver "Evolução do valor ganho" em relatorios/page.tsx). Usa o MESMO
+   * subconjunto de pontos que já aparece no eixo X (axisLabels abaixo), não
+   * todo ponto da série — mesmo raciocínio de não lotar a tela. */
+  showValueLabels?: boolean;
 }) {
   const formatValue = (value: number) => formatTrendValue(format, value);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -174,6 +184,28 @@ export function TrendAreaChart({
             />
           )}
         </svg>
+
+        {/* Valor de cada ponto rotulado, sempre visível (mesmo subconjunto de
+            axisLabels abaixo, pra não lotar a tela com 31 rótulos num
+            gráfico diário) — ver showValueLabels acima. Mesmo tratamento de
+            borda que os rótulos do eixo X (left-0/right-0 nas pontas, senão
+            o rótulo do 1º/último ponto vaza pra fora do card centralizado). */}
+        {showValueLabels &&
+          axisLabels.map((p, i) => {
+            const isFirst = p.x === 0;
+            const isLast = p.x === 100;
+            return (
+              <span
+                key={i}
+                className={`pointer-events-none absolute -translate-y-full whitespace-nowrap pb-1 text-[10px] font-medium tabular-nums text-neutral-500 dark:text-neutral-400 ${
+                  isFirst ? "left-0" : isLast ? "right-0" : "-translate-x-1/2"
+                }`}
+                style={{ left: isFirst || isLast ? undefined : `${p.x}%`, top: `${p.y}%` }}
+              >
+                {formatValue(p.value)}
+              </span>
+            );
+          })}
 
         {/* Crosshair — segue o ponteiro, encaixa no ponto mais próximo em vez
             de exigir mira precisa num alvo de poucos pixels. */}

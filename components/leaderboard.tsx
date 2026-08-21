@@ -44,22 +44,34 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
       {entries.map((entry, i) => {
         const rank = i + 1;
         return (
-          <div key={entry.id} className="flex items-center gap-3 rounded-md px-1.5 py-2">
-            <span
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${
-                RANK_BADGE[rank] ?? "text-neutral-400 dark:text-neutral-500"
-              }`}
-            >
-              {rank}
-            </span>
-            {entry.photoUrl !== undefined && <Avatar name={entry.name} src={entry.photoUrl} size="xs" className="shrink-0" />}
-            {/* Sem truncate de propósito — nome cortado ("Karen L...") obriga a
-                passar o mouse pra saber quem é; quebra linha em vez de cortar. */}
-            <span className="min-w-0 flex-1 text-sm font-medium break-words text-neutral-800 dark:text-neutral-200">
-              {entry.name}
-            </span>
-            <div className="shrink-0 text-right">
-              <p className="text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</p>
+          // Nome sozinho na própria linha, sem NADA "shrink-0" dividindo espaço
+          // com ele — foi exatamente um vizinho de largura fixa na mesma linha
+          // (o valor) que causava a sobreposição/espremida em cards estreitos
+          // de 4 colunas (2 tentativas anteriores, ambas quebraram do mesmo
+          // jeito: o nome multi-linha some por baixo do valor de largura fixa,
+          // já que os dois disputam a MESMA linha em flexbox). Valor e detalhe
+          // vão numa linha de baixo, sozinhos também — cada bloco com a
+          // largura inteira do card só pra si, zero disputa, zero sobreposição
+          // possível, não importa quão longo o nome ou o valor sejam.
+          <div key={entry.id} className="rounded-md px-1.5 py-2">
+            <div className="flex items-center gap-3">
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${
+                  RANK_BADGE[rank] ?? "text-neutral-400 dark:text-neutral-500"
+                }`}
+              >
+                {rank}
+              </span>
+              {entry.photoUrl !== undefined && <Avatar name={entry.name} src={entry.photoUrl} size="xs" className="shrink-0" />}
+              {/* Nome menor, valor maior de propósito — quem abre este card
+                  quer bater o olho no NÚMERO (quanto vendeu, qual taxa),
+                  não em quem é; o nome é só contexto pra identificar a linha. */}
+              <span className="min-w-0 flex-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">
+                {entry.name}
+              </span>
+            </div>
+            <div className="pl-9">
+              <p className="text-lg leading-tight font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</p>
               {entry.secondaryValue && (
                 <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{entry.secondaryValue}</p>
               )}

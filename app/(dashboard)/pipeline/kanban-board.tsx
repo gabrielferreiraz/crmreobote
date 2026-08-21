@@ -43,6 +43,7 @@ export type Deal = {
   name: string;
   creditType: string | null;
   value: number | null;
+  grossValue: number | null;
   status: "OPEN" | "WON" | "LOST";
   stageId: string;
   stageEnteredAt: string | Date;

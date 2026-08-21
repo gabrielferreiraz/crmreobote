@@ -306,7 +306,7 @@ export default async function RelatoriosPage({
           <div className="card col-span-12 p-6 lg:col-span-5">
             <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Evolução do valor ganho</h3>
             <div className="mt-6">
-              <TrendAreaChart data={monthTrend} />
+              <TrendAreaChart data={monthTrend} showValueLabels />
             </div>
           </div>
         </div>
@@ -329,7 +329,7 @@ export default async function RelatoriosPage({
                 lib/reports/commercial-data.ts) — rola dentro do card em vez
                 de esticar o card (e a fileira inteira, já que os 4 dividem
                 altura por causa do grid) até o tamanho do time. */}
-            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
             </div>
           </div>
@@ -338,7 +338,7 @@ export default async function RelatoriosPage({
               <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas</h3>
             </div>
-            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita registrada ainda" />
             </div>
           </div>
@@ -366,7 +366,7 @@ export default async function RelatoriosPage({
                 {attendanceSummary.attended + attendanceSummary.noShow === 1 ? "" : "s"} ({attendanceSummary.noShow} no-show)
               </p>
             )}
-            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
             </div>
           </div>
@@ -375,7 +375,7 @@ export default async function RelatoriosPage({
               <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>
             </div>
-            <div className="scrollbar-thin max-h-[360px] overflow-y-auto pr-1">
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
             </div>
           </div>

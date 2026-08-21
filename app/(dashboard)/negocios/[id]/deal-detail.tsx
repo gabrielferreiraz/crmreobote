@@ -66,8 +66,10 @@ type Deal = {
   name: string;
   status: "OPEN" | "WON" | "LOST";
   value: number | null;
+  grossValue: number | null;
   description: string | null;
   creditType: string | null;
+  createdAt: string | Date;
   startedAt: string | Date;
   closedAt: string | Date | null;
   expectedCloseAt: string | Date | null;
@@ -379,6 +381,20 @@ export function DealDetail({
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: value ? Number(value) : null }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: false, error: data.error ?? "Erro ao salvar" };
+    }
+    router.refresh();
+    return { ok: true };
+  }
+
+  async function saveDealGrossValue(value: string): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/deals/${deal.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grossValue: value ? Number(value) : null }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -749,7 +765,8 @@ export function DealDetail({
         </div>
 
         <div className="space-y-4">
-          <DealValueCard value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
+          <DealValueCard label="Valor líquido" value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
+          <DealValueCard label="Valor bruto" value={deal.grossValue} editable={canEditDetails} onSave={saveDealGrossValue} />
 
           {!chatOpen && whatsappThreadId && (
             <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
@@ -816,6 +833,11 @@ export function DealDetail({
                 />
               </span>
             </div>
+            {/* createdAt é o timestamp real de quando a linha nasceu no banco — sempre
+                preenchido sozinho na criação (@default(now())), não importa a origem
+                (manual, Facebook Lead Ads, API pública, resposta de WhatsApp). Diferente
+                de "Início" (startedAt), que pode ter sido retroagido numa importação. */}
+            <Row label="Criado em" value={new Date(deal.createdAt).toLocaleDateString("pt-BR")} />
             <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
             <EditableRow
               label="Conclusão prevista"
@@ -1122,7 +1144,8 @@ export function DealDetail({
           </div>
         ) : (
           <div className="animate-bubble-in space-y-4">
-            <DealValueCard value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
+            <DealValueCard label="Valor líquido" value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
+          <DealValueCard label="Valor bruto" value={deal.grossValue} editable={canEditDetails} onSave={saveDealGrossValue} />
 
             {!chatOpen && whatsappThreadId && (
               <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
@@ -1189,6 +1212,7 @@ export function DealDetail({
                   />
                 </span>
               </div>
+              <Row label="Criado em" value={new Date(deal.createdAt).toLocaleDateString("pt-BR")} />
               <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
               <Row
                 label="Conclusão prevista"
@@ -1731,10 +1755,12 @@ function EditTaskModal({
 }
 
 function DealValueCard({
+  label,
   value,
   editable,
   onSave,
 }: {
+  label: string;
   value: number | null;
   editable: boolean;
   onSave: (value: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1748,7 +1774,7 @@ function DealValueCard({
     return (
       <div className="card group p-4 text-sm">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
+          <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
           {editable && (
             <button
               type="button"
@@ -1758,7 +1784,7 @@ function DealValueCard({
                 setEditing(true);
               }}
               className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
-              aria-label="Editar valor do negócio"
+              aria-label={`Editar ${label.toLowerCase()}`}
             >
               <Pencil className="h-3 w-3" strokeWidth={2} />
             </button>
@@ -1783,7 +1809,7 @@ function DealValueCard({
 
   return (
     <div className="card space-y-2 p-4 text-sm">
-      <p className="text-neutral-500 dark:text-neutral-400">Valor do negócio</p>
+      <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
       <div className="flex items-center gap-1.5">
         <CurrencyInput value={draft} onChange={setDraft} />
         <button

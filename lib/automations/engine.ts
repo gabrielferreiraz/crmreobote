@@ -152,6 +152,7 @@ export async function resolveTemplateValues(entity: Entity): Promise<Record<stri
     if (deal) {
       values["negocio.nome"] = deal.name;
       values["negocio.valor"] = deal.value ? formatCurrency(Number(deal.value)) : "—";
+      values["negocio.valorBruto"] = deal.grossValue ? formatCurrency(Number(deal.grossValue)) : "—";
       values["negocio.etapa"] = deal.stage.name;
       values["negocio.tipoCredito"] = deal.creditType ?? "—";
       values["negocio.diasNaEtapa"] = String(daysSince(deal.stageEnteredAt));

@@ -9,6 +9,7 @@ export type EnrichedDeal = {
   name: string;
   creditType: string | null;
   value: number | null;
+  grossValue: number | null;
   status: "OPEN" | "WON" | "LOST";
   stageId: string;
   stageEnteredAt: Date;
@@ -282,6 +283,7 @@ const DEAL_LIST_SELECT = {
   name: true,
   creditType: true,
   value: true,
+  grossValue: true,
   status: true,
   stageId: true,
   stageEnteredAt: true,
@@ -434,6 +436,7 @@ export async function fetchDealsList(
     name: deal.name,
     creditType: deal.creditType,
     value: deal.value ? Number(deal.value) : null,
+    grossValue: deal.grossValue ? Number(deal.grossValue) : null,
     status: deal.status,
     stageId: deal.stageId,
     stageEnteredAt: deal.stageEnteredAt,

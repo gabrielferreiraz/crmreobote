@@ -1182,7 +1182,17 @@ model Deal {
   name   String
   status DealStatus @default(OPEN)
 
+  // = "Valor líquido" na UI — nome de coluna ficou como está (não vale o
+  // risco de renomear com ~40 leituras/agregações espalhadas pelo sistema,
+  // ver grossValue abaixo), mas é o que este campo já representa de verdade
+  // desde sempre.
   value Decimal? @db.Decimal(12, 2)
+  // "Valor bruto" — independente de `value`, nunca derivado/calculado dele.
+  // Pedido da diretoria (08/2026): os dois precisam ser guardados
+  // separados porque relatório/mapeamento/comissão vão depender disso no
+  // futuro. Por enquanto só entrada/edição/exportação — nenhuma agregação
+  // existente (Relatórios/TV/Metas) foi migrada pra somar isto ainda.
+  grossValue Decimal? @db.Decimal(12, 2)
 
   creditType String?
 

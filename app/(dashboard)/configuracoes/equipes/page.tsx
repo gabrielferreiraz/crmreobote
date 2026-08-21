@@ -78,7 +78,7 @@ export default async function EquipesSettingsPage() {
         : members.filter((m) => scope.ownerIds.includes(m.userId)).map((m) => m.user);
 
     return (
-      <div className="max-w-2xl space-y-8">
+      <div className="mx-auto max-w-2xl space-y-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Equipes</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">

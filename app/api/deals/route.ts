@@ -119,6 +119,7 @@ export async function POST(req: Request) {
     ownerId,
     name,
     value,
+    grossValue,
     creditType,
     description,
     expectedCloseAt,
@@ -130,6 +131,7 @@ export async function POST(req: Request) {
     ownerId?: string;
     name?: string;
     value?: number;
+    grossValue?: number;
     creditType?: string;
     description?: string;
     expectedCloseAt?: string;
@@ -145,6 +147,9 @@ export async function POST(req: Request) {
       { error: "pipelineId, stageId e contactId são obrigatórios" },
       { status: 400 },
     );
+  }
+  if ((value != null && value < 0) || (grossValue != null && grossValue < 0)) {
+    return NextResponse.json({ error: "Valor não pode ser negativo" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
@@ -184,6 +189,7 @@ export async function POST(req: Request) {
         ownerId: resolvedOwnerId,
         name: sanitizeCell(name?.trim() || buildDealName(contact.name, contact.source)),
         value,
+        grossValue,
         creditType: sanitizeCell(creditType),
         description: sanitizeCell(description),
         expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,

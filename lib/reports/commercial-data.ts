@@ -404,15 +404,19 @@ export async function getCommercialReportData(params: {
 
   // Sem slice(0, 8) de propósito — os 4 cards de "Ranking do time" mostram o
   // time inteiro (rola dentro do card, ver page.tsx), não só o top 8.
+  // Ranqueado por VALOR ganho, não por quantidade de negócio — fechar 2
+  // negócios grandes pesa mais pro resultado do que fechar 10 pequenos, e
+  // é isso que esse card precisa destacar primeiro (valor em negrito,
+  // contagem só como contexto embaixo — antes era o contrário).
   const dealsClosedRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => o.wonCount > 0)
-    .sort((a, b) => b.wonCount - a.wonCount || b.wonValue - a.wonValue)
+    .sort((a, b) => b.wonValue - a.wonValue || b.wonCount - a.wonCount)
     .map((o) => ({
       id: o.id,
       name: o.name,
       photoUrl: o.photoUrl,
-      primaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
-      secondaryValue: formatCurrency(o.wonValue),
+      primaryValue: formatCurrency(o.wonValue),
+      secondaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
     }));
 
   const meetingsRanking: LeaderboardEntry[] = ownerStats
@@ -440,7 +444,10 @@ export async function getCommercialReportData(params: {
       id: o.id,
       name: o.name,
       photoUrl: o.photoUrl,
-      primaryValue: `${o.attendanceRate}% de comparecimento`,
+      // Só "%" (sem repetir "de comparecimento") — o título do card já diz
+      // isso; texto comprido demais no valor é o que espremia o nome ao
+      // lado dele em cards de 4 colunas (ver comentário no Leaderboard).
+      primaryValue: `${o.attendanceRate}%`,
       secondaryValue: `${o.attendedCount} compareceu${o.attendedCount === 1 ? "" : "ram"} · ${o.noShowCount} no-show`,
     }));
 

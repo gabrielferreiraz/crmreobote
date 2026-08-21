@@ -51,7 +51,7 @@ export default async function IntegracoesSettingsPage() {
     }));
 
     return (
-      <div className="max-w-3xl space-y-8">
+      <div className="mx-auto max-w-3xl space-y-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Integrações</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">

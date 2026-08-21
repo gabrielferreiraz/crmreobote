@@ -53,6 +53,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     const deal = {
       ...dealRaw,
       value: dealRaw.value ? Number(dealRaw.value) : null,
+      grossValue: dealRaw.grossValue ? Number(dealRaw.grossValue) : null,
       customFieldValues: dealRaw.customFieldValues as CustomFieldFormValues | null,
       owner: {
         id: dealRaw.owner.id,

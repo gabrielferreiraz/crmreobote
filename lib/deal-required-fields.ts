@@ -13,7 +13,8 @@
  */
 
 export const REQUIRABLE_DEAL_FIELDS = [
-  { key: "value", label: "Valor do negócio" },
+  { key: "value", label: "Valor líquido" },
+  { key: "grossValue", label: "Valor bruto" },
   { key: "creditType", label: "Tipo de crédito" },
   { key: "expectedCloseAt", label: "Data prevista de fechamento" },
   { key: "contactSource", label: "Origem" },

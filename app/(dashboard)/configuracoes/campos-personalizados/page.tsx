@@ -19,7 +19,7 @@ export default async function CustomFieldsSettingsPage() {
     });
 
     return (
-      <div className="max-w-lg space-y-4">
+      <div className="mx-auto max-w-lg space-y-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
             Campos personalizados

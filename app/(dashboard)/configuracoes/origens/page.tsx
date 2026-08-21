@@ -52,7 +52,7 @@ export default async function LeadSourcesSettingsPage() {
     const countBySource = new Map(counts.map((c) => [c.source, c._count._all]));
 
     return (
-      <div className="max-w-lg space-y-4">
+      <div className="mx-auto max-w-lg space-y-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Origens</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">

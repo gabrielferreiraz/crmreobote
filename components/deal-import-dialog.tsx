@@ -9,7 +9,7 @@ import { Badge } from "./badge";
 import { formatCurrency } from "@/lib/format";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 
-type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "creditType" | "stage" | "owner";
+type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "grossValue" | "creditType" | "stage" | "owner";
 
 type ColumnDetection = { field: ImportField; label: string; required: boolean; index: number; headerLabel: string | null };
 type RowIssue = { code: string; message: string };
@@ -22,6 +22,7 @@ type ResolvedRow = {
   stageName: string | null;
   ownerName: string | null;
   value: number | null;
+  grossValue: number | null;
   issues: RowIssue[];
 };
 type ImportPlanSummary = {
@@ -34,6 +35,7 @@ type ImportPlanSummary = {
   stageFallbacks: number;
   ownerFallbacks: number;
   valueParseFailures: number;
+  grossValueParseFailures: number;
 };
 type PreviewResponse = {
   rawHeaderRow: string[];
@@ -60,7 +62,8 @@ const ISSUE_LABEL: Record<string, string> = {
   DUPLICATE_DEAL: "Duplicado",
   STAGE_NOT_FOUND: "Etapa não achada",
   OWNER_NOT_FOUND: "Resp. não achado",
-  VALUE_UNREADABLE: "Valor ilegível",
+  VALUE_UNREADABLE: "Valor líquido ilegível",
+  GROSS_VALUE_UNREADABLE: "Valor bruto ilegível",
 };
 
 /**
@@ -532,7 +535,8 @@ export function DealImportDialog({
               <StatChip label="Duplicados evitados" value={s.duplicateDeals} tone={s.duplicateDeals > 0 ? "warn" : undefined} />
               <StatChip label="Sem nome (ignoradas)" value={s.skippedNoContact} tone={s.skippedNoContact > 0 ? "warn" : undefined} />
               <StatChip label="Etapa não achada" value={s.stageFallbacks} tone={s.stageFallbacks > 0 ? "warn" : undefined} />
-              <StatChip label="Valor ilegível" value={s.valueParseFailures} tone={s.valueParseFailures > 0 ? "warn" : undefined} />
+              <StatChip label="Valor líquido ilegível" value={s.valueParseFailures} tone={s.valueParseFailures > 0 ? "warn" : undefined} />
+              <StatChip label="Valor bruto ilegível" value={s.grossValueParseFailures} tone={s.grossValueParseFailures > 0 ? "warn" : undefined} />
             </div>
           </div>
         )}
@@ -547,7 +551,8 @@ export function DealImportDialog({
                   <th className="px-2 py-1.5 font-medium">Negócio</th>
                   <th className="px-2 py-1.5 font-medium">Etapa</th>
                   <th className="px-2 py-1.5 font-medium">Responsável</th>
-                  <th className="px-2 py-1.5 font-medium">Valor</th>
+                  <th className="px-2 py-1.5 font-medium">Valor líquido</th>
+                  <th className="px-2 py-1.5 font-medium">Valor bruto</th>
                   <th className="px-2 py-1.5 font-medium">Aviso</th>
                 </tr>
               </thead>
@@ -566,6 +571,7 @@ export function DealImportDialog({
                     <td className="px-2 py-1.5 text-neutral-600 dark:text-neutral-400">{r.stageName ?? "—"}</td>
                     <td className="px-2 py-1.5 text-neutral-600 dark:text-neutral-400">{r.ownerName ?? "—"}</td>
                     <td className="px-2 py-1.5 tabular-nums text-neutral-600 dark:text-neutral-400">{r.value != null ? formatCurrency(r.value) : "—"}</td>
+                    <td className="px-2 py-1.5 tabular-nums text-neutral-600 dark:text-neutral-400">{r.grossValue != null ? formatCurrency(r.grossValue) : "—"}</td>
                     <td className="px-2 py-1.5">
                       {r.issues.length > 0 && (
                         <span

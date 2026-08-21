@@ -63,6 +63,11 @@ export function QuickRegisterDealForm({
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [value, setValue] = useState("");
+  // Sem extração automática do texto colado de propósito — a heurística de
+  // dinheiro do parser já é frágil só pra um valor (ver parseLabeledMoney em
+  // lib/quick-register/parse-lead-text.ts); ligar duas aumentaria o risco de
+  // falso positivo sem necessidade pedida. Preenchimento manual mesmo.
+  const [grossValue, setGrossValue] = useState("");
   const [creditType, setCreditType] = useState("");
   const [description, setDescription] = useState("");
   const [ownerId, setOwnerId] = useState("");
@@ -282,6 +287,7 @@ export function QuickRegisterDealForm({
           stageId: firstStageId,
           contactId: contactData.id,
           value: value ? Number(value) : undefined,
+          grossValue: grossValue ? Number(grossValue) : undefined,
           creditType: creditType || undefined,
           description: description || undefined,
           ownerId: ownerId || undefined,
@@ -296,6 +302,7 @@ export function QuickRegisterDealForm({
       onCreated({
         ...dealData,
         value: dealData.value != null ? Number(dealData.value) : null,
+        grossValue: dealData.grossValue != null ? Number(dealData.grossValue) : null,
         owner: { id: dealData.owner.id, name: dealData.owner.name, photoUrl: null },
         nextActivity: null,
         taskTypes: [],
@@ -446,7 +453,7 @@ export function QuickRegisterDealForm({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="field-label">Valor</label>
+              <label className="field-label">Valor líquido</label>
               <CurrencyInput
                 value={value}
                 onChange={(v) => {
@@ -457,16 +464,21 @@ export function QuickRegisterDealForm({
               />
             </div>
             <div className="space-y-1">
-              <label className="field-label">Responsável</label>
-              <Select
-                value={ownerId}
-                onChange={setOwnerId}
-                options={[
-                  { value: "", label: "Atribuição automática" },
-                  ...members.map((m) => ({ value: m.id, label: m.name })),
-                ]}
-              />
+              <label className="field-label">Valor bruto</label>
+              <CurrencyInput value={grossValue} onChange={setGrossValue} />
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="field-label">Responsável</label>
+            <Select
+              value={ownerId}
+              onChange={setOwnerId}
+              options={[
+                { value: "", label: "Atribuição automática" },
+                ...members.map((m) => ({ value: m.id, label: m.name })),
+              ]}
+            />
           </div>
 
           <div className="space-y-1">

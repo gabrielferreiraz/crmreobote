@@ -26,7 +26,7 @@ export default async function PipelineSettingsPage() {
     });
 
     return (
-      <div className="max-w-2xl space-y-4">
+      <div className="mx-auto max-w-2xl space-y-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Pipelines</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">

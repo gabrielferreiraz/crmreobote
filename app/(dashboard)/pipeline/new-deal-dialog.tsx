@@ -41,6 +41,7 @@ export function NewDealDialog({
   const [tab, setTab] = useState<"manual" | "quick">("manual");
   const [contactId, setContactId] = useState("");
   const [value, setValue] = useState("");
+  const [grossValue, setGrossValue] = useState("");
   const [creditType, setCreditType] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
@@ -62,6 +63,7 @@ export function NewDealDialog({
           stageId: firstStageId,
           contactId,
           value: value ? Number(value) : undefined,
+          grossValue: grossValue ? Number(grossValue) : undefined,
           creditType: creditType || undefined,
           ownerId: ownerId || undefined,
           customFieldValues,
@@ -78,12 +80,14 @@ export function NewDealDialog({
       setOpen(false);
       setContactId("");
       setValue("");
+      setGrossValue("");
       setCreditType("");
       setOwnerId("");
       setCustomFieldValues({});
       onCreated({
         ...data,
         value: data.value != null ? Number(data.value) : null,
+        grossValue: data.grossValue != null ? Number(data.grossValue) : null,
         owner: { id: data.owner.id, name: data.owner.name, photoUrl: null },
         nextActivity: null,
         taskTypes: [],
@@ -157,8 +161,12 @@ export function NewDealDialog({
                 <ContactSearchInput value={contactId} onChange={(id) => setContactId(id)} autoFocus />
               </div>
               <div className="space-y-1">
-                <label className="field-label">Valor</label>
+                <label className="field-label">Valor líquido</label>
                 <CurrencyInput value={value} onChange={setValue} />
+              </div>
+              <div className="space-y-1">
+                <label className="field-label">Valor bruto</label>
+                <CurrencyInput value={grossValue} onChange={setGrossValue} />
               </div>
               <div className="space-y-1">
                 <label className="field-label">Tipo de crédito</label>

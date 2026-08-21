@@ -16,7 +16,8 @@ export const AUTOMATION_VARIABLE_GROUPS: AutomationVariableGroup[] = [
     label: "Negócio",
     variables: [
       { token: "negocio.nome", label: "Nome do negócio" },
-      { token: "negocio.valor", label: "Valor do negócio" },
+      { token: "negocio.valor", label: "Valor líquido do negócio" },
+      { token: "negocio.valorBruto", label: "Valor bruto do negócio" },
       { token: "negocio.etapa", label: "Etapa atual" },
       { token: "negocio.tipoCredito", label: "Tipo de crédito" },
       { token: "negocio.diasNaEtapa", label: "Dias na etapa atual" },

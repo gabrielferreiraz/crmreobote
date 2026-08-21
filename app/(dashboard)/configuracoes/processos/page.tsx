@@ -24,7 +24,7 @@ export default async function ProcessosSettingsPage() {
     });
 
     return (
-      <div className="max-w-3xl space-y-4">
+      <div className="mx-auto max-w-3xl space-y-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
             Categorias de Processos

@@ -51,6 +51,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     name,
     status,
     value,
+    grossValue,
     creditType,
     description,
     lossReasonId,
@@ -63,6 +64,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     name?: string;
     status?: "OPEN" | "WON" | "LOST";
     value?: number | null;
+    grossValue?: number | null;
     creditType?: string | null;
     description?: string | null;
     lossReasonId?: string | null;
@@ -72,6 +74,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     ownerId?: string;
     customFieldValues?: Record<string, unknown>;
   };
+
+  if ((value != null && value < 0) || (grossValue != null && grossValue < 0)) {
+    return NextResponse.json({ error: "Valor não pode ser negativo" }, { status: 400 });
+  }
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -110,6 +116,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const clearedFields = (
       [
         ["value", value],
+        ["grossValue", grossValue],
         ["creditType", creditType],
         ["expectedCloseAt", expectedCloseAt],
       ] as const
@@ -164,6 +171,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         name: sanitizeCell(name),
         status,
         value,
+        grossValue,
         creditType: sanitizeCell(creditType),
         description: sanitizeCell(description),
         lossReasonId,
@@ -204,10 +212,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       } else if (status === "OPEN") {
         systemBodies.push("reabriu o negócio");
       }
-    } else if (value !== undefined) {
-      const existingValueNum = existing.value != null ? Number(existing.value) : null;
-      if (existingValueNum !== value) {
-        systemBodies.push(`alterou o valor do negócio para ${formatCurrency(value)}`);
+    } else {
+      if (value !== undefined) {
+        const existingValueNum = existing.value != null ? Number(existing.value) : null;
+        if (existingValueNum !== value) {
+          systemBodies.push(`alterou o valor líquido do negócio para ${formatCurrency(value)}`);
+        }
+      }
+      if (grossValue !== undefined) {
+        const existingGrossValueNum = existing.grossValue != null ? Number(existing.grossValue) : null;
+        if (existingGrossValueNum !== grossValue) {
+          systemBodies.push(`alterou o valor bruto do negócio para ${formatCurrency(grossValue)}`);
+        }
       }
     }
     if (systemBodies.length > 0) {
