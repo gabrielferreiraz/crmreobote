@@ -19,6 +19,7 @@ import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanelTrigger } from "@/components/whatsapp-panel-trigger";
 import { ScheduleWhatsAppToggle, type ScheduleWhatsAppValue } from "@/components/schedule-whatsapp-toggle";
 import { appendDictatedText } from "@/lib/dictation";
+import { useDictatedText } from "@/lib/use-dictated-text";
 import type { MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
@@ -199,7 +200,14 @@ export function DealDetail({
   const [activeTab, setActiveTab] = useState("NOTE");
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
-  const [body, setBody] = useState("");
+  // Ditado por voz mostra o texto ao vivo enquanto a pessoa fala (ver
+  // lib/use-dictated-text.ts) — `body` continua sendo o valor de VERDADE
+  // (confirmado, sem o provisório em andamento), pra toda a lógica abaixo
+  // (submissão, template, guarda de "vazio") não mudar; só o textarea em si
+  // usa `bodyDictation.value` (com o provisório) pra dar o feedback visual.
+  const bodyDictation = useDictatedText("", appendDictatedText);
+  const body = bodyDictation.committed;
+  const setBody = bodyDictation.setValue;
   const [saving, setSaving] = useState(false);
   const [movingStage, setMovingStage] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
@@ -695,14 +703,15 @@ export function DealDetail({
             <form onSubmit={submitActivity} className="space-y-2">
               <div className="relative">
                 <textarea
-                  value={body}
+                  value={bodyDictation.value}
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="O que foi feito e qual o próximo passo?"
                   rows={3}
                   className="field-input pr-9"
                 />
                 <VoiceInputButton
-                  onResult={(text) => setBody((prev) => appendDictatedText(prev, text))}
+                  onResult={bodyDictation.onResult}
+                  onInterimResult={bodyDictation.onInterimResult}
                   className="absolute top-1.5 right-1.5"
                 />
               </div>
@@ -1094,14 +1103,15 @@ export function DealDetail({
               <form onSubmit={submitActivity} className="space-y-2">
                 <div className="relative">
                   <textarea
-                    value={body}
+                    value={bodyDictation.value}
                     onChange={(e) => setBody(e.target.value)}
                     placeholder="O que foi feito e qual o próximo passo?"
                     rows={3}
                     className="field-input pr-9"
                   />
                   <VoiceInputButton
-                    onResult={(text) => setBody((prev) => (prev ? `${prev} ${text}` : text))}
+                    onResult={bodyDictation.onResult}
+                    onInterimResult={bodyDictation.onInterimResult}
                     className="absolute top-1.5 right-1.5"
                   />
                 </div>

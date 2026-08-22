@@ -44,6 +44,8 @@ export type ParsedLeadFields = {
   state: string | null;
   zipCode: string | null;
   value: number | null;
+  /** "Valor bruto" — independente de `value` ("Valor líquido"), nunca derivado dele. Ver GROSS_VALUE_LABELS abaixo. */
+  grossValue: number | null;
   /** Sugestão por palavra-chave (ex.: "carro" → "Automóvel") — a tela deve
    * casar isto contra a lista de tipos de crédito de verdade da organização
    * antes de aceitar, nunca gravar direto. */
@@ -118,7 +120,7 @@ function registerAliases(field: TextField, ...labels: string[]) {
 // acaso numa frase qualquer) — um conectivo solto tipo "é"/"de" sozinho
 // nunca vira rótulo (baixa demais a precisão, um "é"/"de" qualquer no meio
 // do texto ia disparar em cima de qualquer coisa).
-registerAliases("name", "nome", "nome completo", "cliente", "nome do cliente", "contato", "se chama", "chama se");
+registerAliases("name", "nome", "nome completo", "cliente", "nome do cliente", "contato", "se chama", "chama se", "lead", "nome do lead");
 registerAliases("email", "email", "e mail");
 // Telefone/whatsapp NÃO entram no dicionário genérico acima — ver
 // WHATSAPP_LABELS/GENERIC_PHONE_LABELS abaixo, precisam de uma regra própria.
@@ -160,7 +162,18 @@ const VALUE_LABELS = new Set(
     "orcamento de",
     "quer investir",
     "pretende investir",
+    // "líquido" sozinho não entra — sem "valor" na frente é ambíguo demais
+    // (não é palavra específica de dinheiro), diferente de "bruto" abaixo.
+    "valor liquido",
   ].map(normalizeLabel),
+);
+
+// "Valor bruto" — independente de VALUE_LABELS acima (que é o líquido,
+// ver Deal.grossValue no schema). Mesma extração de dinheiro
+// (parseLabeledMoney, já entende "300 mil"/"R$ 300.000"/número por
+// extenso), só aponta pro campo separado quando o rótulo tiver "bruto".
+const GROSS_VALUE_LABELS = new Set(
+  ["valor bruto", "valor bruto do credito", "valor bruto da carta", "bruto"].map(normalizeLabel),
 );
 
 // A maioria dos leads só tem UM número, e quase sempre rotulado como
@@ -188,6 +201,7 @@ const GENERIC_PHONE_LABELS = new Set(
 // nunca podem reconhecer rótulos diferentes um do outro.
 const ALL_LABEL_ENTRIES: { normalized: string }[] = [
   ...Array.from(VALUE_LABELS, (normalized) => ({ normalized })),
+  ...Array.from(GROSS_VALUE_LABELS, (normalized) => ({ normalized })),
   ...Array.from(WHATSAPP_LABELS, (normalized) => ({ normalized })),
   ...Array.from(GENERIC_PHONE_LABELS, (normalized) => ({ normalized })),
   ...Object.keys(LABEL_ALIASES).map((normalized) => ({ normalized })),
@@ -204,7 +218,7 @@ export const ALL_LEAD_LABELS: string[] = ALL_LABEL_ENTRIES.map((e) => e.normaliz
 // risco, texto contínuo sem pontuação) — as duas pontas nunca podem
 // reconhecer palavras diferentes uma da outra.
 const AMBIGUOUS_MIDLINE_LABELS = new Set(
-  ["cliente", "contato", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
+  ["cliente", "contato", "lead", "bruto", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
     normalizeLabel,
   ),
 );
@@ -292,6 +306,42 @@ function matchLabelPrefix(foldedLine: string): { normalized: string; length: num
   return null;
 }
 
+// Pronome/artigo/conectivo que a fala natural cola nas bordas do valor de
+// verdade ("ele mora em Campo Grande ELE trabalha..." — o 2º "ele" já é do
+// próximo trecho, não faz parte da cidade). "lead"/"cliente" entram aqui
+// (não só em AMBIGUOUS_MIDLINE_LABELS/DICTATION_SCAN_DENYLIST) porque um
+// valor de campo nunca É de verdade a palavra "lead"/"cliente" sozinha —
+// só sobra ali quando o qualificador de posse ("telefone DO LEAD é...")
+// não foi reconhecido como rótulo composto e vazou pro início do valor.
+// Removidos só das PONTAS do valor (começo/fim), nunca do meio — "Casa do
+// Construtor" continua intacto. Exportado porque format-dictated-lead-text.ts
+// (ditado por voz, escaneia o texto inteiro) precisa da MESMA lista — as
+// duas pontas nunca podem divergir uma da outra.
+const EDGE_FILLER_WORDS = new Set(["ele", "ela", "dele", "dela", "o", "a", "e", "de", "do", "da", "na", "no", "lead", "cliente"]);
+
+export function stripEdgeFillers(value: string): string {
+  const words = value.split(/\s+/).filter(Boolean);
+  let start = 0;
+  let end = words.length;
+  while (start < end && EDGE_FILLER_WORDS.has(foldAccents(words[start]))) start++;
+  while (end > start && EDGE_FILLER_WORDS.has(foldAccents(words[end - 1]))) end--;
+  return words.slice(start, end).join(" ");
+}
+
+/**
+ * "Telefone do lead", "Cidade da lead", "Nome do cliente" — dito ou digitado
+ * com esse qualificador de posse, o rótulo de verdade continua sendo só a
+ * palavra da frente (telefone/cidade/nome); sem isso, cada rótulo do
+ * dicionário precisaria de uma entrada duplicada só pra essa variação. Só
+ * usado na COMPARAÇÃO contra o dicionário (rótulo com ":", onde o texto
+ * antes dos dois-pontos já vem inteiro, sem ambiguidade de onde ele começa/
+ * termina) — nunca no valor em si.
+ */
+function stripLeadOwnerSuffix(normalized: string): string {
+  const stripped = normalized.replace(/\s+(?:d[oa]\s+)?(?:lead|cliente)\s*$/, "").trim();
+  return stripped || normalized;
+}
+
 /** Texto de lead encaminhado do WhatsApp costuma vir com marcação
  * (*negrito*, _itálico_) — sem isso, "*Nome:* Erani" virava valor "* Erani"
  * (o "*" de fechamento do negrito gruda no valor, não no rótulo). */
@@ -333,12 +383,27 @@ const PHONE_REGEX = /(?:\+?55[\s.-]?)?\(?(\d{2})\)?[\s.-]?(9?\d{4})[\s.-]?(\d{4}
 
 function findPhones(line: string): { text: string; ddd: string }[] {
   const found: { text: string; ddd: string }[] = [];
-  for (const m of line.matchAll(PHONE_REGEX)) {
-    const ddd = m[1];
-    if (!VALID_BRAZILIAN_DDDS.has(ddd)) continue;
-    const digits = ddd + m[2] + m[3];
-    if (digits.length !== 10 && digits.length !== 11) continue;
-    found.push({ text: m[0], ddd });
+  const collect = (source: string) => {
+    for (const m of source.matchAll(PHONE_REGEX)) {
+      const ddd = m[1];
+      if (!VALID_BRAZILIAN_DDDS.has(ddd)) continue;
+      const digits = ddd + m[2] + m[3];
+      if (digits.length !== 10 && digits.length !== 11) continue;
+      found.push({ text: m[0], ddd });
+    }
+  };
+  collect(line);
+  if (found.length === 0) {
+    // Nenhum dígito já escrito — tenta número por extenso (ditado de voz às
+    // vezes sai "sessenta e sete..." em vez de "67...", ver
+    // spokenNumberWordsToDigits mais abaixo). Só como último recurso: o
+    // texto convertido não existe literalmente na linha original, então o
+    // trecho aqui não é removido do residual depois em parseLeadText — pode
+    // sobrar (inofensivo) em `description`, mesmo raciocínio de "nunca
+    // descarta, só nem sempre reivindica com 100% de precisão" que o resto
+    // deste arquivo já usa.
+    const digitized = spokenNumberWordsToDigits(line);
+    if (digitized !== line) collect(digitized);
   }
   return found;
 }
@@ -435,6 +500,77 @@ function parseSpokenAmount(text: string): number | null {
   }
   total += current;
   return total > 0 ? total : null;
+}
+
+/**
+ * Converte número por extenso em português pra dígito, palavra a palavra —
+ * ao contrário de parseSpokenAmount acima (que SOMA tudo numa magnitude só,
+ * pra dinheiro), aqui cada trecho vira o(s) DÍGITO(s) dele mesmo,
+ * concatenados: telefone é uma SEQUÊNCIA de dígitos, nunca uma soma
+ * ("sessenta e sete" no DDD são os dígitos "6" e "7", não o número 67
+ * somado a mais nada). Reaproveita SPOKEN_NUMBER_UNITS (mesmo dicionário do
+ * dinheiro) — só entende 0-99, faixa que aparece de verdade lendo telefone
+ * em voz alta ("mil"/"milhão"/centena nunca aparecem lendo dígito a dígito,
+ * por isso ficam de fora aqui). Palavra não reconhecida passa direto, sem
+ * quebrar o resto do texto — usado só como pré-processamento antes de
+ * rodar PHONE_REGEX (ver findPhones).
+ */
+function spokenNumberWordsToDigits(text: string): string {
+  const words = foldAccents(text).split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  let buffer = "";
+  const flushBuffer = () => {
+    if (buffer) {
+      out.push(buffer);
+      buffer = "";
+    }
+  };
+
+  let i = 0;
+  while (i < words.length) {
+    const raw = words[i].replace(/[^a-z]/g, "");
+    const value = SPOKEN_NUMBER_UNITS[raw];
+    if (value === undefined || value >= 100) {
+      flushBuffer();
+      out.push(words[i]);
+      i += 1;
+      continue;
+    }
+    if (value >= 20 && value <= 90 && value % 10 === 0) {
+      // Dezena "redonda" (vinte, trinta... noventa) — tenta juntar com "E
+      // unidade" seguinte (ex.: "sessenta e sete" -> 67); senão fica só ela.
+      const conn = words[i + 1]?.replace(/[^a-z]/g, "");
+      const nextRaw = words[i + 2]?.replace(/[^a-z]/g, "");
+      const nextValue = nextRaw !== undefined ? SPOKEN_NUMBER_UNITS[nextRaw] : undefined;
+      if (conn === "e" && nextValue !== undefined && nextValue < 10) {
+        buffer += String(value + nextValue);
+        i += 3;
+        continue;
+      }
+      buffer += String(value);
+      i += 1;
+      continue;
+    }
+    // Unidade (0-9) ou dezena "irregular" já com 2 dígitos próprios (10-19).
+    buffer += String(value);
+    i += 1;
+  }
+  flushBuffer();
+  return out.join(" ");
+}
+
+/** Sobra de telefone por extenso não convertido (ver findPhones) não devia
+ * virar nome por acidente no Passo 3 — se a maior parte das palavras da
+ * linha é número por extenso reconhecido (ou o conectivo "e" entre elas),
+ * não é candidato a nome de pessoa. */
+function isMostlySpokenNumbers(text: string): boolean {
+  const words = foldAccents(text).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  const numberish = words.filter((w) => {
+    const raw = w.replace(/[^a-z]/g, "");
+    return raw === "e" || raw in SPOKEN_NUMBER_UNITS;
+  }).length;
+  return numberish / words.length >= 0.6;
 }
 
 /** Valor vindo de um rótulo explícito ("Valor: 80000") — mais tolerante,
@@ -564,17 +700,32 @@ function applyLabel(
     }
   }
 
+  if (GROSS_VALUE_LABELS.has(normalized) && fields.grossValue === null) {
+    const parsed = parseLabeledMoney(value);
+    if (parsed !== null) {
+      fields.grossValue = parsed;
+      return true;
+    }
+  }
+
   if (WHATSAPP_LABELS.has(normalized)) {
+    // Número por extenso ("sessenta e sete nove nove...") vira dígito antes
+    // de gravar — sem isso, um rótulo explícito ("WhatsApp: sessenta e
+    // sete...") gravava o texto por extenso cru no campo, sem chance
+    // nenhuma de virar telefone de verdade depois (esse caminho não passa
+    // por findPhones/PHONE_REGEX, confia direto no rótulo).
+    const digitizedValue = spokenNumberWordsToDigits(value);
     if (fields.whatsapp !== null && !whatsappState.explicit && fields.phone === null) {
       fields.phone = fields.whatsapp;
     }
-    fields.whatsapp = value;
+    fields.whatsapp = digitizedValue;
     whatsappState.explicit = true;
     return true;
   }
   if (GENERIC_PHONE_LABELS.has(normalized)) {
-    if (fields.whatsapp === null) fields.whatsapp = value;
-    else if (fields.phone === null) fields.phone = value;
+    const digitizedValue = spokenNumberWordsToDigits(value);
+    if (fields.whatsapp === null) fields.whatsapp = digitizedValue;
+    else if (fields.phone === null) fields.phone = digitizedValue;
     return true;
   }
 
@@ -613,6 +764,7 @@ export function parseLeadText(raw: string): ParsedLeadFields {
     state: null,
     zipCode: null,
     value: null,
+    grossValue: null,
     creditTypeGuess: null,
     description: null,
   };
@@ -664,15 +816,20 @@ export function parseLeadText(raw: string): ParsedLeadFields {
 
     const colonIdx = line.indexOf(":");
     if (colonIdx > 0 && colonIdx <= 40) {
-      const value = cleanExtractedValue(line.slice(colonIdx + 1));
-      const normalized = normalizeLabel(line.slice(0, colonIdx));
+      const value = stripEdgeFillers(cleanExtractedValue(line.slice(colonIdx + 1)));
+      const normalized = stripLeadOwnerSuffix(normalizeLabel(line.slice(0, colonIdx)));
       if (value) consumed = applyLabel(normalized, value, fields, whatsappState);
     }
 
     if (!consumed) {
       const prefix = matchLabelPrefix(foldAccents(line));
       if (prefix) {
-        const value = cleanExtractedValue(line.slice(prefix.length));
+        // stripEdgeFillers aqui é o que evita "Lead é Fulano de Tal" (rótulo
+        // "lead" reconhecido só pelo PREFIXO da linha, não pelo escaneamento
+        // de format-dictated-lead-text.ts) virar valor "e Fulano de Tal" —
+        // o "é"/"e" que sobra logo depois do rótulo nunca é o dado de
+        // verdade.
+        const value = stripEdgeFillers(cleanExtractedValue(line.slice(prefix.length)));
         if (value) consumed = applyLabel(prefix.normalized, value, fields, whatsappState);
       }
     }
@@ -769,6 +926,10 @@ export function parseLeadText(raw: string): ParsedLeadFields {
       if (text.length < 2 || text.length > 60) continue;
       if (/[@:]/.test(text)) continue;
       if (/\d{4,}/.test(text)) continue;
+      // Sobra de telefone por extenso não convertido (ver findPhones/
+      // spokenNumberWordsToDigits) não é nome de pessoa — se quase toda
+      // palavra da linha é número por extenso reconhecido, não é candidato.
+      if (isMostlySpokenNumbers(text)) continue;
       fields.name = text;
       residuals[i] = null;
       break;

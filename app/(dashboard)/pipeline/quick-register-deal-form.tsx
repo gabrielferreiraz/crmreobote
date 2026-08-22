@@ -9,6 +9,7 @@ import { VoiceInputButton } from "@/components/voice-input-button";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { parseLeadText, normalizeLabel, type ParsedLeadFields } from "@/lib/quick-register/parse-lead-text";
 import { appendDictatedLeadText } from "@/lib/quick-register/format-dictated-lead-text";
+import { useDictatedText } from "@/lib/use-dictated-text";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -38,16 +39,9 @@ export function QuickRegisterDealForm({
   onCreated: (deal: Deal) => void;
   onCancel: () => void;
 }) {
-  const [rawText, setRawText] = useState("");
+  const rawTextDictation = useDictatedText("", appendDictatedLeadText);
   const [analyzed, setAnalyzed] = useState(false);
   const justPasted = useRef(false);
-  // Sempre o valor mais recente de rawText, lido por handleDictationStopped
-  // (ver abaixo) — não pelo `rawText` fechado na hora que o VoiceInputButton
-  // guardou a referência do callback, que pode estar um passo atrasado.
-  const rawTextRef = useRef(rawText);
-  useEffect(() => {
-    rawTextRef.current = rawText;
-  }, [rawText]);
 
   const [name, setName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
@@ -63,10 +57,6 @@ export function QuickRegisterDealForm({
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [value, setValue] = useState("");
-  // Sem extração automática do texto colado de propósito — a heurística de
-  // dinheiro do parser já é frágil só pra um valor (ver parseLabeledMoney em
-  // lib/quick-register/parse-lead-text.ts); ligar duas aumentaria o risco de
-  // falso positivo sem necessidade pedida. Preenchimento manual mesmo.
   const [grossValue, setGrossValue] = useState("");
   const [creditType, setCreditType] = useState("");
   const [description, setDescription] = useState("");
@@ -169,6 +159,10 @@ export function QuickRegisterDealForm({
       setValue(String(parsed.value));
       filled.add("value");
     }
+    if (parsed.grossValue) {
+      setGrossValue(String(parsed.grossValue));
+      filled.add("grossValue");
+    }
     if (parsed.description) {
       setDescription(parsed.description);
       filled.add("description");
@@ -203,7 +197,7 @@ export function QuickRegisterDealForm({
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const text = e.target.value;
-    setRawText(text);
+    rawTextDictation.setValue(text);
     if (justPasted.current) {
       justPasted.current = false;
       applyParsed(parseLeadText(text));
@@ -211,7 +205,7 @@ export function QuickRegisterDealForm({
   }
 
   function handleAnalyzeClick() {
-    applyParsed(parseLeadText(rawText));
+    applyParsed(parseLeadText(rawTextDictation.committed));
   }
 
   // Ditado por voz aqui não vem quebrado por linha como texto colado — chega
@@ -220,30 +214,31 @@ export function QuickRegisterDealForm({
   // valor" por linha (ver lib/quick-register/format-dictated-lead-text.ts)
   // antes de emendar no que já tinha no campo.
   //
-  // SÓ emenda o texto aqui — não analisa ainda. keepListening reencadeia a
-  // escuta frase por frase sozinho, e handleDictated é chamado UMA VEZ POR
-  // FRASE; se analisasse (applyParsed) a cada chamada, no meio de "nome
-  // fulano... telefone tal..." a 1ª frase já disparava a separação de
-  // campos com o texto pela metade, e a pessoa via os campos mudando/
-  // "brigando" enquanto ainda estava ditando o resto. A análise de verdade
-  // só acontece quando o microfone realmente desliga (ver
-  // handleDictationStopped, chamado por onListeningChange) — processa o
-  // texto completo de uma vez, depois de tudo já dito.
+  // Analisa a CADA frase confirmada, não só quando o microfone desliga — é
+  // sempre uma frase INTEIRA (VoiceInputButton só chama isso com
+  // interimResults finalizado, nunca no meio de uma ainda em andamento, ver
+  // components/voice-input-button.tsx), então não é a mesma situação que o
+  // design antigo evitava (analisar "nome fulano... telefone tal..." com o
+  // texto pela metade) — só faz o formulário preencher progressivamente
+  // enquanto a pessoa ainda está ditando o resto, em vez de só no final.
+  // `autoFilled`/reviewed (ver applyParsed) já garantem que um campo editado
+  // à mão não é sobrescrito por uma frase nova.
   //
-  // Atualiza via forma funcional (prev => ...), não fechando sobre `rawText`
-  // direto — VoiceInputButton pode chamar isso várias vezes rapidamente
-  // (frase após frase) antes do React terminar de re-renderizar entre uma
-  // chamada e outra; fechar sobre `rawText` arriscava cada nova frase
-  // "pisar" na anterior em vez de emendar (a causa mais provável do texto
-  // parecendo se sobrescrever em vez de complementar).
+  // `next` é calculado aqui (não só dentro de rawTextDictation.onResult) pra
+  // poder analisar com o texto atualizado NA HORA, sem esperar o próximo
+  // render — os dois usam o mesmo `rawTextDictation.committed` capturado no
+  // início desta chamada, então concordam sempre que uma fala real (não uma
+  // chamada síncrona artificial) separa uma frase da próxima.
   function handleDictated(text: string) {
-    setRawText((prev) => appendDictatedLeadText(prev, text));
+    const next = appendDictatedLeadText(rawTextDictation.committed, text);
+    rawTextDictation.onResult(text);
+    applyParsed(parseLeadText(next));
   }
 
-  /** Chamado só quando o microfone desliga de verdade (ver VoiceInputButton.onListeningChange) — processa o texto ditado inteiro de uma vez, nunca no meio da fala. */
+  /** Só uma rede de segurança quando o microfone desliga de vez — cada frase já foi analisada na hora (ver handleDictated), isso só repete com o texto final completo. */
   function handleDictationStopped(listening: boolean) {
     if (listening) return;
-    applyParsed(parseLeadText(rawTextRef.current));
+    applyParsed(parseLeadText(rawTextDictation.committed));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -319,11 +314,16 @@ export function QuickRegisterDealForm({
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <label className="field-label">Colar texto do lead</label>
-          <VoiceInputButton onResult={handleDictated} onListeningChange={handleDictationStopped} keepListening />
+          <VoiceInputButton
+            onResult={handleDictated}
+            onInterimResult={rawTextDictation.onInterimResult}
+            onListeningChange={handleDictationStopped}
+            keepListening
+          />
         </div>
         <textarea
           autoFocus
-          value={rawText}
+          value={rawTextDictation.value}
           onChange={handleChange}
           onPaste={handlePaste}
           placeholder={PLACEHOLDER}
@@ -342,7 +342,7 @@ export function QuickRegisterDealForm({
           <button
             type="button"
             onClick={handleAnalyzeClick}
-            disabled={!rawText.trim()}
+            disabled={!rawTextDictation.committed.trim()}
             className="btn-secondary btn-sm shrink-0"
           >
             <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
@@ -465,7 +465,14 @@ export function QuickRegisterDealForm({
             </div>
             <div className="space-y-1">
               <label className="field-label">Valor bruto</label>
-              <CurrencyInput value={grossValue} onChange={setGrossValue} />
+              <CurrencyInput
+                value={grossValue}
+                onChange={(v) => {
+                  setGrossValue(v);
+                  reviewed("grossValue");
+                }}
+                className={fieldHighlight("grossValue")}
+              />
             </div>
           </div>
 

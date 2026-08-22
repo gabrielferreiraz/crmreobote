@@ -34,6 +34,7 @@ export { appendDictatedText };
  */
 export function VoiceInputButton({
   onResult,
+  onInterimResult,
   onListeningChange,
   lang = "pt-BR",
   className = "",
@@ -41,6 +42,15 @@ export function VoiceInputButton({
 }: {
   /** Chamado com o texto reconhecido (frase inteira) quando termina de falar. */
   onResult: (text: string) => void;
+  /**
+   * Chamado a cada atualização do resultado PROVISÓRIO — a frase ainda
+   * sendo reconhecida, antes de fechar (pode mudar até lá). Pensado pra
+   * mostrar na tela em tempo real o que a pessoa está falando (ver
+   * lib/use-dictated-text.ts), não pra guardar/formatar de verdade — isso
+   * continua sendo trabalho só de `onResult`, chamado exatamente uma vez
+   * por frase, quando ela fecha (comportamento de sempre, inalterado).
+   */
+  onInterimResult?: (text: string) => void;
   /**
    * Avisa quando o microfone liga/desliga de verdade — pensado pra quem
    * precisa saber exatamente quando a SESSÃO INTEIRA de ditado acabou (ex.:
@@ -87,9 +97,11 @@ export function VoiceInputButton({
   // sempre atualizada evita isso, mesmo sem nunca ter se confirmado como
   // causa de um bug visto (é barato garantir, então garante).
   const onResultRef = useRef(onResult);
+  const onInterimResultRef = useRef(onInterimResult);
   const onListeningChangeRef = useRef(onListeningChange);
   useEffect(() => {
     onResultRef.current = onResult;
+    onInterimResultRef.current = onInterimResult;
     onListeningChangeRef.current = onListeningChange;
   });
 
@@ -167,15 +179,28 @@ export function VoiceInputButton({
     const recognition = new Ctor();
     recognition.lang = lang;
     recognition.continuous = false;
-    recognition.interimResults = false;
+    // Ligado de propósito — sem isso, nada aparece na tela até a frase
+    // FECHAR de vez (ver comentário do componente). Com continuous=false,
+    // isso só gera atualizações PROVISÓRIAS da mesma frase única em
+    // andamento (nunca uma 2ª frase nova) — o evento final continua vindo
+    // exatamente igual a antes, só que agora precedido de atualizações
+    // parciais que ninguém era obrigado a consumir (onInterimResult é
+    // opcional).
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event) => {
+      const lastIndex = event.results.length - 1;
       const transcript = Array.from({ length: event.results.length })
         .map((_, i) => event.results[i][0].transcript)
         .join(" ")
         .trim();
-      if (transcript) onResultRef.current(transcript);
+      if (!transcript) return;
+      if (event.results[lastIndex].isFinal) {
+        onResultRef.current(transcript);
+      } else {
+        onInterimResultRef.current?.(transcript);
+      }
     };
     recognition.onerror = (event) => {
       // "no-speech"/"aborted" são silêncio comum (usuário clicou e não falou

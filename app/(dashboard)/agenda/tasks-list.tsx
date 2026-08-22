@@ -10,6 +10,7 @@ import { ContactSearchInput } from "@/components/contact-search-input";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { ScheduleMessageDialog, type ScheduleMessageTask } from "@/components/schedule-message-dialog";
 import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
+import { useDictatedText } from "@/lib/use-dictated-text";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
@@ -327,10 +328,19 @@ export function NewTaskDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [title, setTitle] = useState("");
+  // Ditado por voz mostra o texto ao vivo enquanto a pessoa fala (ver
+  // lib/use-dictated-text.ts) — `title`/`description` continuam sendo o
+  // valor de VERDADE (confirmado, sem provisório em andamento), pra
+  // submissão/validação abaixo não mudar; só os campos em si usam
+  // `.value` (com o provisório) pra dar o feedback visual.
+  const titleDictation = useDictatedText("", appendDictatedText);
+  const title = titleDictation.committed;
+  const setTitle = titleDictation.setValue;
   const [type, setType] = useState("CALL");
   const [dueAt, setDueAt] = useState("");
-  const [description, setDescription] = useState("");
+  const descriptionDictation = useDictatedText("", appendDictatedText);
+  const description = descriptionDictation.committed;
+  const setDescription = descriptionDictation.setValue;
   const [contactId, setContactId] = useState("");
   const [dealId, setDealId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -423,12 +433,12 @@ export function NewTaskDialog({
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <label className="field-label">Título</label>
-            <VoiceInputButton onResult={(text) => setTitle((prev) => appendDictatedText(prev, text))} />
+            <VoiceInputButton onResult={titleDictation.onResult} onInterimResult={titleDictation.onInterimResult} />
           </div>
           <input
             autoFocus
             required
-            value={title}
+            value={titleDictation.value}
             onChange={(e) => setTitle(e.target.value)}
             className="field-input"
           />
@@ -465,10 +475,10 @@ export function NewTaskDialog({
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <label className="field-label">Descrição</label>
-            <VoiceInputButton onResult={(text) => setDescription((prev) => appendDictatedText(prev, text))} />
+            <VoiceInputButton onResult={descriptionDictation.onResult} onInterimResult={descriptionDictation.onInterimResult} />
           </div>
           <textarea
-            value={description}
+            value={descriptionDictation.value}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             className="field-input"

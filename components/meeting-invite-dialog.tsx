@@ -276,6 +276,22 @@ export function MeetingInviteDialog({
             </p>
           )}
 
+          {/* Independente do status do WhatsApp acima — Meet é outra
+              integração, com outro dono (o consultor conecta a própria
+              conta Google, não tem nada a ver com o WhatsApp dele). Tom
+              neutro (não amber) de propósito: isso é opcional, não bloqueia
+              nada — diferente do aviso de WhatsApp acima, que impede a ação
+              principal deste diálogo. */}
+          {!task.ownerHasGoogleCalendarWriteAccess && (
+            <p className="rounded-lg bg-neutral-100 px-3 py-2 text-center text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              Quer criar o link do Google Meet automaticamente?{" "}
+              <a href="/configuracoes/perfil" className="font-medium text-neutral-700 underline underline-offset-2 dark:text-neutral-300">
+                Conecte seu Google Agenda
+              </a>
+              .
+            </p>
+          )}
+
           <div className="flex flex-col gap-2">
             {canSend && (
               <button type="button" onClick={() => setStep("compose")} className="btn-primary w-full justify-center">

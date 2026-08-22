@@ -1,4 +1,4 @@
-import { ALL_LEAD_LABELS, foldAccents, normalizeLabel, shouldTitleCaseLabelValue } from "./parse-lead-text";
+import { ALL_LEAD_LABELS, foldAccents, normalizeLabel, shouldTitleCaseLabelValue, stripEdgeFillers } from "./parse-lead-text";
 
 /**
  * Reformata um trecho recém-DITADO (Web Speech API, ver components/
@@ -29,7 +29,7 @@ function escapeRegExp(s: string): string {
 // escaneamento — o reconhecimento por linha em parseLeadText continua
 // intacto, essas palavras ainda funcionam lá.
 const DICTATION_SCAN_DENYLIST = new Set(
-  ["cliente", "contato", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
+  ["cliente", "contato", "lead", "bruto", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
     normalizeLabel,
   ),
 );
@@ -43,21 +43,6 @@ const LABEL_SCAN_PATTERN = DICTATION_SCAN_LABELS.map((label) => label.split(" ")
   "|",
 );
 const LABEL_SCAN_REGEX = new RegExp(`\\b(?:${LABEL_SCAN_PATTERN})\\b`, "g");
-
-// Pronome/artigo/conectivo que a fala natural cola nas bordas do valor de
-// verdade ("ele mora em Campo Grande ELE trabalha..." — o 2º "ele" já é do
-// próximo trecho, não faz parte da cidade). Removidos só das PONTAS do
-// valor (começo/fim), nunca do meio — "Casa do Construtor" continua intacto.
-const EDGE_FILLER_WORDS = new Set(["ele", "ela", "dele", "dela", "o", "a", "e", "de", "do", "da", "na", "no"]);
-
-function stripEdgeFillers(value: string): string {
-  const words = value.split(/\s+/).filter(Boolean);
-  let start = 0;
-  let end = words.length;
-  while (start < end && EDGE_FILLER_WORDS.has(foldAccents(words[start]))) start++;
-  while (end > start && EDGE_FILLER_WORDS.has(foldAccents(words[end - 1]))) end--;
-  return words.slice(start, end).join(" ");
-}
 
 // "de", "da", "do"... ficam minúsculos mesmo no meio de um nome/endereço
 // capitalizado ("Maria de Souza", não "Maria De Souza") — só a 1ª palavra
