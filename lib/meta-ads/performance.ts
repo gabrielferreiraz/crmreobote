@@ -12,7 +12,7 @@ import { decryptSecret } from "@/lib/security/secret-crypto";
 import { fetchInsightsBreakdown } from "@/lib/meta-ads";
 import { MetaApiError } from "@/lib/meta-graph";
 import { getMetaAdsAttribution } from "@/lib/meta-ads/attribution";
-import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
+import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilDateKey } from "@/lib/timezone";
 
 export type CampaignPerformanceRow = {
   campaignId: string;
@@ -50,16 +50,27 @@ export type CampaignPerformance =
     }
   | { ok: false; reason: "no_data"; message?: string };
 
+/** Nenhuma conta de anúncio real é mais antiga que isso — usado como início
+ * de uma janela bem larga pra Insights API da Meta quando `period` é null
+ * (Tudo), já que essa API externa exige um intervalo de datas real, não tem
+ * conceito de "desde sempre" (diferente do lado CRM, ver `range` abaixo). */
+const SPEND_ALL_TIME_SINCE = "2010-01-01";
+
 /** `since`/`until` em "YYYY-MM-DD" (calendário de Brasília) — mesmo formato
  * que o resto de Relatórios usa pro filtro de período (ver date-range-filter.tsx/
  * lib/date-ranges.ts), não mais um dos 4 períodos fixos de antes. Quem chama
  * (meta-ads-view.tsx) decide o range: um dos atalhos (este mês/mês passado/
- * há 2-3 meses/este ano) ou um personalizado escolhido no calendário. */
+ * há 2-3 meses/este ano), um personalizado escolhido no calendário, ou
+ * `null` pra "Tudo" (histórico inteiro, sem filtro de data nenhum do lado
+ * CRM — ver getMetaAdsAttribution). */
 export async function getCampaignPerformance(
   organizationId: string,
-  period: { since: string; until: string },
+  period: { since: string; until: string } | null,
 ): Promise<CampaignPerformance> {
-  const range = { since: brazilDateStringToUTC(period.since), until: brazilEndOfDayUTC(period.until) };
+  const range = period ? { since: brazilDateStringToUTC(period.since), until: brazilEndOfDayUTC(period.until) } : undefined;
+  // Proxy de "Tudo" pro lado do GASTO (chamada externa, precisa de um
+  // intervalo real de verdade — ver SPEND_ALL_TIME_SINCE acima).
+  const spendPeriod = period ?? { since: SPEND_ALL_TIME_SINCE, until: brazilDateKey(new Date()) };
 
   const [attributionRows, connection] = await Promise.all([
     getMetaAdsAttribution(organizationId, range),
@@ -89,8 +100,8 @@ export async function getCampaignPerformance(
     try {
       const accessToken = decryptSecret(connection.userAccessTokenEncrypted);
       const adRows = await fetchInsightsBreakdown(connection.adAccountId, accessToken, "ad", {
-        since: period.since,
-        until: period.until,
+        since: spendPeriod.since,
+        until: spendPeriod.until,
       });
       for (const row of adRows) {
         const campaignId = row.campaignId ?? "sem-campanha";
@@ -157,7 +168,7 @@ export async function getCampaignPerformance(
 
   return {
     ok: true,
-    periodLabel: `${period.since} – ${period.until}`,
+    periodLabel: period ? `${period.since} – ${period.until}` : "Tudo",
     rows,
     spendConnected,
     spendFetchError,

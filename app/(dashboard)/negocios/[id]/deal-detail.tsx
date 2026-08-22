@@ -407,7 +407,7 @@ export function DealDetail({
   async function saveTask(
     taskId: string,
     fields: { title: string; dueAt: string | null },
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; ownerGoogleCalendarWriteConnected?: boolean }> {
     const res = await fetch(`/api/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -417,8 +417,9 @@ export function DealDetail({
       const data = await res.json().catch(() => ({}));
       return { ok: false, error: data.error ?? "Erro ao salvar" };
     }
+    const updated = await res.json();
     router.refresh();
-    return { ok: true };
+    return { ok: true, ownerGoogleCalendarWriteConnected: updated.ownerGoogleCalendarWriteConnected };
   }
 
   async function moveToStage(stageId: string) {
@@ -531,7 +532,8 @@ export function DealDetail({
           title: created.title,
           dueAt: created.dueAt,
           contact: { id: deal.contact.id, name: deal.contact.name, phone: deal.contact.phone, whatsapp: deal.contact.whatsapp },
-          owner: { name: deal.owner.name },
+          owner: { id: deal.owner.id, name: deal.owner.name },
+          ownerHasGoogleCalendarWriteAccess: !!created.ownerGoogleCalendarWriteConnected,
         });
       }
       // Toggle "Enviar mensagem agendada" ligado (ver ScheduleWhatsAppToggle,
@@ -837,8 +839,26 @@ export function DealDetail({
                 preenchido sozinho na criação (@default(now())), não importa a origem
                 (manual, Facebook Lead Ads, API pública, resposta de WhatsApp). Diferente
                 de "Início" (startedAt), que pode ter sido retroagido numa importação. */}
-            <Row label="Criado em" value={new Date(deal.createdAt).toLocaleDateString("pt-BR")} />
-            <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
+            <Row
+              label="Criado em"
+              value={new Date(deal.createdAt).toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            />
+            <Row
+              label="Início"
+              value={new Date(deal.startedAt).toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            />
             <EditableRow
               label="Conclusão prevista"
               value={toDateInputValue(deal.expectedCloseAt)}
@@ -1433,7 +1453,8 @@ export function DealDetail({
                 title: fields.title,
                 dueAt: fields.dueAt,
                 contact: { id: deal.contact.id, name: deal.contact.name, phone: deal.contact.phone, whatsapp: deal.contact.whatsapp },
-                owner: { name: deal.owner.name },
+                owner: { id: deal.owner.id, name: deal.owner.name },
+                ownerHasGoogleCalendarWriteAccess: !!result.ownerGoogleCalendarWriteConnected,
               });
             }
             return result;

@@ -1613,6 +1613,51 @@ model Task {
   // marcada por lá quando o consultor não tem GoogleCalendarConnection ou
   // a chamada ao Google falhou nessa hora).
   googleEventId            String?
+  // Link do Google Meet devolvido junto com o evento acima, quando criado
+  // com conferência (ver createGoogleCalendarEvent em
+  // lib/google-calendar-oauth.ts) — só preenchido se o consultor pediu
+  // ("Criar link do Google Meet" no MeetingInviteDialog) e tinha a conexão
+  // com permissão de escrita. Guardado à parte de googleEventId porque o
+  // evento pode existir sem conferência (reunião marcada sem pedir Meet).
+  googleMeetLink           String?
+  // Aviso automático de WhatsApp antes de uma Reunião — TODOS os campos
+  // abaixo são independentes de scheduledMessageText/Sent/FailedAt acima
+  // (aquele é o mecanismo mais antigo, só WHATSAPP, 1 mensagem única no
+  // dueAt; este é novo, só MEETING, apoia uma SEQUÊNCIA de mensagens com
+  // delay entre elas — ver lib/tasks/meeting-reminder.ts). Só existe
+  // quando o consultor programou um aviso na criação da reunião
+  // (MeetingInviteDialog); nulo em toda Task sem aviso configurado.
+  //
+  // Minutos de antecedência escolhidos — guardado só pra exibir/editar
+  // depois ("aviso configurado: 10 min antes"); quem manda de verdade é
+  // reminderNextSendAt abaixo, calculado uma vez na criação.
+  reminderMinutesBefore    Int?
+  // Sequência resolvida a gravar — [{text, delayAfterSec}], já com
+  // variáveis substituídas ou copiada de um MessageScript no momento de
+  // programar (mudanças futuras no Script da biblioteca NUNCA alteram um
+  // aviso já programado). Mensagem avulsa escrita à mão vira uma
+  // sequência de 1 item só (delayAfterSec irrelevante nesse caso).
+  reminderSteps            Json?
+  // Índice da PRÓXIMA mensagem da sequência a mandar — 0 até a primeira
+  // sair. Avança 1 a cada envio; quando chega ao fim (reminderStepIndex
+  // == tamanho de reminderSteps), reminderSentAt é setado e o cron para
+  // de olhar pra essa tarefa.
+  reminderStepIndex        Int?
+  // Quando a PRÓXIMA mensagem da sequência deve sair — calculado a
+  // primeira vez como dueAt - reminderMinutesBefore minutos; a cada envio
+  // vira now + delayAfterSec da mensagem que acabou de sair (delay é
+  // "antes da PRÓXIMA", nunca antes da primeira). Decisão explícita do
+  // usuário: manda a sequência inteira respeitando os delays originais
+  // do Script, mesmo que isso empurre alguma mensagem pra depois do
+  // horário da reunião num script longo.
+  reminderNextSendAt       DateTime?
+  // Setado quando a ÚLTIMA mensagem da sequência sai — nunca mais tocado
+  // depois disso (mesmo padrão de scheduledMessageSentAt acima).
+  reminderSentAt           DateTime?
+  // Setado numa falha permanente (WhatsApp desconectado, contato sem
+  // número) — abandona o RESTANTE da sequência, mesma decisão de produto
+  // de scheduledMessageFailedAt (sem retry automático, avisa 1x por push).
+  reminderFailedAt         DateTime?
   createdAt                DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

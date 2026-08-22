@@ -52,6 +52,11 @@ export async function importTarefas(
   const idxDescricao = colIndex(headers, "Descrição");
   const idxDataAgendamento = colIndex(headers, "Data de agendamento");
   const idxDataFinalizacao = colIndex(headers, "Data de finalização");
+  // Data/hora real de quando a tarefa foi cadastrada no Agendor — usada como
+  // createdAt (ver abaixo), pra "Criado em" mostrar o momento verdadeiro em
+  // vez da data/hora de quando ESTA importação rodou (mesma ideia já usada
+  // em import-pessoas.ts/import-negocios.ts pro "Cadastro" de Pessoa/Negócio).
+  const idxDataCadastro = colIndex(headers, "Data de cadastro");
 
   const result: TarefasImportResult = { created: 0, skippedAlreadyImported: 0, skippedNoOwner: 0, assigneeRowsExpanded: 0 };
 
@@ -126,6 +131,7 @@ export async function importTarefas(
     // consultor piloto ficaria com milhares de "atrasadas" de anos atrás
     // (confirmado: 98,5% das pendentes importadas já tinham vencido).
     const completedAt = cellDate(row, idxDataFinalizacao) ?? (dueAt && dueAt < new Date() ? dueAt : undefined);
+    const createdAt = cellDate(row, idxDataCadastro) ?? undefined;
     const title = (descricao ?? (tipo || "Tarefa")).slice(0, TITLE_MAX_LEN);
 
     // Resolvido uma vez por linha (não por responsável) — mesmo negócio/
@@ -173,6 +179,7 @@ export async function importTarefas(
             description: descricao,
             dueAt,
             completedAt,
+            createdAt,
             agendorTaskId: codigoTarefa,
           },
         });

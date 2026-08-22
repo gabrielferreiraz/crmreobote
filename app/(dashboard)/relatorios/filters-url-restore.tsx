@@ -53,21 +53,33 @@ export function FiltersUrlRestore() {
       } catch {}
     }
 
-    if (!params.has("from") && !params.has("to")) {
-      let restoredFromStorage = false;
+    if (!params.has("from") && !params.has("to") && !params.has("range")) {
+      // Precisa distinguir "a pessoa NUNCA escolheu nada aqui" de "a pessoa
+      // escolheu Tudo de propósito" — as duas batem igual só olhando a URL
+      // (nenhuma tem from/to). `hasStoredChoice` é essa distinção: só é
+      // false quando a chave nem existe no localStorage ainda (1ª visita de
+      // verdade). Bug antigo: "Tudo" gravava a chave REMOVIDA (igual a
+      // nunca ter escolhido nada), então todo reload/nova aba silenciosamente
+      // trocava "Tudo" de volta pra "Este mês" sem avisar — ver
+      // date-range-filter.tsx, que agora sempre grava a chave (nunca remove).
+      let hasStoredChoice = false;
       try {
         const raw = localStorage.getItem(DATE_RANGE_FILTER_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw) as { from?: string; to?: string };
-          if (saved.from) {
-            params.set("from", saved.from);
+        if (raw !== null) {
+          hasStoredChoice = true;
+          const saved = JSON.parse(raw) as { all?: boolean; from?: string; to?: string };
+          if (saved.all) {
+            params.set("range", "all");
             changed = true;
-            restoredFromStorage = true;
-          }
-          if (saved.to) {
-            params.set("to", saved.to);
-            changed = true;
-            restoredFromStorage = true;
+          } else {
+            if (saved.from) {
+              params.set("from", saved.from);
+              changed = true;
+            }
+            if (saved.to) {
+              params.set("to", saved.to);
+              changed = true;
+            }
           }
         }
       } catch {}
@@ -76,8 +88,9 @@ export function FiltersUrlRestore() {
       // cai no atalho "Este mês" em vez de ficar sem filtro de data nenhum
       // (que varre o histórico inteiro da organização; ver o mesmo padrão em
       // page.tsx). Quem realmente quiser "Tudo" continua podendo escolher no
-      // filtro — essa escolha, sim, é respeitada e nunca sobrescrita aqui.
-      if (!restoredFromStorage) {
+      // filtro — essa escolha, sim, é respeitada e nunca sobrescrita aqui
+      // (ver `saved.all` acima, que nem entra neste bloco).
+      if (!hasStoredChoice) {
         const thisMonth = buildQuickRanges().find((q) => q.key === "this-month")!.range();
         params.set("from", thisMonth.from);
         params.set("to", thisMonth.to);

@@ -332,25 +332,33 @@ export async function MetaAdsReportView({
   organizationId,
   from,
   to,
+  range,
 }: {
   organizationId: string;
   /** "YYYY-MM-DD" (calendário de Brasília), vindo de ?from=&to= — mesmo
    * parâmetro de URL que o resto de Relatórios usa (ver date-range-filter.tsx).
    * Só usa o range da URL quando os DOIS vierem preenchidos (é como
    * DateRangeFilter sempre define os dois juntos, nunca um sozinho); faltando
-   * qualquer um dos dois, cai em "este mês" — mesmo padrão-de-quem-nunca-
-   * escolheu-nada que a aba Comercial já usa (ver lib/reports/commercial-data.ts). */
+   * qualquer um dos dois (e sem `range==="all"`, ver abaixo), cai em "este mês"
+   * — mesmo padrão-de-quem-nunca-escolheu-nada que a aba Comercial já usa
+   * (ver lib/reports/commercial-data.ts). */
   from?: string;
   to?: string;
+  /** "all" = Tudo escolhido explicitamente no filtro — precisa desse marcador
+   * PRÓPRIO porque from/to ausentes sozinhos são ambíguos demais ("escolheu
+   * Tudo" vs "nunca escolheu nada"); essa ambiguidade era exatamente o bug
+   * de "Tudo" virar silenciosamente "Este mês" nesta aba (mesmo raciocínio
+   * de lib/reports/commercial-data.ts's `isAllTime`). */
+  range?: string;
 }) {
+  const isAllTime = range === "all";
   const thisMonth = buildQuickRanges().find((q) => q.key === "this-month")!.range();
-  const since = from && to ? from : thisMonth.from;
-  const until = from && to ? to : thisMonth.to;
+  const period = isAllTime ? null : { since: from && to ? from : thisMonth.from, until: from && to ? to : thisMonth.to };
 
   return runWithTenant(organizationId, async () => {
     const [adSpendSummary, performance] = await Promise.all([
       getAdSpendSummary(organizationId),
-      getCampaignPerformance(organizationId, { since, until }),
+      getCampaignPerformance(organizationId, period),
     ]);
 
     return (

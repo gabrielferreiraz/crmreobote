@@ -9,6 +9,7 @@ import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
 import { resolveImportPlan, type ImportField } from "@/lib/deals/import-resolve";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
+import { publishDealsEvent } from "@/lib/deals/live-events";
 
 export const dynamic = "force-dynamic";
 
@@ -357,6 +358,13 @@ export async function POST(req: Request) {
       if (c.data.phoneNormalized || c.data.whatsappNormalized) {
         await linkOrphanThreadsForContact(organizationId, c.id, [c.data.phoneNormalized, c.data.whatsappNormalized]);
       }
+    }
+
+    // UM aviso só pro lote inteiro (não um por negócio importado, ver
+    // lib/deals/live-events.ts) — uma importação de centenas de linhas não
+    // pode virar centenas de refetch em cada aba de Pipeline aberta.
+    if (actualCreated > 0) {
+      publishDealsEvent(organizationId, { type: "deal-created", pipelineId });
     }
 
     logAudit({

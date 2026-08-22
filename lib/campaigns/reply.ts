@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { buildDealName } from "@/lib/deal-name";
 import { sendPushToUser } from "@/lib/push";
+import { publishDealsEvent } from "@/lib/deals/live-events";
 
 /**
  * Quando uma mensagem chega numa thread que tem um envio de campanha
@@ -77,6 +78,10 @@ export async function handleCampaignReply(
   });
 
   await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { dealId: deal.id } });
+
+  // Quem respondeu a campanha virou negócio sozinho — avisa quem estiver
+  // com o Pipeline aberto (ver lib/deals/live-events.ts).
+  publishDealsEvent(organizationId, { type: "deal-created", pipelineId });
 
   // Marca de antemão qualquer automação "Negócio criado → Enviar notificação
   // push" como já executada pra ESTE negócio — o push logo abaixo já avisa o

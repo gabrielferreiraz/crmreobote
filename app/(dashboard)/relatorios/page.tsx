@@ -29,6 +29,8 @@ export default async function RelatoriosPage({
     pipelineId?: string;
     from?: string;
     to?: string;
+    /** "all" = Tudo escolhido explicitamente no filtro (ver date-range-filter.tsx) — precisa ser distinguível de "nunca escolheu nada", ver lib/reports/commercial-data.ts. */
+    range?: string;
     who?: string;
     view?: string;
     processPipelineId?: string;
@@ -38,6 +40,7 @@ export default async function RelatoriosPage({
     pipelineId: pipelineIdParam,
     from: fromParam,
     to: toParam,
+    range: rangeParam,
     who: whoParam,
     view: viewParam,
     processPipelineId: processPipelineIdParam,
@@ -84,7 +87,11 @@ export default async function RelatoriosPage({
     return (
       <div className="space-y-6">
         <ReportTabs active="facebook" />
-        <MetaAdsReportView organizationId={organizationId} from={fromParam} to={toParam} />
+        {/* Mesmo mecanismo de restauração/padrão "Este mês" do relatório Comercial
+            (ver lib/reports/commercial-data.ts) — sem isso, "Tudo" escolhido aqui
+            não sobrevivia a um reload/nova aba, voltando pro "Este mês" sozinho. */}
+        <FiltersUrlRestore />
+        <MetaAdsReportView organizationId={organizationId} from={fromParam} to={toParam} range={rangeParam} />
       </div>
     );
   }
@@ -155,6 +162,7 @@ export default async function RelatoriosPage({
     pipelineIdParam,
     fromParam,
     toParam,
+    rangeParam,
     whoParam,
   });
 

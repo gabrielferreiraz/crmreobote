@@ -10,6 +10,7 @@ import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
+import { publishDealsEvent } from "@/lib/deals/live-events";
 
 export const dynamic = "force-dynamic";
 
@@ -201,6 +202,13 @@ export async function POST(req: Request) {
     recordUserChange(organizationId, userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
+    // Quem criou já vê o próprio negócio na hora (inserção otimista no
+    // diálogo que chamou isto) — isto aqui é pra QUALQUER OUTRA aba de
+    // Pipeline aberta no mesmo funil enxergar sem precisar de F5 (ver
+    // lib/deals/live-events.ts). Reaproveitado por toda via de criação
+    // manual: "Novo negócio" da Pipeline, "Cadastro rápido" e o botão da
+    // página do Cliente — todas passam por este mesmo POST.
+    publishDealsEvent(organizationId, { type: "deal-created", pipelineId });
 
     return NextResponse.json(deal, { status: 201 });
   });

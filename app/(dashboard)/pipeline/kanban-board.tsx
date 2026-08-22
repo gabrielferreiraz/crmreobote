@@ -116,6 +116,7 @@ export function KanbanBoard({
   quickFilter,
   onToggleQuickFilter,
   onTotalsChange,
+  reloadToken,
 }: {
   pipelineId: string;
   stages: Stage[];
@@ -159,6 +160,10 @@ export function KanbanBoard({
    * tela. */
   newDeal: Deal | null;
   onNewDealConsumed: () => void;
+  /** Sobe a cada evento ao vivo relevante (ver pipeline-view.tsx#useDealsLive)
+   * — só entra nas dependências do efeito de busca abaixo pra forçar um
+   * refetch completo, mesmo padrão de `reloadToken` em deals-list.tsx. */
+  reloadToken?: number;
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
@@ -420,7 +425,7 @@ export function KanbanBoard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter, pipelineId]);
+  }, [hydrated, debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter, pipelineId, reloadToken]);
 
   // Identidade estável (deps vazias) — lida com filtros/contagem carregada
   // via ref em vez de closure, pra não recriar a função (e derrubar o

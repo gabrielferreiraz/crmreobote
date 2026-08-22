@@ -240,6 +240,18 @@ export function TaskDetailModal({
               <span className="text-neutral-800 dark:text-neutral-200 font-medium">{task.owner.name}</span>
             </div>
           </div>
+
+          {/* Criado em — data/hora real de quando a tarefa nasceu (banco ou,
+              pra quem migrou do Agendor, a "Data de cadastro" da planilha
+              antiga, ver scripts/agendor/import-tarefas.ts), não confundir
+              com o Prazo mostrado no topo do modal (dueAt). */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 text-neutral-500 dark:text-neutral-400">
+              <Calendar className="h-4 w-4 shrink-0" strokeWidth={2} />
+              <span>Criado em</span>
+            </div>
+            <span className="text-neutral-800 dark:text-neutral-200 font-medium">{formatDateTime(task.createdAt)}</span>
+          </div>
         </div>
 
         {/* Footer Actions */}

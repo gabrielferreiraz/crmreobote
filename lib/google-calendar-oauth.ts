@@ -237,21 +237,31 @@ export type CreateGoogleCalendarEventInput = {
   description?: string | null;
   start: Date;
   end: Date;
+  /** Pede um link do Google Meet junto com o evento (ver app/api/tasks/[id]/create-google-meet/route.ts) — ignorado se ausente/false (comportamento de sempre). */
+  withMeet?: boolean;
 };
 
 /**
  * Contraparte de escrita de fetchGoogleCalendarEvents — cria o evento de
- * verdade no calendário principal da conta conectada. Usada só pelo
- * agendamento de reunião via API v1 (ver
- * app/api/v1/appointments/route.ts); precisa do escopo calendar.events (ver
- * SCOPES acima) — uma conexão antiga (só leitura) falha aqui com 403 até o
- * consultor reconectar.
+ * verdade no calendário principal da conta conectada. Usada pelo
+ * agendamento de reunião via API v1 (ver app/api/v1/appointments/route.ts)
+ * e pela criação manual de reunião no CRM (ver
+ * app/api/tasks/[id]/create-google-meet/route.ts); precisa do escopo
+ * calendar.events (ver SCOPES acima) — uma conexão antiga (só leitura)
+ * falha aqui com 403 até o consultor reconectar.
  */
 export async function createGoogleCalendarEvent(
   accessToken: string,
   input: CreateGoogleCalendarEventInput,
-): Promise<{ id: string; htmlLink: string }> {
-  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+): Promise<{ id: string; htmlLink: string; meetLink: string | null }> {
+  const params = new URLSearchParams();
+  // conferenceDataVersion=1 é OBRIGATÓRIO pro Google honrar o campo
+  // conferenceData abaixo — sem isso na URL, a API aceita a chamada
+  // (200 OK) mas cria o evento SEM conferência nenhuma, silenciosamente.
+  if (input.withMeet) params.set("conferenceDataVersion", "1");
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events${params.toString() ? `?${params}` : ""}`;
+
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -262,6 +272,16 @@ export async function createGoogleCalendarEvent(
       description: input.description ?? undefined,
       start: { dateTime: input.start.toISOString() },
       end: { dateTime: input.end.toISOString() },
+      ...(input.withMeet
+        ? {
+            conferenceData: {
+              // requestId só precisa ser único por chamada — o Google usa
+              // pra deduplicar retry da MESMA requisição, não identifica
+              // nada nosso depois.
+              createRequest: { requestId: `meet-${Date.now()}-${Math.random().toString(36).slice(2)}`, conferenceSolutionKey: { type: "hangoutsMeet" } },
+            },
+          }
+        : {}),
     }),
     // Mesmo motivo do timeout em requestGoogleToken/fetchGoogleCalendarEvents
     // acima — falha rápido em vez de segurar a resposta do agendamento
@@ -272,6 +292,16 @@ export async function createGoogleCalendarEvent(
     const text = await res.text().catch(() => "");
     throw new Error(`Falha ao criar evento no Google Agenda: ${res.status} ${text.slice(0, 300)}`);
   }
-  const data = (await res.json()) as { id: string; htmlLink: string };
-  return { id: data.id, htmlLink: data.htmlLink };
+  const data = (await res.json()) as {
+    id: string;
+    htmlLink: string;
+    conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+  };
+  // Achado real: a criação da conferência pode não estar pronta ainda na
+  // MESMA resposta (assíncrono do lado do Google, raro mas documentado) —
+  // nesse caso simplesmente não tem link nenhum aqui; melhor devolver null
+  // (evento criado, sem Meet) do que falhar a chamada inteira por causa
+  // disso.
+  const meetLink = data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ?? null;
+  return { id: data.id, htmlLink: data.htmlLink, meetLink };
 }

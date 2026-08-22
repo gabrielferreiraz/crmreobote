@@ -42,9 +42,18 @@ export async function getCommercialReportData(params: {
   pipelineIdParam?: string;
   fromParam?: string;
   toParam?: string;
+  /**
+   * "all" = Tudo escolhido explicitamente no filtro (ver date-range-filter.tsx)
+   * — precisa de um marcador PRÓPRIO porque fromParam/toParam ausentes
+   * sozinhos são ambíguos (podem significar "escolheu Tudo" OU "nunca
+   * escolheu nada"), e essa ambiguidade era exatamente o bug de "Tudo"
+   * silenciosamente virar "Este mês" (o `defaultRange` abaixo entrava mesmo
+   * quando a pessoa tinha escolhido Tudo de propósito).
+   */
+  rangeParam?: string;
   whoParam?: string;
 }) {
-  const { organizationId, userId, session, pipelineIdParam, fromParam, toParam, whoParam } = params;
+  const { organizationId, userId, session, pipelineIdParam, fromParam, toParam, rangeParam, whoParam } = params;
 
   return runWithTenant(organizationId, async () => {
   // `pipelines` não depende de `scope`/`visibleMembers` (só de organizationId)
@@ -112,25 +121,38 @@ export async function getCommercialReportData(params: {
   // lib/timezone.ts), então `new Date("YYYY-MM-DDT00:00:00")` direto
   // interpretaria como meia-noite UTC, 3h adiantada da meia-noite real de
   // Brasília, deslocando o filtro inteiro.
-  // Sem from/to na URL: cai no mesmo padrão "Este mês" do atalho do filtro
-  // (buildQuickRanges()[0]) em vez de "Tudo" (histórico inteiro). Sem isso, a
-  // 1ª visita (e qualquer navegação com a URL "em branco", antes do redirect
-  // client-side de FiltersUrlRestore restaurar o último filtro salvo) varria
-  // Deal/Contact/WhatsAppMessage inteiros sem filtro de data nenhum — com a
-  // escala real da organização, isso sozinho já explicava a tela travar ao
-  // abrir. "Tudo" continua escolhível de propósito no filtro, só não é mais
-  // o padrão de quem nunca escolheu nada.
-  const defaultRange = fromParam || toParam ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
-  const rangeFrom = fromParam
-    ? brazilDateStringToUTC(fromParam)
-    : defaultRange
-      ? brazilDateStringToUTC(defaultRange.from)
-      : null;
-  const rangeTo = toParam
-    ? brazilEndOfDayUTC(toParam)
-    : defaultRange
-      ? brazilEndOfDayUTC(defaultRange.to)
-      : null;
+  // Sem from/to/range na URL: cai no mesmo padrão "Este mês" do atalho do
+  // filtro (buildQuickRanges()[0]) em vez de "Tudo" (histórico inteiro). Sem
+  // isso, a 1ª visita (e qualquer navegação com a URL "em branco", antes do
+  // redirect client-side de FiltersUrlRestore restaurar o último filtro
+  // salvo) varria Deal/Contact/WhatsAppMessage inteiros sem filtro de data
+  // nenhum — com a escala real da organização, isso sozinho já explicava a
+  // tela travar ao abrir.
+  // "Tudo" continua escolhível de propósito no filtro — mas precisa do
+  // marcador `rangeParam === "all"` pra ser reconhecido aqui: sem ele, "Tudo"
+  // e "nunca escolheu nada" chegavam exatamente iguais (from/to os dois
+  // ausentes), e o `defaultRange` abaixo entrava pros dois casos — bug real
+  // já em produção, quem escolhia "Tudo" no filtro via os números do "Este
+  // mês" mesmo assim, sem nenhum aviso. `isAllTime` corta esse caminho antes
+  // de qualquer coisa: com Tudo, rangeFrom/rangeTo ficam null direto, nem
+  // olha fromParam/toParam/defaultRange.
+  const isAllTime = rangeParam === "all";
+  const defaultRange =
+    isAllTime || fromParam || toParam ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
+  const rangeFrom = isAllTime
+    ? null
+    : fromParam
+      ? brazilDateStringToUTC(fromParam)
+      : defaultRange
+        ? brazilDateStringToUTC(defaultRange.from)
+        : null;
+  const rangeTo = isAllTime
+    ? null
+    : toParam
+      ? brazilEndOfDayUTC(toParam)
+      : defaultRange
+        ? brazilEndOfDayUTC(defaultRange.to)
+        : null;
   const dateWhere = (field: "closedAt" | "createdAt" | "sentAt") =>
     rangeFrom || rangeTo
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
@@ -355,6 +377,26 @@ export async function getCommercialReportData(params: {
     meetingVisitByUser.set(row.userId, prev);
   }
 
+  // ─── Quem CONTA como time atual pros rankings abaixo ───────────────────
+  // peopleIds (acima) inclui todo mundo que já foi dono de negócio/reunião
+  // um dia — inclusive quem já SAIU da empresa (o negócio antigo continua
+  // no banco com o ownerId de quem fechou, não é reatribuído sozinho quando
+  // alguém é desativado). Isso é o comportamento certo pros totais da
+  // organização (funil, faturamento, "Total ganho" etc. — dinheiro que a
+  // empresa ganhou continua contando mesmo que quem vendeu não trabalhe
+  // mais aqui, igual todo CRM de mercado trata receita histórica), mas é
+  // errado pra um RANKING DE TIME: ninguém espera ver um ex-consultor
+  // disputando "quem converte melhor" com o time atual. visibleMembers já é
+  // exatamente "quem está ativo e dentro do escopo de quem está vendo"
+  // (ver declaração acima) — mesma lista que já alimenta o filtro de
+  // responsável/equipe, reaproveitada aqui como a régua de "conta pro
+  // ranking". Aplicado só nos rankings POR PESSOA abaixo (dealsClosedRanking,
+  // meetingsRanking, attendanceRanking, conversionRanking, crmTimeRanking,
+  // crmChangesRanking, sellerWhatsappCards) — os totais/gráficos da
+  // organização (winRate, wonTotalValue, statusSlices, monthTrend,
+  // attendanceRateOverall etc.) de propósito NÃO filtram por isso.
+  const activeMemberIds = new Set(visibleMembers.map((m) => m.userId));
+
   const wonByOwnerMap = new Map(wonByOwner.map((w) => [w.ownerId, w]));
   const lostByOwnerMap = new Map(lostByOwner.map((l) => [l.ownerId, l]));
   const openByOwnerMap = new Map(openByOwner.map((o) => [o.ownerId, o]));
@@ -409,7 +451,7 @@ export async function getCommercialReportData(params: {
   // é isso que esse card precisa destacar primeiro (valor em negrito,
   // contagem só como contexto embaixo — antes era o contrário).
   const dealsClosedRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.wonCount > 0)
+    .filter((o) => activeMemberIds.has(o.id) && o.wonCount > 0)
     .sort((a, b) => b.wonValue - a.wonValue || b.wonCount - a.wonCount)
     .map((o) => ({
       id: o.id,
@@ -420,7 +462,7 @@ export async function getCommercialReportData(params: {
     }));
 
   const meetingsRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.meetingsAndVisitsCount > 0)
+    .filter((o) => activeMemberIds.has(o.id) && o.meetingsAndVisitsCount > 0)
     .sort((a, b) => b.meetingsAndVisitsCount - a.meetingsAndVisitsCount)
     .map((o) => ({
       id: o.id,
@@ -438,7 +480,7 @@ export async function getCommercialReportData(params: {
   // não ajuda a achar quem realmente tem volume suficiente pra a taxa
   // significar algo.
   const attendanceRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.attendedCount + o.noShowCount > 0)
+    .filter((o) => activeMemberIds.has(o.id) && o.attendedCount + o.noShowCount > 0)
     .sort((a, b) => b.attendedCount + b.noShowCount - (a.attendedCount + a.noShowCount))
     .map((o) => ({
       id: o.id,
@@ -468,7 +510,7 @@ export async function getCommercialReportData(params: {
   // Só entra quem tem pelo menos 1 negócio na mão; não exige ter decidido
   // nada ainda (diferente da régua antiga).
   const conversionRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.conversionRate !== null)
+    .filter((o) => activeMemberIds.has(o.id) && o.conversionRate !== null)
     .sort((a, b) => (b.conversionRate ?? 0) - (a.conversionRate ?? 0) || b.wonCount - a.wonCount)
     .map((o) => ({
       id: o.id,
@@ -479,7 +521,7 @@ export async function getCommercialReportData(params: {
     }));
 
   const crmTimeRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.activeSeconds > 0)
+    .filter((o) => activeMemberIds.has(o.id) && o.activeSeconds > 0)
     .sort((a, b) => b.activeSeconds - a.activeSeconds)
     .slice(0, 8)
     .map((o) => ({
@@ -491,7 +533,7 @@ export async function getCommercialReportData(params: {
     }));
 
   const crmChangesRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => o.changeCount > 0)
+    .filter((o) => activeMemberIds.has(o.id) && o.changeCount > 0)
     .sort((a, b) => b.changeCount - a.changeCount)
     .slice(0, 8)
     .map((o) => ({
@@ -609,10 +651,11 @@ export async function getCommercialReportData(params: {
   // isso buscava TODO negócio decidido (WON+LOST) da organização inteira pra
   // agrupar na mão em JS. Numa organização com histórico migrado (dezenas de
   // milhares de negócios já decididos), isso significava trazer todas essas
-  // linhas pro Node em TODA visita ao relatório sem filtro de data (o padrão
-  // da página, "Tudo"). Reescrito como agregação SQL (GROUP BY já em
-  // Postgres) — só os poucos grupos por cargo trafegam de volta, não uma
-  // linha por negócio. Precisa de `prismaRaw.$transaction` + `setTenantOnTx`
+  // linhas pro Node toda vez que o filtro de data está em "Tudo" (ver
+  // `isAllTime` acima — não é mais o padrão de quem nunca escolheu nada,
+  // mas continua escolhível de propósito). Reescrito como agregação SQL
+  // (GROUP BY já em Postgres) — só os poucos grupos por cargo trafegam de
+  // volta, não uma linha por negócio. Precisa de `prismaRaw.$transaction` + `setTenantOnTx`
   // porque `$queryRaw` não passa pela extensão de RLS de lib/prisma.ts (que
   // só intercepta operações de modelo, não consultas cruas) — sem isso a
   // policy de RLS (FORCE ROW LEVEL SECURITY) bloquearia tudo em silêncio.
@@ -1353,10 +1396,17 @@ export async function getCommercialReportData(params: {
   // métricas complementares) — bem melhor de ler do que duas tabelas largas
   // que a pessoa tem que cruzar mentalmente pelo nome.
   const dealWhatsappStatsByUser = new Map(dealWhatsappStats.map((d) => [d.userId, d]));
-  const sellerWhatsappCards = whatsappStats.map((w) => ({
-    ...w,
-    deal: dealWhatsappStatsByUser.get(w.userId) ?? null,
-  }));
+  // Mesmo raciocínio de activeMemberIds acima (ver comentário perto de
+  // ownerStats) — instância de WhatsApp de quem já saiu pode continuar no
+  // banco (só é limpa quando cai a conexão, ver cleanupInstanceIfDisconnected
+  // em api/org/members/[userId]/route.ts), então sem esse filtro um
+  // ex-consultor aparecia aqui também.
+  const sellerWhatsappCards = whatsappStats
+    .filter((w) => activeMemberIds.has(w.userId))
+    .map((w) => ({
+      ...w,
+      deal: dealWhatsappStatsByUser.get(w.userId) ?? null,
+    }));
 
   // ─── Meta mensal ────────────────────────────────────────────────────
   // Sempre o mês corrente (calendário de Brasília), independente do filtro

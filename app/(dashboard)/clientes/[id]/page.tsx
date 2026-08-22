@@ -200,6 +200,19 @@ export default async function ContactPage({
             { label: "Cargo", value: contact.jobTitle ?? "—" },
             { label: "Origem", value: contact.source ?? "—" },
             { label: "Responsável", value: contact.responsavel?.name ?? "—" },
+            // Data/hora real de cadastro — vem certa até pra quem migrou do
+            // Agendor (ver scripts/agendor/import-pessoas.ts, que já grava o
+            // createdAt real da planilha antiga, não a data desta importação).
+            {
+              label: "Cadastrado em",
+              value: contact.createdAt.toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            },
             ...customFields
               .map((def) => ({ label: def.label, value: stringifyCustomFieldValue(def, customFieldValues[def.id] ?? null) }))
               .filter((row) => row.value),

@@ -376,7 +376,8 @@ export function NewTaskDialog({
         title: created.title,
         dueAt: created.dueAt,
         contact: { id: created.contact.id, name: created.contact.name, phone: created.contact.phone, whatsapp: created.contact.whatsapp },
-        owner: { name: created.owner.name },
+        owner: { id: created.owner.id, name: created.owner.name },
+        ownerHasGoogleCalendarWriteAccess: !!created.ownerGoogleCalendarWriteConnected,
       });
       return;
     }

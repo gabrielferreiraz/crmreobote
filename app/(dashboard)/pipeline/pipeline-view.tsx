@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Kanban, List, Upload, History, Plus, TrendingUp } from "lucide-react";
 import { DealImportDialog } from "@/components/deal-import-dialog";
@@ -15,6 +15,7 @@ import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filt
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineTitleSelect } from "./pipeline-title-select";
+import { useDealsLive } from "@/lib/use-deals-live";
 
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
@@ -153,6 +154,10 @@ export function PipelineView({
   // precisa avisar "algo mudou, busque nem que seja a mesma página/filtro de
   // novo" quando um negócio é criado ou uma importação termina.
   const [listaReloadToken, setListaReloadToken] = useState(0);
+  // Mesma ideia, só que pro Kanban — ele não tinha um "avisa que mudou algo
+  // fora daqui" antes de existir o canal ao vivo (ver useDealsLive abaixo);
+  // só reagia a filtro/pipeline mudando.
+  const [kanbanReloadToken, setKanbanReloadToken] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
@@ -165,6 +170,26 @@ export function PipelineView({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewDeal]);
+
+  // Atualização ao vivo (SSE, ver lib/deals/live-events.ts) — negócio novo
+  // em QUALQUER lugar (webhook do Meta Ads, criação manual de outra pessoa,
+  // API pública, importação, resposta de campanha de WhatsApp) faz o
+  // Kanban/Lista buscarem de novo sozinhos, sem precisar de F5. Filtra por
+  // pipelineId: evento de outro funil não deveria disparar refetch aqui — o
+  // usuário nem está vendo aquele funil agora. Debounce curto (não
+  // instantâneo): uma importação publica um aviso só pro lote inteiro, mas
+  // ainda assim vários avisos podem chegar próximos um do outro (2 leads do
+  // Facebook quase ao mesmo tempo); sem isso, cada um disparava seu próprio
+  // refetch completo em paralelo, à toa.
+  const dealsLiveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useDealsLive((event) => {
+    if (event.pipelineId !== pipelineId) return;
+    if (dealsLiveDebounce.current) clearTimeout(dealsLiveDebounce.current);
+    dealsLiveDebounce.current = setTimeout(() => {
+      setListaReloadToken((t) => t + 1);
+      setKanbanReloadToken((t) => t + 1);
+    }, 800);
+  });
 
   // Ressincroniza quando o funil ativo muda (troca no seletor, ver
   // pipelineId acima) — sem isso, kanbanTotals ficava preso ao total do
@@ -313,6 +338,7 @@ export function PipelineView({
           quickFilter={quickFilter}
           onToggleQuickFilter={toggleQuickFilter}
           onTotalsChange={setKanbanTotals}
+          reloadToken={kanbanReloadToken}
         />
       ) : (
         <DealsList

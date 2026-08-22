@@ -61,6 +61,7 @@ export function DateRangeFilter() {
 
   function applyRange(from: string, to: string) {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("range");
     if (from) params.set("from", from);
     else params.delete("from");
     if (to) params.set("to", to);
@@ -68,8 +69,30 @@ export function DateRangeFilter() {
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
     try {
-      if (from || to) localStorage.setItem(DATE_RANGE_FILTER_KEY, JSON.stringify({ from, to }));
-      else localStorage.removeItem(DATE_RANGE_FILTER_KEY);
+      localStorage.setItem(DATE_RANGE_FILTER_KEY, JSON.stringify({ from, to }));
+    } catch {}
+    setOpen(false);
+    setShowCustom(false);
+  }
+
+  /**
+   * "Tudo" precisa de um marcador PRÓPRIO na URL (?range=all) — ausência de
+   * from/to sozinha é ambígua demais (pode ser "escolheu Tudo" ou "nunca
+   * escolheu nada"), e essa ambiguidade é exatamente o bug que fazia "Tudo"
+   * silenciosamente virar "Este mês" (ver mesmo raciocínio em
+   * lib/reports/commercial-data.ts e filters-url-restore.tsx). Nunca usa
+   * applyRange("","") pra isso — precisa gravar `range=all` explicitamente,
+   * não só limpar from/to.
+   */
+  function applyAll() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("from");
+    params.delete("to");
+    params.set("range", "all");
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+    try {
+      localStorage.setItem(DATE_RANGE_FILTER_KEY, JSON.stringify({ all: true }));
     } catch {}
     setOpen(false);
     setShowCustom(false);
@@ -79,8 +102,8 @@ export function DateRangeFilter() {
     const r = q.range();
     return r.from === activeFrom && r.to === activeTo;
   })?.key;
-  const isAllActive = !activeFrom && !activeTo;
-  const isCustomActive = !activeQuickKey && !isAllActive;
+  const isAllActive = searchParams.get("range") === "all";
+  const isCustomActive = !activeQuickKey && !isAllActive && !!activeFrom && !!activeTo;
 
   const activeLabel = isAllActive
     ? "Tudo"
@@ -114,7 +137,7 @@ export function DateRangeFilter() {
         <div className="surface-glass animate-pop-in absolute right-0 z-30 mt-1 w-72 rounded-lg p-2 shadow-xl">
           {!showCustom ? (
             <div className="space-y-0.5">
-              <button type="button" onClick={() => applyRange("", "")} className={optionClass(isAllActive)}>
+              <button type="button" onClick={applyAll} className={optionClass(isAllActive)}>
                 Tudo
                 {isAllActive && <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />}
               </button>

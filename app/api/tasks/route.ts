@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
+import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -107,6 +108,16 @@ export async function POST(req: Request) {
       console.error("[user-activity] falha ao registrar alteração", err),
     );
 
-    return NextResponse.json(task, { status: 201 });
+    // Só consultada pra Reunião — é o único tipo que usa isso (ver
+    // MeetingInviteDialog), poupa a consulta à toa nos outros 7 tipos.
+    // Calculado aqui (não num round-trip à parte do cliente) porque
+    // MeetingInviteDialog já abre imediatamente após esta resposta.
+    let ownerGoogleCalendarWriteConnected = false;
+    if (taskType === "MEETING") {
+      const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId: task.ownerId } });
+      ownerGoogleCalendarWriteConnected = !!connection && hasCalendarWriteScope(connection.scope);
+    }
+
+    return NextResponse.json({ ...task, ownerGoogleCalendarWriteConnected }, { status: 201 });
   });
 }

@@ -8,6 +8,7 @@ import { pickOwnerId } from "@/lib/auto-assign";
 import { buildDealName } from "@/lib/deal-name";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { dealInputSchema, firstZodMessage } from "@/lib/api/v1-schemas";
+import { publishDealsEvent } from "@/lib/deals/live-events";
 
 export const dynamic = "force-dynamic";
 
@@ -146,6 +147,10 @@ export async function POST(req: Request) {
       },
       include: { contact: true, owner: true, stage: true },
     });
+
+    // Integração externa (Zapier/Make/n8n/CRM legado etc.) criou o negócio —
+    // avisa quem estiver com o Pipeline aberto (ver lib/deals/live-events.ts).
+    publishDealsEvent(access.organizationId, { type: "deal-created", pipelineId });
 
     return apiSuccess(
       {

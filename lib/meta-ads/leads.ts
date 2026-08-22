@@ -12,6 +12,7 @@ import { fetchLeadDetails, type LeadDetails } from "@/lib/meta-ads";
 import { upsertContactFromIntegration } from "@/lib/api/upsert-contact";
 import { pickOwnerId } from "@/lib/auto-assign";
 import { buildDealName } from "@/lib/deal-name";
+import { publishDealsEvent } from "@/lib/deals/live-events";
 
 function leadDisplayName(lead: LeadDetails): string {
   if (lead.fields.name) return lead.fields.name;
@@ -56,6 +57,11 @@ async function createDealForLead(
       name: buildDealName(contact.name, lead.campaignName ?? contact.source ?? "Facebook Ads"),
     },
   });
+
+  // Avisa quem estiver com o Pipeline aberto — é exatamente o caso que
+  // motivou isso: lead do Facebook cai direto num negócio novo, sem ninguém
+  // apertar F5 (ver lib/deals/live-events.ts).
+  publishDealsEvent(organizationId, { type: "deal-created", pipelineId: defaultPipeline.id });
 }
 
 export async function processLeadgenEvent(organizationId: string, leadgenId: string, pageAccessToken: string): Promise<void> {
