@@ -8,6 +8,7 @@ import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { TaskDetailModal } from "./task-detail-modal";
 import { GoogleEventDetailModal } from "./google-event-detail-modal";
+import { useMeetingOutcomeGate } from "./use-meeting-outcome-gate";
 
 export type GoogleEvent = {
   id: string;
@@ -43,7 +44,7 @@ export function TaskCalendar({
   googleEvents = [],
 }: {
   tasks: Task[];
-  onToggle: (id: string, completed: boolean) => void;
+  onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
   /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
@@ -55,6 +56,11 @@ export function TaskCalendar({
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleEvent | null>(null);
+  // "selectedTask" abre TaskDetailModal por FORA do TaskRow (a grade do mês
+  // mostra bolhas próprias, não TaskRow) — precisa da mesma trava que
+  // TaskRow.handleToggle já tem, senão concluir uma Reunião/Visita por aqui
+  // pula a pergunta de resultado inteira.
+  const { requestComplete, dialog: outcomeDialog } = useMeetingOutcomeGate(onToggle);
   const today = useMemo(() => startOfDay(new Date()), []);
 
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -266,6 +272,10 @@ export function TaskCalendar({
           onClose={() => setSelectedTask(null)}
           onToggle={() => {
             const next = !selectedTask.completedAt;
+            if (next && requestComplete(selectedTask)) {
+              setSelectedTask(null);
+              return;
+            }
             onToggle(selectedTask.id, next);
             setSelectedTask(null);
           }}
@@ -277,6 +287,7 @@ export function TaskCalendar({
       {selectedGoogleEvent && (
         <GoogleEventDetailModal event={selectedGoogleEvent} onClose={() => setSelectedGoogleEvent(null)} />
       )}
+      {outcomeDialog}
     </div>
   );
 }

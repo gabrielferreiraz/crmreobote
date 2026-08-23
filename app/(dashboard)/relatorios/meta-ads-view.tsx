@@ -111,21 +111,24 @@ function aggregatePerformance(rows: CampaignPerformanceRow[]) {
     costPerLead: spend != null && agg.leads > 0 ? spend / agg.leads : null,
     costPerMeeting: spend != null && agg.meetingLeads > 0 ? spend / agg.meetingLeads : null,
     costPerWon: spend != null && agg.won > 0 ? spend / agg.won : null,
+    avgWonValue: agg.won > 0 ? agg.wonValue / agg.won : null,
     roi: spend != null && spend > 0 ? (agg.wonValue - spend) / spend : null,
   };
 }
 
 /**
  * Cards de resumo do período — hierarquia em duas camadas em vez dos 7 com o
- * mesmo peso visual de antes: 4 números que decidem se a campanha vale a
- * pena (Leads → Reunião/Visita → Vendas, o funil de dinheiro em si, + ROI)
- * em destaque; 3 números de diagnóstico (por que um lead NÃO virou venda)
- * menores e discretos logo abaixo — pra bater o olho no que importa primeiro.
+ * mesmo peso visual de antes: 5 números que decidem se a campanha vale a
+ * pena (Leads → Reunião/Visita → Vendas → Valor ganho, o funil de dinheiro em
+ * si, + ROI) em destaque; 3 números de diagnóstico (por que um lead NÃO virou
+ * venda) menores e discretos logo abaixo — pra bater o olho no que importa
+ * primeiro. "Valor ganho" (com ticket médio) ganhou card próprio — antes só
+ * aparecia pequeno, junto do ROI, e nenhum card mostrava ticket médio.
  */
 function PerformanceSummaryCards({ agg }: { agg: ReturnType<typeof aggregatePerformance> }) {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <div className="card space-y-1 p-4">
           <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
             <Megaphone className="h-3.5 w-3.5" />
@@ -156,6 +159,19 @@ function PerformanceSummaryCards({ agg }: { agg: ReturnType<typeof aggregatePerf
             {agg.costPerWon != null ? `${formatCurrency(agg.costPerWon)}/venda` : "sem dado de gasto"}
           </div>
         </div>
+        {/* Destaque igual ao "Total ganho" da aba Comercial (mesma cor/peso
+            visual) — é o número que fecha a pergunta "valeu o gasto?", não
+            devia ficar escondido como legenda pequena do card de ROI. */}
+        <div className="card space-y-1 border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/60 dark:bg-emerald-500/10">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            <Wallet className="h-3.5 w-3.5" />
+            Valor ganho
+          </div>
+          <div className="text-3xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(agg.wonValue)}</div>
+          <div className="text-xs text-emerald-700/70 dark:text-emerald-400/70">
+            {agg.avgWonValue != null ? `Ticket médio ${formatCurrency(agg.avgWonValue)}` : "Sem venda no período"}
+          </div>
+        </div>
         <div className="card space-y-1 p-4">
           <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
             <TrendingUp className="h-3.5 w-3.5" />
@@ -170,7 +186,7 @@ function PerformanceSummaryCards({ agg }: { agg: ReturnType<typeof aggregatePerf
             <div className="text-3xl font-semibold text-neutral-400 dark:text-neutral-500">—</div>
           )}
           <div className="text-xs text-neutral-500 dark:text-neutral-400">
-            {formatCurrency(agg.wonValue)} ganho{agg.spend != null ? ` · ${formatCurrency(agg.spend)} gasto` : ""}
+            {agg.spend != null ? `${formatCurrency(agg.spend)} gasto` : "sem dado de gasto"}
           </div>
         </div>
       </div>
@@ -383,9 +399,10 @@ export async function MetaAdsReportView({
         <div className="card p-4 text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Período:</strong> conta pela data em que o LEAD chegou, não pela data em que fechou — um lead que chegou este mês e só vira venda mês que vem continua contando neste mês (é quando o gasto que trouxe ele foi feito).</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Não responderam:</strong> teve conversa de WhatsApp iniciada mas nunca respondeu nada — não inclui quem nunca chegou a ser contatado.</div>
-          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Reunião/Visita:</strong> ao menos um encontro marcado como "Compareceu" (ver seletor ao registrar Reunião/Visita na página do negócio) — sem resposta registrada (histórico anterior a essa opção existir) também conta aqui, nunca como no-show.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Reunião/Visita:</strong> ao menos um encontro marcado como "Realizada" (resultado perguntado ao concluir a tarefa de Reunião/Visita, não mais ao criar) — histórico sem resposta registrada (anterior a essa opção existir) também conta aqui, nunca como no-show; já um encontro cuja tarefa ainda não foi concluída fica de fora dos dois até ter resposta.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">No-show:</strong> ao menos um encontro marcado como "Não compareceu". Não é o oposto de Reunião/Visita — um lead pode ter levado um no-show numa data e comparecido na remarcação, contando nos dois.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Qualificado/Desqualificado:</strong> classificação manual na página do negócio. Só "Qualificado" dispara um evento &quot;Lead&quot; pra Conversions API da Meta — "Desqualificado" fica só neste relatório.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Ticket médio:</strong> valor ganho ÷ vendas, da própria campanha (ou do período todo, no card de resumo) — não é o ticket médio geral da organização.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">ROI:</strong> (valor ganho − gasto) ÷ gasto, no período. Sem dado de gasto (campanha manual, ou Meta Ads não conectado), fica sem número em vez de mostrar 0%.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">manual:</strong> campanha sem lead real do Facebook/Instagram — é um agrupamento pela Origem do contato marcada como anúncio, sem gasto associado (a Meta não sabe que ela existe).</div>
         </div>

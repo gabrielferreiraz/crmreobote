@@ -8,6 +8,7 @@ import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
+import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/meeting-outcome-dialog";
 import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -48,7 +49,7 @@ type Activity = {
   type: string;
   body: string | null;
   createdAt: string | Date;
-  meetingOutcome: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | null;
+  meetingOutcome: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | null;
   user: { name: string; photoUrl: string | null };
 };
 
@@ -137,16 +138,26 @@ function ActivityItem({ activity, highlighted }: { activity: Activity; highlight
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
-          {activity.meetingOutcome && activity.meetingOutcome !== "ATTENDED" && (
-            <span
-              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                activity.meetingOutcome === "NO_SHOW"
-                  ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
-                  : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-              }`}
-            >
-              {MEETING_OUTCOME_OPTIONS.find((o) => o.value === activity.meetingOutcome)?.label}
+          {/* PENDING = aguardando a Task ligada concluir (ver
+              ActivityMeetingOutcome no schema) — rótulo próprio, não vem de
+              MEETING_OUTCOME_OPTIONS (esse só tem os 3 resultados finais). */}
+          {activity.meetingOutcome === "PENDING" ? (
+            <span className="shrink-0 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              Aguardando
             </span>
+          ) : (
+            activity.meetingOutcome &&
+            activity.meetingOutcome !== "ATTENDED" && (
+              <span
+                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                  activity.meetingOutcome === "NO_SHOW"
+                    ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
+                    : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                }`}
+              >
+                {MEETING_OUTCOME_OPTIONS.find((o) => o.value === activity.meetingOutcome)?.label}
+              </span>
+            )
           )}
         </div>
         <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
@@ -214,10 +225,17 @@ export function DealDetail({
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   // Só pedido (e só mandado pro servidor) quando activeTab é Reunião/Visita
-  // — ver seletor perto do botão "Registrar". Default "compareceu" de
-  // propósito: é o caso mais comum, minimiza clique pra quem só quer
-  // registrar rápido; quem precisa marcar diferente muda antes de enviar.
-  const [meetingOutcome, setMeetingOutcome] = useState<"ATTENDED" | "NO_SHOW" | "RESCHEDULED">("ATTENDED");
+  // E não tem Prazo preenchido — com Prazo, uma Task vai ser criada junto,
+  // e o resultado passa a ser perguntado só na CONCLUSÃO dela (ver
+  // MeetingOutcomeDialog mais abaixo), não aqui. Sem Prazo é um registro
+  // retroativo (algo que já aconteceu, sem tarefa futura pra "pendurar" a
+  // pergunta depois) — pergunta na hora, sem pré-seleção (era o próprio
+  // problema que essa mudança corrige: "Compareceu" marcado por padrão
+  // registrava comparecimento antes do encontro acontecer).
+  const [meetingOutcome, setMeetingOutcome] = useState<"ATTENDED" | "NO_SHOW" | "RESCHEDULED" | null>(null);
+  // Id da Task MEETING/VISIT sendo concluída — abre o MeetingOutcomeDialog
+  // em vez de concluir direto (ver toggleTask).
+  const [meetingOutcomeTaskId, setMeetingOutcomeTaskId] = useState<string | null>(null);
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
   const [wonDialogOpen, setWonDialogOpen] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
@@ -449,11 +467,36 @@ export function DealDetail({
   }
 
   async function toggleTask(taskId: string, completed: boolean) {
+    // Concluindo (não desmarcando) uma Reunião/Visita — precisa do
+    // resultado antes (ver MeetingOutcomeDialog); desmarcar continua
+    // instantâneo, igual antes.
+    if (completed) {
+      const task = deal.tasks.find((t) => t.id === taskId);
+      if (task && (task.type === "MEETING" || task.type === "VISIT")) {
+        setMeetingOutcomeTaskId(taskId);
+        return;
+      }
+    }
     await fetch(`/api/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed }),
     });
+    router.refresh();
+  }
+
+  async function resolveMeetingOutcome(result: MeetingOutcomeResult) {
+    if (!meetingOutcomeTaskId) return;
+    await fetch(`/api/tasks/${meetingOutcomeTaskId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        result.outcome === "RESCHEDULED"
+          ? { meetingOutcome: "RESCHEDULED", dueAt: result.dueAt }
+          : { completed: true, meetingOutcome: result.outcome },
+      ),
+    });
+    setMeetingOutcomeTaskId(null);
     router.refresh();
   }
 
@@ -511,15 +554,29 @@ export function DealDetail({
     setSaving(true);
 
     const isMeetingOrVisit = activeTab === "MEETING" || activeTab === "VISIT";
-    await fetch(`/api/deals/${deal.id}/activities`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: activeTab,
-        activityBody: body,
-        ...(isMeetingOrVisit ? { meetingOutcome } : {}),
-      }),
-    });
+    // Com Prazo, uma Task vai ser criada logo abaixo e o resultado passa a
+    // ser perguntado só na conclusão dela — PENDING aqui é só o estado
+    // inicial "aguardando". Sem Prazo não existe conclusão futura nenhuma
+    // pra perguntar depois, então usa o que foi escolhido no seletor.
+    let activityId: string | undefined;
+    if (isMeetingOrVisit) {
+      const activityRes = await fetch(`/api/deals/${deal.id}/activities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: activeTab,
+          activityBody: body,
+          meetingOutcome: dueDate ? "PENDING" : meetingOutcome,
+        }),
+      });
+      if (activityRes.ok) activityId = (await activityRes.json()).id;
+    } else {
+      await fetch(`/api/deals/${deal.id}/activities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: activeTab, activityBody: body }),
+      });
+    }
 
     if (dueDate) {
       const taskRes = await fetch("/api/tasks", {
@@ -531,6 +588,7 @@ export function DealDetail({
           dueAt: `${dueDate}T${dueTime || "00:00"}`,
           dealId: deal.id,
           contactId: deal.contact.id,
+          activityId,
         }),
       });
       if (activeTab === "MEETING" && taskRes.ok) {
@@ -563,6 +621,7 @@ export function DealDetail({
     setBody("");
     setDueDate("");
     setDueTime("");
+    setMeetingOutcome(null);
     setScheduleWhatsApp({ enabled: false, message: "" });
     setSaving(false);
     router.refresh();
@@ -715,7 +774,7 @@ export function DealDetail({
                   className="absolute top-1.5 right-1.5"
                 />
               </div>
-              {(activeTab === "MEETING" || activeTab === "VISIT") && (
+              {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
                   {MEETING_OUTCOME_OPTIONS.map((opt) => (
@@ -743,7 +802,11 @@ export function DealDetail({
                     <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="px-2 py-1 text-xs" />
                   </div>
                 </div>
-                <button type="submit" disabled={saving || !body.trim()} className="btn-primary btn-sm shrink-0">
+                <button
+                  type="submit"
+                  disabled={saving || !body.trim() || ((activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
+                  className="btn-primary btn-sm shrink-0"
+                >
                   {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
                   {saving ? (
                     <span className="inline-flex items-center gap-1">
@@ -1115,7 +1178,7 @@ export function DealDetail({
                     className="absolute top-1.5 right-1.5"
                   />
                 </div>
-                {(activeTab === "MEETING" || activeTab === "VISIT") && (
+                {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
                     {MEETING_OUTCOME_OPTIONS.map((opt) => (
@@ -1141,7 +1204,11 @@ export function DealDetail({
                     <label className="text-xs text-neutral-500 dark:text-neutral-400">Horário</label>
                     <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="px-2 py-1 text-xs" />
                   </div>
-                  <button type="submit" disabled={saving || !body.trim()} className="btn-primary btn-sm ml-auto shrink-0">
+                  <button
+                    type="submit"
+                    disabled={saving || !body.trim() || ((activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
+                    className="btn-primary btn-sm ml-auto shrink-0"
+                  >
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
                     {saving ? (
                       <span className="inline-flex items-center gap-1">
@@ -1477,6 +1544,14 @@ export function DealDetail({
           task={meetingInviteTask}
           isWhatsAppConnected={isWhatsAppConnected}
           onClose={() => setMeetingInviteTask(null)}
+        />
+      )}
+
+      {meetingOutcomeTaskId && (
+        <MeetingOutcomeDialog
+          taskType={deal.tasks.find((t) => t.id === meetingOutcomeTaskId)?.type === "VISIT" ? "VISIT" : "MEETING"}
+          onResolve={resolveMeetingOutcome}
+          onClose={() => setMeetingOutcomeTaskId(null)}
         />
       )}
       </div>

@@ -24,12 +24,17 @@ function csvCell(value: string): string {
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const access = await requireRole(["OWNER", "MANAGER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
+    const isManager = ["OWNER", "MANAGER"].includes(access.role ?? "");
     const batch = await prisma.importBatch.findFirst({
-      where: { id, organizationId: access.organizationId },
+      where: {
+        id,
+        organizationId: access.organizationId,
+        ...(isManager ? {} : { createdById: access.userId }),
+      },
       select: { fileName: true, issueRows: true },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });

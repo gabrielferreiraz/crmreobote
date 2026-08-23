@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2, Download, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
@@ -95,6 +95,7 @@ export function DealsList({
   restoredDraft,
   quickFilter,
   onToggleQuickFilter,
+  toolbarRight,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
@@ -118,6 +119,10 @@ export function DealsList({
   /** Alterna o filtro rápido único — botões Ação hoje/Sem tarefa/Parados +14d
    * na fileira de busca (ver JSX abaixo), mesmo componente que o Kanban usa. */
   onToggleQuickFilter: (value: PipelineQuickFilter) => void;
+  /** Kanban/Lista + Importar/Histórico (ver pipeline-view.tsx) — renderizado
+   * dentro da MESMA fileira da busca/filtros, não numa linha própria acima:
+   * pedido explícito ("na mesma div, não em linhas diferentes"). */
+  toolbarRight?: ReactNode;
 }) {
   const router = useRouter();
 
@@ -664,8 +669,16 @@ export function DealsList({
     // Antes disso faltava inteiro: a lista virava um bloco comum
     // (space-y-3) que só cresce, sem nenhuma área rolável — com o <main>
     // travado, o que passasse da tela ficava simplesmente inacessível.
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="shrink-0 flex flex-wrap items-center gap-2">
+    // gap-1.5 (era gap-3) — mesmo ajuste de kanban-board.tsx, consistência
+    // entre as duas visões.
+    <div className="flex h-full min-h-0 flex-col gap-1.5">
+      {/* justify-between com dois grupos (busca/filtros/seleção à esquerda,
+          toolbarRight à direita) — mesmo padrão de kanban-board.tsx.
+          toolbarRight vem de pipeline-view.tsx (Kanban/Lista + Importar/
+          Histórico): pedido explícito pra ficar na MESMA fileira da busca,
+          não numa linha própria acima dela. */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search
             className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
@@ -954,6 +967,8 @@ export function DealsList({
             </SelectionBar>
           </div>
         )}
+        </div>
+        {toolbarRight}
       </div>
       {bulkError && <p className="shrink-0 text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
 

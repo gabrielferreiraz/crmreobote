@@ -318,7 +318,6 @@ export function QuickRegisterDealForm({
             onResult={handleDictated}
             onInterimResult={rawTextDictation.onInterimResult}
             onListeningChange={handleDictationStopped}
-            keepListening
           />
         </div>
         <textarea

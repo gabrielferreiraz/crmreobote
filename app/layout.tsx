@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -66,10 +67,20 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>
-        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-      </head>
       <body className="min-h-full flex flex-col">
+        {/* SEM <head> escrito à mão — metadata/viewport acima já geram o
+            <head> de verdade sozinhas. Colocar o script AQUI dentro (não
+            dentro de um <head> nosso) é o próprio exemplo oficial da
+            documentação desta versão (node_modules/next/dist/docs/.../
+            scripts.md) — um <head> escrito manualmente põe os filhos num
+            contexto especial do React (onde só link/meta/title/style são
+            tratados como "recurso hoistable"; um script ali é isso que
+            disparava "Encountered a script tag..."). strategy=
+            "beforeInteractive" garante que o Next ainda insere e executa
+            isso no <head> de verdade, cedo o bastante pra nunca haver
+            flash de tema errado — a posição no JSX não muda onde ele
+            realmente cai no HTML final. */}
+        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <Providers>{children}</Providers>
       </body>
     </html>

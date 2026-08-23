@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { TaskDetailModal } from "./task-detail-modal";
 import type { Task } from "./task-row";
+import { useMeetingOutcomeGate } from "./use-meeting-outcome-gate";
 
 const MONTH_ABBR = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
 
@@ -26,12 +27,16 @@ export function UpcomingAppointmentsCard({
   canDelete,
 }: {
   tasks: Task[];
-  onToggle: (id: string, completed: boolean) => void;
+  onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
   /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
 }) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // Abre TaskDetailModal por FORA do TaskRow (cartão próprio de "próximos
+  // compromissos") — mesma trava de use-meeting-outcome-gate.tsx, senão
+  // concluir uma Reunião/Visita por aqui pula a pergunta de resultado.
+  const { requestComplete, dialog: outcomeDialog } = useMeetingOutcomeGate(onToggle);
 
   const upcoming = tasks
     .filter((t): t is Task & { dueAt: string | Date } => !t.completedAt && !!t.dueAt && new Date(t.dueAt) >= new Date())
@@ -73,6 +78,10 @@ export function UpcomingAppointmentsCard({
           justCompleted={false}
           onClose={() => setOpenTaskId(null)}
           onToggle={() => {
+            if (requestComplete(openTask)) {
+              setOpenTaskId(null);
+              return;
+            }
             onToggle(openTask.id, true);
             setOpenTaskId(null);
           }}
@@ -80,6 +89,7 @@ export function UpcomingAppointmentsCard({
           onDelete={onDelete}
         />
       )}
+      {outcomeDialog}
     </>
   );
 }

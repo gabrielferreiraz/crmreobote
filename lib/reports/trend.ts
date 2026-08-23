@@ -64,9 +64,16 @@ export function buildMonthlyBuckets(trendStart: Date, trendEnd: Date): MonthBuck
   return buckets;
 }
 
+/** Quantos dias de calendário (Brasília) cabem entre trendStart e trendEnd,
+ * inclusive dos dois extremos — ver comentário em buildDailyBuckets sobre o
+ * porquê de usar brazilStartOfDay(trendEnd) em vez de trendEnd cru. */
+function countTrendSpanDays(trendStart: Date, trendEnd: Date): number {
+  return Math.max(0, Math.round((brazilStartOfDay(trendEnd).getTime() - trendStart.getTime()) / 86_400_000));
+}
+
 /**
- * Um balde por DIA se o período cabe uns 30 pontos legíveis (<=31 dias de
- * calendário), senão cai pra um balde por MÊS (ver buildMonthlyBuckets).
+ * Um balde por DIA, incondicional — cada dia de calendário entre trendStart
+ * e trendEnd, inclusive dos dois extremos.
  *
  * trendEnd pode ser fim de dia (23:59:59.999, ver brazilEndOfDayUTC em
  * lib/timezone.ts) — usar ele cru pra contar dias contaria quase um dia
@@ -80,20 +87,8 @@ export function buildMonthlyBuckets(trendStart: Date, trendEnd: Date): MonthBuck
  * do dia de trendEnd — o "+1" abaixo (fencepost, inclusivo dos dois
  * extremos) só precisa ser aplicado uma vez.
  */
-export function buildDailyOrMonthlyBuckets(
-  trendStart: Date,
-  trendEnd: Date,
-): { buckets: DayOrMonthBucket[]; bucketDaily: boolean; trendSpanDays: number } {
-  const trendSpanDays = Math.max(
-    0,
-    Math.round((brazilStartOfDay(trendEnd).getTime() - trendStart.getTime()) / 86_400_000),
-  );
-  const bucketDaily = trendSpanDays <= 31;
-
-  if (!bucketDaily) {
-    return { buckets: buildMonthlyBuckets(trendStart, trendEnd), bucketDaily, trendSpanDays };
-  }
-
+export function buildDailyBuckets(trendStart: Date, trendEnd: Date): DayOrMonthBucket[] {
+  const trendSpanDays = countTrendSpanDays(trendStart, trendEnd);
   // Todo agrupamento por dia abaixo usa o calendário de Brasília
   // (getBrazilParts), não os getters locais do servidor (UTC) — senão um
   // evento depois das 21h de Brasília "vaza" pro dia seguinte no gráfico.
@@ -101,7 +96,7 @@ export function buildDailyOrMonthlyBuckets(
   // (brazilDateStringToUTC/brazilStartOfMonth), então somar múltiplos de
   // 24h nele sempre cai em outra meia-noite de Brasília (sem horário de
   // verão no Brasil desde 2019, o offset é fixo).
-  const buckets = Array.from({ length: trendSpanDays + 1 }, (_, i) => {
+  return Array.from({ length: trendSpanDays + 1 }, (_, i) => {
     const instant = new Date(trendStart.getTime() + i * 86_400_000);
     const { year, month, day } = getBrazilParts(instant);
     const showLabel = i === 0 || i === trendSpanDays || i % 7 === 0;
@@ -119,6 +114,17 @@ export function buildDailyOrMonthlyBuckets(
       value: 0,
     };
   });
+}
+
+/** Um balde por DIA se o período cabe uns 30 pontos legíveis (<=31 dias de
+ * calendário), senão cai pra um balde por MÊS (ver buildMonthlyBuckets). */
+export function buildDailyOrMonthlyBuckets(
+  trendStart: Date,
+  trendEnd: Date,
+): { buckets: DayOrMonthBucket[]; bucketDaily: boolean; trendSpanDays: number } {
+  const trendSpanDays = countTrendSpanDays(trendStart, trendEnd);
+  const bucketDaily = trendSpanDays <= 31;
+  const buckets = bucketDaily ? buildDailyBuckets(trendStart, trendEnd) : buildMonthlyBuckets(trendStart, trendEnd);
   return { buckets, bucketDaily, trendSpanDays };
 }
 

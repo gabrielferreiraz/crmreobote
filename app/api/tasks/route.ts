@@ -53,7 +53,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { type, title, description, dueAt, dealId, contactId, ownerId } = body as {
+  const { type, title, description, dueAt, dealId, contactId, ownerId, activityId } = body as {
     type?: string;
     title?: string;
     description?: string;
@@ -61,6 +61,12 @@ export async function POST(req: Request) {
     dealId?: string;
     contactId?: string;
     ownerId?: string;
+    // Activity MEETING/VISIT já criada por quem chamou (ver deal-detail.tsx,
+    // que cria a Activity primeiro e passa o id aqui) — liga a Task a ela
+    // pra saber qual atualizar quando a Task concluir. Se não vier e o type
+    // for MEETING/VISIT, uma Activity companheira é criada aqui mesmo (ver
+    // abaixo) — cobre quem cria a Task sem passar por esse fluxo (Agenda).
+    activityId?: string;
   };
 
   const { organizationId, userId } = await requireSession();
@@ -90,6 +96,35 @@ export async function POST(req: Request) {
       if (!membership) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
     }
 
+    // Vínculo Task↔Activity pro resultado de Reunião/Visita ser perguntado
+    // na conclusão da Task, não na criação (ver ActivityMeetingOutcome no
+    // schema). Duas origens possíveis:
+    let linkedActivityId: string | undefined;
+    if (activityId) {
+      // deal-detail.tsx já criou a Activity (com o corpo/nota digitado) e
+      // manda o id aqui — só valida que é da mesma organização antes de ligar.
+      const activity = await prisma.activity.findFirst({ where: { id: activityId, organizationId } });
+      if (!activity) return NextResponse.json({ error: "Activity inválida" }, { status: 400 });
+      linkedActivityId = activity.id;
+    } else if (taskType === "MEETING" || taskType === "VISIT") {
+      // Ninguém criou uma Activity antes (caso da Agenda solta, "Nova
+      // atividade" — só manda Task) — cria a companheira aqui mesmo, em
+      // PENDING, pra esta Reunião/Visita também aparecer na timeline do
+      // negócio e contar nos relatórios assim que tiver um resultado.
+      const activity = await prisma.activity.create({
+        data: {
+          organizationId,
+          dealId,
+          contactId,
+          userId: ownerId ?? userId,
+          type: taskType,
+          body: title,
+          meetingOutcome: "PENDING",
+        },
+      });
+      linkedActivityId = activity.id;
+    }
+
     const task = await prisma.task.create({
       data: {
         organizationId,
@@ -100,6 +135,7 @@ export async function POST(req: Request) {
         dealId,
         contactId,
         ownerId: ownerId ?? userId,
+        activityId: linkedActivityId,
       },
       include: { deal: true, contact: true, owner: true },
     });

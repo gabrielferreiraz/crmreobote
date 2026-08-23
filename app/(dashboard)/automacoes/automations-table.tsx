@@ -246,7 +246,11 @@ export function AutomationsTable({
     }
     if (rule.trigger === "MESSAGE_RECEIVED") {
       const keywords = config.messageKeywords as string[] | undefined;
-      return keywords?.length ? `"${keywords.join('", "')}"` : "qualquer mensagem";
+      const keywordPart = keywords?.length ? `"${keywords.join('", "')}"` : "qualquer mensagem";
+      const instanceIds = config.messageInstanceUserIds as string[] | undefined;
+      if (!instanceIds?.length) return keywordPart;
+      const instanceNames = instanceIds.map((id) => memberById.get(id) ?? "número removido");
+      return `${keywordPart} · só no WhatsApp de ${instanceNames.join(", ")}`;
     }
     return null;
   }
@@ -662,6 +666,12 @@ function AutomationDialog({
   const [messageKeywordsText, setMessageKeywordsText] = useState(
     ((tc.messageKeywords as string[] | undefined) ?? []).join(", "),
   );
+  // Vazio = dispara pra mensagem recebida em QUALQUER número conectado da
+  // organização (comportamento de sempre, mantido como padrão) — só
+  // restringe de verdade quando pelo menos 1 for marcado.
+  const [messageInstanceUserIds, setMessageInstanceUserIds] = useState<string[]>(
+    (tc.messageInstanceUserIds as string[] | undefined) ?? [],
+  );
   const [businessHoursMode, setBusinessHoursMode] = useState<BusinessHoursMode>(
     (tc.businessHoursMode as BusinessHoursMode | undefined) ?? "ALWAYS",
   );
@@ -742,6 +752,7 @@ function AutomationDialog({
                           .split(",")
                           .map((k) => k.trim())
                           .filter(Boolean),
+                        messageInstanceUserIds,
                         businessHoursMode,
                         contactContext,
                         stopOnMatch,
@@ -1044,6 +1055,36 @@ function AutomationDialog({
                 className="field-input"
               />
               <p className="text-xs text-neutral-500 dark:text-neutral-400">Separe várias por vírgula — qualquer uma delas dispara.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Número(s) de WhatsApp (vazio = qualquer um conectado)</label>
+              {whatsappInstances.length === 0 ? (
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">Nenhum WhatsApp conectado na organização ainda.</p>
+              ) : (
+                <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-700">
+                  {whatsappInstances.map((inst) => (
+                    <label
+                      key={inst.userId}
+                      className="flex cursor-pointer items-center gap-2 rounded-md p-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={messageInstanceUserIds.includes(inst.userId)}
+                        onChange={() =>
+                          setMessageInstanceUserIds((prev) =>
+                            prev.includes(inst.userId) ? prev.filter((id) => id !== inst.userId) : [...prev, inst.userId],
+                          )
+                        }
+                        className="accent-neutral-900 dark:accent-white"
+                      />
+                      {inst.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                Marque só se essa regra deve valer pra mensagem chegando num número específico (ex.: só o número dos anúncios) — sem marcar nenhum, vale pra qualquer número.
+              </p>
             </div>
             <div className="space-y-1">
               <label className="field-label">Tipo de correspondência</label>

@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
+import React from "react";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { TrendAreaChart } from "@/components/charts/trend-area-chart";
+import { TrendAreaChart, DrillableTrendChart } from "@/components/charts/trend-area-chart";
+import { PersonalHero, findRankingPosition } from "./personal-hero";
 import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
 import { Leaderboard } from "@/components/leaderboard";
 import { RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
@@ -21,6 +23,8 @@ import { AdminReportsView } from "./admin-reports-view";
 import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
 import { getCommercialReportData } from "@/lib/reports/commercial-data";
+import { AutoInsights, DeltaBadge } from "./auto-insights";
+import { WeekdayHeatmap } from "./weekday-heatmap";
 
 export default async function RelatoriosPage({
   searchParams,
@@ -70,6 +74,13 @@ export default async function RelatoriosPage({
   // "Processos" ficaria esperando o relatório de vendas inteiro carregar à
   // toa antes de mostrar algo completamente diferente.
   const isOwner = session!.user.role === "OWNER";
+  const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
+  const isSupervisor = session!.user.role === "SUPERVISOR";
+  const isMember = session!.user.role === "MEMBER";
+  // Consultor e supervisor têm uma visão pessoal (hero de "Meu desempenho")
+  // em vez do "Panorama comercial" genérico — isPersonalView é o flag central.
+  const isPersonalView = isMember || isSupervisor;
+  const currentUserName = session!.user.name ?? "";
   if (isOwner && viewParam === "processos") {
     return (
       <div className="space-y-6">
@@ -112,6 +123,8 @@ export default async function RelatoriosPage({
     wonTotalValue,
     openTotalValue,
     avgWonValue,
+    prevWonCount,
+    prevWonTotalValue,
     creditTypeBreakdown,
     creditTypeTotalValue,
     stageData,
@@ -126,6 +139,7 @@ export default async function RelatoriosPage({
     teamActivityList,
     teamRanking,
     monthTrend,
+    revenueTrendDaily,
     teamActivityTrend,
     statusSlices,
     lossBreakdown,
@@ -166,29 +180,65 @@ export default async function RelatoriosPage({
     whoParam,
   });
 
+  // Dados necessários pro PersonalHero — extraídos dos rankings já computados.
+  const personalRankingPos = isPersonalView
+    ? findRankingPosition(dealsClosedRanking, currentUserName)
+    : null;
+  const personalSlaRow = isPersonalView
+    ? slaSummaryRows.find((r) => r.name === currentUserName) ?? null
+    : null;
+
   return (
     <div className="space-y-16 pb-8">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
+          {!isPersonalView && (
+            <div>
+              <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
+                Relatórios
+              </p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+                {isManager ? "Panorama da operação" : "Panorama comercial"}
+              </h1>
+              <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
+                Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
+              </p>
+            </div>
+          )}
+          {isPersonalView && (
+            // Filtros compactos (sem o bloco de título) — o PersonalHero ocupa o topo
             <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
               Relatórios
             </p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-              Panorama comercial
-            </h1>
-            <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
-              Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
-            </p>
-          </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <FiltersUrlRestore />
             <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
-            <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />
+            {!isPersonalView && (
+              <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />
+            )}
             <DateRangeFilter />
           </div>
         </div>
+
+        {/* Hero personalizado por cargo — visível só pra consultor/supervisor */}
+        {isPersonalView && (
+          <PersonalHero
+            name={currentUserName}
+            photoUrl={session!.user.image}
+            role={isMember ? "MEMBER" : "SUPERVISOR"}
+            wonCount={wonCount}
+            wonTotalValue={wonTotalValue}
+            avgWonValue={avgWonValue}
+            winRate={winRate}
+            rankingPosition={personalRankingPos}
+            totalRankingMembers={dealsClosedRanking.length}
+            slaFirstTouchWithin1h={personalSlaRow?.firstTouchWithin1h ?? null}
+            avgFirstReplyMs={personalSlaRow?.avgFirstReplyMs ?? null}
+            currentMonthLabel={currentMonthLabel}
+          />
+        )}
       </div>
 
       {(isOwner || goalValue !== null) && (
@@ -204,6 +254,20 @@ export default async function RelatoriosPage({
           goalBasisChanged={goalBasisChanged}
         />
       )}
+
+      {/* Insights automáticos — resumo das observações mais relevantes do período */}
+      <AutoInsights
+        wonCount={wonCount}
+        wonTotalValue={wonTotalValue}
+        prevWonCount={prevWonCount}
+        prevWonTotalValue={prevWonTotalValue}
+        winRate={winRate}
+        avgWonValue={avgWonValue}
+        dealsClosedRanking={dealsClosedRanking}
+        slaOverallFirstTouchWithin1h={slaOverallFirstTouchWithin1h}
+        avgFirstReplyMs={slaTotalAvgFirstReplyMs}
+        revenueTrendDaily={revenueTrendDaily}
+      />
 
       {/* ─── Visão geral ────────────────────────────────────────────── */}
       <section className="space-y-6">
@@ -221,6 +285,7 @@ export default async function RelatoriosPage({
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               emphasize
+              delta={<DeltaBadge current={wonTotalValue} previous={prevWonTotalValue} />}
             />
             <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
             <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
@@ -314,18 +379,31 @@ export default async function RelatoriosPage({
           <div className="card col-span-12 p-6 lg:col-span-5">
             <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Evolução do valor ganho</h3>
             <div className="mt-6">
-              <TrendAreaChart data={monthTrend} showValueLabels />
+              <DrillableTrendChart dailyData={revenueTrendDaily} />
             </div>
+            {revenueTrendDaily.some((d) => d.value > 0) && (
+              <div className="mt-6 border-t border-neutral-100 pt-5 dark:border-neutral-800">
+                <h4 className="mb-3 text-xs font-semibold tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
+                  Por dia da semana
+                </h4>
+                <WeekdayHeatmap dailyData={revenueTrendDaily} />
+              </div>
+            )}
           </div>
         </div>
       </section>
 
-      {/* ─── Ranking do time ────────────────────────────────────────── */}
+      {/* ─── Ranking do time — consultor vê só a própria posição no hero;
+           supervisor vê o ranking da própria equipe; gerente/dono veem tudo ── */}
+      {!isMember && (
       <section className="space-y-6">
         <SectionHeading
-          eyebrow="Time"
-          title="Ranking do time"
-          description="Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), a taxa de comparecimento desses encontros e quem converte melhor."
+          eyebrow={isSupervisor ? "Minha equipe" : "Time"}
+          title={isSupervisor ? "Ranking da equipe" : "Ranking do time"}
+          description={isSupervisor
+            ? "Desempenho de cada membro da sua equipe no período."
+            : "Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), a taxa de comparecimento desses encontros e quem converte melhor."
+          }
         />
         <div className="grid grid-cols-12 gap-5">
           <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
@@ -399,9 +477,12 @@ export default async function RelatoriosPage({
           </div>
         )}
       </section>
+      )}
 
-      {/* ─── SLA e Health de equipe ─────────────────────────────────── */}
-      {(slaSummaryRows.length > 0 || slaTotalFirstTouch > 0 || slaTotalQualified > 0) && (
+      {/* ─── SLA e Health de equipe — gerente/dono veem a tabela completa;
+           supervisor vê a equipe dele (já filtrada pelo escopo do servidor);
+           consultor vê só os próprios números (já no PersonalHero) ── */}
+      {(isManager || isSupervisor) && (slaSummaryRows.length > 0 || slaTotalFirstTouch > 0 || slaTotalQualified > 0) && (
         <section className="space-y-6">
           <SectionHeading
             eyebrow="SLA do time"
@@ -582,7 +663,7 @@ export default async function RelatoriosPage({
       )}
 
       {/* ─── Atividade da equipe (só Dono/Gerente) ─────────────────────── */}
-      {showTeamActivity && (
+      {isManager && showTeamActivity && (
         <section className="space-y-6">
           <SectionHeading
             eyebrow="Equipe"
@@ -674,7 +755,7 @@ export default async function RelatoriosPage({
         </section>
       )}
 
-      {/* ─── WhatsApp ───────────────────────────────────────────────── */}
+      {/* ─── WhatsApp — consultor vê só o próprio card; gerente/dono veem todos ── */}
       {sellerWhatsappCards.length > 0 && (
         <section className="space-y-6">
           <SectionHeading
@@ -684,7 +765,10 @@ export default async function RelatoriosPage({
           />
 
           <div className="space-y-3">
-            {sellerWhatsappCards.map((w) => (
+            {sellerWhatsappCards
+              // Consultor vê só o próprio card; supervisor e gerente/dono veem toda a equipe
+              .filter((w) => isManager || isSupervisor || w.userId === userId)
+              .map((w) => (
               <div key={w.userId} className="card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5">
@@ -903,15 +987,19 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
 
 /** `emphasize`: destaque visual (fundo/borda esmeralda, valor maior) — reservado
  * pra UM stat por linha no máximo (hoje só "Total ganho"), pra continuar
- * chamando atenção; virar padrão em todo card tiraria o próprio destaque. */
-function Stat({ label, value, hint, emphasize }: { label: string; value: string; hint?: string; emphasize?: boolean }) {
+ * chamando atenção; virar padrão em todo card tiraria o próprio destaque.
+ * `delta`: badge opcional de variação vs período anterior (ver DeltaBadge). */
+function Stat({ label, value, hint, emphasize, delta }: { label: string; value: string; hint?: string; emphasize?: boolean; delta?: React.ReactNode }) {
   if (emphasize) {
     return (
       <div className="card border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/60 dark:bg-emerald-500/10">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
-          <Wallet className="h-4 w-4 shrink-0" strokeWidth={2} />
-          {label}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+            <Wallet className="h-4 w-4 shrink-0" strokeWidth={2} />
+            {label}
+          </p>
+          {delta}
+        </div>
         <p className="mt-2 text-3xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{value}</p>
         {hint && <p className="mt-1 text-xs text-emerald-700/70 dark:text-emerald-400/70">{hint}</p>}
       </div>

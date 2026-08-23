@@ -37,6 +37,14 @@ export type TriggerConfig = {
   messageMatchType?: "EXACT" | "CONTAINS" | "STARTS_WITH" | "ENDS_WITH";
   /** Vazio/ausente = dispara em qualquer mensagem (gatilho coringa). */
   messageKeywords?: string[];
+  /**
+   * Restringe a regra a mensagem recebida no WhatsApp de quem está listado
+   * aqui (userId do dono da instância que recebeu, ver
+   * matchesMessageInstance) — vazio/ausente = dispara pra mensagem em
+   * QUALQUER número conectado da organização (gatilho coringa, mesmo
+   * espírito de messageKeywords vazio).
+   */
+  messageInstanceUserIds?: string[];
   businessHoursMode?: "ALWAYS" | "INSIDE_BUSINESS_HOURS" | "OUTSIDE_BUSINESS_HOURS";
   contactContext?: "ANY" | "NEW_LEAD" | "HAS_OPEN_DEAL";
   /** Se esta regra bater e executar com sucesso, para de avaliar as próximas regras pra essa mesma mensagem. Padrão false (todas que baterem disparam, igual ao resto do motor). */

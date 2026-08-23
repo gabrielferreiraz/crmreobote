@@ -23,6 +23,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       where: { id, organizationId },
       include: {
         deals: { include: { stage: true, pipeline: true }, orderBy: { createdAt: "desc" } },
+        // Só o nome — o painel de Informações da conversa de WhatsApp
+        // (ver app/(dashboard)/whatsapp/conversas/contact-info-panel.tsx)
+        // mostra "Responsável" junto do resto, mesmo dado que a página do
+        // Cliente já mostra.
+        responsavel: { select: { name: true } },
       },
     });
 

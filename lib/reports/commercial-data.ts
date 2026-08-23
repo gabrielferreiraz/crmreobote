@@ -31,7 +31,7 @@ import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
 import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { buildQuickRanges } from "@/lib/date-ranges";
 import { countActiveSellers, suggestedGoalValue } from "@/lib/goals/suggestion";
-import { defaultTrendWindow, buildDailyOrMonthlyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
+import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { average, percentile } from "@/lib/reports/stats";
 import type { Session } from "next-auth";
 
@@ -199,6 +199,7 @@ export async function getCommercialReportData(params: {
     wonDealsForTrend,
     wonByCreditType,
     dailyActivityRaw,
+    prevPeriodWon,
   ] = await Promise.all([
     prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter } }),
     activePipeline
@@ -268,10 +269,32 @@ export async function getCommercialReportData(params: {
           select: { userId: true, date: true, activeSeconds: true, changeCount: true },
         })
       : Promise.resolve([]),
+    // Período anterior espelhado — mesma duração do período atual deslocada pra
+    // trás, calculada APENAS quando há um intervalo de datas definido (se não
+    // há from/to, rangeFrom/rangeTo são null e não faz sentido calcular
+    // "mesmo período anterior" de "tudo"). O delta ↑/↓ % só aparece na UI
+    // quando prevPeriodWon tiver dados (não-null).
+    rangeFrom && rangeTo
+      ? (() => {
+          const spanMs = rangeTo.getTime() - rangeFrom.getTime();
+          const prevFrom = new Date(rangeFrom.getTime() - spanMs);
+          const prevTo = new Date(rangeTo.getTime() - spanMs);
+          return prisma.deal.aggregate({
+            where: { organizationId, status: "WON", closedAt: { gte: prevFrom, lte: prevTo }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+            _count: true,
+            _sum: { value: true },
+          });
+        })()
+      : Promise.resolve(null),
   ]);
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
-  const lostCount = lostByOwner.reduce((sum, l) => sum + l._count, 0);
+  const lostCount = lostByOwner.reduce((sum, l) => l._count + sum, 0);
+
+  // Deltas vs período anterior — null quando não há período de referência
+  // (“Tudo” ou sem filtro de data ativo), para a UI não mostrar “+∞%” sem sentido.
+  const prevWonCount = prevPeriodWon?._count ?? null;
+  const prevWonTotalValue = prevPeriodWon?._sum.value != null ? Number(prevPeriodWon._sum.value) : null;
   // Só conta negócio já decidido (ganho ou perdido) — um negócio ainda em
   // aberto não é nem acerto nem erro, incluir ele no denominador penaliza
   // artificialmente times com pipeline saudável e cheio de negócio recente.
@@ -361,9 +384,13 @@ export async function getCommercialReportData(params: {
   //
   // Taxa de comparecimento (attended/noShow) usa a MESMA régua já
   // estabelecida em lib/meta-ads/attribution.ts: outcome null (histórico
-  // anterior à coluna existir) conta como compareceu, nunca como no-show;
-  // RESCHEDULED fica de fora da taxa (não é um resultado final — o
-  // encontro só foi remarcado, ainda não se sabe se vai comparecer ou não).
+  // anterior à coluna existir, nunca vai ter resposta) conta como
+  // compareceu, nunca como no-show; RESCHEDULED e PENDING ficam de fora da
+  // taxa — RESCHEDULED não é um resultado final (só foi remarcado, ainda
+  // não se sabe se vai comparecer ou não), PENDING é uma Task ainda não
+  // concluída (o resultado é perguntado só na conclusão dela — ver
+  // ActivityMeetingOutcome no schema), contá-la como comparecida inflaria a
+  // taxa com reunião que ainda nem aconteceu.
   const meetingVisitByUser = new Map<
     string,
     { meetingCount: number; visitCount: number; attendedCount: number; noShowCount: number }
@@ -373,7 +400,7 @@ export async function getCommercialReportData(params: {
     if (row.type === "MEETING") prev.meetingCount += row._count;
     else if (row.type === "VISIT") prev.visitCount += row._count;
     if (row.meetingOutcome === "NO_SHOW") prev.noShowCount += row._count;
-    else if (row.meetingOutcome !== "RESCHEDULED") prev.attendedCount += row._count;
+    else if (row.meetingOutcome !== "RESCHEDULED" && row.meetingOutcome !== "PENDING") prev.attendedCount += row._count;
     meetingVisitByUser.set(row.userId, prev);
   }
 
@@ -601,6 +628,22 @@ export async function getCommercialReportData(params: {
     const bucket = findBucket(monthTrend, bucketDaily, parts);
     if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
   }
+
+  // Mesma série de "Evolução do valor ganho", só que SEMPRE por dia (não só
+  // quando o período é curto, como monthTrend acima) — é o que alimenta o
+  // drill-down do gráfico (DrillableTrendChart): mês → semana → dia, tudo
+  // reagregado no navegador a partir desses mesmos dias, sem round-trip
+  // nenhum ao servidor por nível de zoom (ver componente). wonDealsForTrend
+  // já é a mesma consulta (linha por negócio, não pré-agregada), então isso
+  // não é uma query a mais, só um segundo agrupamento em cima dela.
+  const revenueTrendDailyBuckets = buildDailyBuckets(trendStart, trendEnd);
+  for (const deal of wonDealsForTrend) {
+    if (!deal.closedAt) continue;
+    const parts = getBrazilParts(deal.closedAt);
+    const bucket = findBucket(revenueTrendDailyBuckets, true, parts);
+    if (bucket) bucket.value += deal.value ? Number(deal.value) : 0;
+  }
+  const revenueTrendDaily = revenueTrendDailyBuckets.map((b) => ({ year: b.year, month: b.month, day: b.day!, value: b.value }));
 
   // Clona os buckets de monthTrend (mesmas datas/rótulos) pra uma segunda
   // série independente — tempo ativo da equipe em vez de valor ganho.
@@ -1462,6 +1505,8 @@ export async function getCommercialReportData(params: {
     wonTotalValue,
     openTotalValue,
     avgWonValue,
+    prevWonCount,
+    prevWonTotalValue,
     creditTypeBreakdown,
     creditTypeTotalValue,
     stageData,
@@ -1476,6 +1521,7 @@ export async function getCommercialReportData(params: {
     teamActivityList,
     teamRanking,
     monthTrend,
+    revenueTrendDaily,
     teamActivityTrend,
     statusSlices,
     lossBreakdown,

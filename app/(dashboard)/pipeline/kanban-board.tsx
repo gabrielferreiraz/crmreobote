@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -117,6 +117,7 @@ export function KanbanBoard({
   onToggleQuickFilter,
   onTotalsChange,
   reloadToken,
+  toolbarRight,
 }: {
   pipelineId: string;
   stages: Stage[];
@@ -164,6 +165,10 @@ export function KanbanBoard({
    * — só entra nas dependências do efeito de busca abaixo pra forçar um
    * refetch completo, mesmo padrão de `reloadToken` em deals-list.tsx. */
   reloadToken?: number;
+  /** Kanban/Lista + Importar/Histórico (ver pipeline-view.tsx) — renderizado
+   * dentro da MESMA fileira da busca/filtros, não mais numa linha própria
+   * acima: pedido explícito ("na mesma div, não em linhas diferentes"). */
+  toolbarRight?: ReactNode;
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
@@ -549,8 +554,19 @@ export function KanbanBoard({
     // por cima do board; quem corta o conteúdo agora é a fileira de colunas
     // (rowRef, ver abaixo), com altura própria medida da janela, não este
     // container.
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
+    // gap-1.5 (era gap-3) — mesmo pedido de "subir as etapas" de
+    // pipeline-view.tsx: essa era outra fonte de espaço que eu não tinha
+    // mexido ainda, o vão entre a fileira de busca/filtro e as colunas do
+    // Kanban em si, que vive só aqui (arquivo separado).
+    <div className="flex h-full min-h-0 flex-col gap-1.5">
+      {/* justify-between com dois grupos (busca/filtros à esquerda,
+          toolbarRight à direita) — não um "ml-auto" solto no toolbarRight,
+          porque aí ele brigaria com o próprio flex-wrap do grupo da esquerda
+          quando a tela aperta. toolbarRight vem de pipeline-view.tsx
+          (Kanban/Lista + Importar/Histórico): pedido explícito pra ficar na
+          MESMA fileira da busca, não numa linha própria acima dela. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search
             className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
@@ -634,6 +650,8 @@ export function KanbanBoard({
           </button>
         </FilterPopover>
         <PipelineQuickFilterButtons quickFilter={quickFilter} onToggle={onToggleQuickFilter} />
+        </div>
+        {toolbarRight}
       </div>
 
       {moveError && (

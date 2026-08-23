@@ -113,11 +113,20 @@ export function TasksListMobile({
   const isEmpty = initialTasks.length === 0;
   const noResults = !isEmpty && filteredTasks.length === 0;
 
-  async function toggleComplete(taskId: string, completed: boolean) {
+  async function toggleComplete(
+    taskId: string,
+    completed: boolean,
+    meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED",
+    newDueAt?: string,
+  ) {
     await fetch(`/api/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed }),
+      body: JSON.stringify(
+        meetingOutcome === "RESCHEDULED"
+          ? { meetingOutcome, dueAt: newDueAt }
+          : { completed, ...(meetingOutcome ? { meetingOutcome } : {}) },
+      ),
     });
     router.refresh();
   }

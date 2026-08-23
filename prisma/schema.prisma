@@ -1659,11 +1659,22 @@ model Task {
   // de scheduledMessageFailedAt (sem retry automático, avisa 1x por push).
   reminderFailedAt         DateTime?
   createdAt                DateTime  @default(now())
+  // Liga esta Task à Activity MEETING/VISIT que ela representa — só existe
+  // pra type MEETING/VISIT (o resultado agora é perguntado na CONCLUSÃO da
+  // tarefa, não na criação: ver ActivityMeetingOutcome.PENDING abaixo e
+  // meeting-outcome-dialog.tsx). Preenchido na criação (deal-detail.tsx
+  // manda o id da Activity que acabou de criar; POST /api/tasks cria uma
+  // companheira sozinho quando ninguém mandou, caso da Agenda solta) e lido
+  // de novo na conclusão pra saber qual Activity atualizar com o resultado
+  // real. Nulo em toda Task de outro tipo, e em Task MEETING/VISIT criada
+  // antes desta coluna existir (PUT cria a Activity na hora nesse caso).
+  activityId               String?   @unique
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
   contact      Contact?     @relation(fields: [contactId], references: [id])
   owner        User         @relation(fields: [ownerId], references: [id])
+  activity     Activity?    @relation(fields: [activityId], references: [id], onDelete: SetNull)
   // Trava "1 reunião por horário por consultor" (agendamento via API v1)
   // vive só na migration como índice único PARCIAL (WHERE type='MEETING'),
   // sem representação aqui — Prisma não tem sintaxe pra índice filtrado.
@@ -1721,13 +1732,16 @@ model Activity {
   // /api/processes/[id]/activities). Nunca preenchido/lido pra qualquer
   // outro tipo de Activity (Negócio, etc.) — sempre null ali, inofensivo.
   readAt         DateTime?
-  // Só faz sentido (e só é perguntado na UI) pra type MEETING/VISIT — ver
-  // ACTIVITY_BODY_TEMPLATES/outcome em negocios/[id]/deal-detail.tsx.
-  // Qualquer outro type fica sempre null. Histórico anterior a essa coluna
-  // existir também fica null — tratado como "compareceu" nas contagens
-  // (ver lib/meta-ads/attribution.ts), não como "desconhecido/some da
-  // conta": não dá pra saber retroativamente, e assumir não-comparecimento
-  // pra tudo que é antigo inflaria o no-show artificialmente.
+  // Só faz sentido (e só é perguntado) pra type MEETING/VISIT — ver
+  // ACTIVITY_BODY_TEMPLATES em lib/activity-icons.tsx e
+  // meeting-outcome-dialog.tsx. Qualquer outro type fica sempre null.
+  // Histórico anterior a essa coluna existir também fica null — tratado
+  // como "compareceu" nas contagens (ver lib/meta-ads/attribution.ts e
+  // lib/reports/commercial-data.ts), não como "desconhecido/some da conta":
+  // não dá pra saber retroativamente, e assumir não-comparecimento pra tudo
+  // que é antigo inflaria o no-show artificialmente. Diferente de
+  // PENDING (abaixo) — esse é "ainda não sabemos, mas vamos saber" (tarefa
+  // ligada ainda não foi concluída), _esse_ null aqui é "nunca vamos saber".
   meetingOutcome ActivityMeetingOutcome?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1735,6 +1749,10 @@ model Activity {
   contact      Contact?     @relation(fields: [contactId], references: [id])
   process      Process?     @relation(fields: [processId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id])
+  // Lado inverso de Task.activityId — a Task MEETING/VISIT que "gerencia"
+  // esta Activity (só preenchido pra Activity criada a partir de uma Task
+  // dessas, ver comentário lá).
+  task         Task?
 
   @@unique([agendorTaskId, userId])
   @@index([organizationId, dealId, createdAt])
@@ -1755,16 +1773,24 @@ enum ActivityType {
   SYSTEM
 }
 
-// Resultado de uma Activity type MEETING/VISIT — perguntado no momento de
-// registrar ela (não é um status que muda depois, é o que aconteceu
-// naquele encontro). Alimenta o "quantos no-show tomamos" do relatório de
-// Facebook (ver lib/meta-ads/attribution.ts) — sem isso, todo MEETING/VISIT
-// registrado contava como reunião de verdade, mesmo quando o lead nunca
-// apareceu.
+// Resultado de uma Activity type MEETING/VISIT. Perguntado na CONCLUSÃO da
+// Task ligada (ver Task.activityId acima e meeting-outcome-dialog.tsx) —
+// não mais na criação: perguntar antes do encontro acontecer permitia
+// registrar (com um clique só, no default antigo) um comparecimento que
+// ainda nem tinha ocorrido. Alimenta o "quantos no-show tomamos" do
+// relatório de Facebook (lib/meta-ads/attribution.ts) e a Taxa de
+// comparecimento de Relatórios (lib/reports/commercial-data.ts).
 enum ActivityMeetingOutcome {
   ATTENDED
   NO_SHOW
   RESCHEDULED
+  // Task ligada ainda não foi concluída — só existe entre a criação da
+  // tarefa e sua conclusão, nunca é um estado final. Excluído da taxa de
+  // comparecimento nos relatórios (mesmo tratamento que RESCHEDULED já
+  // recebe) — diferente de meetingOutcome null (Activity acima), que
+  // significa "não tem Task ligada pra nunca vir a saber", não "ainda não
+  // sabemos".
+  PENDING
 }
 
 // ─── Atividade diária por usuário (tempo no CRM + nº de alterações) ────

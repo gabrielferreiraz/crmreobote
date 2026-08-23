@@ -70,6 +70,13 @@ export function matchesKeyword(config: TriggerConfig, body: string | null): bool
   });
 }
 
+/** Sem restrição configurada = coringa (dispara pra mensagem recebida em QUALQUER número conectado). */
+export function matchesMessageInstance(config: TriggerConfig, instanceOwnerUserId: string): boolean {
+  const allowed = config.messageInstanceUserIds ?? [];
+  if (allowed.length === 0) return true;
+  return allowed.includes(instanceOwnerUserId);
+}
+
 type BusinessHours = { start?: string; end?: string; days?: number[]; holidays?: string[] };
 
 function timeToMinutes(t: string): number {
@@ -218,6 +225,7 @@ export async function dispatchMessageReceivedAutomations(
     const config = (rule.triggerConfig ?? {}) as TriggerConfig;
 
     if (await isRateLimited(rule.id, thread.id)) continue;
+    if (!matchesMessageInstance(config, instance.userId)) continue;
     if (!matchesBusinessHours(organization?.businessHours, config.businessHoursMode)) continue;
     if (!matchesContactContext(config.contactContext, contactContext)) continue;
     if ((config.ignoreIfHumanActive ?? true) && (await hasRecentHumanMessage(thread.id))) continue;

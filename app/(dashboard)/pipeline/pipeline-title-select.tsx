@@ -44,7 +44,7 @@ export function PipelineTitleSelect({
 
   if (pipelines.length <= 1) {
     return (
-      <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+      <h1 className="text-xl leading-none font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
         {active?.name ?? "Pipeline"}
       </h1>
     );
@@ -58,7 +58,7 @@ export function PipelineTitleSelect({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="group -m-1 inline-flex items-center gap-1.5 rounded-md p-1 text-xl font-semibold tracking-tight text-neutral-900 transition-colors hover:text-brand dark:text-neutral-100"
+        className="group -m-1 inline-flex items-center gap-1.5 rounded-md p-1 text-xl leading-none font-semibold tracking-tight text-neutral-900 transition-colors hover:text-brand dark:text-neutral-100"
       >
         {active?.name ?? "Selecionar funil"}
         <ChevronDown

@@ -15,14 +15,22 @@ export { appendDictatedText };
  * Ditado por voz via Web Speech API — nativa do navegador (Chrome/Edge/
  * Safari), sem custo e sem chave de API, mas não é padronizada: só existe
  * prefixada (`webkitSpeechRecognition`) em alguns navegadores e não existe
- * no Firefox (ver types/speech-recognition.d.ts pros tipos). Sempre roda em
- * modo de UMA frase por clique (não contínuo): mais previsível entre
- * navegadores do que o modo contínuo (que tem bugs conhecidos de parar
- * sozinho no Chrome depois de alguns segundos) — pra ditar mais, clica de
- * novo. O objetivo aqui é digitar rápido um título/nota curta, não uma
- * transcrição longa (pra isso, ver `keepListening` abaixo — reencadeia frase
- * por frase sozinho, pra ditar vários campos numa sentada só sem precisar
- * clicar de novo a cada um).
+ * no Firefox (ver types/speech-recognition.d.ts pros tipos).
+ *
+ * NUNCA fecha sozinho por causa de uma pausa — só quando a pessoa clica pra
+ * parar, ou num erro de verdade (mic sem permissão, sem internet). Achado
+ * real (pedido do usuário): o navegador corta o reconhecimento sozinho
+ * assim que detecta um silêncio — inclusive uma pausa curta pra pensar no
+ * que falar em seguida —, não é o mesmo que "a pessoa decidiu parar de
+ * ditar". Por baixo dos panos continua sendo uma frase de cada vez (não o
+ * `continuous: true` nativo da SpeechRecognition, que tem bug conhecido de
+ * parar sozinho no Chrome depois de alguns segundos): cada vez que uma
+ * frase fecha (por pausa OU por um evento "no-speech" de silêncio
+ * prolongado), reabre um reconhecimento novo automaticamente, sem
+ * interromper a sessão nem precisar de clique novo. `appendDictatedText`
+ * (lib/dictation.ts) junta cada frase reconhecida com a anterior no campo,
+ * então na prática lê como um ditado contínuo só, mesmo tecnicamente sendo
+ * várias frases reencadeadas.
  *
  * A SpeechRecognition em si não expõe o volume do microfone — pra mostrar
  * uma reação de verdade enquanto a pessoa fala (não só um pulso genérico),
@@ -38,7 +46,6 @@ export function VoiceInputButton({
   onListeningChange,
   lang = "pt-BR",
   className = "",
-  keepListening = false,
 }: {
   /** Chamado com o texto reconhecido (frase inteira) quando termina de falar. */
   onResult: (text: string) => void;
@@ -56,25 +63,12 @@ export function VoiceInputButton({
    * precisa saber exatamente quando a SESSÃO INTEIRA de ditado acabou (ex.:
    * só processar/distribuir o texto ditado quando a pessoa clicar pra
    * parar, não a cada frase reconhecida no meio do caminho, que ainda pode
-   * vir mais coisa). `false` dispara tanto no clique de parar quanto num
-   * erro real que encerra a sessão (ver onerror abaixo).
+   * vir mais coisa). `false` dispara só no clique de parar ou num erro real
+   * que encerra a sessão (ver onerror abaixo) — nunca numa pausa comum.
    */
   onListeningChange?: (listening: boolean) => void;
   lang?: string;
   className?: string;
-  /**
-   * Depois de cada frase reconhecida, reabre o microfone sozinho em vez de
-   * esperar um clique novo — pensado pra ditar VÁRIOS campos numa sentada só
-   * ("nome fulano... telefone tal... mora em tal cidade..."), não só um
-   * título/nota curta (o caso de uso padrão, ver comentário do componente).
-   * Continua sozinho até a pessoa clicar de novo pra parar, ou até um erro
-   * de verdade acontecer (mic sem permissão, sem internet etc. — aí para,
-   * não adianta tentar de novo sozinho). Não é o `continuous: true` nativo
-   * da SpeechRecognition (esse tem bug conhecido de parar sozinho no Chrome
-   * depois de alguns segundos) — é uma frase de cada vez por baixo dos
-   * panos, só reencadeada automaticamente.
-   */
-  keepListening?: boolean;
 }) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
@@ -228,21 +222,22 @@ export function VoiceInputButton({
     };
     recognition.onend = () => {
       recognitionRef.current = null;
-      // Reencadeia sozinho enquanto a sessão de ditado contínuo não foi
-      // encerrada pela própria pessoa (clique) nem por um erro de verdade —
-      // reabre o mic pro próximo campo sem exigir clicar de novo. O
-      // visualizador de volume (getUserMedia à parte) continua rodando por
-      // baixo, só a SpeechRecognition em si é trocada.
-      if (keepListening && !stoppedByUserRef.current) {
+      // Reencadeia sozinho SEMPRE que a sessão não foi encerrada pela
+      // própria pessoa (clique) nem por um erro de verdade — inclusive numa
+      // pausa comum pra pensar, que o navegador só marca como "frase
+      // terminou", não "a pessoa quer parar de ditar" (ver comentário do
+      // componente). O visualizador de volume (getUserMedia à parte)
+      // continua rodando por baixo, só a SpeechRecognition em si é trocada.
+      if (!stoppedByUserRef.current) {
         startRecognition();
         return;
       }
       setListening(false);
       stopVisualizer();
       // Só agora a sessão acabou de verdade (clique de parar, ou erro real
-      // — nunca no meio de uma frase reencadeada pelo keepListening). É o
-      // sinal que quem consome isso pra distribuir campos/analisar o texto
-      // ditado espera pra só então processar o texto INTEIRO de uma vez.
+      // — nunca numa pausa comum reencadeada acima). É o sinal que quem
+      // consome isso pra distribuir campos/analisar o texto ditado espera
+      // pra só então processar o texto INTEIRO de uma vez.
       onListeningChangeRef.current?.(false);
     };
 
@@ -277,7 +272,7 @@ export function VoiceInputButton({
         type="button"
         onClick={toggle}
         className={`icon-btn relative ${listening ? "text-red-500 dark:text-red-400" : ""} ${className}`}
-        title={listening ? "Parar ditado" : keepListening ? "Ditar por voz — fale os campos um de cada vez" : "Ditar por voz"}
+        title={listening ? "Toque para parar de ditar" : "Ditar por voz — pode fazer pausas, só para quando você tocar de novo"}
         aria-label={listening ? "Parar ditado" : "Ditar por voz"}
         aria-pressed={listening}
       >
@@ -305,9 +300,12 @@ export function VoiceInputButton({
               />
             ))}
           </span>
-          <span className="text-[11px] font-medium whitespace-nowrap text-white">
-            {keepListening ? "Ouvindo… um campo de cada vez" : "Ouvindo…"}
-          </span>
+          {/* Explícito sobre o comportamento novo: pausa pra pensar não
+              encerra nada — só o toque no botão para de verdade. Sem isso,
+              alguém vendo só "Ouvindo…" podia continuar achando que uma
+              pausa mais longa fecha sozinho, do jeito que o navegador fazia
+              antes. */}
+          <span className="text-[11px] font-medium whitespace-nowrap text-white">Ouvindo… toque p/ parar</span>
         </span>
       )}
 

@@ -32,6 +32,8 @@ export type CampaignPerformanceRow = {
   won: number;
   lost: number;
   wonValue: number;
+  /** wonValue ÷ won ("ticket médio" da campanha) — null sem venda nenhuma no período. */
+  avgWonValue: number | null;
   costPerWon: number | null;
   /** (valor ganho − gasto) / gasto, como fração — multiplicar por 100 pra virar %. null sem gasto conhecido. */
   roi: number | null;
@@ -159,6 +161,7 @@ export async function getCampaignPerformance(
         won,
         lost: attr?.lost ?? 0,
         wonValue,
+        avgWonValue: won > 0 ? wonValue / won : null,
         costPerWon: spend != null && won > 0 ? spend / won : null,
         roi: spend != null && spend > 0 ? (wonValue - spend) / spend : null,
         ads: (adsByCampaignId.get(campaignId) ?? []).sort((a, b) => b.spend - a.spend),

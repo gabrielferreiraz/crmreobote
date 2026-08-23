@@ -10,6 +10,7 @@ import { Select } from "@/components/select";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ChatWindow, withViewTransition } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
+import { ContactInfoPanel } from "./contact-info-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 
@@ -637,6 +638,14 @@ export function ConversationsView({
           </div>
         )}
       </div>
+
+      {/* Painel "Informações" (ver contact-info-panel.tsx) — só quando a
+          conversa já está vinculada a um Contact de verdade (threads
+          "Geral", ainda não vinculados, não têm o que mostrar aqui). key
+          reseta o componente ao trocar de conversa, senão o painel antigo
+          ficava visível por um instante com o contato errado enquanto o
+          novo fetch ainda não tinha voltado. */}
+      {selected?.contactId && <ContactInfoPanel key={selected.contactId} contactId={selected.contactId} />}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { Avatar } from "@/components/avatar";
 import { AnimatedCheck } from "@/components/animated-check";
 import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
 import { TaskDetailModal } from "./task-detail-modal";
+import { useMeetingOutcomeGate } from "./use-meeting-outcome-gate";
 
 export type Task = {
   id: string;
@@ -83,7 +84,7 @@ export function TaskRow({
   showOwner,
 }: {
   task: Task;
-  onToggle: (id: string, completed: boolean) => void;
+  onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
   /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
@@ -93,6 +94,7 @@ export function TaskRow({
   const [modalOpen, setModalOpen] = useState(false);
   const [completed, setCompleted] = useState(!!task.completedAt);
   const [justCompleted, setJustCompleted] = useState(false);
+  const { requestComplete, dialog: outcomeDialog } = useMeetingOutcomeGate(onToggle);
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
   const overdue = !completed && !!task.dueAt && new Date(task.dueAt) < new Date();
@@ -135,6 +137,9 @@ export function TaskRow({
   function handleToggle(e?: React.MouseEvent) {
     e?.stopPropagation();
     const next = !completed;
+    // Concluindo (não desmarcando) uma Reunião/Visita — precisa do
+    // resultado antes de seguir (ver use-meeting-outcome-gate.tsx).
+    if (next && requestComplete(task)) return;
     setCompleted(next);
     if (next) {
       setJustCompleted(true);
@@ -282,6 +287,7 @@ export function TaskRow({
           onDelete={onDelete}
         />
       )}
+      {outcomeDialog}
     </>
   );
 }

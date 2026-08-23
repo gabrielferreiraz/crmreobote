@@ -48,6 +48,8 @@ export function CampaignBreakdownTable({ rows }: { rows: CampaignPerformanceRow[
           <th className="px-3 py-2.5 font-medium">Custo/reunião</th>
           <th className="px-3 py-2.5 font-medium">No-show</th>
           <th className="px-3 py-2.5 font-medium">Vendas</th>
+          <th className="px-3 py-2.5 font-medium">Valor ganho</th>
+          <th className="px-3 py-2.5 font-medium">Ticket médio</th>
           <th className="px-3 py-2.5 font-medium">Custo/venda</th>
           <th className="px-3 py-2.5 font-medium">ROI</th>
         </tr>
@@ -120,6 +122,12 @@ export function CampaignBreakdownTable({ rows }: { rows: CampaignPerformanceRow[
                   {row.noShowLeads > 0 ? <span className="text-red-600 dark:text-red-400">{row.noShowLeads}</span> : 0}
                 </td>
                 <td className="px-3 py-2.5 tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{row.won}</td>
+                <td className="px-3 py-2.5 font-medium tabular-nums text-neutral-900 dark:text-neutral-100">
+                  {formatCurrency(row.wonValue)}
+                </td>
+                <td className="px-3 py-2.5 text-neutral-700 dark:text-neutral-300">
+                  <Cost value={row.avgWonValue} />
+                </td>
                 <td className="px-3 py-2.5 text-neutral-700 dark:text-neutral-300">
                   <Cost value={row.costPerWon} />
                 </td>
@@ -142,8 +150,8 @@ export function CampaignBreakdownTable({ rows }: { rows: CampaignPerformanceRow[
                     </td>
                     <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400">{formatCurrency(ad.spend)}</td>
                     <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400">{ad.leads}</td>
-                    {/* 13 colunas no total (ver <thead> acima), 3 já preenchidas (nome/gasto/leads) — o resto (10) vira essa célula só, o CRM não sabe reunião/venda por anúncio individual. */}
-                    <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400" colSpan={10}>
+                    {/* 15 colunas no total (ver <thead> acima), 3 já preenchidas (nome/gasto/leads) — o resto (12) vira essa célula só, o CRM não sabe reunião/venda por anúncio individual. */}
+                    <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400" colSpan={12}>
                       {ad.leads > 0 ? formatCurrency(ad.spend / ad.leads) + "/lead" : "—"}
                     </td>
                   </tr>

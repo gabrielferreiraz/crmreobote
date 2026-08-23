@@ -46,13 +46,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   // Só cabe pergunta de "o que aconteceu" pra Reunião/Visita — outro tipo
   // de atividade (nota, ligação, e-mail...) não tem um "resultado" desse
-  // jeito, ver ActivityMeetingOutcome no schema.
-  const validOutcomes = ["ATTENDED", "NO_SHOW", "RESCHEDULED"];
+  // jeito, ver ActivityMeetingOutcome no schema. PENDING é o caso normal
+  // quando esta Activity vai ganhar uma Task ligada (deal-detail.tsx manda
+  // isso e resolve o resultado de verdade só na conclusão da Task); ATTENDED/
+  // NO_SHOW/RESCHEDULED direto só quando NÃO há Task nenhuma sendo criada
+  // (registro retroativo de algo que já aconteceu — não tem "conclusão"
+  // futura pra perguntar depois, então pergunta aqui mesmo).
+  const validOutcomes = ["ATTENDED", "NO_SHOW", "RESCHEDULED", "PENDING"];
   if (meetingOutcome !== undefined && !validOutcomes.includes(meetingOutcome)) {
     return NextResponse.json({ error: "meetingOutcome inválido" }, { status: 400 });
   }
   if (meetingOutcome !== undefined && type !== "MEETING" && type !== "VISIT") {
     return NextResponse.json({ error: "meetingOutcome só se aplica a Reunião/Visita" }, { status: 400 });
+  }
+  // Reunião/Visita sempre precisa de uma resposta (PENDING conta como
+  // resposta válida aqui) — fecha a brecha de registrar sem nenhum
+  // resultado, nem futuro nem imediato.
+  if (meetingOutcome === undefined && (type === "MEETING" || type === "VISIT")) {
+    return NextResponse.json({ error: "meetingOutcome é obrigatório para Reunião/Visita" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
@@ -77,7 +88,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           | "MEETING"
           | "VISIT",
         body: activityBody,
-        meetingOutcome: meetingOutcome as "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | undefined,
+        meetingOutcome: meetingOutcome as "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | undefined,
       },
       include: { user: true },
     });

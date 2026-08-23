@@ -128,6 +128,7 @@ export async function validateTriggerConfig(
     const config = triggerConfig as {
       messageMatchType?: string;
       messageKeywords?: string[];
+      messageInstanceUserIds?: string[];
       businessHoursMode?: string;
       contactContext?: string;
       stopOnMatch?: unknown;
@@ -142,6 +143,25 @@ export async function validateTriggerConfig(
       if (config.messageKeywords.length > MAX_KEYWORDS) return `No máximo ${MAX_KEYWORDS} palavras-chave por regra`;
       if (config.messageKeywords.some((k) => typeof k !== "string" || k.length > MAX_KEYWORD_LENGTH)) {
         return `Cada palavra-chave deve ter no máximo ${MAX_KEYWORD_LENGTH} caracteres`;
+      }
+    }
+    if (config?.messageInstanceUserIds !== undefined) {
+      if (!Array.isArray(config.messageInstanceUserIds)) return "Seleção de número de WhatsApp inválida";
+      if (config.messageInstanceUserIds.some((id) => typeof id !== "string")) return "Seleção de número de WhatsApp inválida";
+      if (config.messageInstanceUserIds.length > 0) {
+        // findMany + distinct (não count): um usuário pode ter mais de uma
+        // instância (Meta + Evolution, ver lib/automations/recipients.ts) —
+        // um count() simples de linhas bateria errado com o tamanho do Set
+        // de userIds sempre que algum deles tivesse 2 linhas.
+        const owners = await prisma.whatsAppInstance.findMany({
+          where: { organizationId, userId: { in: config.messageInstanceUserIds } },
+          select: { userId: true },
+          distinct: ["userId"],
+        });
+        const validIds = new Set(owners.map((o) => o.userId));
+        if (config.messageInstanceUserIds.some((id) => !validIds.has(id))) {
+          return "Um dos números de WhatsApp selecionados não existe mais nesta organização";
+        }
       }
     }
     if (config?.businessHoursMode !== undefined && !VALID_BUSINESS_HOURS_MODES.includes(config.businessHoursMode)) {

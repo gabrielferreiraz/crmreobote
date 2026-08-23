@@ -143,8 +143,11 @@ export async function getMetaAdsAttribution(
     if (!a.contactId) continue;
     // null = histórico anterior à coluna existir — tratado como
     // "compareceu" (ver comentário no schema), nunca como no-show.
+    // PENDING = Task ligada ainda não concluída (resultado só é perguntado
+    // na conclusão, ver ActivityMeetingOutcome) — fica de fora, mesmo
+    // tratamento que RESCHEDULED já recebe.
     if (a.meetingOutcome === "NO_SHOW") noShowContactIds.add(a.contactId);
-    else if (a.meetingOutcome !== "RESCHEDULED") meetingContactIds.add(a.contactId);
+    else if (a.meetingOutcome !== "RESCHEDULED" && a.meetingOutcome !== "PENDING") meetingContactIds.add(a.contactId);
   }
 
   const rows = new Map<string, CampaignAttributionRow>();
