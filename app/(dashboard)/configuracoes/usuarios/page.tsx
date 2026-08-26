@@ -14,19 +14,38 @@ export default async function UsuariosSettingsPage() {
   const organizationId = session.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    const membersRaw = await prisma.organizationUser.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "asc" },
-      include: {
-        user: { select: { id: true, name: true, email: true, image: true, birthDate: true } },
-        team: { select: { id: true, name: true } },
-      },
-    });
+    const [membersRaw, whatsappInstances] = await Promise.all([
+      prisma.organizationUser.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: "asc" },
+        include: {
+          user: { select: { id: true, name: true, email: true, image: true, birthDate: true } },
+          team: { select: { id: true, name: true } },
+        },
+      }),
+      // Um usuário pode ter mais de uma instância (Evolution + Meta Cloud,
+      // ver @@unique([organizationId, userId, provider]) no schema) — "tem
+      // WhatsApp conectado" aqui é OU, não uma linha só por pessoa.
+      prisma.whatsAppInstance.findMany({
+        where: { organizationId },
+        select: { userId: true, status: true, phoneNumber: true },
+      }),
+    ]);
+
+    // userId → telefone da 1ª instância CONECTADA achada (null = nenhuma
+    // conectada) — alimenta o selo de Conectado/Desconectado na tabela.
+    const connectedPhoneByUserId = new Map<string, string | null>();
+    for (const inst of whatsappInstances) {
+      if (inst.status !== "CONNECTED") continue;
+      if (!connectedPhoneByUserId.has(inst.userId)) connectedPhoneByUserId.set(inst.userId, inst.phoneNumber);
+    }
 
     const members = await Promise.all(
       membersRaw.map(async (m) => ({
         ...m,
         photoUrl: await resolveAvatarUrl(m.user.image),
+        whatsappConnected: connectedPhoneByUserId.has(m.user.id),
+        whatsappPhone: connectedPhoneByUserId.get(m.user.id) ?? null,
       })),
     );
 

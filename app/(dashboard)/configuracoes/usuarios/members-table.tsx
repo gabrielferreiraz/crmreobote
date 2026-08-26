@@ -22,6 +22,8 @@ type Member = {
   team: { id: string; name: string } | null;
   photoUrl: string | null;
   lastActiveAt: Date | string | null;
+  whatsappConnected: boolean;
+  whatsappPhone: string | null;
 };
 
 /** "2026-07-12" → "12/07" (dia/mês, sem ano — pra mostrar sob o e-mail na tabela, ver aniversário). */
@@ -48,7 +50,7 @@ const ROLE_LABELS: Record<Member["role"], string> = {
 // select, badge, checkbox ou nada (célula vazia) sempre caem exatamente sob
 // a coluna certa, em vez de empurrar o resto da linha quando um campo não
 // se aplica (ex.: Dono não tem Papel/Área pra escolher).
-const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_100px_140px_100px_140px]";
+const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_100px_120px_140px_100px_140px]";
 
 // Espelha ONLINE_THRESHOLD_MS de lib/user-activity.ts — não importa direto
 // de lá porque esse módulo puxa o client do Prisma, que não pode entrar no
@@ -354,6 +356,7 @@ export function MembersTable({
             <span>Usuário</span>
             <span>Papel</span>
             <span>Equipe</span>
+            <span>WhatsApp</span>
             <span>Área</span>
             <span>Processos</span>
             <span />
@@ -448,6 +451,24 @@ export function MembersTable({
               </div>
 
               <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{m.team?.name ?? "—"}</p>
+
+              <div className="min-w-0">
+                {/* Mesmo selo (cor/pontinho) que "Atividade por vendedor" em
+                    relatorios/page.tsx já usa pro mesmo status — pensado pra
+                    o Dono/Gerente bater o olho em quem está com o número
+                    caído sem precisar abrir Relatórios. */}
+                <span
+                  title={m.whatsappConnected && m.whatsappPhone ? `Conectado — ${m.whatsappPhone}` : undefined}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+                    m.whatsappConnected
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                      : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${m.whatsappConnected ? "bg-emerald-500" : "bg-neutral-400"}`} />
+                  {m.whatsappConnected ? "Conectado" : "Desconectado"}
+                </span>
+              </div>
 
               <div className="min-w-0">
                 {m.role === "OWNER" ? (

@@ -6,21 +6,17 @@ import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 export const dynamic = "force-dynamic";
 
 /** Detalhe de um lote — usado pelo "ver detalhes" do histórico (linhas que não viraram negócio, com o motivo de cada uma).
- * Cada usuário só acessa lotes que ele mesmo criou; OWNER/MANAGER acessa qualquer lote da organização. */
+ * Mesma regra da lista (GET /api/deals/import/history): só quem criou o lote acessa, sem exceção de papel —
+ * OWNER/MANAGER/TI que não importou não vê, mesmo sabendo o id (antes havia uma exceção aqui que contradizia
+ * a lista: ela já escondia o lote, mas quem soubesse/adivinhasse o id ainda conseguia abrir o detalhe). */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const isManager = ["OWNER", "MANAGER"].includes(access.role ?? "");
     const batch = await prisma.importBatch.findFirst({
-      where: {
-        id,
-        organizationId: access.organizationId,
-        // OWNER/MANAGER vêm qualquer lote; outros papeis só o próprio
-        ...(isManager ? {} : { createdById: access.userId }),
-      },
+      where: { id, organizationId: access.organizationId, createdById: access.userId },
       include: { createdBy: { select: { name: true } } },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
@@ -63,14 +59,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const isManager = ["OWNER", "MANAGER"].includes(access.role ?? "");
+    // Mesma regra do GET acima e da lista — só quem criou o lote pode
+    // desfazê-lo, sem exceção de papel.
     const batch = await prisma.importBatch.findFirst({
-      where: {
-        id,
-        organizationId: access.organizationId,
-        // OWNER/MANAGER podem desfazer qualquer lote; outros só o próprio
-        ...(isManager ? {} : { createdById: access.userId }),
-      },
+      where: { id, organizationId: access.organizationId, createdById: access.userId },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     if (batch.deletedAt) return NextResponse.json({ error: "Essa importação já foi desfeita" }, { status: 409 });

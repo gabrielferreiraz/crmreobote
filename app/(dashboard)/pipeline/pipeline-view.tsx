@@ -82,7 +82,14 @@ export function PipelineView({
   isOwner: boolean;
   canBulkDelete: boolean;
   canBulkMessage: boolean;
-  /** Botão "Histórico" ao lado de "Importar" (abre o ImportHistoryDialog) — só quem tem papel Dono/Gerente vê, mesmo gate de /api/deals/import/history. */
+  /**
+   * Botão "Histórico" ao lado de "Importar" (abre o ImportHistoryDialog) —
+   * hoje sempre true (qualquer papel importa, ver POST /api/deals/import,
+   * então qualquer um precisa poder ver o que ele mesmo importou). A tela
+   * em si só mostra os lotes criados pela pessoa logada (ver GET
+   * /api/deals/import/history) — continua um prop, não um `true` fixo
+   * aqui dentro, caso um dia precise variar nessa condição de novo.
+   */
   canViewImportHistory: boolean;
   openNewDeal?: boolean;
   /** Meta do mês corrente — sempre organização inteira, só vem preenchida pro Dono (ver page.tsx). null = não se aplica a este papel. */

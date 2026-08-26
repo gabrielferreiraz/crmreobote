@@ -143,7 +143,7 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
     <Modal onClose={onClose} maxWidth="max-w-4xl">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Histórico de importações</h2>
       <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-        Todo arquivo importado fica registrado aqui — quem importou, quando e quantas linhas entraram.
+        Os arquivos que você mesmo importou, com quando e quantas linhas entraram — importação de outra pessoa não aparece aqui, mesmo pra Dono/Gerente.
       </p>
 
       {loading ? (
@@ -155,7 +155,7 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
         <p className="py-6 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
       ) : !batches || batches.length === 0 ? (
         <div className="py-4">
-          <EmptyState icon={UploadCloud} title="Nenhuma importação ainda" description="Quando alguém importar uma planilha, o lote aparece aqui." />
+          <EmptyState icon={UploadCloud} title="Nenhuma importação ainda" description="Quando você importar uma planilha, o lote aparece aqui." />
         </div>
       ) : (
         <div className="max-h-[65vh] overflow-y-auto overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">

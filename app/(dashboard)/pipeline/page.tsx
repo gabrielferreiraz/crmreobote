@@ -202,7 +202,13 @@ export default async function PipelinePage({
         jobTitles={jobTitles.map((j) => ({ label: j.label }))}
         isOwner={isOwner}
         canBulkDelete={isManager}
-        canViewImportHistory={isManager}
+        // Botão sempre visível, não só pra Dono/Gerente — qualquer papel já
+        // pode IMPORTAR (POST /api/deals/import usa requireSession, sem
+        // checagem de role), então qualquer um também precisa conseguir ver
+        // o próprio histórico. A tela em si só mostra os lotes que a pessoa
+        // logada criou (ver GET /api/deals/import/history) — dono/gerente
+        // que não importou nada só vê a lista vazia, nunca lote de outro.
+        canViewImportHistory={true}
         canBulkMessage={canBulkMessage}
         openNewDeal={novo === "1"}
         goalValue={goalProgress?.goalValue ?? null}

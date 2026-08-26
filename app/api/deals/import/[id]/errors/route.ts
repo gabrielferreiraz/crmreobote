@@ -28,13 +28,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const isManager = ["OWNER", "MANAGER"].includes(access.role ?? "");
+    // Mesma regra do detalhe/lista (ver [id]/route.ts) — só quem criou o
+    // lote baixa a planilha de erros dele.
     const batch = await prisma.importBatch.findFirst({
-      where: {
-        id,
-        organizationId: access.organizationId,
-        ...(isManager ? {} : { createdById: access.userId }),
-      },
+      where: { id, organizationId: access.organizationId, createdById: access.userId },
       select: { fileName: true, issueRows: true },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
