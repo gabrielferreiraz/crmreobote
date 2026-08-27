@@ -20,7 +20,16 @@ export const metadata = {
 export default function TvLayout({ children }: { children: ReactNode }) {
   return (
     <div className="tv-gradient-bg dark relative h-screen w-screen overflow-hidden text-white">
-      {children}
+      {/* Moldura de segurança contra overscan (ver --tv-safe-margin em
+          globals.css) — fica NESTE wrapper interno, não no fundo (acima),
+          de propósito: o gradiente de fundo precisa continuar cobrindo a
+          tela inteira (se o painel da TV cortar uma faixa da borda, quem
+          sobra visível ali ainda é fundo, nunca uma tarja preta/vazia
+          diferente do resto). Só o CONTEÚDO (children) fica recuado pra
+          dentro da área segura. */}
+      <div className="absolute inset-0" style={{ padding: "var(--tv-safe-margin)" }}>
+        {children}
+      </div>
     </div>
   );
 }

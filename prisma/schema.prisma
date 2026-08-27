@@ -56,6 +56,7 @@ model Organization {
   processRequests        ProcessRequest[]
   auditLogs              AuditLog[]
   tvConfig               TvDashboardConfig?
+  tvDisplayLinks         TvDisplayLink[]
   importBatches          ImportBatch[]
   shareGroups            ShareGroup[]
   processTemplates       ProcessTemplate[]
@@ -94,6 +95,7 @@ model User {
   messageScripts              MessageScript[]
   googleCalendarConnection    GoogleCalendarConnection?
   apiKeysCreated              ApiKey[]
+  tvDisplayLinksCreated       TvDisplayLink[]
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
   contactsLeadQualified       Contact[]                 @relation("ContactLeadQualifiedBy")
@@ -2063,4 +2065,36 @@ model TvDashboardConfig {
   updatedAt            DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * Link público (sem login) da TV — só de LEITURA, resolve organizationId a
+ * partir do token (nunca do organizationId que o próprio chamador
+ * informaria, mesmo raciocínio de segurança do ApiKey, ver
+ * lib/require-api-key.ts). Deliberadamente um model PRÓPRIO, não reaproveita
+ * ApiKey: uma ApiKey autentica a API pública inteira (cria/edita/apaga
+ * negócio), poder demais pra um token que vai ficar exposto na configuração
+ * de um dispositivo de TV pendurado numa sala — o escopo deste token é
+ * restrito por CONSTRUÇÃO (só existe um lookup, lib/require-tv-link.ts, que
+ * só devolve organizationId, nunca dá pra usar em nenhuma outra rota).
+ *
+ * Um token ativo por organização na prática (a UI em Configurações → TV só
+ * mostra "gerar"/"revogar e gerar outro", nunca uma lista) — mas nada aqui
+ * impede mais de um por organização (histórico de revogados fica guardado,
+ * mesmo padrão soft-revoke do ApiKey).
+ */
+model TvDisplayLink {
+  id             String    @id @default(cuid())
+  organizationId String
+  tokenPrefix    String
+  tokenHash      String    @unique
+  createdById    String
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id])
+
+  @@index([organizationId])
 }

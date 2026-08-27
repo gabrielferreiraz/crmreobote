@@ -1046,6 +1046,22 @@ input[type="radio"] {
    o mínimo do clamp segura a mão numa tela bem mais baixa, o máximo não
    deixa esticar sem limite numa tela bem mais alta que o normal. */
 :root {
+  /* Margem de segurança contra OVERSCAN — TV (confirmado: navegador
+     embutido de Smart TV) frequentemente não mostra 100% do que a página
+     renderiza: o próprio painel recorta uma faixa nas bordas (herança de
+     TV analógica, ainda ligada por padrão em boa parte das Smart TVs,
+     principalmente rodando um navegador em vez de um app de vídeo nativo).
+     --tv-gap (abaixo) é só o respiro ENTRE elementos — nunca foi pensado
+     pra proteger contra o painel físico comendo a borda da tela, e é fino
+     demais pra isso (no máximo 18px). Esta aqui é a moldura externa da
+     PÁGINA inteira (ver app/tv/layout.tsx), ~3% da menor dimensão da tela —
+     valor padrão de "área segura" de emissora de TV, suficiente pra
+     qualquer TV com overscan ligado sem deixar uma borda vazia perceptível
+     numa TV sem overscan (moderna, "Just Scan"/"Screen Fit" 100%). Quem
+     tiver overscan ligado E ainda ver corte também pode desligar essa opção
+     direto no menu de imagem da própria TV — as duas coisas se complementam,
+     uma não substitui a outra. */
+  --tv-safe-margin: clamp(0.75rem, 3vmin, 2.5rem);
   --tv-panel-w: clamp(320px, 27vw, 600px);
   /* --tv-gap e --tv-card-py são os dois tokens que mais se repetem no
      empilhamento vertical (gap entre CADA um dos 5 blocos + padding de

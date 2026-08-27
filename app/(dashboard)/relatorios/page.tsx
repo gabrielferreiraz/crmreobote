@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import React from "react";
 import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
@@ -138,7 +137,6 @@ export default async function RelatoriosPage({
     crmChangesRanking,
     teamActivityList,
     teamRanking,
-    monthTrend,
     revenueTrendDaily,
     teamActivityTrend,
     statusSlices,
@@ -262,10 +260,8 @@ export default async function RelatoriosPage({
         prevWonCount={prevWonCount}
         prevWonTotalValue={prevWonTotalValue}
         winRate={winRate}
-        avgWonValue={avgWonValue}
         dealsClosedRanking={dealsClosedRanking}
         slaOverallFirstTouchWithin1h={slaOverallFirstTouchWithin1h}
-        avgFirstReplyMs={slaTotalAvgFirstReplyMs}
         revenueTrendDaily={revenueTrendDaily}
       />
 
@@ -989,7 +985,7 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
  * pra UM stat por linha no máximo (hoje só "Total ganho"), pra continuar
  * chamando atenção; virar padrão em todo card tiraria o próprio destaque.
  * `delta`: badge opcional de variação vs período anterior (ver DeltaBadge). */
-function Stat({ label, value, hint, emphasize, delta }: { label: string; value: string; hint?: string; emphasize?: boolean; delta?: React.ReactNode }) {
+function Stat({ label, value, hint, emphasize, delta }: { label: string; value: string; hint?: string; emphasize?: boolean; delta?: ReactNode }) {
   if (emphasize) {
     return (
       <div className="card border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/60 dark:bg-emerald-500/10">

@@ -1,7 +1,7 @@
 "use client";
 
 import { TrendingUp, TrendingDown, AlertTriangle, Star, Zap } from "lucide-react";
-import { formatCurrency, formatDuration } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 
 type DayBucket = { year: number; month: number; day: number; value: number };
 
@@ -21,10 +21,8 @@ export function AutoInsights({
   prevWonCount,
   prevWonTotalValue,
   winRate,
-  avgWonValue,
   dealsClosedRanking,
   slaOverallFirstTouchWithin1h,
-  avgFirstReplyMs,
   revenueTrendDaily,
 }: {
   wonCount: number;
@@ -32,10 +30,8 @@ export function AutoInsights({
   prevWonCount: number | null;
   prevWonTotalValue: number | null;
   winRate: number;
-  avgWonValue: number;
   dealsClosedRanking: { name: string; primaryValue: string }[];
   slaOverallFirstTouchWithin1h: number | null;
-  avgFirstReplyMs: number | null;
   revenueTrendDaily: DayBucket[];
 }) {
   const insights: Insight[] = [];
@@ -93,7 +89,7 @@ export function AutoInsights({
   if (revenueTrendDaily.length > 0) {
     const best = revenueTrendDaily.reduce((a, b) => (b.value > a.value ? b : a), revenueTrendDaily[0]);
     if (best.value > 0) {
-      const d = new Date(Date.UTC(best.year, best.month, best.day!));
+      const d = new Date(Date.UTC(best.year, best.month, best.day));
       const label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "UTC" });
       insights.push({
         type: "neutral",

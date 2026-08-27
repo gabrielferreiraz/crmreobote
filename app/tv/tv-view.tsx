@@ -84,7 +84,17 @@ function formatRelativeTime(date: Date): string {
   return `há ${diffD}d`;
 }
 
-export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
+export function TvView({
+  initialMetrics,
+  publicToken,
+}: {
+  initialMetrics: Metrics;
+  /** Só quando montado a partir do link público (ver
+   * app/tv/publico/[token]/page.tsx) — sem sessão nenhuma pra repetir a cada
+   * refresh, o polling abaixo precisa levar o token junto pra
+   * fetchTvMetrics saber de qual organização buscar (ver app/tv/actions.ts). */
+  publicToken?: string;
+}) {
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [celebration, setCelebration] = useState<WinSale | null>(null);
@@ -144,7 +154,7 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const updated = await fetchTvMetrics();
+        const updated = await fetchTvMetrics(publicToken);
         if (updated.lastSale) {
           const closedAtMs = updated.lastSale.date.getTime();
           if (closedAtMs > lastSeenClosedAtMs.current) {
@@ -166,6 +176,10 @@ export function TvView({ initialMetrics }: { initialMetrics: Metrics }) {
       }
     }, METRICS_POLL_MS);
     return () => clearInterval(interval);
+    // publicToken nunca muda depois de montado (vem fixo da página, ver
+    // app/tv/publico/[token]/page.tsx) — não precisa recriar o interval por
+    // causa dele.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Giro nas fotos do pódio do Ranking a cada 5min (ver RANKING_SPIN_*

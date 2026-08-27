@@ -7,6 +7,7 @@ type TenantStore = {
   instanceName?: string;
   apiKeyHash?: string;
   metaPageId?: string;
+  tvLinkTokenHash?: string;
 };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
@@ -38,6 +39,10 @@ export function getCurrentApiKeyHash(): string | undefined {
 
 export function getCurrentMetaPageId(): string | undefined {
   return storage.getStore()?.metaPageId;
+}
+
+export function getCurrentTvLinkTokenHash(): string | undefined {
+  return storage.getStore()?.tvLinkTokenHash;
 }
 
 /**
@@ -102,6 +107,19 @@ export function runWithApiKeyLookup<T>(keyHash: string, fn: () => Promise<T>): P
  */
 export function runWithMetaPageLookup<T>(pageId: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ metaPageId: pageId }, async () => await fn());
+}
+
+/**
+ * Mesma ideia, mas pro link público (sem login) da TV
+ * (lib/require-tv-link.ts): a requisição só traz o token do link
+ * (convertido em hash antes de chegar aqui, nunca guardamos/comparamos o
+ * token em texto puro), o organizationId ainda precisa ser descoberto a
+ * partir dele. A policy de RLS de TvDisplayLink permite achar a própria
+ * linha por tokenHash, mesmo sem organizationId definido — igual ao ApiKey
+ * permite achar a própria linha por keyHash.
+ */
+export function runWithTvLinkLookup<T>(tokenHash: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ tvLinkTokenHash: tokenHash }, async () => await fn());
 }
 
 /**

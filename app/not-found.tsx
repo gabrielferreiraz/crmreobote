@@ -23,7 +23,7 @@ export default function NotFound() {
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             O endereço não existe ou foi movido.
           </p>
-          <Link href="/" className="btn-primary mt-6 w-full">
+          <Link href="/" className="btn-primary mt-5 w-full">
             Voltar ao início
           </Link>
         </div>

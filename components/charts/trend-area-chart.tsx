@@ -417,7 +417,6 @@ export function DrillableTrendChart({
   useEffect(() => {
     if (prevKeyRef.current === dailyKey) return;
     prevKeyRef.current = dailyKey;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStack([{ level: pickInitialLevel(dailyData), data: dailyData, label: "Visão geral" }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dailyKey]);
