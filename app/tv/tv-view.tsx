@@ -171,6 +171,17 @@ export function TvView({
   // reaparecendo nunca passa no teste de novo.
   const lastSeenClosedAtMs = useRef<number>(initialMetrics.lastSale?.date.getTime() ?? 0);
 
+  // Detecção de deploy novo (ver lib/server-instance.ts) — guarda o id do
+  // PROCESSO do servidor que respondeu o carregamento inicial desta página.
+  // Um deploy reinicia o container = processo novo = id diferente; quando
+  // o polling abaixo perceber isso, recarrega a página inteira sozinha
+  // (pega o HTML/JS/CSS do build novo) em vez de esperar a recarga diária
+  // das 4h (DAILY_RELOAD_HOUR) — antes disso, deployar às 14h só aparecia
+  // na TV às 4h do dia SEGUINTE, quase 14h pra ver o resultado de uma
+  // mudança sem precisar dar F5 manual numa tela pendurada na parede
+  // ("depois que eu dei deploy ela não atualizou sozinha").
+  const serverInstanceIdRef = useRef(initialMetrics.serverInstanceId);
+
   // Auto-refresh das métricas — fetchTvMetrics não recebe organizationId
   // daqui (ver app/tv/actions.ts): a action descobre sozinha a organização
   // pela sessão de quem está logado nesta TV. Isso também é o que faz um
@@ -182,6 +193,14 @@ export function TvView({
     const interval = setInterval(async () => {
       try {
         const updated = await fetchTvMetrics(publicCode);
+        // Checa deploy novo ANTES de qualquer outra coisa — se mudou, só
+        // recarrega e para por aqui; não faz sentido atualizar state pra
+        // uma tela que já vai ser substituída pelo reload no instante
+        // seguinte.
+        if (updated.serverInstanceId !== serverInstanceIdRef.current) {
+          window.location.reload();
+          return;
+        }
         if (updated.lastSale) {
           const closedAtMs = updated.lastSale.date.getTime();
           if (closedAtMs > lastSeenClosedAtMs.current) {

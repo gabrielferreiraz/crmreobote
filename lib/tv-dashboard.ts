@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { brazilStartOfMonth, brazilStartOfYear, getBrazilParts } from "@/lib/timezone";
+import { SERVER_INSTANCE_ID } from "@/lib/server-instance";
 
 export async function getTvConfig(organizationId: string) {
   try {
@@ -219,6 +220,8 @@ export async function getTvMetrics(organizationId: string) {
           churrascometroTarget > 0 ? (totalVendasMes / churrascometroTarget) * 100 : 0,
         adsUrls: config.adsUrls,
         visibleWidgets: config.visibleWidgets,
+        // Detecção de deploy novo pela TV — ver lib/server-instance.ts.
+        serverInstanceId: SERVER_INSTANCE_ID,
       };
     });
   } catch (error) {
@@ -235,6 +238,11 @@ export async function getTvMetrics(organizationId: string) {
       churrascometroProgress: 0,
       adsUrls: config.adsUrls,
       visibleWidgets: config.visibleWidgets,
+      // Mesmo no fallback de erro — se o banco cair, ainda queremos que a
+      // TV detecte um deploy novo e recarregue sozinha assim que possível
+      // (pode ser exatamente o que resolve o erro, ex.: variável de
+      // ambiente corrigida no mesmo deploy).
+      serverInstanceId: SERVER_INSTANCE_ID,
     };
   }
 }
