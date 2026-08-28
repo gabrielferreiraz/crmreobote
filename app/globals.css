@@ -991,7 +991,21 @@ input[type="radio"] {
    Valores recalibrados pra reproduzir os tamanhos fixos que existiam antes
    (já testados/aprovados) numa referência de 1080px de ALTURA (TV Full HD);
    o mínimo do clamp segura a mão numa tela bem mais baixa, o máximo não
-   deixa esticar sem limite numa tela bem mais alta que o normal. */
+   deixa esticar sem limite numa tela bem mais alta que o normal.
+
+   TETOS RECALIBRADOS pra TV real de produção (ver lib/tv-display-profile.ts
+   pra especificação completa) — 85", 3840×2160px de verdade, não uma
+   suposição genérica. Isso é o DOBRO de 1920×1080 em cada eixo, então
+   vmin nessa TV vale 21.6px (o dobro dos 10.8px que os tetos antigos
+   assumiam) — cada token fluido batia no teto ANTES de alcançar o tamanho
+   que essa tela grande de verdade pedia, então o layout inteiro
+   renderizava do jeito que ficaria numa TV Full HD comum, só que
+   fisicamente esticado numa tela de 85": texto/ícone/avatar
+   proporcionalmente minúsculos, lendo como "layout de celular" mesmo a TV
+   sendo enorme. Os tetos abaixo agora resolvem pro tamanho NATURAL (sem
+   cortar) em 3840×2160 — coeficiente vmin/vw × TV_REFERENCE_VMIN_PX/
+   TV_REFERENCE_VW_PX, com uma folga pequena. Pisos e coeficientes do meio
+   continuam os mesmos de antes (não mudam pra telas menores). */
 :root {
   /* Margem de segurança contra OVERSCAN — TV (confirmado: navegador
      embutido de Smart TV) frequentemente não mostra 100% do que a página
@@ -1008,53 +1022,60 @@ input[type="radio"] {
      tiver overscan ligado E ainda ver corte também pode desligar essa opção
      direto no menu de imagem da própria TV — as duas coisas se complementam,
      uma não substitui a outra. */
-  --tv-safe-margin: clamp(0.75rem, 3vmin, 2.5rem);
-  /* Painel de métricas mais largo (era 320-600px/27vw) — pedido explícito
-     de "esticar" os dados: numa TV grande de verdade (referência
-     1920×1080), 27vw dava só ~518px pro painel inteiro (logo + 4 cards +
-     pódio de 3 pessoas + linha de 3 etapas do funil), meio apertado pro
-     tanto de número que precisa caber lado a lado sem truncar/cortar perto
-     da borda. */
-  --tv-panel-w: clamp(360px, 30vw, 680px);
-  /* --tv-gap e --tv-card-py são os dois tokens que mais se repetem no
-     empilhamento vertical (gap entre CADA um dos 5 blocos + padding de
-     CIMA E DE BAIXO de cada um dos 5 cards) — reduzir um pouco cada um
-     aqui devolve espaço de verdade multiplicado várias vezes, bem mais
-     efetivo que cortar um valor usado só uma vez.
-     Valores abaixo (gap/padding/texto/ícone/avatar) subiram ~15-20% numa
-     leva só — pedido explícito ("dar uma esticada nesses dados"): numa TV
-     de verdade vista a alguns metros de distância, maior lê melhor, e o
-     painel ganhou espaço extra (--tv-panel-w acima) pra sobrar sem
-     espremer. justify-evenly no lugar de justify-center (ver tv-view.tsx)
-     complementa isso — qualquer folga vertical que sobrar agora se
-     distribui ENTRE os cards, não só como respiro morto acima/abaixo do
-     bloco inteiro. */
-  --tv-gap: clamp(0.6rem, 1.6vmin, 1.3rem);
-  --tv-card-px: clamp(1rem, 2.6vmin, 2rem);
-  --tv-card-py: clamp(0.5rem, 1.75vmin, 1.5rem);
-  --tv-radius: clamp(0.75rem, 1.6vmin, 1.25rem);
-  --tv-radius-lg: clamp(1rem, 2vmin, 1.5rem);
+  --tv-safe-margin: clamp(0.75rem, 3vmin, 4.25rem);
+  /* Painel de métricas mais largo (era 320-600px/27vw) — pedido de
+     "esticar" os dados: numa TV grande de verdade (referência 1920×1080),
+     27vw dava só ~518px pro painel inteiro (logo + 4 cards + pódio de 3
+     pessoas + linha de 3 etapas do funil), meio apertado pro tanto de
+     número que precisa caber lado a lado. Teto recalibrado pra 3840×2160
+     de verdade (ver lib/tv-display-profile.ts) — 30vw nessa TV vale
+     ~1152px; 680px cortava isso quase pela metade. Só a LARGURA subiu — só
+     mexe no espaço HORIZONTAL disponível, não tira nada da conta vertical
+     (ver baixo), então é seguro por conta própria. */
+  --tv-panel-w: clamp(360px, 30vw, 1180px);
+  /* Texto/ícone/avatar/gap: piso e coeficiente do meio voltaram pro valor
+     original (a 1ª tentativa de "esticar" só subindo o coeficiente
+     ESTOUROU a altura disponível — texto maior que o card conseguia
+     acomodar saía CORTADO, ver `overflow-hidden` em GlassCard). O TETO
+     agora está recalibrado pra 3840×2160 de verdade (ver
+     lib/tv-display-profile.ts) — o problema real nunca foi o coeficiente
+     em si, foi o teto capando o cálculo antes dele alcançar o tamanho que
+     essa TV específica pede (vmin = 21.6px nela, o dobro dos 10.8px da
+     referência 1920×1080 em que os tetos antigos foram pensados — TODO
+     token batia no teto antes de crescer o suficiente, daí o layout
+     inteiro lendo "pequeno, tipo celular" numa tela de 85"). Com o teto
+     corrigido, o mesmo coeficiente de sempre agora resolve pro tamanho
+     NATURAL nessa TV, sem cortar.
+     A parte estrutural que resolve "esticar" o vazio entre cards continua
+     por fora disto: --tv-panel-w mais largo (acima) + justify-evenly no
+     lugar de justify-center (ver tv-view.tsx). */
+  --tv-gap: clamp(0.5rem, 1.4vmin, 2rem);
+  --tv-card-px: clamp(0.875rem, 2.3vmin, 3.25rem);
+  --tv-card-py: clamp(0.4rem, 1.5vmin, 2.125rem);
+  --tv-radius: clamp(0.75rem, 1.6vmin, 2.25rem);
+  --tv-radius-lg: clamp(1rem, 2vmin, 2.8125rem);
 
-  --tv-text-label: clamp(0.68rem, 1.15vmin, 0.9375rem);
-  --tv-text-body: clamp(0.85rem, 1.5vmin, 1.125rem);
-  --tv-text-name: clamp(0.95rem, 1.9vmin, 1.4375rem);
-  --tv-text-value-sm: clamp(1.15rem, 2.35vmin, 1.875rem);
-  --tv-text-value-md: clamp(1.4rem, 3vmin, 2.625rem);
-  --tv-text-value-lg: clamp(1.75rem, 3.8vmin, 3.5rem);
-  --tv-text-hero: clamp(2.1rem, 5.8vmin, 4.75rem);
+  --tv-text-label: clamp(0.6rem, 1.05vmin, 1.5rem);
+  --tv-text-body: clamp(0.75rem, 1.35vmin, 1.875rem);
+  --tv-text-name: clamp(0.85rem, 1.7vmin, 2.375rem);
+  --tv-text-value-sm: clamp(1rem, 2.1vmin, 2.9375rem);
+  --tv-text-value-md: clamp(1.2rem, 2.7vmin, 3.75rem);
+  --tv-text-value-lg: clamp(1.5rem, 3.4vmin, 4.75rem);
+  --tv-text-hero: clamp(1.75rem, 5.2vmin, 7.25rem);
 
-  --tv-icon-sm: clamp(0.85rem, 1.25vmin, 1.125rem);
-  --tv-icon-md: clamp(1.1rem, 2vmin, 1.625rem);
-  --tv-icon-lg: clamp(1.3rem, 2.75vmin, 2.125rem);
+  --tv-icon-sm: clamp(0.75rem, 1.1vmin, 1.5625rem);
+  --tv-icon-md: clamp(0.95rem, 1.75vmin, 2.4375rem);
+  --tv-icon-lg: clamp(1.15rem, 2.4vmin, 3.375rem);
 
   /* Avatares do pódio (ver PODIUM_AVATAR_VAR/RankingPodiumSlot em
      tv-view.tsx) — o 1º lugar é o maior elemento único de todo o painel de
-     métricas. */
-  --tv-avatar-md: clamp(2.6rem, 5.4vmin, 4.25rem);
-  --tv-avatar-lg: clamp(3.75rem, 9.2vmin, 7.25rem);
+     métricas. Teto recalibrado pra 3840×2160 de verdade, mesmo raciocínio
+     dos outros tokens acima. */
+  --tv-avatar-md: clamp(2.25rem, 4.8vmin, 6.75rem);
+  --tv-avatar-lg: clamp(3.25rem, 8.2vmin, 11.5rem);
 
-  --tv-clock-time: clamp(1rem, 2.3vmin, 2.125rem);
-  --tv-clock-date: clamp(0.55rem, 0.9vmin, 0.6875rem);
+  --tv-clock-time: clamp(1rem, 2.3vmin, 3.25rem);
+  --tv-clock-date: clamp(0.55rem, 0.9vmin, 1.25rem);
   /* min/max estavam invertidos aqui (6rem, ..., 3.25rem) — como o piso já
      era maior que o teto, o clamp() sempre resolvia pro piso fixo (6rem =
      96px, CONSTANTE, nunca escalava de verdade com o vmin no meio, apesar
