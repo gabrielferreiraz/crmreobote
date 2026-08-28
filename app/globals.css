@@ -977,8 +977,9 @@ input[type="radio"] {
    clamp()) foi pra um sistema diferente e mais robusto: TvAutoFit (ver
    app/tv/tv-auto-fit.tsx) — desenha o bloco inteiro numa largura FIXA de
    design (CARDS_DESIGN_WIDTH/CARDS_DESIGN_TOKENS em tv-view.tsx,
-   reescrevendo --tv-text-*/--tv-icon-*/--tv-avatar-*/--tv-gap/--tv-card-*/
-   --tv-radius*/--tv-logo-h com valores fixos só DENTRO daquele escopo) e
+   reescrevendo --tv-text-*, --tv-icon-*, --tv-avatar-*, --tv-gap,
+   --tv-card-*, --tv-radius* e --tv-logo-h com valores fixos só DENTRO
+   daquele escopo) e
    MEDE de verdade (ResizeObserver) o espaço disponível pra escalar o bloco
    inteiro (transform: scale, um fator só, preservando toda a relação de
    tamanho entre os elementos) até caber exatamente — em qualquer TV,
