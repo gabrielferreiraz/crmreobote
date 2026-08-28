@@ -763,7 +763,14 @@ export function TvView({
               deste wrapper (está fora dele, acima), então nunca se move
               quando a altura de algum card abaixo mudar (ex.: os dois cards
               com carrossel próprio, ver mais abaixo). */}
-          <div className="flex min-h-0 flex-1 flex-col justify-center" style={{ gap: "var(--tv-gap)" }}>
+          {/* justify-evenly (era justify-center) — pedido explícito de
+              "esticar" o painel: com menos de 4 widgets habilitados (ou uma
+              TV mais alta que a referência), o grupo de cards sobrava
+              espaço vertical inteiro concentrado como vão morto acima+abaixo
+              do bloco; evenly espalha essa folga TAMBÉM entre os cards, o
+              painel passa a ocupar visualmente a altura toda em vez de
+              ficar "encolhido" numa faixa central. */}
+          <div className="flex min-h-0 flex-1 flex-col justify-evenly" style={{ gap: "var(--tv-gap)" }}>
             {showHero && (
               <GlassCard delay={90} className="text-center">
                 <Glow color="var(--brand)" />
