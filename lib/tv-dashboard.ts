@@ -202,7 +202,7 @@ export async function getTvMetrics(organizationId: string) {
 
       return {
         vendasAnuais,
-        vendasCotas: 0,
+        vendasCotas,
         vendasMes: totalVendasMes,
         lastSale: lastSale
           ? {

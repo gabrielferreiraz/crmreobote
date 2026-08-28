@@ -17,10 +17,11 @@ export async function saveTvConfig({
     const { organizationId } = await requireSession();
     if (!organizationId) throw new Error("Unauthorized");
 
-    // TvDashboardConfig hoje não tem RLS (ver migração nova que adiciona),
-    // então isso funcionava mesmo sem o wrap — mas fica consistente com o
-    // resto do app (2ª camada de proteção, não só o `where`/`create` acima)
-    // e já blinda o dia em que a policy for adicionada.
+    // TvDashboardConfig tem RLS (ver migração
+    // 20260812090000_tv_dashboard_config_rls) — sem este wrap, a policy
+    // nunca via app.current_organization_id definido e o upsert falhava
+    // em silêncio. Mesma 2ª camada de proteção que o resto do app usa, não
+    // só o `where`/`create` acima.
     await runWithTenant(organizationId, () =>
       prisma.tvDashboardConfig.upsert({
         where: { organizationId },

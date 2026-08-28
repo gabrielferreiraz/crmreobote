@@ -968,7 +968,26 @@ input[type="radio"] {
     linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
 }
 
-/* TV — escala fluida com clamp(), calibrada em VMIN (o menor entre largura e
+/* TV — LEIA ISTO PRIMEIRO: os tokens --tv-* aqui embaixo (em :root) só
+   valem hoje pro que fica FORA do bloco de cards do painel de métricas —
+   margem de segurança contra overscan, padding geral da página, vão entre
+   o painel de propaganda e o de métricas, largura do próprio painel
+   (--tv-panel-w) e a barra do Churrascômetro. O bloco de logo+cards (onde
+   SEMPRE acontecia corte/aperto, não importa quanto se ajustasse o
+   clamp()) foi pra um sistema diferente e mais robusto: TvAutoFit (ver
+   app/tv/tv-auto-fit.tsx) — desenha o bloco inteiro numa largura FIXA de
+   design (CARDS_DESIGN_WIDTH/CARDS_DESIGN_TOKENS em tv-view.tsx,
+   reescrevendo --tv-text-*/--tv-icon-*/--tv-avatar-*/--tv-gap/--tv-card-*/
+   --tv-radius*/--tv-logo-h com valores fixos só DENTRO daquele escopo) e
+   MEDE de verdade (ResizeObserver) o espaço disponível pra escalar o bloco
+   inteiro (transform: scale, um fator só, preservando toda a relação de
+   tamanho entre os elementos) até caber exatamente — em qualquer TV,
+   tablet ou celular, sem adivinhar resolução nenhuma. O resto deste
+   comentário (histórico de por que vmin, por que os tetos foram
+   recalibrados pra 3840×2160) continua válido pro que ainda usa este
+   sistema, só não é mais a história completa do painel inteiro.
+
+   TV — escala fluida com clamp(), calibrada em VMIN (o menor entre largura e
    altura da tela), não vw puro. Breakpoint fixo (sm/md/lg) é pra conteúdo
    que precisa "empilhar" pra caber (menu vira gaveta, coluna vira lista) — a
    TV nunca empilha nada NESSE sentido, ela só é fisicamente menor ou maior.
@@ -1071,6 +1090,14 @@ input[type="radio"] {
   --tv-icon-sm: clamp(0.75rem, 1.1vmin, 1.5625rem);
   --tv-icon-md: clamp(0.95rem, 1.75vmin, 2.4375rem);
   --tv-icon-lg: clamp(1.15rem, 2.4vmin, 3.375rem);
+
+  /* Mancha decorativa (Glow, ver tv-view.tsx) no canto de cada card — era
+     um `clamp(6rem, 9vw, 9rem)` cru direto no componente, não uma variável
+     --tv-*, então não seguia a mesma regra de escala do resto (nem aqui
+     fora do TvAutoFit, nem dentro dele — CARDS_DESIGN_TOKENS só reescreve
+     var(--tv-*), não literais soltos no meio de um style). Vira token pra
+     Glow poder ler o valor certo nos dois contextos igual todo o resto. */
+  --tv-glow-size: clamp(6rem, 9vw, 9rem);
 
   /* Avatares do pódio/última venda/aniversariantes (ver
      PODIUM_AVATAR_VAR/RankingPodiumSlot e renderLastSaleContent/

@@ -9,7 +9,7 @@ import { TvAdCropDialog } from "./tv-ad-crop-dialog";
 import { TV_AD_ASPECT_RATIO } from "./tv-ad-aspect";
 
 export const AVAILABLE_WIDGETS = [
-  { id: "sales_summary", label: "Resumo de Vendas (Anuais, Cotas, Agosto)" },
+  { id: "sales_summary", label: "Resumo de Vendas (Anuais, Cotas, Mês atual)" },
   { id: "churrascometro", label: "Churrascômetro" },
   { id: "last_sale", label: "Última Venda" },
   { id: "funnels", label: "Leads no Funil" },
@@ -147,7 +147,7 @@ export function TvConfigForm({
         setMessage({ tone: "success", title: "Salvo com sucesso!" });
         router.refresh();
       }
-    } catch (err) {
+    } catch {
       setMessage({ tone: "error", title: "Erro crítico ao salvar." });
     } finally {
       setBusy(false);

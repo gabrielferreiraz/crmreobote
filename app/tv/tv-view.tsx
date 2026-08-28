@@ -7,6 +7,7 @@ import { fetchTvMetrics } from "./actions";
 import { formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
+import { TvAutoFit } from "./tv-auto-fit";
 import { TvClock } from "./tv-clock";
 import { CountUpValue } from "@/components/count-up-value";
 
@@ -56,9 +57,7 @@ const RANKING_SPIN_VISIBLE_MS = 6000;
 // aniversário no mês, os dois cards ficam só no conteúdo normal pra sempre.
 // Quem faz aniversário especificamente HOJE ainda ganha destaque à parte
 // dentro do conteúdo (ver renderLastSaleContent/renderRankingContent).
-// TESTE: 5s em vez de 3min, só pra validar o carrossel rápido — voltar pra
-// `3 * 60 * 1000` depois.
-const RANKING_CAROUSEL_INTERVAL_MS = 5 * 1000;
+const RANKING_CAROUSEL_INTERVAL_MS = 3 * 60 * 1000;
 // Quanto tempo o lado que está SAINDO fica montado depois da troca, animando
 // pra fora da tela (ver outgoingSlide mais abaixo) — precisa bater com a
 // duração das animações tv-slide-in-from-*/tv-slide-out-to-* em globals.css,
@@ -70,6 +69,51 @@ const SLIDE_TRANSITION_MS = 650;
 // final — mesmo espírito do EXIT_MS de tv-win-celebration.tsx.
 const CHURRASCO_BANNER_MS = 10_000;
 const CHURRASCO_BANNER_EXIT_MS = 600;
+
+// Largura "de design" do bloco de cards (Vendas do mês / Última venda +
+// Leads no funil / Ranking) — ver app/tv/tv-auto-fit.tsx. Tudo dentro
+// desse bloco é desenhado como se a tela sempre tivesse essa largura; o
+// TvAutoFit é quem escala o bloco INTEIRO (um fator só, nos dois eixos)
+// pra caber no espaço real disponível em qualquer TV/tablet/celular —
+// então esse número não precisa "bater" com nenhuma tela de verdade, só
+// precisa ser confortável o bastante pra esses valores abaixo lerem bem
+// entre si (relação de tamanho, não tamanho absoluto).
+const CARDS_DESIGN_WIDTH = 600;
+
+// Valores FIXOS (não mais clamp() em vmin) pros tokens --tv-* usados
+// DENTRO do bloco de cards acima — os mesmos números que já existiam antes
+// de qualquer tentativa de calibrar por resolução de tela (a primeira
+// versão "já testada/aprovada", ver histórico de app/globals.css).
+// Redefinidos aqui como CSS custom properties inline, escopados só ao
+// wrapper do TvAutoFit — GlassCard/renderLastSaleContent/RankingPodiumSlot
+// etc. continuam chamando exatamente os mesmos `var(--tv-*)` de sempre,
+// sem precisar mudar nada neles; só o VALOR que a cascata do CSS resolve
+// muda dentro deste escopo. Fora do TvAutoFit (padding da página, vão
+// entre o painel de propaganda e o de métricas, barra do Churrascômetro)
+// os tokens em :root (app/globals.css) continuam valendo normalmente —
+// só o bloco de cards, que é onde o corte/aperto sempre aconteceu, passou
+// a ser 100% resolvido por medição real em vez de estimativa.
+const CARDS_DESIGN_TOKENS = {
+  "--tv-gap": "1.125rem",
+  "--tv-card-px": "1.75rem",
+  "--tv-card-py": "1.25rem",
+  "--tv-radius": "1.25rem",
+  "--tv-radius-lg": "1.5rem",
+  "--tv-text-label": "0.8125rem",
+  "--tv-text-body": "1rem",
+  "--tv-text-name": "1.25rem",
+  "--tv-text-value-sm": "1.625rem",
+  "--tv-text-value-md": "2.25rem",
+  "--tv-text-value-lg": "3rem",
+  "--tv-text-hero": "4rem",
+  "--tv-icon-sm": "1rem",
+  "--tv-icon-md": "1.375rem",
+  "--tv-icon-lg": "1.875rem",
+  "--tv-avatar-md": "3.75rem",
+  "--tv-avatar-lg": "6.5rem",
+  "--tv-logo-h": "4.5rem",
+  "--tv-glow-size": "9rem",
+} as React.CSSProperties;
 
 /**
  * "há 12 min" em vez de só uma data fixa (26/07/2026) — numa TV ligada o dia
@@ -116,7 +160,13 @@ export function TvView({
   // re-renderizar a cada busca bem-sucedida, só quando `stale` muda de
   // verdade).
   const [stale, setStale] = useState(false);
-  const lastFetchOkAt = useRef<number>(Date.now());
+  // `Date.now()` não pode rodar direto no corpo do componente (regra
+  // react-hooks/purity — cada render chamaria de novo, valor instável) —
+  // 0 aqui é só placeholder; o valor de verdade é escrito no início do
+  // efeito de polling de métricas abaixo, antes do 1º tick do interval
+  // poder disparar (Date.now() - 0 nunca chega a ser lido nesse meio
+  // tempo).
+  const lastFetchOkAt = useRef<number>(0);
   // "Agora" usado pro rótulo relativo da última venda ("há 12 min" — ver
   // formatRelativeTime). Começa null tanto no servidor quanto na 1ª pintura
   // do cliente e só ganha valor depois de montado: chamar `Date.now()`
@@ -127,6 +177,11 @@ export function TvView({
   // granularidade pra um rótulo em minutos.
   const [nowMs, setNowMs] = useState<number | null>(null);
   useEffect(() => {
+    // setState direto no corpo do efeito é proposital aqui — é exatamente
+    // o padrão "valor só existe no cliente, null até montar" descrito
+    // acima (evitar hydration mismatch), não dá pra resolver de outro
+    // jeito sem reintroduzir o próprio problema que isso evita.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNowMs(Date.now());
     const interval = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(interval);
@@ -174,12 +229,32 @@ export function TvView({
   // Detecção de deploy novo (ver lib/server-instance.ts) — guarda o id do
   // PROCESSO do servidor que respondeu o carregamento inicial desta página.
   // Um deploy reinicia o container = processo novo = id diferente; quando
-  // o polling abaixo perceber isso, recarrega a página inteira sozinha
-  // (pega o HTML/JS/CSS do build novo) em vez de esperar a recarga diária
-  // das 4h (DAILY_RELOAD_HOUR) — antes disso, deployar às 14h só aparecia
-  // na TV às 4h do dia SEGUINTE, quase 14h pra ver o resultado de uma
-  // mudança sem precisar dar F5 manual numa tela pendurada na parede
-  // ("depois que eu dei deploy ela não atualizou sozinha").
+  // algum dos dois pollings abaixo perceber isso, recarrega a página
+  // inteira sozinha (pega o HTML/JS/CSS do build novo) em vez de esperar a
+  // recarga diária das 4h (DAILY_RELOAD_HOUR) — antes disso, deployar às
+  // 14h só aparecia na TV às 4h do dia SEGUINTE, quase 14h pra ver o
+  // resultado de uma mudança sem precisar dar F5 manual numa tela
+  // pendurada na parede ("depois que eu dei deploy ela não atualizou
+  // sozinha").
+  //
+  // Precisa dos DOIS pollings (este daqui embutido em fetchTvMetrics, MAIS
+  // o /api/tv/build-id logo abaixo) por um motivo específico: o 1º relato
+  // de "não atualizou sozinha" era porque fetchTvMetrics é uma SERVER
+  // ACTION, e o Next.js troca o ID de toda Server Action A CADA DEPLOY
+  // (ver node_modules/next/dist/docs/01-app/02-guides/server-actions.md
+  // #deployment-considerations) — então, depois de um deploy de verdade, a
+  // TV (ainda com o bundle ANTIGO carregado) chamava fetchTvMetrics e a
+  // chamada em si já FALHAVA ("Failed to find Server Action") antes de
+  // qualquer resposta chegar — nunca dava tempo de comparar
+  // serverInstanceId nenhum, o polling só caía direto no catch (linha
+  // abaixo) achando que era uma falha comum de rede/banco. Uma rota HTTP
+  // comum (não Server Action) não tem esse problema — o endereço
+  // `/api/tv/build-id` é o MESMO antes e depois de qualquer deploy, então
+  // sempre responde com o que estiver rodando agora, não importa o quão
+  // velho o bundle de quem pergunta esteja. É esse 2º polling que garante
+  // o reload de verdade; o check aqui dentro do fetchTvMetrics fica como
+  // um 2º caminho, redundante mas inofensivo, pro caso raro do polling de
+  // métricas conseguir responder mesmo assim.
   const serverInstanceIdRef = useRef(initialMetrics.serverInstanceId);
 
   // Auto-refresh das métricas — fetchTvMetrics não recebe organizationId
@@ -190,6 +265,11 @@ export function TvView({
   // banco, sem cache no meio, então o próximo refresh já reflete a reversão
   // sozinho, sem precisar de nenhuma lógica extra pra "esconder" nada.
   useEffect(() => {
+    // Marca "agora" como o último sucesso conhecido assim que monta — sem
+    // isso, lastFetchOkAt ficaria no placeholder (0) até o 1º fetch bem-
+    // sucedido de verdade, e uma falha logo cedo (antes do 1º sucesso)
+    // calcularia "desde 1970" pro aviso de stale.
+    lastFetchOkAt.current = Date.now();
     const interval = setInterval(async () => {
       try {
         const updated = await fetchTvMetrics(publicCode);
@@ -226,6 +306,34 @@ export function TvView({
     // app/t/[code]/page.tsx) — não precisa recriar o interval por causa
     // dele.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2º polling de detecção de deploy — ver o comentário longo em
+  // serverInstanceIdRef acima pra entender POR QUE precisa dos dois. Este
+  // aqui usa `fetch` comum (rota HTTP normal, app/api/tv/build-id/route.ts)
+  // em vez de Server Action — nunca quebra por causa de ID de Server
+  // Action desatualizado depois de um deploy, é justamente o caminho que
+  // continua funcionando quando o outro falha. Roda num intervalo próprio
+  // (não precisa ser tão frequente quanto o de métricas — detectar um
+  // deploy em até 1 minuto já é rápido o bastante pra uma tela na parede).
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/tv/build-id", { cache: "no-store" });
+        if (!res.ok) return;
+        const data: { serverInstanceId: string } = await res.json();
+        if (data.serverInstanceId !== serverInstanceIdRef.current) {
+          window.location.reload();
+        }
+      } catch (err) {
+        // Silencioso de propósito — isto é só um "ainda é o mesmo
+        // deploy?", não uma busca de dado nenhuma; uma falha aqui não deve
+        // acender o aviso "stale" (esse já é tratado pelo polling de
+        // métricas acima).
+        console.error("Failed to check TV build id", err);
+      }
+    }, 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   // Giro nas fotos do pódio do Ranking a cada 5min (ver RANKING_SPIN_*
@@ -265,6 +373,11 @@ export function TvView({
   // girar sozinho.
   useEffect(() => {
     if (!hasBirthdayThisMonth) {
+      // setState direto no corpo do efeito é proposital — sincroniza o
+      // slide com uma condição EXTERNA (esvaziou a lista de
+      // aniversariantes) que só este efeito observa; não tem outro lugar
+      // certo pra fazer esse reset sem duplicar a lógica.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRankingSlide(0);
       return;
     }
@@ -304,8 +417,12 @@ export function TvView({
   const showLastSale = has.has("last_sale");
   const showFunnels = has.has("funnels");
   const showRanking = has.has("ranking");
-  const showPairRow = showChurrasco || showLastSale;
-  const nothingEnabled = !showHero && !showPairRow && !showFunnels && !showRanking;
+  // Nenhum widget habilitado — checa os 5 direto (antes passava por uma
+  // variável intermediária `showPairRow`, nome de um design antigo em que
+  // Última venda dividia linha com o Churrascômetro; hoje ela divide CARD
+  // com Leads no funil, não tem "row" pareado nenhum mais — o nome não
+  // correspondia a mais nada real, só a lógica em si estava certa).
+  const nothingEnabled = !showHero && !showChurrasco && !showLastSale && !showFunnels && !showRanking;
   // Meta do mês batida — o Churrascômetro merece um "final feliz" em vez de
   // só continuar mostrando "134%" na mesma cor de sempre, como se nada
   // tivesse acontecido.
@@ -329,6 +446,10 @@ export function TvView({
   useEffect(() => {
     if (!churrascoGoalHit) {
       churrascoBannerShownRef.current = false;
+      // setState direto no corpo do efeito é proposital — mesmo motivo do
+      // reset de rankingSlide acima: sincroniza com uma condição externa
+      // (meta deixou de estar batida) que só este efeito observa.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChurrascoBannerPhase("hidden");
       return;
     }
@@ -621,12 +742,15 @@ export function TvView({
   };
 
   return (
-    // Todo tamanho/espaçamento fixo aqui (largura do painel, texto, ícone,
-    // avatar...) usa os tokens fluidos --tv-* definidos em globals.css
-    // (clamp() baseado na largura real da tela, não breakpoint sm/md/lg) —
-    // uma TV de 32" 720p e uma de 85" 4K rodam o MESMO layout, só em escala
-    // física diferente, então o que precisa mudar é o TAMANHO de tudo, não a
-    // disposição do conteúdo (que é o que breakpoint tradicional resolve).
+    // Tamanho/espaçamento AQUI FORA do bloco de cards (padding da página,
+    // vão entre painel de propaganda e de métricas, barra do
+    // Churrascômetro) usa os tokens fluidos --tv-* de app/globals.css
+    // (clamp() baseado na largura real da tela) — uma TV de 32" 720p e uma
+    // de 85" 4K rodam o MESMO layout, só em escala física diferente. O
+    // bloco de logo+cards (onde corte/aperto sempre acontecia, não importa
+    // quanto se ajustasse esse clamp()) NÃO segue mais essa regra — ver
+    // TvAutoFit (app/tv/tv-auto-fit.tsx) mais abaixo, que mede o espaço de
+    // verdade em vez de estimar por vmin/vw.
     <div className="flex h-full w-full flex-col" style={{ gap: "var(--tv-gap)", padding: "var(--tv-gap)" }}>
       {/* flex-col abaixo de 900px / flex-row a partir daí: o painel de
           métricas tem uma largura mínima (--tv-panel-w, piso de 320px) —
@@ -758,38 +882,37 @@ export function TvView({
             partir de 900px, onde a largura fixa do painel já garante espaço
             de sobra) — abaixo disso ele pode encolher de verdade pra dividir
             a altura com o painel de propaganda. */}
-        <div className="scrollbar-thin flex min-h-0 w-full flex-col gap-[var(--tv-gap)] overflow-y-auto min-[900px]:w-[var(--tv-panel-w)] min-[900px]:shrink-0">
-          <div className="flex justify-center">
-            {/* Altura fluida (--tv-logo-h), não um h-20 fixo — um logo de
-                80px sempre, sem encolher junto com o resto, foi um dos
-                motivos da base do pódio do Ranking ficar cortada: o painel
-                de métricas inteiro (logo + 4 cards) tem uma altura
-                disponível limitada, e um elemento fixo nessa lista consome
-                sempre o mesmo tanto de espaço, sobrando cada vez menos pros
-                outros conforme a tela é mais baixa. A logo NUNCA participa
-                do carrossel abaixo (ver rankingSlide) — fica fora do bloco
-                que troca de conteúdo, sempre no mesmo lugar. */}
-            <img
-              src="/logo-reobote.svg"
-              alt="Reobote Consórcios"
-              className="w-auto"
-              style={{ height: "var(--tv-logo-h)" }}
-            />
-          </div>
-
-          {/* `relative flex-1 min-h-0 justify-center`: o conteúdo centraliza
-              sozinho no espaço que sobra ABAIXO da logo — a logo é IRMÃ
-              deste wrapper (está fora dele, acima), então nunca se move
-              quando a altura de algum card abaixo mudar (ex.: os dois cards
-              com carrossel próprio, ver mais abaixo). */}
-          {/* justify-evenly (era justify-center) — pedido explícito de
-              "esticar" o painel: com menos de 4 widgets habilitados (ou uma
-              TV mais alta que a referência), o grupo de cards sobrava
-              espaço vertical inteiro concentrado como vão morto acima+abaixo
-              do bloco; evenly espalha essa folga TAMBÉM entre os cards, o
-              painel passa a ocupar visualmente a altura toda em vez de
-              ficar "encolhido" numa faixa central. */}
-          <div className="flex min-h-0 flex-1 flex-col justify-evenly" style={{ gap: "var(--tv-gap)" }}>
+        <div className="scrollbar-thin flex min-h-0 w-full flex-col overflow-y-auto min-[900px]:w-[var(--tv-panel-w)] min-[900px]:shrink-0">
+          {/* TvAutoFit (ver app/tv/tv-auto-fit.tsx) substitui a tentativa
+              anterior de adivinhar o tamanho da TV em vmin — logo + cards
+              abaixo são desenhados JUNTOS numa largura fixa "de design"
+              (CARDS_DESIGN_WIDTH, valores --tv-* já testados/aprovados
+              antes de qualquer calibração por resolução) e são ESCALADOS
+              de verdade, como uma composição só (ResizeObserver medindo o
+              espaço real disponível, não estimativa), pra caber
+              exatamente no espaço do painel — em qualquer TV, tablet ou
+              celular, sem cortar nada e sem sobrar vão morto. A logo entra
+              no MESMO bloco (não fica de fora escalando por conta própria
+              em vmin) de propósito: ela e os cards precisam manter a MESMA
+              relação de tamanho entre si sempre, não duas escalas
+              independentes que podem desalinhar dependendo da tela.
+              `justify-evenly` de antes não existe mais: como o conteúdo
+              passou a ser medido e escalado como uma unidade só, a própria
+              centralização de TvAutoFit (quando sobra espaço numa direção)
+              já resolve isso. */}
+          <TvAutoFit designWidth={CARDS_DESIGN_WIDTH} className="min-h-0 flex-1" style={CARDS_DESIGN_TOKENS}>
+            <div className="flex flex-col" style={{ gap: "var(--tv-gap)" }}>
+            <div className="flex justify-center">
+              {/* A logo NUNCA participa do carrossel abaixo (ver
+                  rankingSlide) — fica fora do bloco que troca de
+                  conteúdo, sempre no mesmo lugar. */}
+              <img
+                src="/logo-reobote.svg"
+                alt="Reobote Consórcios"
+                className="w-auto"
+                style={{ height: "var(--tv-logo-h)" }}
+              />
+            </div>
             {showHero && (
               <GlassCard delay={90} className="text-center">
                 <Glow color="var(--brand)" />
@@ -936,9 +1059,13 @@ export function TvView({
             {/* Carrossel PRÓPRIO deste card — mesmo mecanismo do card Última
                 venda acima, ver comentário lá. minHeight evita o card
                 encolher/crescer demais entre o pódio (mais alto) e a lista
-                de aniversariantes (mais baixa). */}
+                de aniversariantes (mais baixa) — fixo (não mais vh, que não
+                faz sentido dentro do TvAutoFit: o bloco inteiro é desenhado
+                numa largura/altura FIXA e só depois escalado como um todo,
+                então cada elemento interno usa medida fixa também, nunca
+                unidade de viewport). */}
             {showRanking && (
-              <GlassCard delay={360} className="text-center" style={{ minHeight: "clamp(13rem, 24vh, 19rem)" }}>
+              <GlassCard delay={360} className="text-center" style={{ minHeight: "19rem" }}>
                 <Glow color="#eab308" />
                 {outgoingSlide !== null && (
                   <div
@@ -961,7 +1088,8 @@ export function TvView({
             {nothingEnabled && (
               <p className="text-center text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum widget habilitado.</p>
             )}
-          </div>
+            </div>
+          </TvAutoFit>
         </div>
       </div>
 
@@ -1101,8 +1229,17 @@ function Glow({ color }: { color: string }) {
       style={{
         top: "calc(var(--tv-gap) * -0.9)",
         right: "calc(var(--tv-gap) * -0.9)",
-        width: "clamp(6rem, 9vw, 9rem)",
-        height: "clamp(6rem, 9vw, 9rem)",
+        // --tv-glow-size (não mais clamp() em vw direto aqui) — Glow é usado
+        // TANTO dentro do TvAutoFit (Hero/MergedCard/Ranking) QUANTO fora
+        // dele (Churrascômetro): um valor cru de vw não participa da
+        // cascata de CARDS_DESIGN_TOKENS (que só reescreve `var(--tv-*)`,
+        // não literais soltos no meio do style), então o brilho ficava
+        // desproporcional ao resto do card sempre que Glow rodava dentro
+        // do bloco escalado. Igual todo outro token daqui, resolve pro
+        // valor fixo (CARDS_DESIGN_TOKENS) dentro do TvAutoFit e pro fluido
+        // (:root, app/globals.css) fora dele.
+        width: "var(--tv-glow-size)",
+        height: "var(--tv-glow-size)",
         backgroundColor: color,
       }}
     />
@@ -1121,17 +1258,17 @@ function podiumOrder(ranking: RankingUser[]): { user: RankingUser; place: number
 }
 
 const PODIUM_RING = ["#eab308", "#cbd5e1", "#b45309"];
-// Alturas da base do pódio em clamp() — 1º bem mais alta, 3º mais baixa, dá
-// a forma de pódio de verdade em vez de só variar o tamanho do avatar. Em
-// vmin (não vw, que tinha escapado da recalibração geral) e mais baixas que
-// antes de propósito — é decoração pura (não carrega nenhuma informação),
-// então é o primeiro lugar certo pra cortar espaço quando o card do Ranking
-// não coubesse inteiro numa tela mais baixa.
-const PODIUM_BASE_HEIGHT = [
-  "clamp(1.5rem, 2.8vmin, 2.75rem)",
-  "clamp(1.1rem, 2vmin, 2rem)",
-  "clamp(0.8rem, 1.4vmin, 1.375rem)",
-];
+// Alturas da base do pódio — 1º bem mais alta, 3º mais baixa, dá a forma de
+// pódio de verdade em vez de só variar o tamanho do avatar. Valores FIXOS
+// (não mais clamp() em vmin/vw) — RankingPodiumSlot só é renderizado
+// DENTRO do TvAutoFit (ver JSX mais abaixo), então precisa seguir a mesma
+// regra dos outros tokens ali: tamanho fixo "de design", quem escala pro
+// tamanho real da tela é o TvAutoFit inteiro, nunca um vmin/vw cru
+// calculado contra a tela de verdade por fora dessa escala (senão a base
+// do pódio fica desproporcional ao resto do card assim que o TvAutoFit
+// escalar — era exatamente esse o bug: um vmin cru "escapou" da
+// recalibração pra CARDS_DESIGN_TOKENS, ver comentário lá em cima).
+const PODIUM_BASE_HEIGHT = ["1.9rem", "1.35rem", "0.95rem"];
 const PODIUM_AVATAR_VAR = ["var(--tv-avatar-lg)", "var(--tv-avatar-md)", "var(--tv-avatar-md)"];
 const PODIUM_MEDAL = ["", "🥈", "🥉"];
 
@@ -1213,11 +1350,12 @@ function RankingPodiumSlot({
         </p>
       )}
       {/* Barra da base do pódio — 1º mais alta, 3º mais baixa, dá a forma de
-          pódio de verdade em vez de só variar o tamanho do avatar. */}
+          pódio de verdade em vez de só variar o tamanho do avatar. Largura
+          fixa (não mais vw cru) — mesmo motivo de PODIUM_BASE_HEIGHT acima. */}
       <div
         className="mt-2 rounded-t-md"
         style={{
-          width: "clamp(2.5rem, 4vw, 4rem)",
+          width: "4rem",
           height: PODIUM_BASE_HEIGHT[place],
           background: `linear-gradient(180deg, ${ring}55, ${ring}15)`,
         }}

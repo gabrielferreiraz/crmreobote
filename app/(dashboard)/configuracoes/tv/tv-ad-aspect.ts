@@ -15,12 +15,20 @@
  * cortada perto da borda (quem corta confia na moldura do diálogo, que
  * promete ser exata).
  *
+ * O teto de --tv-panel-w em globals.css já subiu de novo desde a última vez
+ * que esta conta foi feita (hoje é 1180px, não 680px, ver comentário lá) —
+ * não precisou refazer o número abaixo porque a referência de 1920×1080
+ * usada aqui nunca chega perto de NENHUM dos dois tetos (30vw em 1920px =
+ * 576px, bem abaixo de 680 e de 1180), então o resultado final não muda.
+ * Mas se mexer no COEFICIENTE (os 30vw) ou na referência de resolução,
+ * essa folga desaparece — vale reconferir.
+ *
  * Calculada a partir do layout real de tv-view.tsx numa TV Full HD 1920x1080
  * (o tamanho mais comum de TV/monitor de parede pra esse tipo de painel),
  * com --tv-gap/--tv-panel-w resolvidos pra essa referência
  * (vmin = 10.8px, vw = 19.2px nessa tela):
- *   --tv-gap      = clamp(8px, 1.4vmin, 18px)   ≈ 15.12px
- *   --tv-panel-w  = clamp(360px, 30vw, 680px)   ≈ 576px
+ *   --tv-gap      = clamp(8px, 1.4vmin, 18px)    ≈ 15.12px
+ *   --tv-panel-w  = clamp(360px, 30vw, 1180px)   ≈ 576px (30vw, bem abaixo do teto)
  *   largura do painel de propaganda
  *     = 1920 - 2*gap(borda da página) - 2*gap(vãos da fileira) - 1px(separador) - painel
  *     ≈ 1920 - 30.24 - 30.24 - 1 - 576 ≈ 1283px

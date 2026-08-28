@@ -39,6 +39,11 @@ export function TvClock({ stale = false }: { stale?: boolean }) {
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    // setState direto no corpo do efeito é proposital — mesmo padrão de
+    // "valor só existe no cliente, null até montar" usado em tv-view.tsx
+    // (evitar hydration mismatch: a hora do servidor quase nunca bate com
+    // a de quem está vendo no instante em que o JS liga).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(new Date());
     const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);

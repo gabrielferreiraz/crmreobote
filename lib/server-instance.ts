@@ -18,5 +18,20 @@ import { randomUUID } from "node:crypto";
  * 4h do dia seguinte, quase 14h de atraso pra ver o resultado de uma
  * mudança, sem ninguém perceber que precisava dar F5 manual numa tela
  * pendurada na parede.
+ *
+ * Guardado em globalThis, mesmo padrão de lib/prisma.ts/lib/tenant-context.ts
+ * — o Next.js pode empacotar este módulo mais de uma vez em contextos
+ * diferentes (Server Component vs Route Handler vs Server Action), cada
+ * cópia rodando seu próprio `randomUUID()` na primeira vez que é
+ * importada. Sem isso, `getTvMetrics` (chamado a partir de uma cópia) e
+ * `/api/tv/build-id` (chamado a partir de outra) podiam devolver dois
+ * UUIDs DIFERENTES pro MESMO processo — a TV interpretaria isso como
+ * "deploy novo" e recarregaria sozinha sem nenhum deploy ter acontecido de
+ * verdade. Com globalThis, não importa quantas cópias do módulo existam,
+ * todas leem/escrevem o mesmo valor.
  */
-export const SERVER_INSTANCE_ID = randomUUID();
+const globalForServerInstance = globalThis as unknown as { tvServerInstanceId?: string };
+
+export const SERVER_INSTANCE_ID = globalForServerInstance.tvServerInstanceId ?? randomUUID();
+
+globalForServerInstance.tvServerInstanceId = SERVER_INSTANCE_ID;
