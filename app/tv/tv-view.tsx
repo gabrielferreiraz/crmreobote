@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
-import { TrendingUp, Flame, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } from "lucide-react";
+import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } from "lucide-react";
+import { AnimatedFire } from "@/components/animated-fire";
 import { fetchTvMetrics } from "./actions";
 import { formatCurrencyCompact } from "@/lib/format";
-import { getBrazilParts } from "@/lib/timezone";
+import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
 import { TvClock } from "./tv-clock";
 import { CountUpValue } from "@/components/count-up-value";
@@ -64,17 +65,29 @@ const RANKING_CAROUSEL_INTERVAL_MS = 5 * 1000;
 // senão o lado antigo é desmontado no meio da própria animação de saída
 // (corte seco) ou fica um resto de tempo parado depois dela já ter acabado.
 const SLIDE_TRANSITION_MS = 650;
+// Quanto tempo o banner "TÁ NA HORA DO CHURRASCO" fica na tela (ver
+// churrascoBannerPhase mais abaixo) e quanto ele leva pra desvanecer no
+// final — mesmo espírito do EXIT_MS de tv-win-celebration.tsx.
+const CHURRASCO_BANNER_MS = 10_000;
+const CHURRASCO_BANNER_EXIT_MS = 600;
 
 /**
  * "há 12 min" em vez de só uma data fixa (26/07/2026) — numa TV ligada o dia
  * inteiro, uma data parada não passa a sensação de painel ao vivo que "há
- * 12 min" passa. Recalculado a cada render — não precisa de timer próprio,
- * o carrossel de propaganda já re-renderiza o componente inteiro a cada 10s
- * (ver AD_DURATION_MS) e o refresh de métricas a cada 15s (ver
- * METRICS_POLL_MS), granularidade de sobra pra um rótulo em minutos/horas.
+ * 12 min" passa.
+ *
+ * Recebe `nowMs` de fora em vez de chamar `Date.now()` aqui dentro: o
+ * servidor renderiza isso num instante e o cliente hidrata alguns
+ * milissegundos (às vezes segundos) depois — cada `Date.now()` próprio dá um
+ * "agora" ligeiramente diferente, e cruzar um limite de minuto entre os dois
+ * bastava pra virar "há 12 min" no servidor e "há 13 min" no cliente, outro
+ * hydration mismatch. `nowMs` vem de um state que só existe depois de
+ * montado no cliente (ver `nowMs` em TvView) — mesma estratégia do relógio
+ * (TvClock): valor inicial determinístico (ausente) até montar, atualiza só
+ * depois.
  */
-function formatRelativeTime(date: Date): string {
-  const diffMs = Date.now() - date.getTime();
+function formatRelativeTime(date: Date, nowMs: number): string {
+  const diffMs = nowMs - date.getTime();
   const diffMin = Math.floor(diffMs / 60_000);
   if (diffMin < 1) return "agora mesmo";
   if (diffMin < 60) return `há ${diffMin} min`;
@@ -104,6 +117,20 @@ export function TvView({
   // verdade).
   const [stale, setStale] = useState(false);
   const lastFetchOkAt = useRef<number>(Date.now());
+  // "Agora" usado pro rótulo relativo da última venda ("há 12 min" — ver
+  // formatRelativeTime). Começa null tanto no servidor quanto na 1ª pintura
+  // do cliente e só ganha valor depois de montado: chamar `Date.now()`
+  // direto no corpo do componente daria um "agora" diferente entre o
+  // instante em que o servidor renderizou a página e o instante em que o
+  // cliente hidrata, o que é exatamente o tipo de valor não-determinístico
+  // que causa "hydration mismatch". Atualiza a cada 30s depois — sobra de
+  // granularidade pra um rótulo em minutos.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const interval = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
   // Giro nas fotos do pódio do Ranking — liga a cada 5min, desliga sozinho
   // alguns segundos depois (ver RANKING_SPIN_INTERVAL_MS/RANKING_SPIN_VISIBLE_MS).
   const [rankingSpinActive, setRankingSpinActive] = useState(false);
@@ -268,6 +295,35 @@ export function TvView({
     ? "linear-gradient(90deg, #eab308, #fbbf24, #fde68a)"
     : "linear-gradient(90deg, #ef4444, #f97316, #fbbf24)";
 
+  // Banner "TÁ NA HORA DO CHURRASCO" (tela escurecida + recado) — aparece
+  // por CHURRASCO_BANNER_MS e some sozinho, uma vez por "sessão" de meta
+  // batida (churrascoBannerShownRef reseta quando o progresso cai de 100%,
+  // ex.: virada de mês, então na PRÓXIMA vez que a meta for batida ele
+  // aparece de novo). Não aparece em cima do confete de venda nova: se uma
+  // comemoração (TvWinCelebration) estiver na tela quando a meta é batida, o
+  // banner espera ela terminar (`celebration` virar null de novo) pra só
+  // então aparecer — os dois competindo por atenção ao mesmo tempo ficava
+  // poluído. Sem venda/confete rolando (ex.: a TV já carrega com a meta já
+  // batida), não tem o que esperar — aparece direto.
+  const [churrascoBannerPhase, setChurrascoBannerPhase] = useState<"hidden" | "visible" | "leaving">("hidden");
+  const churrascoBannerShownRef = useRef(false);
+  useEffect(() => {
+    if (!churrascoGoalHit) {
+      churrascoBannerShownRef.current = false;
+      setChurrascoBannerPhase("hidden");
+      return;
+    }
+    if (celebration || churrascoBannerShownRef.current) return;
+    churrascoBannerShownRef.current = true;
+    setChurrascoBannerPhase("visible");
+    const leaveTimer = setTimeout(() => setChurrascoBannerPhase("leaving"), CHURRASCO_BANNER_MS);
+    const hideTimer = setTimeout(() => setChurrascoBannerPhase("hidden"), CHURRASCO_BANNER_MS + CHURRASCO_BANNER_EXIT_MS);
+    return () => {
+      clearTimeout(leaveTimer);
+      clearTimeout(hideTimer);
+    };
+  }, [churrascoGoalHit, celebration]);
+
   // Conteúdo de cada lado do card ÚLTIMA VENDA (0 = venda mais recente, 1 =
   // aniversário de hoje) — função em vez de JSX duplicado, porque o MESMO
   // lado pode precisar ser desenhado duas vezes ao mesmo tempo durante uma
@@ -396,9 +452,9 @@ export function TvView({
             </p>
             <p
               className="text-neutral-500 text-[length:var(--tv-text-label)]"
-              title={metrics.lastSale.date.toLocaleString("pt-BR")}
+              title={brazilDateTime(metrics.lastSale.date)}
             >
-              {formatRelativeTime(metrics.lastSale.date)}
+              {nowMs !== null ? formatRelativeTime(metrics.lastSale.date, nowMs) : null}
             </p>
           </div>
         </div>
@@ -868,18 +924,16 @@ export function TvView({
           <Glow color={churrascoGoalHit ? "#eab308" : "#f97316"} />
 
           <div className="relative flex shrink-0 items-center gap-3">
-            {churrascoGoalHit ? (
-              <Trophy
-                style={{ width: "var(--tv-icon-lg)", height: "var(--tv-icon-lg)", color: "#eab308" }}
-                strokeWidth={2.5}
-              />
-            ) : (
-              <Flame
-                className="text-orange-400"
-                style={{ width: "var(--tv-icon-lg)", height: "var(--tv-icon-lg)" }}
-                strokeWidth={2.5}
-              />
-            )}
+            {/* A chama fica sempre visível, inclusive em 100% — era trocada
+                por um troféu na meta batida, o que "apagava" a animação bem
+                na hora em que ela chega no estado mais aceso (ver
+                AnimatedFire). O troféu virou o overlay de tela cheia logo
+                abaixo (churrascoGoalHit). */}
+            <AnimatedFire
+              progress={metrics.churrascometroProgress}
+              className="text-orange-400"
+              style={{ width: "var(--tv-icon-lg)", height: "var(--tv-icon-lg)" }}
+            />
             <p className="font-bold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-body)]">
               Churrascômetro
             </p>
@@ -923,6 +977,30 @@ export function TvView({
             )}
           </div>
         </GlassCard>
+      )}
+
+      {/* Banner "TÁ NA HORA DO CHURRASCO" — ver churrascoBannerPhase acima
+          pra quando ele aparece/some. Escurece o painel inteiro por baixo
+          (fixed inset-0) e estampa o recado por cima só por
+          CHURRASCO_BANNER_MS, não pro resto do mês. z-[150], abaixo da
+          comemoração de venda nova (z-[200] em TvWinCelebration) de
+          propósito — mesmo que as janelas de tempo dos dois cheguem a se
+          encostar, o confete nunca fica escondido atrás do escurecido.
+          pointer-events-none: é uma TV, ninguém interage com a tela, então
+          o overlay nunca pode bloquear nada. */}
+      {churrascoBannerPhase !== "hidden" && (
+        <div
+          className={`pointer-events-none fixed inset-0 z-[150] flex items-center justify-center overflow-hidden bg-black/70 transition-opacity duration-[600ms] ${
+            churrascoBannerPhase === "leaving" ? "opacity-0" : "opacity-100"
+          }`}
+        >
+          <div className="absolute h-[42vw] w-[42vw] rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.35),transparent_70%)] opacity-70 blur-3xl" />
+          <h1
+            className="animate-tv-win-in relative bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 bg-clip-text px-8 text-center font-extrabold tracking-wide text-transparent drop-shadow-[0_0_50px_rgba(251,191,36,0.55)] text-[length:var(--tv-text-hero)]"
+          >
+            🔥 TÁ NA HORA DO CHURRASCO 🔥
+          </h1>
+        </div>
       )}
 
       {celebration && <TvWinCelebration key={celebration.id} sale={celebration} onDone={() => setCelebration(null)} />}

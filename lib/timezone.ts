@@ -146,3 +146,29 @@ export function brazilDateTimeStringToUTC(dateStr: string, timeStr: string): Dat
   const [hour, minute] = timeStr.split(":").map(Number);
   return new Date(Date.UTC(year, month - 1, day, hour + BRAZIL_UTC_OFFSET_HOURS, minute, 0, 0));
 }
+
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZone: BRAZIL_TZ,
+});
+
+/**
+ * "20/08/2026, 15:05:01" no fuso de Campo Grande/MS — usar em vez de
+ * `date.toLocaleString("pt-BR")` sem `timeZone` explícito. Sem o fuso fixo,
+ * esse método usa o fuso horário PADRÃO DO RUNTIME, que não é o mesmo dos
+ * dois lados: o servidor (container Docker/VPS) e o navegador de quem está
+ * vendo a TV raramente têm o mesmo fuso configurado no SO. Isso fazia o
+ * Next.js hidratar com horários diferentes pro mesmo `Date` (ex.: servidor
+ * "16:05:01", cliente "15:05:01") — "A tree hydrated but some attributes of
+ * the server rendered HTML didn't match the client properties." Formatador
+ * de fuso fixo é determinístico: mesmo `Date`, mesma string, não importa
+ * onde o código roda.
+ */
+export function brazilDateTime(date: Date): string {
+  return DATE_TIME_FORMATTER.format(date);
+}
