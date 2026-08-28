@@ -1037,21 +1037,26 @@ input[type="radio"] {
      original (a 1ª tentativa de "esticar" só subindo o coeficiente
      ESTOUROU a altura disponível — texto maior que o card conseguia
      acomodar saía CORTADO, ver `overflow-hidden` em GlassCard). O TETO
-     agora está recalibrado pra 3840×2160 de verdade (ver
-     lib/tv-display-profile.ts) — o problema real nunca foi o coeficiente
-     em si, foi o teto capando o cálculo antes dele alcançar o tamanho que
-     essa TV específica pede (vmin = 21.6px nela, o dobro dos 10.8px da
-     referência 1920×1080 em que os tetos antigos foram pensados — TODO
-     token batia no teto antes de crescer o suficiente, daí o layout
-     inteiro lendo "pequeno, tipo celular" numa tela de 85"). Com o teto
-     corrigido, o mesmo coeficiente de sempre agora resolve pro tamanho
-     NATURAL nessa TV, sem cortar.
+     está recalibrado pra 3840×2160 de verdade (ver lib/tv-display-profile.ts)
+     — o problema real nunca foi o coeficiente em si, foi o teto capando o
+     cálculo antes dele alcançar o tamanho que essa TV específica pede
+     (vmin = 21.6px nela, o dobro dos 10.8px da referência 1920×1080 em
+     que os tetos antigos foram pensados). Com o teto corrigido, o mesmo
+     coeficiente de sempre resolve pro tamanho NATURAL nessa TV.
+     --tv-gap/--tv-card-py especificamente ficaram com teto mais CONSERVADOR
+     que os outros (menos que "o dobro") de propósito — eles se REPETEM
+     muitas vezes no empilhamento vertical (gap entre CADA um dos cards +
+     padding de CIMA E DE BAIXO de CADA card), então um aumento generoso
+     neles multiplicado várias vezes é o que sobrava demais o espaço da
+     "Última venda + Leads no funil" (card com 2 seções empilhadas, o mais
+     apertado do painel) — um token que aparece 1x pode crescer mais sem
+     problema, um que se repete 6+ vezes não.
      A parte estrutural que resolve "esticar" o vazio entre cards continua
      por fora disto: --tv-panel-w mais largo (acima) + justify-evenly no
      lugar de justify-center (ver tv-view.tsx). */
-  --tv-gap: clamp(0.5rem, 1.4vmin, 2rem);
+  --tv-gap: clamp(0.5rem, 1.4vmin, 1.5rem);
   --tv-card-px: clamp(0.875rem, 2.3vmin, 3.25rem);
-  --tv-card-py: clamp(0.4rem, 1.5vmin, 2.125rem);
+  --tv-card-py: clamp(0.4rem, 1.5vmin, 1.625rem);
   --tv-radius: clamp(0.75rem, 1.6vmin, 2.25rem);
   --tv-radius-lg: clamp(1rem, 2vmin, 2.8125rem);
 
@@ -1067,12 +1072,20 @@ input[type="radio"] {
   --tv-icon-md: clamp(0.95rem, 1.75vmin, 2.4375rem);
   --tv-icon-lg: clamp(1.15rem, 2.4vmin, 3.375rem);
 
-  /* Avatares do pódio (ver PODIUM_AVATAR_VAR/RankingPodiumSlot em
-     tv-view.tsx) — o 1º lugar é o maior elemento único de todo o painel de
-     métricas. Teto recalibrado pra 3840×2160 de verdade, mesmo raciocínio
-     dos outros tokens acima. */
-  --tv-avatar-md: clamp(2.25rem, 4.8vmin, 6.75rem);
-  --tv-avatar-lg: clamp(3.25rem, 8.2vmin, 11.5rem);
+  /* Avatares do pódio/última venda/aniversariantes (ver
+     PODIUM_AVATAR_VAR/RankingPodiumSlot e renderLastSaleContent/
+     renderRankingContent em tv-view.tsx) — o 1º lugar do pódio é o maior
+     elemento único de todo o painel de métricas. Teto MAIS CONSERVADOR
+     que os tokens de texto (~30% acima do original, não "o dobro" como os
+     outros) de propósito — é foto, não dado que precisa ser lido: uma
+     foto reconhecível não precisa da mesma prioridade de tamanho que um
+     valor em R$, e ela é o maior consumidor de altura de cada seção (o
+     avatar da Última venda sozinho, ao lado de Leads no funil no mesmo
+     card, era o que mais empurrava aquela seção pra fora do espaço
+     disponível — relato do usuário: "última venda tirando o espaço do
+     leads no funil"). */
+  --tv-avatar-md: clamp(2.25rem, 4.8vmin, 4.875rem);
+  --tv-avatar-lg: clamp(3.25rem, 8.2vmin, 8.4375rem);
 
   --tv-clock-time: clamp(1rem, 2.3vmin, 3.25rem);
   --tv-clock-date: clamp(0.55rem, 0.9vmin, 1.25rem);
