@@ -844,71 +844,91 @@ export function TvView({
                 tempo em que o lado que está ENTRANDO (normal, no fluxo)
                 anima vindo do lado oposto — os dois cruzando dentro do
                 próprio card. */}
-            {showLastSale && (
+            {/* Última venda + Leads no funil juntos no MESMO card agora
+                (pedido explícito) — antes eram 2 GlassCard separados
+                empilhados; viram 1 só, com um travessão horizontal
+                (border-t) separando as duas seções em vez de 2 caixas de
+                vidro distintas. Mesmo traço embutido em Tailwind que o
+                card "Vendas do mês" já usa entre o valor principal e a
+                fileira Anuais/Cotas — reaproveita a gramática visual que
+                já existe, não inventa um 3º estilo de divisor.
+                `relative` no wrapper da Última venda (não só no card
+                inteiro) é necessário pro carrossel de aniversário
+                (outgoingSlide, `absolute inset-0`) ficar restrito a ESSA
+                seção — sem isso, o slide saindo cobriria o card inteiro,
+                inclusive a parte de Leads no funil por baixo. */}
+            {(showLastSale || showFunnels) && (
               <GlassCard delay={180} className="text-center">
                 <Glow color="var(--brand)" />
-                {hasBirthdayToday && outgoingSlide !== null && (
-                  <div
-                    className={`absolute inset-0 flex items-center justify-center ${
-                      outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
-                    }`}
-                  >
-                    {renderLastSaleContent(outgoingSlide)}
+
+                {showLastSale && (
+                  <div className="relative">
+                    {hasBirthdayToday && outgoingSlide !== null && (
+                      <div
+                        className={`absolute inset-0 flex items-center justify-center ${
+                          outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
+                        }`}
+                      >
+                        {renderLastSaleContent(outgoingSlide)}
+                      </div>
+                    )}
+                    <div
+                      key={hasBirthdayToday ? rankingSlide : 0}
+                      className={
+                        hasBirthdayToday && rankingSlide === 1
+                          ? "animate-tv-slide-in-from-right"
+                          : "animate-tv-slide-in-from-left"
+                      }
+                    >
+                      {renderLastSaleContent(hasBirthdayToday ? rankingSlide : 0)}
+                    </div>
                   </div>
                 )}
-                <div
-                  key={hasBirthdayToday ? rankingSlide : 0}
-                  className={
-                    hasBirthdayToday && rankingSlide === 1 ? "animate-tv-slide-in-from-right" : "animate-tv-slide-in-from-left"
-                  }
-                >
-                  {renderLastSaleContent(hasBirthdayToday ? rankingSlide : 0)}
-                </div>
-              </GlassCard>
-            )}
 
-            {showFunnels && (
-              <GlassCard delay={270} className="text-center">
-                <Glow color="var(--brand)" />
-                <div className="relative flex items-center justify-center gap-2">
-                  <Waypoints
-                    style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
-                    strokeWidth={2.5}
-                  />
-                  <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-                    Leads no funil
-                  </p>
-                </div>
-                {metrics.leadsInFunnels.length > 0 ? (
-                  // Sem caixa nenhuma agora (nem pílula, nem tile com
-                  // borda/fundo) — mesma gramática visual já usada logo
-                  // ACIMA, no card "Vendas do mês" (Anuais | Cotas: colunas
-                  // separadas só por um fio fino, sem contorno em cada
-                  // uma). Reaproveitar o mesmo padrão em vez de inventar um
-                  // 3º estilo é o que dá a leveza pedida — e ainda deixa os
-                  // dois cards consistentes entre si.
+                {showLastSale && showFunnels && (
                   <div
-                    className="relative flex divide-x divide-white/10"
-                    style={{ marginTop: "var(--tv-gap)" }}
-                  >
-                    {metrics.leadsInFunnels.map((stage) => (
-                      <div key={stage.id} className="min-w-0 flex-1 px-2">
-                        <div
-                          className="font-extrabold tabular-nums text-[length:var(--tv-text-value-md)]"
-                          style={{ color: "var(--brand)" }}
-                        >
-                          {stage.count}
-                        </div>
-                        <div className="mt-1 truncate font-medium text-neutral-400 text-[length:var(--tv-text-label)]">
-                          {stage.name}
-                        </div>
+                    className="relative border-t border-white/10"
+                    style={{ marginTop: "var(--tv-gap)", paddingTop: "var(--tv-gap)" }}
+                  />
+                )}
+
+                {showFunnels && (
+                  <div className="relative">
+                    <div className="flex items-center justify-center gap-2">
+                      <Waypoints
+                        style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
+                        strokeWidth={2.5}
+                      />
+                      <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+                        Leads no funil
+                      </p>
+                    </div>
+                    {metrics.leadsInFunnels.length > 0 ? (
+                      // Sem caixa nenhuma agora (nem pílula, nem tile com
+                      // borda/fundo) — mesma gramática visual já usada logo
+                      // ACIMA, no card "Vendas do mês" (Anuais | Cotas: colunas
+                      // separadas só por um fio fino, sem contorno em cada
+                      // uma). Reaproveitar o mesmo padrão em vez de inventar um
+                      // 3º estilo é o que dá a leveza pedida.
+                      <div className="flex divide-x divide-white/10" style={{ marginTop: "var(--tv-gap)" }}>
+                        {metrics.leadsInFunnels.map((stage) => (
+                          <div key={stage.id} className="min-w-0 flex-1 px-2">
+                            <div
+                              className="font-extrabold tabular-nums text-[length:var(--tv-text-value-md)]"
+                              style={{ color: "var(--brand)" }}
+                            >
+                              {stage.count}
+                            </div>
+                            <div className="mt-1 truncate font-medium text-neutral-400 text-[length:var(--tv-text-label)]">
+                              {stage.name}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    ) : (
+                      <p className="mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum funil selecionado.</p>
+                    )}
                   </div>
-                ) : (
-                  <p className="relative mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">
-                    Nenhum funil selecionado.
-                  </p>
                 )}
               </GlassCard>
             )}
