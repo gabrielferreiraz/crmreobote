@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { getTvMetrics } from "@/lib/tv-dashboard";
 import { requireSession } from "@/lib/require-session";
 import { requireTvLink } from "@/lib/require-tv-link";
@@ -18,18 +19,19 @@ import { requireTvLink } from "@/lib/require-tv-link";
  * sessão de quem está logado nesta aba/TV, nunca de um parâmetro do
  * chamador.
  *
- * `publicToken` (opcional): quem chama a partir do link público (ver
- * app/tv/publico/[token]/page.tsx, tv-view.tsx#publicToken) não tem sessão
- * nenhuma — o dispositivo de TV não faz login. Nesse caso resolve
- * organizationId pelo token (requireTvLink) em vez da sessão. Continua
+ * `publicCode` (opcional): quem chama a partir do link público (ver
+ * app/t/[code]/page.tsx, tv-view.tsx#publicCode) não tem sessão nenhuma —
+ * o dispositivo de TV não faz login. Nesse caso resolve organizationId pelo
+ * código (requireTvLink, com rate limit por IP) em vez da sessão. Continua
  * sendo o SERVIDOR quem decide qual organização, nunca um id que o cliente
  * mande — mesmo cuidado do parágrafo acima, só que pra uma 2ª origem
  * possível de chamada.
  */
-export async function fetchTvMetrics(publicToken?: string) {
-  if (publicToken) {
-    const { ok, organizationId } = await requireTvLink(publicToken);
-    if (!ok || !organizationId) throw new Error("Link inválido ou revogado");
+export async function fetchTvMetrics(publicCode?: string) {
+  if (publicCode) {
+    const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const { ok, organizationId } = await requireTvLink(publicCode, ip);
+    if (!ok || !organizationId) throw new Error("Código inválido ou revogado");
     return await getTvMetrics(organizationId);
   }
 

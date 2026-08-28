@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PartyPopper } from "lucide-react";
-import { Fireworks, type FireworksHandlers } from "@fireworks-js/react";
 import { CountUpValue } from "@/components/count-up-value";
 
 // Tempo total na tela / quanto antes do fim começa a desvanecer — dá pra
@@ -16,7 +15,7 @@ const EXIT_MS = 500;
 // junto com o resto da comemoração, ela viaja de verdade da posição do card
 // (centro da tela) até a posição REAL do avatar em tv-view.tsx
 // (#tv-last-sale-avatar), medida em tempo real via getBoundingClientRect().
-// Não dá pra usar um ponto fixo em % como HERO_END abaixo: a posição desse
+// Não dá pra usar um ponto fixo em % pra esse destino: a posição desse
 // card não é fixa, depende de quais widgets estão ligados acima dele e da
 // largura fluida do painel. Termina a viagem com folga antes do resto da
 // comemoração começar a desvanecer (FLIGHT_START_MS termina bem antes de
@@ -27,22 +26,51 @@ const EXIT_MS = 500;
 const FLIGHT_DURATION_MS = 700;
 const FLIGHT_START_MS = VISIBLE_MS - 1500;
 
-// Foguete de destaque — não faz parte do show ambiente da lib (fireworks-js
-// não tem API pra mandar um foguete pra um ponto exato, só aleatório, ver
-// comentário mais abaixo), então esse aqui é feito à mão, um só, ancorado
-// no ponto de ESTOURO (não no canto de partida): o rastro nasce deslocado
-// (--heroDx/--heroDy) e "chega" em (0,0) da div, onde o flash/raios já
-// estão. Sai do canto inferior esquerdo, viaja na diagonal em direção ao
-// canto superior direito, mas só estoura ao passar perto da foto do
-// consultor no meio — pedido explícito, não é lançamento aleatório.
-const HERO_START = { left: 6, top: 92 };
-const HERO_END = { left: 50, top: 40 };
-const HERO_TRAVEL_S = 1.1;
-const HERO_START_DELAY_S = 0.4;
-const HERO_COLOR = "#fde047";
-const HERO_RAY_COUNT = 16;
-const HERO_RAY_LENGTH = 110;
-const HERO_RAY_ANGLES = Array.from({ length: HERO_RAY_COUNT }, (_, i) => (360 / HERO_RAY_COUNT) * i);
+// Confete no lugar dos fogos de artifício (fireworks-js) — a lib desenhava
+// física de partícula de verdade em canvas (rastro com brilho, explosão,
+// gravidade) e a TV física não estava aguentando o tanto de canvas
+// simultâneo (placa de vídeo fraca, ver relato: "os fogos a TV não está
+// aguentando"). Confete é só `<span>` com CSS `transform`/`opacity`
+// animados (mesma técnica de components/confetti-burst.tsx, que já
+// funciona bem numa tela comum) — sem canvas, sem cálculo de física por
+// frame, ordens de grandeza mais leve pro hardware.
+//
+// Mais partículas (70) e delay espalhado por até 4,5s (não só os ~0,15s do
+// confete "rápido" de components/confetti-burst.tsx) — aqui o confete
+// precisa preencher boa parte dos 7s da comemoração inteira, não só um
+// instante; sem isso ia cair tudo de uma vez nos 2 primeiros segundos e
+// sobrar 5s de tela vazia. Cores douradas/âmbar de propósito — mesma
+// linguagem visual do resto da comemoração (borda/halo/texto âmbar do
+// card), não confete multicolorido genérico.
+const CONFETTI_COUNT = 70;
+const CONFETTI_COLORS = ["#fbbf24", "#f59e0b", "#fde047", "#fff7cc", "#eab308", "#ffffff"];
+const CONFETTI_MAX_DELAY_S = 4.5;
+
+type ConfettiParticle = {
+  id: number;
+  left: number;
+  delay: number;
+  duration: number;
+  drift: number;
+  rotate: number;
+  size: number;
+  color: string;
+  shape: "rect" | "circle";
+};
+
+function makeConfettiParticles(): ConfettiParticle[] {
+  return Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    delay: Math.random() * CONFETTI_MAX_DELAY_S,
+    duration: 2.2 + Math.random() * 2,
+    drift: (Math.random() - 0.5) * 220,
+    rotate: (Math.random() - 0.5) * 900,
+    size: 6 + Math.random() * 7,
+    color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+    shape: Math.random() > 0.5 ? "rect" : "circle",
+  }));
+}
 
 type WinSale = { id: string; name: string; image: string | null; value: number };
 
@@ -50,21 +78,16 @@ type WinSale = { id: string; name: string; image: string | null; value: number }
  * Comemoração em tela cheia quando um negócio vira Ganho — tv-view.tsx
  * dispara isso comparando o id da última venda entre um refresh de 30s e o
  * outro (nunca no 1º carregamento da página, só numa venda nova de
- * verdade). Fogos de artifício + foto/nome do consultor + valor subindo,
- * some sozinha depois de alguns segundos — é uma TV sem interação, ninguém
- * vai fechar isso clicando em algo.
+ * verdade). Confete + foto/nome do consultor + valor subindo, some sozinha
+ * depois de alguns segundos — é uma TV sem interação, ninguém vai fechar
+ * isso clicando em algo.
  *
- * Fogos são a lib fireworks-js (física de partícula de verdade em canvas —
- * gravidade, rastro, brilho), não mais CSS na mão: já tentamos simular à
- * mão (canto da tela → converge na foto) duas vezes e não convenceu — essa
- * trajetória customizada não existe pronta em NENHUMA lib de fogos (todas
- * modelam "sobe de uma faixa embaixo, estoura em cima", não "viaja até um
- * alvo"), então a decisão foi trocar por física de verdade em vez de
- * continuar tentando simular à mão. `rocketsPoint` mantém o lançamento
- * numa faixa larga (não só o centro), pra sensação de "vários fogos", e
- * `boundaries` prende a explosão na região onde o card está, não a tela
- * inteira — o efeito lê como "fogos comemorando perto do consultor", só
- * não converge literalmente na foto dele.
+ * Era fogos de artifício de verdade (lib fireworks-js, física de partícula
+ * em canvas) — trocado por confete em CSS puro (ver CONFETTI_* acima)
+ * porque a TV física não estava aguentando o canvas: "os fogos a TV não
+ * está aguentando, acho que a placa gráfica não tanka". Confete tem o mesmo
+ * espírito de comemoração sem pesar no hardware — só `<span>`
+ * transform/opacity, nada de canvas nem cálculo de física por frame.
  *
  * A foto do consultor não só desvanece no fim: ela literalmente voa do card
  * até "pousar" no avatar do card "Última venda" do painel de métricas (ver
@@ -75,7 +98,10 @@ type WinSale = { id: string; name: string; image: string | null; value: number }
  */
 export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
-  const fireworksRef = useRef<FireworksHandlers>(null);
+  // Gerado uma vez por comemoração (lazy init) — cada venda nova remonta
+  // este componente inteiro (ver `key={celebration.id}` em tv-view.tsx),
+  // então não precisa regenerar em nenhum outro momento.
+  const [confetti] = useState(makeConfettiParticles);
 
   // Origem/destino do voo, medidos de verdade em pixel (getBoundingClientRect)
   // no momento em que a viagem começa — nunca estimado. `launched` esconde a
@@ -110,14 +136,7 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
       landTimer = setTimeout(() => setFlight(null), FLIGHT_DURATION_MS + 100);
     }, FLIGHT_START_MS);
 
-    const leaveTimer = setTimeout(() => {
-      setLeaving(true);
-      // Para de LANÇAR fogo novo assim que a comemoração começa a
-      // desvanecer — o que já estava no ar termina sozinho (a lib não
-      // interrompe uma explosão no meio), só evita começar algo novo bem
-      // na hora que a tela já está sumindo.
-      fireworksRef.current?.stop();
-    }, VISIBLE_MS - EXIT_MS);
+    const leaveTimer = setTimeout(() => setLeaving(true), VISIBLE_MS - EXIT_MS);
     const doneTimer = setTimeout(onDone, VISIBLE_MS);
     return () => {
       clearTimeout(flightTimer);
@@ -135,8 +154,8 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
         leaving ? "opacity-0" : "opacity-100"
       }`}
     >
-      {/* Escurece um pouco + glow dourado atrás do card — dá contraste pros
-          fogos/card sem apagar o resto da TV, ainda dá pra perceber o
+      {/* Escurece um pouco + glow dourado atrás do card — dá contraste pro
+          confete/card sem apagar o resto da TV, ainda dá pra perceber o
           carrossel continuando atrás. */}
       <div className="absolute inset-0 bg-black/55" />
       <div
@@ -148,92 +167,28 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
         }}
       />
 
-      <Fireworks
-        ref={fireworksRef}
-        autostart
-        options={{
-          opacity: 0.55,
-          intensity: 22,
-          explosion: 6,
-          particles: 60,
-          traceSpeed: 9,
-          gravity: 1.2,
-          // Cores quentes (dourado/âmbar) predominando — combina com o
-          // resto da identidade da comemoração (halo/borda âmbar do card,
-          // ver abaixo) — sem travar num hue só, pra não ficar monocromático.
-          hue: { min: 20, max: 50 },
-          rocketsPoint: { min: 15, max: 85 },
-          // Padrão da lib é bem fino (explosion 1-3px, trace 1-2px) — quase
-          // some numa TV vista de longe. Mais grosso nos dois lê melhor à
-          // distância sem ficar espesso a ponto de parecer desenhado.
-          lineWidth: {
-            explosion: { min: 3, max: 6 },
-            trace: { min: 2, max: 4 },
-          },
-          // Prende a explosão na metade de cima da tela, onde o card fica
-          // (ele é centralizado verticalmente) — sem isso os fogos
-          // estourariam em qualquer altura, inclusive por baixo do card.
-          boundaries: { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight * 0.62 },
-        }}
-        className="absolute inset-0"
-      />
-
-      <div
-        className="absolute"
-        style={
-          {
-            left: `${HERO_END.left}%`,
-            top: `${HERO_END.top}%`,
-            "--heroDx": `${HERO_START.left - HERO_END.left}vw`,
-            "--heroDy": `${HERO_START.top - HERO_END.top}vh`,
-          } as React.CSSProperties
-        }
-      >
-        {/* Rastro viajando do canto até aqui. */}
-        <span
-          className="absolute rounded-full"
-          style={{
-            width: 8,
-            height: 8,
-            left: -4,
-            top: -4,
-            backgroundColor: HERO_COLOR,
-            boxShadow: `0 0 16px 5px ${HERO_COLOR}`,
-            opacity: 0,
-            animation: `tv-hero-travel ${HERO_TRAVEL_S}s cubic-bezier(0.25, 0.1, 0.4, 1) ${HERO_START_DELAY_S}s forwards`,
-          }}
-        />
-        {/* Flash branco do estouro, dispara assim que o rastro chega. */}
-        <span
-          className="absolute rounded-full bg-white"
-          style={{
-            width: 22,
-            height: 22,
-            left: -11,
-            top: -11,
-            opacity: 0,
-            animation: `tv-hero-flash 0.5s ease-out ${HERO_START_DELAY_S + HERO_TRAVEL_S}s forwards`,
-          }}
-        />
-        {/* Raios grossos se espalhando — mesma linguagem visual (linha
-            grossa, não bolinha) dos fogos da lib logo acima, pra este
-            foguete ler como parte do mesmo show, não um efeito à parte. */}
-        {HERO_RAY_ANGLES.map((angle, i) => (
-          <div key={i} className="absolute" style={{ left: 0, top: 0, width: 0, height: 0, transform: `rotate(${angle}deg)` }}>
-            <span
-              className="absolute"
-              style={{
-                left: -2,
-                top: 0,
-                width: 4,
-                height: HERO_RAY_LENGTH,
-                background: `linear-gradient(to bottom, ${HERO_COLOR}, rgba(253, 224, 71, 0))`,
-                transformOrigin: "top center",
-                opacity: 0,
-                animation: `tv-hero-ray 1s ease-out ${HERO_START_DELAY_S + HERO_TRAVEL_S}s forwards`,
-              }}
-            />
-          </div>
+      {/* Confete — ver CONFETTI_* acima pra explicação da troca. Só
+          `<span>` com transform/opacity animados via CSS (mesmo
+          @keyframes confetti-fall de components/confetti-burst.tsx,
+          definido em globals.css), nada de canvas. */}
+      <div className="absolute inset-0 overflow-hidden">
+        {confetti.map((p) => (
+          <span
+            key={p.id}
+            className="absolute top-0"
+            style={
+              {
+                left: `${p.left}%`,
+                width: p.size,
+                height: p.shape === "rect" ? p.size * 2.2 : p.size,
+                backgroundColor: p.color,
+                borderRadius: p.shape === "circle" ? "9999px" : "1px",
+                animation: `confetti-fall ${p.duration}s cubic-bezier(0.25, 0.46, 0.45, 0.94) ${p.delay}s forwards`,
+                "--drift": `${p.drift}px`,
+                "--rotate": `${p.rotate}deg`,
+              } as React.CSSProperties
+            }
+          />
         ))}
       </div>
 
@@ -297,7 +252,7 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
         num sistema de coordenadas de viewport puro, igual o que
         getBoundingClientRect() devolve, sem herdar o flex/overflow do
         overlay. z-index mais alto que o overlay (z-[200]) garante que ele
-        aparece por cima de fogos/card/tudo durante o voo. 1º render fica
+        aparece por cima de confete/card/tudo durante o voo. 1º render fica
         parado na origem sem transição (`landed` ainda false); no render
         seguinte (2 rAF depois) pula pra transição + posição de destino — é
         a técnica FLIP (First-Last-Invert-Play). Depois de aterrissar, some

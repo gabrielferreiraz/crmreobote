@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
-import { generateTvDisplayLinkToken } from "@/lib/tv-display-link";
+import { generateTvDisplayLinkCode } from "@/lib/tv-display-link";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const { fullToken, tokenPrefix, tokenHash } = generateTvDisplayLinkToken();
+    const { displayCode, codePrefix, codeHash } = generateTvDisplayLinkCode();
 
     // Gerar um novo já revoga qualquer outro ainda ativo — só "o" link da
     // organização por vez (evita esquecer um link antigo configurado numa
@@ -63,8 +63,8 @@ export async function POST(req: Request) {
     const link = await prisma.tvDisplayLink.create({
       data: {
         organizationId: access.organizationId,
-        tokenPrefix,
-        tokenHash,
+        tokenPrefix: codePrefix,
+        tokenHash: codeHash,
         createdById: access.userId,
       },
     });
@@ -80,10 +80,11 @@ export async function POST(req: Request) {
       ip: getClientIp(req),
     });
 
-    // fullToken só existe nesta resposta — nunca persistido, nunca mais
-    // recuperável depois (mesmo padrão de mostrar-uma-vez de /api/api-keys).
+    // displayCode só existe nesta resposta — nunca persistido (só o hash),
+    // nunca mais recuperável depois (mesmo padrão de mostrar-uma-vez de
+    // /api/api-keys).
     return NextResponse.json(
-      { id: link.id, tokenPrefix: link.tokenPrefix, fullToken, createdAt: link.createdAt },
+      { id: link.id, tokenPrefix: link.tokenPrefix, displayCode, createdAt: link.createdAt },
       { status: 201 },
     );
   });

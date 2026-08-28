@@ -340,59 +340,6 @@ body {
   }
 }
 
-/* Foguete de destaque da comemoração de venda na TV (ver tv-win-celebration.tsx)
-   — único elemento feito à mão ali (o resto do show é a lib fireworks-js):
-   nasce deslocado (--heroDx/--heroDy, a distância do canto de partida até o
-   ponto de estouro) e "chega" em translate(0,0), onde o flash/raios já
-   estão posicionados. */
-@keyframes tv-hero-travel {
-  from {
-    transform: translate(var(--heroDx), var(--heroDy));
-    opacity: 1;
-  }
-
-  to {
-    transform: translate(0, 0);
-    opacity: 1;
-  }
-}
-
-@keyframes tv-hero-flash {
-  0% {
-    opacity: 0;
-    transform: scale(0.2);
-  }
-
-  30% {
-    opacity: 1;
-    transform: scale(3);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(3.6);
-  }
-}
-
-/* Só escala/some — a rotação de cada raio já é fixa, aplicada estaticamente
-   (não animada) no wrapper pai de cada um, ver tv-win-celebration.tsx. */
-@keyframes tv-hero-ray {
-  0% {
-    opacity: 1;
-    transform: scaleY(0.15);
-  }
-
-  25% {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scaleY(1.25);
-  }
-}
-
 @keyframes check-draw {
   to {
     stroke-dashoffset: 0;

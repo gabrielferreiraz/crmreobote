@@ -86,14 +86,14 @@ function formatRelativeTime(date: Date): string {
 
 export function TvView({
   initialMetrics,
-  publicToken,
+  publicCode,
 }: {
   initialMetrics: Metrics;
   /** Só quando montado a partir do link público (ver
-   * app/tv/publico/[token]/page.tsx) — sem sessão nenhuma pra repetir a cada
-   * refresh, o polling abaixo precisa levar o token junto pra
-   * fetchTvMetrics saber de qual organização buscar (ver app/tv/actions.ts). */
-  publicToken?: string;
+   * app/t/[code]/page.tsx) — sem sessão nenhuma pra repetir a cada refresh,
+   * o polling abaixo precisa levar o código junto pra fetchTvMetrics saber
+   * de qual organização buscar (ver app/tv/actions.ts). */
+  publicCode?: string;
 }) {
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
@@ -154,7 +154,7 @@ export function TvView({
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const updated = await fetchTvMetrics(publicToken);
+        const updated = await fetchTvMetrics(publicCode);
         if (updated.lastSale) {
           const closedAtMs = updated.lastSale.date.getTime();
           if (closedAtMs > lastSeenClosedAtMs.current) {
@@ -176,9 +176,9 @@ export function TvView({
       }
     }, METRICS_POLL_MS);
     return () => clearInterval(interval);
-    // publicToken nunca muda depois de montado (vem fixo da página, ver
-    // app/tv/publico/[token]/page.tsx) — não precisa recriar o interval por
-    // causa dele.
+    // publicCode nunca muda depois de montado (vem fixo da página, ver
+    // app/t/[code]/page.tsx) — não precisa recriar o interval por causa
+    // dele.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
