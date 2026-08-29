@@ -20,11 +20,10 @@ import { TimePicker } from "@/components/time-picker";
 import { WhatsAppPanelTrigger } from "@/components/whatsapp-panel-trigger";
 import { ScheduleWhatsAppToggle, type ScheduleWhatsAppValue } from "@/components/schedule-whatsapp-toggle";
 import { appendDictatedText } from "@/lib/dictation";
-import { useDictatedText } from "@/lib/use-dictated-text";
+import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import type { MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
-import { brazilDateKey } from "@/lib/timezone";
 import { ClosedAtDialog } from "@/components/closed-at-dialog";
 import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reason-dialog";
 
@@ -213,11 +212,12 @@ export function DealDetail({
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
   // Ditado por voz mostra o texto ao vivo enquanto a pessoa fala (ver
-  // lib/use-dictated-text.ts) — `body` continua sendo o valor de VERDADE
-  // (confirmado, sem o provisório em andamento), pra toda a lógica abaixo
-  // (submissão, template, guarda de "vazio") não mudar; só o textarea em si
-  // usa `bodyDictation.value` (com o provisório) pra dar o feedback visual.
-  const bodyDictation = useDictatedText("", appendDictatedText);
+  // lib/use-voice-transcription.ts) — `body` continua sendo o valor de
+  // VERDADE (confirmado, sem o provisório em andamento), pra toda a lógica
+  // abaixo (submissão, template, guarda de "vazio") não mudar; só o
+  // textarea em si usa `bodyDictation.value` (com o provisório) pra dar o
+  // feedback visual.
+  const bodyDictation = useVoiceTranscription("", appendDictatedText);
   const body = bodyDictation.committed;
   const setBody = bodyDictation.setValue;
   const [saving, setSaving] = useState(false);
@@ -761,18 +761,20 @@ export function DealDetail({
               />
             </div>
             <form onSubmit={submitActivity} className="space-y-2">
-              <div className="relative">
+              <div className="space-y-1.5">
+                {/* Pílula com rótulo de texto — não cabia mais discreta num
+                    canto do textarea (era só ícone antes); em fileira
+                    própria, alinhada à direita, fica visível sem competir
+                    com o texto digitado. */}
+                <div className="flex justify-end">
+                  <VoiceInputButton onResult={bodyDictation.onResult} onInterimResult={bodyDictation.onInterimResult} />
+                </div>
                 <textarea
                   value={bodyDictation.value}
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="O que foi feito e qual o próximo passo?"
                   rows={3}
-                  className="field-input pr-9"
-                />
-                <VoiceInputButton
-                  onResult={bodyDictation.onResult}
-                  onInterimResult={bodyDictation.onInterimResult}
-                  className="absolute top-1.5 right-1.5"
+                  className="field-input"
                 />
               </div>
               {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (
@@ -1165,18 +1167,16 @@ export function DealDetail({
                 ))}
               </div>
               <form onSubmit={submitActivity} className="space-y-2">
-                <div className="relative">
+                <div className="space-y-1.5">
+                  <div className="flex justify-end">
+                    <VoiceInputButton onResult={bodyDictation.onResult} onInterimResult={bodyDictation.onInterimResult} />
+                  </div>
                   <textarea
                     value={bodyDictation.value}
                     onChange={(e) => setBody(e.target.value)}
                     placeholder="O que foi feito e qual o próximo passo?"
                     rows={3}
-                    className="field-input pr-9"
-                  />
-                  <VoiceInputButton
-                    onResult={bodyDictation.onResult}
-                    onInterimResult={bodyDictation.onInterimResult}
-                    className="absolute top-1.5 right-1.5"
+                    className="field-input"
                   />
                 </div>
                 {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (

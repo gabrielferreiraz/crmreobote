@@ -251,7 +251,7 @@ export function DateRangeField({
       </button>
 
       {open && (
-        <div className="surface-glass animate-pop-in absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
+        <div className="surface-glass-filter animate-pop-in absolute z-30 mt-1 w-64 rounded-md p-3 shadow-lg">
           {quickRanges && quickRanges.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-1 border-b border-neutral-200/60 pb-2 dark:border-neutral-800/60">
               {quickRanges.map((q) => (

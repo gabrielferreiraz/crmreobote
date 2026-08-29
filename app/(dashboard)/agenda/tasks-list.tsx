@@ -10,7 +10,7 @@ import { ContactSearchInput } from "@/components/contact-search-input";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { ScheduleMessageDialog, type ScheduleMessageTask } from "@/components/schedule-message-dialog";
 import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
-import { useDictatedText } from "@/lib/use-dictated-text";
+import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
@@ -338,16 +338,16 @@ export function NewTaskDialog({
   onCreated: () => void;
 }) {
   // Ditado por voz mostra o texto ao vivo enquanto a pessoa fala (ver
-  // lib/use-dictated-text.ts) — `title`/`description` continuam sendo o
-  // valor de VERDADE (confirmado, sem provisório em andamento), pra
-  // submissão/validação abaixo não mudar; só os campos em si usam
+  // lib/use-voice-transcription.ts) — `title`/`description` continuam
+  // sendo o valor de VERDADE (confirmado, sem provisório em andamento),
+  // pra submissão/validação abaixo não mudar; só os campos em si usam
   // `.value` (com o provisório) pra dar o feedback visual.
-  const titleDictation = useDictatedText("", appendDictatedText);
+  const titleDictation = useVoiceTranscription("", appendDictatedText);
   const title = titleDictation.committed;
   const setTitle = titleDictation.setValue;
   const [type, setType] = useState("CALL");
   const [dueAt, setDueAt] = useState("");
-  const descriptionDictation = useDictatedText("", appendDictatedText);
+  const descriptionDictation = useVoiceTranscription("", appendDictatedText);
   const description = descriptionDictation.committed;
   const setDescription = descriptionDictation.setValue;
   const [contactId, setContactId] = useState("");

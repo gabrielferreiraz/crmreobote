@@ -75,7 +75,7 @@ export function FilterPopover({
               left: coords.left,
               maxHeight: Math.min(512, coords.maxHeight),
             }}
-            className="surface-glass-dense animate-pop-in fixed z-40 flex w-72 flex-col overflow-hidden rounded-lg shadow-xl"
+            className="surface-glass-filter animate-pop-in fixed z-40 flex w-72 flex-col overflow-hidden rounded-lg shadow-xl"
           >
             <div className="flex shrink-0 items-center justify-between p-3 pb-0">
               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Filtros</p>

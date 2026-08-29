@@ -11,7 +11,14 @@ type PipelineOption = { id: string; name: string; stages: { id: string; name: st
 type MemberOption = { id: string; name: string };
 type CreditTypeOption = { id: string; label: string };
 
-export type CreatedDeal = { id: string; name: string; status: "OPEN" | "WON" | "LOST"; value: number | null; stageName: string };
+export type CreatedDeal = {
+  id: string;
+  name: string;
+  status: "OPEN" | "WON" | "LOST";
+  value: number | null;
+  stageName: string;
+  stageColor: string | null;
+};
 
 /**
  * Versão ENXUTA do "Novo negócio" da Pipeline (ver
@@ -83,6 +90,7 @@ export function CreateDealForContactDialog({
         status: data.status,
         value: data.value != null ? Number(data.value) : null,
         stageName: data.stage.name,
+        stageColor: data.stage.color ?? null,
       });
     } catch {
       setError("Falha de conexão. Tente novamente.");

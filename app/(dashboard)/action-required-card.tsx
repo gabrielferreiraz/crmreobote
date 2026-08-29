@@ -9,6 +9,16 @@ import { ArrowRight, ClipboardX, Clock3, MessageCircle } from "lucide-react";
  * paginação/estado próprio) — page.tsx já busca as 3 contagens junto do
  * resto no Promise.all principal, esse arquivo só existe pra não misturar
  * esse bloco de JSX no meio de page.tsx.
+ *
+ * Fundo em --brand-gradient-dark (degradê cinza-chumbo, mesmo valor nos dois
+ * temas — ver app/globals.css) em vez do .card claro/translúcido padrão:
+ * pedido explícito de dar mais sofisticação ao Início sem inventar cor nova.
+ * O próprio token já existia no CSS com um comentário dizendo que era pra
+ * cá ("Cards escuros — ex.: Exige ação do Início") mas nunca tinha sido
+ * ligado a nada; só terminei a ideia que já estava reservada. Sendo sempre
+ * escuro (não segue o tema claro/escuro do resto da tela), as cores
+ * internas (texto, ícone, hover) são fixas na variante "sobre fundo
+ * escuro", não condicionais a dark: como em qualquer outro card do app.
  */
 export function ActionRequiredCard({
   semTarefaCount,
@@ -26,8 +36,8 @@ export function ActionRequiredCard({
       label: "Negócios sem tarefa",
       count: semTarefaCount,
       href: "/pipeline?filter=sem-tarefa",
-      tone: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-50 dark:bg-amber-500/10",
+      tone: "text-amber-400",
+      bg: "bg-amber-500/15",
     },
     {
       key: "parados",
@@ -35,8 +45,8 @@ export function ActionRequiredCard({
       label: "Parados há mais de 14 dias",
       count: parados14dCount,
       href: "/pipeline?filter=parados-14d",
-      tone: "text-red-600 dark:text-red-400",
-      bg: "bg-red-50 dark:bg-red-500/10",
+      tone: "text-red-400",
+      bg: "bg-red-500/15",
     },
     {
       key: "conversas",
@@ -44,8 +54,8 @@ export function ActionRequiredCard({
       label: "Conversas não lidas",
       count: unreadCount,
       href: "/whatsapp/conversas",
-      tone: "text-blue-600 dark:text-blue-400",
-      bg: "bg-blue-50 dark:bg-blue-500/10",
+      tone: "text-blue-400",
+      bg: "bg-blue-500/15",
     },
   ] as const;
 
@@ -53,8 +63,11 @@ export function ActionRequiredCard({
   if (total === 0) return null;
 
   return (
-    <div className="card p-4">
-      <h2 className="mb-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">Exige ação</h2>
+    <div
+      className="rounded-2xl border border-white/10 p-4 text-white shadow-lg shadow-black/10 transition-all duration-200 ease-smooth"
+      style={{ background: "var(--brand-gradient-dark)" }}
+    >
+      <h2 className="mb-2 text-sm font-medium text-white">Exige ação</h2>
       <div className="space-y-0.5">
         {rows
           .filter((row) => row.count > 0)
@@ -62,15 +75,15 @@ export function ActionRequiredCard({
             <Link
               key={row.key}
               href={row.href}
-              className="group -mx-2 flex items-center gap-2.5 rounded-lg p-1.5 text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+              className="group -mx-2 flex items-center gap-2.5 rounded-lg p-1.5 text-sm transition-colors hover:bg-white/5"
             >
               <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${row.bg}`}>
                 <row.icon className={`h-3.5 w-3.5 ${row.tone}`} strokeWidth={2} />
               </div>
-              <p className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-300">{row.label}</p>
+              <p className="min-w-0 flex-1 truncate text-neutral-200">{row.label}</p>
               <span className={`shrink-0 text-sm font-semibold tabular-nums ${row.tone}`}>{row.count}</span>
               <ArrowRight
-                className="h-3.5 w-3.5 shrink-0 text-neutral-300 transition-transform duration-150 group-hover:translate-x-0.5 dark:text-neutral-600"
+                className="h-3.5 w-3.5 shrink-0 text-white/25 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-white/50"
                 strokeWidth={2}
               />
             </Link>

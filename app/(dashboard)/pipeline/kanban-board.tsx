@@ -997,7 +997,9 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
         </span>
       )}
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{deal.name}</p>
+        <p className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100" title={deal.name}>
+          {deal.name}
+        </p>
         <Avatar
           name={deal.owner.name}
           src={deal.owner.photoUrl}
@@ -1042,10 +1044,16 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
         )}
       </div>
       <div className="mt-2.5 flex items-center justify-between">
-        <span className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+        {/* Valor com o mesmo peso do nome do negócio (era text-xs cinza,
+            igual ao resto do card) — em pipeline de venda é o 2º dado mais
+            escaneado depois do nome (quanto vale isso?), então precisa da
+            mesma prioridade visual, não se misturar com metadado
+            secundário. Mesmo raciocínio já usado acima pra faixa de tarefa. */}
+        <span className="text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
           {formatCurrency(deal.value)}
         </span>
         <span
+          title={`${daysSince(deal.stageEnteredAt)} dia${daysSince(deal.stageEnteredAt) === 1 ? "" : "s"} nesta etapa`}
           className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
             stale ? "text-amber-600 dark:text-amber-500" : "text-neutral-400 dark:text-neutral-500"
           }`}

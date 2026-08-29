@@ -1,44 +1,40 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Mic, Loader2, AlertCircle } from "lucide-react";
 import { appendDictatedText } from "@/lib/dictation";
+import { VoiceSessionManager } from "@/lib/voice/voice-session-manager";
 
-const WAVEFORM_BARS = 5;
-const ERROR_AUTO_DISMISS_MS = 4000;
+const WAVEFORM_BARS = 4;
 
 // Reexportado só pra não quebrar quem já importava daqui (ver
 // lib/dictation.ts pra onde a implementação de fato mora agora).
 export { appendDictatedText };
 
 /**
- * Ditado por voz via Web Speech API — nativa do navegador (Chrome/Edge/
- * Safari), sem custo e sem chave de API, mas não é padronizada: só existe
- * prefixada (`webkitSpeechRecognition`) em alguns navegadores e não existe
- * no Firefox (ver types/speech-recognition.d.ts pros tipos).
+ * Ditado por voz — UI Adapter fino sobre o subsistema de voz
+ * (lib/voice/*.ts): não fala com `window.SpeechRecognition` nem com
+ * `getUserMedia`/`AnalyserNode` diretamente, só com um
+ * `VoiceSessionManager` (mesmo contrato de `useSyncExternalStore`). Toda a
+ * inteligência (reencadeamento de frase, restart com backoff, animação por
+ * nível real de áudio, mensagem de erro compreensível) mora lá — este
+ * componente só traduz o snapshot da sessão pra ícone/rótulo/aria e repassa
+ * os eventos crus (texto reconhecido, sem nenhum processamento de
+ * linguagem — isso é decisão de quem consome `onResult`, ver
+ * lib/dictation.ts e lib/quick-register/format-dictated-lead-text.ts) pros
+ * props de sempre.
  *
- * NUNCA fecha sozinho por causa de uma pausa — só quando a pessoa clica pra
- * parar, ou num erro de verdade (mic sem permissão, sem internet). Achado
- * real (pedido do usuário): o navegador corta o reconhecimento sozinho
- * assim que detecta um silêncio — inclusive uma pausa curta pra pensar no
- * que falar em seguida —, não é o mesmo que "a pessoa decidiu parar de
- * ditar". Por baixo dos panos continua sendo uma frase de cada vez (não o
- * `continuous: true` nativo da SpeechRecognition, que tem bug conhecido de
- * parar sozinho no Chrome depois de alguns segundos): cada vez que uma
- * frase fecha (por pausa OU por um evento "no-speech" de silêncio
- * prolongado), reabre um reconhecimento novo automaticamente, sem
- * interromper a sessão nem precisar de clique novo. `appendDictatedText`
- * (lib/dictation.ts) junta cada frase reconhecida com a anterior no campo,
- * então na prática lê como um ditado contínuo só, mesmo tecnicamente sendo
- * várias frases reencadeadas.
+ * Pílula com RÓTULO DE TEXTO em vez de só ícone — pedido explícito do
+ * usuário depois de ver o botão só-ícone passar despercebido: um ícone
+ * exige já saber o que ele significa; texto não exige nada. O texto muda
+ * junto do estado ("Ditar por voz" → "Ouvindo…" → "Processando…" → mensagem
+ * de erro), então a mesma pílula já é a "legenda ao vivo" que antes vivia
+ * numa bolha flutuante à parte — um elemento só pra acompanhar, não dois.
  *
- * A SpeechRecognition em si não expõe o volume do microfone — pra mostrar
- * uma reação de verdade enquanto a pessoa fala (não só um pulso genérico),
- * abre um segundo getUserMedia só pra visualização (mesma técnica de
- * components/whatsapp-chat.tsx's AudioForm: AnalyserNode + requestAnimationFrame
- * lendo o volume por faixa de frequência), em paralelo à captura própria do
- * reconhecimento — os dois convivem sem conflito, cada um com seu próprio
- * MediaStream do mesmo microfone.
+ * API pública INALTERADA (mesmos props de antes) — os pontos de consumo
+ * (deal-detail.tsx, tasks-list.tsx, quick-register-deal-form.tsx) não
+ * precisaram mudar a lógica, só o layout ao redor pra dar espaço à pílula
+ * (era pensada pra um ícone de 28px num canto, agora é mais larga).
  */
 export function VoiceInputButton({
   onResult,
@@ -47,49 +43,15 @@ export function VoiceInputButton({
   lang = "pt-BR",
   className = "",
 }: {
-  /** Chamado com o texto reconhecido (frase inteira) quando termina de falar. */
+  /** Chamado com o texto reconhecido (frase inteira) quando termina de falar — sempre CRU, sem pontuação/vocabulário/capitalização aplicados (quem consome decide o processamento). */
   onResult: (text: string) => void;
-  /**
-   * Chamado a cada atualização do resultado PROVISÓRIO — a frase ainda
-   * sendo reconhecida, antes de fechar (pode mudar até lá). Pensado pra
-   * mostrar na tela em tempo real o que a pessoa está falando (ver
-   * lib/use-dictated-text.ts), não pra guardar/formatar de verdade — isso
-   * continua sendo trabalho só de `onResult`, chamado exatamente uma vez
-   * por frase, quando ela fecha (comportamento de sempre, inalterado).
-   */
+  /** Chamado a cada atualização do resultado PROVISÓRIO — pensado pra mostrar na tela em tempo real o que a pessoa está falando, nunca pra guardar/formatar de verdade. */
   onInterimResult?: (text: string) => void;
-  /**
-   * Avisa quando o microfone liga/desliga de verdade — pensado pra quem
-   * precisa saber exatamente quando a SESSÃO INTEIRA de ditado acabou (ex.:
-   * só processar/distribuir o texto ditado quando a pessoa clicar pra
-   * parar, não a cada frase reconhecida no meio do caminho, que ainda pode
-   * vir mais coisa). `false` dispara só no clique de parar ou num erro real
-   * que encerra a sessão (ver onerror abaixo) — nunca numa pausa comum.
-   */
+  /** Avisa quando a SESSÃO INTEIRA (não uma frase) liga/desliga de verdade — nunca numa pausa comum entre frases. */
   onListeningChange?: (listening: boolean) => void;
   lang?: string;
   className?: string;
 }) {
-  const [supported, setSupported] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [levels, setLevels] = useState<number[]>(Array(WAVEFORM_BARS).fill(4));
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // false enquanto a pessoa ainda está "numa sessão" de ditado contínuo —
-  // vira true só quando ela mesma clica pra parar (ou o componente
-  // desmonta), pra onend saber se deve reabrir o microfone sozinho ou não.
-  const stoppedByUserRef = useRef(true);
-  // Os handlers da SpeechRecognition (onresult/onend) são montados uma vez
-  // dentro de startRecognition() e o reencadeio automático (keepListening)
-  // reusa essa MESMA closure a cada frase nova, sem o componente re-
-  // renderizar no meio — se lessem `onResult`/`onListeningChange` direto
-  // dos props, ficariam presos na versão de quando a sessão começou. Ref
-  // sempre atualizada evita isso, mesmo sem nunca ter se confirmado como
-  // causa de um bug visto (é barato garantir, então garante).
   const onResultRef = useRef(onResult);
   const onInterimResultRef = useRef(onInterimResult);
   const onListeningChangeRef = useRef(onListeningChange);
@@ -99,221 +61,133 @@ export function VoiceInputButton({
     onListeningChangeRef.current = onListeningChange;
   });
 
+  // Uma sessão por instância do botão — o inicializador de useState só
+  // roda 1x (React garante), então a classe nasce uma vez só, nunca de
+  // novo a cada render (ref.current lido/escrito durante o render é
+  // desencorajado pelo próprio React — ver react-hooks/refs).
+  const [manager] = useState(() => new VoiceSessionManager(lang, WAVEFORM_BARS));
+
+  const subscribe = useCallback((listener: () => void) => manager.subscribe(listener), [manager]);
+  const getSnapshot = useCallback(() => manager.getSnapshot(), [manager]);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+
+  // `lang` só é lido de verdade na criação da sessão acima (useState só
+  // roda 1x) — sem isto, um `lang` que mudasse depois do 1º render seria
+  // ignorado pro resto da vida do componente. Nenhum consumidor troca
+  // `lang` em runtime hoje, mas manter isso sincronizado custa uma linha.
   useEffect(() => {
-    const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    setSupported(!!Ctor);
-  }, []);
+    manager.setLanguage(lang);
+  }, [manager, lang]);
 
-  function stopVisualizer() {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    audioCtxRef.current?.close().catch(() => {});
-    audioCtxRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setLevels(Array(WAVEFORM_BARS).fill(4));
-  }
+  useEffect(() => () => manager.destroy(), [manager]);
 
-  useEffect(
-    () => () => {
-      // Marca "parado" ANTES do abort() — sem isso, onend via abort() via
-      // desmontagem via keepListening ainda tentava reabrir o microfone
-      // depois que o componente já tinha ido embora.
-      stoppedByUserRef.current = true;
-      recognitionRef.current?.abort();
-      stopVisualizer();
-      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-    },
-    [],
-  );
+  if (!manager.isSupported) return null;
 
-  function showError(message: string) {
-    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-    setError(message);
-    errorTimeoutRef.current = setTimeout(() => setError(null), ERROR_AUTO_DISMISS_MS);
-  }
-
-  async function startVisualizer() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      source.connect(analyser);
-      audioCtxRef.current = audioCtx;
-      const data = new Uint8Array(analyser.frequencyBinCount);
-
-      const tick = () => {
-        analyser.getByteFrequencyData(data);
-        const bars = Array.from({ length: WAVEFORM_BARS }, (_, i) => {
-          const value = data[Math.floor((i * data.length) / WAVEFORM_BARS)];
-          return Math.max(4, Math.round((value / 255) * 22));
-        });
-        setLevels(bars);
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      tick();
-    } catch {
-      // Sem acesso ao microfone pra visualização não impede o ditado em si
-      // (a SpeechRecognition tem sua própria captura) — só fica sem a
-      // reação de áudio, o pulso genérico do botão ainda mostra que está ouvindo.
-    }
-  }
-
-  /** Cria e inicia uma instância nova de reconhecimento — não reaproveita a
-   * anterior (o navegador não deixa reiniciar uma já finalizada), por isso
-   * tanto o clique inicial quanto o reencadeio automático (`keepListening`)
-   * passam por aqui. */
-  function startRecognition() {
-    const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!Ctor) return;
-
-    const recognition = new Ctor();
-    recognition.lang = lang;
-    recognition.continuous = false;
-    // Ligado de propósito — sem isso, nada aparece na tela até a frase
-    // FECHAR de vez (ver comentário do componente). Com continuous=false,
-    // isso só gera atualizações PROVISÓRIAS da mesma frase única em
-    // andamento (nunca uma 2ª frase nova) — o evento final continua vindo
-    // exatamente igual a antes, só que agora precedido de atualizações
-    // parciais que ninguém era obrigado a consumir (onInterimResult é
-    // opcional).
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      const lastIndex = event.results.length - 1;
-      const transcript = Array.from({ length: event.results.length })
-        .map((_, i) => event.results[i][0].transcript)
-        .join(" ")
-        .trim();
-      if (!transcript) return;
-      if (event.results[lastIndex].isFinal) {
-        onResultRef.current(transcript);
-      } else {
-        onInterimResultRef.current?.(transcript);
-      }
-    };
-    recognition.onerror = (event) => {
-      // "no-speech"/"aborted" são silêncio comum (usuário clicou e não falou
-      // nada, ou parou por conta própria) — não é erro de verdade, não avisa
-      // nem interrompe uma sessão de ditado contínuo (a pessoa pode só estar
-      // pensando no próximo campo). Os outros códigos têm causas bem
-      // diferentes entre si (mic ausente vs. sem internet vs. permissão
-      // negada) — misturar tudo numa mensagem genérica de "tente de novo"
-      // manda o vendedor repetir uma ação que vai falhar de novo pelo mesmo
-      // motivo, então esses SIM param a sessão (ver stoppedByUserRef abaixo).
-      if (event.error === "no-speech" || event.error === "aborted") return;
-      stoppedByUserRef.current = true;
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        showError("Permissão de microfone negada");
-      } else if (event.error === "audio-capture") {
-        showError("Nenhum microfone encontrado");
-      } else if (event.error === "network") {
-        // O reconhecimento do Chrome/Edge processa o áudio no servidor deles,
-        // não localmente — sem internet (comum pra vendedor em campo), o
-        // erro real é conexão, não "não entendi o que você falou".
-        showError("Sem conexão com a internet");
-      } else {
-        showError("Não consegui entender — tente de novo");
-      }
-    };
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      // Reencadeia sozinho SEMPRE que a sessão não foi encerrada pela
-      // própria pessoa (clique) nem por um erro de verdade — inclusive numa
-      // pausa comum pra pensar, que o navegador só marca como "frase
-      // terminou", não "a pessoa quer parar de ditar" (ver comentário do
-      // componente). O visualizador de volume (getUserMedia à parte)
-      // continua rodando por baixo, só a SpeechRecognition em si é trocada.
-      if (!stoppedByUserRef.current) {
-        startRecognition();
-        return;
-      }
-      setListening(false);
-      stopVisualizer();
-      // Só agora a sessão acabou de verdade (clique de parar, ou erro real
-      // — nunca numa pausa comum reencadeada acima). É o sinal que quem
-      // consome isso pra distribuir campos/analisar o texto ditado espera
-      // pra só então processar o texto INTEIRO de uma vez.
-      onListeningChangeRef.current?.(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  }
+  const listening = snapshot.state === "LISTENING" || snapshot.state === "STARTING";
+  const processing = snapshot.state === "PROCESSING";
+  const hasError = snapshot.state === "ERROR" && !!snapshot.error;
 
   function toggle() {
-    // Trava contra clique/toque duplo: sem isso, dois cliques rápidos antes
-    // do re-render refletir `listening=true` criavam DUAS instâncias de
-    // SpeechRecognition escutando o mesmo microfone ao mesmo tempo (a
-    // segunda sobrescrevia recognitionRef sem nunca parar a primeira).
-    if (listening || recognitionRef.current) {
-      stoppedByUserRef.current = true;
-      recognitionRef.current?.stop();
+    if (listening || processing) {
+      manager.stop();
       return;
     }
-
-    setError(null);
-    stoppedByUserRef.current = false;
-    setListening(true);
-    startRecognition();
-    startVisualizer();
-    onListeningChangeRef.current?.(true);
+    manager.start({
+      onInterim: (text) => onInterimResultRef.current?.(text),
+      onFinal: (text) => onResultRef.current(text),
+      onListeningChange: (l) => onListeningChangeRef.current?.(l),
+    });
   }
 
-  if (!supported) return null;
+  // Mesmo texto usado no rótulo visível, no `title` (hover no mouse) e no
+  // anúncio pra leitor de tela — uma fonte só de verdade, nunca 3 frases
+  // parecidas mas ligeiramente diferentes descrevendo o mesmo estado.
+  const stateText = processing
+    ? "Processando…"
+    : hasError
+      ? (snapshot.error?.userMessage ?? "Erro no ditado")
+      : snapshot.state === "STARTING"
+        ? "Iniciando…"
+        : snapshot.state === "LISTENING"
+          ? "Ouvindo…"
+          : "Ditar por voz";
+
+  const title = listening ? "Toque para parar de ditar" : hasError ? stateText : "Ditar por voz — pode fazer pausas, só para quando você tocar de novo";
 
   return (
     <span className="relative inline-flex">
       <button
         type="button"
         onClick={toggle}
-        className={`icon-btn relative ${listening ? "text-red-500 dark:text-red-400" : ""} ${className}`}
-        title={listening ? "Toque para parar de ditar" : "Ditar por voz — pode fazer pausas, só para quando você tocar de novo"}
+        disabled={processing}
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:outline-none active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 ${
+          listening
+            ? "bg-red-500 text-white hover:bg-red-600 active:bg-red-600 dark:bg-red-500 dark:hover:bg-red-600"
+            : hasError
+              ? "bg-amber-50 text-amber-700 ring-1 ring-amber-300 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-700/50 dark:hover:bg-amber-500/15"
+              : // Estado padrão: pílula com a cor de marca (mesmo tom de "Registrar"
+                // e de outros acentos do sistema — ver components/badge.tsx) em vez
+                // de cinza neutro igual a todo resto da tela, E com o texto "Ditar
+                // por voz" sempre visível — não só um ícone que exige já saber o
+                // que ele faz. Sem brilho piscando (o projeto evita animate-pulse
+                // de propósito — ver comentário do skeleton-shimmer em
+                // app/globals.css: "pisca" lê como barato, não como elegante); a
+                // cor + o texto já bastam pra chamar atenção sem exagero.
+                "bg-brand-light text-brand hover:bg-brand-light-hover dark:bg-brand-light dark:text-brand dark:hover:bg-brand-light-hover"
+        } ${className}`}
+        title={title}
         aria-label={listening ? "Parar ditado" : "Ditar por voz"}
         aria-pressed={listening}
       >
         {listening && (
-          <>
-            <span className="absolute inset-0 animate-ping rounded-md bg-red-500/30" />
-            <span className="absolute inset-0 animate-ping rounded-md bg-red-500/20 [animation-delay:0.5s]" />
-          </>
-        )}
-        {listening ? <MicOff className="relative h-3.5 w-3.5" strokeWidth={2} /> : <Mic className="h-3.5 w-3.5" strokeWidth={2} />}
-      </button>
-
-      {listening && (
-        <span className="animate-pop-in pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-neutral-900 px-3 py-2 shadow-lg dark:bg-neutral-800">
+          // Pontinho pulsante — mesma linguagem de "gravando" que qualquer
+          // app de voz/câmera usa, só que compacto o bastante pra caber ao
+          // lado do texto numa pílula (diferente do anel cobrindo o botão
+          // inteiro, que ficava estranho numa forma larga em vez de um
+          // círculo pequeno).
           <span className="relative flex h-1.5 w-1.5 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
           </span>
-          <span className="flex h-4 items-end gap-0.5">
-            {levels.map((h, i) => (
+        )}
+        {processing ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={2} />
+        ) : hasError ? (
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+        ) : (
+          // Sempre "Mic" — nunca "MicOff" enquanto ouve: o ícone descreve o
+          // ESTADO DO MICROFONE (ligado), não a ação do clique (que seria
+          // "parar"). Um ícone de mic mutado bem no momento em que ele está
+          // mais ativo do que nunca lia como o oposto do que está acontecendo.
+          <Mic className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+        )}
+        <span>{stateText}</span>
+        {listening && (
+          <span className="flex h-3 items-end gap-0.5">
+            {/* Altura reage ao nível REAL do microfone por faixa de frequência
+                (ver lib/voice/audio-monitor.ts) — silêncio fica quase parado,
+                fala intensa estica até o teto. Nunca um pulso genérico igual
+                pra todo mundo. Embutido na própria pílula agora (antes vivia
+                numa bolha flutuante à parte, um elemento a mais pra notar). */}
+            {(snapshot.audioBars.length ? snapshot.audioBars : Array(WAVEFORM_BARS).fill(0)).map((level, i) => (
               <span
                 key={i}
                 className="w-0.5 rounded-full bg-white transition-[height] duration-75 ease-out"
-                style={{ height: `${h}px` }}
+                style={{ height: `${Math.max(3, Math.round(level * 12))}px` }}
               />
             ))}
           </span>
-          {/* Explícito sobre o comportamento novo: pausa pra pensar não
-              encerra nada — só o toque no botão para de verdade. Sem isso,
-              alguém vendo só "Ouvindo…" podia continuar achando que uma
-              pausa mais longa fecha sozinho, do jeito que o navegador fazia
-              antes. */}
-          <span className="text-[11px] font-medium whitespace-nowrap text-white">Ouvindo… toque p/ parar</span>
-        </span>
-      )}
+        )}
+      </button>
 
-      {error && (
-        <span className="absolute top-full left-1/2 z-10 mt-1 w-max max-w-[180px] -translate-x-1/2 rounded-md bg-neutral-900 px-2 py-1 text-center text-[11px] text-white shadow-lg dark:bg-white dark:text-neutral-900">
-          {error}
-        </span>
-      )}
+      {/* Só pra leitor de tela — visualmente invisível (sr-only), nunca
+          depende só da animação/cor pra avisar troca de estado. Vazio em
+          IDLE/STOPPED de propósito (nada relevante aconteceu ainda, não
+          vale interromper o leitor de tela à toa assim que o campo aparece
+          na tela). */}
+      <span aria-live="polite" className="sr-only">
+        {snapshot.state === "IDLE" || snapshot.state === "STOPPED" ? "" : stateText}
+      </span>
     </span>
   );
 }

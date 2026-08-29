@@ -1,5 +1,16 @@
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { VALID_BRAZILIAN_DDDS } from "@/lib/phone-normalize";
+import {
+  foldAccents,
+  parseSpokenAmount,
+  spokenNumberWordsToDigits,
+  isMostlySpokenNumbers,
+} from "@/lib/voice/number-normalizer";
+
+// Reexportado só pra não quebrar quem já importava daqui (ver
+// lib/voice/number-normalizer.ts pra onde a implementação de fato mora
+// agora — o pipeline de voz também precisa desse conversor).
+export { foldAccents };
 
 /**
  * Parser de "cadastro rápido" — o consultor cola um lead em texto livre
@@ -81,27 +92,6 @@ export function normalizeLabel(s: string): string {
     .replace(/[^a-z\s]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-/**
- * Minúsculo + acento removido SEM mudar o comprimento da string (cada
- * caractere vira exatamente um outro, nunca some) — ao contrário de
- * `normalizeLabel` (que colapsa espaço e remove pontuação, útil pra
- * comparar rótulos, mas destrói a correspondência de posição com o texto
- * original). Usado pra reconhecer um rótulo NO INÍCIO de uma linha sem
- * dois-pontos (ver matchLabelPrefix) e ainda saber exatamente onde ele
- * termina no texto de verdade, com acento/caixa originais, pra recortar o
- * valor certo.
- */
-export function foldAccents(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[áàãâä]/g, "a")
-    .replace(/[éèêë]/g, "e")
-    .replace(/[íìîï]/g, "i")
-    .replace(/[óòõôö]/g, "o")
-    .replace(/[úùûü]/g, "u")
-    .replace(/ç/g, "c");
 }
 
 function escapeRegExp(s: string): string {
@@ -411,166 +401,6 @@ function findPhones(line: string): { text: string; ddd: string }[] {
 function parseBrazilianNumber(digitsAndSeparators: string): number | null {
   const n = parseFloat(digitsAndSeparators.replace(/\./g, "").replace(",", "."));
   return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-// Número por EXTENSO em português ("trezentos mil", "um milhão e duzentos
-// mil") — ditado por voz descrevendo um valor quase nunca sai em dígito
-// ("trezentos mil", não "300000" nem "300 mil"), diferente de texto
-// digitado/colado. Cobre só a faixa que interessa pra valor de consórcio
-// (unidades até centenas de milhão) — não tenta ser um conversor de número
-// por extenso genérico e completo.
-const SPOKEN_NUMBER_UNITS: Record<string, number> = {
-  zero: 0,
-  um: 1,
-  uma: 1,
-  dois: 2,
-  duas: 2,
-  tres: 3,
-  quatro: 4,
-  cinco: 5,
-  seis: 6,
-  sete: 7,
-  oito: 8,
-  nove: 9,
-  dez: 10,
-  onze: 11,
-  doze: 12,
-  treze: 13,
-  quatorze: 14,
-  catorze: 14,
-  quinze: 15,
-  dezesseis: 16,
-  dezessete: 17,
-  dezoito: 18,
-  dezenove: 19,
-  vinte: 20,
-  trinta: 30,
-  quarenta: 40,
-  cinquenta: 50,
-  sessenta: 60,
-  setenta: 70,
-  oitenta: 80,
-  noventa: 90,
-  cem: 100,
-  cento: 100,
-  duzentos: 200,
-  trezentos: 300,
-  quatrocentos: 400,
-  quinhentos: 500,
-  seiscentos: 600,
-  setecentos: 700,
-  oitocentos: 800,
-  novecentos: 900,
-};
-const SPOKEN_NUMBER_SCALES: Record<string, number> = { mil: 1_000, milhao: 1_000_000, milhoes: 1_000_000 };
-// Palavras que só conectam ("trezentos E cinquenta mil", "valor DE trezentos
-// mil") — ignoradas na soma, nunca interrompem o reconhecimento.
-const SPOKEN_NUMBER_CONNECTORS = new Set(["e", "de"]);
-
-/**
- * "trezentos mil" → 300000, "um milhão e duzentos mil" → 1200000. Para no
- * primeiro token desconhecido DEPOIS de já ter reconhecido algo (ex.: "oitenta
- * mil reais" — "reais" encerra sem quebrar o que já foi lido); devolve null
- * se a primeira palavra já não for número nenhum.
- */
-function parseSpokenAmount(text: string): number | null {
-  const words = foldAccents(text)
-    .replace(/[^a-z\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((w) => !SPOKEN_NUMBER_CONNECTORS.has(w));
-  if (words.length === 0) return null;
-
-  let total = 0;
-  let current = 0;
-  let matchedAny = false;
-  for (const word of words) {
-    if (word in SPOKEN_NUMBER_UNITS) {
-      current += SPOKEN_NUMBER_UNITS[word];
-      matchedAny = true;
-    } else if (word in SPOKEN_NUMBER_SCALES) {
-      total += (current === 0 ? 1 : current) * SPOKEN_NUMBER_SCALES[word];
-      current = 0;
-      matchedAny = true;
-    } else if (matchedAny) {
-      break; // palavra desconhecida depois de já ter achado número (ex. "reais") — só encerra, não invalida.
-    } else {
-      return null; // nem a 1ª palavra é número — não é um valor por extenso.
-    }
-  }
-  total += current;
-  return total > 0 ? total : null;
-}
-
-/**
- * Converte número por extenso em português pra dígito, palavra a palavra —
- * ao contrário de parseSpokenAmount acima (que SOMA tudo numa magnitude só,
- * pra dinheiro), aqui cada trecho vira o(s) DÍGITO(s) dele mesmo,
- * concatenados: telefone é uma SEQUÊNCIA de dígitos, nunca uma soma
- * ("sessenta e sete" no DDD são os dígitos "6" e "7", não o número 67
- * somado a mais nada). Reaproveita SPOKEN_NUMBER_UNITS (mesmo dicionário do
- * dinheiro) — só entende 0-99, faixa que aparece de verdade lendo telefone
- * em voz alta ("mil"/"milhão"/centena nunca aparecem lendo dígito a dígito,
- * por isso ficam de fora aqui). Palavra não reconhecida passa direto, sem
- * quebrar o resto do texto — usado só como pré-processamento antes de
- * rodar PHONE_REGEX (ver findPhones).
- */
-function spokenNumberWordsToDigits(text: string): string {
-  const words = foldAccents(text).split(/\s+/).filter(Boolean);
-  const out: string[] = [];
-  let buffer = "";
-  const flushBuffer = () => {
-    if (buffer) {
-      out.push(buffer);
-      buffer = "";
-    }
-  };
-
-  let i = 0;
-  while (i < words.length) {
-    const raw = words[i].replace(/[^a-z]/g, "");
-    const value = SPOKEN_NUMBER_UNITS[raw];
-    if (value === undefined || value >= 100) {
-      flushBuffer();
-      out.push(words[i]);
-      i += 1;
-      continue;
-    }
-    if (value >= 20 && value <= 90 && value % 10 === 0) {
-      // Dezena "redonda" (vinte, trinta... noventa) — tenta juntar com "E
-      // unidade" seguinte (ex.: "sessenta e sete" -> 67); senão fica só ela.
-      const conn = words[i + 1]?.replace(/[^a-z]/g, "");
-      const nextRaw = words[i + 2]?.replace(/[^a-z]/g, "");
-      const nextValue = nextRaw !== undefined ? SPOKEN_NUMBER_UNITS[nextRaw] : undefined;
-      if (conn === "e" && nextValue !== undefined && nextValue < 10) {
-        buffer += String(value + nextValue);
-        i += 3;
-        continue;
-      }
-      buffer += String(value);
-      i += 1;
-      continue;
-    }
-    // Unidade (0-9) ou dezena "irregular" já com 2 dígitos próprios (10-19).
-    buffer += String(value);
-    i += 1;
-  }
-  flushBuffer();
-  return out.join(" ");
-}
-
-/** Sobra de telefone por extenso não convertido (ver findPhones) não devia
- * virar nome por acidente no Passo 3 — se a maior parte das palavras da
- * linha é número por extenso reconhecido (ou o conectivo "e" entre elas),
- * não é candidato a nome de pessoa. */
-function isMostlySpokenNumbers(text: string): boolean {
-  const words = foldAccents(text).split(/\s+/).filter(Boolean);
-  if (words.length === 0) return false;
-  const numberish = words.filter((w) => {
-    const raw = w.replace(/[^a-z]/g, "");
-    return raw === "e" || raw in SPOKEN_NUMBER_UNITS;
-  }).length;
-  return numberish / words.length >= 0.6;
 }
 
 /** Valor vindo de um rótulo explícito ("Valor: 80000") — mais tolerante,

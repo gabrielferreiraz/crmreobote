@@ -22,7 +22,14 @@ const STATUS_LABEL: Record<string, { label: string; tone: "neutral" | "success" 
   LOST: { label: "Perdido", tone: "danger" },
 };
 
-type Deal = { id: string; name: string; status: "OPEN" | "WON" | "LOST"; value: number | null; stageName: string };
+type Deal = {
+  id: string;
+  name: string;
+  status: "OPEN" | "WON" | "LOST";
+  value: number | null;
+  stageName: string;
+  stageColor: string | null;
+};
 type InfoRow = { label: string; value: string };
 type WhatsAppInfo = {
   threadId: string;
@@ -167,12 +174,29 @@ export function ContactTabs({
             </div>
           ) : (
             <>
+              {/* Resumo só aparece com mais de 1 negócio — com um só, ele só
+                  repetiria o que o card logo abaixo já mostra. Soma o valor
+                  dos negócios EM ABERTO (é o número que importa pra "quanto
+                  ainda dá pra fechar com esse cliente"; ganho/perdido já tem
+                  seu próprio total no relatório, não faz sentido misturar
+                  aqui). */}
+              {deals.length > 1 && (
+                <p className="px-1 text-xs text-neutral-500 dark:text-neutral-400">
+                  {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
+                  {deals.some((d) => d.status === "OPEN") && (
+                    <> · {formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))} em aberto</>
+                  )}
+                </p>
+              )}
               {/* Com negócio(s) já vinculado(s), a ação disponível aqui é
                   apagar (ver canDeleteDeals abaixo) — não criar mais um; o
                   pedido foi especificamente "se não tiver, um botão pra
                   criar", não "sempre". */}
               {deals.map((deal) => (
-                <div key={deal.id} className="card group relative">
+                <div
+                  key={deal.id}
+                  className="card group relative transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none"
+                >
                   <Link
                     href={`/negocios/${deal.id}`}
                     className="block p-3 text-sm hover:border-neutral-300 dark:hover:border-neutral-700"
@@ -184,7 +208,13 @@ export function ContactTabs({
                       </Badge>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                      <span className="min-w-0 truncate">{deal.stageName}</span>
+                      <span className="flex min-w-0 items-center gap-1.5 truncate">
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: deal.stageColor ?? "#a1a1aa" }}
+                        />
+                        <span className="truncate">{deal.stageName}</span>
+                      </span>
                       <span className="shrink-0 whitespace-nowrap tabular-nums">{formatCurrency(deal.value)}</span>
                     </div>
                   </Link>

@@ -25,8 +25,12 @@
   --brand-gradient: linear-gradient(135deg, #7274f0 0%, #4f50d8 55%, #3f40c2 100%);
   --brand-gradient-hero: linear-gradient(140deg, #7476f2 0%, #5152da 50%, #3b3cbe 100%);
   /* Cards escuros (ex.: "Exige ação" do Início) — mesmo valor nos dois temas
-     de propósito, já nasce escuro, não precisa de variante. */
-  --brand-gradient-dark: linear-gradient(150deg, #23262f 0%, #15171f 60%, #101219 100%);
+     de propósito, já nasce escuro, não precisa de variante. Era um degradê
+     cinza-chumbo neutro (quase preto); pedido explícito trocou pra um azul-
+     marinho na MESMA família de matiz do --brand acima (não um azul solto
+     importado de outro lugar), só escurecido/dessaturado pra funcionar como
+     fundo de card em vez de acento. */
+  --brand-gradient-dark: linear-gradient(150deg, #232a52 0%, #171a3a 55%, #0e0f24 100%);
 }
 
 .dark {
@@ -854,6 +858,29 @@ input[type="radio"] {
 
   .dark .surface-glass-dense {
     background: rgba(16, 16, 20, 0.9);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Vidro "quase opaco" — só pro painel do FilterPopover e o popover de
+     range de data dos Relatórios (pedido explícito: "diminua a
+     transparência de todas as partes de filtros... quero que fique mais
+     opaco"). Deliberadamente uma classe PRÓPRIA, não um ajuste em
+     .surface-glass/.surface-glass-dense acima — as duas são compartilhadas
+     com Select, DatePicker e a barra superior fixa (ver comentários delas),
+     que não fazem parte do pedido; mexer ali afetaria tudo isso também.
+     97%/96% de tinta já lê como card sólido no olho, sem vazar nada do que
+     está atrás — o blur que sobra é só suavização de borda, não parte do
+     efeito. */
+  .surface-glass-filter {
+    @apply border;
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    border-color: rgba(255, 255, 255, 0.75);
+  }
+
+  .dark .surface-glass-filter {
+    background: rgba(16, 16, 20, 0.96);
     border-color: rgba(255, 255, 255, 0.08);
   }
 

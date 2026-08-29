@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Mail, MessageSquare, Phone } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
@@ -172,6 +172,43 @@ export default async function ContactPage({
           />
         </div>
 
+        {/* Atalhos de contato — mesmo idioma visual (pill colorida, ícone +
+            rótulo) já usado nos botões de ação rápida do modal de tarefa
+            (ver agenda/task-detail-modal.tsx: Ligar/E-mail/Chat), não um
+            estilo novo. Só aparece o que o contato de fato tem preenchido —
+            um contato sem e-mail não ganha um botão de e-mail desabilitado. */}
+        {(contact.phone || contact.whatsapp || contact.email) && (
+          <div className="flex flex-wrap gap-2">
+            {contact.phone && (
+              <a
+                href={`tel:${contact.phone}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-500/10 dark:text-blue-400 dark:hover:bg-blue-500/20"
+              >
+                <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+                Ligar
+              </a>
+            )}
+            {contact.whatsapp && (
+              <Link
+                href={`/whatsapp/conversas?contactId=${contact.id}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+              >
+                <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+                WhatsApp
+              </Link>
+            )}
+            {contact.email && (
+              <a
+                href={`mailto:${contact.email}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-500/10 dark:text-purple-400 dark:hover:bg-purple-500/20"
+              >
+                <Mail className="h-3.5 w-3.5" strokeWidth={2} />
+                E-mail
+              </a>
+            )}
+          </div>
+        )}
+
         <ContactTabs
           contactId={contact.id}
           contactName={contact.name}
@@ -181,6 +218,7 @@ export default async function ContactPage({
             status: deal.status,
             value: deal.value ? Number(deal.value) : null,
             stageName: deal.stage.name,
+            stageColor: deal.stage.color,
           }))}
           pipelines={pipelines}
           members={members}

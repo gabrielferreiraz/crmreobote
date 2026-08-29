@@ -23,12 +23,28 @@ import { ActionRequiredCard } from "./action-required-card";
 
 const STALE_DEALS_PAGE_SIZE = 10;
 
-/** Each stat tile gets a distinct color identity — makes them scannable at a glance. */
+/** Each stat tile gets a distinct color identity — makes them scannable at a glance.
+ * `bg` virou um degradê de 2 tons da MESMA família (não uma cor nova) — pedido
+ * explícito de dar mais sofisticação ao Início sem fugir da identidade de cor
+ * de cada métrica; mesma técnica que a barra de etapa do funil logo abaixo já
+ * usa (degradê dentro do próprio tom, nunca uma cor emprestada de outro lugar). */
 const STAT_COLORS = {
-  pipeline: { bg: "bg-brand-light dark:bg-brand-light", icon: "text-brand dark:text-brand" },
-  value: { bg: "bg-blue-50 dark:bg-blue-500/10", icon: "text-blue-600 dark:text-blue-400" },
-  won: { bg: "bg-emerald-50 dark:bg-emerald-500/10", icon: "text-emerald-600 dark:text-emerald-400" },
-  clients: { bg: "bg-violet-50 dark:bg-violet-500/10", icon: "text-violet-600 dark:text-violet-400" },
+  pipeline: { bg: "bg-gradient-to-br from-brand-light to-brand-light-hover", icon: "text-brand dark:text-brand" },
+  value: {
+    bg: "bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-500/10 dark:to-blue-500/20",
+    icon: "text-blue-600 dark:text-blue-400",
+  },
+  // Cinza-azulado (slate) em vez do verde padrão de "ganho" — pedido
+  // explícito pro tile "Fechado no mês", pra combinar com o tom do card
+  // "Exige ação" logo abaixo em vez do verde-dinheiro genérico de sempre.
+  won: {
+    bg: "bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-500/15 dark:to-slate-500/25",
+    icon: "text-slate-600 dark:text-slate-300",
+  },
+  clients: {
+    bg: "bg-gradient-to-br from-violet-50 to-violet-100 dark:from-violet-500/10 dark:to-violet-500/20",
+    icon: "text-violet-600 dark:text-violet-400",
+  },
 } as const;
 
 export default async function HomePage() {

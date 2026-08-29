@@ -52,8 +52,11 @@ export function AppMain({ children }: { children: React.ReactNode }) {
             // (ver comentário abaixo); aqui o painel é de altura fixa
             // (h-full até aqui em cima), então aquele respiro gigante só
             // cortava a parte de baixo do painel à toa, sem servir pra nada
-            // — pb pequeno é só a moldura/respiro visual mesmo.
-            "overflow-y-hidden pb-3 lg:pb-4"
+            // — pb pequeno é só a moldura/respiro visual mesmo. Subiu um
+            // pouco (pb-3→4, pb-4→6) — pedido explícito de dar mais respiro
+            // embaixo "em toda tela"; continua bem menor que o pb-28 de
+            // baixo, então não cria scroll novo nem esconde nada do painel.
+            "overflow-y-hidden pb-4 lg:pb-6"
           : // scrollbar-gutter reserva o espaço da barra de rolagem o tempo
             // todo — sem isso, trocar o filtro de período no Relatórios (ou
             // qualquer outra navegação que mude a altura do conteúdo) faz a

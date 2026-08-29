@@ -134,7 +134,7 @@ export function DateRangeFilter() {
       </button>
 
       {open && (
-        <div className="surface-glass animate-pop-in absolute right-0 z-30 mt-1 w-72 rounded-lg p-2 shadow-xl">
+        <div className="surface-glass-filter animate-pop-in absolute right-0 z-30 mt-1 w-72 rounded-lg p-2 shadow-xl">
           {!showCustom ? (
             <div className="space-y-0.5">
               <button type="button" onClick={applyAll} className={optionClass(isAllActive)}>

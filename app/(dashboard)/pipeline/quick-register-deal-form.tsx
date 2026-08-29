@@ -9,7 +9,7 @@ import { VoiceInputButton } from "@/components/voice-input-button";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { parseLeadText, normalizeLabel, type ParsedLeadFields } from "@/lib/quick-register/parse-lead-text";
 import { appendDictatedLeadText } from "@/lib/quick-register/format-dictated-lead-text";
-import { useDictatedText } from "@/lib/use-dictated-text";
+import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -39,7 +39,7 @@ export function QuickRegisterDealForm({
   onCreated: (deal: Deal) => void;
   onCancel: () => void;
 }) {
-  const rawTextDictation = useDictatedText("", appendDictatedLeadText);
+  const rawTextDictation = useVoiceTranscription("", appendDictatedLeadText);
   const [analyzed, setAnalyzed] = useState(false);
   const justPasted = useRef(false);
 
