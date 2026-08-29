@@ -17,10 +17,28 @@ export function TvShell({ children }: { children: ReactNode }) {
           de propósito: o gradiente de fundo precisa continuar cobrindo a
           tela inteira (se o painel da TV cortar uma faixa da borda, quem
           sobra visível ali ainda é fundo, nunca uma tarja preta/vazia
-          diferente do resto). Só o CONTEÚDO (children) fica recuado pra
-          dentro da área segura. */}
+          diferente do resto). */}
       <div className="absolute inset-0" style={{ padding: "var(--tv-safe-margin)" }}>
-        {children}
+        {/* CANVAS de composição — ocupa a área segura de ponta a ponta nos
+            dois eixos (h-full w-full, sem letterbox, sem sobra nenhuma nas
+            laterais) — uma TV real É a proporção de referência (16:9, ver
+            lib/tv-display-profile.ts), então aqui não existe conflito
+            nenhum pra resolver. `container-type: size` é o que faz esta
+            div virar a ÚNICA referência que todo token `--tv-*` cq* (ver
+            app/globals.css e tv-view.tsx) enxerga — `cqw` sempre mede a
+            largura REAL desta caixa (edge-to-edge com a tela), `cqh` a
+            altura REAL dela, cada eixo correto por conta própria. Antes
+            existiam DOIS contextos de medida diferentes (tokens fora do
+            bloco de cards contra a tela crua, tokens de dentro contra um
+            sub-contêiner aninhado) — era essa divergência entre dois
+            "relógios" que descolava painel/banner um do outro numa janela
+            de teste fora de 16:9, não a ausência de um canvas travado. Com
+            um único contêiner pra tudo, cada eixo já é internamente
+            consistente sem precisar forçar um formato de moldura por
+            cima. */}
+        <div style={{ containerType: "size", containerName: "tv-canvas" } as React.CSSProperties} className="h-full w-full">
+          {children}
+        </div>
       </div>
     </div>
   );

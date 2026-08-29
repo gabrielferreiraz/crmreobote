@@ -68,7 +68,7 @@ export function TvClock({ stale = false }: { stale?: boolean }) {
         <span
           title="Sem conseguir atualizar os dados há alguns minutos — os números podem estar desatualizados."
           className="animate-tv-glow-pulse mt-0.5 shrink-0 rounded-full bg-amber-400"
-          style={{ width: "clamp(6px, 0.5vw, 10px)", height: "clamp(6px, 0.5vw, 10px)" }}
+          style={{ width: "clamp(6px, 0.5cqw, 10px)", height: "clamp(6px, 0.5cqw, 10px)" }}
         />
       )}
     </div>

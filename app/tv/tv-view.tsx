@@ -7,7 +7,6 @@ import { fetchTvMetrics } from "./actions";
 import { formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
-import { TvAutoFit } from "./tv-auto-fit";
 import { TvClock } from "./tv-clock";
 import { CountUpValue } from "@/components/count-up-value";
 
@@ -69,51 +68,13 @@ const SLIDE_TRANSITION_MS = 650;
 // final — mesmo espírito do EXIT_MS de tv-win-celebration.tsx.
 const CHURRASCO_BANNER_MS = 10_000;
 const CHURRASCO_BANNER_EXIT_MS = 600;
-
-// Largura "de design" do bloco de cards (Vendas do mês / Última venda +
-// Leads no funil / Ranking) — ver app/tv/tv-auto-fit.tsx. Tudo dentro
-// desse bloco é desenhado como se a tela sempre tivesse essa largura; o
-// TvAutoFit é quem escala o bloco INTEIRO (um fator só, nos dois eixos)
-// pra caber no espaço real disponível em qualquer TV/tablet/celular —
-// então esse número não precisa "bater" com nenhuma tela de verdade, só
-// precisa ser confortável o bastante pra esses valores abaixo lerem bem
-// entre si (relação de tamanho, não tamanho absoluto).
-const CARDS_DESIGN_WIDTH = 600;
-
-// Valores FIXOS (não mais clamp() em vmin) pros tokens --tv-* usados
-// DENTRO do bloco de cards acima — os mesmos números que já existiam antes
-// de qualquer tentativa de calibrar por resolução de tela (a primeira
-// versão "já testada/aprovada", ver histórico de app/globals.css).
-// Redefinidos aqui como CSS custom properties inline, escopados só ao
-// wrapper do TvAutoFit — GlassCard/renderLastSaleContent/RankingPodiumSlot
-// etc. continuam chamando exatamente os mesmos `var(--tv-*)` de sempre,
-// sem precisar mudar nada neles; só o VALOR que a cascata do CSS resolve
-// muda dentro deste escopo. Fora do TvAutoFit (padding da página, vão
-// entre o painel de propaganda e o de métricas, barra do Churrascômetro)
-// os tokens em :root (app/globals.css) continuam valendo normalmente —
-// só o bloco de cards, que é onde o corte/aperto sempre aconteceu, passou
-// a ser 100% resolvido por medição real em vez de estimativa.
-const CARDS_DESIGN_TOKENS = {
-  "--tv-gap": "1.125rem",
-  "--tv-card-px": "1.75rem",
-  "--tv-card-py": "1.25rem",
-  "--tv-radius": "1.25rem",
-  "--tv-radius-lg": "1.5rem",
-  "--tv-text-label": "0.8125rem",
-  "--tv-text-body": "1rem",
-  "--tv-text-name": "1.25rem",
-  "--tv-text-value-sm": "1.625rem",
-  "--tv-text-value-md": "2.25rem",
-  "--tv-text-value-lg": "3rem",
-  "--tv-text-hero": "4rem",
-  "--tv-icon-sm": "1rem",
-  "--tv-icon-md": "1.375rem",
-  "--tv-icon-lg": "1.875rem",
-  "--tv-avatar-md": "3.75rem",
-  "--tv-avatar-lg": "6.5rem",
-  "--tv-logo-h": "4.5rem",
-  "--tv-glow-size": "9rem",
-} as React.CSSProperties;
+// A tela vai FECHANDO (fade suave, ver fase "entering" em
+// churrascoBannerPhase, não um corte seco pra escuro), e o texto/foguinhos
+// só aparecem DEPOIS desse tanto de tela já escura — pedido explícito, dá
+// um instante de suspense antes do recado "chegar". Aplicado
+// como `animationDelay` no próprio texto/glow (ver JSX mais abaixo), não
+// como uma fase de estado nova — mais simples, CSS puro cuidando de tudo.
+const CHURRASCO_BANNER_TEXT_DELAY_MS = 3000;
 
 /**
  * "há 12 min" em vez de só uma data fixa (26/07/2026) — numa TV ligada o dia
@@ -441,7 +402,23 @@ export function TvView({
   // então aparecer — os dois competindo por atenção ao mesmo tempo ficava
   // poluído. Sem venda/confete rolando (ex.: a TV já carrega com a meta já
   // batida), não tem o que esperar — aparece direto.
-  const [churrascoBannerPhase, setChurrascoBannerPhase] = useState<"hidden" | "visible" | "leaving">("hidden");
+  //
+  // 4 fases, não 3 — "entering" existe só por 2 frames (pedido explícito:
+  // "tem que ir fechando a tela e não escurecer do nada"). Sem essa fase, a
+  // primeira renderização já nasce com a classe `opacity-100` — o CSS
+  // `transition-opacity` não tem NADA pra interpolar a partir daí (ele só
+  // anima quando a propriedade MUDA depois de já montado), então o
+  // escurecimento aparecia de um frame pro outro, instantâneo. Com
+  // "entering" (opacity-0, igual à fase "leaving") no primeiro paint e só
+  // DOIS `requestAnimationFrame` depois virando "visible" (opacity-100), o
+  // navegador pinta o quadro escuro-zero uma vez de verdade antes de pedir
+  // pra transicionar — aí sim o `transition-opacity` anima o closing de
+  // verdade (mesmo truque de "2 rAF" já usado pro voo da foto em
+  // tv-win-celebration.tsx, mesmo motivo: garantir que o estado inicial
+  // pintou antes de mudar pro seguinte).
+  const [churrascoBannerPhase, setChurrascoBannerPhase] = useState<"hidden" | "entering" | "visible" | "leaving">(
+    "hidden",
+  );
   const churrascoBannerShownRef = useRef(false);
   useEffect(() => {
     if (!churrascoGoalHit) {
@@ -455,10 +432,16 @@ export function TvView({
     }
     if (celebration || churrascoBannerShownRef.current) return;
     churrascoBannerShownRef.current = true;
-    setChurrascoBannerPhase("visible");
+    setChurrascoBannerPhase("entering");
+    let showFrame: number | undefined;
+    const enterFrame = requestAnimationFrame(() => {
+      showFrame = requestAnimationFrame(() => setChurrascoBannerPhase("visible"));
+    });
     const leaveTimer = setTimeout(() => setChurrascoBannerPhase("leaving"), CHURRASCO_BANNER_MS);
     const hideTimer = setTimeout(() => setChurrascoBannerPhase("hidden"), CHURRASCO_BANNER_MS + CHURRASCO_BANNER_EXIT_MS);
     return () => {
+      cancelAnimationFrame(enterFrame);
+      if (showFrame !== undefined) cancelAnimationFrame(showFrame);
       clearTimeout(leaveTimer);
       clearTimeout(hideTimer);
     };
@@ -519,7 +502,7 @@ export function TvView({
                   </div>
                 )}
               </div>
-              <div className="min-w-0 max-w-[240px] text-left">
+              <div className="min-w-0 max-w-[var(--tv-truncate-lg)] text-left">
                 <div className="flex items-center gap-1.5">
                   <Cake
                     className="shrink-0"
@@ -574,7 +557,7 @@ export function TvView({
             card, o que é o que deixa o par avatar+texto centralizar como uma
             unidade só via justify-center acima, em vez de ficar "grudado" à
             esquerda com um vão vazio sobrando à direita. */}
-        <div className="min-w-0 max-w-[240px] text-left">
+        <div className="min-w-0 max-w-[var(--tv-truncate-lg)] text-left">
           <div className="flex items-center gap-1.5">
             <Sparkles
               className="shrink-0"
@@ -696,7 +679,7 @@ export function TvView({
                   )}
                 </div>
                 <p
-                  className={`mt-1.5 max-w-[130px] truncate text-[length:var(--tv-text-body)] ${b.isToday ? "font-bold text-white" : "font-medium"}`}
+                  className={`mt-1.5 max-w-[var(--tv-truncate-md)] truncate text-[length:var(--tv-text-body)] ${b.isToday ? "font-bold text-white" : "font-medium"}`}
                   style={b.isToday ? undefined : { color: BIRTHDAY_COLOR_MUTED }}
                   title={b.name}
                 >
@@ -742,15 +725,21 @@ export function TvView({
   };
 
   return (
-    // Tamanho/espaçamento AQUI FORA do bloco de cards (padding da página,
-    // vão entre painel de propaganda e de métricas, barra do
-    // Churrascômetro) usa os tokens fluidos --tv-* de app/globals.css
-    // (clamp() baseado na largura real da tela) — uma TV de 32" 720p e uma
-    // de 85" 4K rodam o MESMO layout, só em escala física diferente. O
-    // bloco de logo+cards (onde corte/aperto sempre acontecia, não importa
-    // quanto se ajustasse esse clamp()) NÃO segue mais essa regra — ver
-    // TvAutoFit (app/tv/tv-auto-fit.tsx) mais abaixo, que mede o espaço de
-    // verdade em vez de estimar por vmin/vw.
+    // Todo o tamanho/espaçamento daqui pra baixo (padding da página, vão
+    // entre painel de propaganda e de métricas, cards, barra do
+    // Churrascômetro) usa os tokens fluidos --tv-* de app/globals.css, em
+    // unidade `cq*` (CSS Container Query) — resolvida contra o ÚNICO
+    // contêiner de medida que envolve esta página inteira, de ponta a
+    // ponta nos dois eixos, sem sobra nenhuma nas laterais (ver
+    // components/tv-shell.tsx). É por isso que não existe mais nenhum
+    // `container-type`/tokens escopados aqui dentro de tv-view.tsx: um
+    // único contêiner pra composição inteira já garante que TUDO —
+    // banner, painel, cards, Churrascômetro — lê a MESMA largura/altura
+    // real ao mesmo tempo, sem nenhum bloco medindo contra uma referência
+    // diferente do resto (era exatamente esse descompasso entre
+    // referências, não a ausência de uma moldura de proporção fixa, que
+    // fazia o painel parecer "gordo" demais/o banner "fino" demais numa
+    // janela fora de 16:9).
     <div className="flex h-full w-full flex-col" style={{ gap: "var(--tv-gap)", padding: "var(--tv-gap)" }}>
       {/* flex-col abaixo de 900px / flex-row a partir daí: o painel de
           métricas tem uma largura mínima (--tv-panel-w, piso de 320px) —
@@ -776,8 +765,8 @@ export function TvView({
             style={{
               top: "calc(var(--tv-gap) * -2)",
               left: "calc(var(--tv-gap) * -2)",
-              width: "clamp(180px, 18vw, 320px)",
-              height: "clamp(180px, 18vw, 320px)",
+              width: "clamp(180px, 18cqw, 320px)",
+              height: "clamp(180px, 18cqw, 320px)",
               backgroundColor: "var(--brand)",
             }}
           />
@@ -786,8 +775,8 @@ export function TvView({
             style={{
               bottom: "calc(var(--tv-gap) * -2)",
               right: "calc(var(--tv-gap) * -2)",
-              width: "clamp(180px, 18vw, 320px)",
-              height: "clamp(180px, 18vw, 320px)",
+              width: "clamp(180px, 18cqw, 320px)",
+              height: "clamp(180px, 18cqw, 320px)",
               backgroundColor: "var(--brand)",
               animationDelay: "1.2s",
             }}
@@ -875,34 +864,41 @@ export function TvView({
             faltava algo, sem overflow-hidden aparente em lugar nenhum (era o
             da raiz, três níveis acima, comendo o excesso em silêncio). Com
             isso, se o conteúdo empilhado (logo + até 4 cards) precisar de
-            mais espaço vertical do que sobrou — o que não deveria acontecer
-            numa TV de verdade, já que os tokens --tv-* são calibrados pra
-            caber com folga — ele rola dentro do próprio painel em vez de
-            desaparecer sem deixar rastro. `shrink-0` virou responsivo (só a
-            partir de 900px, onde a largura fixa do painel já garante espaço
-            de sobra) — abaixo disso ele pode encolher de verdade pra dividir
-            a altura com o painel de propaganda. */}
-        <div className="scrollbar-thin flex min-h-0 w-full flex-col overflow-y-auto min-[900px]:w-[var(--tv-panel-w)] min-[900px]:shrink-0">
-          {/* TvAutoFit (ver app/tv/tv-auto-fit.tsx) substitui a tentativa
-              anterior de adivinhar o tamanho da TV em vmin — logo + cards
-              abaixo são desenhados JUNTOS numa largura fixa "de design"
-              (CARDS_DESIGN_WIDTH, valores --tv-* já testados/aprovados
-              antes de qualquer calibração por resolução) e são ESCALADOS
-              de verdade, como uma composição só (ResizeObserver medindo o
-              espaço real disponível, não estimativa), pra caber
-              exatamente no espaço do painel — em qualquer TV, tablet ou
-              celular, sem cortar nada e sem sobrar vão morto. A logo entra
-              no MESMO bloco (não fica de fora escalando por conta própria
-              em vmin) de propósito: ela e os cards precisam manter a MESMA
-              relação de tamanho entre si sempre, não duas escalas
-              independentes que podem desalinhar dependendo da tela.
-              `justify-evenly` de antes não existe mais: como o conteúdo
-              passou a ser medido e escalado como uma unidade só, a própria
-              centralização de TvAutoFit (quando sobra espaço numa direção)
-              já resolve isso. */}
-          <TvAutoFit designWidth={CARDS_DESIGN_WIDTH} className="min-h-0 flex-1" style={CARDS_DESIGN_TOKENS}>
-            <div className="flex flex-col" style={{ gap: "var(--tv-gap)" }}>
-            <div className="flex justify-center">
+            mais espaço vertical do que sobrou, ele rola dentro do próprio
+            painel em vez de desaparecer sem deixar rastro — mas SÓ abaixo
+            de 900px (celular/tela pequena de verdade, onde o piso dos
+            tokens --tv-* pode legitimamente não caber). A partir de 900px
+            (tablet, monitor, TV) o rolamento é DESLIGADO de propósito
+            (`min-[900px]:overflow-hidden`) — pedido explícito: numa tela
+            grande não pode existir a opção de "mexer"/arrastar o painel,
+            nem que aparecesse sobrando por um instante; se algum dia não
+            coubesse aí, o certo é ajustar os tokens, não deixar a rolagem
+            mascarar o problema numa tela que deveria ter espaço de sobra.
+            `shrink-0` virou responsivo pela mesma régua de 900px, onde a
+            largura fixa do painel já garante espaço de sobra — abaixo
+            disso ele pode encolher de verdade pra dividir a altura com o
+            painel de propaganda. */}
+        <div className="scrollbar-thin flex min-h-0 w-full flex-col overflow-y-auto min-[900px]:w-[var(--tv-panel-w)] min-[900px]:shrink-0 min-[900px]:overflow-hidden">
+          {/* Sem container-type próprio aqui — desde a migração pro
+              contêiner único (ver components/tv-shell.tsx e o comentário
+              logo acima do `return`), logo+cards leem os MESMOS tokens
+              `--tv-*` cq* de app/globals.css que o resto da página inteira
+              usa, um único contêiner de referência pra tudo. A logo
+              continua no MESMO wrapper que os cards de propósito: ela e os
+              cards precisam manter a MESMA relação de tamanho entre si
+              sempre. */}
+          {/* justify-center (não justify-evenly, testado e revertido — pedido
+              explícito: logo+cards não podem se separar verticalmente uns
+              dos outros) — se o conteúdo natural (logo + cards, já no
+              tamanho cqh que a altura real disponível define) couber com
+              sobra na altura disponível, essa sobra vira uma margem ÚNICA
+              acima e abaixo do grupo inteiro, que continua compacto (mesmo
+              `--tv-gap` fixo entre cada card, nunca um vão crescendo entre
+              eles) — nunca um vão único acumulado só embaixo (era
+              `justify-start`, o padrão do flex, que empurra tudo pro topo e
+              deixa o resto do espaço "morto" no final). */}
+          <div className="flex min-h-0 flex-1 flex-col justify-center" style={{ gap: "var(--tv-gap)" }}>
+            <div className="flex shrink-0 justify-center">
               {/* A logo NUNCA participa do carrossel abaixo (ver
                   rankingSlide) — fica fora do bloco que troca de
                   conteúdo, sempre no mesmo lugar. */}
@@ -914,7 +910,7 @@ export function TvView({
               />
             </div>
             {showHero && (
-              <GlassCard delay={90} className="text-center">
+              <GlassCard delay={90} className="shrink-0 text-center">
                 <Glow color="var(--brand)" />
                 <div className="relative flex items-center justify-center gap-2">
                   <TrendingUp
@@ -979,13 +975,25 @@ export function TvView({
                 inteiro) é necessário pro carrossel de aniversário
                 (outgoingSlide, `absolute inset-0`) ficar restrito a ESSA
                 seção — sem isso, o slide saindo cobriria o card inteiro,
-                inclusive a parte de Leads no funil por baixo. */}
+                inclusive a parte de Leads no funil por baixo.
+                minHeight (mesmo valor de --tv-avatar-md, que é sempre o
+                elemento mais alto de qualquer um dos 3 estados possíveis
+                aqui: venda normal, aniversário, ou "nenhuma venda
+                registrada") evita que ESTE card mude de altura sozinho —
+                sem isso, quando `metrics.lastSale` fica null (nenhuma
+                venda no mês, ou uma venda desfeita — ver
+                lastSeenClosedAtMs) o card encolhe bastante (o fallback não
+                tem avatar), empurrando/puxando o Ranking logo abaixo pra
+                cima e pra baixo cada vez que isso muda — era exatamente
+                esse pulo que o usuário reportou ("Ranking não pode mexer
+                pra cima e pra baixo"). Mesmo raciocínio do minHeight do
+                Ranking, aplicado aqui pelo mesmo motivo. */}
             {(showLastSale || showFunnels) && (
-              <GlassCard delay={180} className="text-center">
+              <GlassCard delay={180} className="shrink-0 text-center">
                 <Glow color="var(--brand)" />
 
                 {showLastSale && (
-                  <div className="relative">
+                  <div className="relative" style={{ minHeight: "var(--tv-avatar-md)" }}>
                     {hasBirthdayToday && outgoingSlide !== null && (
                       <div
                         className={`absolute inset-0 flex items-center justify-center ${
@@ -1059,13 +1067,15 @@ export function TvView({
             {/* Carrossel PRÓPRIO deste card — mesmo mecanismo do card Última
                 venda acima, ver comentário lá. minHeight evita o card
                 encolher/crescer demais entre o pódio (mais alto) e a lista
-                de aniversariantes (mais baixa) — fixo (não mais vh, que não
-                faz sentido dentro do TvAutoFit: o bloco inteiro é desenhado
-                numa largura/altura FIXA e só depois escalado como um todo,
-                então cada elemento interno usa medida fixa também, nunca
-                unidade de viewport). */}
+                de aniversariantes (mais baixa) — clamp() em cqh contra o
+                canvas 16:9 (ver comentário no topo de app/globals.css),
+                mesmo piso/teto de sempre. */}
             {showRanking && (
-              <GlassCard delay={360} className="text-center" style={{ minHeight: "19rem" }}>
+              <GlassCard
+                delay={360}
+                className="shrink-0 text-center"
+                style={{ minHeight: "clamp(13rem, 28.17cqh, 19rem)" }}
+              >
                 <Glow color="#eab308" />
                 {outgoingSlide !== null && (
                   <div
@@ -1088,8 +1098,7 @@ export function TvView({
             {nothingEnabled && (
               <p className="text-center text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum widget habilitado.</p>
             )}
-            </div>
-          </TvAutoFit>
+          </div>
         </div>
       </div>
 
@@ -1115,7 +1124,7 @@ export function TvView({
 
           <div
             className="relative flex flex-1 items-center overflow-hidden rounded-full bg-white/10"
-            style={{ height: "clamp(0.75rem, 1.1vw, 1.25rem)" }}
+            style={{ height: "clamp(0.75rem, 1.1cqw, 1.25rem)" }}
           >
             <div
               className="h-full rounded-full transition-all duration-1000"
@@ -1126,7 +1135,7 @@ export function TvView({
             />
           </div>
 
-          <div className="relative flex shrink-0 items-center justify-end" style={{ minWidth: "clamp(8rem, 12vw, 14rem)" }}>
+          <div className="relative flex shrink-0 items-center justify-end" style={{ minWidth: "clamp(8rem, 12cqw, 14rem)" }}>
             {churrascoGoalHit ? (
               <div className="flex items-center gap-2">
                 <PartyPopper
@@ -1161,19 +1170,91 @@ export function TvView({
           propósito — mesmo que as janelas de tempo dos dois cheguem a se
           encostar, o confete nunca fica escondido atrás do escurecido.
           pointer-events-none: é uma TV, ninguém interage com a tela, então
-          o overlay nunca pode bloquear nada. */}
+          o overlay nunca pode bloquear nada.
+
+          Escurecimento em fade, não corte seco: o wrapper vai de
+          `opacity-0` (fases "entering" e "leaving") pra `opacity-100`
+          (fase "visible") via `transition-opacity` — a fase "entering" (só
+          2 frames, ver churrascoBannerPhase) existe pra garantir que o
+          navegador PINTA o quadro zerado antes de pedir a transição, senão
+          não tem o que animar (ver comentário lá em cima do state). Tela
+          quase preta (`bg-black/90`, antes era /70) enquanto isso.
+
+          Texto/glow entram DEPOIS, com seu próprio atraso: ficam
+          invisíveis (`opacity: 0` estático, fora da animação) até
+          CHURRASCO_BANNER_TEXT_DELAY_MS depois do mount — só aí o
+          `animationDelay` deixa a animação ligar de verdade e eles aparecem
+          (glow com um fade suave até opacity: 0.7, texto com o mesmo "pop"
+          que a comemoração de venda usa). `forwards` no shorthand (em vez
+          da classe `.animate-tv-win-in` compartilhada, que não tem
+          `forwards`) é o que faz o estado final da animação GRUDAR depois
+          dela terminar — sem isso, o elemento voltaria pro `opacity: 0`
+          estático assim que a animação acabasse, e o texto sumiria de novo
+          logo depois de aparecer (mesma armadilha corrigida no confete de
+          tv-win-celebration.tsx, ver comentário lá). Quando a fase vira
+          "leaving", a MESMA transição de opacidade do wrapper (600ms)
+          desvanece TUDO junto — fundo escuro, glow e texto já
+          "assentados" — de volta pra transparente, o texto some com o
+          resto. */}
       {churrascoBannerPhase !== "hidden" && (
         <div
-          className={`pointer-events-none fixed inset-0 z-[150] flex items-center justify-center overflow-hidden bg-black/70 transition-opacity duration-[600ms] ${
-            churrascoBannerPhase === "leaving" ? "opacity-0" : "opacity-100"
+          className={`pointer-events-none fixed inset-0 z-[150] flex items-center justify-center overflow-hidden bg-black/90 transition-opacity duration-[600ms] ${
+            churrascoBannerPhase === "visible" ? "opacity-100" : "opacity-0"
           }`}
         >
-          <div className="absolute h-[42vw] w-[42vw] rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.35),transparent_70%)] opacity-70 blur-3xl" />
-          <h1
-            className="animate-tv-win-in relative bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 bg-clip-text px-8 text-center font-extrabold tracking-wide text-transparent drop-shadow-[0_0_50px_rgba(251,191,36,0.55)] text-[length:var(--tv-text-hero)]"
+          <div
+            className="absolute h-[42cqw] w-[42cqw] rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.35),transparent_70%)] blur-3xl"
+            style={{
+              opacity: 0,
+              animation: `tv-churrasco-glow-in 900ms var(--ease-smooth) ${CHURRASCO_BANNER_TEXT_DELAY_MS}ms forwards`,
+            }}
+          />
+          {/* Mesma chama animada do Churrascômetro (AnimatedFire), não mais
+              o emoji 🔥 estático — pedido explícito, "replica aquele mesmo
+              fogo... dois animados 100%". progress={100} fixo (não
+              metrics.churrascometroProgress): esse banner só aparece com a
+              meta batida, e 100 é exatamente o estado "aceso ao máximo" que
+              o componente já sabe desenhar (contorno brilhante, faíscas,
+              balanço mais rápido) — não precisa ler a métrica de novo pra
+              chegar no mesmo resultado visual. Tamanho relativo ao próprio
+              --tv-text-hero (não --tv-icon-lg, pequeno demais perto de um
+              texto desse tamanho) — 0.6× a fonte, porque o componente ainda
+              cresce sozinho até 1.8× disso a 100% (ver `fireScale` em
+              animated-fire.tsx), senão a chama ficava maior que o próprio
+              texto.
+
+              A chama da DIREITA vem dentro de um wrapper com
+              `scaleX(-1)` — AnimatedFire sempre ancora o crescimento no
+              próprio lado DIREITO (pensado originalmente só pro
+              Churrascômetro, onde a chama fica à ESQUERDA do texto e cresce
+              pra fora/esquerda) — sem espelhar, a chama da direita cresceria
+              pra ESQUERDA também, ou seja, por CIMA do texto em vez de pra
+              fora dele. Espelhar a silhueta da chama não faz diferença
+              nenhuma (ela não tem "lado" que precise ficar certo). */}
+          <div
+            className="relative flex items-center px-8"
+            style={{
+              gap: "calc(var(--tv-gap) * 1.5)",
+              opacity: 0,
+              animation: `tv-win-in 650ms var(--ease-spring) ${CHURRASCO_BANNER_TEXT_DELAY_MS}ms forwards`,
+            }}
           >
-            🔥 TÁ NA HORA DO CHURRASCO 🔥
-          </h1>
+            <AnimatedFire
+              progress={100}
+              className="shrink-0 text-orange-400"
+              style={{ width: "calc(var(--tv-text-hero) * 0.6)", height: "calc(var(--tv-text-hero) * 0.6)" }}
+            />
+            <h1 className="bg-gradient-to-r from-amber-300 via-yellow-400 to-orange-400 bg-clip-text text-center font-extrabold tracking-wide text-transparent drop-shadow-[0_0_50px_rgba(251,191,36,0.55)] text-[length:var(--tv-text-hero)]">
+              TÁ NA HORA DO CHURRASCO
+            </h1>
+            <div className="shrink-0" style={{ transform: "scaleX(-1)" }}>
+              <AnimatedFire
+                progress={100}
+                className="text-orange-400"
+                style={{ width: "calc(var(--tv-text-hero) * 0.6)", height: "calc(var(--tv-text-hero) * 0.6)" }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -1188,7 +1269,23 @@ export function TvView({
  * --tv-radius) — `style` do chamador (ver churrascômetro) mescla por cima,
  * e uma classe Tailwind com `!important` (ver `!py-4` de antes) continua
  * conseguindo sobrescrever, já que inline style comum não tem prioridade
- * sobre `!important` de uma classe. */
+ * sobre `!important` de uma classe.
+ *
+ * `shrink-0` no className de CADA chamada empilhada dentro do bloco de
+ * cards (não aqui dentro, cada chamador decide) é obrigatório, não estético:
+ * sem ele, se o conteúdo natural de logo+cards (já no tamanho que os
+ * tokens cqh mandam) ultrapassar por pouco a altura disponível, o flexbox
+ * espreme os cards (flex-shrink:1 é o padrão) ATÉ que caibam — e como este
+ * componente tem `overflow-hidden` (necessário pro <Glow> respeitar o
+ * canto arredondado), o texto que não coube nesse espaço espremido some
+ * CORTADO, sem aviso nenhum (foi exatamente o bug relatado: "Leads no
+ * funil" cortado ao meio, base do pódio cortada). Com `shrink-0`, o card
+ * NUNCA fica menor que seu conteúdo natural — se ainda assim não couber,
+ * quem resolve é o `overflow-y-auto` do painel (ver comentário mais acima
+ * sobre a "rede de segurança"), que rola em vez de cortar — só abaixo de
+ * 900px, porém: a partir daí o rolamento é desligado de propósito
+ * (`min-[900px]:overflow-hidden`), não pode existir a opção de arrastar o
+ * painel numa tela grande. */
 function GlassCard({
   children,
   delay = 0,
@@ -1229,15 +1326,12 @@ function Glow({ color }: { color: string }) {
       style={{
         top: "calc(var(--tv-gap) * -0.9)",
         right: "calc(var(--tv-gap) * -0.9)",
-        // --tv-glow-size (não mais clamp() em vw direto aqui) — Glow é usado
-        // TANTO dentro do TvAutoFit (Hero/MergedCard/Ranking) QUANTO fora
-        // dele (Churrascômetro): um valor cru de vw não participa da
-        // cascata de CARDS_DESIGN_TOKENS (que só reescreve `var(--tv-*)`,
-        // não literais soltos no meio do style), então o brilho ficava
-        // desproporcional ao resto do card sempre que Glow rodava dentro
-        // do bloco escalado. Igual todo outro token daqui, resolve pro
-        // valor fixo (CARDS_DESIGN_TOKENS) dentro do TvAutoFit e pro fluido
-        // (:root, app/globals.css) fora dele.
+        // --tv-glow-size via var(--tv-glow-size), não um clamp() cru
+        // repetido aqui — Glow é usado tanto dentro dos cards (Hero/
+        // MergedCard/Ranking) quanto fora (Churrascômetro), e desde a
+        // migração pro canvas 16:9 único (ver app/globals.css) é o MESMO
+        // token, mesmo valor, nos dois lugares — sem precisar de um
+        // segundo contexto de escala pra sincronizar os dois.
         width: "var(--tv-glow-size)",
         height: "var(--tv-glow-size)",
         backgroundColor: color,
@@ -1259,16 +1353,12 @@ function podiumOrder(ranking: RankingUser[]): { user: RankingUser; place: number
 
 const PODIUM_RING = ["#eab308", "#cbd5e1", "#b45309"];
 // Alturas da base do pódio — 1º bem mais alta, 3º mais baixa, dá a forma de
-// pódio de verdade em vez de só variar o tamanho do avatar. Valores FIXOS
-// (não mais clamp() em vmin/vw) — RankingPodiumSlot só é renderizado
-// DENTRO do TvAutoFit (ver JSX mais abaixo), então precisa seguir a mesma
-// regra dos outros tokens ali: tamanho fixo "de design", quem escala pro
-// tamanho real da tela é o TvAutoFit inteiro, nunca um vmin/vw cru
-// calculado contra a tela de verdade por fora dessa escala (senão a base
-// do pódio fica desproporcional ao resto do card assim que o TvAutoFit
-// escalar — era exatamente esse o bug: um vmin cru "escapou" da
-// recalibração pra CARDS_DESIGN_TOKENS, ver comentário lá em cima).
-const PODIUM_BASE_HEIGHT = ["1.9rem", "1.35rem", "0.95rem"];
+// pódio de verdade em vez de só variar o tamanho do avatar. clamp() em cqh
+// contra o canvas 16:9 (ver comentário no topo de app/globals.css) — a base
+// precisa crescer/encolher junto com avatar/texto ao redor conforme o
+// canvas muda de tamanho, em vez de ficar num valor fixo que desentoaria
+// do resto.
+const PODIUM_BASE_HEIGHT = ["clamp(1.1rem, 2.82cqh, 3.5rem)", "clamp(0.8rem, 2cqh, 2.5rem)", "clamp(0.55rem, 1.41cqh, 1.75rem)"];
 const PODIUM_AVATAR_VAR = ["var(--tv-avatar-lg)", "var(--tv-avatar-md)", "var(--tv-avatar-md)"];
 const PODIUM_MEDAL = ["", "🥈", "🥉"];
 
@@ -1328,7 +1418,7 @@ function RankingPodiumSlot({
         )}
       </div>
       <div
-        className={`mt-2 max-w-[120px] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
+        className={`mt-2 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
         title={user.name}
       >
         {user.name.toLowerCase()}
@@ -1350,12 +1440,12 @@ function RankingPodiumSlot({
         </p>
       )}
       {/* Barra da base do pódio — 1º mais alta, 3º mais baixa, dá a forma de
-          pódio de verdade em vez de só variar o tamanho do avatar. Largura
-          fixa (não mais vw cru) — mesmo motivo de PODIUM_BASE_HEIGHT acima. */}
+          pódio de verdade em vez de só variar o tamanho do avatar. Largura em
+          clamp() cqh, mesmo motivo/proporção de PODIUM_BASE_HEIGHT acima. */}
       <div
         className="mt-2 rounded-t-md"
         style={{
-          width: "4rem",
+          width: "clamp(2.3rem, 5.93cqh, 7.4rem)",
           height: PODIUM_BASE_HEIGHT[place],
           background: `linear-gradient(180deg, ${ring}55, ${ring}15)`,
         }}

@@ -608,6 +608,23 @@ body {
   animation: tv-win-in 650ms var(--ease-spring);
 }
 
+/* Glow por trás do texto "TÁ NA HORA DO CHURRASCO" (ver tv-view.tsx) — fade
+   simples, sem o scale/translateY do tv-win-in (é um círculo borrado
+   parado, não faz sentido "saltar" como o texto). Termina em opacity: 0.7
+   (não 1) de propósito — é decorativo, cheio na tela toda ficaria forte
+   demais; usado inline via `animation` + `animationDelay` (não a classe
+   `.animate-*`, que não tem `forwards`) pra poder atrasar o início e
+   manter o estado final depois de terminar. */
+@keyframes tv-churrasco-glow-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 0.7;
+  }
+}
+
 /* Brilho pulsante atrás do avatar do consultor na comemoração — respiração
    lenta, não um piscar; contínuo enquanto a comemoração estiver na tela. */
 @keyframes tv-glow-pulse {
@@ -968,64 +985,69 @@ input[type="radio"] {
     linear-gradient(180deg, #101218 0%, #0b0c10 55%, #08090c 100%);
 }
 
-/* TV — LEIA ISTO PRIMEIRO: os tokens --tv-* aqui embaixo (em :root) só
-   valem hoje pro que fica FORA do bloco de cards do painel de métricas —
-   margem de segurança contra overscan, padding geral da página, vão entre
-   o painel de propaganda e o de métricas, largura do próprio painel
-   (--tv-panel-w) e a barra do Churrascômetro. O bloco de logo+cards (onde
-   SEMPRE acontecia corte/aperto, não importa quanto se ajustasse o
-   clamp()) foi pra um sistema diferente e mais robusto: TvAutoFit (ver
-   app/tv/tv-auto-fit.tsx) — desenha o bloco inteiro numa largura FIXA de
-   design (CARDS_DESIGN_WIDTH/CARDS_DESIGN_TOKENS em tv-view.tsx,
-   reescrevendo --tv-text-*, --tv-icon-*, --tv-avatar-*, --tv-gap,
-   --tv-card-*, --tv-radius* e --tv-logo-h com valores fixos só DENTRO
-   daquele escopo) e
-   MEDE de verdade (ResizeObserver) o espaço disponível pra escalar o bloco
-   inteiro (transform: scale, um fator só, preservando toda a relação de
-   tamanho entre os elementos) até caber exatamente — em qualquer TV,
-   tablet ou celular, sem adivinhar resolução nenhuma. O resto deste
-   comentário (histórico de por que vmin, por que os tetos foram
-   recalibrados pra 3840×2160) continua válido pro que ainda usa este
-   sistema, só não é mais a história completa do painel inteiro.
+/* TV — LEIA ISTO PRIMEIRO: o dashboard da TV (ver components/tv-shell.tsx +
+   app/tv/tv-view.tsx) é uma COMPOSIÇÃO VISUAL FIXA — propaganda + painel de
+   métricas + Churrascômetro têm uma proporção entre si já aprovada, e a
+   "responsividade" aqui significa ESCALAR essa composição inteira pra
+   caber em qualquer tela, nunca reorganizá-la ou recalcular cada pedaço
+   de forma independente. Três versões já foram tentadas e abandonadas:
+     1) `vmin`/`vw` cru contra a tela inteira — dois eixos (vmin pra
+        texto/ícone/gap, vw só pra --tv-panel-w) que se descolavam um do
+        outro sempre que a proporção da tela real não era EXATAMENTE
+        16:9 — painel "gordo demais", banner "fino demais", texto cortado.
+     2) `TvAutoFit` (removido) — só o bloco de logo+cards escalava via
+        `transform: scale()` medido em JS. Resolvia corte só naquele
+        bloco; o resto da página continuava nos dois eixos soltos do
+        problema (1), e dependia de JavaScript medindo layout.
+     3) Canvas de proporção 16:9 travada com letterbox (removido) — um
+        único `container-type: size` já resolvia o descolamento de eixos
+        (ver adiante), mas o letterbox forçava sobra de espaço nas
+        LATERAIS sempre que a janela de teste não era 16:9 — inaceitável
+        pra uma composição que precisa ocupar a tela de ponta a ponta
+        (esquerda-direita) sempre, sem exceção.
+   A solução atual: UM ÚNICO contêiner de medida (`container-type: size`
+   na div que já ocupa a área segura inteira — h-full w-full, de ponta a
+   ponta nos dois eixos, SEM travar proporção nenhuma) em
+   `components/tv-shell.tsx`. TODOS os tokens `--tv-*` abaixo usam unidade
+   `cq*` (`cqh`/`cqw`) relativa a ESSE contêiner — nunca à tela crua, nunca
+   a um sub-contêiner aninhado só de uma parte da página. O ponto central,
+   que faltou nas versões (1) e (3): o problema NUNCA foi "escalar sem
+   travar a proporção da moldura" — foi ter DOIS relógios de medida
+   diferentes ao mesmo tempo (tokens fora do bloco de cards contra a tela
+   crua, tokens de dentro contra um sub-contêiner que encolhia sozinho, ou
+   — na versão do letterbox — contra um canvas artificialmente menor que
+   a tela real). Com um único contêiner pra TUDO, `cqw` sempre mede a
+   LARGURA REAL da área disponível (edge-to-edge, sem sobra lateral nunca)
+   e `cqh` sempre mede a ALTURA REAL dela — cada eixo correto e consistente
+   por conta própria, sem precisar forçar as duas dimensões numa razão
+   fixa pra evitar distorção. Não existe mais um segundo conjunto de
+   tokens escopado só pro bloco de cards (era `CARDS_DESIGN_TOKENS` em
+   tv-view.tsx, removido) — um único conjunto aqui em :root já serve TODA
+   a composição.
 
-   TV — escala fluida com clamp(), calibrada em VMIN (o menor entre largura e
-   altura da tela), não vw puro. Breakpoint fixo (sm/md/lg) é pra conteúdo
-   que precisa "empilhar" pra caber (menu vira gaveta, coluna vira lista) — a
-   TV nunca empilha nada NESSE sentido, ela só é fisicamente menor ou maior.
-   Mas o painel de métricas (ver tv-view.tsx) EMPILHA vários cards numa
-   COLUNA — e quem decide se esse empilhamento cabe é a ALTURA disponível
-   (vh), não a largura (vw). A 1ª versão disso usava só vw: numa tela mais
-   larga-e-baixa que a referência 16:9 assumida (ex.: uma janela de
-   navegador mais "achatada", ou uma TV/monitor com proporção diferente),
-   vw ficava "gordo" (a largura mandava um valor grande) enquanto a altura
-   de verdade disponível era menor — e como cada card tem overflow-hidden
-   (necessário pros cantos arredondados), o que não coube mais dentro do
-   card sumia CORTADO, sem erro nenhum aparecer (foi o bug real que apareceu
-   na tela: "há 22 min" cortado, nome/valor do Ranking sumidos inteiros).
-   vmin = min(1vw, 1vh) — numa TV, que é sempre paisagem (largura > altura),
-   isso na prática já É a altura, então cada elemento agora respeita a
-   dimensão que realmente limita o empilhamento vertical, em vez de só a
-   largura. A largura do painel (--tv-panel-w) é a única exceção de
-   propósito — ela é uma alocação HORIZONTAL pura (não empilha nada em cima
-   dela), então continua em vw sem risco de causar esse mesmo bug.
-   Valores recalibrados pra reproduzir os tamanhos fixos que existiam antes
-   (já testados/aprovados) numa referência de 1080px de ALTURA (TV Full HD);
-   o mínimo do clamp segura a mão numa tela bem mais baixa, o máximo não
-   deixa esticar sem limite numa tela bem mais alta que o normal.
+   Por que `cqh` pro que empilha verticalmente (texto/ícone/avatar/gap/
+   card) e `cqw` pro que é uma alocação horizontal pura (--tv-panel-w,
+   --tv-glow-size e afins): o painel de métricas EMPILHA vários cards numa
+   COLUNA, então quem decide se esse empilhamento cabe é a altura
+   disponível, não a largura — cada token usa o eixo que corresponde ao
+   que ele realmente mede (uma largura de painel é horizontal por
+   natureza, um empilhamento vertical depende de altura), sem misturar os
+   dois pro MESMO token, que era a real fonte da distorção antiga.
 
-   TETOS RECALIBRADOS pra TV real de produção (ver lib/tv-display-profile.ts
-   pra especificação completa) — 85", 3840×2160px de verdade, não uma
-   suposição genérica. Isso é o DOBRO de 1920×1080 em cada eixo, então
-   vmin nessa TV vale 21.6px (o dobro dos 10.8px que os tetos antigos
-   assumiam) — cada token fluido batia no teto ANTES de alcançar o tamanho
-   que essa tela grande de verdade pedia, então o layout inteiro
-   renderizava do jeito que ficaria numa TV Full HD comum, só que
-   fisicamente esticado numa tela de 85": texto/ícone/avatar
-   proporcionalmente minúsculos, lendo como "layout de celular" mesmo a TV
-   sendo enorme. Os tetos abaixo agora resolvem pro tamanho NATURAL (sem
-   cortar) em 3840×2160 — coeficiente vmin/vw × TV_REFERENCE_VMIN_PX/
-   TV_REFERENCE_VW_PX, com uma folga pequena. Pisos e coeficientes do meio
-   continuam os mesmos de antes (não mudam pra telas menores). */
+   Valores (piso/coeficiente do meio) preservados EXATAMENTE dos tokens
+   antigos — só a unidade mudou (vmin→cqh, vw→cqw). Numa TV real (sempre
+   16:9, ver lib/tv-display-profile.ts) a altura do contêiner de medida É
+   a menor dimensão da tela, exatamente como vmin também seria — por isso
+   o valor renderizado não muda na TV de produção, só a fonte de verdade
+   por trás do cálculo. Tetos recalibrados pra TV real de produção (85",
+   3840×2160px — ver lib/tv-display-profile.ts pra especificação completa
+   e a conta): nessa TV 1cqh vale 21.6px — o dobro dos 10.8px da
+   referência 1920×1080 em que os tetos foram originalmente pensados —,
+   então os tetos abaixo resolvem pro tamanho NATURAL (sem bater no teto
+   cedo demais) nessa tela específica. Se a organização trocar de TV algum
+   dia (resolução diferente), atualize TV_PRODUCTION_PROFILE em
+   lib/tv-display-profile.ts e refaça essa conta — nada aqui recalcula
+   sozinho. */
 :root {
   /* Margem de segurança contra OVERSCAN — TV (confirmado: navegador
      embutido de Smart TV) frequentemente não mostra 100% do que a página
@@ -1043,16 +1065,17 @@ input[type="radio"] {
      direto no menu de imagem da própria TV — as duas coisas se complementam,
      uma não substitui a outra. */
   --tv-safe-margin: clamp(0.75rem, 3vmin, 4.25rem);
-  /* Painel de métricas mais largo (era 320-600px/27vw) — pedido de
-     "esticar" os dados: numa TV grande de verdade (referência 1920×1080),
-     27vw dava só ~518px pro painel inteiro (logo + 4 cards + pódio de 3
-     pessoas + linha de 3 etapas do funil), meio apertado pro tanto de
-     número que precisa caber lado a lado. Teto recalibrado pra 3840×2160
-     de verdade (ver lib/tv-display-profile.ts) — 30vw nessa TV vale
-     ~1152px; 680px cortava isso quase pela metade. Só a LARGURA subiu — só
-     mexe no espaço HORIZONTAL disponível, não tira nada da conta vertical
-     (ver baixo), então é seguro por conta própria. */
-  --tv-panel-w: clamp(360px, 30vw, 1180px);
+  /* Painel de métricas mais largo (era 320-600px/27vw, depois 360-1180px/
+     30vw, depois 400-1380px/35vw) — pedido explícito: mais espaço pro
+     Ranking (o card mais importante do painel, maior elemento visual da
+     tela), menos pro painel de propaganda ao lado. Subiu o COEFICIENTE em
+     si (35cqw → 40cqw), não só o teto — é a fatia da LARGURA disponível
+     que o painel reivindica, então só recalibrar o teto não resolvia;
+     piso/teto reajustados na mesma proporção (fator ~1.14×, igual às
+     rodadas anteriores). Mexer aqui SEMPRE exige reconferir
+     TV_AD_ASPECT_RATIO (tv-ad-aspect.ts) — o painel de propaganda ao lado
+     é o espaço que sobra, então a proporção dele muda junto. */
+  --tv-panel-w: clamp(450px, 40cqw, 1580px);
   /* Texto/ícone/avatar/gap: piso e coeficiente do meio voltaram pro valor
      original (a 1ª tentativa de "esticar" só subindo o coeficiente
      ESTOUROU a altura disponível — texto maior que o card conseguia
@@ -1060,7 +1083,7 @@ input[type="radio"] {
      está recalibrado pra 3840×2160 de verdade (ver lib/tv-display-profile.ts)
      — o problema real nunca foi o coeficiente em si, foi o teto capando o
      cálculo antes dele alcançar o tamanho que essa TV específica pede
-     (vmin = 21.6px nela, o dobro dos 10.8px da referência 1920×1080 em
+     (1cqh = 21.6px nela, o dobro dos 10.8px da referência 1920×1080 em
      que os tetos antigos foram pensados). Com o teto corrigido, o mesmo
      coeficiente de sempre resolve pro tamanho NATURAL nessa TV.
      --tv-gap/--tv-card-py especificamente ficaram com teto mais CONSERVADOR
@@ -1074,31 +1097,29 @@ input[type="radio"] {
      A parte estrutural que resolve "esticar" o vazio entre cards continua
      por fora disto: --tv-panel-w mais largo (acima) + justify-evenly no
      lugar de justify-center (ver tv-view.tsx). */
-  --tv-gap: clamp(0.5rem, 1.4vmin, 1.5rem);
-  --tv-card-px: clamp(0.875rem, 2.3vmin, 3.25rem);
-  --tv-card-py: clamp(0.4rem, 1.5vmin, 1.625rem);
-  --tv-radius: clamp(0.75rem, 1.6vmin, 2.25rem);
-  --tv-radius-lg: clamp(1rem, 2vmin, 2.8125rem);
+  --tv-gap: clamp(0.5rem, 1.4cqh, 1.5rem);
+  --tv-card-px: clamp(0.875rem, 2.3cqh, 3.25rem);
+  --tv-card-py: clamp(0.4rem, 1.5cqh, 1.625rem);
+  --tv-radius: clamp(0.75rem, 1.6cqh, 2.25rem);
+  --tv-radius-lg: clamp(1rem, 2cqh, 2.8125rem);
 
-  --tv-text-label: clamp(0.6rem, 1.05vmin, 1.5rem);
-  --tv-text-body: clamp(0.75rem, 1.35vmin, 1.875rem);
-  --tv-text-name: clamp(0.85rem, 1.7vmin, 2.375rem);
-  --tv-text-value-sm: clamp(1rem, 2.1vmin, 2.9375rem);
-  --tv-text-value-md: clamp(1.2rem, 2.7vmin, 3.75rem);
-  --tv-text-value-lg: clamp(1.5rem, 3.4vmin, 4.75rem);
-  --tv-text-hero: clamp(1.75rem, 5.2vmin, 7.25rem);
+  --tv-text-label: clamp(0.6rem, 1.05cqh, 1.5rem);
+  --tv-text-body: clamp(0.75rem, 1.35cqh, 1.875rem);
+  --tv-text-name: clamp(0.85rem, 1.7cqh, 2.375rem);
+  --tv-text-value-sm: clamp(1rem, 2.1cqh, 2.9375rem);
+  --tv-text-value-md: clamp(1.2rem, 2.7cqh, 3.75rem);
+  --tv-text-value-lg: clamp(1.5rem, 3.4cqh, 4.75rem);
+  --tv-text-hero: clamp(1.75rem, 5.2cqh, 7.25rem);
 
-  --tv-icon-sm: clamp(0.75rem, 1.1vmin, 1.5625rem);
-  --tv-icon-md: clamp(0.95rem, 1.75vmin, 2.4375rem);
-  --tv-icon-lg: clamp(1.15rem, 2.4vmin, 3.375rem);
+  --tv-icon-sm: clamp(0.75rem, 1.1cqh, 1.5625rem);
+  --tv-icon-md: clamp(0.95rem, 1.75cqh, 2.4375rem);
+  --tv-icon-lg: clamp(1.15rem, 2.4cqh, 3.375rem);
 
-  /* Mancha decorativa (Glow, ver tv-view.tsx) no canto de cada card — era
-     um `clamp(6rem, 9vw, 9rem)` cru direto no componente, não uma variável
-     --tv-*, então não seguia a mesma regra de escala do resto (nem aqui
-     fora do TvAutoFit, nem dentro dele — CARDS_DESIGN_TOKENS só reescreve
-     var(--tv-*), não literais soltos no meio de um style). Vira token pra
-     Glow poder ler o valor certo nos dois contextos igual todo o resto. */
-  --tv-glow-size: clamp(6rem, 9vw, 9rem);
+  /* Mancha decorativa (Glow, ver tv-view.tsx) no canto de cada card —
+     unidade horizontal (cqw), igual --tv-panel-w acima: é um círculo, a
+     proporção do canvas já garante que cqw/cqh escalam junto, então tanto
+     faz qual eixo — ficou cqw por já existir esse precedente aqui perto. */
+  --tv-glow-size: clamp(6rem, 9cqw, 9rem);
 
   /* Avatares do pódio/última venda/aniversariantes (ver
      PODIUM_AVATAR_VAR/RankingPodiumSlot e renderLastSaleContent/
@@ -1112,11 +1133,11 @@ input[type="radio"] {
      card, era o que mais empurrava aquela seção pra fora do espaço
      disponível — relato do usuário: "última venda tirando o espaço do
      leads no funil"). */
-  --tv-avatar-md: clamp(2.25rem, 4.8vmin, 4.875rem);
-  --tv-avatar-lg: clamp(3.25rem, 8.2vmin, 8.4375rem);
+  --tv-avatar-md: clamp(2.25rem, 4.8cqh, 4.875rem);
+  --tv-avatar-lg: clamp(3.25rem, 8.2cqh, 8.4375rem);
 
-  --tv-clock-time: clamp(1rem, 2.3vmin, 3.25rem);
-  --tv-clock-date: clamp(0.55rem, 0.9vmin, 1.25rem);
+  --tv-clock-time: clamp(1rem, 2.3cqh, 3.25rem);
+  --tv-clock-date: clamp(0.55rem, 0.9cqh, 1.25rem);
   /* min/max estavam invertidos aqui (6rem, ..., 3.25rem) — como o piso já
      era maior que o teto, o clamp() sempre resolvia pro piso fixo (6rem =
      96px, CONSTANTE, nunca escalava de verdade com o vmin no meio, apesar
@@ -1124,7 +1145,19 @@ input[type="radio"] {
      grande, era um bug, não só uma preferência. Corrigido a ordem e reduzido
      um pouco o teto de propósito (6.5rem → 4.5rem) — pedido explícito de
      diminuir. */
-  --tv-logo-h: clamp(2.25rem, 6.2vmin, 4.5rem);
+  --tv-logo-h: clamp(2.25rem, 6.2cqh, 4.5rem);
+
+  /* Largura máxima antes de truncar nome (ver GlassCard/RankingPodiumSlot/
+     renderLastSaleContent/renderRankingContent em tv-view.tsx) — mesma
+     lógica cq*: se o texto ao lado cresce com o canvas, a caixa que ele
+     trunca dentro precisa crescer junto, senão nomes cortam mais cedo
+     numa tela grande do que numa pequena, ao contrário do esperado.
+     Coeficiente calculado pra bater com os antigos 240px/130px/120px
+     fixos (que existiam soltos no className) na referência 1920×1080
+     (1cqh = 10.8px nessa referência): 240/10.8, 130/10.8, 120/10.8. */
+  --tv-truncate-lg: clamp(12rem, 22.22cqh, 30rem);
+  --tv-truncate-md: clamp(6.5rem, 12.04cqh, 16.25rem);
+  --tv-truncate-sm: clamp(6rem, 11.11cqh, 15rem);
 }
 
 /* Linha de lista com "profundidade" — eleva e ganha sombra ao passar o

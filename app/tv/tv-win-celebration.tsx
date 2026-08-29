@@ -161,8 +161,8 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
       <div
         className="absolute rounded-full opacity-70 blur-3xl"
         style={{
-          width: "clamp(320px, 32vw, 640px)",
-          height: "clamp(320px, 32vw, 640px)",
+          width: "clamp(320px, 32cqw, 640px)",
+          height: "clamp(320px, 32cqw, 640px)",
           background: "radial-gradient(circle, rgba(251,191,36,0.35), transparent 70%)",
         }}
       />
@@ -170,7 +170,23 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
       {/* Confete — ver CONFETTI_* acima pra explicação da troca. Só
           `<span>` com transform/opacity animados via CSS (mesmo
           @keyframes confetti-fall de components/confetti-burst.tsx,
-          definido em globals.css), nada de canvas. */}
+          definido em globals.css), nada de canvas.
+
+          `opacity: 0` FORA da animação (propriedade estática no style, não
+          dentro do keyframe) é o que esconde cada partícula durante o
+          próprio `delay` — o keyframe `confetti-fall` começa em
+          `opacity: 1` (correto pro confete RÁPIDO de confetti-burst.tsx,
+          delay de ~0,15s, onde ficar visível "parado" um instante nem dá
+          tempo de notar), mas aqui o delay vai até 4,5s (CONFETTI_MAX_DELAY_S)
+          — sem isso, cada partícula ficava vários segundos plantada e
+          visível no topo da tela ANTES do delay acabar (só depois de
+          `delay`s a animação realmente começa a rodar; até lá, sem
+          `animation-fill-mode: backwards`, o elemento usa o CSS estático
+          normal, não o keyframe) — era exatamente o "confete grudado em
+          cima" relatado. Com `opacity: 0` estático, a partícula fica
+          invisível até o instante em que a animação liga de verdade (o
+          valor animado, opacity:1 do `from`, assume o lugar do estático
+          assim que a animação passa a rodar), aí sim aparece já caindo. */}
       <div className="absolute inset-0 overflow-hidden">
         {confetti.map((p) => (
           <span
@@ -183,6 +199,7 @@ export function TvWinCelebration({ sale, onDone }: { sale: WinSale; onDone: () =
                 height: p.shape === "rect" ? p.size * 2.2 : p.size,
                 backgroundColor: p.color,
                 borderRadius: p.shape === "circle" ? "9999px" : "1px",
+                opacity: 0,
                 animation: `confetti-fall ${p.duration}s cubic-bezier(0.25, 0.46, 0.45, 0.94) ${p.delay}s forwards`,
                 "--drift": `${p.drift}px`,
                 "--rotate": `${p.rotate}deg`,
