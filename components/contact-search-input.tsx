@@ -135,7 +135,19 @@ export function ContactSearchInput({
             // z-40 o dropdown (incluindo o botão "Adicionar") ficava coberto
             // pelo fundo do modal, e o clique caía no backdrop e fechava o
             // modal inteiro em vez de abrir a criação rápida de contato.
-            className="surface-glass animate-pop-in scrollbar-thin fixed z-[60] overflow-y-auto rounded-md pb-1 shadow-lg"
+            //
+            // surface-glass-dense (não surface-glass) — relato ao vivo: essa
+            // lista abre flutuando por cima dos próprios campos do modal
+            // "Novo negócio" atrás dela, e o .surface-glass comum (62% de
+            // tinta) deixava o texto desses campos ("Valor", "Tipo de
+            // crédito"...) vazando por trás dos nomes de contato, ilegível.
+            // O <Select> padrão do sistema já resolveu exatamente esse mesmo
+            // problema usando surface-glass-dense (90% de tinta) pra própria
+            // lista de opções — este componente só tinha ficado de fora
+            // quando aquele ajuste foi feito, por ser um dropdown escrito à
+            // mão (não usa <Select>), não por decisão consciente de manter
+            // mais transparente.
+            className="surface-glass-dense animate-pop-in scrollbar-thin fixed z-[60] overflow-y-auto rounded-md pb-1 shadow-lg"
             style={{
               top: coords.top,
               bottom: coords.bottom,

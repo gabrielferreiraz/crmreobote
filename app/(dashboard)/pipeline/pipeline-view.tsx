@@ -377,6 +377,7 @@ export function PipelineView({
         members={members}
         customFields={customFields}
         creditTypes={creditTypes}
+        currentUserId={currentUserId}
         onCreated={(deal) => {
           setNewDeal(deal);
           setListaReloadToken((t) => t + 1);

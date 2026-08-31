@@ -29,6 +29,7 @@ export function QuickRegisterDealForm({
   firstStageId,
   members,
   creditTypes,
+  currentUserId,
   onCreated,
   onCancel,
 }: {
@@ -36,6 +37,9 @@ export function QuickRegisterDealForm({
   firstStageId?: string;
   members: MemberOption[];
   creditTypes: CreditTypeOption[];
+  /** Mesmo motivo do NewDealDialog (ver comentário lá): pré-seleciona o
+   * próprio usuário logado como Responsável por padrão, continua trocável. */
+  currentUserId: string;
   onCreated: (deal: Deal) => void;
   onCancel: () => void;
 }) {
@@ -60,7 +64,7 @@ export function QuickRegisterDealForm({
   const [grossValue, setGrossValue] = useState("");
   const [creditType, setCreditType] = useState("");
   const [description, setDescription] = useState("");
-  const [ownerId, setOwnerId] = useState("");
+  const [ownerId, setOwnerId] = useState(currentUserId);
 
   const [jobTitles, setJobTitles] = useState<JobTitleOption[]>([]);
   const [loading, setLoading] = useState(false);

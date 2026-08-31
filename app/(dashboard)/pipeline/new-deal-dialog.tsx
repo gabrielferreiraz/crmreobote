@@ -20,6 +20,7 @@ export function NewDealDialog({
   members,
   customFields,
   creditTypes,
+  currentUserId,
   onCreated,
   open,
   onOpenChange,
@@ -30,6 +31,13 @@ export function NewDealDialog({
   members: MemberOption[];
   customFields: CustomFieldDefinitionInput[];
   creditTypes: CreditTypeOption[];
+  /** Pré-seleciona o próprio usuário logado como Responsável (pedido
+   * explícito: "vir pré-setado o responsável do login") — ainda dá pra
+   * trocar livremente, é só o valor inicial do campo. `members` sempre
+   * inclui o usuário logado (ver getDealScope em lib/team-scope.ts, todo
+   * papel adiciona o próprio userId ao escopo), então esse valor sempre
+   * corresponde a uma opção de verdade na lista. */
+  currentUserId: string;
   onCreated: (deal: Deal) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -43,7 +51,7 @@ export function NewDealDialog({
   const [value, setValue] = useState("");
   const [grossValue, setGrossValue] = useState("");
   const [creditType, setCreditType] = useState("");
-  const [ownerId, setOwnerId] = useState("");
+  const [ownerId, setOwnerId] = useState(currentUserId);
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +90,7 @@ export function NewDealDialog({
       setValue("");
       setGrossValue("");
       setCreditType("");
-      setOwnerId("");
+      setOwnerId(currentUserId);
       setCustomFieldValues({});
       onCreated({
         ...data,
@@ -147,6 +155,7 @@ export function NewDealDialog({
               firstStageId={firstStageId}
               members={members}
               creditTypes={creditTypes}
+              currentUserId={currentUserId}
               onCreated={(deal) => {
                 setOpen(false);
                 setTab("manual");
