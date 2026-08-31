@@ -123,7 +123,11 @@ export function TeamManager({
           <EmptyState icon={Users} title="Nenhuma equipe criada" description="Crie a primeira equipe abaixo." />
         </div>
       ) : (
-        <div className="space-y-3">
+        // Grade de 2 colunas a partir de sm: — pedido explícito, "colocar
+        // as equipes em grade, pelo menos 2 por linha" (era uma coluna só,
+        // `space-y-3`). Mesmo breakpoint que o sub-grid Líder/Gerente
+        // dentro de cada TeamCard já usa, consistente.
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {initialTeams.map((team) => (
             <TeamCard
               key={team.id}

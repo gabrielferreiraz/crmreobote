@@ -184,6 +184,25 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       include: { contact: true, owner: true, stage: true, lossReason: true },
     });
 
+    // Reatribuir o negócio também move o "responsável" do CONTATO junto —
+    // pedido explícito do usuário, depois de reportar a página do WhatsApp
+    // (que mostra `contact.responsavelId`) mostrando um nome diferente da
+    // página do negócio (`deal.ownerId`) pro mesmo cliente: o negócio tinha
+    // sido reatribuído, mas o contato nunca soube. Os dois campos são
+    // independentes no schema (um contato pode ter vários negócios com
+    // donos diferentes ao longo do tempo), então isso é uma decisão de
+    // produto, não uma correção "óbvia" — o usuário escolheu manter os
+    // dois sincronizados. Efeito colateral aceito: se este contato tiver
+    // outros negócios abertos com donos diferentes, reatribuir ESTE aqui
+    // ainda troca quem aparece como responsável do contato inteiro (não dá
+    // pra representar "vários donos" num campo só).
+    if (ownerId && ownerId !== existing.ownerId) {
+      await prisma.contact.update({
+        where: { id: deal.contactId },
+        data: { responsavelId: ownerId },
+      });
+    }
+
     // Marcos automáticos na timeline — ganho/perdido/reabertura e mudança de
     // valor, sempre que de fato mudaram (nunca em toda edição de campo).
     const systemBodies: string[] = [];

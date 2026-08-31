@@ -78,7 +78,13 @@ export default async function EquipesSettingsPage() {
         : members.filter((m) => scope.ownerIds.includes(m.userId)).map((m) => m.user);
 
     return (
-      <div className="mx-auto max-w-2xl space-y-8">
+      // max-w-4xl (não mais 2xl) — pedido explícito: os cards de equipe
+      // viram grade de 2 colunas (ver team-manager.tsx), e 2xl (672px) só
+      // dava ~330px por card, apertado demais pro conteúdo de cada um
+      // (Líder/Gerente já em sub-grade de 2 colunas, lista de membros,
+      // linha de adicionar). ShareGroupManager abaixo (continua 1 coluna)
+      // só ganha mais respiro lateral com isso, nada quebra.
+      <div className="mx-auto max-w-4xl space-y-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Equipes</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
