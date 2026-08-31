@@ -33,6 +33,8 @@ import { buildQuickRanges } from "@/lib/date-ranges";
 import { countActiveSellers, suggestedGoalValue } from "@/lib/goals/suggestion";
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { average, percentile } from "@/lib/reports/stats";
+import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
+import { computeSlaAggregate } from "@/lib/reports/sla-aggregate";
 import type { Session } from "next-auth";
 
 export async function getCommercialReportData(params: {
@@ -52,8 +54,28 @@ export async function getCommercialReportData(params: {
    */
   rangeParam?: string;
   whoParam?: string;
+  /** "mirror" | "month" | "last3" | "year" | "custom" — ver
+   * lib/reports/period-compare.ts pro significado EXATO de cada um.
+   * Ausente/valor desconhecido = comparação desligada (comportamento de
+   * sempre, sem nenhum delta na tela). */
+  compareParam?: string;
+  /** "YYYY-MM-DD" — só usado (e só precisa vir preenchido) quando compareParam === "custom". */
+  compareFromParam?: string;
+  compareToParam?: string;
 }) {
-  const { organizationId, userId, session, pipelineIdParam, fromParam, toParam, rangeParam, whoParam } = params;
+  const {
+    organizationId,
+    userId,
+    session,
+    pipelineIdParam,
+    fromParam,
+    toParam,
+    rangeParam,
+    whoParam,
+    compareParam,
+    compareFromParam,
+    compareToParam,
+  } = params;
 
   return runWithTenant(organizationId, async () => {
   // `pipelines` não depende de `scope`/`visibleMembers` (só de organizationId)
@@ -158,6 +180,24 @@ export async function getCommercialReportData(params: {
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
       : {};
 
+  // ─── Comparar período ("Comparar período" na UI, ver compare-period-filter.tsx)
+  // Só faz sentido com um período ATUAL de limites reais — "Tudo" (rangeFrom/
+  // rangeTo nulos) não tem "período anterior" nenhum pra nenhum dos 5 modos.
+  // Todo o cálculo de datas mora em lib/reports/period-compare.ts (verificado
+  // com bateria de testes antes de entrar aqui — ver histórico do PR) —
+  // aqui só decide SE compara e alimenta a query com o período já resolvido.
+  const compareMode = isCompareMode(compareParam) ? compareParam : null;
+  const comparePeriod =
+    compareMode && rangeFrom && rangeTo
+      ? resolveComparePeriod(compareMode, rangeFrom, rangeTo, { from: compareFromParam, to: compareToParam })
+      : null;
+
+  // Disparado AQUI (não só onde o resultado é usado, lá embaixo) pra rodar
+  // em paralelo com todo o resto da função — é uma consulta pesada por conta
+  // própria (ver lib/reports/sla-aggregate.ts), esperar ela só depois de
+  // todo o resto já ter rodado desperdiçaria esse paralelismo à toa.
+  const compareSlaPromise = comparePeriod ? computeSlaAggregate(organizationId, effectiveScope, comparePeriod) : Promise.resolve(null);
+
   const activePipeline =
     pipelines.find((p) => p.id === pipelineIdParam) ??
     pipelines.find((p) => p.isDefault) ??
@@ -199,7 +239,10 @@ export async function getCommercialReportData(params: {
     wonDealsForTrend,
     wonByCreditType,
     dailyActivityRaw,
-    prevPeriodWon,
+    compareWonAgg,
+    compareLostCount,
+    compareWonByCreditType,
+    compareLostByReason,
   ] = await Promise.all([
     prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter } }),
     activePipeline
@@ -269,32 +312,59 @@ export async function getCommercialReportData(params: {
           select: { userId: true, date: true, activeSeconds: true, changeCount: true },
         })
       : Promise.resolve([]),
-    // Período anterior espelhado — mesma duração do período atual deslocada pra
-    // trás, calculada APENAS quando há um intervalo de datas definido (se não
-    // há from/to, rangeFrom/rangeTo são null e não faz sentido calcular
-    // "mesmo período anterior" de "tudo"). O delta ↑/↓ % só aparece na UI
-    // quando prevPeriodWon tiver dados (não-null).
-    rangeFrom && rangeTo
-      ? (() => {
-          const spanMs = rangeTo.getTime() - rangeFrom.getTime();
-          const prevFrom = new Date(rangeFrom.getTime() - spanMs);
-          const prevTo = new Date(rangeTo.getTime() - spanMs);
-          return prisma.deal.aggregate({
-            where: { organizationId, status: "WON", closedAt: { gte: prevFrom, lte: prevTo }, ...scopeWhere(effectiveScope), ...pipelineFilter },
-            _count: true,
-            _sum: { value: true },
-          });
-        })()
+    // Ganhos/perdidos do período de COMPARAÇÃO (ver comparePeriod acima) —
+    // mesmo escopo/funil do período atual, só a janela de data muda. null
+    // quando a comparação está desligada (sem query extra nenhuma à toa).
+    comparePeriod
+      ? prisma.deal.aggregate({
+          where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          _count: true,
+          _sum: { value: true },
+        })
       : Promise.resolve(null),
+    comparePeriod
+      ? prisma.deal.count({
+          where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+        })
+      : Promise.resolve(0),
+    // Faturamento por tipo de crédito do período de COMPARAÇÃO — mesma
+    // consulta de wonByCreditType acima, só a janela de data muda. Alimenta
+    // o % de diferença por linha da tabela "Faturamento por tipo de
+    // crédito" (ver creditTypeBreakdown mais abaixo).
+    comparePeriod
+      ? prisma.deal.groupBy({
+          by: ["creditType"],
+          where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          _count: true,
+          _sum: { value: true },
+        })
+      : Promise.resolve([]),
+    // Motivo de perda do período de COMPARAÇÃO — mesma consulta de
+    // lostByReason acima, só a janela de data muda. Alimenta o % de
+    // diferença por barra em "Por que perdemos negócios".
+    comparePeriod
+      ? prisma.deal.groupBy({
+          by: ["lossReasonId"],
+          where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          _count: true,
+        })
+      : Promise.resolve([]),
   ]);
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
   const lostCount = lostByOwner.reduce((sum, l) => l._count + sum, 0);
 
-  // Deltas vs período anterior — null quando não há período de referência
-  // (“Tudo” ou sem filtro de data ativo), para a UI não mostrar “+∞%” sem sentido.
-  const prevWonCount = prevPeriodWon?._count ?? null;
-  const prevWonTotalValue = prevPeriodWon?._sum.value != null ? Number(prevPeriodWon._sum.value) : null;
+  // "Comparar período" (compareData) é montado mais abaixo, depois do bloco
+  // de SLA — junta os números de negócio (ganho/perdido) calculados aqui
+  // embaixo com os 4 números agregados de SLA (ver compareSlaPromise, já
+  // disparado lá em cima em paralelo com o resto). compareWonCount/
+  // compareWonTotalValue/compareClosedCount ficam guardados aqui, mesmo
+  // formato que closedCount/winRate/avgWonValue do período atual logo
+  // abaixo — nunca duas fórmulas divergentes pra a "mesma" métrica.
+  const compareWonCount = compareWonAgg?._count ?? 0;
+  const compareWonTotalValue = compareWonAgg?._sum.value != null ? Number(compareWonAgg._sum.value) : 0;
+  const compareClosedCount = compareWonCount + compareLostCount;
+
   // Só conta negócio já decidido (ganho ou perdido) — um negócio ainda em
   // aberto não é nem acerto nem erro, incluir ele no denominador penaliza
   // artificialmente times com pipeline saudável e cheio de negócio recente.
@@ -308,16 +378,24 @@ export async function getCommercialReportData(params: {
   // Imóvel e veículo entram em buckets próprios; qualquer outra coisa (null,
   // "OUTROS", ou um valor futuro ainda não previsto) cai junto em "Outros" —
   // nunca deixa um tipo de crédito sumir do total por não ter rótulo certo.
+  // Função (não só um bloco solto) porque roda duas vezes — período atual E
+  // período de comparação, ver compareWonByCreditType — mesma regra de
+  // bucket pros dois, nunca duas versões que podem divergir.
   const CREDIT_TYPE_LABELS: Record<string, string> = { "IMÓVEL": "Imóvel", "VEÍCULO": "Veículo" };
   const CREDIT_TYPE_COLORS: Record<string, string> = { "IMÓVEL": "#059669", "VEÍCULO": "#64748b" };
-  const creditTypeTotals = new Map<string, { count: number; value: number }>();
-  for (const c of wonByCreditType) {
-    const key = c.creditType === "IMÓVEL" || c.creditType === "VEÍCULO" ? c.creditType : "OUTROS";
-    const prev = creditTypeTotals.get(key) ?? { count: 0, value: 0 };
-    prev.count += c._count;
-    prev.value += c._sum.value ? Number(c._sum.value) : 0;
-    creditTypeTotals.set(key, prev);
+  function bucketCreditType(rows: { creditType: string | null; _count: number; _sum: { value: Prisma.Decimal | null } }[]) {
+    const totals = new Map<string, { count: number; value: number }>();
+    for (const c of rows) {
+      const key = c.creditType === "IMÓVEL" || c.creditType === "VEÍCULO" ? c.creditType : "OUTROS";
+      const prev = totals.get(key) ?? { count: 0, value: 0 };
+      prev.count += c._count;
+      prev.value += c._sum.value ? Number(c._sum.value) : 0;
+      totals.set(key, prev);
+    }
+    return totals;
   }
+  const creditTypeTotals = bucketCreditType(wonByCreditType);
+  const compareCreditTypeTotals = bucketCreditType(compareWonByCreditType);
   const creditTypeBreakdown = Array.from(creditTypeTotals.entries())
     .map(([key, t]) => ({
       key,
@@ -326,6 +404,11 @@ export async function getCommercialReportData(params: {
       count: t.count,
       value: t.value,
       avgValue: t.count > 0 ? t.value / t.count : 0,
+      // Valor do MESMO tipo de crédito no período de comparação — null
+      // quando a comparação está desligada (diferente de 0, que significaria
+      // "comparado e deu zero"; ver DeltaBadge, que trata os dois igual —
+      // 0 também não gera badge, divisão por zero não tem % que faça sentido).
+      compareValue: comparePeriod ? (compareCreditTypeTotals.get(key)?.value ?? 0) : null,
     }))
     .sort((a, b) => b.value - a.value);
   const creditTypeTotalValue = creditTypeBreakdown.reduce((sum, c) => sum + c.value, 0);
@@ -391,16 +474,25 @@ export async function getCommercialReportData(params: {
   // concluída (o resultado é perguntado só na conclusão dela — ver
   // ActivityMeetingOutcome no schema), contá-la como comparecida inflaria a
   // taxa com reunião que ainda nem aconteceu.
+  // rescheduledCount contado à parte (não é nem "realizada" nem entra no
+  // denominador da taxa de comparecimento) — pedido explícito: precisa dar
+  // pra enxergar separado quantas viraram remarcação, não só misturado num
+  // "resto" implícito. Desde a correção em app/api/tasks/[id]/route.ts,
+  // remarcar sempre fecha a Activity original com este outcome (nunca mais
+  // fica "editada por cima"), então este número já reflete tentativas reais.
   const meetingVisitByUser = new Map<
     string,
-    { meetingCount: number; visitCount: number; attendedCount: number; noShowCount: number }
+    { meetingCount: number; visitCount: number; attendedCount: number; noShowCount: number; rescheduledCount: number }
   >();
   for (const row of meetingsAndVisitsByOwner) {
-    const prev = meetingVisitByUser.get(row.userId) ?? { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0 };
+    const prev =
+      meetingVisitByUser.get(row.userId) ??
+      { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
     if (row.type === "MEETING") prev.meetingCount += row._count;
     else if (row.type === "VISIT") prev.visitCount += row._count;
     if (row.meetingOutcome === "NO_SHOW") prev.noShowCount += row._count;
-    else if (row.meetingOutcome !== "RESCHEDULED" && row.meetingOutcome !== "PENDING") prev.attendedCount += row._count;
+    else if (row.meetingOutcome === "RESCHEDULED") prev.rescheduledCount += row._count;
+    else if (row.meetingOutcome !== "PENDING") prev.attendedCount += row._count;
     meetingVisitByUser.set(row.userId, prev);
   }
 
@@ -444,7 +536,9 @@ export async function getCommercialReportData(params: {
     // carrega, não um placar de "ganhos entre decisões".
     const dealsHandledForOwner = wonCountForOwner + lostCountForOwner + openCountForOwner;
     const activity = activityByUser.get(id) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
-    const meetingVisit = meetingVisitByUser.get(id) ?? { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0 };
+    const meetingVisit =
+      meetingVisitByUser.get(id) ??
+      { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
     // Denominador da taxa = só resultados finais (compareceu ou no-show) —
     // RESCHEDULED fica de fora (ver comentário em meetingVisitByUser acima).
     const attendanceResolved = meetingVisit.attendedCount + meetingVisit.noShowCount;
@@ -462,6 +556,7 @@ export async function getCommercialReportData(params: {
       meetingsAndVisitsCount: meetingVisit.meetingCount + meetingVisit.visitCount,
       attendedCount: meetingVisit.attendedCount,
       noShowCount: meetingVisit.noShowCount,
+      rescheduledCount: meetingVisit.rescheduledCount,
       attendanceRate: attendanceResolved > 0 ? Math.round((meetingVisit.attendedCount / attendanceResolved) * 100) : null,
       activeSeconds: activity.activeSeconds,
       changeCount: activity.changeCount,
@@ -488,15 +583,27 @@ export async function getCommercialReportData(params: {
       secondaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
     }));
 
+  // Pedido explícito: "quem fez mais reuniões" tem que contar só quem o
+  // cliente de fato COMPARECEU (attendedCount) — remarcada não é reunião
+  // realizada (só uma tentativa que virou outro dia, com Task própria pra
+  // aquele novo dia — ver app/api/tasks/[id]/route.ts) e no-show muito menos.
+  // Antes ordenava por meetingsAndVisitsCount (tudo que foi AGENDADO, sem
+  // olhar o resultado) — um consultor cheio de reunião marcada mas que não
+  // comparece/remarca sempre aparecia como "o que mais fez reunião", o
+  // oposto do que o número deveria significar. secondaryValue agora mostra
+  // as 3 categorias separadas (agendadas no total / no-show / remarcadas)
+  // de propósito — pra dar pra ver ONDE está o problema de um consultor com
+  // poucas realizadas (agenda muito mas não vai? falta comparecimento do
+  // lead? fica remarcando?), não só o número final sem contexto.
   const meetingsRanking: LeaderboardEntry[] = ownerStats
-    .filter((o) => activeMemberIds.has(o.id) && o.meetingsAndVisitsCount > 0)
-    .sort((a, b) => b.meetingsAndVisitsCount - a.meetingsAndVisitsCount)
+    .filter((o) => activeMemberIds.has(o.id) && o.attendedCount > 0)
+    .sort((a, b) => b.attendedCount - a.attendedCount)
     .map((o) => ({
       id: o.id,
       name: o.name,
       photoUrl: o.photoUrl,
-      primaryValue: `${o.meetingsAndVisitsCount} ${o.meetingsAndVisitsCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
-      secondaryValue: `${o.visitCount} visita${o.visitCount === 1 ? "" : "s"} e ${o.meetingCount} reuni${o.meetingCount === 1 ? "ão" : "ões"}`,
+      primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
+      secondaryValue: `${o.meetingsAndVisitsCount} agendada${o.meetingsAndVisitsCount === 1 ? "" : "s"} · ${o.noShowCount} no-show · ${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`,
     }));
 
   // Taxa de comparecimento por consultor — de quem marcou reunião/visita
@@ -680,11 +787,19 @@ export async function getCommercialReportData(params: {
     where: { id: { in: reasonIds } },
     select: { id: true, label: true },
   });
+  // Contagem do MESMO motivo no período de comparação, por lossReasonId —
+  // só precisa da contagem (não do rótulo): a barra de cada motivo já vem
+  // do período ATUAL (lossBreakdown abaixo é sempre "motivos usados agora");
+  // um motivo que só apareceu no período de comparação e não no atual não
+  // ganha barra nova, só não tem com o que comparar (mesmo raciocínio de
+  // creditTypeBreakdown acima — 0/ausente vira null, sem badge inventado).
+  const compareLossByReasonId = new Map(compareLostByReason.map((l) => [l.lossReasonId, l._count]));
   const lossBreakdown = lostByReason
     .map((l) => ({
       id: l.lossReasonId ?? "none",
       label: reasonsList.find((r) => r.id === l.lossReasonId)?.label ?? "Sem motivo",
       count: l._count,
+      compareCount: comparePeriod ? (compareLossByReasonId.get(l.lossReasonId) ?? 0) : null,
     }))
     .sort((a, b) => b.count - a.count);
   const maxLossCount = Math.max(1, ...lossBreakdown.map((l) => l.count));
@@ -1268,6 +1383,31 @@ export async function getCommercialReportData(params: {
   const slaTotalAvgQualificationMs = average(slaAllQual);
   const slaTotalQualified = slaContactsQualified.length;
 
+  // "Comparar período" — junta os números de negócio (ganho/perdido, ver
+  // compareWonCount/compareWonTotalValue/compareClosedCount lá em cima) com
+  // os 4 números de SLA do período de comparação (compareSlaPromise,
+  // disparado em paralelo lá em cima também — só chega aqui agora porque é
+  // o primeiro ponto em que o resultado dele é de fato necessário). null
+  // quando a comparação está desligada.
+  const compareSla = await compareSlaPromise;
+  const compareData =
+    compareMode && comparePeriod
+      ? {
+          mode: compareMode,
+          rangeLabel: comparePeriod.rangeLabel,
+          wonCount: compareWonCount,
+          wonTotalValue: compareWonTotalValue,
+          lostCount: compareLostCount,
+          closedCount: compareClosedCount,
+          winRate: compareClosedCount > 0 ? Math.round((compareWonCount / compareClosedCount) * 100) : 0,
+          avgWonValue: compareWonCount > 0 ? compareWonTotalValue / compareWonCount : 0,
+          slaFirstTouchWithin1h: compareSla?.overallFirstTouchWithin1h ?? null,
+          slaAvgFirstTouchMs: compareSla?.avgFirstTouchMs ?? null,
+          slaAvgFirstReplyMs: compareSla?.avgFirstReplyMs ?? null,
+          slaAvgQualificationMs: compareSla?.avgQualificationMs ?? null,
+        }
+      : null;
+
   const contactedContactIds = Array.from(
     new Set(outboundPairs.map((p) => contactIdByThread.get(p.threadId)).filter((id): id is string => !!id)),
   );
@@ -1505,8 +1645,7 @@ export async function getCommercialReportData(params: {
     wonTotalValue,
     openTotalValue,
     avgWonValue,
-    prevWonCount,
-    prevWonTotalValue,
+    compareData,
     creditTypeBreakdown,
     creditTypeTotalValue,
     stageData,

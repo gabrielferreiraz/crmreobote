@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 const DEFAULT_COLOR = "#2a78d6";
@@ -11,6 +12,7 @@ export function BarRow({
   displayValue,
   color,
   wrapLabel = false,
+  extra,
 }: {
   label: string;
   value: number;
@@ -25,6 +27,8 @@ export function BarRow({
    * admin-reports-view.tsx) têm rótulos curtos e contam com a largura fixa
    * pra manter as barras alinhadas entre si. */
   wrapLabel?: boolean;
+  /** Conteúdo opcional depois do valor (ex.: DeltaBadge de comparação de período, ver motivos de perda em page.tsx) — omitido, nada muda pros usos existentes. */
+  extra?: ReactNode;
 }) {
   const targetPct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
   const [pct, setPct] = useState(0);
@@ -56,9 +60,10 @@ export function BarRow({
           style={{ width: `${pct}%`, backgroundColor: barColor }}
         />
       </div>
-      <span className="w-24 shrink-0 text-right font-medium tabular-nums text-neutral-800 dark:text-neutral-200">
+      <span className="flex w-24 shrink-0 items-center justify-end gap-1.5 text-right font-medium tabular-nums text-neutral-800 dark:text-neutral-200">
         {displayValue}
       </span>
+      {extra}
     </div>
   );
 }

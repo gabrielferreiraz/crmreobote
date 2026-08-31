@@ -24,9 +24,12 @@ export type MeetingOutcomeResult =
  * Sem opção pré-selecionada de propósito (era o próprio problema que essa
  * mudança corrige — "Compareceu" marcado por padrão registrava
  * comparecimento antes do encontro acontecer) — precisa escolher pra
- * "Confirmar" habilitar. "Remarcou" abre um 2º passo pedindo a nova data,
- * já que remarcar reabre a tarefa em vez de concluir (ver PUT
- * /api/tasks/[id]).
+ * "Confirmar" habilitar. "Remarcou" abre um 2º passo pedindo a nova data —
+ * essa tentativa é finalizada (fica registrado que o consultor foi atrás,
+ * mesmo sem sucesso) e uma tarefa NOVA nasce pro próximo encontro, em vez de
+ * só editar a data desta mesma tarefa; RESCHEDULED nunca entra como
+ * "reunião realizada" nos Relatórios (ver PUT /api/tasks/[id] e
+ * lib/reports/commercial-data.ts).
  */
 export function MeetingOutcomeDialog({
   taskType,

@@ -29,12 +29,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (meetingOutcome !== undefined && !VALID_MEETING_OUTCOMES.includes(meetingOutcome)) {
     return NextResponse.json({ error: "meetingOutcome inválido" }, { status: 400 });
   }
-  // Remarcar reabre a tarefa (o encontro não terminou, só mudou de dia) —
-  // nunca conclui junto, senão fica um estado contraditório ("concluída"
-  // mas remarcada pra outro dia).
-  if (meetingOutcome === "RESCHEDULED" && completed === true) {
-    return NextResponse.json({ error: "Remarcar não conclui a tarefa — informe a nova data" }, { status: 400 });
-  }
   if (meetingOutcome === "RESCHEDULED" && !dueAt) {
     return NextResponse.json({ error: "Informe a nova data/horário da remarcação" }, { status: 400 });
   }
@@ -93,9 +87,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const activity = await resolveLinkedActivity();
       await prisma.activity.update({ where: { id: activity.id }, data: { meetingOutcome: "RESCHEDULED" } });
       const newDue = new Date(dueAt!);
-      // Log visível na timeline de que houve trabalho aqui — sem isso, uma
-      // tarefa remarcada (que continua aberta, não conclui) fica
-      // indistinguível de uma tarefa que ninguém tocou ainda.
+      // Log visível na timeline de que houve trabalho aqui.
       await prisma.activity.create({
         data: {
           organizationId,
@@ -104,6 +96,36 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           userId: accessUserId,
           type: "SYSTEM",
           body: `${existing.type === "MEETING" ? "Reunião" : "Visita"} remarcada para ${newDue.toLocaleDateString("pt-BR")} às ${newDue.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
+        },
+      });
+      // Pedido explícito: remarcar precisa FINALIZAR esta tentativa (registra
+      // que o consultor foi atrás, mesmo sem sucesso — ver completedAt abaixo)
+      // em vez de só editar a mesma Task pra frente. Era assim antes
+      // ("nunca conclui junto, senão fica um estado contraditório"), mas isso
+      // apagava o rastro do encontro original — a MESMA linha virava ora "a
+      // tentativa de dia X", ora "o encontro remarcado pra dia Y", e o
+      // relatório de reunião/visita (ver lib/reports/commercial-data.ts)
+      // contava esse encontro remarcado como se tivesse acontecido. Uma Task
+      // NOVA (não ligada à Activity antiga — cada encontro tem seu próprio
+      // resultado no futuro) representa o próximo encontro; a antiga fica
+      // completa, com a data original intacta, e o outcome RESCHEDULED nela
+      // já garante que a taxa de comparecimento e o ranking de reuniões (que
+      // só contam ATTENDED, nunca RESCHEDULED/PENDING) não a contem como
+      // reunião de fato realizada. Não copia googleEventId/googleMeetLink/
+      // lembretes da tarefa antiga — são de OUTRO horário, carregar isso pra
+      // cá silenciosamente apontaria pro evento/link errado; o consultor
+      // configura de novo pro novo horário se quiser (mesmo fluxo de marcar
+      // uma reunião nova).
+      await prisma.task.create({
+        data: {
+          organizationId,
+          dealId: existing.dealId,
+          contactId: existing.contactId,
+          ownerId: existing.ownerId,
+          type: existing.type,
+          title: existing.title,
+          description: existing.description,
+          dueAt: newDue,
         },
       });
     } else if (completed === true && isMeetingOrVisit) {
@@ -124,16 +146,23 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       data: {
         title,
         description,
+        // RESCHEDULED nunca toca o dueAt desta Task — o dueAt recebido é da
+        // TAREFA NOVA (criada acima); esta mantém a data original do
+        // encontro que de fato foi tentado, pra ficar registrado quando
+        // aconteceu de verdade, não sobrescrito pela data nova.
         dueAt:
           meetingOutcome === "RESCHEDULED"
-            ? new Date(dueAt!)
+            ? undefined
             : dueAt === undefined
               ? undefined
               : dueAt
                 ? new Date(dueAt)
                 : null,
+        // RESCHEDULED finaliza esta tentativa (ver comentário acima) — não
+        // fica mais em aberto esperando o próximo encontro, isso já é
+        // responsabilidade da Task nova.
         completedAt:
-          meetingOutcome === "RESCHEDULED" ? null : completed === undefined ? undefined : completed ? new Date() : null,
+          meetingOutcome === "RESCHEDULED" ? new Date() : completed === undefined ? undefined : completed ? new Date() : null,
       },
       include: { deal: true, contact: true, owner: true },
     });

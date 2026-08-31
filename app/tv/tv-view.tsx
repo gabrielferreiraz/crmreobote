@@ -102,6 +102,18 @@ function formatRelativeTime(date: Date, nowMs: number): string {
   return `há ${diffD}d`;
 }
 
+/** "26/08" — dia de fechamento por extenso curto (calendário de Brasília,
+ * ver getBrazilParts), ao lado de formatRelativeTime ("há 3d") no card
+ * Última venda — pedido explícito: mostrar a DATA de verdade ali, não só o
+ * relativo (que antes só existia como `title`, invisível numa TV sem
+ * mouse pra passar por cima e ver o tooltip). Sem ano de propósito: é
+ * sempre a venda mais recente do mês corrente ou perto dele, nunca algo de
+ * anos atrás — ano deixaria a data mais longa à toa. */
+function formatShortDate(date: Date): string {
+  const { day, month } = getBrazilParts(date);
+  return `${String(day).padStart(2, "0")}/${String(month + 1).padStart(2, "0")}`;
+}
+
 export function TvView({
   initialMetrics,
   publicCode,
@@ -569,6 +581,9 @@ export function TvView({
             </p>
           </div>
           <p className="truncate font-medium text-[length:var(--tv-text-name)]">{metrics.lastSale.name}</p>
+          {/* Data de fechamento visível de verdade (não só no `title`,
+              inútil numa TV sem mouse), com "há Xd" como legenda menor ao
+              lado — pedido explícito. */}
           <div className="flex items-baseline gap-2">
             <p className="font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]" style={{ color: "var(--brand)" }}>
               {formatCurrencyCompact(metrics.lastSale.value)}
@@ -577,8 +592,16 @@ export function TvView({
               className="text-neutral-500 text-[length:var(--tv-text-label)]"
               title={brazilDateTime(metrics.lastSale.date)}
             >
-              {nowMs !== null ? formatRelativeTime(metrics.lastSale.date, nowMs) : null}
+              {formatShortDate(metrics.lastSale.date)}
             </p>
+            {nowMs !== null && (
+              <p
+                className="text-neutral-500/70 text-[length:calc(var(--tv-text-label)*0.75)]"
+                title={brazilDateTime(metrics.lastSale.date)}
+              >
+                ({formatRelativeTime(metrics.lastSale.date, nowMs)})
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -887,17 +910,20 @@ export function TvView({
               continua no MESMO wrapper que os cards de propósito: ela e os
               cards precisam manter a MESMA relação de tamanho entre si
               sempre. */}
-          {/* justify-center (não justify-evenly, testado e revertido — pedido
+          {/* justify-start (não justify-evenly — testado e revertido, pedido
               explícito: logo+cards não podem se separar verticalmente uns
-              dos outros) — se o conteúdo natural (logo + cards, já no
-              tamanho cqh que a altura real disponível define) couber com
-              sobra na altura disponível, essa sobra vira uma margem ÚNICA
-              acima e abaixo do grupo inteiro, que continua compacto (mesmo
-              `--tv-gap` fixo entre cada card, nunca um vão crescendo entre
-              eles) — nunca um vão único acumulado só embaixo (era
-              `justify-start`, o padrão do flex, que empurra tudo pro topo e
-              deixa o resto do espaço "morto" no final). */}
-          <div className="flex min-h-0 flex-1 flex-col justify-center" style={{ gap: "var(--tv-gap)" }}>
+              dos outros; e não justify-center — testado e revertido de
+              novo, relato ao vivo na TV real: "a logo está abaixo demais")
+              — se o conteúdo natural (logo + cards, já no tamanho cqh que
+              a altura real disponível define) couber com sobra, essa
+              sobra vira margem só embaixo do grupo (depois do Ranking),
+              nunca em cima empurrando a logo pra baixo. O grupo continua
+              compacto entre si de qualquer forma (mesmo `--tv-gap` fixo
+              entre cada card, nunca um vão crescendo entre eles) — a única
+              coisa que muda entre start/center/evenly é ONDE a sobra de
+              espaço vai parar, nunca se os cards se separam uns dos
+              outros. */}
+          <div className="flex min-h-0 flex-1 flex-col justify-start" style={{ gap: "var(--tv-gap)" }}>
             <div className="flex shrink-0 justify-center">
               {/* A logo NUNCA participa do carrossel abaixo (ver
                   rankingSlide) — fica fora do bloco que troca de

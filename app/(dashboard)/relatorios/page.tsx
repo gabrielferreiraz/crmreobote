@@ -13,6 +13,7 @@ import { RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { TeamActivityList } from "./team-activity-list";
 import { BarRow } from "./bar-row";
 import { DateRangeFilter } from "./date-range-filter";
+import { ComparePeriodFilter } from "./compare-period-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
 import { PipelineFilter } from "./pipeline-filter";
 import { FiltersUrlRestore } from "./filters-url-restore";
@@ -37,6 +38,11 @@ export default async function RelatoriosPage({
     who?: string;
     view?: string;
     processPipelineId?: string;
+    /** "mirror" | "month" | "last3" | "year" | "custom" — ver lib/reports/period-compare.ts. */
+    compare?: string;
+    /** "YYYY-MM-DD" — só usado quando compare === "custom" (ver compare-period-filter.tsx). */
+    compareFrom?: string;
+    compareTo?: string;
   }>;
 }) {
   const {
@@ -47,6 +53,9 @@ export default async function RelatoriosPage({
     who: whoParam,
     view: viewParam,
     processPipelineId: processPipelineIdParam,
+    compare: compareParam,
+    compareFrom: compareFromParam,
+    compareTo: compareToParam,
   } = await searchParams;
 
   // Administrativo (pós-venda) vê um relatório próprio — funil/metas de
@@ -122,8 +131,7 @@ export default async function RelatoriosPage({
     wonTotalValue,
     openTotalValue,
     avgWonValue,
-    prevWonCount,
-    prevWonTotalValue,
+    compareData,
     creditTypeBreakdown,
     creditTypeTotalValue,
     stageData,
@@ -176,6 +184,9 @@ export default async function RelatoriosPage({
     toParam,
     rangeParam,
     whoParam,
+    compareParam,
+    compareFromParam,
+    compareToParam,
   });
 
   // Dados necessários pro PersonalHero — extraídos dos rankings já computados.
@@ -217,6 +228,7 @@ export default async function RelatoriosPage({
               <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />
             )}
             <DateRangeFilter />
+            <ComparePeriodFilter />
           </div>
         </div>
 
@@ -257,8 +269,7 @@ export default async function RelatoriosPage({
       <AutoInsights
         wonCount={wonCount}
         wonTotalValue={wonTotalValue}
-        prevWonCount={prevWonCount}
-        prevWonTotalValue={prevWonTotalValue}
+        compareData={compareData}
         winRate={winRate}
         dealsClosedRanking={dealsClosedRanking}
         slaOverallFirstTouchWithin1h={slaOverallFirstTouchWithin1h}
@@ -274,6 +285,27 @@ export default async function RelatoriosPage({
             <div className="mt-4">
               <DonutChart slices={statusSlices} centerValue={`${winRate}%`} centerLabel="conversão" />
             </div>
+            {compareData && (
+              <div className="mt-4 space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                  Comparando com o período selecionado: {compareData.rangeLabel}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                  <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300">
+                    Ganhos
+                    <DeltaBadge current={wonCount} previous={compareData.wonCount} compareLabel={compareData.rangeLabel} />
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300">
+                    Perdidos
+                    <DeltaBadge current={lostCount} previous={compareData.lostCount} compareLabel={compareData.rangeLabel} invert />
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300">
+                    Conversão
+                    <DeltaBadge current={winRate} previous={compareData.winRate} compareLabel={compareData.rangeLabel} />
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-7">
             <Stat
@@ -281,14 +313,25 @@ export default async function RelatoriosPage({
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               emphasize
-              delta={<DeltaBadge current={wonTotalValue} previous={prevWonTotalValue} />}
+              delta={<DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
             />
-            <Stat label="Ticket médio" value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"} />
+            <Stat
+              label="Ticket médio"
+              value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"}
+              delta={<DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} />}
+            />
             <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
             <Stat
               label="Negócios decididos"
               value={String(closedCount)}
               hint={`${wonCount} ganho${wonCount === 1 ? "" : "s"} · ${lostCount} perdido${lostCount === 1 ? "" : "s"} no período`}
+              delta={
+                compareData ? (
+                  <DeltaBadge current={closedCount} previous={compareData.closedCount} compareLabel={compareData.rangeLabel} />
+                ) : closedCount > 0 ? (
+                  <ConversionBadge rate={winRate} />
+                ) : null
+              }
             />
           </div>
         </div>
@@ -314,6 +357,11 @@ export default async function RelatoriosPage({
               />
             </div>
             <div className="card col-span-12 overflow-x-auto p-6 lg:col-span-7">
+              {compareData && (
+                <p className="mb-3 text-[11px] text-neutral-400 dark:text-neutral-500">
+                  Comparando com o período selecionado: {compareData.rangeLabel}
+                </p>
+              )}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
@@ -334,7 +382,12 @@ export default async function RelatoriosPage({
                       </td>
                       <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{c.count}</td>
                       <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                        {formatCurrency(c.value)}
+                        <span className="inline-flex items-center gap-1.5">
+                          {formatCurrency(c.value)}
+                          {c.compareValue != null && (
+                            <DeltaBadge current={c.value} previous={c.compareValue} compareLabel={compareData?.rangeLabel} />
+                          )}
+                        </span>
                       </td>
                       <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
                         {formatCurrency(c.avgValue)}
@@ -418,10 +471,15 @@ export default async function RelatoriosPage({
           <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
             <div className="mb-1 flex shrink-0 items-center gap-2">
               <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas</h3>
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas realizadas</h3>
             </div>
+            {/* Só conta quem o cliente de fato COMPARECEU — agendada que
+                virou no-show ou remarcação não é reunião realizada (ver
+                comentário em lib/reports/commercial-data.ts). O detalhamento
+                por consultor (agendadas/no-show/remarcadas) mostra onde cada
+                um está perdendo reunião, não só o número final. */}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita registrada ainda" />
+              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita realizada ainda" />
             </div>
           </div>
           <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
@@ -485,15 +543,32 @@ export default async function RelatoriosPage({
             title="Tempo de resposta & Health da operação"
             description="Métricas operacionais que dono de operação de vendas paga pra ver: quanto tempo demora pro lead receber a 1ª mensagem, pra uma mensagem do lead ser respondida e pra um lead ser qualificado."
           />
+          {compareData && (
+            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+              Comparando com o período selecionado: {compareData.rangeLabel}
+            </p>
+          )}
           <div className="grid grid-cols-12 items-start gap-5">
             <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-12">
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="card p-5">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-emerald-500" strokeWidth={2} />
-                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                      Contato em menos de 1 hora
-                    </p>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-emerald-500" strokeWidth={2} />
+                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                        Contato em menos de 1 hora
+                      </p>
+                    </span>
+                    {/* current=null (sem dado no período ATUAL) nunca vira 0
+                        fingido aqui — isso faria parecer "caiu 100%" quando
+                        na verdade é "não tem o que comparar ainda". */}
+                    {compareData && slaOverallFirstTouchWithin1h !== null && (
+                      <DeltaBadge
+                        current={slaOverallFirstTouchWithin1h}
+                        previous={compareData.slaFirstTouchWithin1h}
+                        compareLabel={compareData.rangeLabel}
+                      />
+                    )}
                   </div>
                   <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
                     {slaOverallFirstTouchWithin1h !== null ? `${slaOverallFirstTouchWithin1h}%` : "—"}
@@ -505,11 +580,21 @@ export default async function RelatoriosPage({
                   </p>
                 </div>
                 <div className="card p-5">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Timer className="h-4 w-4 text-sky-500" strokeWidth={2} />
-                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                      Tempo médio até o 1º contato
-                    </p>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <Timer className="h-4 w-4 text-sky-500" strokeWidth={2} />
+                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                        Tempo médio até o 1º contato
+                      </p>
+                    </span>
+                    {compareData && slaTotalAvgFirstTouchMs !== null && (
+                      <DeltaBadge
+                        current={slaTotalAvgFirstTouchMs}
+                        previous={compareData.slaAvgFirstTouchMs}
+                        compareLabel={compareData.rangeLabel}
+                        invert
+                      />
+                    )}
                   </div>
                   <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
                     {slaTotalAvgFirstTouchMs !== null ? formatDuration(slaTotalAvgFirstTouchMs) : "—"}
@@ -521,11 +606,21 @@ export default async function RelatoriosPage({
                   </p>
                 </div>
                 <div className="card p-5">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Target className="h-4 w-4 text-violet-500" strokeWidth={2} />
-                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                      Tempo médio de resposta do vendedor
-                    </p>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <Target className="h-4 w-4 text-violet-500" strokeWidth={2} />
+                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                        Tempo médio de resposta do vendedor
+                      </p>
+                    </span>
+                    {compareData && slaTotalAvgFirstReplyMs !== null && (
+                      <DeltaBadge
+                        current={slaTotalAvgFirstReplyMs}
+                        previous={compareData.slaAvgFirstReplyMs}
+                        compareLabel={compareData.rangeLabel}
+                        invert
+                      />
+                    )}
                   </div>
                   <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
                     {slaTotalAvgFirstReplyMs !== null ? formatDuration(slaTotalAvgFirstReplyMs) : "—"}
@@ -537,11 +632,21 @@ export default async function RelatoriosPage({
                   </p>
                 </div>
                 <div className="card p-5">
-                  <div className="mb-2 flex items-center gap-2">
-                    <UserCheck className="h-4 w-4 text-amber-500" strokeWidth={2} />
-                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                      Tempo médio até qualificação
-                    </p>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <UserCheck className="h-4 w-4 text-amber-500" strokeWidth={2} />
+                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                        Tempo médio até qualificação
+                      </p>
+                    </span>
+                    {compareData && slaTotalAvgQualificationMs !== null && (
+                      <DeltaBadge
+                        current={slaTotalAvgQualificationMs}
+                        previous={compareData.slaAvgQualificationMs}
+                        compareLabel={compareData.rangeLabel}
+                        invert
+                      />
+                    )}
                   </div>
                   <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
                     {slaTotalAvgQualificationMs !== null ? formatDuration(slaTotalAvgQualificationMs) : "—"}
@@ -738,12 +843,29 @@ export default async function RelatoriosPage({
         <section className="space-y-6">
           <SectionHeading eyebrow="Perdas" title={`Por que perdemos negócios (${lostCount} ao todo)`} />
           <div className="card p-6">
+            {compareData && (
+              <p className="mb-3 text-[11px] text-neutral-400 dark:text-neutral-500">
+                Comparando com o período selecionado: {compareData.rangeLabel}
+              </p>
+            )}
             {lossBreakdown.length === 0 ? (
               <EmptyState icon={XCircle} title="Nenhum motivo registrado" />
             ) : (
               <div className="space-y-2.5">
                 {lossBreakdown.map((l) => (
-                  <BarRow key={l.id} label={l.label} value={l.count} max={maxLossCount} displayValue={String(l.count)} wrapLabel />
+                  <BarRow
+                    key={l.id}
+                    label={l.label}
+                    value={l.count}
+                    max={maxLossCount}
+                    displayValue={String(l.count)}
+                    wrapLabel
+                    extra={
+                      l.compareCount != null ? (
+                        <DeltaBadge current={l.count} previous={l.compareCount} compareLabel={compareData?.rangeLabel} invert />
+                      ) : undefined
+                    }
+                  />
                 ))}
               </div>
             )}
@@ -1003,10 +1125,36 @@ function Stat({ label, value, hint, emphasize, delta }: { label: string; value: 
   }
   return (
     <div className="card p-5">
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">{label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{label}</p>
+        {delta}
+      </div>
       <p className="mt-2 text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</p>
       {hint && <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * Taxa de conversão (ganhos ÷ decididos, mesmo winRate já usado no centro do
+ * donut "Negócios por status" e nos Insights automáticos — nunca um cálculo
+ * duplicado à parte) ao lado do total de "Negócios decididos". Mesmas 2
+ * faixas de leitura já usadas em auto-insights.tsx (≥60% positivo, <20%
+ * alerta) — não invento um 3º limiar novo só pra esse badge, meio-termo fica
+ * neutro/cinza, sem alarme nem elogio.
+ */
+function ConversionBadge({ rate }: { rate: number }) {
+  const tone =
+    rate >= 60
+      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+      : rate < 20
+        ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+        : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${tone}`}>
+      <Percent className="h-3 w-3" strokeWidth={2.5} />
+      {rate}% conversão
+    </span>
   );
 }
 
