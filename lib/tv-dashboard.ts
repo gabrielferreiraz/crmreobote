@@ -66,6 +66,24 @@ export async function getTvMetrics(organizationId: string) {
     // vazia em silêncio (zero venda, zero ranking, zero lead no funil), a TV
     // de verdade (não só a tela de configuração) ficava sempre zerada.
     return await runWithTenant(organizationId, async () => {
+      // Quem CONTA como time atual pra TV — negócio de quem já saiu da
+      // empresa continua no banco com o ownerId de sempre (não é reatribuído
+      // sozinho quando alguém é desativado). Mesmo raciocínio já documentado
+      // pros rankings do relatório Comercial (ver activeMemberIds em
+      // lib/reports/commercial-data.ts): usado abaixo pra Ranking, Última
+      // venda e Leads no Funil (widgets "de gente" — ranking/nome/lista de
+      // pessoa), mas de propósito NÃO pros totais de faturamento (Vendas do
+      // Mês/Vendas Anuais, ver totalVendasMes/vendasAnuais abaixo) — venda
+      // que já entrou continua sendo receita real da empresa, mesmo que
+      // quem vendeu não trabalhe mais aqui (mesma decisão de "Total ganho"
+      // em Relatórios: total da organização nunca exclui histórico).
+      const activeMembers = await prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        select: { userId: true },
+      });
+      const activeOwnerIds = activeMembers.map((m) => m.userId);
+      const activeOwnerIdSet = new Set(activeOwnerIds);
+
       // 1. Ranking Empresas (Top 3 users this month)
       const wonDealsThisMonth = await prisma.deal.findMany({
         where: {
@@ -83,6 +101,11 @@ export async function getTvMetrics(organizationId: string) {
       const salesByUser = new Map<string, { id: string; name: string; image: string | null; total: number }>();
       for (const deal of wonDealsThisMonth) {
         if (!deal.ownerId || !deal.owner) continue;
+        // Ranking é "quem do time atual mais vendeu" — ex-consultor nunca
+        // aparece aqui, mesmo tendo vendido muito antes de sair (ver
+        // totalVendasMes logo abaixo, que continua somando TODA venda do
+        // mês, incluindo a dele — só o pódio de pessoa é que exclui).
+        if (!activeOwnerIdSet.has(deal.ownerId)) continue;
         const existing = salesByUser.get(deal.ownerId) || {
           id: deal.ownerId,
           name: deal.owner.name,
@@ -99,17 +122,31 @@ export async function getTvMetrics(organizationId: string) {
 
       const totalVendasMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.value || 0), 0);
 
-      // 2. Última venda — id e closedAt junto pra tv-view.tsx saber DE
-      // VERDADE quando é uma venda nova (não só "o valor mudou", que também
-      // aconteceria se o MESMO negócio fosse reaberto/editado) e disparar a
-      // comemoração de confete só nesse caso, nunca a cada refresh (ver
-      // METRICS_POLL_MS em tv-view.tsx).
+      // 2. Última venda — só de consultor ATIVO (mesmo raciocínio do
+      // ranking acima: pula pra próxima venda mais recente se a última
+      // registrada for de quem já saiu). id e closedAt junto pra
+      // tv-view.tsx saber DE VERDADE quando é uma venda nova (não só "o
+      // valor mudou", que também aconteceria se o MESMO negócio fosse
+      // reaberto/editado) e disparar a comemoração de confete só nesse
+      // caso, nunca a cada refresh (ver METRICS_POLL_MS em tv-view.tsx).
+      //
+      // orderBy tem um 2º critério (id desc) de propósito — negócios
+      // importados do Agendor (ver scripts/agendor/import-negocios.ts)
+      // têm closedAt vindo de uma célula de planilha só com DIA, sem
+      // horário, então dois negócios ganhos no mesmo dia gravam o
+      // MESMÍSSIMO instante (meia-noite). Só com closedAt como critério,
+      // um empate desses faz o Postgres devolver ora um ora outro a cada
+      // poll de 15s (ver METRICS_POLL_MS) — na TV parecia a última venda
+      // "ficar alternando" entre dois consultores sozinha. id é cuid
+      // (cresce com a ordem de inserção) e nunca empata, então desempata
+      // sempre pro mesmo lado — resultado estável entre polls.
       const lastSale = await prisma.deal.findFirst({
         where: {
           organizationId,
           status: "WON",
+          ownerId: { in: activeOwnerIds },
         },
-        orderBy: { closedAt: "desc" },
+        orderBy: [{ closedAt: "desc" }, { id: "desc" }],
         select: {
           id: true,
           value: true,
@@ -139,7 +176,8 @@ export async function getTvMetrics(organizationId: string) {
       });
       const vendasAnuais = Number(wonDealsThisYear._sum.value || 0);
 
-      // 4. Leads no Funil
+      // 4. Leads no Funil — só de consultor ATIVO (activeOwnerIds já
+      // calculado lá em cima, reaproveitado do Ranking/Última venda).
       const leadsInFunnels = await Promise.all(
         selectedStageIds.map(async (stageId) => {
           const stage = await prisma.pipelineStage.findUnique({
@@ -147,7 +185,7 @@ export async function getTvMetrics(organizationId: string) {
             select: { name: true },
           });
           const count = await prisma.deal.count({
-            where: { organizationId, stageId, status: "OPEN" },
+            where: { organizationId, stageId, status: "OPEN", ownerId: { in: activeOwnerIds } },
           });
           return { id: stageId, name: stage?.name || "Desconhecido", count };
         })

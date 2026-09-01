@@ -126,6 +126,18 @@ export function TvView({
   publicCode?: string;
 }) {
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
+  // Fallback textual da logo (ver JSX mais abaixo) — relato ao vivo:
+  // /logo-reobote.svg às vezes não aparecia na TV (ficava só o ícone de
+  // imagem quebrada do navegador). Causa: o arquivo era um auto-trace de
+  // PNG com 48KB e milhares de pontos de curva, pesado demais pro
+  // navegador embutido da TV parsear/renderizar. Rodado o svgo nele
+  // (mesmo desenho, sem redesenho manual) e caiu pra 13KB (-73%) —
+  // conferido pixel a pixel contra o original, sem diferença visível.
+  // Mesmo assim mantemos o `onError` trocando pro nome estilizado em
+  // texto como rede de segurança — pior que a logo de verdade, mas
+  // infinitamente melhor que o ícone de imagem quebrada + alt-text em
+  // fonte de sistema que aparecia antes.
+  const [logoFailed, setLogoFailed] = useState(false);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [celebration, setCelebration] = useState<WinSale | null>(null);
   // Aviso discreto de "os números na tela podem estar desatualizados" — ver
@@ -734,8 +746,17 @@ export function TvView({
             Ranking do mês
           </p>
         </div>
+        {/* marginTop reduzido (era var(--tv-gap) cheio) — pedido explícito:
+            o card de Ranking estava cortando nome/valor dos consultores;
+            este respiro (cabeçalho → pódio) é espaço que não carrega
+            informação nenhuma, então é o primeiro a ceder antes de
+            encolher avatar/nome/valor (que continuam do mesmo tamanho —
+            esses SIM precisam de destaque). */}
         {metrics.ranking.length > 0 ? (
-          <div className="relative flex items-end justify-center" style={{ gap: "var(--tv-gap)", marginTop: "var(--tv-gap)" }}>
+          <div
+            className="relative flex items-end justify-center"
+            style={{ gap: "var(--tv-gap)", marginTop: "calc(var(--tv-gap) * 0.6)" }}
+          >
             {podiumOrder(metrics.ranking).map(({ user, place }) => (
               <RankingPodiumSlot key={user.id} user={user} place={place} spinPhoto={rankingSpinActive} />
             ))}
@@ -763,7 +784,14 @@ export function TvView({
     // referências, não a ausência de uma moldura de proporção fixa, que
     // fazia o painel parecer "gordo" demais/o banner "fino" demais numa
     // janela fora de 16:9).
-    <div className="flex h-full w-full flex-col" style={{ gap: "var(--tv-gap)", padding: "var(--tv-gap)" }}>
+    // paddingBottom: 0 — pedido explícito: "abaixar o Churrascômetro até o
+    // rodapé". A margem de segurança (--tv-safe-margin, ver tv-shell.tsx)
+    // já protege as 4 bordas contra overscan por conta própria; esse
+    // --tv-gap extra embaixo era um respiro redundante SÓ nessa borda —
+    // faz sentido em cima (separa a logo do topo) e nas laterais, mas o
+    // Churrascômetro, sendo o último elemento, não precisa da mesma folga
+    // antes de encostar na margem de segurança.
+    <div className="flex h-full w-full flex-col" style={{ gap: "var(--tv-gap)", padding: "var(--tv-gap)", paddingBottom: 0 }}>
       {/* flex-col abaixo de 900px / flex-row a partir daí: o painel de
           métricas tem uma largura mínima (--tv-panel-w, piso de 320px) —
           numa janela mais estreita que isso, o painel de propaganda (que
@@ -928,12 +956,36 @@ export function TvView({
               {/* A logo NUNCA participa do carrossel abaixo (ver
                   rankingSlide) — fica fora do bloco que troca de
                   conteúdo, sempre no mesmo lugar. */}
-              <img
-                src="/logo-reobote.svg"
-                alt="Reobote Consórcios"
-                className="w-auto"
-                style={{ height: "var(--tv-logo-h)" }}
-              />
+              {logoFailed ? (
+                <div className="flex items-center gap-2" style={{ height: "var(--tv-logo-h)" }}>
+                  <TrendingUp
+                    style={{ width: "calc(var(--tv-logo-h) * 0.55)", height: "calc(var(--tv-logo-h) * 0.55)", color: "var(--brand)" }}
+                    strokeWidth={2.5}
+                  />
+                  <div className="text-left leading-none">
+                    <p
+                      className="font-bold text-white"
+                      style={{ fontSize: "calc(var(--tv-logo-h) * 0.5)" }}
+                    >
+                      reobote
+                    </p>
+                    <p
+                      className="mt-1 font-semibold tracking-[0.2em] text-neutral-400 uppercase"
+                      style={{ fontSize: "calc(var(--tv-logo-h) * 0.17)" }}
+                    >
+                      Consórcios
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <img
+                  src="/logo-reobote.svg"
+                  alt="Reobote Consórcios"
+                  className="w-auto"
+                  style={{ height: "var(--tv-logo-h)" }}
+                  onError={() => setLogoFailed(true)}
+                />
+              )}
             </div>
             {showHero && (
               <GlassCard delay={90} className="shrink-0 text-center">
@@ -954,19 +1006,23 @@ export function TvView({
                 >
                   {formatCurrencyCompact(metrics.vendasMes)}
                 </div>
+                {/* marginTop/paddingTop reduzidos (eram var(--tv-gap) cheio
+                    nos dois, 2× o respiro) — pedido explícito: "diminuir a
+                    altura" desta fileira, só o espaçamento, fonte
+                    intocada. */}
                 <div
                   className="relative flex divide-x divide-white/10 border-t border-white/10 text-[length:var(--tv-text-body)]"
-                  style={{ marginTop: "var(--tv-gap)", paddingTop: "var(--tv-gap)" }}
+                  style={{ marginTop: "calc(var(--tv-gap) * 0.5)", paddingTop: "calc(var(--tv-gap) * 0.5)" }}
                 >
                   <div className="flex-1">
                     <div className="font-semibold text-neutral-400">Anuais</div>
-                    <div className="mt-1 font-bold text-[length:var(--tv-text-value-sm)]">
+                    <div className="font-bold text-[length:var(--tv-text-value-sm)]">
                       {formatCurrencyCompact(metrics.vendasAnuais)}
                     </div>
                   </div>
                   <div className="flex-1">
                     <div className="font-semibold text-neutral-400">Cotas</div>
-                    <div className="mt-1 font-bold text-[length:var(--tv-text-value-sm)]">
+                    <div className="font-bold text-[length:var(--tv-text-value-sm)]">
                       {formatCurrencyCompact(metrics.vendasCotas)}
                     </div>
                   </div>
@@ -1051,9 +1107,18 @@ export function TvView({
 
                 {showFunnels && (
                   <div className="relative">
+                    {/* Ícone/fonte/altura reduzidos aqui — pedido explícito
+                        ("diminuir a fonte e altura"), ajuda a sobrar mais
+                        espaço vertical pro Ranking, o card mais importante
+                        do painel. icon-md→icon-sm no cabeçalho,
+                        text-value-md→text-value-lg (menor lg? não — ver
+                        abaixo) no número: usa um tamanho intermediário
+                        entre value-sm e value-md via calc(), não pulando
+                        direto pra value-sm (perderia demais a hierarquia
+                        de "número que se lê rápido"). */}
                     <div className="flex items-center justify-center gap-2">
                       <Waypoints
-                        style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "var(--brand)" }}
+                        style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: "var(--brand)" }}
                         strokeWidth={2.5}
                       />
                       <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
@@ -1067,16 +1132,16 @@ export function TvView({
                       // separadas só por um fio fino, sem contorno em cada
                       // uma). Reaproveitar o mesmo padrão em vez de inventar um
                       // 3º estilo é o que dá a leveza pedida.
-                      <div className="flex divide-x divide-white/10" style={{ marginTop: "var(--tv-gap)" }}>
+                      <div className="flex divide-x divide-white/10" style={{ marginTop: "calc(var(--tv-gap) * 0.6)" }}>
                         {metrics.leadsInFunnels.map((stage) => (
                           <div key={stage.id} className="min-w-0 flex-1 px-2">
                             <div
-                              className="font-extrabold tabular-nums text-[length:var(--tv-text-value-md)]"
-                              style={{ color: "var(--brand)" }}
+                              className="font-extrabold tabular-nums"
+                              style={{ color: "var(--brand)", fontSize: "calc((var(--tv-text-value-sm) + var(--tv-text-value-md)) / 2)" }}
                             >
                               {stage.count}
                             </div>
-                            <div className="mt-1 truncate font-medium text-neutral-400 text-[length:var(--tv-text-label)]">
+                            <div className="truncate font-medium text-neutral-400 text-[length:var(--tv-text-label)]">
                               {stage.name}
                             </div>
                           </div>
@@ -1444,7 +1509,7 @@ function RankingPodiumSlot({
         )}
       </div>
       <div
-        className={`mt-2 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
+        className={`mt-1.5 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
         title={user.name}
       >
         {user.name.toLowerCase()}
@@ -1469,7 +1534,7 @@ function RankingPodiumSlot({
           pódio de verdade em vez de só variar o tamanho do avatar. Largura em
           clamp() cqh, mesmo motivo/proporção de PODIUM_BASE_HEIGHT acima. */}
       <div
-        className="mt-2 rounded-t-md"
+        className="mt-1.5 rounded-t-md"
         style={{
           width: "clamp(2.3rem, 5.93cqh, 7.4rem)",
           height: PODIUM_BASE_HEIGHT[place],
