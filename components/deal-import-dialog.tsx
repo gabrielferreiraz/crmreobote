@@ -417,6 +417,26 @@ export function DealImportDialog({
           </div>
         </div>
 
+        {/* "Duplicado evitado" no resumo/tabela pode soar como "atualizamos
+            o que já existia" — não é isso. Pedido explícito: deixar
+            explícito na tela (não só escondido no title= do badge da
+            tabela) que a linha inteira foi ignorada, nenhum campo mudou no
+            negócio existente. Só aparece quando o número é > 0, pra não
+            poluir a tela mais comum (importação sem duplicata nenhuma). */}
+        {s.duplicateDeals > 0 && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/40">
+            <Info className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+            <p className="text-neutral-600 dark:text-neutral-400">
+              <strong className="text-neutral-800 dark:text-neutral-200">
+                {s.duplicateDeals} linha{s.duplicateDeals === 1 ? "" : "s"} ignorada{s.duplicateDeals === 1 ? "" : "s"}
+              </strong>{" "}
+              — esse{s.duplicateDeals === 1 ? "" : "s"} contato{s.duplicateDeals === 1 ? "" : "s"} já tem negócio aberto
+              nesse funil. Nada é atualizado nele: se a planilha trouxer um responsável, valor ou etapa diferente do que
+              já está no CRM, essa diferença é ignorada — a importação só cria negócio novo, nunca edita um existente.
+            </p>
+          </div>
+        )}
+
         {/* WhatsApp não é um campo "opcional" comum — sem ele, todo contato
             entra como "novo" (mesmo já existindo) e ninguém consegue
             conversar com esse lead pelo CRM depois. Aviso explícito, igual
@@ -662,11 +682,22 @@ export function DealImportDialog({
   return (
     <Modal onClose={onClose}>
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Importar negócios</h2>
-      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
+      <p className="mb-2 text-sm text-neutral-500 dark:text-neutral-400">
         Arquivo .csv ou .xlsx com colunas: contato (obrigatório), whatsapp, telefone/celular, email, origem, negocio, valor,
         etapa, responsavel, tipo de credito. O nome da coluna pode variar — se não reconhecermos, você aponta manualmente na
         próxima tela.
       </p>
+      {/* Pedido explícito: deixar claro ANTES de escolher o arquivo que
+          isso só cria negócio novo, nunca atualiza um que já existe — quem
+          reexporta negócios, edita uma coluna (ex.: responsável) na
+          planilha e sobe de volta esperando "sincronizar" precisa saber
+          antes de tentar, não descobrir só depois vendo "Duplicado" na
+          prévia sem entender o que isso significa de verdade. */}
+      <div className="mb-4 flex items-start gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+        <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+        Só cria negócio novo. Se o contato já tiver um negócio aberto nesse funil, a linha é pulada — nenhum campo
+        (responsável, valor, etapa...) é atualizado no negócio existente.
+      </div>
       <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 p-6 text-center hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800/60">
         {step === "analyzing" ? (
           <>
