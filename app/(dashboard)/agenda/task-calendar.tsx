@@ -9,6 +9,7 @@ import { TaskRow, type Task } from "./task-row";
 import { TaskDetailModal } from "./task-detail-modal";
 import { GoogleEventDetailModal } from "./google-event-detail-modal";
 import { useMeetingOutcomeGate } from "./use-meeting-outcome-gate";
+import type { Option } from "./tasks-list";
 
 export type GoogleEvent = {
   id: string;
@@ -42,15 +43,18 @@ export function TaskCalendar({
   canDelete,
   showOwner,
   googleEvents = [],
+  deals,
 }: {
   tasks: Task[];
   onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
-  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  /** Qualquer papel com acesso à tarefa pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
   showOwner: boolean;
   /** Eventos importados do Google Agenda da pessoa (ver components/google-calendar-connect.tsx) — só leitura, nunca editáveis aqui. */
   googleEvents?: GoogleEvent[];
+  /** Repassado pro TaskDetailModal — habilita o botão "Editar" (ver EditTaskDialog). */
+  deals?: Option[];
 }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -242,7 +246,7 @@ export function TaskCalendar({
           </h2>
           <div className="scrollbar-thin max-h-[75vh] space-y-2.5 overflow-y-auto pb-2">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
-              <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} />
+              <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} deals={deals} />
             ))}
             {(googleEventsByDay.get(selectedDay.toDateString()) ?? []).map((e) => (
               <button
@@ -281,6 +285,7 @@ export function TaskCalendar({
           }}
           canDelete={canDelete}
           onDelete={onDelete}
+          deals={deals}
         />
       )}
 

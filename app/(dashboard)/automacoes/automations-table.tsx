@@ -428,11 +428,12 @@ export function AutomationsTable({
                         setEditRule(rule);
                         setOpen(true);
                       }}
-                      className="icon-btn shrink-0"
+                      className="icon-btn-labeled shrink-0"
                       aria-label="Editar automação"
                       title="Editar automação"
                     >
                       <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                      Editar
                     </button>
                   )}
 

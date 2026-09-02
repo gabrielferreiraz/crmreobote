@@ -149,8 +149,9 @@ export function ScriptsTable({ initialScripts }: { initialScripts: Script[] }) {
                     <Link href={`/whatsapp/scripts/novo?duplicate=${s.id}`} className="icon-btn" aria-label="Duplicar">
                       <Copy className="h-3.5 w-3.5" strokeWidth={2} />
                     </Link>
-                    <Link href={`/whatsapp/scripts/${s.id}`} className="icon-btn" aria-label="Editar">
+                    <Link href={`/whatsapp/scripts/${s.id}`} className="icon-btn-labeled" aria-label="Editar">
                       <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                      Editar
                     </Link>
                     <button
                       type="button"

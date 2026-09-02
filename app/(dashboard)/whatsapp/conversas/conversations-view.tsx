@@ -2,15 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff, WifiOff } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff, WifiOff, CheckSquare, Square } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
+import { SelectionBar } from "@/components/selection-bar";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ChatWindow, withViewTransition } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { ContactInfoPanel } from "./contact-info-panel";
+import { BulkSendConversationsDialog } from "@/components/bulk-send-conversations-dialog";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 
@@ -174,6 +176,7 @@ export function ConversationsView({
   whatsappConnected?: boolean;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const paramThreadId = searchParams?.get("threadId");
   const paramContactId = searchParams?.get("contactId");
@@ -222,6 +225,18 @@ export function ConversationsView({
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
   const [notificationError, setNotificationError] = useState<string | null>(null);
+
+  // Multi-seleção — só na aba "crm", só conversas do próprio usuário.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
+  const [bulkSendOpen, setBulkSendOpen] = useState(false);
+
+  // Sair do modo seleção ao trocar de aba.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectMode(false);
+    setSelectedThreadIds(new Set());
+  }, [tab]);
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
 
@@ -401,6 +416,15 @@ export function ConversationsView({
     withViewTransition(() => setSelectedThreadId(threadId));
   }
 
+  function toggleThreadSelection(threadId: string) {
+    setSelectedThreadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(threadId)) next.delete(threadId);
+      else next.add(threadId);
+      return next;
+    });
+  }
+
   function handleDealAdded(threadId: string, result: { contactId: string; deal: { id: string; name: string } }) {
     setConversations((prev) =>
       prev.map((c) => (c.threadId === threadId ? { ...c, contactId: result.contactId, deal: result.deal } : c)),
@@ -470,6 +494,24 @@ export function ConversationsView({
           >
             Não lidas{unreadTotal > 0 && ` · ${unreadTotal}`}
           </button>
+          {/* Botão "Selecionar" — só na aba CRM e quando conectado. */}
+          {tab === "crm" && whatsappConnected && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectMode((v) => !v);
+                setSelectedThreadIds(new Set());
+              }}
+              className={`shrink-0 rounded-2xl border px-3 py-1.5 text-xs font-medium transition-all ${
+                selectMode
+                  ? "border-transparent bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
+                  : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              }`}
+              title={selectMode ? "Cancelar seleção" : "Selecionar conversas para envio em massa"}
+            >
+              {selectMode ? "Cancelar" : "Selecionar"}
+            </button>
+          )}
         </div>
 
         {showOwnerInfo && (
@@ -487,6 +529,49 @@ export function ConversationsView({
             tamanho de TODAS as conversas em vez de ficar presa aqui dentro e
             rolar sozinha, vazando a barra de rolagem pra página inteira
             (ver comentário mais detalhado no início do componente). */}
+        {/* SelectionBar + botão "Selecionar todas" — flutua sobre a lista. */}
+        {selectMode && (
+          <div className="shrink-0 space-y-1.5 px-1.5 pb-1.5">
+            {selectedThreadIds.size > 0 ? (
+              <SelectionBar
+                count={selectedThreadIds.size}
+                onClear={() => setSelectedThreadIds(new Set())}
+              >
+                <button
+                  type="button"
+                  onClick={() => setBulkSendOpen(true)}
+                  className="btn-primary py-0.5 text-xs"
+                >
+                  Enviar em massa
+                </button>
+              </SelectionBar>
+            ) : null}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  // Marca todas as visíveis do próprio usuário de uma só vez.
+                  const eligible = filteredConversations
+                    .filter((c) => c.ownerId === currentUserId)
+                    .map((c) => c.threadId);
+                  setSelectedThreadIds(new Set(eligible));
+                }}
+                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+              >
+                <CheckSquare className="h-3 w-3" strokeWidth={2} />
+                Selecionar todas as visíveis
+              </button>
+              {/* Só faz sentido explicar a regra quando dá pra ver conversa de
+                  mais de um responsável (dono/gerente) — pra quem só vê as
+                  próprias, toda linha já é selecionável, não há o que avisar. */}
+              {showOwnerInfo && (
+                <span className="shrink-0 text-[11px] text-neutral-400 dark:text-neutral-500">
+                  Só suas próprias conversas
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5 pb-4">
           {tabConversations.length === 0 ? (
             <div className="relative flex h-full items-center justify-center overflow-hidden rounded-2xl">
@@ -520,6 +605,10 @@ export function ConversationsView({
                     conversation={c}
                     isActive={c.threadId === selectedThreadId}
                     justArrived={justArrived.has(c.threadId)}
+                    isCurrentUser={c.ownerId === currentUserId}
+                    selectMode={selectMode}
+                    selected={selectedThreadIds.has(c.threadId)}
+                    onToggleSelect={() => toggleThreadSelection(c.threadId)}
                     onSelect={() => selectConversation(c.threadId)}
                   />
                 ))}
@@ -534,6 +623,9 @@ export function ConversationsView({
                 showOwner={showOwnerInfo}
                 isCurrentUser={c.ownerId === currentUserId}
                 justArrived={justArrived.has(c.threadId)}
+                selectMode={selectMode}
+                selected={selectedThreadIds.has(c.threadId)}
+                onToggleSelect={() => toggleThreadSelection(c.threadId)}
                 onSelect={() => selectConversation(c.threadId)}
               />
             ))
@@ -590,6 +682,11 @@ export function ConversationsView({
               currentUserName={currentUserName}
               currentUserPhotoUrl={currentUserPhotoUrl}
               onClose={() => withViewTransition(() => setSelectedThreadId(null))}
+              onRenamed={(name) =>
+                setConversations((prev) =>
+                  prev.map((c) => (c.threadId === selected.threadId ? { ...c, displayName: name } : c)),
+                )
+              }
               className="min-h-0 flex-1"
             />
 
@@ -646,6 +743,21 @@ export function ConversationsView({
           ficava visível por um instante com o contato errado enquanto o
           novo fetch ainda não tinha voltado. */}
       {selected?.contactId && <ContactInfoPanel key={selected.contactId} contactId={selected.contactId} />}
+
+      {bulkSendOpen && (
+        <BulkSendConversationsDialog
+          recipients={filteredConversations
+            .filter((c) => selectedThreadIds.has(c.threadId) && c.contactId)
+            .map((c) => ({ contactId: c.contactId!, dealId: c.deal?.id ?? null }))}
+          onClose={() => setBulkSendOpen(false)}
+          onSent={() => {
+            setBulkSendOpen(false);
+            setSelectMode(false);
+            setSelectedThreadIds(new Set());
+          }}
+          onCreateScript={() => router.push(`/whatsapp/scripts/novo?returnTo=${encodeURIComponent("/whatsapp/conversas")}`)}
+        />
+      )}
     </div>
   );
 }
@@ -661,6 +773,9 @@ export function ConversationRow({
   showOwner,
   isCurrentUser,
   justArrived,
+  selectMode,
+  selected,
+  onToggleSelect,
   onSelect,
 }: {
   conversation: Conversation;
@@ -668,77 +783,118 @@ export function ConversationRow({
   showOwner?: boolean;
   isCurrentUser?: boolean;
   justArrived?: boolean;
+  /** Modo de seleção em massa ativo — revela checkboxes. */
+  selectMode?: boolean;
+  /** Esta linha está selecionada. */
+  selected?: boolean;
+  /** Chamado quando o usuário clica no checkbox desta linha. */
+  onToggleSelect?: () => void;
   onSelect: () => void;
 }) {
   const unread = c.unreadCount > 0;
 
+  const canSelect = selectMode && isCurrentUser && !!onToggleSelect;
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex w-full items-start gap-2.5 rounded-md border-l-2 p-2.5 text-left transition-all hover:-translate-y-px active:translate-y-0 ${
-        isActive
-          ? "border-l-brand bg-white shadow-sm ring-1 ring-neutral-200/50 dark:border-l-brand dark:bg-neutral-800 dark:ring-neutral-700"
-          : "border-l-transparent hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-neutral-200/50 dark:hover:bg-neutral-800/60 dark:hover:ring-neutral-800"
-      } ${justArrived ? "animate-highlight-once" : ""}`}
-    >
-      <div className="group relative mt-0.5 shrink-0">
-        <Avatar
-          name={c.displayName}
-          src={c.profilePicUrl}
-          size="sm"
-          className="transition-shadow group-hover:ring-2 group-hover:ring-brand/30 group-hover:ring-offset-1 group-hover:ring-offset-transparent dark:group-hover:ring-brand/50"
-        />
-        <span className="absolute -right-0.5 -bottom-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white ring-2 ring-white dark:bg-neutral-900 dark:ring-neutral-900">
-          <WhatsAppIcon className="h-2.5 w-2.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />
-        </span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <p
-            className={`truncate text-sm ${
-              unread
-                ? "font-semibold text-neutral-900 dark:text-neutral-100"
-                : "font-medium text-neutral-700 dark:text-neutral-300"
-            }`}
+    <div className={`relative flex items-stretch gap-0 rounded-md transition-all ${selected ? "ring-1 ring-brand/40 dark:ring-brand/30" : ""}`}>
+      {/* Checkbox — irmão do botão, nunca dentro dele. A coluna aparece pra
+          TODA linha durante selectMode (mesmo alinhamento pra lista
+          inteira); só é clicável nas conversas do próprio usuário — nas
+          demais mostra um quadrado apagado, deixando claro que a linha
+          existe mas não pode ser marcada (em vez de sumir sem explicação). */}
+      {selectMode && (
+        canSelect ? (
+          <button
+            type="button"
+            onClick={onToggleSelect}
+            aria-label={selected ? "Desmarcar conversa" : "Selecionar conversa"}
+            aria-pressed={selected}
+            className="flex w-8 shrink-0 items-center justify-center rounded-l-md transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
           >
-            {c.displayName}
-          </p>
+            {selected ? (
+              <CheckSquare className="h-4 w-4 text-brand" strokeWidth={2} />
+            ) : (
+              <Square className="h-4 w-4 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+            )}
+          </button>
+        ) : (
           <span
-            className={`shrink-0 text-[10px] ${
-              unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-400 dark:text-neutral-500"
-            }`}
+            title="Só é possível enviar mensagem em massa pelas suas próprias conversas"
+            className="flex w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-l-md"
           >
-            {formatWhen(c.lastMessageAt)}
+            <Square className="h-4 w-4 text-neutral-200 dark:text-neutral-800" strokeWidth={2} />
+          </span>
+        )
+      )}
+      <button
+        type="button"
+        onClick={canSelect ? onToggleSelect : onSelect}
+        className={`flex min-w-0 flex-1 items-start gap-2.5 border-l-2 p-2.5 text-left transition-all hover:-translate-y-px active:translate-y-0 ${
+          selectMode ? "rounded-r-md" : "rounded-md"
+        } ${
+          isActive
+            ? "border-l-brand bg-white shadow-sm ring-1 ring-neutral-200/50 dark:border-l-brand dark:bg-neutral-800 dark:ring-neutral-700"
+            : "border-l-transparent hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-neutral-200/50 dark:hover:bg-neutral-800/60 dark:hover:ring-neutral-800"
+        } ${justArrived ? "animate-highlight-once" : ""}`}
+      >
+        <div className="group relative mt-0.5 shrink-0">
+          <Avatar
+            name={c.displayName}
+            src={c.profilePicUrl}
+            size="sm"
+            className="transition-shadow group-hover:ring-2 group-hover:ring-brand/30 group-hover:ring-offset-1 group-hover:ring-offset-transparent dark:group-hover:ring-brand/50"
+          />
+          <span className="absolute -right-0.5 -bottom-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white ring-2 ring-white dark:bg-neutral-900 dark:ring-neutral-900">
+            <WhatsAppIcon className="h-2.5 w-2.5 text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />
           </span>
         </div>
-        <div className="mt-0.5 flex items-center justify-between gap-2">
-          <p
-            className={`min-w-0 truncate text-xs ${
-              unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-500 dark:text-neutral-400"
-            }`}
-          >
-            {c.lastMessageDirection === "OUTBOUND" ? "Você: " : ""}
-            {c.lastMessagePreview}
-          </p>
-          {unread && (
-            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
-              {c.unreadCount}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p
+              className={`truncate text-sm ${
+                unread
+                  ? "font-semibold text-neutral-900 dark:text-neutral-100"
+                  : "font-medium text-neutral-700 dark:text-neutral-300"
+              }`}
+            >
+              {c.displayName}
+            </p>
+            <span
+              className={`shrink-0 text-[10px] ${
+                unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-400 dark:text-neutral-500"
+              }`}
+            >
+              {formatWhen(c.lastMessageAt)}
             </span>
+          </div>
+          <div className="mt-0.5 flex items-center justify-between gap-2">
+            <p
+              className={`min-w-0 truncate text-xs ${
+                unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-500 dark:text-neutral-400"
+              }`}
+            >
+              {c.lastMessageDirection === "OUTBOUND" ? "Você: " : ""}
+              {c.lastMessagePreview}
+            </p>
+            {unread && (
+              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
+                {c.unreadCount}
+              </span>
+            )}
+          </div>
+          {c.deal && (
+            <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+              <Briefcase className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
+              {c.deal.name}
+            </p>
+          )}
+          {showOwner && (
+            <p className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+              Responsável: {isCurrentUser ? "Você" : c.ownerName}
+            </p>
           )}
         </div>
-        {c.deal && (
-          <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-            <Briefcase className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
-            {c.deal.name}
-          </p>
-        )}
-        {showOwner && (
-          <p className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
-            Responsável: {isCurrentUser ? "Você" : c.ownerName}
-          </p>
-        )}
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }

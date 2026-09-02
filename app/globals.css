@@ -31,6 +31,12 @@
      importado de outro lugar), só escurecido/dessaturado pra funcionar como
      fundo de card em vez de acento. */
   --brand-gradient-dark: linear-gradient(150deg, #232a52 0%, #171a3a 55%, #0e0f24 100%);
+  /* Fundo-pai do CRM inteiro (ver `body` abaixo) — bem sutil de propósito
+     (pedido explícito): mesmo tom de --background, só com uma variação de
+     luminosidade mínima na diagonal, nunca uma cor nova. Não é pra "chamar
+     atenção", é pra tirar a chapado da tela inteira sendo 1 cor sólida só —
+     em monitor grande/tela cheia isso se sente sem se notar conscientemente. */
+  --page-gradient: linear-gradient(160deg, #fcfcfe 0%, #f9fafb 45%, #f3f3f9 100%);
 }
 
 .dark {
@@ -47,6 +53,9 @@
   --brand-gradient: linear-gradient(135deg, #7274f0 0%, #4f50d8 55%, #3f40c2 100%);
   --brand-gradient-hero: linear-gradient(140deg, #7476f2 0%, #5152da 50%, #3b3cbe 100%);
   --brand-gradient-dark: linear-gradient(150deg, #23262f 0%, #15171f 60%, #101219 100%);
+  /* Mesma ideia do :root acima, com a paleta escura — parte do #0a0a0a de
+     sempre, só clareia/escurece uma sombra na diagonal. */
+  --page-gradient: linear-gradient(160deg, #0d0d10 0%, #0a0a0a 45%, #070708 100%);
 }
 
 ::view-transition-old(root),
@@ -140,7 +149,8 @@
 }
 
 body {
-  background: var(--background);
+  background: var(--page-gradient);
+  background-attachment: fixed;
   color: var(--foreground);
   /* Some o flash cinza/azul padrão do navegador ao tocar em algo — já temos
      estado de "pressionado" próprio (active:scale-*) em botões e cards. */
@@ -911,6 +921,20 @@ input[type="radio"] {
       transform 150ms var(--ease-spring);
   }
 
+  /* Igual ao .icon-btn (mesmas cores/estados), só que com largura livre e
+     espaço pro rótulo em texto ao lado do ícone — usado nos botões de
+     "Editar" que antes eram só o lápis sozinho. Ver nota no CLAUDE.md/pedido
+     do usuário: usuário tinha dificuldade de ENXERGAR o botão de editar só
+     com ícone; texto do lado resolve isso sem precisar de tooltip/hover pra
+     descobrir o que o ícone faz. */
+  .icon-btn-labeled {
+    @apply inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 active:scale-[0.97] active:bg-neutral-100 active:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-300 dark:active:bg-neutral-800 dark:active:text-neutral-300;
+    transition:
+      background-color 200ms var(--ease-smooth),
+      color 200ms var(--ease-smooth),
+      transform 150ms var(--ease-spring);
+  }
+
   /* Pílula de variável inserida no meio do texto (ver components/variable-input.tsx)
      — criada via innerHTML (não JSX), por isso vive como classe de verdade
      aqui em vez de className inline. */
@@ -1251,5 +1275,9 @@ input[type="radio"] {
   .icon-btn {
     min-height: 2.75rem;
     min-width: 2.75rem;
+  }
+
+  .icon-btn-labeled {
+    min-height: 2.75rem;
   }
 }

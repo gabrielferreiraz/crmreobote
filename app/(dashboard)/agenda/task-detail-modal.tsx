@@ -20,6 +20,7 @@ import {
   Calendar,
   UserCheck,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
@@ -30,6 +31,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { renderTemplate } from "@/lib/campaigns/spintax";
 import { brazilGreeting } from "@/lib/timezone";
 import { type Task, scheduledMessageStatus } from "./task-row";
+import { EditTaskDialog } from "./edit-task-dialog";
+import type { Option } from "./tasks-list";
 
 function formatDateTime(dateStr: string | Date | null): string {
   if (!dateStr) return "";
@@ -77,15 +80,21 @@ export function TaskDetailModal({
   onToggle,
   canDelete,
   onDelete,
+  deals,
 }: {
   task: Task;
   completed: boolean;
   justCompleted: boolean;
   onClose: () => void;
   onToggle: () => void;
-  /** Só o Dono da organização pode excluir — ver app/api/tasks/[id]/route.ts (DELETE restrito a OWNER). */
+  /** Qualquer papel com acesso à tarefa pode excluir — ver app/api/tasks/[id]/route.ts (DELETE). */
   canDelete?: boolean;
   onDelete?: (id: string) => Promise<void> | void;
+  /** Lista de negócios pra trocar o vínculo no formulário de edição — se
+   * omitido, o botão "Editar" nem aparece (nenhum dos usos atuais deixa de
+   * passar, mas evita um formulário quebrado sem opção de negócio nenhuma
+   * se algum consumidor novo esquecer). */
+  deals?: Option[];
 }) {
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
@@ -93,6 +102,7 @@ export function TaskDetailModal({
   const rel = relativeTime(task.dueAt, completed);
   const msgStatus = scheduledMessageStatus(task);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   // Link para o chat interno do CRM
   const crmChatUrl = task.contact ? `/whatsapp/conversas?contactId=${task.contact.id}` : "";
@@ -100,6 +110,7 @@ export function TaskDetailModal({
   const emailUrl = task.contact?.email ? `mailto:${task.contact.email}` : "";
 
   return (
+    <>
     <Modal onClose={onClose} maxWidth="max-w-md">
       <div className="flex flex-col">
         {/* Top Header - Icon, Title and Close Button */}
@@ -310,7 +321,23 @@ export function TaskDetailModal({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Excluir — só o Dono vê este botão (ver DELETE /api/tasks/[id], restrito a OWNER). */}
+            {/* Editar — título, prazo, negócio ("trocar de negócio") e
+                contato; qualquer papel com acesso à tarefa vê este botão
+                (ver EditTaskDialog e PUT /api/tasks/[id]). */}
+            {deals && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="icon-btn-labeled"
+                aria-label="Editar"
+                title="Editar"
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                Editar
+              </button>
+            )}
+
+            {/* Excluir — qualquer papel com acesso à tarefa vê este botão (ver DELETE /api/tasks/[id]). */}
             {canDelete && (
               <button
                 type="button"
@@ -357,5 +384,22 @@ export function TaskDetailModal({
         />
       )}
     </Modal>
+
+    {editing && deals && (
+      // Fecha os dois (não só o de edição) ao salvar — o `task` deste modal
+      // é a versão ANTIGA (veio de uma lista já obsoleta assim que salva);
+      // deixá-lo aberto mostraria dado desatualizado até o próximo refresh
+      // manual. Mesmo raciocínio do onCreated de NewTaskDialog.
+      <EditTaskDialog
+        task={task}
+        deals={deals}
+        onClose={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false);
+          onClose();
+        }}
+      />
+    )}
+    </>
   );
 }

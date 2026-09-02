@@ -1449,7 +1449,14 @@ const PODIUM_RING = ["#eab308", "#cbd5e1", "#b45309"];
 // precisa crescer/encolher junto com avatar/texto ao redor conforme o
 // canvas muda de tamanho, em vez de ficar num valor fixo que desentoaria
 // do resto.
-const PODIUM_BASE_HEIGHT = ["clamp(1.1rem, 2.82cqh, 3.5rem)", "clamp(0.8rem, 2cqh, 2.5rem)", "clamp(0.55rem, 1.41cqh, 1.75rem)"];
+// Reduzida (era 3.5/2.5/1.75rem no teto) — pedido explícito: o card de
+// Ranking estava cortando o valor (e, pro 1º lugar, o selo "Vendedor do
+// mês") na TV real, overflow-hidden sem rolagem (ver comentário em
+// tv-view.tsx's painel de métricas: "se não couber, o certo é ajustar os
+// tokens"). Essa base é só decorativa (a forma de pódio já é reforçada pelo
+// tamanho do avatar/coroa) — é o primeiro lugar a ceder antes de qualquer
+// coisa que carregue informação (nome, valor, selo).
+const PODIUM_BASE_HEIGHT = ["clamp(0.65rem, 1.7cqh, 2.1rem)", "clamp(0.5rem, 1.2cqh, 1.5rem)", "clamp(0.35rem, 0.85cqh, 1.05rem)"];
 const PODIUM_AVATAR_VAR = ["var(--tv-avatar-lg)", "var(--tv-avatar-md)", "var(--tv-avatar-md)"];
 const PODIUM_MEDAL = ["", "🥈", "🥉"];
 
@@ -1509,7 +1516,7 @@ function RankingPodiumSlot({
         )}
       </div>
       <div
-        className={`mt-1.5 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
+        className={`mt-1 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
         title={user.name}
       >
         {user.name.toLowerCase()}
@@ -1520,21 +1527,17 @@ function RankingPodiumSlot({
       >
         <CountUpValue value={user.total} format="currency-compact" />
       </div>
-      {/* Só o 1º lugar ganha esse selo — reforça "é você mesmo, é o
-          vendedor do mês" sem precisar ler número nenhum pra entender. */}
-      {place === 0 && (
-        <p
-          className="mt-0.5 font-bold tracking-wide uppercase text-[length:var(--tv-text-label)]"
-          style={{ color: ring }}
-        >
-          🏆 Vendedor do mês
-        </p>
-      )}
+      {/* Selo "🏆 Vendedor do mês" removido — pedido explícito: essa linha a
+          mais (crown/anel dourado/avatar maior já sinalizam 1º lugar sozinhos)
+          era o que sobrava de mais impactante pra cortar depois que a base do
+          pódio encolhida (ver PODIUM_BASE_HEIGHT acima) não bastou: o VALOR
+          do 1º lugar estava sendo cortado de verdade na TV real, não só a
+          decoração abaixo dele. */}
       {/* Barra da base do pódio — 1º mais alta, 3º mais baixa, dá a forma de
           pódio de verdade em vez de só variar o tamanho do avatar. Largura em
           clamp() cqh, mesmo motivo/proporção de PODIUM_BASE_HEIGHT acima. */}
       <div
-        className="mt-1.5 rounded-t-md"
+        className="mt-1 rounded-t-md"
         style={{
           width: "clamp(2.3rem, 5.93cqh, 7.4rem)",
           height: PODIUM_BASE_HEIGHT[place],

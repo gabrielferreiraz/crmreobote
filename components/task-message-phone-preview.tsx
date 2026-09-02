@@ -12,12 +12,12 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 /** Moldura de celular simplificada — cabeçalho estilo WhatsApp + área de conversa com o fundo de pontinhos já usado no chat de verdade. */
 export function PhoneMock({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto w-52 overflow-hidden rounded-[1.4rem] border border-neutral-300 bg-white shadow-lg dark:border-neutral-700">
+    <div className="mx-auto w-full max-w-72 overflow-hidden rounded-[1.4rem] border border-neutral-300 bg-white shadow-lg dark:border-neutral-700">
       <div className="flex items-center gap-2 bg-emerald-600 px-3 py-2">
         <span className="h-6 w-6 shrink-0 rounded-full bg-white/25" />
         <span className="h-2 w-20 rounded-full bg-white/40" />
       </div>
-      <div className="chat-bg-dots relative flex min-h-[132px] flex-col justify-end bg-[#e5ded6] p-2.5 dark:bg-neutral-800">
+      <div className="chat-bg-dots relative flex min-h-[110px] flex-col justify-end bg-[#e5ded6] p-2.5 dark:bg-neutral-800">
         {children}
       </div>
     </div>
@@ -66,7 +66,10 @@ export function MessageBubblePreview({ text, animate }: { text: string; animate?
         animate ? "animate-bubble-pop-in" : ""
       }`}
     >
-      <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-neutral-800">{renderWhatsAppFormatting(text)}</p>
+      {/* break-words — sem isso, um link comprido sem espaço nenhum (o
+          "adicionar à agenda" do convite de reunião, por exemplo) estourava
+          pra fora da bolha/moldura do celular em vez de quebrar linha. */}
+      <p className="text-[12px] leading-relaxed break-words whitespace-pre-wrap text-neutral-800">{renderWhatsAppFormatting(text)}</p>
       <p className="mt-0.5 text-right text-[9px] text-neutral-400">agora</p>
     </div>
   );

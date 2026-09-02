@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarPlus, Loader2, MessageCircle, Send, ChevronLeft, Video, Copy, Check, Bell } from "lucide-react";
+import { CalendarPlus, Loader2, MessageCircle, Send, ChevronLeft, Video, Copy, Check, Bell, UserRound, MessageSquareText } from "lucide-react";
 import { Modal } from "./modal";
 import { AnimatedCheck } from "./animated-check";
 import { Select } from "./select";
@@ -75,7 +75,12 @@ export function MeetingInviteDialog({
   isWhatsAppConnected: boolean;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<"prompt" | "compose" | "sent" | "reminder-setup" | "reminder-saved">("prompt");
+  const [step, setStep] = useState<
+    "prompt" | "compose" | "sent" | "reminder-choice" | "reminder-setup" | "self-reminder-setup" | "reminder-saved"
+  >("prompt");
+  // Qual dos dois avisos foi programado por último — só pra escolher a
+  // frase certa na tela de "reminder-saved" (as duas passam por ali).
+  const [savedReminderFor, setSavedReminderFor] = useState<"client" | "self">("client");
   const [template, setTemplate] = useState(DEFAULT_MEETING_INVITE_TEMPLATE);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +103,12 @@ export function MeetingInviteDialog({
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Aviso PUSH pro próprio consultor — bem mais simples que o do cliente
+  // acima (só minutos, sem mensagem/script pra escrever).
+  const [selfReminderMinutes, setSelfReminderMinutes] = useState("15");
+  const [selfReminderSaving, setSelfReminderSaving] = useState(false);
+  const [selfReminderError, setSelfReminderError] = useState<string | null>(null);
 
   // Busca o template já salvo deste vendedor assim que o diálogo monta — a
   // 1ª bolha do preview animado só aparece ~1.2s depois (AnimatedPhonePreview),
@@ -239,6 +250,25 @@ export function MeetingInviteDialog({
       setReminderError(data.error ?? "Erro ao programar aviso");
       return;
     }
+    setSavedReminderFor("client");
+    setStep("reminder-saved");
+  }
+
+  async function handleSaveSelfReminder() {
+    setSelfReminderSaving(true);
+    setSelfReminderError(null);
+    const res = await fetch(`/api/tasks/${task.id}/schedule-self-reminder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutesBefore: Number(selfReminderMinutes) }),
+    });
+    setSelfReminderSaving(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setSelfReminderError(data.error ?? "Erro ao programar aviso");
+      return;
+    }
+    setSavedReminderFor("self");
     setStep("reminder-saved");
   }
 
@@ -246,7 +276,7 @@ export function MeetingInviteDialog({
     reminderSource === "custom" ? reminderMessage.trim().length > 0 : !!selectedScriptId;
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-sm">
+    <Modal onClose={onClose} maxWidth="max-w-md">
       {step === "prompt" && (
         <div className="space-y-4">
           <div>
@@ -324,12 +354,21 @@ export function MeetingInviteDialog({
               ))}
             {meetError && <p className="text-center text-xs text-red-600 dark:text-red-400">{meetError}</p>}
 
-            {canScheduleReminder && (
-              <button type="button" onClick={openReminderSetup} className="btn-ghost w-full justify-center border border-neutral-200 dark:border-neutral-700">
-                <Bell className="h-4 w-4" strokeWidth={2} />
-                Programar aviso automático
-              </button>
-            )}
+            {/* Sempre disponível — diferente do "Sim, enviar" acima (que
+                precisa de WhatsApp conectado + o cliente ter número), "Me
+                avisar" (ver reminder-choice abaixo) não depende de nada
+                disso, só existe uma reunião marcada. */}
+            <button
+              type="button"
+              onClick={() => {
+                setReminderError(null);
+                setStep("reminder-choice");
+              }}
+              className="btn-ghost w-full justify-center border border-neutral-200 dark:border-neutral-700"
+            >
+              <Bell className="h-4 w-4" strokeWidth={2} />
+              Programar aviso automático
+            </button>
 
             <a
               href={ownCalendarUrl}
@@ -394,12 +433,96 @@ export function MeetingInviteDialog({
         </div>
       )}
 
-      {step === "reminder-setup" && (
+      {step === "reminder-choice" && (
         <div className="animate-step-slide-in space-y-4">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setStep("prompt")}
+              className="icon-btn -ml-1 shrink-0 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+              aria-label="Voltar"
+            >
+              <ChevronLeft className="h-4 w-4" strokeWidth={2} />
+            </button>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Programar aviso automático</h2>
+          </div>
+
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Quem deve receber o aviso antes da reunião?</p>
+
+          <div className="flex flex-col gap-2">
+            {canScheduleReminder ? (
+              <button type="button" onClick={openReminderSetup} className="btn-secondary w-full items-start justify-start gap-3 py-3 text-left">
+                <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
+                <span className="min-w-0">
+                  <span className="block font-medium">Avisar cliente</span>
+                  <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">Mensagem de WhatsApp pro {task.contact.name.split(" ")[0]}, escrita por você ou um script.</span>
+                </span>
+              </button>
+            ) : (
+              <p className="rounded-lg bg-neutral-100 px-3 py-2 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                {!hasClientNumber
+                  ? "Esse cliente não tem WhatsApp/celular cadastrado — não dá pra avisar ele automaticamente."
+                  : "Seu WhatsApp não está conectado — conecte em Configurações pra poder avisar o cliente."}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelfReminderError(null);
+                setStep("self-reminder-setup");
+              }}
+              className="btn-secondary w-full items-start justify-start gap-3 py-3 text-left"
+            >
+              <UserRound className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
+              <span className="min-w-0">
+                <span className="block font-medium">Me avisar</span>
+                <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">Notificação push só pra você, direto no navegador/celular.</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "self-reminder-setup" && (
+        <div className="animate-step-slide-in space-y-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setStep("reminder-choice")}
+              className="icon-btn -ml-1 shrink-0 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+              aria-label="Voltar"
+            >
+              <ChevronLeft className="h-4 w-4" strokeWidth={2} />
+            </button>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Me avisar</h2>
+          </div>
+
+          <div className="space-y-1">
+            <label className="field-label">Enviar notificação</label>
+            <Select value={selfReminderMinutes} onChange={setSelfReminderMinutes} options={REMINDER_MINUTES_PRESETS} className="w-full" />
+          </div>
+
+          {selfReminderError && <p className="text-sm text-red-600 dark:text-red-400">{selfReminderError}</p>}
+
+          <button
+            type="button"
+            onClick={handleSaveSelfReminder}
+            disabled={selfReminderSaving}
+            className="btn-primary w-full justify-center"
+          >
+            {selfReminderSaving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {selfReminderSaving ? "Programando…" : "Programar aviso"}
+          </button>
+        </div>
+      )}
+
+      {step === "reminder-setup" && (
+        <div className="animate-step-slide-in space-y-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setStep("reminder-choice")}
               className="icon-btn -ml-1 shrink-0 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               aria-label="Voltar"
             >
@@ -515,7 +638,13 @@ export function MeetingInviteDialog({
         <div className="animate-step-slide-in flex flex-col items-center gap-3 py-6 text-center">
           <AnimatedCheck className="h-10 w-10 text-emerald-500" justDrawn />
           <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-            Aviso programado! Vai sair automaticamente {REMINDER_MINUTES_PRESETS.find((p) => p.value === reminderMinutes)?.label.toLowerCase() ?? `${reminderMinutes} min antes`} da reunião.
+            {savedReminderFor === "client"
+              ? `Aviso programado! Vai sair pro cliente automaticamente ${
+                  REMINDER_MINUTES_PRESETS.find((p) => p.value === reminderMinutes)?.label.toLowerCase() ?? `${reminderMinutes} min antes`
+                } da reunião.`
+              : `Combinado! Você recebe uma notificação ${
+                  REMINDER_MINUTES_PRESETS.find((p) => p.value === selfReminderMinutes)?.label.toLowerCase() ?? `${selfReminderMinutes} min antes`
+                } da reunião.`}
           </p>
           <button type="button" onClick={onClose} className="btn-ghost">
             Fechar

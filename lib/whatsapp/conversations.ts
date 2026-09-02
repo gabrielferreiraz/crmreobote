@@ -115,8 +115,19 @@ export async function listConversations(
     return {
       threadId: thread.id,
       contactId: thread.contactId,
+      // customName entra ANTES de whatsappName, de propósito: é o apelido
+      // manual (ver rename em app/api/whatsapp/threads/[threadId]/rename)
+      // que existe justamente pra sobrepor o que a Evolution manda — se
+      // caísse depois, um pushName novo chegando (ver getOrCreateThread em
+      // lib/whatsapp/threads.ts) nunca teria efeito mesmo assim, mas contact?.name
+      // continua tendo prioridade máxima: contato vinculado é a identidade
+      // "oficial" no CRM inteiro, não só um apelido de conversa.
       displayName:
-        thread.contact?.name ?? thread.whatsappName ?? formatBrazilianPhone(thread.phoneNormalized) ?? thread.phoneNormalized,
+        thread.contact?.name ??
+        thread.customName ??
+        thread.whatsappName ??
+        formatBrazilianPhone(thread.phoneNormalized) ??
+        thread.phoneNormalized,
       phoneNormalized: thread.phoneNormalized,
       whatsappName: thread.whatsappName,
       lastMessagePreview: msg.body || PREVIEW_FALLBACK[msg.type] || "—",

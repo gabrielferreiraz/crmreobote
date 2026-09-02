@@ -125,6 +125,7 @@ export async function POST(req: Request) {
     description,
     expectedCloseAt,
     customFieldValues,
+    skipIfOpenDealExists,
   } = body as {
     pipelineId?: string;
     stageId?: string;
@@ -137,6 +138,16 @@ export async function POST(req: Request) {
     description?: string;
     expectedCloseAt?: string;
     customFieldValues?: Record<string, unknown>;
+    /** Opt-in, não o padrão — "Novo negócio" (clique único, deliberado)
+     * continua permitindo um 2º negócio pro mesmo contato de propósito (ex.:
+     * cliente recorrente, novo produto). Só as criações EM MASSA a partir da
+     * página de Clientes (ver applyCreateDeals em contacts-table.tsx) mandam
+     * isto — selecionar uma leva de contatos e criar negócio pra todos de
+     * uma vez criava duplicata silenciosa pra quem já estava em andamento,
+     * sem aviso nenhum (relato do usuário). Mesma regra que a importação por
+     * planilha e a resposta de campanha (handleCampaignReply) já seguem:
+     * pular, nunca duplicar. */
+    skipIfOpenDealExists?: boolean;
   };
 
   const { organizationId, userId } = await requireSession();
@@ -156,6 +167,15 @@ export async function POST(req: Request) {
   return runWithTenant(organizationId, async () => {
     const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
     if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
+
+    if (skipIfOpenDealExists) {
+      const existingOpenDeal = await prisma.deal.findFirst({ where: { organizationId, contactId, status: "OPEN" } });
+      // 200, não 4xx — não é um erro, é o comportamento pedido (ver
+      // comentário em skipIfOpenDealExists acima). `skipped: true` deixa o
+      // chamador (applyCreateDeals) contar certo quantos de fato criou vs.
+      // quantos ignorou, pra informar os dois números pro usuário.
+      if (existingOpenDeal) return NextResponse.json({ skipped: true, dealId: existingOpenDeal.id });
+    }
 
     const stage = await prisma.pipelineStage.findFirst({
       where: { id: stageId, pipeline: { organizationId } },

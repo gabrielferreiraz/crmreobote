@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Plus, MessageCircleMore, CheckCircle2, X } from "lucide-react";
+import { Loader2, Plus, MessageCircleMore, CheckCircle2, TriangleAlert } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
 import { DualRangeSlider } from "@/components/dual-range-slider";
+import { RmktWavesFields } from "@/components/rmkt-waves-fields";
+import { useRmktWaves } from "@/lib/use-rmkt-waves";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string; order: number }[] };
-type WaveRow = { dayOffset: string; scriptId: string };
 
 type SendResult = { campaignId: string | null; queued: number; skippedNoPhone: number };
 
@@ -35,11 +36,20 @@ function toMinutesLabel(sec: number): string {
  */
 export function SendLeadsDialog({
   contactIds,
+  contactsWithDealHistory,
   onClose,
   onSent,
   onCreateScript,
 }: {
   contactIds: string[];
+  /** Quantos dos contatos selecionados já têm algum negócio (ver comentário
+   * em contacts-table.tsx) — pra avisar que essa tela é pensada pra
+   * prospecção de quem AINDA não tem negócio, não pra reenviar prospecção
+   * genérica pra quem já está em andamento em algum funil (relato do
+   * usuário: "não faz sentido, já tem um negócio"). Só um aviso, não um
+   * bloqueio — quem quiser reengajar um contato antigo de propósito ainda
+   * pode, só fica ciente antes de mandar. */
+  contactsWithDealHistory: number;
   onClose: () => void;
   onSent: () => void;
   /** Chamado ao clicar em "+ Criar script" — quem chama salva o estado (filtros/seleção) antes de navegar. */
@@ -51,9 +61,7 @@ export function SendLeadsDialog({
   const [scriptIds, setScriptIds] = useState<string[]>([]);
   const [pipelineId, setPipelineId] = useState("");
   const [stageId, setStageId] = useState("");
-  const [rmktEnabled, setRmktEnabled] = useState(false);
-  const [waves, setWaves] = useState<WaveRow[]>([{ dayOffset: "3", scriptId: "" }]);
-  const [noReplyDays, setNoReplyDays] = useState("3");
+  const rmkt = useRmktWaves();
   const [useCustomDelay, setUseCustomDelay] = useState(false);
   const [delayMinSec, setDelayMinSec] = useState(DEFAULT_DELAY_MIN);
   const [delayMaxSec, setDelayMaxSec] = useState(DEFAULT_DELAY_MAX);
@@ -96,25 +104,7 @@ export function SendLeadsDialog({
     setScriptIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   }
 
-  function addWave() {
-    setWaves((prev) => [...prev, { dayOffset: "", scriptId: "" }]);
-  }
-  function removeWave(index: number) {
-    setWaves((prev) => prev.filter((_, i) => i !== index));
-  }
-  function updateWave(index: number, patch: Partial<WaveRow>) {
-    setWaves((prev) => prev.map((w, i) => (i === index ? { ...w, ...patch } : w)));
-  }
-
-  const wavesValid =
-    !rmktEnabled ||
-    (waves.length > 0 &&
-      waves.every((w) => w.dayOffset.trim() && w.scriptId) &&
-      waves.every((w, i) => i === 0 || Number(w.dayOffset) > Number(waves[i - 1].dayOffset)) &&
-      waves.every((w) => Number(w.dayOffset) < Number(noReplyDays || 0)));
-
-  const canSend =
-    scriptIds.length > 0 && !!pipelineId && !!stageId && !!noReplyDays.trim() && Number(noReplyDays) > 0 && wavesValid;
+  const canSend = scriptIds.length > 0 && !!pipelineId && !!stageId && rmkt.valid;
 
   async function handleSend() {
     if (!canSend) return;
@@ -129,9 +119,7 @@ export function SendLeadsDialog({
         scriptIds,
         targetPipelineId: pipelineId,
         targetStageId: stageId,
-        noReplyDays: Number(noReplyDays),
-        rmktEnabled,
-        rmktWaves: rmktEnabled ? waves.map((w) => ({ dayOffset: Number(w.dayOffset), scriptId: w.scriptId })) : undefined,
+        ...rmkt.serialize(),
         ...(useCustomDelay ? { delayMinSec, delayMaxSec } : {}),
       }),
     });
@@ -180,6 +168,29 @@ export function SendLeadsDialog({
         {contactIds.length} contato{contactIds.length === 1 ? "" : "s"} selecionado{contactIds.length === 1 ? "" : "s"}. Quem
         responder vira negócio automaticamente; quem não responder no prazo vira &quot;não respondeu&quot;.
       </p>
+
+      {/* Pedido explícito: avisar quando a seleção inclui contato que já tem
+          negócio — esta tela é pensada pra prospecção de lead novo (ver
+          doc-comment do componente), mandar de novo pra quem já está em
+          andamento em algum funil normalmente não faz sentido. Só aviso,
+          não bloqueio — o negócio em si não duplica de qualquer forma
+          (handleCampaignReply só cria se o contato ainda não tiver um
+          aberto), então quem seguir mesmo assim não corre risco de
+          duplicata, só de mandar uma mensagem de prospecção fora de hora. */}
+      {contactsWithDealHistory > 0 && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
+          <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+          <p className="text-amber-700 dark:text-amber-400">
+            {contactsWithDealHistory === contactIds.length
+              ? contactsWithDealHistory === 1
+                ? "O contato selecionado já tem negócio registrado."
+                : "Todos os contatos selecionados já têm negócio registrado."
+              : `${contactsWithDealHistory} de ${contactIds.length} contatos selecionados já têm negócio registrado.`}{" "}
+            Essa prospecção é pensada pra lead novo — considere excluir quem já está em andamento, a menos que
+            reengajar de propósito.
+          </p>
+        </div>
+      )}
 
       {loadError ? (
         <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
@@ -275,72 +286,7 @@ export function SendLeadsDialog({
             </div>
           </div>
 
-          <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-            <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-              <input
-                type="checkbox"
-                checked={rmktEnabled}
-                onChange={(e) => setRmktEnabled(e.target.checked)}
-                className="accent-neutral-900 dark:accent-white"
-              />
-              Enviar RMKT pra quem não responder a prospecção
-            </label>
-
-            {rmktEnabled && (
-              <div className="space-y-2 pl-6">
-                {waves.map((wave, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">Dia</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={wave.dayOffset}
-                      onChange={(e) => updateWave(i, { dayOffset: e.target.value })}
-                      className="field-input w-16 shrink-0 px-2 py-1 text-center text-sm"
-                    />
-                    <Select
-                      value={wave.scriptId}
-                      onChange={(v) => updateWave(i, { scriptId: v })}
-                      className="min-w-0 flex-1 py-1.5 text-sm"
-                      options={[
-                        { value: "", label: "Selecione o script" },
-                        ...scripts.map((s) => ({ value: s.id, label: s.name })),
-                      ]}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeWave(i)}
-                      className="icon-btn h-7 w-7 shrink-0"
-                      aria-label="Remover onda"
-                    >
-                      <X className="h-3.5 w-3.5" strokeWidth={2} />
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addWave}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-                >
-                  <Plus className="h-3 w-3" strokeWidth={2.5} />
-                  Adicionar onda
-                </button>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 pl-6 text-sm text-neutral-600 dark:text-neutral-400">
-              <span className="shrink-0">Considerar &quot;não respondeu&quot; depois de</span>
-              <input
-                type="number"
-                min={1}
-                max={90}
-                value={noReplyDays}
-                onChange={(e) => setNoReplyDays(e.target.value)}
-                className="field-input w-16 shrink-0 px-2 py-1 text-center"
-              />
-              <span className="shrink-0">dias</span>
-            </div>
-          </div>
+          <RmktWavesFields rmkt={rmkt} scripts={scripts} />
 
           <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
             <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">

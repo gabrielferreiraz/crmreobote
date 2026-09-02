@@ -5,14 +5,13 @@ import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
-// Mesmos limites de lib/campaigns/build.ts — sem eles um valor absurdo
-// desliga na prática a proteção anti-ban da engine de campanhas.
-const MIN_DELAY_SEC = 10;
-const MAX_DELAY_SEC = 3600;
+// Mais rápido que bulk-send-leads (80–1220s) de propósito — aqui o
+// destinatário já é negócio ativo, relação já estabelecida.
 const DEFAULT_DELAY_MIN_SEC = 50;
 const DEFAULT_DELAY_MAX_SEC = 120;
 const MAX_DEALS_PER_SEND = 2000;
@@ -25,9 +24,12 @@ const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"] as const;
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { dealIds, scriptIds, delayMinSec, delayMaxSec } = body as {
+  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, delayMinSec, delayMaxSec } = body as {
     dealIds?: string[];
     scriptIds?: string[];
+    rmktEnabled?: boolean;
+    rmktWaves?: RmktWaveInput[];
+    noReplyDays?: number;
     delayMinSec?: number;
     delayMaxSec?: number;
   };
@@ -48,39 +50,37 @@ export async function POST(req: Request) {
   const uniqueScriptIds = Array.from(new Set(scriptIds ?? []));
   if (uniqueScriptIds.length === 0) return NextResponse.json({ error: "Selecione ao menos um script" }, { status: 400 });
 
-  let resolvedDelayMinSec = DEFAULT_DELAY_MIN_SEC;
-  let resolvedDelayMaxSec = DEFAULT_DELAY_MAX_SEC;
-  if (delayMinSec !== undefined || delayMaxSec !== undefined) {
-    resolvedDelayMinSec = delayMinSec ?? DEFAULT_DELAY_MIN_SEC;
-    resolvedDelayMaxSec = delayMaxSec ?? DEFAULT_DELAY_MAX_SEC;
-    if (
-      !Number.isInteger(resolvedDelayMinSec) ||
-      resolvedDelayMinSec < MIN_DELAY_SEC ||
-      resolvedDelayMinSec > MAX_DELAY_SEC
-    ) {
-      return NextResponse.json(
-        { error: `Delay mínimo precisa estar entre ${MIN_DELAY_SEC} e ${MAX_DELAY_SEC} segundos` },
-        { status: 400 },
-      );
-    }
-    if (!Number.isInteger(resolvedDelayMaxSec) || resolvedDelayMaxSec < resolvedDelayMinSec || resolvedDelayMaxSec > MAX_DELAY_SEC) {
-      return NextResponse.json(
-        { error: "Delay máximo precisa ser maior ou igual ao mínimo (e no máximo 1h)" },
-        { status: 400 },
-      );
-    }
-  }
+  const validated = validateRmktAndDelay({
+    rmktEnabled,
+    rmktWaves,
+    noReplyDays,
+    delayMinSec,
+    delayMaxSec,
+    defaultDelayMinSec: DEFAULT_DELAY_MIN_SEC,
+    defaultDelayMaxSec: DEFAULT_DELAY_MAX_SEC,
+  });
+  if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
+  const { resolvedNoReplyDays, waves, resolvedDelayMinSec, resolvedDelayMaxSec } = validated;
 
   return runWithTenant(organizationId, async () => {
     // Privado por consultor: um script só pode ser usado por quem o criou —
     // reforça no backend o que o picker já filtra (ver GET
-    // /api/message-scripts?mine=true), nunca confia só na UI.
-    const scripts = await prisma.messageScript.findMany({
-      where: { id: { in: uniqueScriptIds }, organizationId, createdById: userId },
+    // /api/message-scripts?mine=true), nunca confia só na UI. Junta os
+    // scripts "iniciais" com os de cada onda de RMKT (mesmo padrão de
+    // bulk-send-leads) — os dois precisam da mesma validação de dono.
+    const allScriptIds = Array.from(new Set([...uniqueScriptIds, ...waves.map((w) => w.scriptId)]));
+    const scriptRows = await prisma.messageScript.findMany({
+      where: { id: { in: allScriptIds }, organizationId, createdById: userId },
       select: { id: true, steps: true },
     });
-    if (scripts.length !== uniqueScriptIds.length) {
-      return NextResponse.json({ error: "Um dos scripts selecionados é inválido" }, { status: 400 });
+    const stepsByScriptId = new Map(scriptRows.map((s) => [s.id, s.steps]));
+    for (const id of uniqueScriptIds) {
+      if (!stepsByScriptId.has(id)) return NextResponse.json({ error: "Um dos scripts selecionados é inválido" }, { status: 400 });
+    }
+    for (const wave of waves) {
+      if (!stepsByScriptId.has(wave.scriptId)) {
+        return NextResponse.json({ error: "Script de uma das ondas de RMKT é inválido" }, { status: 400 });
+      }
     }
 
     // Nunca confia na seleção vinda do cliente — revalida contra o escopo
@@ -158,13 +158,30 @@ export async function POST(req: Request) {
         // a cada destinatário (ver pickWeighted em lib/campaigns/spintax.ts)
         // — mesmo mecanismo de A/B já usado em campanhas MANUAL, só que
         // exposto aqui pela 1ª vez na UI de envio em massa do Pipeline.
-        messageTemplates: scripts.map((s) => ({ steps: s.steps, weight: 1, scriptId: s.id })) as unknown as Prisma.InputJsonValue,
+        messageTemplates: uniqueScriptIds.map((id) => ({
+          steps: stepsByScriptId.get(id),
+          weight: 1,
+          scriptId: id,
+        })) as unknown as Prisma.InputJsonValue,
         audienceFilter: { jobTitles: [], tags: [], cities: [] } as unknown as Prisma.InputJsonValue,
         // Obrigatório no schema, mas não usado de fato pra PIPELINE_BULK —
         // cada destinatário carrega a própria instanceId (ver acima).
         instanceId: recipientsData[0].instanceId,
         delayMinSec: resolvedDelayMinSec,
         delayMaxSec: resolvedDelayMaxSec,
+        // RMKT — pedido explícito de paridade com quem ainda não tem
+        // negócio (ver lib/campaigns/engine.ts, que agora processa onda de
+        // RMKT pra qualquer campanha com noReplyDays preenchido, não só
+        // LEAD_CAPTURE). noReplyDays só entra de verdade se `waves.length`
+        // > 0 — sem onda configurada, não faz sentido "expirar" ninguém.
+        rmktWaves:
+          waves.length > 0
+            ? (waves.map((w) => ({
+                dayOffset: w.dayOffset,
+                templates: [{ steps: stepsByScriptId.get(w.scriptId), weight: 1, scriptId: w.scriptId }],
+              })) as unknown as Prisma.InputJsonValue)
+            : undefined,
+        noReplyDays: waves.length > 0 ? resolvedNoReplyDays : undefined,
         createdById: userId,
       },
     });

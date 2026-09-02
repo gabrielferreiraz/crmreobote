@@ -138,3 +138,56 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
 
   return { checked, sent, failed };
 }
+
+/**
+ * Aviso PUSH pro PRÓPRIO consultor antes de uma Reunião — irmão mais simples
+ * do aviso ao cliente acima: 1 envio só (sem sequência/Script), texto sempre
+ * gerado aqui (nunca escrito pelo consultor, ver
+ * components/meeting-invite-dialog.tsx). Sem retry: falha de push (endpoint
+ * expirado etc.) já é tratada dentro de sendPushToUser, que nunca lança —
+ * marca enviado de qualquer jeito, não faz sentido reprocessar pra sempre
+ * um lembrete que já passou do horário.
+ */
+export async function sendDueSelfReminders(): Promise<{ checked: number; sent: number }> {
+  const organizations = await prisma.organization.findMany({ select: { id: true } });
+  const now = new Date();
+
+  let checked = 0;
+  let sent = 0;
+
+  for (const org of organizations) {
+    const orgSent = await runWithTenant(org.id, async () => {
+      const dueTasks = await prisma.task.findMany({
+        where: {
+          type: "MEETING",
+          selfReminderSendAt: { lte: now },
+          selfReminderSentAt: null,
+          completedAt: null,
+        },
+        include: { contact: { select: { name: true } } },
+      });
+
+      let count = 0;
+      for (const task of dueTasks) {
+        const timeLabel = task.dueAt
+          ? task.dueAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })
+          : "";
+        await sendPushToUser(task.ownerId, {
+          title: "Reunião chegando",
+          body: task.contact
+            ? `${task.title} com ${task.contact.name}${timeLabel ? ` às ${timeLabel}` : ""}`
+            : `${task.title}${timeLabel ? ` às ${timeLabel}` : ""}`,
+          url: "/agenda",
+        }).catch((err) => console.error("[meeting-reminder] falha ao mandar aviso pro próprio consultor", task.id, err));
+        await prisma.task.update({ where: { id: task.id }, data: { selfReminderSentAt: now } });
+        count++;
+      }
+      return { checkedCount: dueTasks.length, sentCount: count };
+    });
+
+    checked += orgSent.checkedCount;
+    sent += orgSent.sentCount;
+  }
+
+  return { checked, sent };
+}

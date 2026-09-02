@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { ORGANIZATION_ID, resolveUserId } from "@/scripts/agendor/users";
-import { loadSheet, getHeaders, colIndex, cellText, cellDate } from "@/scripts/agendor/xlsx-utils";
+import { loadSheet, getHeaders, colIndex, cellText, cellDate, cellNumber } from "@/scripts/agendor/xlsx-utils";
 import { type CanonicalMap, resolveCanonicalPersonId } from "@/scripts/agendor/phone-dedup";
 import { runConcurrent } from "@/scripts/agendor/concurrency";
 import { findAllPaged } from "@/scripts/agendor/pagination";
@@ -21,6 +21,12 @@ const CONCURRENCY = 16;
 
 const FOUR_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 4;
 const CPF_FIELD_LABEL = "CPF";
+// "Aniversário" do Agendor vem em 2 colunas separadas — "DD/MM" (dia/mês,
+// sem ano — mesma ideia de User.birthDate, sem hora/fuso) + "Ano de
+// nascimento" (número solto). Só vira valor quando as DUAS existem (~3 em
+// 74 mil linhas têm dia/mês sem ano — não dá pra inventar um ano, então
+// essas ficam de fora em vez de gravar uma data fictícia).
+const BIRTHDAY_FIELD_LABEL = "Aniversário";
 const NO_CONTACT_TAG = "sem-contato-agendor";
 
 export type PessoasImportResult = {
@@ -38,17 +44,26 @@ export type PessoasImportResult = {
   skippedPhoneAlreadyExists: number;
 };
 
-async function ensureCpfFieldDefinition(dryRun: boolean): Promise<string> {
+async function ensureCustomFieldDefinition(label: string, type: "TEXT" | "DATE", dryRun: boolean): Promise<string> {
   const existing = await prisma.customFieldDefinition.findFirst({
-    where: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label: CPF_FIELD_LABEL },
+    where: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label },
   });
   if (existing) return existing.id;
-  if (dryRun) return "dry-run:cpf-field";
+  if (dryRun) return `dry-run:${label}-field`;
   const created = await prisma.customFieldDefinition.create({
-    data: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label: CPF_FIELD_LABEL, type: "TEXT" },
+    data: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label, type },
   });
-  console.log(`[pessoas] campo personalizado "${CPF_FIELD_LABEL}" criado (${created.id})`);
+  console.log(`[pessoas] campo personalizado "${label}" criado (${created.id})`);
   return created.id;
+}
+
+/** "DD/MM" + ano solto → "YYYY-MM-DD" (o formato que coerceCustomFieldValue/stringifyCustomFieldValue de um campo DATE espera, ver lib/custom-fields.ts). null se faltar qualquer uma das duas partes ou o formato não bater. */
+function buildBirthdayIso(diaMes: string | null, ano: number | null): string | null {
+  if (!diaMes || !ano) return null;
+  const match = diaMes.match(/^(\d{2})\/(\d{2})$/);
+  if (!match) return null;
+  const [, dd, mm] = match;
+  return `${ano}-${mm}-${dd}`;
 }
 
 export async function importPessoas(
@@ -57,7 +72,8 @@ export async function importPessoas(
   wonDealPersonIds: Set<string>,
   dryRun: boolean,
 ): Promise<PessoasImportResult> {
-  const cpfFieldId = await ensureCpfFieldDefinition(dryRun);
+  const cpfFieldId = await ensureCustomFieldDefinition(CPF_FIELD_LABEL, "TEXT", dryRun);
+  const birthdayFieldId = await ensureCustomFieldDefinition(BIRTHDAY_FIELD_LABEL, "DATE", dryRun);
   const sheet = await loadSheet(pessoasPath);
   const headers = getHeaders(sheet);
 
@@ -74,6 +90,18 @@ export async function importPessoas(
   const idxEmail = colIndex(headers, "E-mail");
   const idxCadastro = colIndex(headers, "Data de cadastro");
   const idxAtualizacao = colIndex(headers, "Ultima atualização");
+  // Endereço — a planilha tem "País" também, mas Contact não tem campo
+  // country nenhum (mesma coisa que a UI de editar contato já não mostra),
+  // então essa coluna fica de fora de propósito.
+  const idxRua = colIndex(headers, "Rua");
+  const idxNumero = colIndex(headers, "Número");
+  const idxComplemento = colIndex(headers, "Complemento");
+  const idxBairro = colIndex(headers, "Bairro");
+  const idxCidade = colIndex(headers, "Cidade");
+  const idxEstado = colIndex(headers, "Estado");
+  const idxCep = colIndex(headers, "CEP");
+  const idxAniversario = colIndex(headers, "Aniversário");
+  const idxAnoNascimento = colIndex(headers, "Ano de nascimento");
 
   const result: PessoasImportResult = {
     created: 0,
@@ -149,6 +177,7 @@ export async function importPessoas(
     const categoria = cellText(row, idxCategoria);
     const cpf = cellText(row, idxCpf);
     const responsavel = cellText(row, idxResponsavel);
+    const birthdayIso = buildBirthdayIso(cellText(row, idxAniversario), cellNumber(row, idxAnoNascimento));
 
     // Calculado ANTES do dryRun (não só antes do create de verdade) — pra
     // dry-run também prever corretamente esse caso, não só o real. Mesma
@@ -198,11 +227,24 @@ export async function importPessoas(
           source: cellText(row, idxOrigem),
           company: cellText(row, idxEmpresaRel),
           jobTitle: cellText(row, idxCargo),
+          address: cellText(row, idxRua),
+          addressNumber: cellText(row, idxNumero),
+          addressComplement: cellText(row, idxComplemento),
+          neighborhood: cellText(row, idxBairro),
+          city: cellText(row, idxCidade),
+          state: cellText(row, idxEstado),
+          zipCode: cellText(row, idxCep),
           tags: categoria ? [categoria] : [],
           responsavelId: ownerId,
           agendorContactId: codigo,
           createdAt: cellDate(row, idxCadastro) ?? undefined,
-          customFieldValues: cpf ? ({ [cpfFieldId]: cpf } as Prisma.InputJsonValue) : undefined,
+          customFieldValues:
+            cpf || birthdayIso
+              ? ({
+                  ...(cpf ? { [cpfFieldId]: cpf } : {}),
+                  ...(birthdayIso ? { [birthdayFieldId]: birthdayIso } : {}),
+                } as Prisma.InputJsonValue)
+              : undefined,
         },
       });
       result.created++;

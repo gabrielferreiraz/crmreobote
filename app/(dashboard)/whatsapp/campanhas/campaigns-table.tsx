@@ -208,11 +208,12 @@ export function CampaignsTable({
                         type="button"
                         disabled={loadingEditId === c.id}
                         onClick={() => openEdit(c.id)}
-                        className="icon-btn"
+                        className="icon-btn-labeled"
                         aria-label="Editar campanha"
                         title="Editar campanha"
                       >
                         <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                        Editar
                       </button>
                     )}
                     <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
@@ -309,11 +310,12 @@ export function CampaignsTable({
                               type="button"
                               disabled={loadingEditId === c.id}
                               onClick={() => openEdit(c.id)}
-                              className="icon-btn"
+                              className="icon-btn-labeled"
                               aria-label="Editar campanha"
                               title="Editar campanha"
                             >
                               <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                              Editar
                             </button>
                           )}
                           <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">

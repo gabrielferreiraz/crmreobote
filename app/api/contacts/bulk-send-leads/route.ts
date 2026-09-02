@@ -4,22 +4,16 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
-// Mesmos limites de lib/campaigns/build.ts / bulk-send-message — sem eles um
-// valor absurdo desliga na prática a proteção anti-ban da engine de campanhas.
-const MIN_DELAY_SEC = 10;
-const MAX_DELAY_SEC = 3600;
+// Mais espaçado que bulk-send-message (50–120s) de propósito — aqui é
+// prospecção fria, ainda sem relação estabelecida com o lead.
 const DEFAULT_DELAY_MIN_SEC = 80;
 const DEFAULT_DELAY_MAX_SEC = 1220;
-const MIN_NO_REPLY_DAYS = 1;
-const MAX_NO_REPLY_DAYS = 90;
-const MAX_RMKT_WAVES = 10;
 const MAX_CONTACTS_PER_SEND = 2000;
-
-type RmktWaveInput = { dayOffset: number; scriptId: string };
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -64,57 +58,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Selecione o pipeline e a etapa de destino" }, { status: 400 });
   }
 
-  const resolvedNoReplyDays = noReplyDays ?? 3;
-  if (!Number.isInteger(resolvedNoReplyDays) || resolvedNoReplyDays < MIN_NO_REPLY_DAYS || resolvedNoReplyDays > MAX_NO_REPLY_DAYS) {
-    return NextResponse.json(
-      { error: `Prazo pra considerar "não respondeu" precisa estar entre ${MIN_NO_REPLY_DAYS} e ${MAX_NO_REPLY_DAYS} dias` },
-      { status: 400 },
-    );
-  }
-
-  const waves = rmktEnabled ? (rmktWaves ?? []) : [];
-  if (rmktEnabled) {
-    if (waves.length === 0) return NextResponse.json({ error: "Adicione ao menos uma onda de RMKT" }, { status: 400 });
-    if (waves.length > MAX_RMKT_WAVES) {
-      return NextResponse.json({ error: `Máximo de ${MAX_RMKT_WAVES} ondas de RMKT` }, { status: 400 });
-    }
-    let previousDayOffset = 0;
-    for (const wave of waves) {
-      if (!Number.isInteger(wave.dayOffset) || wave.dayOffset <= previousDayOffset) {
-        return NextResponse.json(
-          { error: "Os dias das ondas de RMKT precisam ser crescentes (cada onda depois da anterior)" },
-          { status: 400 },
-        );
-      }
-      if (wave.dayOffset >= resolvedNoReplyDays) {
-        return NextResponse.json(
-          { error: `Cada onda precisa cair antes do prazo de "não respondeu" (${resolvedNoReplyDays} dias)` },
-          { status: 400 },
-        );
-      }
-      if (!wave.scriptId) return NextResponse.json({ error: "Selecione um script pra cada onda de RMKT" }, { status: 400 });
-      previousDayOffset = wave.dayOffset;
-    }
-  }
-
-  let resolvedDelayMinSec = DEFAULT_DELAY_MIN_SEC;
-  let resolvedDelayMaxSec = DEFAULT_DELAY_MAX_SEC;
-  if (delayMinSec !== undefined || delayMaxSec !== undefined) {
-    resolvedDelayMinSec = delayMinSec ?? DEFAULT_DELAY_MIN_SEC;
-    resolvedDelayMaxSec = delayMaxSec ?? DEFAULT_DELAY_MAX_SEC;
-    if (!Number.isInteger(resolvedDelayMinSec) || resolvedDelayMinSec < MIN_DELAY_SEC || resolvedDelayMinSec > MAX_DELAY_SEC) {
-      return NextResponse.json(
-        { error: `Delay mínimo precisa estar entre ${MIN_DELAY_SEC} e ${MAX_DELAY_SEC} segundos` },
-        { status: 400 },
-      );
-    }
-    if (!Number.isInteger(resolvedDelayMaxSec) || resolvedDelayMaxSec < resolvedDelayMinSec || resolvedDelayMaxSec > MAX_DELAY_SEC) {
-      return NextResponse.json(
-        { error: "Delay máximo precisa ser maior ou igual ao mínimo (e no máximo 1h)" },
-        { status: 400 },
-      );
-    }
-  }
+  const validated = validateRmktAndDelay({
+    rmktEnabled,
+    rmktWaves,
+    noReplyDays,
+    delayMinSec,
+    delayMaxSec,
+    defaultDelayMinSec: DEFAULT_DELAY_MIN_SEC,
+    defaultDelayMaxSec: DEFAULT_DELAY_MAX_SEC,
+  });
+  if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
+  const { resolvedNoReplyDays, waves, resolvedDelayMinSec, resolvedDelayMaxSec } = validated;
 
   return runWithTenant(organizationId, async () => {
     const instance = await resolveConnectedInstance(organizationId, userId);

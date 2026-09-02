@@ -32,22 +32,63 @@ function startsWithPhrase(tokens: string[], phrase: string): boolean {
   return findPhrasePosition(tokens, phrase) === 0;
 }
 
+/** true se a ÚLTIMA ocorrência da frase termina dentro dos `tolerance`
+ * tokens finais — usado pelo sinal de tag question (ver detectQuestion):
+ * "né"/"combinado"/"ou não" precisam estar perto do FIM pra contar, não em
+ * qualquer lugar do meio da frase (onde seriam só coincidência léxica, ex.:
+ * "ele falou que tá certo mas..." não é pergunta só porque contém "certo"). */
+function endsNearPhrase(tokens: string[], phrase: string, tolerance: number): boolean {
+  const phraseWords = phrase.split(/\s+/);
+  // Varre de trás pra frente pra achar a ÚLTIMA ocorrência (uma frase pode
+  // repetir a mesma expressão; só a mais próxima do fim importa aqui).
+  for (let i = tokens.length - phraseWords.length; i >= 0; i--) {
+    let matches = true;
+    for (let j = 0; j < phraseWords.length; j++) {
+      if (tokens[i + j] !== phraseWords[j]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      const endIndex = i + phraseWords.length - 1;
+      return tokens.length - 1 - endIndex <= tolerance;
+    }
+  }
+  return false;
+}
+
 /**
  * Score determinístico de "isso é uma pergunta?" — NUNCA `text.includes()`
- * cego (pedido explícito). Três sinais somados:
+ * cego (pedido explícito). Cinco sinais somados, cada um pensado pra um
+ * padrão REAL de como pergunta soa em português falado (não só o "livro de
+ * gramática" quem/qual/quando):
  *
- * 1. Palavra interrogativa (quem/qual/quando/onde/como/por que/quanto...) —
- *    quanto mais perto do INÍCIO da frase, maior o peso; longe do início
- *    (position >= 3) já não soma nada sozinha. Isso sozinho já resolve o
- *    par de exemplos do pedido: "qual o valor da parcela" ("qual" na
- *    posição 0 → score alto) vs. "eu não sei QUANTO ele pretende investir"
- *    ("quanto" na posição 3 → já quase zero, mesmo sem o sinal 3 abaixo).
+ * 1. Palavra interrogativa — quanto mais perto do INÍCIO da frase, maior o
+ *    peso; decai 1 ponto por palavra de distância (antes decaía 2 —
+ *    afrouxado porque a abertura educada mais comum em pt-BR falado,
+ *    "eu queria saber quando...", já empurra a palavra interrogativa pra
+ *    posição 3+ sozinha, e um decaimento agressivo zerava esse caso mesmo
+ *    sendo claramente uma pergunta).
  * 2. Abertura modal/cortesia no INÍCIO ("pode", "poderia", "tem como",
- *    "você consegue", "será que") — construção que em pt-BR falado é quase
+ *    "queria saber", "dá pra"...) — construção que em pt-BR falado é quase
  *    sempre pergunta quando abre a frase; peso menor se aparecer no meio.
- * 3. Marcador de pergunta INDIRETA ("não sei", "sei lá", "duvido que"...)
- *    ANTES da palavra interrogativa na mesma frase — anula o sinal 1
- *    ("eu não sei quanto..." não é pergunta, é afirmação sobre não saber).
+ * 3. Marcador de pergunta INDIRETA ("não sei", "sei lá"...) ANTES da palavra
+ *    interrogativa na mesma frase — anula o sinal 1 ("eu não sei quanto ele
+ *    pretende investir" não é pergunta, é afirmação sobre não saber).
+ * 4. Marcador de TAG QUESTION perto do FIM da frase ("né", "combinado",
+ *    "ou não", "fechado?"...) — o jeito mais comum de perguntar sim/não no
+ *    português falado NÃO usa nenhuma palavra interrogativa, quem carrega
+ *    a pergunta é a entonação; como texto não carrega entonação, esses
+ *    marcadores lexicais são o substituto. Sinal forte o bastante pra
+ *    sozinho cruzar o threshold (não depende dos outros 4).
+ * 5. Verbo de confirmação sem sujeito abrindo a frase ("Fechou o negócio?",
+ *    "Confirmou a reunião?") — pretérito perfeito de verbo de fechamento de
+ *    venda largado sem sujeito no início quase sempre é pergunta nesse
+ *    registro (um relato mantém o sujeito: "ele fechou..."). Dois níveis
+ *    (ver subjectlessQuestionVerbsStrong/Moderate em language-profile.ts):
+ *    verbo de ação sem uso declarativo plausível decide sozinho; verbo-
+ *    resultado (que também abre declarativa legítima, "rolou uma reunião")
+ *    só ajuda a cruzar o threshold combinado com outro sinal.
  */
 export function detectQuestion(text: string, profile: LanguageProfile): QuestionScore {
   const tokens = tokenize(text);
@@ -56,18 +97,30 @@ export function detectQuestion(text: string, profile: LanguageProfile): Question
   let score = 0;
   const reasons: string[] = [];
 
-  // Sinal 1 — palavra interrogativa por posição.
+  // Sinal 1 — palavra interrogativa por posição (perto do INÍCIO pesa mais)
+  // + bônus separado se ela aparecer colada no FINAL da frase ("ele não
+  // quis fechar, por quê?"): "por quê" isolado no fim é um padrão tão forte
+  // de pergunta em português falado quanto uma palavra interrogativa logo
+  // no início — sem esse bônus, uma frase inteira antes do "por que" final
+  // já zerava o score posicional (decai com a DISTÂNCIA do início, que é
+  // grande justamente quando a interrogativa está no fim).
   let questionWordPosition: number | null = null;
+  let endsWithQuestionWord = false;
   for (const word of profile.questionWords) {
     const pos = findPhrasePosition(tokens, word);
-    if (pos !== null && (questionWordPosition === null || pos < questionWordPosition)) {
-      questionWordPosition = pos;
-    }
+    if (pos === null) continue;
+    if (questionWordPosition === null || pos < questionWordPosition) questionWordPosition = pos;
+    const wordTokenCount = word.split(/\s+/).length;
+    if (pos + wordTokenCount === tokens.length) endsWithQuestionWord = true;
   }
   if (questionWordPosition !== null) {
-    const positionScore = Math.max(0, 6 - questionWordPosition * 2);
+    const positionScore = Math.max(0, 6 - questionWordPosition);
     score += positionScore;
     if (positionScore > 0) reasons.push(`palavra interrogativa na posição ${questionWordPosition} (+${positionScore})`);
+  }
+  if (endsWithQuestionWord) {
+    score += 6;
+    reasons.push(`palavra interrogativa colada no final da frase (+6)`);
   }
 
   // Sinal 2 — abertura modal/cortesia.
@@ -93,6 +146,30 @@ export function detectQuestion(text: string, profile: LanguageProfile): Question
         reasons.push(`"${marker}" antes da palavra interrogativa (-6)`);
         break;
       }
+    }
+  }
+
+  // Sinal 4 — tag question perto do fim ("né", "combinado", "ou não"...).
+  // Forte o bastante pra cruzar o threshold sozinho (ver VOICE_CONFIG.
+  // questionThreshold) — em português falado, esses marcadores no fim quase
+  // nunca aparecem fora de uma pergunta de confirmação.
+  for (const tag of profile.questionTagMarkers) {
+    if (endsNearPhrase(tokens, tag, VOICE_CONFIG.questionTagNearEndTolerance)) {
+      score += 8;
+      reasons.push(`termina perto de "${tag}" (+8, tag question)`);
+      break; // um marcador já basta — não empilha por ter mais de um coincidindo.
+    }
+  }
+
+  // Sinal 5 — verbo de confirmação sem sujeito abrindo a frase (2 níveis).
+  if (tokens.length > 0) {
+    const firstWord = tokens[0];
+    if (profile.subjectlessQuestionVerbsStrong.includes(firstWord)) {
+      score += 7;
+      reasons.push(`abre com verbo de confirmação sem sujeito "${firstWord}" (+7, forte)`);
+    } else if (profile.subjectlessQuestionVerbsModerate.includes(firstWord)) {
+      score += 4;
+      reasons.push(`abre com verbo-resultado sem sujeito "${firstWord}" (+4, moderado)`);
     }
   }
 

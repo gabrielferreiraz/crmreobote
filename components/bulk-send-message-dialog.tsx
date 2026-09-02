@@ -6,6 +6,8 @@ import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { EmptyState } from "@/components/empty-state";
 import { DualRangeSlider } from "@/components/dual-range-slider";
+import { RmktWavesFields } from "@/components/rmkt-waves-fields";
+import { useRmktWaves } from "@/lib/use-rmkt-waves";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 
@@ -52,6 +54,7 @@ export function BulkSendMessageDialog({
   const [scripts, setScripts] = useState<ScriptOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [scriptIds, setScriptIds] = useState<string[]>([]);
+  const rmkt = useRmktWaves();
   const [useCustomDelay, setUseCustomDelay] = useState(false);
   const [delayMinSec, setDelayMinSec] = useState(DEFAULT_DELAY_MIN);
   const [delayMaxSec, setDelayMaxSec] = useState(DEFAULT_DELAY_MAX);
@@ -88,8 +91,10 @@ export function BulkSendMessageDialog({
     }
   }
 
+  const canSend = scriptIds.length > 0 && rmkt.valid;
+
   async function handleSend() {
-    if (scriptIds.length === 0) return;
+    if (!canSend) return;
     setSending(true);
     setError(null);
 
@@ -99,6 +104,7 @@ export function BulkSendMessageDialog({
       body: JSON.stringify({
         dealIds,
         scriptIds,
+        ...rmkt.serialize(),
         ...(useCustomDelay ? { delayMinSec, delayMaxSec } : {}),
       }),
     });
@@ -227,6 +233,14 @@ export function BulkSendMessageDialog({
           Disparo em massa por número conectado via QR Code (Evolution) tem risco maior de banimento. Número conectado pela API oficial da Meta não tem esse risco.
         </p>
 
+        {/* Paridade com SendLeadsDialog (Clientes) — pedido explícito. Só
+            porque esses destinatários já são negócio não significa que RMKT
+            não faz sentido: um contato pode ainda não ter respondido a
+            ESTA mensagem específica, mesmo já tendo negócio aberto de
+            antes (ver lib/campaigns/engine.ts pro porquê isso já
+            funciona). */}
+        <RmktWavesFields rmkt={rmkt} scripts={scripts ?? []} />
+
         <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
           <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
             <input
@@ -292,7 +306,7 @@ export function BulkSendMessageDialog({
           <button
             type="button"
             onClick={handleSend}
-            disabled={sending || scriptIds.length === 0 || (useCustomDelay && delayMaxSec < delayMinSec)}
+            disabled={sending || !canSend || (useCustomDelay && delayMaxSec < delayMinSec)}
             className="btn-primary"
           >
             {sending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}

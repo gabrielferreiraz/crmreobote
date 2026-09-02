@@ -8,6 +8,7 @@ import { AnimatedCheck } from "@/components/animated-check";
 import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
 import { TaskDetailModal } from "./task-detail-modal";
 import { useMeetingOutcomeGate } from "./use-meeting-outcome-gate";
+import type { Option } from "./tasks-list";
 
 export type Task = {
   id: string;
@@ -82,14 +83,17 @@ export function TaskRow({
   canDelete,
   muted,
   showOwner,
+  deals,
 }: {
   task: Task;
   onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
-  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  /** Qualquer papel com acesso à tarefa pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
   muted?: boolean;
   showOwner?: boolean;
+  /** Repassado pro TaskDetailModal — habilita o botão "Editar" (ver EditTaskDialog). */
+  deals?: Option[];
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [completed, setCompleted] = useState(!!task.completedAt);
@@ -285,6 +289,7 @@ export function TaskRow({
           }}
           canDelete={canDelete}
           onDelete={onDelete}
+          deals={deals}
         />
       )}
       {outcomeDialog}

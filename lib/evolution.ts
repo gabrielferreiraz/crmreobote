@@ -280,6 +280,47 @@ export async function fetchProfilePictureUrl(instanceName: string, number: strin
 }
 
 /**
+ * Tenta puxar o nome que o DONO do WhatsApp conectado salvou pra esse número
+ * na agenda de contatos do próprio celular — diferente de pushName (que é o
+ * nome que o CONTATO escolheu pra si, já capturado via webhook em toda
+ * mensagem, ver lib/whatsapp/events.ts). Melhor-esforço, não garantido:
+ *
+ *  - só existe se o celular conectado tiver sincronizado a agenda de
+ *    contatos pro WhatsApp (opção do próprio app, fora do nosso controle);
+ *  - o campo que o Baileys expõe pra isso é `name` (distinto de `notify`/
+ *    `pushName`) — mas se o Evolution desta instância não persistir esse
+ *    campo separado (varia por versão), a resposta simplesmente não traz
+ *    diferença nenhuma, e devolvemos null em vez de reapresentar o mesmo
+ *    pushName como se fosse achado.
+ *
+ * `where: {id: <jid>}` segue o mesmo padrão de filtro Prisma-like que
+ * findMessages já usa acima pra /chat/findMessages — não documentado em
+ * lugar oficial acessível daqui, só confirmado pelo uso real já existente
+ * neste arquivo pra outro endpoint "find" do mesmo Evolution.
+ */
+export async function fetchSavedContactName(instanceName: string, number: string): Promise<string | null> {
+  try {
+    const jid = `${number}@s.whatsapp.net`;
+    const data = await request<unknown>(`/chat/findContacts/${encodeURIComponent(instanceName)}`, {
+      method: "POST",
+      body: JSON.stringify({ where: { id: jid } }),
+    });
+    const list = Array.isArray(data) ? data : data ? [data] : [];
+    const entry = list.find((c): c is Record<string, unknown> => !!c && typeof c === "object");
+    if (!entry) return null;
+
+    const pushName = typeof entry.pushName === "string" ? entry.pushName : null;
+    const savedName = typeof entry.name === "string" ? entry.name : null;
+    // Sem diferença real de pushName, não é um "nome salvo" de verdade — é só
+    // o Evolution ecoando o mesmo valor em dois campos.
+    return savedName && savedName !== pushName ? savedName : null;
+  } catch (err) {
+    console.error(`[evolution] falha ao buscar nome salvo de ${number}`, err);
+    return null;
+  }
+}
+
+/**
  * Mensagem "crua" devolvida pelo histórico — mesmo formato de
  * key/message/pushName que chega em `messages.upsert` em tempo real, mais
  * `messageTimestamp` (epoch, em segundos ou ms conforme a versão).

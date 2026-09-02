@@ -23,7 +23,14 @@ export async function POST() {
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  const rateLimited = rateLimitOrResponse(`import-history:${organizationId}`, 3, 10 * 60_000);
+  // Por usuário, não por organização: cada um importa o PRÓPRIO histórico
+  // (instância é organizationId_userId_provider, uma por usuário) — com a
+  // chave só por organizationId, vários vendedores importando ao mesmo tempo
+  // disputavam o mesmo orçamento de 3 tentativas/10min, e o 4º (de
+  // QUALQUER um deles) travava com "muitas requisições" mesmo sem ter
+  // clicado nada demais. Ainda protege contra clique repetido do MESMO
+  // usuário, só não vaza mais pros outros.
+  const rateLimited = rateLimitOrResponse(`import-history:${organizationId}:${userId}`, 3, 10 * 60_000);
   if (rateLimited) return rateLimited;
 
   return runWithTenant(organizationId, async () => {

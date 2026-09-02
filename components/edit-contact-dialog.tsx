@@ -225,10 +225,11 @@ export function EditContactDialog({
   jobTitles: { id: string; label: string }[];
   members: { id: string; name: string }[];
   customFields: CustomFieldDefinitionInput[];
-  /** Estilo do botão-gatilho — padrão é o `.icon-btn` discreto de sempre
-   * (linha de tabela, cabeçalho denso). Passe algo mais chamativo (borda,
-   * fundo) em contextos onde o lápis precisa se destacar mais, ex.: topo do
-   * Cliente-detalhe. */
+  /** Estilo do botão-gatilho — padrão é o `.icon-btn-labeled` (ícone + texto
+   * "Editar", discreto, de linha de tabela). Passe algo mais chamativo
+   * (borda, fundo) em contextos onde o botão precisa se destacar mais, ex.:
+   * topo do Cliente-detalhe — nesse caso o texto "Editar" também precisa vir
+   * escrito na className customizada (children sempre inclui o texto). */
   triggerClassName?: string;
 }) {
   const router = useRouter();
@@ -242,10 +243,11 @@ export function EditContactDialog({
           e.stopPropagation();
           setOpen(true);
         }}
-        className={triggerClassName ?? "icon-btn"}
+        className={triggerClassName ?? "icon-btn-labeled"}
         aria-label="Editar contato"
       >
         <Pencil className="h-4 w-4" strokeWidth={2} />
+        Editar
       </button>
 
       {open && (

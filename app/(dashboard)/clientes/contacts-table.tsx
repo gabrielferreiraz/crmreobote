@@ -136,6 +136,12 @@ export function ContactsTable({
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  // Diferente de bulkError (vermelho, "algo deu errado") — usado por
+  // applyCreateDeals pra avisar quantos contatos já tinham negócio aberto e
+  // foram ignorados. Não é uma falha, é o comportamento esperado (ver
+  // skipIfOpenDealExists em app/api/deals/route.ts), então não faz sentido
+  // pintar de vermelho.
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [sendLeadsOpen, setSendLeadsOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
@@ -265,6 +271,18 @@ export function ContactsTable({
 
   const selectedContactIds = useMemo(
     () => contacts.filter((c) => selectedIds.has(c.id)).map((c) => c.id),
+    [contacts, selectedIds],
+  );
+  // Pra avisar em SendLeadsDialog (ver comentário lá) quando a seleção
+  // inclui contato que já tem negócio — a tela foi desenhada pra prospecção
+  // de quem AINDA não tem negócio nenhum (ver doc-comment do componente),
+  // então mandar prospecção pra quem já tem é o "não faz sentido" relatado.
+  // `_count.deals` conta QUALQUER negócio (aberto, ganho ou perdido) — não
+  // é um match perfeito de "tem negócio ABERTO agora" (exigiria uma consulta
+  // à parte), mas já é um sinal forte o bastante pra avisar, sem custo de
+  // rede extra (o dado já veio junto na lista).
+  const selectedContactsWithDealHistory = useMemo(
+    () => contacts.filter((c) => selectedIds.has(c.id) && c._count.deals > 0).length,
     [contacts, selectedIds],
   );
   const allSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
@@ -397,23 +415,47 @@ export function ContactsTable({
   // Um negócio por contato selecionado, na primeira etapa do funil escolhido —
   // sem responsável/valor (fica pra editar depois), mesmo comportamento de
   // "Atribuição automática" do NewDealDialog (ownerId omitido = auto-assign).
+  //
+  // skipIfOpenDealExists: true — pedido explícito (relato do usuário: "há um
+  // botão de criar negócio, porém não faz sentido, já tem um negócio").
+  // Sem isso, selecionar uma leva de contatos e clicar "Criar negócio"
+  // criava um SEGUNDO negócio pra quem já estava em andamento em algum
+  // funil, silenciosamente — mesma regra que a importação por planilha e a
+  // resposta automática de campanha já seguem (pular, nunca duplicar). Não
+  // usa countBulkFailures aqui (só conta falha/sucesso) porque precisa
+  // distinguir "criado" de "pulado por já ter negócio" — os dois são
+  // sucesso HTTP (200), só o corpo da resposta diferencia.
   async function applyCreateDeals(pipelineId: string) {
     const pipeline = pipelines.find((p) => p.id === pipelineId);
     if (!pipeline) return;
     setBulkBusy(true);
     setBulkError(null);
+    setBulkNotice(null);
     try {
-      const failures = await countBulkFailures(
-        selectedContactIds.map((id) =>
-          fetch("/api/deals", {
+      const results = await Promise.allSettled(
+        selectedContactIds.map(async (id) => {
+          const res = await fetch("/api/deals", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pipelineId, stageId: pipeline.firstStageId, contactId: id }),
-          }),
-        ),
+            body: JSON.stringify({ pipelineId, stageId: pipeline.firstStageId, contactId: id, skipIfOpenDealExists: true }),
+          });
+          if (!res.ok) throw new Error("failed");
+          const data = await res.json().catch(() => ({}));
+          return data.skipped ? "skipped" : "created";
+        }),
       );
+      const failures = results.filter((r) => r.status === "rejected").length;
+      const skipped = results.filter((r) => r.status === "fulfilled" && r.value === "skipped").length;
+      const created = results.filter((r) => r.status === "fulfilled" && r.value === "created").length;
+
       if (failures > 0) {
         setBulkError("Alguns negócios não puderam ser criados.");
+      } else if (skipped > 0) {
+        setBulkNotice(
+          created > 0
+            ? `${created} negócio${created === 1 ? "" : "s"} criado${created === 1 ? "" : "s"} — ${skipped} contato${skipped === 1 ? "" : "s"} já tinha${skipped === 1 ? "" : "m"} negócio em andamento e ${skipped === 1 ? "foi ignorado" : "foram ignorados"}.`
+            : `Nenhum negócio criado — ${skipped === 1 ? "o contato selecionado já tinha" : "todos os contatos selecionados já tinham"} negócio em andamento.`,
+        );
       }
       clearSelection();
       router.refresh();
@@ -706,6 +748,7 @@ export function ContactsTable({
         )}
       </div>
       {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
+      {bulkNotice && <p className="text-sm text-neutral-500 dark:text-neutral-400">{bulkNotice}</p>}
 
       {totalCount === 0 ? (
         <div className="card">
@@ -940,6 +983,7 @@ export function ContactsTable({
       {sendLeadsOpen && (
         <SendLeadsDialog
           contactIds={selectedContactIds}
+          contactsWithDealHistory={selectedContactsWithDealHistory}
           onClose={() => setSendLeadsOpen(false)}
           onSent={() => {
             clearSelection();

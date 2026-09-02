@@ -17,8 +17,23 @@ const QUICK_LINKS = [
 ];
 
 type Result = {
-  contacts: { id: string; name: string; email: string | null; ownerName: string | null }[];
-  deals: { id: string; name: string; contact: { name: string }; ownerName: string | null }[];
+  contacts: { id: string; name: string; email: string | null; whatsapp: string | null; ownerName: string | null }[];
+  deals: {
+    id: string;
+    name: string;
+    contact: { name: string };
+    ownerName: string | null;
+    status: "OPEN" | "WON" | "LOST";
+  }[];
+};
+
+// Mesmo texto de deals-list.tsx/deal-detail.tsx (não centralizado — são só
+// 3 valores, repetir aqui é mais simples que criar um módulo compartilhado
+// só pra isto, mesmo padrão que o resto do código já segue).
+const DEAL_STATUS_LABELS: Record<Result["deals"][number]["status"], string> = {
+  OPEN: "Em andamento",
+  WON: "Ganho",
+  LOST: "Perdido",
 };
 
 export function CommandPalette({ compact = false }: { compact?: boolean }) {
@@ -173,6 +188,15 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{c.name}</span>
+                      {/* WhatsApp em linha própria, logo abaixo do nome — pedido
+                          explícito: quando vários clientes têm o MESMO nome
+                          (comum em bases grandes), o número é o jeito rápido de
+                          saber qual é qual antes de abrir. Só aparece quando
+                          o contato tem WhatsApp cadastrado — não força a linha
+                          pra quem não tem. */}
+                      {c.whatsapp && (
+                        <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">{c.whatsapp}</span>
+                      )}
                       <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">
                         {c.ownerName ? `Responsável: ${c.ownerName}` : "Sem responsável"}
                         {c.email && ` · ${c.email}`}
@@ -200,6 +224,23 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
                       <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">
                         {d.contact.name}
                         {d.ownerName && ` · Responsável: ${d.ownerName}`}
+                        {" · "}
+                        {/* Status do negócio — pedido explícito: mostrar se
+                            está em andamento, ganho ou perdido, sem tirar
+                            nada que já tinha na linha. Ganho/Perdido em cor
+                            pra bater o olho rápido; Em andamento (o estado
+                            mais comum) fica na mesma cor neutra do resto. */}
+                        <span
+                          className={
+                            d.status === "WON"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : d.status === "LOST"
+                                ? "text-red-600 dark:text-red-400"
+                                : ""
+                          }
+                        >
+                          {DEAL_STATUS_LABELS[d.status]}
+                        </span>
                       </span>
                     </span>
                   </button>

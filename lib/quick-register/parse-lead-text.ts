@@ -3,6 +3,7 @@ import { VALID_BRAZILIAN_DDDS } from "@/lib/phone-normalize";
 import {
   foldAccents,
   parseSpokenAmount,
+  findSpokenMoney,
   spokenNumberWordsToDigits,
   isMostlySpokenNumbers,
 } from "@/lib/voice/number-normalizer";
@@ -152,9 +153,13 @@ const VALUE_LABELS = new Set(
     "orcamento de",
     "quer investir",
     "pretende investir",
-    // "líquido" sozinho não entra — sem "valor" na frente é ambíguo demais
-    // (não é palavra específica de dinheiro), diferente de "bruto" abaixo.
     "valor liquido",
+    // "líquido" sozinho — pedido explícito (reconhecer melhor ditado de
+    // "valor bruto"/"valor líquido"), mesma lógica que "bruto" já tinha
+    // pra GROSS_VALUE_LABELS abaixo: no domínio de cadastro de negócio
+    // (nunca fala de líquido/substância aqui), a palavra sozinha já é
+    // específica o bastante pra confiar sem precisar de "valor" na frente.
+    "liquido",
   ].map(normalizeLabel),
 );
 
@@ -207,8 +212,16 @@ export const ALL_LEAD_LABELS: string[] = ALL_LABEL_ENTRIES.map((e) => e.normaliz
 // lista de format-dictated-lead-text.ts (ditado por voz corre o mesmíssimo
 // risco, texto contínuo sem pontuação) — as duas pontas nunca podem
 // reconhecer palavras diferentes uma da outra.
+//
+// "bruto"/"liquido" NÃO entram aqui de propósito (pedido explícito de
+// reconhecer melhor "valor bruto"/"valor líquido" ditados) — diferente de
+// "cliente"/"tipo"/"credito" etc., nenhum dos dois é palavra comum de
+// aparecer solta numa frase de cadastro de negócio fora do sentido
+// financeiro, então o risco de falso positivo é baixo o bastante pra valer
+// o ganho de reconhecer "bruto trezentos mil"/"líquido duzentos mil" sem
+// precisar da palavra "valor" na frente toda vez.
 const AMBIGUOUS_MIDLINE_LABELS = new Set(
-  ["cliente", "contato", "lead", "bruto", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
+  ["cliente", "contato", "lead", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
     normalizeLabel,
   ),
 );
@@ -307,7 +320,16 @@ function matchLabelPrefix(foldedLine: string): { normalized: string; length: num
 // Construtor" continua intacto. Exportado porque format-dictated-lead-text.ts
 // (ditado por voz, escaneia o texto inteiro) precisa da MESMA lista — as
 // duas pontas nunca podem divergir uma da outra.
-const EDGE_FILLER_WORDS = new Set(["ele", "ela", "dele", "dela", "o", "a", "e", "de", "do", "da", "na", "no", "lead", "cliente"]);
+// Muleta de fala ("é... tipo... o cliente ali") entra na MESMA lista —
+// pedido explícito de aguentar melhor quem dita sem pensar na estrutura do
+// sistema, só falando do jeito que fala no dia a dia. Mesmo cuidado de
+// palavra INTEIRA (nunca substring) e só nas PONTAS que o resto do arquivo
+// já usa — "tipo" no meio de "Casa Tipo A" nunca é tocado, só quando sobra
+// solta bem no início/fim do valor extraído.
+const EDGE_FILLER_WORDS = new Set([
+  "ele", "ela", "dele", "dela", "o", "a", "e", "de", "do", "da", "na", "no", "lead", "cliente",
+  "tipo", "entao", "ne", "assim", "eh", "bom", "olha", "enfim",
+]);
 
 export function stripEdgeFillers(value: string): string {
   const words = value.split(/\s+/).filter(Boolean);
@@ -316,6 +338,33 @@ export function stripEdgeFillers(value: string): string {
   while (start < end && EDGE_FILLER_WORDS.has(foldAccents(words[start]))) start++;
   while (end > start && EDGE_FILLER_WORDS.has(foldAccents(words[end - 1]))) end--;
   return words.slice(start, end).join(" ");
+}
+
+// Marcador explícito de autocorreção ("300 mil, desculpa, 350 mil") — sinal
+// FORTE e inequívoco de que a pessoa errou e já corrigiu sozinha, diferente
+// de simplesmente repetir/mencionar dois números de fato distintos (esse
+// caso genérico fica de fora de propósito — não tem como saber se é
+// correção ou informação nova sem esse marcador explícito, e chutar errado
+// custa mais caro que não chutar). Quando aparece, só o que vem DEPOIS do
+// ÚLTIMO marcador encontrado é considerado — cobre também correção em
+// cascata ("300 mil, digo, 350, quer dizer, 400 mil").
+const CORRECTION_MARKERS = ["desculpa", "desculpe", "digo", "corrigindo", "correcao", "quer dizer", "errei", "ou melhor", "opa"].map(
+  normalizeLabel,
+);
+
+export function stripBeforeLastCorrection(value: string): string {
+  const folded = foldAccents(value);
+  let bestEnd = -1;
+  for (const marker of CORRECTION_MARKERS) {
+    const pattern = new RegExp(`\\b${marker.split(" ").join("\\s+")}\\b`, "g");
+    for (const m of folded.matchAll(pattern)) {
+      const end = m.index! + m[0].length;
+      if (end > bestEnd) bestEnd = end;
+    }
+  }
+  if (bestEnd === -1) return value;
+  const after = value.slice(bestEnd).replace(/^[,:;\s]+/, "").trim();
+  return after || value;
 }
 
 /**
@@ -428,7 +477,8 @@ function parseLabeledMoney(raw: string): number | null {
 }
 
 /** Valor "solto" no meio de uma frase sem rótulo nenhum — aqui sim precisa
- * de um marcador forte (R$, "mil", "k", ou separador de milhar) pra não
+ * de um marcador forte (R$, "mil", "k", separador de milhar, ou uma escala
+ * por extenso — "mil"/"milhão" falado, ver findSpokenMoney) pra não
  * confundir um número qualquer (telefone, data, quantidade) com dinheiro. */
 function tryExtractMoney(line: string): { text: string; amount: number } | null {
   let m = line.match(/\b(\d+(?:[.,]\d+)?)\s*mil\b/i);
@@ -449,7 +499,11 @@ function tryExtractMoney(line: string): { text: string; amount: number } | null 
     if (amount !== null) return { text: m[0], amount };
   }
 
-  return null;
+  // Nenhum padrão em dígito bateu — último recurso pro ditado por voz sem
+  // rótulo nenhum reconhecido por perto: "ele falou trezentos mil" ainda
+  // vira valor, mesmo sem "valor"/"quer investir"/etc. na frase. Pedido
+  // explícito: reconhecer também fala de valor solta, não só rotulada.
+  return findSpokenMoney(line);
 }
 
 const UF_CODES = new Set<string>(ESTADOS_BR.map((s) => s.value));
@@ -518,11 +572,25 @@ const CREDIT_TYPE_KEYWORDS: { guess: string; words: string[] }[] = [
  */
 function applyLabel(
   normalized: string,
-  value: string,
+  rawValue: string,
   fields: ParsedLeadFields,
   whatsappState: { explicit: boolean },
 ): boolean {
-  if (VALUE_LABELS.has(normalized) && fields.value === null) {
+  // Autocorreção explícita ("300 mil, desculpa, 350 mil") — só o que vem
+  // depois do último marcador conta. Ver comentário de
+  // stripBeforeLastCorrection acima pra por que isso é seguro (marcador
+  // inequívoco) e diferente de "última menção sempre vence" (ver guardas
+  // removidas logo abaixo).
+  const value = stripBeforeLastCorrection(rawValue);
+
+  // Sem `=== null` aqui (ao contrário de como isto já foi) — pedido
+  // explícito pra aguentar quem fala "sem noção" e se corrige em voz alta
+  // sem usar nenhum marcador de correção reconhecido ("valor 300 mil...
+  // valor 350 mil", só repetindo o rótulo de novo com o número certo):
+  // a ÚLTIMA menção de um rótulo já reconhecido agora sempre vence a
+  // anterior, nunca a primeira. Único campo que mantém guarda própria mais
+  // abaixo é telefone/WhatsApp (2 vagas por natureza, ver comentário lá).
+  if (VALUE_LABELS.has(normalized)) {
     const parsed = parseLabeledMoney(value);
     if (parsed !== null) {
       fields.value = parsed;
@@ -530,7 +598,7 @@ function applyLabel(
     }
   }
 
-  if (GROSS_VALUE_LABELS.has(normalized) && fields.grossValue === null) {
+  if (GROSS_VALUE_LABELS.has(normalized)) {
     const parsed = parseLabeledMoney(value);
     if (parsed !== null) {
       fields.grossValue = parsed;
@@ -560,7 +628,7 @@ function applyLabel(
   }
 
   const field = LABEL_ALIASES[normalized];
-  if (field && fields[field] === null) {
+  if (field) {
     // Cidade rotulada às vezes vem com a UF grudada só por espaço ("Cidade
     // Campo Grande MS") — sem separador de pontuação, CITY_STATE_REGEX (Passo
     // 2, pra texto sem rótulo) não pega; aqui já se sabe que é cidade, então
@@ -568,7 +636,18 @@ function applyLabel(
     if (field === "city") {
       const split = splitTrailingState(value);
       fields.city = split.city;
-      if (split.state && fields.state === null) fields.state = split.state;
+      // Sem guarda também (última menção vence) — se a cidade em si acabou
+      // de ser corrigida/re-mencionada, o estado que veio junto dessa vez
+      // precisa acompanhar, não ficar preso no estado da menção antiga.
+      if (split.state) fields.state = split.state;
+    } else if (field === "description") {
+      // Único campo que CONCATENA em vez de a última menção vencer — é nota
+      // livre, então repetir o rótulo ("obs: gostou muito" ... "obs: quer
+      // fechar rápido") quase sempre é ACRESCENTAR outra observação, não
+      // corrigir a primeira. Perder uma nota já dita é pior aqui do que num
+      // campo estruturado (cidade/valor), onde só existe UMA resposta certa
+      // por vez e repetir É correção.
+      fields.description = fields.description ? `${fields.description}\n${value}` : value;
     } else {
       fields[field] = value;
     }
@@ -680,6 +759,11 @@ export function parseLeadText(raw: string): ParsedLeadFields {
   for (let i = 0; i < residuals.length; i++) {
     let text = residuals[i];
     if (text === null) continue;
+
+    // Mesma correção explícita do Passo 1 (ver stripBeforeLastCorrection) —
+    // texto sem rótulo nenhum reconhecido ("...trezentos mil, desculpa,
+    // trezentos e cinquenta mil...") também merece a mesma cortesia.
+    text = stripBeforeLastCorrection(text);
 
     if (fields.email === null) {
       const m = text.match(EMAIL_REGEX);

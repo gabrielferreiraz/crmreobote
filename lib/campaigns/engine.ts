@@ -183,13 +183,25 @@ async function hasPendingFollowUps(campaignId: string): Promise<boolean> {
 }
 
 /**
- * Só LEAD_CAPTURE (ver Campaign.rmktWaves) — acha o próximo destinatário com
- * uma onda de RMKT vencida (dayOffset contado a partir do envio INICIAL,
- * `sentAt`) que ainda não respondeu nem converteu em negócio. Busca os
- * candidatos elegíveis (nextWaveIndex ainda dentro do array) e filtra em
- * memória quem já venceu, porque o prazo de cada um depende de EM QUE onda
- * ele está — não dá pra expressar isso num único `where` do Prisma.
- */
+ * Roda pra QUALQUER campanha com RMKT configurado (Campaign.rmktWaves +
+ * noReplyDays, ver os dois pontos de chamada abaixo que gateiam por
+ * `noReplyDays != null`) — acha o próximo destinatário com uma onda de RMKT
+ * vencida (dayOffset contado a partir do envio INICIAL, `sentAt`) que ainda
+ * não respondeu. Busca os candidatos elegíveis (nextWaveIndex ainda dentro
+ * do array) e filtra em memória quem já venceu, porque o prazo de cada um
+ * depende de EM QUE onda ele está — não dá pra expressar isso num único
+ * `where` do Prisma.
+ *
+ * Não filtra mais por `dealId: null` — antes isso restringia RMKT só a
+ * LEAD_CAPTURE (onde o negócio só existe se/quando o contato responder,
+ * então "sem negócio" e "sem resposta" eram a mesma coisa). PIPELINE_BULK
+ * (envio em massa pra quem JÁ tem negócio, ver
+ * app/api/deals/bulk-send-message/route.ts) seta `dealId` desde a CRIAÇÃO
+ * do destinatário — com o filtro antigo, esses destinatários nunca
+ * entravam aqui, mesmo com onda configurada. `repliedAt: null` sozinho já
+ * é suficiente nos dois casos (reply.ts sempre seta `repliedAt` antes de
+ * qualquer lógica de negócio, então nunca fica um `dealId` setado com
+ * `repliedAt` ainda null pra essa checagem se confundir). */
 async function findNextWaveCandidate(
   campaign: CampaignRow,
 ): Promise<{ recipient: RecipientRow; wave: RmktWave; waveIndex: number } | null> {
@@ -201,7 +213,6 @@ async function findNextWaveCandidate(
       campaignId: campaign.id,
       status: "SENT",
       repliedAt: null,
-      dealId: null,
       nextWaveIndex: { lt: waves.length },
     },
     orderBy: { sentAt: "asc" },
@@ -218,19 +229,24 @@ async function findNextWaveCandidate(
   return null;
 }
 
-/** Só LEAD_CAPTURE — quem passou de Campaign.noReplyDays sem responder nem converter vira FAILED ("Não respondeu"), não importa se ainda tinha onda de RMKT programada. */
+/** Quem passou de Campaign.noReplyDays sem responder vira FAILED ("Não
+ * respondeu"), não importa se ainda tinha onda de RMKT programada — mesmo
+ * motivo do comentário acima, vale pra qualquer origem de campanha com RMKT
+ * configurado, não só LEAD_CAPTURE. */
 async function findExpiredLeadCaptureRecipient(campaign: CampaignRow) {
   if (campaign.noReplyDays == null) return null;
   const cutoff = new Date(Date.now() - campaign.noReplyDays * 24 * 60 * 60 * 1000);
   return prisma.campaignRecipient.findFirst({
-    where: { campaignId: campaign.id, status: "SENT", repliedAt: null, dealId: null, sentAt: { lte: cutoff } },
+    where: { campaignId: campaign.id, status: "SENT", repliedAt: null, sentAt: { lte: cutoff } },
   });
 }
 
-/** Ainda há destinatário enviado, sem resposta e sem ter convertido em negócio — a campanha não pode ser marcada DONE enquanto existir algum (esperando onda ou prazo de expiração). */
+/** Ainda há destinatário enviado sem resposta — a campanha não pode ser
+ * marcada DONE enquanto existir algum (esperando onda ou prazo de
+ * expiração). Mesmo motivo dos comentários acima. */
 async function hasUnresolvedLeadCaptureRecipients(campaignId: string): Promise<boolean> {
   const count = await prisma.campaignRecipient.count({
-    where: { campaignId, status: "SENT", repliedAt: null, dealId: null },
+    where: { campaignId, status: "SENT", repliedAt: null },
   });
   return count > 0;
 }
@@ -492,7 +508,11 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
       }
     }
 
-    if (campaign.source === "LEAD_CAPTURE") {
+    // noReplyDays != null (não mais "source === LEAD_CAPTURE") — só é
+    // preenchido quando a campanha de fato configurou RMKT, então já
+    // funciona pra qualquer origem que venha a ter RMKT, PIPELINE_BULK
+    // incluído (ver comentário em findNextWaveCandidate acima).
+    if (campaign.noReplyDays != null) {
       const waveCandidate = await findNextWaveCandidate(campaign);
       if (waveCandidate) {
         const outcome = await sendToRecipient(organizationId, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
@@ -560,11 +580,13 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
               if (await hasPendingFollowUps(campaign.id)) continue; // ainda dentro do prazo de espera
             }
 
-            // LEAD_CAPTURE: manda a próxima onda de RMKT vencida, ou expira
-            // (FAILED "Não respondeu") quem passou de noReplyDays — nessa ordem,
-            // então uma onda que já venceu tem prioridade sobre a expiração de
+            // RMKT configurado (noReplyDays != null, não mais "source ===
+            // LEAD_CAPTURE" — ver comentário em findNextWaveCandidate):
+            // manda a próxima onda vencida, ou expira (FAILED "Não
+            // respondeu") quem passou de noReplyDays — nessa ordem, então
+            // uma onda que já venceu tem prioridade sobre a expiração de
             // OUTRO destinatário no mesmo tick (o expirado espera o próximo).
-            if (campaign.source === "LEAD_CAPTURE") {
+            if (campaign.noReplyDays != null) {
               const waveCandidate = await findNextWaveCandidate(campaign);
               if (waveCandidate) {
                 const outcome = await sendToRecipient(org.id, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);

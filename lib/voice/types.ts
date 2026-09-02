@@ -145,7 +145,50 @@ export type LanguageProfile = {
   indirectQuestionMarkers: string[];
   /** Modal/cortesia que costuma abrir uma pergunta falada em pt-BR ("pode", "poderia", "tem como"...). */
   questionOpeners: string[];
+  /** Marcador de pergunta de confirmação ("tag question") — em português
+   * falado, NENHUMA palavra interrogativa é necessária pra fazer uma
+   * pergunta de sim/não; quem sinaliza isso é a ENTONAÇÃO, que texto não
+   * carrega. Esses marcadores ("né", "combinado", "ou não"...) aparecem
+   * quase sempre coladinhos no FINAL da fala — quando aparecem lá, é sinal
+   * de sobra de que é pergunta, mesmo sem nenhum "quem/qual/quando". Sinal
+   * independente da posição (ver question-detector.ts): não decai com
+   * distância do início como questionWords, porque por definição vive perto
+   * do FIM. */
+  questionTagMarkers: string[];
+  /** Verbo de confirmação/fechamento (pretérito perfeito, tipicamente) que,
+   * aparecendo como a PRIMEIRA palavra da fala (sujeito omitido — "Fechou o
+   * negócio?", "Confirmou a reunião?"), quase sempre marca pergunta de
+   * sim/não em português falado: um relato ("ele fechou...") normalmente
+   * mantém o sujeito explícito; começar direto pelo verbo sem sujeito é
+   * majoritariamente pergunta ou eco de pergunta recebida. Dois níveis de
+   * confiança (ver question-detector.ts):
+   *  - Forte: verbo de ação de fechamento sem uso declarativo plausível sem
+   *    sujeito ("Assinou o contrato?", "Pagou a fatura?") — decide sozinho.
+   *  - Moderado: verbo-resultado que TAMBÉM abre frase declarativa legítima
+   *    sem sujeito ("Rolou uma reunião ontem", "Deu certo a negociação") —
+   *    só ajuda a cruzar o threshold combinado com outro sinal. */
+  subjectlessQuestionVerbsStrong: string[];
+  subjectlessQuestionVerbsModerate: string[];
   sentenceConnectors: SentenceConnector[];
+  /** Marcador de discurso ("por exemplo", "ou seja", "na verdade"...) que
+   * pede vírgula antes dele mesmo quando aparece DENTRO de um segmento já
+   * reconhecido de uma vez (sem pausa nenhuma no meio) — sentenceConnectors
+   * acima só cobre o caso de a PAUSA cair exatamente ali (segmento novo
+   * começando com o conectivo); isto aqui cobre o resto: alguém fala tudo
+   * de uma vez, "vou fazer por exemplo uma proposta menor", sem nenhuma
+   * pausa antes de "por exemplo" — mesmo assim a vírgula é gramaticalmente
+   * esperada ali. Ver mid-sentence-comma.ts. */
+  midSentenceCommaMarkers: string[];
+  /** Palavras que NUNCA terminam uma frase sozinhas nesse idioma (preposição,
+   * artigo, conjunção subordinativa...) — usadas por
+   * sentence-boundary-detector.ts pra reabrir um fechamento provisório
+   * mesmo sem nenhum conectivo no segmento seguinte: se o texto confirmado
+   * termina numa dessas palavras bem antes do ".", é sinal de que a pausa
+   * foi só hesitação no MEIO da ideia, não o fim dela. Excluídos de
+   * propósito pronomes/demonstrativos que PODEM terminar uma frase sozinhos
+   * ("isso", "aquilo", "esse", "aquele"...) — incluir esses geraria falso
+   * positivo emendando duas frases de fato separadas. */
+  danglingEndings: string[];
 };
 
 // ─── Vocabulário ─────────────────────────────────────────────────────────

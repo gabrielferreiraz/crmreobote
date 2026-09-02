@@ -337,7 +337,16 @@ model WhatsAppThread {
   ownerUserId     String?
   phoneNormalized String // número normalizado da OUTRA parte, nunca da nossa instância
   whatsappName    String? // pushName do WhatsApp — melhor-esforço, pode ficar desatualizado
-  contactId       String?
+  // Apelido definido manualmente pra essa conversa (ver
+  // app/api/whatsapp/threads/[threadId]/rename) — só é usado quando ainda
+  // não existe Contact vinculado (thread em "WhatsApp Geral"). Com contato
+  // vinculado, renomear edita Contact.name diretamente (mesmo nome usado em
+  // todo o CRM), então esse campo fica sem uso pra essa thread. Ao contrário
+  // de whatsappName, nunca é sobrescrito por um pushName novo chegando (ver
+  // getOrCreateThread em lib/whatsapp/threads.ts) — é o motivo de existir:
+  // um nome definido aqui pelo usuário nunca deve "voltar" pro que a Evolution manda.
+  customName String?
+  contactId  String?
 
   // Foto de perfil do WhatsApp do contato — cacheada aqui pra não bater no
   // Evolution API toda vez que o chat abre (ver app/api/whatsapp/threads/
@@ -1660,6 +1669,21 @@ model Task {
   // número) — abandona o RESTANTE da sequência, mesma decisão de produto
   // de scheduledMessageFailedAt (sem retry automático, avisa 1x por push).
   reminderFailedAt         DateTime?
+  // Aviso automático PUSH pro PRÓPRIO consultor antes de uma Reunião —
+  // caminho irmão do bloco reminder* acima (que é WhatsApp pro CLIENTE),
+  // escolhido no mesmo botão "Programar aviso automático" do
+  // MeetingInviteDialog, agora com um garfo explícito "Avisar cliente" vs
+  // "Me avisar". Bem mais simples que o do cliente de propósito: um push
+  // só (não uma sequência com Script), texto sempre gerado pelo sistema
+  // (nunca escrito à mão) — não faz sentido "escrever uma mensagem" pra um
+  // lembrete que só o próprio consultor vê.
+  selfReminderMinutesBefore Int?
+  // dueAt - selfReminderMinutesBefore minutos, calculado uma vez na
+  // criação/edição do aviso — mesmo papel de reminderNextSendAt acima.
+  selfReminderSendAt        DateTime?
+  // Setado quando o push sai — nunca mais tocado depois (não há sequência
+  // pra continuar, é só 1 envio).
+  selfReminderSentAt        DateTime?
   createdAt                DateTime  @default(now())
   // Liga esta Task à Activity MEETING/VISIT que ela representa — só existe
   // pra type MEETING/VISIT (o resultado agora é perguntado na CONCLUSÃO da

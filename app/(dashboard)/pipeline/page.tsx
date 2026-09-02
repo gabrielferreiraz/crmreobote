@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, aggregateDealValues, countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
-import { getCurrentMonthGoalProgress } from "@/lib/goals/suggestion";
 import { runWithTenant } from "@/lib/tenant-context";
 import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineView } from "./pipeline-view";
@@ -109,14 +108,7 @@ export default async function PipelinePage({
     const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope };
     const kanbanFilterParams = { organizationId, pipelineId: activePipeline.id, scope, status: "OPEN" as const };
 
-    // % da meta no card "valor em aberto" (ver new-design-for-claude/README.md)
-    // só faz sentido pra quem vê o funil inteiro (Dono) — meta é sempre
-    // organização inteira, dividir um "aberto" já ESCOPADO (Gerente/
-    // Supervisor/Consultor) pela meta do time todo daria uma % sem
-    // significado real pra quem não vê tudo.
-    const isOwnerForGoal = session!.user.role === "OWNER";
-
-    const [openStatsByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums, goalProgress] = await Promise.all([
+    const [openStatsByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums] = await Promise.all([
       // {count, sumValue} por etapa — sumValue corrige um bug real do
       // cabeçalho da coluna, que antes somava só os negócios já CARREGADOS
       // (uma página), errado em qualquer etapa com mais de uma página.
@@ -127,7 +119,6 @@ export default async function PipelinePage({
         where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
       }),
       aggregateDealValues(listaFilterParams),
-      isOwnerForGoal ? getCurrentMonthGoalProgress(organizationId) : Promise.resolve(null),
     ]);
     const initialKanbanByStage: Record<string, Deal[]> = {};
     for (const deal of kanbanDeals) {
@@ -160,7 +151,7 @@ export default async function PipelinePage({
         ? allMembersRaw.filter((m) => scope.ownerIds.includes(m.userId))
         : allMembersRaw;
 
-  const isOwner = isOwnerForGoal;
+  const isOwner = session!.user.role === "OWNER";
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
   // Liberado pra todo mundo — a rota (app/api/deals/bulk-send-message) já
   // revalida a seleção contra getDealScope/scopeWhere do próprio papel de
@@ -211,8 +202,6 @@ export default async function PipelinePage({
         canViewImportHistory={true}
         canBulkMessage={canBulkMessage}
         openNewDeal={novo === "1"}
-        goalValue={goalProgress?.goalValue ?? null}
-        goalAchievedValue={goalProgress?.achievedValue ?? null}
       />
     </div>
   );

@@ -46,18 +46,18 @@ export function TasksList({
   members,
   isWhatsAppConnected,
   googleParam,
-  currentUserRole,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
   isWhatsAppConnected: boolean;
   googleParam?: string;
-  /** Excluir tarefa é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
-  currentUserRole?: string;
 }) {
   const router = useRouter();
-  const canDelete = currentUserRole === "OWNER";
+  // Excluir tarefa era restrito ao Dono — pedido explícito reverteu isso,
+  // agora qualquer papel com acesso à tarefa pode (backend já valida o
+  // escopo real, isto aqui só decide se o botão aparece).
+  const canDelete = true;
   // Busca à parte, depois que a tela já está de pé — ver
   // lib/use-google-calendar-events.ts e app/api/google-calendar/events. Não
   // trava mais a renderização das tarefas do CRM esperando o Google.
@@ -246,6 +246,7 @@ export function TasksList({
           canDelete={canDelete}
           showOwner={showOwner}
           googleEvents={googleCalendar.events}
+          deals={deals}
         />
       ) : noResults ? (
         <div className="card">
@@ -257,17 +258,17 @@ export function TasksList({
         </div>
       ) : (
         <div className="space-y-6">
-          <TaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
-          <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
-          <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
-          <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} />
-          <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} muted showOwner={showOwner} />
+          <TaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+          <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+          <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+          <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+          <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} muted showOwner={showOwner} deals={deals} />
         </div>
       )}
       </div>
 
       <div className="xl:sticky xl:top-4">
-        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} />
+        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} />
       </div>
       </div>
 
@@ -295,6 +296,7 @@ function TaskGroup({
   onDelete,
   canDelete,
   showOwner,
+  deals,
 }: {
   title: string;
   tasks: Task[];
@@ -304,6 +306,7 @@ function TaskGroup({
   onDelete?: (id: string) => Promise<void> | void;
   canDelete?: boolean;
   showOwner: boolean;
+  deals?: Option[];
 }) {
   if (tasks.length === 0) return null;
 
@@ -318,7 +321,7 @@ function TaskGroup({
       </h2>
       <div className="space-y-2">
         {tasks.map((task) => (
-          <TaskRow key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} muted={muted} showOwner={showOwner} />
+          <TaskRow key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} muted={muted} showOwner={showOwner} deals={deals} />
         ))}
       </div>
     </div>

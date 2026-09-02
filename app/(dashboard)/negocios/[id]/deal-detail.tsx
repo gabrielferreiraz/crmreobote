@@ -1724,27 +1724,47 @@ function DealValueCard({
   const [error, setError] = useState<string | null>(null);
 
   if (!editing) {
+    // Não editável (sem permissão) — card só de leitura, sem nada clicável.
+    if (!editable) {
+      return (
+        <div className="card p-4 text-sm">
+          <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
+          <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(value)}</p>
+        </div>
+      );
+    }
+    // O card INTEIRO é o botão — clicar em qualquer lugar dele (não só no
+    // lapisinho, que era pequeno demais e ficava invisível até passar o
+    // mouse) já entra no modo de edição. Mesmo padrão que EditableRow já
+    // usa mais abaixo neste arquivo (valor + lápis dentro do MESMO botão),
+    // só que aqui o botão é o card todo, não só a linha do valor.
+    //
+    // Selo "Editar" SEMPRE visível (não só no hover) — pedido explícito de
+    // deixar a edição mais chamativa/vívida. Só 2 cards destes na tela
+    // (Líquido/Bruto), então um selo colorido permanente não pesa — bem
+    // diferente de EditableRow (13 linhas empilhadas mais abaixo), onde o
+    // mesmo selo repetido 13x viraria poluição visual; lá o tratamento
+    // continua mais discreto (lápis colorido, sem texto).
     return (
-      <div className="card group p-4 text-sm">
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(value != null ? String(value) : "");
+          setError(null);
+          setEditing(true);
+        }}
+        className="card group w-full p-4 text-left text-sm transition-colors hover:border-brand/40 hover:bg-brand-light/40 dark:hover:bg-brand-light/15"
+        aria-label={`Editar ${label.toLowerCase()}`}
+      >
         <div className="flex items-center justify-between gap-2">
           <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
-          {editable && (
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(value != null ? String(value) : "");
-                setError(null);
-                setEditing(true);
-              }}
-              className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
-              aria-label={`Editar ${label.toLowerCase()}`}
-            >
-              <Pencil className="h-3 w-3" strokeWidth={2} />
-            </button>
-          )}
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-semibold text-brand transition-transform group-hover:scale-105 dark:bg-brand-light">
+            <Pencil className="h-2.5 w-2.5" strokeWidth={2.5} />
+            Editar
+          </span>
         </div>
         <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(value)}</p>
-      </div>
+      </button>
     );
   }
 
@@ -1832,9 +1852,14 @@ function CustomFieldsCard({
   }
 
   return (
-    <div className="card group space-y-2 p-4 text-sm">
+    <div className="card space-y-2 p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Campos personalizados</h3>
+        {/* Selo sempre visível (não só no hover) — mesmo tratamento "chamativo"
+            de DealValueCard, pedido explícito. Card com N campos, então fica
+            só no header (não vira o card inteiro clicável como lá — cada
+            linha abaixo já tem seu próprio texto/valor, um botão cobrindo
+            tudo isso seria estranho de usar). */}
         {editable && !editing && (
           <button
             type="button"
@@ -1843,10 +1868,11 @@ function CustomFieldsCard({
               setError(null);
               setEditing(true);
             }}
-            className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-semibold text-brand transition-transform hover:scale-105 dark:bg-brand-light"
             aria-label="Editar campos personalizados"
           >
-            <Pencil className="h-3 w-3" strokeWidth={2} />
+            <Pencil className="h-2.5 w-2.5" strokeWidth={2.5} />
+            Editar
           </button>
         )}
       </div>
@@ -1938,11 +1964,20 @@ function EditableRow({
             setError(null);
             setEditing(true);
           }}
-          className="group/field flex min-w-0 items-center gap-1 text-right"
+          className="group/field flex min-w-0 items-center gap-1 rounded text-right"
         >
-          <span className="truncate text-neutral-800 dark:text-neutral-200">{displayValue ?? (value || "—")}</span>
+          {/* 13 linhas destas empilhadas na tela — um selo "Editar" em cada
+              uma viraria poluição visual (diferente de DealValueCard/
+              CustomFieldsCard, só 1-2 por tela). Aqui o "mais chamativo"
+              pedido vira: lápis SEMPRE em cor de marca (não cinza) e
+              parcialmente visível mesmo sem hover (opacity-40, não mais
+              opacity-0) — dá pra notar que a linha é editável batendo o
+              olho na tela toda, sem precisar caçar campo por campo. */}
+          <span className="truncate text-neutral-800 transition-colors group-hover/field:text-brand dark:text-neutral-200">
+            {displayValue ?? (value || "—")}
+          </span>
           <Pencil
-            className="h-3 w-3 shrink-0 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible/field:opacity-100 coarse:opacity-100 dark:text-neutral-500"
+            className="h-3 w-3 shrink-0 text-brand opacity-40 transition-opacity group-hover/field:opacity-100 group-focus-visible/field:opacity-100 coarse:opacity-100"
             strokeWidth={2}
           />
         </button>

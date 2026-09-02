@@ -26,7 +26,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { normalizePhoneNumber, formatBrazilianPhone, extractJidUser, brazilianMobileVariants } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, formatBrazilianPhone, extractJidUser, brazilianMobileVariants, isNonIndividualJid } from "@/lib/phone-normalize";
 import { getIncomingMediaBase64, findMessages, type HistoryMessage } from "@/lib/evolution";
 
 const DEBUG_LOG_ENABLED = process.env.WHATSAPP_WEBHOOK_DEBUG_LOG === "true" || process.env.NODE_ENV !== "production";
@@ -130,8 +130,8 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     debugLog("[wa:webhook] ignorada: sem key.remoteJid", JSON.stringify(msg));
     return;
   }
-  if (remoteJid.endsWith("@g.us")) {
-    console.log(`[wa:webhook] ignorada: mensagem de grupo (${remoteJid})`);
+  if (isNonIndividualJid(remoteJid)) {
+    console.log(`[wa:webhook] ignorada: JID não-individual (${remoteJid})`);
     return;
   }
 
@@ -247,21 +247,20 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
   // verdade em tempo real (nunca pro eco do que o próprio vendedor mandou,
   // nem pra uma mensagem antiga vinda do backfill de histórico).
   if (direction === "INBOUND" && options.notify) {
+    // Só avisa por push quem tem ESTE WhatsApp conectado — existia um
+    // segundo aviso aqui, pro dono do negócio quando a mensagem chegava por
+    // um número que não é o dele (ex.: número central, ou lead que escreveu
+    // pra outro consultor). Removido de propósito: o preview da notificação
+    // mostrava o TEXTO de verdade da mensagem, então isso vazava conteúdo de
+    // conversa de um consultor pra outro que não tem nada a ver com aquele
+    // número — foi exatamente o incidente que motivou tirar isso.
     const shouldNotifyInstanceOwner = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
-    // Dono do negócio aberto vinculado ao contato, se houver — só buscado
-    // quando existe contactId, já que "WhatsApp Geral" nunca tem negócio.
-    const openDealOwnerId = thread.contactId
-      ? (
-          await prisma.deal.findFirst({
-            where: { organizationId: instance.organizationId, contactId: thread.contactId, status: "OPEN" },
-            orderBy: { createdAt: "desc" },
-            select: { ownerId: true },
-          })
-        )?.ownerId
-      : undefined;
 
-    if (shouldNotifyInstanceOwner || (openDealOwnerId && openDealOwnerId !== instance.userId)) {
-      let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
+    if (shouldNotifyInstanceOwner) {
+      // customName antes de whatsappName — mesma prioridade de
+      // lib/whatsapp/conversations.ts (o apelido manual não pode "voltar" a
+      // mostrar o pushName da Evolution na notificação também).
+      let displayName = thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
       if (thread.contactId) {
         const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
         if (contact) displayName = contact.name;
@@ -269,25 +268,9 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
       const preview =
         body ||
         (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
-      const pushPayload = { title: displayName, body: preview, url: "/whatsapp/conversas" };
-
-      if (shouldNotifyInstanceOwner) {
-        sendPushToUser(instance.userId, pushPayload).catch((err) =>
-          console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
-        );
-      }
-      // Além de quem tem o WhatsApp conectado, avisa também o dono do
-      // negócio, quando for uma pessoa diferente — um número central (ex.:
-      // "Reobote TI") recebendo mensagem de um lead já atribuído a outro
-      // consultor não devia deixar esse consultor sem saber (mesmo
-      // raciocínio de "responsável" em lib/whatsapp/conversations.ts, que já
-      // documenta essa distinção). sendPushToUser já é no-op sozinho se a
-      // pessoa nunca ativou push neste navegador/dispositivo.
-      if (openDealOwnerId && openDealOwnerId !== instance.userId) {
-        sendPushToUser(openDealOwnerId, pushPayload).catch((err) =>
-          console.error("[wa:webhook] falha ao enviar push pro responsável pelo negócio", err),
-        );
-      }
+      sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
+        console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
+      );
     }
 
     handleCampaignReply(instance.organizationId, thread.id, thread.contactId).catch((err) =>
@@ -369,7 +352,7 @@ export async function importHistoryMessages(
   const byContact = new Map<string, HistoryMessage[]>();
   for (const item of raw) {
     const remoteJid = item.key?.remoteJid;
-    if (!remoteJid || remoteJid.endsWith("@g.us")) continue;
+    if (!remoteJid || isNonIndividualJid(remoteJid)) continue;
     const list = byContact.get(remoteJid) ?? [];
     list.push(item);
     byContact.set(remoteJid, list);
@@ -475,8 +458,8 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
         debugLog("[wa:webhook] chamada ignorada: sem campo 'from'", JSON.stringify(call));
         continue;
       }
-      if (remoteJid.endsWith("@g.us")) {
-        console.log(`[wa:webhook] chamada ignorada: chamada de grupo (${remoteJid})`);
+      if (isNonIndividualJid(remoteJid)) {
+        console.log(`[wa:webhook] chamada ignorada: JID não-individual (${remoteJid})`);
         continue;
       }
 
@@ -546,7 +529,10 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
       if (callStatus === "MISSED" || callStatus === "REJECTED") {
         const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
         if (shouldNotify) {
-          let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
+          // Mesma prioridade de customName antes de whatsappName (ver
+          // lib/whatsapp/conversations.ts) — não regride pro pushName da
+          // Evolution quando já existe um apelido manual salvo.
+          let displayName = thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
           if (thread.contactId) {
             const contact = await prisma.contact.findUnique({
               where: { id: thread.contactId },
@@ -579,7 +565,7 @@ export async function handlePresenceUpdate(instance: InstanceRef, data: unknown)
   try {
     const update = data as { id?: string; presences?: Record<string, { lastKnownPresence?: string; lastSeen?: number }> };
     const remoteJid = update?.id;
-    if (!remoteJid || remoteJid.endsWith("@g.us")) return; // presença de grupo não nos interessa
+    if (!remoteJid || isNonIndividualJid(remoteJid)) return; // presença de grupo/JID não-individual não nos interessa
 
     const rawNumber = extractJidUser(remoteJid);
     const phoneNormalized = normalizePhoneNumber(rawNumber);

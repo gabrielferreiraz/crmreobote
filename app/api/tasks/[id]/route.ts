@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
+import { parseBrazilDateTime } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ const VALID_MEETING_OUTCOMES = ["ATTENDED", "NO_SHOW", "RESCHEDULED"] as const;
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { title, description, dueAt, completed, meetingOutcome } = body as {
+  const { title, description, dueAt, completed, meetingOutcome, dealId, contactId } = body as {
     title?: string;
     description?: string;
     dueAt?: string | null;
@@ -24,6 +25,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // não é aceito aqui: é um estado só interno (Activity recém-criada,
     // ainda sem resposta), nunca algo que o cliente manda de propósito.
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED";
+    // Trocar o negócio/contato vinculado (ver EditTaskDialog em
+    // task-detail-modal.tsx) — `undefined` (campo ausente do body) nunca
+    // toca o vínculo atual, igual todo o resto deste PUT; `null`/"" limpa o
+    // vínculo; um id troca pra outro negócio/contato. Pedido explícito:
+    // qualquer papel com acesso à tarefa pode trocar, não só o Dono.
+    dealId?: string | null;
+    contactId?: string | null;
   };
 
   if (meetingOutcome !== undefined && !VALID_MEETING_OUTCOMES.includes(meetingOutcome)) {
@@ -58,6 +66,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "meetingOutcome só se aplica a Reunião/Visita" }, { status: 400 });
     }
 
+    // Mesma validação de POST /api/tasks — só confere que o negócio/contato
+    // novo é da mesma organização (nunca restringe a escopo mais estreito
+    // que isso, igual a criação já não restringia).
+    if (dealId) {
+      const deal = await prisma.deal.findFirst({ where: { id: dealId, organizationId } });
+      if (!deal) return NextResponse.json({ error: "Negócio inválido" }, { status: 400 });
+    }
+    if (contactId) {
+      const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
+      if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
+    }
+
     // Liga (ou cria na hora, pra Task antiga sem uma) a Activity que
     // representa esta Reunião/Visita — atualizada abaixo conforme o caso.
     // Só busca/cria quando de fato precisa mexer no resultado, pra não
@@ -86,7 +106,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (meetingOutcome === "RESCHEDULED") {
       const activity = await resolveLinkedActivity();
       await prisma.activity.update({ where: { id: activity.id }, data: { meetingOutcome: "RESCHEDULED" } });
-      const newDue = new Date(dueAt!);
+      const newDue = parseBrazilDateTime(dueAt!);
       // Log visível na timeline de que houve trabalho aqui.
       await prisma.activity.create({
         data: {
@@ -146,6 +166,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       data: {
         title,
         description,
+        dealId: dealId === undefined ? undefined : dealId || null,
+        contactId: contactId === undefined ? undefined : contactId || null,
         // RESCHEDULED nunca toca o dueAt desta Task — o dueAt recebido é da
         // TAREFA NOVA (criada acima); esta mantém a data original do
         // encontro que de fato foi tentado, pra ficar registrado quando
@@ -156,7 +178,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             : dueAt === undefined
               ? undefined
               : dueAt
-                ? new Date(dueAt)
+                ? parseBrazilDateTime(dueAt)
                 : null,
         // RESCHEDULED finaliza esta tentativa (ver comentário acima) — não
         // fica mais em aberto esperando o próximo encontro, isso já é
@@ -185,19 +207,22 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   });
 }
 
-// Excluir tarefa (qualquer tipo — Reunião/Visita incluídos) é restrito ao
-// dono da organização, diferente de PUT acima (editar/concluir, que
-// qualquer papel com acesso à tarefa continua podendo fazer). Pedido
-// explícito do usuário: exclusão é irreversível e vira evidência de
-// reunião/visita perdida se usada por engano — só o Dono decide apagar.
+// Excluir tarefa (qualquer tipo — Reunião/Visita incluídos): pedido mais
+// recente reverteu a restrição anterior ("só o Dono decide apagar", ainda
+// documentada no histórico do repositório) — agora qualquer papel com
+// acesso à tarefa pode excluir, igual já valia pra editar/concluir (PUT
+// acima). Continua exigindo autenticação/escopo normal (getSharedScope,
+// mesma regra colaborativa do PUT) — só amplia QUEM entre os que já
+// enxergam a tarefa pode apagar, nunca deixa apagar algo fora do escopo de
+// visão de quem pediu.
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const access = await requireRole(["OWNER"]);
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const scope = await getSharedScope(access.organizationId, access.userId, access.role, ["shareAgenda", "shareDeals"]);
     const existing = await prisma.task.findFirst({
       where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
     });

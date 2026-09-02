@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
+import type { Option } from "./tasks-list";
 
 const WEEKDAY_LABELS = ["S", "T", "Q", "Q", "S", "S", "D"];
 const MONTH_LABELS = [
@@ -33,13 +34,16 @@ export function CompactMonthCalendar({
   onDelete,
   canDelete,
   showOwner,
+  deals,
 }: {
   tasks: Task[];
   onToggle: (id: string, completed: boolean) => void;
   onDelete?: (id: string) => Promise<void> | void;
-  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  /** Qualquer papel com acesso à tarefa pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
   showOwner: boolean;
+  /** Repassado pro TaskDetailModal — habilita o botão "Editar" (ver EditTaskDialog). */
+  deals?: Option[];
 }) {
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -155,7 +159,7 @@ export function CompactMonthCalendar({
           </h2>
           <div className="scrollbar-thin max-h-[72vh] space-y-2.5 overflow-y-auto pb-2">
             {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
-              <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} />
+              <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} deals={deals} />
             ))}
           </div>
         </Modal>

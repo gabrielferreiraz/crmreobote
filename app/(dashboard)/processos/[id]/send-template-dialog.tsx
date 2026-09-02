@@ -247,8 +247,9 @@ export function SendTemplateDialog({
                       <p className="mt-0.5 truncate text-neutral-500 dark:text-neutral-400">{t.message}</p>
                     </button>
                     <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 coarse:opacity-100">
-                      <button onClick={() => startEdit(t)} className="icon-btn h-7 w-7" title="Editar modelo">
+                      <button onClick={() => startEdit(t)} className="icon-btn-labeled" title="Editar modelo">
                         <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                        Editar
                       </button>
                       <button onClick={() => deleteTemplate(t.id)} className="icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400" title="Apagar modelo">
                         <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />

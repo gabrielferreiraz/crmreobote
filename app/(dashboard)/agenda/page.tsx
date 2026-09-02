@@ -129,7 +129,6 @@ export default async function AgendaPage({
             members={members}
             isWhatsAppConnected={isWhatsAppConnected}
             googleParam={google}
-            currentUserRole={session!.user.role}
           />
         </div>
         <div className="lg:hidden">
@@ -140,7 +139,6 @@ export default async function AgendaPage({
             openNewTask={novo === "1"}
             isWhatsAppConnected={isWhatsAppConnected}
             googleParam={google}
-            currentUserRole={session!.user.role}
           />
         </div>
       </div>

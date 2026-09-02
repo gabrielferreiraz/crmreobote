@@ -97,6 +97,7 @@ export function DealsList({
   quickFilter,
   onToggleQuickFilter,
   toolbarRight,
+  onTotalCountChange,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
@@ -124,6 +125,11 @@ export function DealsList({
    * dentro da MESMA fileira da busca/filtros, não numa linha própria acima:
    * pedido explícito ("na mesma div, não em linhas diferentes"). */
   toolbarRight?: ReactNode;
+  /** Reporta o total (já considerando o filtro/busca atual) pro pai a cada
+   * mudança — mesmo padrão que KanbanBoard já usa (onTotalsChange), pra
+   * pipeline-view.tsx mostrar "N negócios" na fileira de busca independente
+   * de qual view (Kanban/Lista) está montada no momento. */
+  onTotalCountChange?: (count: number) => void;
 }) {
   const router = useRouter();
 
@@ -131,6 +137,11 @@ export function DealsList({
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [sums, setSums] = useState(initialSums);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    onTotalCountChange?.(totalCount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalCount]);
   // false só durante a janela entre montar e a 1ª busca pós-restauração do
   // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
   // volta pra esta tela com um filtro salvo via localStorage via TODOS os
@@ -1054,7 +1065,18 @@ export function DealsList({
         <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.lostSum)}</span>
       </p>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* pb-24 no celular: essa região preenche a caixa inteira até o fundo
+          (h-full/min-h-0, mesma estratégia do Kanban ao lado — ver
+          kanban-board.tsx), mas a barra de navegação inferior é
+          `position:fixed` e fica POR CIMA do conteúdo sem entrar no fluxo —
+          sem esse respiro, rolar até o fim escondia os últimos negócios
+          atrás da barra, inalcançáveis mesmo rolando até o limite. O Kanban
+          resolve isso medindo a altura real da barra (getBoundingClientRect,
+          pensado pra coluna de altura fixa); aqui, lista vertical simples,
+          um respiro generoso de sobra já garante o mesmo resultado sem
+          precisar de medição em JS. lg:pb-3: sem barra fixa no desktop, só
+          uma margem de segurança pequena mesmo. */}
+      <div className="min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-3">
       {!filtersReady ? (
         // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
         // filtersReady acima) — evita piscar `initialDeals` (sem o filtro

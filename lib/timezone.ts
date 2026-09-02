@@ -147,6 +147,28 @@ export function brazilDateTimeStringToUTC(dateStr: string, timeStr: string): Dat
   return new Date(Date.UTC(year, month - 1, day, hour + BRAZIL_UTC_OFFSET_HOURS, minute, 0, 0));
 }
 
+/**
+ * Converte um dueAt CRU vindo de request body (ex.: `${dueDate}T${dueTime}`,
+ * montado em várias telas — deal-detail.tsx, meeting-outcome-dialog.tsx —
+ * sem nenhum fuso explícito) pro instante UTC certo. Bug real detectado:
+ * `new Date("2026-09-09T16:30")` direto no servidor usa o fuso do RUNTIME
+ * (container Docker, não necessariamente Campo Grande) pra interpretar essa
+ * string — o link "adicionar à agenda" (e o próprio horário salvo da
+ * reunião) saíam 1h adiantados. Mesma causa raiz já documentada no topo
+ * deste arquivo pra saudação/automação, só que batendo em Task.dueAt agora.
+ *
+ * String que JÁ vem com fuso explícito (sufixo "Z" ou "+HH:MM"/"-HH:MM" —
+ * ex.: de uma integração externa que já manda o instante certo, como
+ * /api/v1/appointments) é respeitada como está, nunca reinterpretada.
+ */
+export function parseBrazilDateTime(raw: string): Date {
+  if (/Z$|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(raw);
+  const [datePart, timePart] = raw.split("T");
+  if (!datePart || !timePart) return new Date(raw); // formato inesperado — não trava, só não corrige
+  const [hour, minute] = timePart.split(":");
+  return brazilDateTimeStringToUTC(datePart, `${hour}:${minute}`);
+}
+
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "2-digit",

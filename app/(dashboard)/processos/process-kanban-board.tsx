@@ -353,6 +353,15 @@ export function ProcessKanbanBoard({
   // nesse valor — mesmo motivo/mesmo padrão de kanban-board.tsx: não dá pra
   // confiar só em h-full/flex-1 se propagando certo por vários containers, e
   // sem isso as colunas cresciam pra caber o conteúdo em vez de rolar sozinhas.
+  //
+  // Desconta também a barra de navegação inferior do celular
+  // (#mobile-bottom-nav, ver mobile-nav.tsx) — ela é `position:fixed`, fica
+  // POR CIMA do conteúdo em vez de empurrá-lo, então window.innerHeight
+  // sozinho não sabe que aquela faixa de baixo está coberta. Esse desconto
+  // já existia em kanban-board.tsx mas nunca tinha sido replicado aqui —
+  // sem ele, o fim de cada coluna (últimos cartões) ficava escondido atrás
+  // da barra, inalcançável mesmo rolando até o limite. Em telas lg+ a barra
+  // some (lg:hidden) e getBoundingClientRect já retorna altura 0 sozinho.
   const rowRef = useRef<HTMLDivElement>(null);
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
@@ -360,7 +369,9 @@ export function ProcessKanbanBoard({
     if (!el) return;
     function measure() {
       const top = el!.getBoundingClientRect().top;
-      setRowHeight(Math.max(240, window.innerHeight - top - 4));
+      const mobileNav = document.getElementById("mobile-bottom-nav");
+      const bottomReserved = mobileNav ? mobileNav.getBoundingClientRect().height : 0;
+      setRowHeight(Math.max(240, window.innerHeight - top - bottomReserved - 4));
     }
     measure();
     window.addEventListener("resize", measure);

@@ -165,10 +165,12 @@ export default async function ContactPage({
             jobTitles={jobTitles}
             members={members}
             customFields={customFields}
-            // Mais chamativo que o .icon-btn discreto padrão — pedido
-            // explícito pra esse lápis ficar mais visível aqui no topo do
-            // Cliente-detalhe (é a única forma de editar nesta tela).
-            triggerClassName="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-all duration-200 ease-spring hover:border-neutral-300 hover:text-neutral-900 hover:shadow-md active:scale-90 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
+            // Mais chamativo que o .icon-btn-labeled discreto padrão — pedido
+            // explícito pra esse botão ficar mais visível aqui no topo do
+            // Cliente-detalhe (é a única forma de editar nesta tela), e por
+            // isso o texto "Editar" também vem escrito (não só o ícone) —
+            // mesmo raciocínio aplicado em todo o resto do app.
+            triggerClassName="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3.5 text-sm font-medium text-neutral-600 shadow-sm transition-all duration-200 ease-spring hover:border-neutral-300 hover:text-neutral-900 hover:shadow-md active:scale-95 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
           />
         </div>
 

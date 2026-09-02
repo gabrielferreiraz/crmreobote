@@ -5,6 +5,7 @@ import { CalendarClock } from "lucide-react";
 import { TaskDetailModal } from "./task-detail-modal";
 import type { Task } from "./task-row";
 import { useMeetingOutcomeGate } from "./use-meeting-outcome-gate";
+import type { Option } from "./tasks-list";
 
 const MONTH_ABBR = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
 
@@ -25,12 +26,15 @@ export function UpcomingAppointmentsCard({
   onToggle,
   onDelete,
   canDelete,
+  deals,
 }: {
   tasks: Task[];
   onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
-  /** Só o Dono da organização pode excluir — ver TaskDetailModal. */
+  /** Qualquer papel com acesso à tarefa pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
+  /** Repassado pro TaskDetailModal — habilita o botão "Editar" (ver EditTaskDialog). */
+  deals?: Option[];
 }) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   // Abre TaskDetailModal por FORA do TaskRow (cartão próprio de "próximos
@@ -87,6 +91,7 @@ export function UpcomingAppointmentsCard({
           }}
           canDelete={canDelete}
           onDelete={onDelete}
+          deals={deals}
         />
       )}
       {outcomeDialog}

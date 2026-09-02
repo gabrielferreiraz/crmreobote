@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Kanban, List, Upload, History, TrendingUp } from "lucide-react";
+import { Kanban, List, Upload, History } from "lucide-react";
 import { DealImportDialog } from "@/components/deal-import-dialog";
 import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { NewDealDialog } from "./new-deal-dialog";
@@ -10,7 +10,6 @@ import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
 import { popBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fieldset";
-import { formatCurrencyCompact } from "@/lib/format";
 import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filters";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
@@ -50,8 +49,6 @@ export function PipelineView({
   canBulkMessage,
   canViewImportHistory,
   openNewDeal,
-  goalValue,
-  goalAchievedValue,
 }: {
   pipelineId: string;
   pipelines: PipelineOption[];
@@ -60,7 +57,7 @@ export function PipelineView({
   initialKanbanByStage: Record<string, Deal[]>;
   /** Total real (banco) de negócios OPEN por etapa — pode ser bem maior que initialKanbanByStage[id].length. */
   initialKanbanCountByStage: Record<string, number>;
-  /** Soma de valor OPEN por etapa (banco, não só o carregado) — alimenta o card "valor em aberto" e o cabeçalho de cada coluna. */
+  /** Soma de valor OPEN por etapa (banco, não só o carregado) — alimenta o cabeçalho de cada coluna. */
   initialKanbanSumByStage: Record<string, number>;
   /** Quantos negócios OPEN de cada etapa têm ao menos uma tarefa pendente — "saúde da etapa" (ver kanban-board.tsx). */
   initialKanbanWithTaskByStage: Record<string, number>;
@@ -92,9 +89,6 @@ export function PipelineView({
    */
   canViewImportHistory: boolean;
   openNewDeal?: boolean;
-  /** Meta do mês corrente — sempre organização inteira, só vem preenchida pro Dono (ver page.tsx). null = não se aplica a este papel. */
-  goalValue: number | null;
-  goalAchievedValue: number | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -142,17 +136,28 @@ export function PipelineView({
 
   // Começa com o total do funil inteiro (carga do servidor, sem filtro) e o
   // Kanban reporta de novo (ver onTotalsChange abaixo) toda vez que o filtro
-  // dele muda — assim o card "Valor em aberto" sempre bate com os negócios
-  // que estão de fato aparecendo na tela, não com um total parado da 1ª
-  // carga escondido atrás de busca/filtro/filtro rápido aplicados depois.
+  // dele muda — assim "N negócios" (ver toolbar abaixo) sempre bate com os
+  // negócios que estão de fato aparecendo na tela, não com um total parado
+  // da 1ª carga escondido atrás de busca/filtro/filtro rápido aplicados
+  // depois. `.sum` continua sendo reportado por onTotalsChange mesmo sem
+  // consumidor aqui hoje — é o mesmo objeto que KanbanBoard já calcula pra
+  // si (soma do card "Valor líquido" de cada coluna), separar só a
+  // contagem custaria mais do que aproveitar o que já vem pronto.
   const [kanbanTotals, setKanbanTotals] = useState({
     sum: Object.values(initialKanbanSumByStage).reduce((sum, v) => sum + v, 0),
     count: Object.values(initialKanbanCountByStage).reduce((sum, v) => sum + v, 0),
   });
-  const totalAberto = kanbanTotals.sum;
   const totalAbertoCount = kanbanTotals.count;
-  const goalPct =
-    goalValue && goalValue > 0 ? Math.min(100, Math.round(((goalAchievedValue ?? 0) / goalValue) * 100)) : null;
+  // Mesma ideia dos totais do Kanban acima, só que pro total da Lista — os
+  // dois têm fonte própria (KanbanBoard soma por coluna, DealsList soma a
+  // paginação) porque só um dos dois está montado por vez (ver o
+  // `view === "kanban" ? <KanbanBoard/> : <DealsList/>` mais abaixo), então
+  // não dá pra confiar só num dos dois enquanto o outro está desmontado —
+  // é o que faz "N negócios" (ver toolbar abaixo) bater com a view ativa em
+  // vez de mostrar um total congelado da última vez que a OUTRA view esteve
+  // montada.
+  const [listaTotalCountLive, setListaTotalCountLive] = useState(listaTotalCount);
+  const visibleDealCount = view === "kanban" ? totalAbertoCount : listaTotalCountLive;
   // KanbanBoard é dono do próprio estado por coluna (ver kanban-board.tsx) —
   // isso só entrega o negócio recém-criado uma única vez (consumido pelo
   // filho via onNewDealConsumed, mesmo padrão do openNewDeal abaixo).
@@ -210,6 +215,14 @@ export function PipelineView({
     });
   }, [initialKanbanSumByStage, initialKanbanCountByStage]);
 
+  // Mesmo motivo do efeito acima, só que pro total da Lista — sem isso,
+  // trocar de funil deixava listaTotalCountLive preso ao total do funil
+  // anterior até a Lista terminar de buscar e reportar de novo.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setListaTotalCountLive(listaTotalCount);
+  }, [listaTotalCount]);
+
   // Volta de "+ Criar script" (ver components/bulk-send-message-dialog.tsx) —
   // restaura a view Lista e repassa filtro/seleção pra deals-list.tsx
   // restaurar e reabrir o diálogo de envio sozinho. Não dá pra virar um
@@ -233,40 +246,20 @@ export function PipelineView({
   // lugares do DOM ao mesmo tempo.
   const toolbar = (
     <div className="flex flex-col items-end gap-2 shrink-0">
-      {/* DESATIVADO TEMPORARIAMENTE a pedido — "quero ver como fica sem
-          ele". {false && ...} em vez de comentário JSX porque tem um
-          comentário aninhado aqui dentro (JSX não permite comentário
-          dentro de comentário). Pra religar, troca `false` por `true`. */}
-      {false && (
-        <div
-          className="relative w-64 shrink-0 overflow-hidden rounded-xl px-4 py-2.5 text-white"
-          style={{ background: "var(--brand-gradient-hero, var(--brand-gradient))" }}
-        >
-          <p className="text-[10px] leading-none font-medium tracking-wide text-white/75 uppercase">Valor em aberto</p>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <p className="text-xl leading-none font-semibold tabular-nums">{formatCurrencyCompact(totalAberto)}</p>
-            {/* Quantidade em unidade (não valor) — sempre visível, independente
-                de ter % de meta pra mostrar ou não (antes só aparecia pra quem
-                não tinha meta, escondida pra quem tinha). */}
-            <p className="text-[10px] leading-none font-medium text-white/70 tabular-nums">
-              {totalAbertoCount} negócio{totalAbertoCount === 1 ? "" : "s"}
-            </p>
-          </div>
-          {goalPct !== null && (
-            <div className="mt-1.5">
-              <div className="flex items-center gap-1.5 text-[10px] font-medium text-white/85">
-                <TrendingUp className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
-                {goalPct}% da meta de {formatCurrencyCompact(goalValue)} fechado no mês
-              </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20">
-                <div className="h-full rounded-full bg-white/85" style={{ width: `${goalPct}%` }} />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* Quantidade de negócios do funil/filtro atual — pedido explícito
+            ("a quantidade de negócios totais no funil e filtro selecionado
+            não mostra"). Discreto de propósito (texto simples, não card/
+            badge chamativo) — existia antes um card maior pra isso ("Valor
+            em aberto": soma em R$ + quantidade + % da meta), desativado a
+            pedido e depois apagado de vez (pedido seguinte, "pode apagar o
+            card escondido") junto com tudo que só ele usava (goalValue/
+            goalAchievedValue em page.tsx, a query getCurrentMonthGoalProgress
+            ali). visibleDealCount já lê a fonte certa pra view ativa
+            (Kanban ou Lista), sempre refletindo o filtro em uso. */}
+        <span className="text-xs whitespace-nowrap text-neutral-500 dark:text-neutral-400">
+          {visibleDealCount} negócio{visibleDealCount === 1 ? "" : "s"}
+        </span>
         {/* "Novo negócio" local removido de propósito — ficava duplicado
             com o botão do header (app/(dashboard)/layout.tsx, link pra
             /pipeline?novo=1), que já abre no funil certo graças ao
@@ -368,6 +361,7 @@ export function PipelineView({
           quickFilter={quickFilter}
           onToggleQuickFilter={toggleQuickFilter}
           toolbarRight={toolbar}
+          onTotalCountChange={setListaTotalCountLive}
         />
       )}
 

@@ -104,7 +104,16 @@ export function DatePicker({
         createPortal(
           <div
             ref={panelRef}
-            className="surface-glass animate-pop-in fixed z-50 flex w-64 flex-col overflow-hidden rounded-md p-3 shadow-lg"
+            // surface-glass-filter (não surface-glass) — mesmo motivo do
+            // dropdown de contato (ver contact-search-input.tsx): esse
+            // calendário abre flutuando por cima de conteúdo de verdade
+            // (texto/atividades da tela atrás), e 62% de tinta deixava
+            // vazar por trás dos números — pior ainda aqui, número
+            // sobrepondo número é mais difícil de ler que texto sobre
+            // texto. date-range-calendar.tsx (o outro calendário do
+            // sistema) já usa surface-glass-filter por esse mesmo motivo;
+            // este só tinha ficado de fora.
+            className="surface-glass-filter animate-pop-in fixed z-50 flex w-64 flex-col overflow-hidden rounded-md p-3 shadow-lg"
             style={{
               top: coords.top,
               bottom: coords.bottom,

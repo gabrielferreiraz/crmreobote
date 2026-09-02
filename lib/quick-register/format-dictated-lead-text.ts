@@ -28,8 +28,14 @@ function escapeRegExp(s: string): string {
 // texto à toa. Fora do dicionário completo (ALL_LEAD_LABELS) só pra ESTE
 // escaneamento — o reconhecimento por linha em parseLeadText continua
 // intacto, essas palavras ainda funcionam lá.
+//
+// "bruto"/"liquido" NÃO entram (mesma lista de AMBIGUOUS_MIDLINE_LABELS em
+// parse-lead-text.ts — as duas pontas nunca podem divergir, ver comentário
+// lá) — pedido explícito de reconhecer melhor "valor bruto"/"valor líquido"
+// ditados, e nenhum dos dois é palavra comum de sobrar solta numa frase de
+// cadastro de negócio fora do sentido financeiro.
 const DICTATION_SCAN_DENYLIST = new Set(
-  ["cliente", "contato", "lead", "bruto", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
+  ["cliente", "contato", "lead", "tipo", "categoria", "credito", "fixo", "tel", "cel", "n", "num", "compl", "uf", "obs"].map(
     normalizeLabel,
   ),
 );

@@ -33,6 +33,8 @@ import {
   FileText,
   Tag,
   ArrowDown,
+  Pencil,
+  Search,
 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { Modal } from "@/components/modal";
@@ -303,6 +305,7 @@ export function ChatWindow({
   currentUserPhotoUrl,
   sendAsAlternate = null,
   onClose,
+  onRenamed,
   className = "",
   backMode = false,
 }: {
@@ -320,10 +323,24 @@ export function ChatWindow({
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   onClose: () => void;
+  /** Avisa quem chamou depois de um "Renomear" bem-sucedido (ver MoreMenu) —
+   * opcional: em conversations-view.tsx/conversations-view-mobile.tsx
+   * atualiza a lista sem precisar buscar tudo de novo; quem não usa (chat
+   * aberto de outra tela, ex.: painel do negócio) ainda funciona — o cabeçalho
+   * deste próprio componente já reflete o novo nome sozinho, ver renamedTo abaixo. */
+  onRenamed?: (name: string) => void;
   className?: string;
   /** No mestre-detalhe do mobile o botão de fechar volta pra lista — troca o X por uma seta. */
   backMode?: boolean;
 }) {
+  // Sobrepõe contactName localmente depois de um "Renomear" — sem isso, o
+  // cabeçalho só mostraria o nome novo depois de quem chamou re-renderizar
+  // com uma contactName prop atualizada (nem todo chamador tem como fazer
+  // isso rápido, ver onRenamed acima). key={threadId} no chamador (ver
+  // conversations-view.tsx) já garante que isso reseta ao trocar de conversa.
+  const [renamedTo, setRenamedTo] = useState<string | null>(null);
+  const effectiveContactName = renamedTo ?? contactName;
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [presence, setPresence] = useState<ThreadPresence | null>(null);
   const [contactPhotoUrl, setContactPhotoUrl] = useState<string | null>(null);
@@ -524,13 +541,25 @@ export function ChatWindow({
             className="shrink-0 rounded-full transition-opacity hover:opacity-80"
             aria-label="Ver foto do contato"
           >
-            <Avatar name={contactName ?? "?"} src={contactPhotoUrl} size="md" />
+            <Avatar name={effectiveContactName ?? "?"} src={contactPhotoUrl} size="md" />
           </button>
           <div className="min-w-0">
-            <h2 className="flex items-center gap-1.5 truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              {contactName ?? "Conversa"}
+            <button
+              type="button"
+              onClick={() => setRenameModalOpen(true)}
+              className="group/name flex max-w-full items-center gap-1.5 truncate text-left"
+              aria-label="Editar nome"
+              title="Clique para editar o nome"
+            >
+              <h2 className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {effectiveContactName ?? "Conversa"}
+              </h2>
               <WhatsAppIcon className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-            </h2>
+              <Pencil
+                className="h-3 w-3 shrink-0 text-neutral-300 opacity-0 transition-opacity group-hover/name:opacity-100 dark:text-neutral-600"
+                strokeWidth={2}
+              />
+            </button>
             <div className="flex flex-wrap items-center gap-1.5">
               {contactOrigin?.metaCampaignName && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
@@ -734,6 +763,18 @@ export function ChatWindow({
       {sendScriptOpen && <SendScriptModal threadId={activeThreadId} onClose={() => setSendScriptOpen(false)} />}
       {tagModalOpen && contactId && (
         <TagContactModal contactId={contactId} onClose={() => setTagModalOpen(false)} />
+      )}
+      {renameModalOpen && (
+        <RenameConversationModal
+          threadId={threadId}
+          hasContact={!!contactId}
+          currentName={effectiveContactName ?? ""}
+          onClose={() => setRenameModalOpen(false)}
+          onRenamed={(newName) => {
+            setRenamedTo(newName);
+            onRenamed?.(newName);
+          }}
+        />
       )}
     </div>
   );
@@ -1196,6 +1237,159 @@ function TagContactModal({ contactId, onClose }: { contactId: string; onClose: (
           Cancelar
         </button>
         <button type="button" disabled={!loaded || saving} onClick={handleSave} className="btn-primary">
+          {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+          {saving ? "Salvando" : "Salvar"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Renomeia o nome exibido pra essa conversa (ver PATCH
+ * /api/whatsapp/threads/[threadId]/rename) — o texto de apoio muda conforme
+ * já existe contato vinculado ou não, porque o efeito é bem diferente: com
+ * contato, é o mesmo nome usado em Clientes/Pipeline/negócios (edita
+ * Contact.name de verdade); sem contato, é só um apelido local desta
+ * conversa (Contact ainda nem existe).
+ */
+function RenameConversationModal({
+  threadId,
+  hasContact,
+  currentName,
+  onClose,
+  onRenamed,
+}: {
+  threadId: string;
+  hasContact: boolean;
+  currentName: string;
+  onClose: () => void;
+  onRenamed: (name: string) => void;
+}) {
+  const [name, setName] = useState(currentName);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lookup, setLookup] = useState<"idle" | "loading" | "found" | "empty" | "error">("idle");
+  const [foundName, setFoundName] = useState<string | null>(null);
+
+  // Melhor-esforço: pergunta pro Evolution se existe um nome salvo na
+  // agenda do celular conectado pra esse número (ver
+  // lib/evolution.ts's fetchSavedContactName) — não é garantido (depende da
+  // agenda do celular estar sincronizada e da instância ser Evolution, não
+  // Meta Cloud), por isso é uma sugestão que o usuário aceita clicando, não
+  // algo que já vem preenchido sozinho no campo.
+  async function handleLookup() {
+    setLookup("loading");
+    try {
+      const res = await fetch(`/api/whatsapp/threads/${threadId}/rename`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLookup("error");
+        return;
+      }
+      if (data.name) {
+        setFoundName(data.name as string);
+        setLookup("found");
+      } else {
+        setLookup("empty");
+      }
+    } catch {
+      setLookup("error");
+    }
+  }
+
+  async function handleSave() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Digite um nome.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/whatsapp/threads/${threadId}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Erro ao renomear");
+        setSaving(false);
+        return;
+      }
+      onRenamed(trimmed);
+      onClose();
+    } catch {
+      setError("Falha de conexão ao renomear.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-sm">
+      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Renomear conversa</h2>
+      <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">
+        {hasContact
+          ? "Esse nome é o mesmo usado em todo o CRM (Clientes, Pipeline, negócios) — mudar aqui muda lá também."
+          : "Essa conversa ainda não está vinculada a um contato do CRM — esse nome fica só aqui, no WhatsApp."}
+      </p>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleSave();
+        }}
+        placeholder="Nome do contato"
+        className="field-input"
+      />
+
+      <div className="mt-2">
+        {lookup === "idle" && (
+          <button
+            type="button"
+            onClick={handleLookup}
+            className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+          >
+            <Search className="h-3 w-3" strokeWidth={2} />
+            Buscar nome salvo no WhatsApp
+          </button>
+        )}
+        {lookup === "loading" && (
+          <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+            Buscando…
+          </p>
+        )}
+        {lookup === "found" && foundName && (
+          <p className="flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            Encontrado: <span className="font-medium text-neutral-800 dark:text-neutral-200">{foundName}</span>
+            <button
+              type="button"
+              onClick={() => setName(foundName)}
+              className="font-medium text-brand hover:underline"
+            >
+              Usar
+            </button>
+          </p>
+        )}
+        {lookup === "empty" && (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Nenhum nome salvo encontrado — talvez o celular conectado não tenha essa agenda sincronizada.
+          </p>
+        )}
+        {lookup === "error" && (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">Não foi possível buscar agora.</p>
+        )}
+      </div>
+
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className="btn-ghost">
+          Cancelar
+        </button>
+        <button type="button" disabled={saving} onClick={handleSave} className="btn-primary">
           {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
           {saving ? "Salvando" : "Salvar"}
         </button>

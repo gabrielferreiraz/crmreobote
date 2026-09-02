@@ -3,6 +3,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -15,12 +16,18 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
+    // MEMBER só acessa contato do qual é responsável — não pode ver o
+    // detalhe de um contato de outro consultor mesmo conhecendo o ID.
+    const membership = await getCurrentMembership();
+    const isMember = membership?.role === "MEMBER";
+    const ownerFilter = isMember ? { responsavelId: userId } : {};
+
     const contact = await prisma.contact.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...ownerFilter },
       include: {
         deals: { include: { stage: true, pipeline: true }, orderBy: { createdAt: "desc" } },
         // Só o nome — o painel de Informações da conversa de WhatsApp
@@ -88,7 +95,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   return runWithTenant(organizationId, async () => {
-    const existing = await prisma.contact.findFirst({ where: { id, organizationId } });
+    // MEMBER só pode editar contato do qual é responsável.
+    const membership = await getCurrentMembership();
+    const isMember = membership?.role === "MEMBER";
+    const ownerFilter = isMember ? { responsavelId: userId } : {};
+
+    const existing = await prisma.contact.findFirst({ where: { id, organizationId, ...ownerFilter } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     // Só recalcula/valida o que de fato veio no corpo — uma chamada parcial

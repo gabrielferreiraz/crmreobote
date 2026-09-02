@@ -64,6 +64,27 @@ export function extractJidUser(jid: string): string {
   return jid.split("@")[0].split(":")[0];
 }
 
+/**
+ * JIDs do WhatsApp cujo "usuário" (parte antes do @) NÃO é um número de
+ * telefone de verdade — passar isso pra extractJidUser/normalizePhoneNumber
+ * mesmo assim produz uma sequência de dígitos que PARECE número mas não é
+ * discável nem real (visto em produção: "253274825482433" virando
+ * "+253274825482433" na tela por causa de um contato @lid). Grupo (@g.us)
+ * já era filtrado nos handlers de webhook antes desta função existir; os
+ * outros três têm exatamente o mesmo problema e nunca tinham sido tratados:
+ *
+ *  - @lid: "Linked ID" — identificador que o WhatsApp usa quando o número
+ *    de telefone real do contato fica oculto (recurso de privacidade mais
+ *    recente da plataforma). O Evolution não expõe hoje um jeito confirmado
+ *    de resolver isso pro número de verdade, então melhor não criar a
+ *    conversa com um número inventado do que criar errado.
+ *  - @broadcast: lista de transmissão.
+ *  - @newsletter: canal (WhatsApp Channels).
+ */
+export function isNonIndividualJid(jid: string): boolean {
+  return jid.endsWith("@g.us") || jid.endsWith("@lid") || jid.endsWith("@broadcast") || jid.endsWith("@newsletter");
+}
+
 // DDDs válidos no Brasil (todos os códigos de área de 2 dígitos realmente
 // atribuídos pela Anatel) — usado só pra decidir se um número de 10/11
 // dígitos É de fato brasileiro antes de aplicar a correção de 9º dígito

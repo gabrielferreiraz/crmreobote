@@ -165,7 +165,10 @@ async function saveIncomingMetaMessage(
 
   const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
   if (shouldNotify) {
-    let displayName = thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
+    // Mesma prioridade de customName antes de whatsappName (ver
+    // lib/whatsapp/conversations.ts) — não regride pro nome de perfil da
+    // Meta quando já existe um apelido manual salvo.
+    let displayName = thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized;
     if (thread.contactId) {
       const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
       if (contact) displayName = contact.name;

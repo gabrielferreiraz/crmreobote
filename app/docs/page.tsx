@@ -27,7 +27,10 @@ const NAV_ITEMS = [
 
 export default function DocsPage() {
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950">
+    // Sem bg- próprio de propósito — deixa o degradê sutil do <body> (ver
+    // --page-gradient em globals.css) aparecer; o header logo abaixo já é
+    // translúcido com backdrop-blur, então continua legível por cima.
+    <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-neutral-200/60 bg-white/80 backdrop-blur-md dark:border-neutral-800/60 dark:bg-neutral-950/80">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">

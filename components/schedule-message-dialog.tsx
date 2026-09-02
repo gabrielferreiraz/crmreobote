@@ -89,7 +89,7 @@ export function ScheduleMessageDialog({
   }
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-sm">
+    <Modal onClose={onClose} maxWidth="max-w-md">
       {step === "prompt" && (
         <div className="space-y-4">
           <div>

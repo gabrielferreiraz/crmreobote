@@ -127,11 +127,12 @@ export function GoalCard({
               setError(null);
               setEditing(true);
             }}
-            className="icon-btn shrink-0"
+            className="icon-btn-labeled shrink-0"
             aria-label={hasGoal ? "Editar meta" : "Definir meta"}
             title={hasGoal ? "Editar meta" : "Definir meta"}
           >
             <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+            {hasGoal ? "Editar" : "Definir meta"}
           </button>
         )}
       </div>

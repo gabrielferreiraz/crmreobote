@@ -168,6 +168,72 @@ export function spokenNumberWordsToDigits(text: string): string {
   return out.join(" ");
 }
 
+/**
+ * Acha um valor por extenso em QUALQUER posição do texto (não só no início,
+ * como parseSpokenAmount acima) e devolve tanto o TRECHO casado (pra quem
+ * chama remover do residual, mesmo contrato de findPhones em parse-lead-
+ * text.ts) quanto o valor já somado. Usado quando não tem nenhum rótulo
+ * "valor"/"bruto"/"líquido" por perto pra já confiar que aquele número é
+ * dinheiro — por isso SÓ aceita a partir do primeiro token que seja escala
+ * (mil/milhão), nunca unidade solta ("ele tem três filhos" não pode virar
+ * R$ 3): exige a MESMA marca forte que tryExtractMoney (dígito) já exige
+ * pro caminho sem rótulo, só que aqui a marca é a palavra de escala em vez
+ * de "mil"/"k"/R$ escritos.
+ *
+ * Não é O(n²) apesar do loop duplo — cada token só é revisitado quando a
+ * tentativa anterior falhou logo de cara (nenhum número ali), então o
+ * total de iterações fica linear no tamanho real do texto na prática (frase
+ * de cadastro rápido nunca passa de umas poucas dezenas de palavras).
+ */
+export function findSpokenMoney(text: string): { text: string; amount: number } | null {
+  const tokens = [...text.matchAll(/\S+/g)];
+
+  for (let start = 0; start < tokens.length; start++) {
+    const startWord = foldAccents(tokens[start][0]).replace(/[^a-z]/g, "");
+    if (!(startWord in SPOKEN_NUMBER_UNITS) && !(startWord in SPOKEN_NUMBER_SCALES)) continue;
+
+    let total = 0;
+    let current = 0;
+    let hasScale = false;
+    let lastNumberIdx = start;
+    let j = start;
+    while (j < tokens.length) {
+      const raw = foldAccents(tokens[j][0]).replace(/[^a-z]/g, "");
+      if (raw in SPOKEN_NUMBER_UNITS) {
+        current += SPOKEN_NUMBER_UNITS[raw];
+        lastNumberIdx = j;
+        j++;
+      } else if (raw in SPOKEN_NUMBER_SCALES) {
+        total += (current === 0 ? 1 : current) * SPOKEN_NUMBER_SCALES[raw];
+        current = 0;
+        hasScale = true;
+        lastNumberIdx = j;
+        j++;
+      } else if (SPOKEN_NUMBER_CONNECTORS.has(raw)) {
+        // "e"/"de" no meio não quebra a sequência ("trezentos E cinquenta
+        // mil"), mas também não empurra lastNumberIdx sozinho — se não vier
+        // mais nenhum número depois, o trecho casado para no último número
+        // de verdade, nunca inclui um conectivo pendurado na ponta.
+        j++;
+      } else {
+        break;
+      }
+    }
+    total += current;
+
+    if (hasScale && total > 0) {
+      const matchStart = tokens[start].index!;
+      const lastToken = tokens[lastNumberIdx];
+      const matchEnd = lastToken.index! + lastToken[0].length;
+      return { text: text.slice(matchStart, matchEnd), amount: total };
+    }
+    // Sem escala nenhuma a partir daqui (só unidade solta) — não é dinheiro
+    // confiável o bastante; continua procurando mais adiante no texto.
+  }
+
+  return null;
+}
+
 /** Sobra de telefone por extenso não convertido não devia virar nome/
  * conteúdo por acidente — se a maior parte das palavras do texto é número
  * por extenso reconhecido (ou o conectivo "e" entre elas), não é candidato

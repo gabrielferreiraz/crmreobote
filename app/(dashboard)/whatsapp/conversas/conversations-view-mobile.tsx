@@ -228,6 +228,11 @@ export function ConversationsMobile({
           currentUserName={currentUserName}
           currentUserPhotoUrl={currentUserPhotoUrl}
           onClose={() => setSelectedThreadId(null)}
+          onRenamed={(name) =>
+            setConversations((prev) =>
+              prev.map((c) => (c.threadId === selected.threadId ? { ...c, displayName: name } : c)),
+            )
+          }
           backMode
           className="min-h-0 flex-1"
         />
@@ -313,7 +318,13 @@ export function ConversationsMobile({
         />
       )}
 
-      <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4">
+      {/* pb-24, não pb-4: esse componente só existe em telas lg:hidden (só
+          celular, ver conversas/page.tsx), onde a barra de navegação
+          inferior é fixa e fica por cima do conteúdo — pb-4 não bastava pra
+          limpar a altura real dela, e as últimas conversas ficavam
+          escondidas atrás mesmo rolando até o fim (mesmo ajuste em
+          deals-list.tsx/process-list.tsx). */}
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-24">
         {tabConversations.length === 0 ? (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState

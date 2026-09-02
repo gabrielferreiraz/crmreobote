@@ -526,11 +526,12 @@ export function MembersTable({
                       setNewEmail(m.user.email);
                       setNewBirthDate(toDateInputValue(m.user.birthDate));
                     }}
-                    className="icon-btn"
+                    className="icon-btn-labeled"
                     title="Editar perfil"
                     aria-label={`Editar perfil de ${m.user.name}`}
                   >
                     <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                    Editar
                   </button>
                   <Link
                     href={`/configuracoes/usuarios/${m.user.id}/whatsapp-backup`}

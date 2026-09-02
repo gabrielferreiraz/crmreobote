@@ -3,9 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
+import { parseBrazilDateTime } from "@/lib/timezone";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -85,7 +87,13 @@ export async function POST(req: Request) {
     }
 
     if (contactId) {
-      const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
+      // MEMBER só pode vincular tarefa a contato do qual é responsável —
+      // sem isso, criar uma tarefa com contactId alheio seria um vetor de
+      // enumeração: o MEMBER saberia que o ID existe (404 vs 400).
+      const membership = await getCurrentMembership();
+      const isMember = membership?.role === "MEMBER";
+      const contactOwnerFilter = isMember ? { responsavelId: userId } : {};
+      const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId, ...contactOwnerFilter } });
       if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
     }
 
@@ -131,7 +139,7 @@ export async function POST(req: Request) {
         type: taskType,
         title,
         description,
-        dueAt: dueAt ? new Date(dueAt) : undefined,
+        dueAt: dueAt ? parseBrazilDateTime(dueAt) : undefined,
         dealId,
         contactId,
         ownerId: ownerId ?? userId,

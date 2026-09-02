@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
@@ -46,11 +47,19 @@ export async function GET(req: Request) {
   const registeredFrom = parseDate(searchParams.get("registeredFrom"));
   const registeredTo = parseDate(searchParams.get("registeredTo"));
 
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  // Consultor (MEMBER) só enxerga contatos onde ele é o responsável —
+  // nunca contatos de outros consultores, mesmo que passe responsavelId
+  // diferente na URL (esse parâmetro é ignorado quando o role é MEMBER).
+  // OWNER e MANAGER continuam sem restrição de responsável.
+  const membership = await getCurrentMembership();
+  const isMember = membership?.role === "MEMBER";
+  const effectiveResponsavelId = isMember ? userId : responsavelId;
 
   return runWithTenant(organizationId, async () => {
-    const filterParams = { organizationId, q, source, jobTitle, responsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo };
+    const filterParams = { organizationId, q, source, jobTitle, responsavelId: effectiveResponsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo };
 
     const [contacts, totalCount] = await Promise.all([
       fetchContactsList({ ...filterParams, skip, take }),

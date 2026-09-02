@@ -1,7 +1,8 @@
 import type { LanguageProfile, PunctuationCandidateType } from "./types";
-import { detectSentenceBoundary } from "./sentence-boundary-detector";
+import { detectSentenceBoundary, stripTrailingPunctuation, extractTrailingClause } from "./sentence-boundary-detector";
 import { detectQuestion } from "./question-detector";
 import { PROTECTED_CASING_TERMS } from "./vocabulary";
+import { applyPorQueForm } from "./por-que-correction";
 
 export type PunctuationResult = {
   text: string;
@@ -23,23 +24,25 @@ function applyCasingForPosition(segment: string, isSentenceStart: boolean): stri
   return first + segment.slice(1);
 }
 
-function stripTrailingPunctuation(text: string): string {
-  return text.replace(/[.!?…]+\s*$/, "").trimEnd();
-}
-
-/** Só a ÚLTIMA oração ainda "aberta" (depois da última pontuação forte) —
- * detectQuestion precisa avaliar só o trecho corrente, não a transcrição
- * inteira acumulada (senão uma palavra interrogativa de uma frase antiga
- * continuaria pesando pra sempre no texto novo). */
-function extractTrailingClause(text: string): string {
-  const match = text.match(/[.!?…]\s+([^.!?…]*)$/);
-  return match ? match[1] : text;
-}
-
 function closeSentence(text: string, profile: LanguageProfile): string {
   const trailingClause = extractTrailingClause(text);
   const question = detectQuestion(trailingClause, profile);
   return `${text}${question.isQuestion ? "?" : "."}`;
+}
+
+/** Aplica applyPorQueForm só na oração RECÉM-fechada (`beforeClose`, o texto
+ * ainda sem o "."/"?" final) — nunca reprocessa frases antigas já
+ * assentadas. `closedText` é o mesmo texto já com o fechamento aplicado
+ * (ver closeSentence acima); usa o "?"/"." dele pra saber isQuestion e
+ * devolve o texto final já com a forma certa de "por que" emendada de
+ * volta no lugar. */
+function applyPorQueToClosedText(beforeClose: string, closedText: string, profile: LanguageProfile): string {
+  const isQuestion = closedText.endsWith("?");
+  const newClause = extractTrailingClause(beforeClose);
+  const correctedClause = applyPorQueForm(newClause, isQuestion, profile);
+  if (correctedClause === newClause) return closedText;
+  const prefix = beforeClose.slice(0, beforeClose.length - newClause.length);
+  return prefix + correctedClause + closedText.slice(-1);
 }
 
 /**
@@ -52,12 +55,24 @@ function closeSentence(text: string, profile: LanguageProfile): string {
  *    "porém", "então"...) → reabre a frase anterior (remove o "." que
  *    tinha sido aplicado provisoriamente — ver abaixo) e emenda com
  *    vírgula, minúscula.
+ *  - sem conectivo, mas a frase anterior termina numa palavra que não
+ *    consegue terminar frase sozinha em português (preposição, artigo,
+ *    conjunção — ver danglingEndings/endsWithDanglingWord em
+ *    sentence-boundary-detector.ts) → reabre igual, só que sem vírgula
+ *    nenhuma (é a MESMA oração continuando, a pausa foi só hesitação no
+ *    meio dela). Essa reabertura só é tentada enquanto a frase nova ainda
+ *    tem poucas palavras (VOICE_CONFIG.sentenceReanalysisWordLimit) — é a
+ *    "reanálise depois de um certo limite de palavras": no instante exato
+ *    da pausa só dá pra olhar o que veio ANTES dela, então a decisão fica
+ *    em aberto por mais alguns segmentos até a frase nova crescer o
+ *    bastante pra confirmar que era separada mesmo.
  *  - caso contrário → fecha o texto confirmado (ponto ou interrogação,
  *    conforme question-detector.ts) e começa o segmento novo com
  *    maiúscula.
  *
  * Cada chamada fecha PROVISORIAMENTE o resultado com "." — se o PRÓXIMO
- * segmento vier com conectivo, essa pontuação provisória é desfeita e a
+ * segmento vier com conectivo (ou a frase anterior tiver final capenga
+ * dentro do limite de reanálise), essa pontuação provisória é desfeita e a
  * frase é reaberta. Mesmo comportamento base que `appendDictatedText` já
  * tinha (fechar cada frase reconhecida com pontuação), só que agora capaz
  * de reabrir quando prova de continuação chega, e escolher "?" quando o
@@ -73,11 +88,13 @@ export function applyPunctuation(
     // 1º segmento da sessão — closeSentence() abaixo SEMPRE fecha com "." ou
     // "?" (nunca "none": "none" é só pra quando de fato não há marca
     // nenhuma pra aplicar, o que não é o caso aqui).
-    const text = closeSentence(applyCasingForPosition(normalizedSegment, true), profile);
+    const cased = applyCasingForPosition(normalizedSegment, true);
+    const closed = closeSentence(cased, profile);
+    const text = applyPorQueToClosedText(cased, closed, profile);
     return { text, candidateType: text.endsWith("?") ? "question" : "period", isQuestion: text.endsWith("?") };
   }
 
-  const boundary = detectSentenceBoundary(normalizedSegment, profile);
+  const boundary = detectSentenceBoundary(trimmedConfirmed, normalizedSegment, profile);
 
   let extended: string;
   let candidateType: PunctuationCandidateType;
@@ -85,12 +102,21 @@ export function applyPunctuation(
     const reopened = stripTrailingPunctuation(trimmedConfirmed);
     extended = `${reopened}${boundary.connector.punctuation} ${applyCasingForPosition(normalizedSegment, false)}`;
     candidateType = "comma";
+  } else if (boundary.forcedByDanglingEnd) {
+    // Sem vírgula de propósito (diferente do ramo do conectivo acima) — não
+    // é uma oração nova emendada na anterior, é a MESMA oração que a pausa
+    // cortou no meio; "vou ligar para" + "o cliente amanhã" vira "vou ligar
+    // para o cliente amanhã", nunca "vou ligar para, o cliente amanhã".
+    const reopened = stripTrailingPunctuation(trimmedConfirmed);
+    extended = `${reopened} ${applyCasingForPosition(normalizedSegment, false)}`;
+    candidateType = "none";
   } else {
     extended = `${trimmedConfirmed} ${applyCasingForPosition(normalizedSegment, true)}`;
     candidateType = "period";
   }
 
-  const text = closeSentence(extended, profile);
+  const closed = closeSentence(extended, profile);
+  const text = applyPorQueToClosedText(extended, closed, profile);
   const isQuestion = text.endsWith("?");
   return { text, candidateType: isQuestion ? "question" : candidateType, isQuestion };
 }

@@ -86,7 +86,10 @@ export function TimePicker({
         createPortal(
           <div
             ref={panelRef}
-            className="surface-glass animate-pop-in fixed z-50 flex w-32 flex-col overflow-hidden rounded-md p-1 shadow-lg"
+            // surface-glass-filter — mesmo motivo do date-picker.tsx (ver
+            // comentário lá): abre flutuando sobre conteúdo de verdade,
+            // 62% de tinta deixava vazar por trás da lista de horários.
+            className="surface-glass-filter animate-pop-in fixed z-50 flex w-32 flex-col overflow-hidden rounded-md p-1 shadow-lg"
             style={{
               top: coords.top,
               bottom: coords.bottom,

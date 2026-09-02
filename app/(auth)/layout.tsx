@@ -1,8 +1,12 @@
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
+  // Sem bg- próprio de propósito — deixa o degradê sutil do <body> (ver
+  // --page-gradient em globals.css) aparecer atrás do formulário; o painel
+  // esquerdo abaixo continua sempre escuro (bg-neutral-950 fixo, design
+  // próprio dele, não some com o tema).
   return (
-    <div className="flex min-h-screen bg-neutral-50 dark:bg-neutral-950">
+    <div className="flex min-h-screen">
       {/* Left: premium abstract panel */}
       <div className="relative hidden w-[45%] shrink-0 overflow-hidden lg:block bg-neutral-950">
         <div className="absolute -left-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-brand/30 blur-[120px]" />
