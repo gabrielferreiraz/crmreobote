@@ -209,7 +209,7 @@ export function TaskCalendar({
     // então isso não muda layout nenhum — só tira o DragOverlay de dentro
     // do `.card`.
     <DndContext id="task-calendar" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-    <div className="card p-4">
+    <div className="card relative p-4">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           {MONTH_LABELS[cursor.getMonth()]} {cursor.getFullYear()}
@@ -251,20 +251,27 @@ export function TaskCalendar({
         </div>
       </div>
 
-      {/* Dica + erro do arraste — sempre que houver seleção ativa, ou uma
-          tentativa de arrastar tiver falhado (ex.: tarefa fora do escopo
-          de quem está arrastando). */}
-      {selectMode && selectedTaskIds.size > 0 && (
-        <div className="mb-2">
-          <SelectionBar count={selectedTaskIds.size} onClear={() => setSelectedTaskIds(new Set())}>
-            <span className="text-neutral-500 dark:text-neutral-400">Arraste uma delas pra outro dia</span>
-          </SelectionBar>
+      {/* Dica + erro do arraste — position:absolute de propósito, flutuando
+          sobre o canto do card (nunca dentro do fluxo normal): pedido
+          explícito, entrar/sair da seleção NÃO pode empurrar a grade do mês
+          pra cima/baixo. `.card` acima ganhou `relative` só pra ancorar
+          isso; `absolute` (não `fixed`, ver comentário do DragOverlay mais
+          abaixo) já basta, não precisa escapar de container nenhum. */}
+      {((selectMode && selectedTaskIds.size > 0) || moveError) && (
+        <div className="pointer-events-none absolute right-3 bottom-3 z-20 flex flex-col items-end gap-1.5">
+          {selectMode && selectedTaskIds.size > 0 && (
+            <div className="pointer-events-auto">
+              <SelectionBar count={selectedTaskIds.size} onClear={() => setSelectedTaskIds(new Set())}>
+                <span className="text-neutral-500 dark:text-neutral-400">Arraste uma delas pra outro dia</span>
+              </SelectionBar>
+            </div>
+          )}
+          {moveError && (
+            <p className="pointer-events-auto rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-600 shadow-lg dark:bg-red-500/10 dark:text-red-400">
+              {moveError}
+            </p>
+          )}
         </div>
-      )}
-      {moveError && (
-        <p className="mb-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-400">
-          {moveError}
-        </p>
       )}
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800">

@@ -8,7 +8,9 @@ import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
 import { DualRangeSlider } from "@/components/dual-range-slider";
 import { RmktWavesFields } from "@/components/rmkt-waves-fields";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useRmktWaves } from "@/lib/use-rmkt-waves";
+import { useMyWhatsappProvider, MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string; order: number }[] };
@@ -77,6 +79,8 @@ export function BulkSendConversationsDialog({
 
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
+  const { provider } = useMyWhatsappProvider();
+  const [confirmingBulkSend, setConfirmingBulkSend] = useState(false);
 
   // Divide os destinatários já no render — array estável, não muda.
   const dealIds = recipients.filter((r) => r.dealId !== null).map((r) => r.dealId as string);
@@ -126,9 +130,19 @@ export function BulkSendConversationsDialog({
     scriptIds.length > 0 &&
     rmkt.valid &&
     (!hasLeads || (!!pipelineId && !!stageId));
+  // Ver comentário equivalente em send-leads-dialog.tsx.
+  const needsBulkSendConfirmation = provider === "EVOLUTION" && recipients.length >= MANY_RECIPIENTS_THRESHOLD;
 
-  async function handleSend() {
+  function handleSend() {
     if (!canSend) return;
+    if (needsBulkSendConfirmation) {
+      setConfirmingBulkSend(true);
+      return;
+    }
+    doSend();
+  }
+
+  async function doSend() {
     setSending(true);
 
     const rmktPayload = rmkt.serialize();
@@ -258,6 +272,7 @@ export function BulkSendConversationsDialog({
 
   // ── Formulário ───────────────────────────────────────────────────────────────
   return (
+    <>
     <Modal onClose={onClose} maxWidth="max-w-lg">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Enviar em massa</h2>
       <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
@@ -354,6 +369,11 @@ export function BulkSendConversationsDialog({
             </div>
           )}
 
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
+            Disparo em massa por número conectado via QR Code (Evolution) tem risco maior de banimento. Número
+            conectado pela API oficial da Meta não tem esse risco.
+          </p>
+
           {/* RMKT */}
           <RmktWavesFields rmkt={rmkt} scripts={scripts} />
 
@@ -413,5 +433,18 @@ export function BulkSendConversationsDialog({
         </div>
       )}
     </Modal>
+    {confirmingBulkSend && (
+      <ConfirmDialog
+        title="Risco de banimento no WhatsApp"
+        description={`Você vai enviar mensagens para ${recipients.length} conversas usando um número conectado via QR Code (Evolution). Esse tipo de conexão pode ser bloqueado pela Meta em disparos grandes. Deseja continuar?`}
+        confirmLabel="Disparar mesmo assim"
+        onClose={() => setConfirmingBulkSend(false)}
+        onConfirm={async () => {
+          setConfirmingBulkSend(false);
+          await doSend();
+        }}
+      />
+    )}
+    </>
   );
 }

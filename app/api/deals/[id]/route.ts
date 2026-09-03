@@ -12,6 +12,8 @@ import { notifyMetaConversionWon } from "@/lib/meta-ads/conversions";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
+import { recordUndoableAction } from "@/lib/undo/record";
+import type { DeleteSnapshotPayload, FieldUpdatePayload, FieldUpdateTarget } from "@/lib/undo/types";
 
 export const dynamic = "force-dynamic";
 
@@ -165,22 +167,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
+    const updateData = {
+      name: sanitizeCell(name),
+      status,
+      value,
+      grossValue,
+      creditType: sanitizeCell(creditType),
+      description: sanitizeCell(description),
+      lossReasonId,
+      lostReason: sanitizeCell(lostReason),
+      ownerId,
+      expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
+      ...(closedAt ? { closedAt } : {}),
+      customFieldValues: cleanCustomFieldValues,
+    };
+
     const deal = await prisma.deal.update({
       where: { id },
-      data: {
-        name: sanitizeCell(name),
-        status,
-        value,
-        grossValue,
-        creditType: sanitizeCell(creditType),
-        description: sanitizeCell(description),
-        lossReasonId,
-        lostReason: sanitizeCell(lostReason),
-        ownerId,
-        expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
-        ...(closedAt ? { closedAt } : {}),
-        customFieldValues: cleanCustomFieldValues,
-      },
+      data: updateData,
       include: { contact: true, owner: true, stage: true, lossReason: true },
     });
 
@@ -196,7 +200,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // outros negócios abertos com donos diferentes, reatribuir ESTE aqui
     // ainda troca quem aparece como responsável do contato inteiro (não dá
     // pra representar "vários donos" num campo só).
-    if (ownerId && ownerId !== existing.ownerId) {
+    //
+    // `deal.contact.responsavelId` aqui ainda é o valor de ANTES desta
+    // sincronização (veio junto no include do update logo acima, antes do
+    // contact.update abaixo rodar) — é o que o Ctrl+Z precisa pra reverter
+    // os dois juntos (ver undoEntities abaixo); sem isso, desfazer o
+    // negócio reintroduziria a própria inconsistência que essa sincronização
+    // existe pra evitar.
+    const ownerChanged = !!ownerId && ownerId !== existing.ownerId;
+    const previousContactResponsavelId = deal.contact.responsavelId;
+    if (ownerChanged) {
       await prisma.contact.update({
         where: { id: deal.contactId },
         data: { responsavelId: ownerId },
@@ -261,7 +274,34 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       console.error("[user-activity] falha ao registrar alteração", err),
     );
 
-    return NextResponse.json(deal);
+    // Ctrl+Z (ver lib/undo/) — mesma lógica de "só o que mudou" de
+    // Contact/Task PUT; junto do contato se o dono foi reatribuído (ver
+    // comentário acima de ownerChanged).
+    const changedKeys = (Object.keys(updateData) as (keyof typeof updateData)[]).filter((k) => updateData[k] !== undefined);
+    const undoEntities: FieldUpdateTarget[] = [];
+    if (changedKeys.length > 0) {
+      const previousValues: Record<string, unknown> = {};
+      for (const key of changedKeys) previousValues[key] = existing[key as keyof typeof existing];
+      undoEntities.push({ model: "deal", entityId: id, previousValues });
+    }
+    if (ownerChanged) {
+      undoEntities.push({ model: "contact", entityId: deal.contactId, previousValues: { responsavelId: previousContactResponsavelId } });
+    }
+    let undo: { id: string; description: string } | undefined;
+    if (undoEntities.length > 0) {
+      undo = await recordUndoableAction({
+        organizationId,
+        userId,
+        type: "deal.update",
+        description: `Negócio "${existing.name}" atualizado`,
+        payload: {
+          entities: undoEntities,
+          descriptions: { afterRevert: `Negócio "${existing.name}" revertido`, original: `Negócio "${existing.name}" atualizado` },
+        } satisfies FieldUpdatePayload,
+      });
+    }
+
+    return NextResponse.json({ ...deal, undo });
   });
 }
 
@@ -282,10 +322,35 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+    // Ctrl+Z (ver lib/undo/) — Deal→Process é cascade (um negócio Ganho
+    // pode ter virado processo de pós-venda), e Process tem cascata da
+    // PRÓPRIA (histórico de etapa, pendências, uso de modelo) — restaurar
+    // isso tudo certinho é bem mais raro (precisa ter virado processo E
+    // ser apagado depois) e mais arriscado de acertar sem poder testar ao
+    // vivo. De propósito só oferece "desfazer" quando NÃO tem processo
+    // vinculado; com processo, o delete continua funcionando normal, só
+    // sem Ctrl+Z pra ele.
+    const linkedProcess = await prisma.process.findUnique({ where: { dealId: id } });
+
     await prisma.deal.delete({ where: { id } });
     recordUserChange(access.organizationId, access.userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
-    return NextResponse.json({ ok: true });
+
+    let undo: { id: string; description: string } | undefined;
+    if (!linkedProcess) {
+      undo = await recordUndoableAction({
+        organizationId: access.organizationId,
+        userId: access.userId,
+        type: "deal.delete",
+        description: `Negócio "${existing.name}" excluído`,
+        payload: {
+          snapshot: existing,
+          descriptions: { afterRevert: `Negócio "${existing.name}" restaurado`, original: `Negócio "${existing.name}" excluído` },
+        } satisfies DeleteSnapshotPayload,
+      });
+    }
+
+    return NextResponse.json({ ok: true, undo });
   });
 }

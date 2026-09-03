@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatCurrency } from "@/lib/format";
+import { useUndoToast } from "@/components/undo-provider";
 import { CreateDealForContactDialog, type CreatedDeal } from "./create-deal-for-contact-dialog";
 
 // O chat (com QR/mídia/áudio) só monta quando o cliente tem WhatsApp
@@ -81,10 +82,20 @@ export function ContactTabs({
   canDeleteContact: boolean;
 }) {
   const router = useRouter();
+  const pushUndoToast = useUndoToast();
   const [tab, setTab] = useState<"deals" | "info">("deals");
   // Estado local (semeado do server, ver `deals: initialDeals` acima) — cria/
   // apaga aqui reflete na hora, sem esperar um refresh de página inteiro.
   const [deals, setDeals] = useState(initialDeals);
+  // Resincroniza quando o server manda uma lista nova — necessário pro
+  // Ctrl+Z (ver components/undo-provider.tsx): desfazer uma exclusão aqui
+  // dispara router.refresh() de outro lugar (o aviso flutuante), e sem
+  // isso o negócio restaurado só voltava a aparecer num F5 de verdade,
+  // mesmo já restaurado no banco. Mesmo padrão de kanban-board.tsx.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDeals(initialDeals);
+  }, [initialDeals]);
   const [deleteTarget, setDeleteTarget] = useState<Deal | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteContactOpen, setDeleteContactOpen] = useState(false);
@@ -100,7 +111,9 @@ export function ContactTabs({
     setDeleteError(null);
     const res = await fetch(`/api/deals/${deleteTarget.id}`, { method: "DELETE" });
     if (res.ok) {
+      const data = await res.json().catch(() => ({}));
       setDeals((prev) => prev.filter((d) => d.id !== deleteTarget.id));
+      pushUndoToast(data.undo);
     } else {
       setDeleteError("Não foi possível apagar esse negócio.");
     }
@@ -116,11 +129,15 @@ export function ContactTabs({
   async function handleDeleteContactConfirmed() {
     setDeleteContactError(null);
     const res = await fetch(`/api/contacts/${contactId}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
+      // Empurra o aviso ANTES de navegar — o UndoProvider vive no layout do
+      // dashboard (nunca desmonta entre páginas), então continua na tela
+      // mesmo depois do push pra /clientes.
+      pushUndoToast(data.undo);
       router.push("/clientes");
       return;
     }
-    const data = await res.json().catch(() => ({}));
     setDeleteContactError(data.error ?? "Não foi possível apagar esse contato.");
     setDeleteContactOpen(false);
   }
@@ -322,7 +339,7 @@ export function ContactTabs({
       {deleteContactOpen && (
         <ConfirmDialog
           title={`Apagar "${contactName}"?`}
-          description="Essa ação não pode ser desfeita — o contato e seus dados somem de vez."
+          description="Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           confirmLabel="Apagar"
           onConfirm={handleDeleteContactConfirmed}
           onClose={() => setDeleteContactOpen(false)}
@@ -332,7 +349,7 @@ export function ContactTabs({
       {deleteTarget && (
         <ConfirmDialog
           title={`Apagar "${deleteTarget.name}"?`}
-          description="Essa ação não pode ser desfeita — o negócio, suas tarefas e o histórico de atividades somem de vez."
+          description="Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           confirmLabel="Apagar"
           onConfirm={handleDeleteConfirmed}
           onClose={() => setDeleteTarget(null)}

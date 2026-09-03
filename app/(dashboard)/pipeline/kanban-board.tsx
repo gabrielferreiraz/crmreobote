@@ -27,6 +27,7 @@ import { sortSelfFirst } from "@/lib/sort-self-first";
 import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
 import { PipelineQuickFilterButtons } from "./pipeline-quick-filter-buttons";
+import { useUndoToast } from "@/components/undo-provider";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
@@ -173,6 +174,7 @@ export function KanbanBoard({
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const pushUndoToast = useUndoToast();
   // false só durante a janela entre montar e a 1ª busca pós-restauração do
   // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
   // volta pra esta tela com um filtro salvo via localStorage vê TODOS os
@@ -530,6 +532,7 @@ export function KanbanBoard({
 
     setPending(false);
 
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setDealsByStage((prev) => ({
         ...prev,
@@ -541,8 +544,13 @@ export function KanbanBoard({
         [targetStageId]: Math.max(0, (prev[targetStageId] ?? 1) - 1),
         [previousStageId]: (prev[previousStageId] ?? 0) + 1,
       }));
-      const data = await res.json().catch(() => ({}));
       setMoveError(data.error ?? "Não foi possível mover o negócio");
+    } else {
+      // Ctrl+Z (ver components/undo-provider.tsx) — o refresh que o undo
+      // dispara é pego pelo useEffect logo acima (initialDealsByStage →
+      // dealsByStage), então desfazer aqui reflete no board mesmo sem
+      // este componente gerenciar isso na mão.
+      pushUndoToast(data.undo);
     }
   }
 

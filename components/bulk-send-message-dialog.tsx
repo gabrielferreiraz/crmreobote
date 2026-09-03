@@ -7,7 +7,9 @@ import { LoadingDots } from "@/components/loading-dots";
 import { EmptyState } from "@/components/empty-state";
 import { DualRangeSlider } from "@/components/dual-range-slider";
 import { RmktWavesFields } from "@/components/rmkt-waves-fields";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useRmktWaves } from "@/lib/use-rmkt-waves";
+import { useMyWhatsappProvider, MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 
@@ -61,6 +63,8 @@ export function BulkSendMessageDialog({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
+  const { provider } = useMyWhatsappProvider();
+  const [confirmingBulkSend, setConfirmingBulkSend] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,9 +96,19 @@ export function BulkSendMessageDialog({
   }
 
   const canSend = scriptIds.length > 0 && rmkt.valid;
+  // Ver comentário equivalente em send-leads-dialog.tsx.
+  const needsBulkSendConfirmation = provider === "EVOLUTION" && dealIds.length >= MANY_RECIPIENTS_THRESHOLD;
 
-  async function handleSend() {
+  function handleSend() {
     if (!canSend) return;
+    if (needsBulkSendConfirmation) {
+      setConfirmingBulkSend(true);
+      return;
+    }
+    doSend();
+  }
+
+  async function doSend() {
     setSending(true);
     setError(null);
 
@@ -157,6 +171,7 @@ export function BulkSendMessageDialog({
   }
 
   return (
+    <>
     <Modal onClose={onClose} maxWidth="max-w-md">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Enviar mensagem em massa</h2>
       <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
@@ -322,5 +337,18 @@ export function BulkSendMessageDialog({
         </div>
       </div>
     </Modal>
+    {confirmingBulkSend && (
+      <ConfirmDialog
+        title="Risco de banimento no WhatsApp"
+        description={`Você vai enviar mensagens para ${dealIds.length} negócios usando um número conectado via QR Code (Evolution). Esse tipo de conexão pode ser bloqueado pela Meta em disparos grandes. Deseja continuar?`}
+        confirmLabel="Disparar mesmo assim"
+        onClose={() => setConfirmingBulkSend(false)}
+        onConfirm={async () => {
+          setConfirmingBulkSend(false);
+          await doSend();
+        }}
+      />
+    )}
+    </>
   );
 }

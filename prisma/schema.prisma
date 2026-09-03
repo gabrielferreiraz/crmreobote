@@ -55,6 +55,7 @@ model Organization {
   processStageHistories  ProcessStageHistory[]
   processRequests        ProcessRequest[]
   auditLogs              AuditLog[]
+  undoableActions        UndoableAction[]
   tvConfig               TvDashboardConfig?
   tvDisplayLinks         TvDisplayLink[]
   importBatches          ImportBatch[]
@@ -112,6 +113,7 @@ model User {
   whatsappMessagesSentAs      WhatsAppMessage[]         @relation("WhatsAppMessageSentBy")
   whatsappThreadsOwned        WhatsAppThread[]          @relation("WhatsAppThreadOwner")
   auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
+  undoableActions             UndoableAction[]
   automationRulesCreated      AutomationRule[]          @relation("AutomationRuleCreatedBy")
   importBatchesCreated        ImportBatch[]
   shareGroupsCreated          ShareGroup[]              @relation("ShareGroupCreatedBy")
@@ -2028,6 +2030,32 @@ model AuditLog {
   actorUser    User?        @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
+}
+
+// Ctrl+Z do sistema (ver lib/undo/) — cada linha é UMA ação que pode ser
+// revertida: `payload` carrega o que o handler de `type` precisa pra
+// reverter (formato específico por type, ver lib/undo/handlers.ts), nunca
+// um diff genérico solto. Ao desfazer, a AÇÃO ORIGINAL ganha `undoneAt` e
+// uma linha NOVA é criada representando "refazer" (mesmo par undo/redo se
+// alternando pra sempre) — por isso não existe um `redoneAt` aqui nem um
+// vínculo direto entre as duas linhas: cada uma só sabe reverter A SI
+// MESMA, e a cadeia inteira dá pra reconstruir só pela ordem de
+// `createdAt`. `undoneAt: null` = ainda desfazível (aviso flutuante de 30s
+// OU a página de histórico, sem prazo lá).
+model UndoableAction {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  type           String
+  description    String
+  payload        Json
+  undoneAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, createdAt])
 }
 
 // ─── Saúde dos crons (infraestrutura, não é dado de organização) ──────

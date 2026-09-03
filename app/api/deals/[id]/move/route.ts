@@ -7,6 +7,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
 import { recordUserChange } from "@/lib/user-activity";
+import { recordUndoableAction } from "@/lib/undo/record";
+import type { FieldUpdatePayload } from "@/lib/undo/types";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +119,35 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       console.error("[user-activity] falha ao registrar alteração", err),
     );
 
-    return NextResponse.json(deal);
+    // Ctrl+Z (ver lib/undo/) — mesma condição "de fato mudou" do log
+    // SYSTEM acima (stage/pipeline), mais value/grossValue quando vieram
+    // junto na mesma chamada (preencher campo exigido e mover numa ação só).
+    const previousValues: Record<string, unknown> = {};
+    if (existing.stageId !== stageId || existing.pipelineId !== targetPipelineId) {
+      previousValues.pipelineId = existing.pipelineId;
+      previousValues.stageId = existing.stageId;
+      previousValues.stageEnteredAt = existing.stageEnteredAt;
+    }
+    if (value !== undefined && Number(existing.value ?? 0) !== value) previousValues.value = existing.value;
+    if (grossValue !== undefined && Number(existing.grossValue ?? 0) !== grossValue) previousValues.grossValue = existing.grossValue;
+
+    let undo: { id: string; description: string } | undefined;
+    if (Object.keys(previousValues).length > 0) {
+      undo = await recordUndoableAction({
+        organizationId,
+        userId,
+        type: "deal.move",
+        description: `Negócio "${deal.name}" movido para ${stage.name}`,
+        payload: {
+          entities: [{ model: "deal", entityId: id, previousValues }],
+          descriptions: {
+            afterRevert: `Negócio "${deal.name}" voltou pra etapa anterior`,
+            original: `Negócio "${deal.name}" movido para ${stage.name}`,
+          },
+        } satisfies FieldUpdatePayload,
+      });
+    }
+
+    return NextResponse.json({ ...deal, undo });
   });
 }

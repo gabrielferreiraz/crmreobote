@@ -19,6 +19,7 @@ import { TaskRow, type Task } from "./task-row";
 import { TaskCalendar } from "./task-calendar";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
+import { useUndoToast } from "@/components/undo-provider";
 
 export type Option = { id: string; name: string };
 
@@ -54,6 +55,7 @@ export function TasksList({
   googleParam?: string;
 }) {
   const router = useRouter();
+  const pushUndoToast = useUndoToast();
   // Excluir tarefa era restrito ao Dono — pedido explícito reverteu isso,
   // agora qualquer papel com acesso à tarefa pode (backend já valida o
   // escopo real, isto aqui só decide se o botão aparece).
@@ -67,14 +69,22 @@ export function TasksList({
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [ownerFilter, setOwnerFilter] = useState("");
+  // "Pendentes" como padrão — pedido explícito: concluir uma tarefa some ela
+  // da Agenda na hora, sem precisar mexer em filtro nenhum; só volta a
+  // aparecer trocando pra "Finalizadas" ou "Todas" de propósito.
+  const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const showOwner = members.length > 1;
 
-  const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter;
+  // statusFilter no padrão ("pending") não conta como filtro "ativo" pro
+  // indicador do FilterPopover/hasFilters — é o estado de repouso da tela,
+  // não algo que a pessoa escolheu additivamente.
+  const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending";
 
   function clearFilters() {
     setSearch("");
     setTypeFilters(new Set());
     setOwnerFilter("");
+    setStatusFilter("pending");
   }
 
   function toggleType(type: string) {
@@ -100,13 +110,24 @@ export function TasksList({
       }
       if (typeFilters.size > 0 && !typeFilters.has(t.type)) return false;
       if (ownerFilter && t.owner.id !== ownerFilter) return false;
+      if (statusFilter === "pending" && t.completedAt) return false;
+      if (statusFilter === "completed" && !t.completedAt) return false;
       return true;
     });
-  }, [initialTasks, search, typeFilters, ownerFilter]);
+  }, [initialTasks, search, typeFilters, ownerFilter, statusFilter]);
 
   const groups = useMemo(() => groupTasks(filteredTasks), [filteredTasks]);
   const isEmpty = initialTasks.length === 0;
   const noResults = !isEmpty && filteredTasks.length === 0;
+
+  // Evento do Google Calendar não tem "responsável" nem "tipo" no sentido do
+  // CRM (é sempre só do PRÓPRIO usuário logado, ver useGoogleCalendarEvents) —
+  // então filtrar por consultor ou por tipo de atividade específico não tem
+  // como incluí-lo de verdade, mostrar ele ali só confundia (pedido
+  // explícito: some quando um desses dois filtros está ativo). Busca por
+  // texto fica de fora dessa regra de propósito — ela pode bater com o
+  // título do evento do Google normalmente, então não some por causa dela.
+  const showGoogleEvents = !ownerFilter && typeFilters.size === 0;
 
   async function toggleComplete(
     taskId: string,
@@ -114,7 +135,7 @@ export function TasksList({
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED",
     newDueAt?: string,
   ) {
-    await fetch(`/api/tasks/${taskId}`, {
+    const res = await fetch(`/api/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -123,12 +144,19 @@ export function TasksList({
           : { completed, ...(meetingOutcome ? { meetingOutcome } : {}) },
       ),
     });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    // Ctrl+Z (ver components/undo-provider.tsx) — RESCHEDULED nunca
+    // devolve `undo` (fora do escopo do v1, ver PUT /api/tasks/[id]),
+    // pushUndoToast já trata null/undefined como no-op.
+    pushUndoToast(data.undo);
   }
 
   async function deleteTask(taskId: string) {
-    await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   // Arrastar-e-soltar na grade do mês (ver task-calendar.tsx) — move uma ou
@@ -145,6 +173,7 @@ export function TasksList({
     const data = await res.json().catch(() => ({}));
     router.refresh();
     if (!res.ok) return { ok: false, error: data.error ?? "Não foi possível mover a(s) tarefa(s)" };
+    pushUndoToast(data.undo);
     return { ok: true };
   }
 
@@ -206,6 +235,31 @@ export function TasksList({
           </div>
           <FilterPopover active={hasFilters} onClear={clearFilters}>
             <div className="space-y-1">
+              <label className="field-label">Status</label>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    { value: "pending" as const, label: "Pendentes" },
+                    { value: "completed" as const, label: "Finalizadas" },
+                    { value: "all" as const, label: "Todas" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setStatusFilter(opt.value)}
+                    className={`rounded-full border px-2 py-1 text-xs font-medium transition-colors ${
+                      statusFilter === opt.value
+                        ? "border-neutral-900 bg-neutral-100 text-neutral-900 dark:border-white dark:bg-neutral-800 dark:text-white"
+                        : "border-transparent text-neutral-500 hover:border-neutral-200 dark:text-neutral-400 dark:hover:border-neutral-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1">
               <label className="field-label">Categoria</label>
               <div className="flex flex-wrap gap-1">
                 {Object.entries(TASK_TYPE_LABELS).map(([value, label]) => {
@@ -263,7 +317,7 @@ export function TasksList({
           onBulkMove={bulkMoveTasks}
           canDelete={canDelete}
           showOwner={showOwner}
-          googleEvents={googleCalendar.events}
+          googleEvents={showGoogleEvents ? googleCalendar.events : []}
           deals={deals}
         />
       ) : noResults ? (

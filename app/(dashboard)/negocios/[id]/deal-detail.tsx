@@ -26,6 +26,7 @@ import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomField
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 import { ClosedAtDialog } from "@/components/closed-at-dialog";
 import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reason-dialog";
+import { useUndoToast } from "@/components/undo-provider";
 
 // Só carregam depois que a pessoa de fato abre o painel/confete/convite/
 // ditado por voz — cada um puxa dependências pesadas (chat com QR/mídia/
@@ -206,6 +207,7 @@ export function DealDetail({
   currentUserRole?: string;
 }) {
   const router = useRouter();
+  const pushUndoToast = useUndoToast();
   const searchParams = useSearchParams();
   const canDeleteTask = currentUserRole === "OWNER";
   const [activeTab, setActiveTab] = useState("NOTE");
@@ -302,52 +304,62 @@ export function DealDetail({
       setWonDialogOpen(true);
       return;
     }
-    await fetch(`/api/deals/${deal.id}`, {
+    const res = await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function confirmWon(closedAt: string) {
     const wasWon = deal.status === "WON";
-    await fetch(`/api/deals/${deal.id}`, {
+    const res = await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "WON", closedAt }),
     });
+    const data = await res.json().catch(() => ({}));
     setWonDialogOpen(false);
     if (!wasWon) setShowConfetti(true);
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function confirmLoss(lossReasonId: string, note: string, closedAt: string) {
-    await fetch(`/api/deals/${deal.id}`, {
+    const res = await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "LOST", lossReasonId, lostReason: note || undefined, closedAt }),
     });
+    const data = await res.json().catch(() => ({}));
     setLossDialogOpen(false);
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function reassignOwner(ownerId: string) {
-    await fetch(`/api/deals/${deal.id}`, {
+    const res = await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ownerId }),
     });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function updateCreditType(creditType: string) {
-    await fetch(`/api/deals/${deal.id}`, {
+    const res = await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ creditType: creditType || null }),
     });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function saveDealField(
@@ -359,11 +371,12 @@ export function DealDetail({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value || null }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       return { ok: false, error: data.error ?? "Erro ao salvar" };
     }
     router.refresh();
+    pushUndoToast(data.undo);
     return { ok: true };
   }
 
@@ -385,11 +398,12 @@ export function DealDetail({
         [field]: value,
       }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       return { ok: false, error: data.error ?? "Erro ao salvar" };
     }
     router.refresh();
+    pushUndoToast(data.undo);
     return { ok: true };
   }
 
@@ -409,11 +423,12 @@ export function DealDetail({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: value ? Number(value) : null }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       return { ok: false, error: data.error ?? "Erro ao salvar" };
     }
     router.refresh();
+    pushUndoToast(data.undo);
     return { ok: true };
   }
 
@@ -423,11 +438,12 @@ export function DealDetail({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ grossValue: value ? Number(value) : null }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       return { ok: false, error: data.error ?? "Erro ao salvar" };
     }
     router.refresh();
+    pushUndoToast(data.undo);
     return { ok: true };
   }
 
@@ -440,13 +456,13 @@ export function DealDetail({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(fields),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       return { ok: false, error: data.error ?? "Erro ao salvar" };
     }
-    const updated = await res.json();
     router.refresh();
-    return { ok: true, ownerGoogleCalendarWriteConnected: updated.ownerGoogleCalendarWriteConnected };
+    pushUndoToast(data.undo);
+    return { ok: true, ownerGoogleCalendarWriteConnected: data.ownerGoogleCalendarWriteConnected };
   }
 
   async function moveToStage(stageId: string) {
@@ -459,12 +475,13 @@ export function DealDetail({
       body: JSON.stringify({ stageId }),
     });
     setMovingStage(null);
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       setMoveError(data.error ?? "Não foi possível mover o negócio");
       return;
     }
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function toggleTask(taskId: string, completed: boolean) {
@@ -478,17 +495,19 @@ export function DealDetail({
         return;
       }
     }
-    await fetch(`/api/tasks/${taskId}`, {
+    const res = await fetch(`/api/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed }),
     });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function resolveMeetingOutcome(result: MeetingOutcomeResult) {
     if (!meetingOutcomeTaskId) return;
-    await fetch(`/api/tasks/${meetingOutcomeTaskId}`, {
+    const res = await fetch(`/api/tasks/${meetingOutcomeTaskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -497,13 +516,17 @@ export function DealDetail({
           : { completed: true, meetingOutcome: result.outcome },
       ),
     });
+    const data = await res.json().catch(() => ({}));
     setMeetingOutcomeTaskId(null);
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function deleteTask(taskId: string) {
-    await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function setLeadQualification(qualification: ContactLeadQualification | null) {

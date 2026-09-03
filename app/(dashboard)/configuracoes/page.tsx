@@ -65,6 +65,13 @@ export default async function ConfiguracoesPage() {
           description: "Regras que disparam ação sozinhas nos seus negócios (tarefa, e-mail, WhatsApp, push).",
           keywords: ["automação", "regra", "gatilho", "trigger", "ação automática"],
         },
+        {
+          href: "/configuracoes/desfazer",
+          icon: "Undo2",
+          title: "Desfazer ações",
+          description: "Histórico do Ctrl+Z — exclusões, edições e movimentações recentes, com botão de desfazer.",
+          keywords: ["desfazer", "undo", "ctrl+z", "histórico", "restaurar", "excluir"],
+        },
       ],
     },
     {

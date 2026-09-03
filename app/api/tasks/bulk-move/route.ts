@@ -6,6 +6,8 @@ import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { getBrazilParts, brazilDateTimeStringToUTC, brazilDateKey } from "@/lib/timezone";
+import { recordUndoableAction } from "@/lib/undo/record";
+import type { TaskBulkMovePayload } from "@/lib/undo/types";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +65,7 @@ export async function PATCH(req: Request) {
     });
 
     let moved = 0;
+    const movedTasks: { taskId: string; title: string; previousDueAt: string }[] = [];
     for (const task of tasks) {
       const oldDateKey = brazilDateKey(task.dueAt!);
       if (oldDateKey === newDate) continue; // já está no dia de destino — nada a fazer
@@ -72,6 +75,7 @@ export async function PATCH(req: Request) {
       const newDueAt = brazilDateTimeStringToUTC(newDate, timeStr);
 
       await prisma.task.update({ where: { id: task.id }, data: { dueAt: newDueAt } });
+      movedTasks.push({ taskId: task.id, title: task.title, previousDueAt: task.dueAt!.toISOString() });
 
       if (task.dealId || task.contactId) {
         const oldDateLabel = new Date(task.dueAt!).toLocaleDateString("pt-BR");
@@ -96,6 +100,25 @@ export async function PATCH(req: Request) {
       );
     }
 
-    return NextResponse.json({ moved, skipped: taskIds.length - moved });
+    // Ctrl+Z (ver lib/undo/) — só grava quando algo de fato moveu.
+    let undo: { id: string; description: string } | undefined;
+    if (movedTasks.length > 0) {
+      const label =
+        movedTasks.length === 1 ? `Tarefa "${movedTasks[0].title}" movida de dia` : `${movedTasks.length} tarefas movidas de dia`;
+      const undoLabel =
+        movedTasks.length === 1 ? `Tarefa "${movedTasks[0].title}" voltou pro dia anterior` : `${movedTasks.length} tarefas voltaram pro dia anterior`;
+      undo = await recordUndoableAction({
+        organizationId,
+        userId,
+        type: "task.bulkMove",
+        description: label,
+        payload: {
+          moves: movedTasks.map((t) => ({ taskId: t.taskId, previousDueAt: t.previousDueAt })),
+          descriptions: { afterRevert: undoLabel, original: label },
+        } satisfies TaskBulkMovePayload,
+      });
+    }
+
+    return NextResponse.json({ moved, skipped: taskIds.length - moved, undo });
   });
 }

@@ -12,6 +12,7 @@ import { TaskRow, type Task } from "./task-row";
 import { NewTaskDialog, type Option } from "./tasks-list";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
+import { useUndoToast } from "@/components/undo-provider";
 import { CompactMonthCalendar } from "./compact-month-calendar";
 
 function groupTasks(tasks: Task[]) {
@@ -54,6 +55,7 @@ export function TasksListMobile({
   googleParam?: string;
 }) {
   const router = useRouter();
+  const pushUndoToast = useUndoToast();
   // Excluir tarefa era restrito ao Dono — pedido explícito reverteu isso,
   // agora qualquer papel com acesso à tarefa pode (backend já valida o
   // escopo real, isto aqui só decide se o botão aparece).
@@ -64,6 +66,9 @@ export function TasksListMobile({
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [ownerFilter, setOwnerFilter] = useState("");
+  // Mesmo padrão de tasks-list.tsx (desktop) — "Pendentes" como padrão,
+  // concluir uma tarefa some ela da tela sem precisar mexer em filtro.
+  const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const showOwner = members.length > 1;
 
   useEffect(() => {
@@ -74,12 +79,13 @@ export function TasksListMobile({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewTask]);
 
-  const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter;
+  const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending";
 
   function clearFilters() {
     setSearch("");
     setTypeFilters(new Set());
     setOwnerFilter("");
+    setStatusFilter("pending");
   }
 
   function toggleType(type: string) {
@@ -105,9 +111,11 @@ export function TasksListMobile({
       }
       if (typeFilters.size > 0 && !typeFilters.has(t.type)) return false;
       if (ownerFilter && t.owner.id !== ownerFilter) return false;
+      if (statusFilter === "pending" && t.completedAt) return false;
+      if (statusFilter === "completed" && !t.completedAt) return false;
       return true;
     });
-  }, [initialTasks, search, typeFilters, ownerFilter]);
+  }, [initialTasks, search, typeFilters, ownerFilter, statusFilter]);
 
   const groups = useMemo(() => groupTasks(filteredTasks), [filteredTasks]);
   const isEmpty = initialTasks.length === 0;
@@ -119,7 +127,7 @@ export function TasksListMobile({
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED",
     newDueAt?: string,
   ) {
-    await fetch(`/api/tasks/${taskId}`, {
+    const res = await fetch(`/api/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -128,12 +136,16 @@ export function TasksListMobile({
           : { completed, ...(meetingOutcome ? { meetingOutcome } : {}) },
       ),
     });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   async function deleteTask(taskId: string) {
-    await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
     router.refresh();
+    pushUndoToast(data.undo);
   }
 
   return (
@@ -172,6 +184,31 @@ export function TasksListMobile({
             />
           </div>
           <FilterPopover active={hasFilters} onClear={clearFilters}>
+            <div className="space-y-1">
+              <label className="field-label">Status</label>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    { value: "pending" as const, label: "Pendentes" },
+                    { value: "completed" as const, label: "Finalizadas" },
+                    { value: "all" as const, label: "Todas" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setStatusFilter(opt.value)}
+                    className={`rounded-full border px-2 py-1 text-xs font-medium transition-colors ${
+                      statusFilter === opt.value
+                        ? "border-neutral-900 bg-neutral-100 text-neutral-900 dark:border-white dark:bg-neutral-800 dark:text-white"
+                        : "border-transparent text-neutral-500 hover:border-neutral-200 dark:text-neutral-400 dark:hover:border-neutral-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="space-y-1">
               <label className="field-label">Categoria</label>
               <div className="flex flex-wrap gap-1">

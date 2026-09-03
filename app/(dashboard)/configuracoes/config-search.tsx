@@ -26,6 +26,7 @@ import {
   MessageCircle,
   Clock,
   Building2,
+  Undo2,
 } from "lucide-react";
 
 export type ConfigItem = {
@@ -84,6 +85,7 @@ const ICONS: Record<string, IconComponent> = {
   MessageCircle,
   Clock,
   Building2,
+  Undo2,
 };
 const SECTION_FALLBACK_ICON = SlidersHorizontal;
 

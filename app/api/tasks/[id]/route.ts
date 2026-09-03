@@ -7,6 +7,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
 import { parseBrazilDateTime } from "@/lib/timezone";
+import { recordUndoableAction } from "@/lib/undo/record";
+import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
 
 export const dynamic = "force-dynamic";
 
@@ -161,37 +163,74 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
+    const updateData = {
+      title,
+      description,
+      dealId: dealId === undefined ? undefined : dealId || null,
+      contactId: contactId === undefined ? undefined : contactId || null,
+      // RESCHEDULED nunca toca o dueAt desta Task — o dueAt recebido é da
+      // TAREFA NOVA (criada acima); esta mantém a data original do
+      // encontro que de fato foi tentado, pra ficar registrado quando
+      // aconteceu de verdade, não sobrescrito pela data nova.
+      dueAt:
+        meetingOutcome === "RESCHEDULED"
+          ? undefined
+          : dueAt === undefined
+            ? undefined
+            : dueAt
+              ? parseBrazilDateTime(dueAt)
+              : null,
+      // RESCHEDULED finaliza esta tentativa (ver comentário acima) — não
+      // fica mais em aberto esperando o próximo encontro, isso já é
+      // responsabilidade da Task nova.
+      completedAt:
+        meetingOutcome === "RESCHEDULED" ? new Date() : completed === undefined ? undefined : completed ? new Date() : null,
+    };
+
     const task = await prisma.task.update({
       where: { id },
-      data: {
-        title,
-        description,
-        dealId: dealId === undefined ? undefined : dealId || null,
-        contactId: contactId === undefined ? undefined : contactId || null,
-        // RESCHEDULED nunca toca o dueAt desta Task — o dueAt recebido é da
-        // TAREFA NOVA (criada acima); esta mantém a data original do
-        // encontro que de fato foi tentado, pra ficar registrado quando
-        // aconteceu de verdade, não sobrescrito pela data nova.
-        dueAt:
-          meetingOutcome === "RESCHEDULED"
-            ? undefined
-            : dueAt === undefined
-              ? undefined
-              : dueAt
-                ? parseBrazilDateTime(dueAt)
-                : null,
-        // RESCHEDULED finaliza esta tentativa (ver comentário acima) — não
-        // fica mais em aberto esperando o próximo encontro, isso já é
-        // responsabilidade da Task nova.
-        completedAt:
-          meetingOutcome === "RESCHEDULED" ? new Date() : completed === undefined ? undefined : completed ? new Date() : null,
-      },
+      data: updateData,
       include: { deal: true, contact: true, owner: true },
     });
 
     recordUserChange(organizationId, accessUserId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
+
+    // Ctrl+Z (ver lib/undo/) — só no ramo simples. RESCHEDULED fica de fora
+    // de propósito: cria uma tarefa nova + mexe na Activity ligada, tem
+    // semântica própria que o handler genérico de campo não cobre (ver
+    // plano em C:\Users\Gabriel\.claude\plans\wise-dazzling-grove.md).
+    let undo: { id: string; description: string } | undefined;
+    if (meetingOutcome !== "RESCHEDULED") {
+      const changedKeys = (Object.keys(updateData) as (keyof typeof updateData)[]).filter((k) => updateData[k] !== undefined);
+      if (changedKeys.length > 0) {
+        const previousValues: Record<string, unknown> = {};
+        for (const key of changedKeys) previousValues[key] = existing[key as keyof typeof existing];
+
+        // "concluída"/"reaberta" é o texto certo quando completedAt foi o
+        // único campo tocado (o caso mais comum de longe — concluir/reabrir
+        // uma tarefa pelo checkbox); qualquer outra combinação de campos
+        // (título, descrição, vínculo, data) cai no texto genérico.
+        const onlyCompletedChanged = changedKeys.length === 1 && changedKeys[0] === "completedAt";
+        const actionLabel = onlyCompletedChanged ? (updateData.completedAt ? "concluída" : "reaberta") : "atualizada";
+        const undoLabel = onlyCompletedChanged ? (updateData.completedAt ? "reaberta" : "concluída") : "revertida";
+
+        undo = await recordUndoableAction({
+          organizationId,
+          userId: accessUserId,
+          type: "task.update",
+          description: `Tarefa "${existing.title}" ${actionLabel}`,
+          payload: {
+            entities: [{ model: "task", entityId: id, previousValues }],
+            descriptions: {
+              afterRevert: `Tarefa "${existing.title}" ${undoLabel}`,
+              original: `Tarefa "${existing.title}" ${actionLabel}`,
+            },
+          } satisfies FieldUpdatePayload,
+        });
+      }
+    }
 
     // Mesmo campo computado de POST /api/tasks — reaproveitado quando
     // reagendar uma Reunião reabre o MeetingInviteDialog (ver saveTask/
@@ -203,7 +242,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       ownerGoogleCalendarWriteConnected = !!connection && hasCalendarWriteScope(connection.scope);
     }
 
-    return NextResponse.json({ ...task, ownerGoogleCalendarWriteConnected });
+    return NextResponse.json({ ...task, ownerGoogleCalendarWriteConnected, undo });
   });
 }
 
@@ -232,6 +271,21 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     recordUserChange(access.organizationId, access.userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
-    return NextResponse.json({ ok: true });
+
+    // Ctrl+Z (ver lib/undo/) — `existing` já é a linha inteira (sem select
+    // estreitando), então já É o snapshot que lib/undo/handlers.ts precisa
+    // pra recriar preservando o mesmo id.
+    const undo = await recordUndoableAction({
+      organizationId: access.organizationId,
+      userId: access.userId,
+      type: "task.delete",
+      description: `Tarefa "${existing.title}" excluída`,
+      payload: {
+        snapshot: existing,
+        descriptions: { afterRevert: `Tarefa "${existing.title}" restaurada`, original: `Tarefa "${existing.title}" excluída` },
+      } satisfies DeleteSnapshotPayload,
+    });
+
+    return NextResponse.json({ ok: true, undo });
   });
 }

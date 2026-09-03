@@ -10,6 +10,8 @@ import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
+import { recordUndoableAction } from "@/lib/undo/record";
+import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
 
 export const dynamic = "force-dynamic";
 
@@ -141,35 +143,57 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
+    const updateData = {
+      name: sanitizeCell(name),
+      email: sanitizeCell(email),
+      phone: sanitizeCell(whatsappFallback.phone),
+      whatsapp: sanitizeCell(whatsappFallback.whatsapp),
+      source: sanitizeCell(source),
+      company: sanitizeCell(company),
+      jobTitle: sanitizeCell(jobTitle),
+      address: sanitizeCell(address),
+      addressNumber: sanitizeCell(addressNumber),
+      addressComplement: sanitizeCell(addressComplement),
+      neighborhood: sanitizeCell(neighborhood),
+      city: sanitizeCell(city),
+      state: sanitizeCell(state),
+      zipCode: sanitizeCell(zipCode),
+      ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
+      ...("responsavelId" in body ? { responsavelId: responsavelId || null } : {}),
+      phoneNormalized: whatsappFallback.phoneNormalized,
+      whatsappNormalized: whatsappFallback.whatsappNormalized,
+      ...(cleanCustomFieldValues !== undefined ? { customFieldValues: cleanCustomFieldValues } : {}),
+    };
+
     try {
-      const contact = await prisma.contact.update({
-        where: { id },
-        data: {
-          name: sanitizeCell(name),
-          email: sanitizeCell(email),
-          phone: sanitizeCell(whatsappFallback.phone),
-          whatsapp: sanitizeCell(whatsappFallback.whatsapp),
-          source: sanitizeCell(source),
-          company: sanitizeCell(company),
-          jobTitle: sanitizeCell(jobTitle),
-          address: sanitizeCell(address),
-          addressNumber: sanitizeCell(addressNumber),
-          addressComplement: sanitizeCell(addressComplement),
-          neighborhood: sanitizeCell(neighborhood),
-          city: sanitizeCell(city),
-          state: sanitizeCell(state),
-          zipCode: sanitizeCell(zipCode),
-          ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
-          ...("responsavelId" in body ? { responsavelId: responsavelId || null } : {}),
-          phoneNormalized: whatsappFallback.phoneNormalized,
-          whatsappNormalized: whatsappFallback.whatsappNormalized,
-          ...(cleanCustomFieldValues !== undefined ? { customFieldValues: cleanCustomFieldValues } : {}),
-        },
-      });
+      const contact = await prisma.contact.update({ where: { id }, data: updateData });
       recordUserChange(organizationId, userId).catch((err) =>
         console.error("[user-activity] falha ao registrar alteração", err),
       );
-      return NextResponse.json(contact);
+
+      // Ctrl+Z (ver lib/undo/) — phoneNormalized/whatsappNormalized sempre
+      // aparecem em updateData (recalculados mesmo quando não mudou nada,
+      // ver comentário acima de whatsappFallback), então sempre entram em
+      // changedKeys — reverter pra "o mesmo valor de antes" nesse caso é
+      // um no-op inofensivo, não um bug.
+      const changedKeys = (Object.keys(updateData) as (keyof typeof updateData)[]).filter((k) => updateData[k] !== undefined);
+      let undo: { id: string; description: string } | undefined;
+      if (changedKeys.length > 0) {
+        const previousValues: Record<string, unknown> = {};
+        for (const key of changedKeys) previousValues[key] = existing[key as keyof typeof existing];
+        undo = await recordUndoableAction({
+          organizationId,
+          userId,
+          type: "contact.update",
+          description: `Contato "${existing.name}" atualizado`,
+          payload: {
+            entities: [{ model: "contact", entityId: id, previousValues }],
+            descriptions: { afterRevert: `Contato "${existing.name}" revertido`, original: `Contato "${existing.name}" atualizado` },
+          } satisfies FieldUpdatePayload,
+        });
+      }
+
+      return NextResponse.json({ ...contact, undo });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         return NextResponse.json(
@@ -191,6 +215,12 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   return runWithTenant(access.organizationId, async () => {
     const existing = await prisma.contact.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+    // Ctrl+Z (ver lib/undo/) — snapshot ANTES de apagar, junto da única
+    // relação em cascade real de Contact (CampaignRecipient; Deal não é
+    // cascade de propósito, ver catch abaixo — se o delete chegou a
+    // acontecer, é porque não sobrou Deal nenhum apontando pra cá).
+    const cascadedCampaignRecipients = await prisma.campaignRecipient.findMany({ where: { contactId: id } });
 
     try {
       await prisma.contact.delete({ where: { id } });
@@ -215,6 +245,20 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     recordUserChange(access.organizationId, access.userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
-    return NextResponse.json({ ok: true });
+
+    const undo = await recordUndoableAction({
+      organizationId: access.organizationId,
+      userId: access.userId,
+      type: "contact.delete",
+      description: `Contato "${existing.name}" excluído`,
+      payload: {
+        snapshot: existing,
+        cascaded:
+          cascadedCampaignRecipients.length > 0 ? [{ model: "campaignRecipient", rows: cascadedCampaignRecipients }] : undefined,
+        descriptions: { afterRevert: `Contato "${existing.name}" restaurado`, original: `Contato "${existing.name}" excluído` },
+      } satisfies DeleteSnapshotPayload,
+    });
+
+    return NextResponse.json({ ok: true, undo });
   });
 }

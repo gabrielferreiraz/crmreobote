@@ -15,6 +15,7 @@ import { MobileNav } from "./mobile-nav";
 import { InstallPwaPrompt } from "@/components/install-pwa-prompt";
 import { PresenceHeartbeat } from "@/components/presence-heartbeat";
 import { PushNotificationsPrompt } from "@/components/push-notifications-prompt";
+import { UndoProvider } from "@/components/undo-provider";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -51,6 +52,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // é o que torna seguro o `position:absolute + z-index:-1` do `::before`
     // dessa classe: nada dentro desta div tem z-index negativo pra furar
     // por baixo, e overflow-hidden (já existia) contém a malha nos cantos.
+    <UndoProvider>
     <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
       <MobileHeader
         photoUrl={photoUrl}
@@ -115,5 +117,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PresenceHeartbeat />
       <PushNotificationsPrompt />
     </div>
+    </UndoProvider>
   );
 }
