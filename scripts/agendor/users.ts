@@ -26,7 +26,7 @@ import { generateTempPassword } from "@/lib/generate-temp-password";
 
 export const ORGANIZATION_ID = "cmr9i96330001ekvpb3b4o4nn";
 
-type ActiveConsultant = { names: string[]; realName: string; email: string; role: "OWNER" | "MEMBER" };
+type ActiveConsultant = { names: string[]; realName: string; email: string; role: "OWNER" | "MANAGER" | "MEMBER" };
 
 // Confirmado em conversa com o usuário — as duas grafias vistas nos 4
 // arquivos (username com ponto E, quando existe, o nome completo de exibição)
@@ -42,6 +42,15 @@ const ACTIVE_CONSULTANTS: ActiveConsultant[] = [
   { names: ["karen.landgraf"], realName: "Karen Landgraf", email: "karen.landgraf@reoboteconsorcios.com.br", role: "MEMBER" },
   { names: ["raphael.lucas"], realName: "Raphael Lucas", email: "raphaellucas@reoboteconsorcios.com.br", role: "MEMBER" },
   { names: ["eduardo.fujiyama"], realName: "Eduardo Fujiyama", email: "edufujiyama@reoboteconsorcios.com.br", role: "MEMBER" },
+  // Achado na migração de 03/09: "claudio.ribas" já tinha virado usuário
+  // INATIVO sintético numa migração anterior (email @agendor-inativo.local)
+  // antes de se saber que ele tem conta de verdade — Gerente, ativo, com
+  // login próprio. Confirmado em conversa com o usuário. names[] usa a
+  // grafia SEM acento do Agendor ("claudio.ribas") + a grafia COM acento do
+  // nome de exibição real ("Cláudio Ribas") — resolveUserId normaliza só
+  // por trim+lowercase, não remove acento, então as duas formas precisam
+  // estar aqui pra cobrir onde cada uma aparece nos arquivos.
+  { names: ["claudio.ribas", "Cláudio Ribas", "Claudio Ribas"], realName: "Cláudio Ribas", email: "claudio.ribas@reoboteconsorcios.com.br", role: "MANAGER" },
   // Dono de verdade do negócio (Agendor: "Administrador"/"Dono") — pessoa
   // diferente do Gabriel (TI, já mantido no reset como OWNER técnico).
   { names: ["Reobote Consórcios", "mrenan"], realName: "Renan", email: "mrenan@reoboteconsorcios.com.br", role: "OWNER" },

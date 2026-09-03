@@ -1,9 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare, Square, Layers } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Avatar } from "@/components/avatar";
+import { SelectionBar } from "@/components/selection-bar";
 import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { TaskRow, type Task } from "./task-row";
 import { TaskDetailModal } from "./task-detail-modal";
@@ -32,6 +45,16 @@ function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+/** "2026-09-03" no calendário LOCAL do navegador (não força fuso — mesma
+ * convenção do resto deste arquivo, que já lê data/hora nativa do Date em
+ * vez de forçar Brasil; server-side isso importaria, ver lib/timezone.ts,
+ * mas aqui quem roda é o navegador de quem está usando o CRM). Usado só
+ * pra mandar o dia de destino do arraste-e-soltar pro backend
+ * (POST /api/tasks/bulk-move) — nunca pra exibir nada. */
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
@@ -40,6 +63,7 @@ export function TaskCalendar({
   tasks,
   onToggle,
   onDelete,
+  onBulkMove,
   canDelete,
   showOwner,
   googleEvents = [],
@@ -48,6 +72,12 @@ export function TaskCalendar({
   tasks: Task[];
   onToggle: (id: string, completed: boolean, meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED", newDueAt?: string) => void;
   onDelete?: (id: string) => Promise<void> | void;
+  /** Arrastar-e-soltar pra outro dia (uma ou várias tarefas selecionadas de
+   * uma vez) — ver POST /api/tasks/bulk-move. Opcional: sem isso, a grade
+   * continua funcionando igual antes, só sem os cartões virarem
+   * arrastáveis (nenhum chamador hoje deixa de passar, mas assim nenhum
+   * outro uso futuro deste componente quebra por causa disso). */
+  onBulkMove?: (taskIds: string[], newDate: string) => Promise<{ ok: boolean; error?: string }>;
   /** Qualquer papel com acesso à tarefa pode excluir — ver TaskDetailModal. */
   canDelete?: boolean;
   showOwner: boolean;
@@ -59,6 +89,19 @@ export function TaskCalendar({
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  // Arrastar-e-soltar — seleção múltipla opcional (botão "Selecionar",
+  // mesmo padrão de WhatsApp Conversas): arrastar uma tarefa que FAZ parte
+  // da seleção move a seleção inteira; arrastar qualquer outra move só ela,
+  // sem precisar entrar em "modo seleção" nenhum (a forma mais comum/óbvia
+  // de usar isso continua sendo pegar um cartão e soltar em outro dia).
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [activeDrag, setActiveDrag] = useState<{ task: Task; count: number } | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
+  );
   const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleEvent | null>(null);
   // "selectedTask" abre TaskDetailModal por FORA do TaskRow (a grade do mês
   // mostra bolhas próprias, não TaskRow) — precisa da mesma trava que
@@ -112,6 +155,47 @@ export function TaskCalendar({
     return map;
   }, [googleEvents]);
 
+  function toggleTaskSelection(id: string) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const task = (event.active.data.current as { task?: Task } | undefined)?.task;
+    if (!task) return;
+    // Arrastar uma tarefa que FAZ parte da seleção move a seleção inteira
+    // (mostra a contagem no overlay); arrastar qualquer outra é sempre só
+    // ela, mesmo com uma seleção diferente ativa no momento.
+    const count = selectedTaskIds.has(task.id) && selectedTaskIds.size > 1 ? selectedTaskIds.size : 1;
+    setActiveDrag({ task, count });
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    const dragged = activeDrag;
+    setActiveDrag(null);
+    if (!over || !dragged || !onBulkMove) return;
+
+    const targetDateKey = over.id as string;
+    const draggedTask = (active.data.current as { task?: Task } | undefined)?.task;
+    if (!draggedTask?.dueAt) return;
+    if (dateKey(new Date(draggedTask.dueAt)) === targetDateKey) return; // soltou no mesmo dia — nada a fazer
+
+    const idsToMove = dragged.count > 1 ? Array.from(selectedTaskIds) : [draggedTask.id];
+    setMoveError(null);
+    const result = await onBulkMove(idsToMove, targetDateKey);
+    if (!result.ok) {
+      setMoveError(result.error ?? "Não foi possível mover a(s) tarefa(s)");
+      return;
+    }
+    setSelectedTaskIds(new Set());
+    setSelectMode(false);
+  }
+
   return (
     <div className="card p-4">
       <div className="mb-4 flex items-center justify-between">
@@ -136,9 +220,42 @@ export function TaskCalendar({
           >
             <ChevronRight className="h-4 w-4" strokeWidth={2} />
           </button>
+          {onBulkMove && (
+            <button
+              onClick={() => {
+                setSelectMode((v) => !v);
+                setSelectedTaskIds(new Set());
+              }}
+              className={`ml-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-all ${
+                selectMode
+                  ? "border-transparent bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
+                  : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              }`}
+              title={selectMode ? "Cancelar seleção" : "Selecionar várias tarefas pra arrastar juntas"}
+            >
+              {selectMode ? "Cancelar" : "Selecionar"}
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Dica + erro do arraste — sempre que houver seleção ativa, ou uma
+          tentativa de arrastar tiver falhado (ex.: tarefa fora do escopo
+          de quem está arrastando). */}
+      {selectMode && selectedTaskIds.size > 0 && (
+        <div className="mb-2">
+          <SelectionBar count={selectedTaskIds.size} onClear={() => setSelectedTaskIds(new Set())}>
+            <span className="text-neutral-500 dark:text-neutral-400">Arraste uma delas pra outro dia</span>
+          </SelectionBar>
+        </div>
+      )}
+      {moveError && (
+        <p className="mb-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-400">
+          {moveError}
+        </p>
+      )}
+
+      <DndContext id="task-calendar" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800">
         {WEEKDAY_LABELS.map((w) => (
           <div
@@ -148,91 +265,39 @@ export function TaskCalendar({
             {w}
           </div>
         ))}
-        {days.map((day) => {
-          const inMonth = day.getMonth() === cursor.getMonth();
-          const isToday = isSameDay(day, today);
-          const dayTasks = tasksByDay.get(day.toDateString()) ?? [];
-          const dayGoogleEvents = googleEventsByDay.get(day.toDateString()) ?? [];
-          const visible = dayTasks.slice(0, 3);
-          const visibleGoogle = dayGoogleEvents.slice(0, Math.max(0, 3 - visible.length));
-          const overflow = dayTasks.length - visible.length + (dayGoogleEvents.length - visibleGoogle.length);
-
-          return (
-            <div
-              key={day.toISOString()}
-              onClick={() => setSelectedDay(day)}
-              className={`min-h-[104px] p-1.5 cursor-pointer hover:bg-neutral-50/80 dark:hover:bg-neutral-800/20 transition-colors ${inMonth ? "bg-white dark:bg-neutral-900" : "bg-neutral-50/60 dark:bg-neutral-900/40"} ${
-                isToday ? "ring-1 ring-inset ring-neutral-900 dark:ring-white" : ""
-              }`}
-            >
-              <span
-                className={`mb-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${
-                  isToday
-                    ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900"
-                    : inMonth
-                      ? "text-neutral-700 dark:text-neutral-300"
-                      : "text-neutral-300 dark:text-neutral-600"
-                }`}
-              >
-                {day.getDate()}
-              </span>
-              <div className="space-y-0.5">
-                {visible.map((t) => {
-                  const Icon = TASK_TYPE_ICON[t.type] ?? TASK_TYPE_ICON.OTHER;
-                  const color = TASK_TYPE_COLOR[t.type] ?? TASK_TYPE_COLOR.OTHER;
-                  const overdue = !t.completedAt && new Date(t.dueAt!) < today;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedTask(t);
-                      }}
-                      className={`flex w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-[11px] transition-all duration-150 hover:scale-[1.03] hover:shadow-sm active:scale-[0.97] ${
-                        t.completedAt
-                          ? "text-neutral-400 line-through hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
-                          : `${color.bg} ${color.text} hover:brightness-90 dark:hover:brightness-110 ${overdue ? "ring-1 ring-inset ring-red-500" : ""}`
-                      }`}
-                    >
-                      <Icon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
-                      <span className="truncate">{t.title}</span>
-                      {showOwner && (
-                        <Avatar name={t.owner.name} src={t.owner.photoUrl} size="2xs" className="ml-auto shrink-0" />
-                      )}
-                    </button>
-                  );
-                })}
-                {visibleGoogle.map((e) => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      setSelectedGoogleEvent(e);
-                    }}
-                    title={e.title}
-                    className="flex w-full items-center gap-1 truncate rounded bg-blue-50 px-1 py-0.5 text-left text-[11px] text-blue-700 transition-colors hover:brightness-95 dark:bg-blue-500/10 dark:text-blue-400"
-                  >
-                    <CalendarIcon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
-                    <span className="truncate">{e.title}</span>
-                  </button>
-                ))}
-                {overflow > 0 && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedDay(day);
-                    }}
-                    className="px-1 text-[11px] font-medium text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-100"
-                  >
-                    +{overflow} mais
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {days.map((day) => (
+          <DayCell
+            key={day.toISOString()}
+            day={day}
+            inMonth={day.getMonth() === cursor.getMonth()}
+            isToday={isSameDay(day, today)}
+            today={today}
+            dayTasks={tasksByDay.get(day.toDateString()) ?? []}
+            dayGoogleEvents={googleEventsByDay.get(day.toDateString()) ?? []}
+            showOwner={showOwner}
+            draggable={!!onBulkMove}
+            selectMode={selectMode}
+            selectedTaskIds={selectedTaskIds}
+            onToggleTaskSelect={toggleTaskSelection}
+            onOpenDay={() => setSelectedDay(day)}
+            onOpenTask={(t) => setSelectedTask(t)}
+            onOpenGoogleEvent={(e) => setSelectedGoogleEvent(e)}
+          />
+        ))}
       </div>
+      <DragOverlay>
+        {activeDrag ? (
+          activeDrag.count > 1 ? (
+            <div className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+              <Layers className="h-3.5 w-3.5" strokeWidth={2} />
+              {activeDrag.count} tarefas
+            </div>
+          ) : (
+            <TaskPillContent task={activeDrag.task} overdue={!activeDrag.task.completedAt && new Date(activeDrag.task.dueAt!) < today} showOwner={showOwner} overlay />
+          )
+        ) : null}
+      </DragOverlay>
+      </DndContext>
 
       {selectedDay && (
         // max-w-3xl (era xl) + max-h-[75vh] na lista (era 60vh) — o painel
@@ -293,6 +358,222 @@ export function TaskCalendar({
         <GoogleEventDetailModal event={selectedGoogleEvent} onClose={() => setSelectedGoogleEvent(null)} />
       )}
       {outcomeDialog}
+    </div>
+  );
+}
+
+/**
+ * Uma célula de dia da grade do mês — extraída da própria TaskCalendar de
+ * propósito: useDroppable precisa rodar uma vez por dia, e chamar hook
+ * dentro do .map() de `days` (35 ou 42 por mês, dependendo de quantas
+ * semanas o mês cobre) quebra a regra de hooks (a contagem de chamadas
+ * mudaria de render pra render conforme o mês muda). Mesmo motivo de
+ * DealCard ser um componente próprio em kanban-board.tsx.
+ */
+function DayCell({
+  day,
+  inMonth,
+  isToday,
+  today,
+  dayTasks,
+  dayGoogleEvents,
+  showOwner,
+  draggable,
+  selectMode,
+  selectedTaskIds,
+  onToggleTaskSelect,
+  onOpenDay,
+  onOpenTask,
+  onOpenGoogleEvent,
+}: {
+  day: Date;
+  inMonth: boolean;
+  isToday: boolean;
+  today: Date;
+  dayTasks: Task[];
+  dayGoogleEvents: GoogleEvent[];
+  showOwner: boolean;
+  draggable: boolean;
+  selectMode: boolean;
+  selectedTaskIds: Set<string>;
+  onToggleTaskSelect: (id: string) => void;
+  onOpenDay: () => void;
+  onOpenTask: (task: Task) => void;
+  onOpenGoogleEvent: (event: GoogleEvent) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: dateKey(day), disabled: !draggable });
+  const visible = dayTasks.slice(0, 3);
+  const visibleGoogle = dayGoogleEvents.slice(0, Math.max(0, 3 - visible.length));
+  const overflow = dayTasks.length - visible.length + (dayGoogleEvents.length - visibleGoogle.length);
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={onOpenDay}
+      className={`min-h-[104px] p-1.5 cursor-pointer transition-colors ${
+        isOver
+          ? "bg-brand-light dark:bg-brand/15"
+          : `hover:bg-neutral-50/80 dark:hover:bg-neutral-800/20 ${inMonth ? "bg-white dark:bg-neutral-900" : "bg-neutral-50/60 dark:bg-neutral-900/40"}`
+      } ${isToday ? "ring-1 ring-inset ring-neutral-900 dark:ring-white" : ""}`}
+    >
+      <span
+        className={`mb-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+          isToday
+            ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900"
+            : inMonth
+              ? "text-neutral-700 dark:text-neutral-300"
+              : "text-neutral-300 dark:text-neutral-600"
+        }`}
+      >
+        {day.getDate()}
+      </span>
+      <div className="space-y-0.5">
+        {visible.map((t) => (
+          <TaskPill
+            key={t.id}
+            task={t}
+            overdue={!t.completedAt && new Date(t.dueAt!) < today}
+            showOwner={showOwner}
+            draggable={draggable}
+            selectMode={selectMode}
+            selected={selectedTaskIds.has(t.id)}
+            onToggleSelect={() => onToggleTaskSelect(t.id)}
+            onOpen={() => onOpenTask(t)}
+          />
+        ))}
+        {visibleGoogle.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onOpenGoogleEvent(e);
+            }}
+            title={e.title}
+            className="flex w-full items-center gap-1 truncate rounded bg-blue-50 px-1 py-0.5 text-left text-[11px] text-blue-700 transition-colors hover:brightness-95 dark:bg-blue-500/10 dark:text-blue-400"
+          >
+            <CalendarIcon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
+            <span className="truncate">{e.title}</span>
+          </button>
+        ))}
+        {overflow > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDay();
+            }}
+            className="px-1 text-[11px] font-medium text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-100"
+          >
+            +{overflow} mais
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Ícone + título + avatar de uma tarefa — sem interação nenhuma, reaproveitado
+ * pelo cartão "fantasma" que segue o cursor durante o arraste (DragOverlay,
+ * ver TaskCalendar) e por dentro do TaskPill de verdade abaixo. */
+function TaskPillContent({
+  task,
+  overdue,
+  showOwner,
+  overlay = false,
+}: {
+  task: Task;
+  overdue: boolean;
+  showOwner: boolean;
+  overlay?: boolean;
+}) {
+  const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
+  const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
+  return (
+    <div
+      className={`flex min-w-0 items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] ${overlay ? "shadow-lg" : ""} ${
+        task.completedAt
+          ? "text-neutral-400 line-through dark:text-neutral-500"
+          : `${color.bg} ${color.text} ${overdue ? "ring-1 ring-inset ring-red-500" : ""}`
+      }`}
+    >
+      <Icon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
+      <span className="truncate">{task.title}</span>
+      {showOwner && <Avatar name={task.owner.name} src={task.owner.photoUrl} size="2xs" className="ml-auto shrink-0" />}
+    </div>
+  );
+}
+
+/**
+ * Uma tarefa na grade do mês — arrastável (dnd-kit) quando `draggable`.
+ * Concluída nunca é arrastável (já aconteceu, mover de dia não faz
+ * sentido) nem selecionável, mesmo com "Selecionar" ativo — continua só
+ * abrindo o detalhe ao clicar, igual sempre foi.
+ *
+ * Checkbox de seleção IRMÃO do botão (não dentro dele) — mesmo motivo já
+ * documentado em conversations-view.tsx: evita botão-dentro-de-botão.
+ */
+function TaskPill({
+  task,
+  overdue,
+  showOwner,
+  draggable,
+  selectMode,
+  selected,
+  onToggleSelect,
+  onOpen,
+}: {
+  task: Task;
+  overdue: boolean;
+  showOwner: boolean;
+  draggable: boolean;
+  selectMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onOpen: () => void;
+}) {
+  const canDrag = draggable && !task.completedAt;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: task.id,
+    data: { task },
+    disabled: !canDrag,
+  });
+  const canSelect = canDrag && selectMode;
+
+  return (
+    <div className={`flex items-center gap-0.5 ${isDragging ? "opacity-30" : ""}`}>
+      {canSelect && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect();
+          }}
+          aria-label={selected ? "Desmarcar tarefa" : "Selecionar tarefa"}
+          className="shrink-0 rounded p-0.5 hover:bg-neutral-200/60 dark:hover:bg-neutral-700/60"
+        >
+          {selected ? (
+            <CheckSquare className="h-3 w-3 text-brand" strokeWidth={2} />
+          ) : (
+            <Square className="h-3 w-3 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+          )}
+        </button>
+      )}
+      <button
+        ref={setNodeRef}
+        type="button"
+        {...(canDrag ? listeners : {})}
+        {...(canDrag ? attributes : {})}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (canSelect) onToggleSelect();
+          else onOpen();
+        }}
+        className={`min-w-0 flex-1 text-left transition-transform duration-150 hover:scale-[1.03] hover:shadow-sm active:scale-[0.97] ${
+          canDrag ? "touch-manipulation cursor-grab active:cursor-grabbing" : ""
+        } ${selected ? "ring-2 ring-inset ring-brand rounded" : ""}`}
+      >
+        <TaskPillContent task={task} overdue={overdue} showOwner={showOwner} />
+      </button>
     </div>
   );
 }

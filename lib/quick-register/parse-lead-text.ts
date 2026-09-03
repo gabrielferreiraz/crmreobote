@@ -111,19 +111,86 @@ function registerAliases(field: TextField, ...labels: string[]) {
 // acaso numa frase qualquer) — um conectivo solto tipo "é"/"de" sozinho
 // nunca vira rótulo (baixa demais a precisão, um "é"/"de" qualquer no meio
 // do texto ia disparar em cima de qualquer coisa).
-registerAliases("name", "nome", "nome completo", "cliente", "nome do cliente", "contato", "se chama", "chama se", "lead", "nome do lead");
-registerAliases("email", "email", "e mail");
+// Ampliado bastante (pedido explícito) pensando no consultor na RUA, com
+// microfone ruim, falando na correria — cada caixa tratada com o mesmo
+// cuidado, sempre frase de 2+ palavras pra manter a mesma precisão que o
+// comentário acima já explica (exceção só quando a palavra sozinha já é
+// específica o bastante do domínio, tipo "nome"/"cargo"/"cidade" — nunca um
+// substantivo comum que apareceria à toa em qualquer frase).
+registerAliases(
+  "name",
+  "nome",
+  "nome completo",
+  "cliente",
+  "nome do cliente",
+  "contato",
+  "se chama",
+  "chama se",
+  "lead",
+  "nome do lead",
+  "nome dele",
+  "nome dela",
+  "atende por",
+  "conhecido como",
+  "meu cliente",
+);
+registerAliases("email", "email", "e mail", "endereco de email", "email dele", "email para contato");
 // Telefone/whatsapp NÃO entram no dicionário genérico acima — ver
 // WHATSAPP_LABELS/GENERIC_PHONE_LABELS abaixo, precisam de uma regra própria.
-registerAliases("company", "empresa", "nome da empresa", "local de trabalho", "razao social", "trabalha na", "trabalha na empresa");
-registerAliases("jobTitle", "profissao", "cargo", "ocupacao", "funcao", "trabalha como", "atua como");
-registerAliases("address", "endereco", "rua", "logradouro");
-registerAliases("addressNumber", "numero", "n", "num", "nº");
-registerAliases("addressComplement", "complemento", "compl");
-registerAliases("neighborhood", "bairro");
-registerAliases("city", "cidade", "municipio", "mora em", "reside em", "mora na cidade de");
-registerAliases("state", "estado", "uf");
-registerAliases("zipCode", "cep");
+registerAliases(
+  "company",
+  "empresa",
+  "nome da empresa",
+  "local de trabalho",
+  "razao social",
+  "trabalha na",
+  "trabalha na empresa",
+  "onde trabalha",
+  "empresa dele",
+  "empregador",
+  "trabalha no",
+);
+registerAliases(
+  "jobTitle",
+  "profissao",
+  "cargo",
+  "ocupacao",
+  "funcao",
+  "trabalha como",
+  "atua como",
+  "o que ele faz",
+  "trabalha de",
+  "ramo de atividade",
+  "e o cargo dele",
+);
+registerAliases(
+  "address",
+  "endereco",
+  "rua",
+  "logradouro",
+  "mora na rua",
+  "reside na rua",
+  "fica na rua",
+  "endereco dele",
+);
+registerAliases("addressNumber", "numero", "n", "num", "nº", "numero da casa", "numero da residencia");
+registerAliases("addressComplement", "complemento", "compl", "complemento do endereco");
+registerAliases("neighborhood", "bairro", "mora no bairro", "bairro dele");
+registerAliases(
+  "city",
+  "cidade",
+  "municipio",
+  "mora em",
+  "reside em",
+  "mora na cidade de",
+  "fica em",
+  "vive em",
+  "cidade dele",
+  "reside na cidade de",
+  "situado em",
+);
+registerAliases("state", "estado", "uf", "estado dele", "no estado de");
+registerAliases("zipCode", "cep", "codigo postal", "cep dele");
 registerAliases(
   "creditTypeGuess",
   "tipo de credito",
@@ -134,8 +201,27 @@ registerAliases(
   "quer um consorcio de",
   "consorcio de",
   "interessado em",
+  "quer comprar",
+  "pretende comprar",
+  "consorcio para",
+  "quer financiar",
+  "interesse em",
+  "tipo de bem",
+  "quer adquirir",
 );
-registerAliases("description", "descricao", "obs", "observacao", "observacoes", "detalhes", "mensagem", "resumo");
+registerAliases(
+  "description",
+  "descricao",
+  "obs",
+  "observacao",
+  "observacoes",
+  "detalhes",
+  "mensagem",
+  "resumo",
+  "anotacao",
+  "informacao adicional",
+  "mais detalhes",
+);
 
 // "Valor" precisa de parsing numérico (R$, "mil", "k", ou por extenso — ver
 // parseSpokenAmount abaixo), por isso fica fora do dicionário genérico de
@@ -160,6 +246,16 @@ const VALUE_LABELS = new Set(
     // (nunca fala de líquido/substância aqui), a palavra sozinha já é
     // específica o bastante pra confiar sem precisar de "valor" na frente.
     "liquido",
+    // Ampliado (consultor na correria raramente fala o rótulo "seco") —
+    // jeito aproximado/coloquial de dar um valor também conta.
+    "valor aproximado",
+    "por volta de",
+    "na faixa de",
+    "em torno de",
+    "gira em torno de",
+    "valor da compra",
+    "carta de",
+    "quanto e o valor",
   ].map(normalizeLabel),
 );
 
@@ -168,7 +264,15 @@ const VALUE_LABELS = new Set(
 // (parseLabeledMoney, já entende "300 mil"/"R$ 300.000"/número por
 // extenso), só aponta pro campo separado quando o rótulo tiver "bruto".
 const GROSS_VALUE_LABELS = new Set(
-  ["valor bruto", "valor bruto do credito", "valor bruto da carta", "bruto"].map(normalizeLabel),
+  [
+    "valor bruto",
+    "valor bruto do credito",
+    "valor bruto da carta",
+    "bruto",
+    "valor cheio",
+    "carta bruta",
+    "valor bruto da compra",
+  ].map(normalizeLabel),
 );
 
 // A maioria dos leads só tem UM número, e quase sempre rotulado como
@@ -179,11 +283,31 @@ const GROSS_VALUE_LABELS = new Set(
 // se `whatsapp` já estiver ocupado. Um rótulo EXPLICITAMENTE "WhatsApp"
 // sempre garante a vaga de `whatsapp`, mesmo que um genérico tenha chegado
 // primeiro — nesse caso o que já estava lá desce pra `phone`.
-const WHATSAPP_LABELS = new Set(["whatsapp", "whats", "zap", "numero whatsapp", "wpp"].map(normalizeLabel));
-const GENERIC_PHONE_LABELS = new Set(
-  ["telefone", "tel", "fone", "celular", "cel", "telefone fixo", "fixo", "outro telefone", "telefone 2"].map(
+const WHATSAPP_LABELS = new Set(
+  ["whatsapp", "whats", "zap", "numero whatsapp", "wpp", "numero do zap", "whatsapp dele", "numero do whatsapp", "zap dele"].map(
     normalizeLabel,
   ),
+);
+const GENERIC_PHONE_LABELS = new Set(
+  [
+    "telefone",
+    "tel",
+    "fone",
+    "celular",
+    "cel",
+    "telefone fixo",
+    "fixo",
+    "outro telefone",
+    "telefone 2",
+    "numero de contato",
+    "telefone para contato",
+    "numero do telefone",
+    "celular dele",
+    "fone dele",
+    "contato telefonico",
+    "liga no",
+    "liga para",
+  ].map(normalizeLabel),
 );
 
 // Junta os 4 dicionários acima numa lista só, do rótulo mais
@@ -472,8 +596,12 @@ function parseLabeledMoney(raw: string): number | null {
     const parsed = parseBrazilianNumber(cleaned.replace(/[^\d.,]/g, ""));
     if (parsed !== null) return parsed;
   }
-  // Sem dígito nenhum — tenta por extenso (ditado por voz).
-  return parseSpokenAmount(cleaned);
+  // Sem dígito nenhum — tenta por extenso (ditado por voz). parseSpokenAmount
+  // exige que o número já seja a 1ª palavra; quem fala sem pensar na
+  // estrutura enche linguiça antes ("valor: eu acho que é uns trezentos
+  // mil", "valor: tipo assim trezentos mil") — cai pro findSpokenMoney, que
+  // acha o número por extenso em QUALQUER posição do valor já rotulado.
+  return parseSpokenAmount(cleaned) ?? findSpokenMoney(cleaned)?.amount ?? null;
 }
 
 /** Valor "solto" no meio de uma frase sem rótulo nenhum — aqui sim precisa
@@ -507,6 +635,24 @@ function tryExtractMoney(line: string): { text: string; amount: number } | null 
 }
 
 const UF_CODES = new Set<string>(ESTADOS_BR.map((s) => s.value));
+
+// Nome do estado por extenso (acentuado ou não, qualquer caixa) → sigla —
+// mapa construído uma vez, chave já dobrada (normalizeLabel) pra comparar
+// sem se importar com acento/maiúscula na hora de bater contra o valor
+// ditado ("mato grosso do sul" precisa achar "MS" igual "Mato Grosso do
+// Sul" acharia).
+const STATE_NAME_TO_UF = new Map<string, string>(ESTADOS_BR.map((s) => [normalizeLabel(s.label), s.value]));
+
+/** Valor de um rótulo "estado"/"uf" já reconhecido — se vier por extenso
+ * ("mato grosso do sul"), converte pra sigla; se já for a sigla ou algo não
+ * reconhecido, devolve como veio (nunca inventa nem descarta). Sem isso, um
+ * rótulo explícito gravava o nome por extenso cru no campo Estado, que esta
+ * tela sempre trata como sigla de 2 letras nos outros lugares (ver
+ * splitTrailingState/UF_TOKEN_REGEX acima, ambos só reconhecem sigla). */
+function normalizeStateValue(value: string): string {
+  const uf = STATE_NAME_TO_UF.get(normalizeLabel(value));
+  return uf ?? value;
+}
 
 /**
  * "Campo Grande MS", "Campo Grande/MS", "Campo Grande - MS" → { city:
@@ -555,12 +701,39 @@ const CITY_STATE_REGEX = /((?:[A-ZÀ-Ö][a-zà-ÿ]*\s?){1,4})\s*[/,-]\s*([A-Z]{2
 const UF_TOKEN_REGEX = /(^|[\s,/-])([A-Z]{2})(?=$|[\s,/-])/g;
 
 const CREDIT_TYPE_KEYWORDS: { guess: string; words: string[] }[] = [
-  { guess: "Imóvel", words: ["imovel", "imoveis", "casa", "apartamento", "terreno"] },
-  { guess: "Automóvel", words: ["carro", "automovel", "veiculo", "auto"] },
-  { guess: "Moto", words: ["moto", "motocicleta"] },
-  { guess: "Caminhão", words: ["caminhao", "pesados", "trator", "maquinario"] },
-  { guess: "Serviços", words: ["servico", "servicos", "viagem", "curso"] },
+  {
+    guess: "Imóvel",
+    words: [
+      "imovel", "imoveis", "casa", "apartamento", "terreno", "residencia",
+      "sitio", "chacara", "sobrado", "kitnet", "galpao", "lote",
+    ],
+  },
+  {
+    guess: "Automóvel",
+    words: ["carro", "automovel", "veiculo", "auto", "utilitario", "picape", "caminhonete"],
+  },
+  { guess: "Moto", words: ["moto", "motocicleta", "scooter"] },
+  { guess: "Caminhão", words: ["caminhao", "pesados", "trator", "maquinario", "onibus", "carreta"] },
+  {
+    guess: "Serviços",
+    words: [
+      "servico", "servicos", "viagem", "curso", "intercambio", "cirurgia",
+      "procedimento", "casamento", "formatura", "reforma",
+    ],
+  },
 ];
+
+/** Casa o texto contra CREDIT_TYPE_KEYWORDS e devolve o "chute" canônico
+ * (ex.: "Automóvel"), nunca o texto cru — usado tanto pelo rótulo explícito
+ * quanto pelo escaneamento cego no fim de parseLeadText, pra nunca gravar
+ * "um carro velho" quando "Automóvel" já é o chute certo e mais útil pra
+ * casar contra a lista de tipos de crédito de verdade da organização (ver
+ * comentário de ParsedLeadFields.creditTypeGuess acima). */
+function guessCreditType(haystack: string): string | null {
+  const normalized = normalizeLabel(haystack);
+  const match = CREDIT_TYPE_KEYWORDS.find(({ words }) => words.some((w) => normalized.includes(w)));
+  return match ? match.guess : null;
+}
 
 /**
  * Aplica um rótulo já reconhecido (com dois-pontos OU pelo prefixo sem
@@ -648,6 +821,19 @@ function applyLabel(
       // campo estruturado (cidade/valor), onde só existe UMA resposta certa
       // por vez e repetir É correção.
       fields.description = fields.description ? `${fields.description}\n${value}` : value;
+    } else if (field === "creditTypeGuess") {
+      // Mesma casada por palavra-chave do escaneamento cego (ver
+      // guessCreditType) — sem isso, um rótulo explícito ("interessado em:
+      // um carro velho") gravava o texto cru "um carro velho" em vez do
+      // chute canônico "Automóvel", inconsistente com o mesmo campo vindo
+      // do escaneamento sem rótulo. Sem palavra-chave reconhecida, ainda
+      // guarda o texto cru — melhor que perder a informação de vez.
+      fields.creditTypeGuess = guessCreditType(value) ?? value;
+    } else if (field === "state") {
+      // Nome por extenso ("mato grosso do sul") vira sigla — ver
+      // normalizeStateValue acima pra por que isso importa (o resto da
+      // tela só reconhece sigla de 2 letras nos outros caminhos).
+      fields.state = normalizeStateValue(value);
     } else {
       fields[field] = value;
     }
@@ -851,9 +1037,14 @@ export function parseLeadText(raw: string): ParsedLeadFields {
   }
 
   if (fields.creditTypeGuess === null) {
-    const haystack = normalizeLabel(residuals.filter((r): r is string => !!r).join(" "));
-    const match = CREDIT_TYPE_KEYWORDS.find(({ words }) => words.some((w) => haystack.includes(w)));
-    if (match) fields.creditTypeGuess = match.guess;
+    // Inclui a descrição já capturada (ex.: via "Obs:") no escaneamento —
+    // sem isso, uma palavra-chave só mencionada dentro de uma observação
+    // ("Obs: ele quer comprar um sítio") nunca era vista aqui, porque
+    // `residuals` já não tem mais esse texto (foi reivindicado pelo campo
+    // description antes de chegar neste ponto).
+    const haystack = [fields.description, ...residuals.filter((r): r is string => !!r)].filter(Boolean).join(" ");
+    const guess = guessCreditType(haystack);
+    if (guess) fields.creditTypeGuess = guess;
   }
 
   // Junta ao que sobrou de tudo que ninguém reivindicou — NUNCA substitui um

@@ -1685,6 +1685,14 @@ model Task {
   // pra continuar, é só 1 envio).
   selfReminderSentAt        DateTime?
   createdAt                DateTime  @default(now())
+  // Faltava — Task era o único modelo tenant-scoped grande sem @updatedAt.
+  // Motivo real de precisar agora: a migração do Agendor (scripts/agendor/
+  // import-tarefas.ts) precisa de um jeito de saber se uma Task já
+  // importada mudou de data/hora do lado de lá (consultor arrasta a
+  // ligação pra outro dia direto no Agendor) sem arriscar reverter uma
+  // mudança feita AO VIVO aqui no CRM — mesma guarda que Deal.updatedAt já
+  // dá pra syncExistingDeal (import-negocios.ts), agora espelhada aqui.
+  updatedAt                DateTime  @updatedAt
   // Liga esta Task à Activity MEETING/VISIT que ela representa — só existe
   // pra type MEETING/VISIT (o resultado agora é perguntado na CONCLUSÃO da
   // tarefa, não na criação: ver ActivityMeetingOutcome.PENDING abaixo e

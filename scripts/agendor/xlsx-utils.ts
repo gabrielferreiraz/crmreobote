@@ -7,6 +7,7 @@
  */
 
 import ExcelJS from "exceljs";
+import { BRAZIL_UTC_OFFSET_HOURS } from "@/lib/timezone";
 
 export async function loadSheet(filePath: string): Promise<ExcelJS.Worksheet> {
   const workbook = new ExcelJS.Workbook();
@@ -43,10 +44,33 @@ export function cellText(row: ExcelJS.Row, idx: number): string | null {
   return s || null;
 }
 
+/**
+ * Bug real encontrado 03/09 (migração das tarefas do Eduardo Fujiyama):
+ * Excel não guarda fuso horário nenhum — ExcelJS devolve um Date cujos
+ * componentes UTC batem exatamente com o que a célula MOSTRA (confirmado
+ * empiricamente: célula "02/09/2026 07:00:00" → `.toISOString()` ==
+ * "2026-09-02T07:00:00.000Z"). Só que esse "07:00" é hora LOCAL de Campo
+ * Grande/MS (fuso real da operação, onde o Agendor foi usado), nunca UTC —
+ * usar o Date cru direto (como este arquivo fazia até aqui) grava tudo 4h
+ * adiantado, e perto da virada da meia-noite pode até trocar o DIA.
+ * Reconstrói aqui como o instante UTC verdadeiro — mesma conta de
+ * brazilDateTimeStringToUTC (lib/timezone.ts), só que a partir de um Date
+ * já parseado em vez de strings separadas de data/hora.
+ */
 export function cellDate(row: ExcelJS.Row, idx: number): Date | null {
   const v = row.getCell(idx).value;
-  if (v instanceof Date) return v;
-  return null;
+  if (!(v instanceof Date)) return null;
+  return new Date(
+    Date.UTC(
+      v.getUTCFullYear(),
+      v.getUTCMonth(),
+      v.getUTCDate(),
+      v.getUTCHours() + BRAZIL_UTC_OFFSET_HOURS,
+      v.getUTCMinutes(),
+      v.getUTCSeconds(),
+      v.getUTCMilliseconds(),
+    ),
+  );
 }
 
 export function cellNumber(row: ExcelJS.Row, idx: number): number | null {

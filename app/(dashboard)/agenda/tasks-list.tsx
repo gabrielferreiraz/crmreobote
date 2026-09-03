@@ -131,6 +131,23 @@ export function TasksList({
     router.refresh();
   }
 
+  // Arrastar-e-soltar na grade do mês (ver task-calendar.tsx) — move uma ou
+  // várias tarefas selecionadas pra outro dia de uma vez só (POST
+  // /api/tasks/bulk-move audita cada uma no negócio ligado). router.refresh()
+  // igual toggleComplete/deleteTask acima — mesmo padrão de "servidor é a
+  // verdade" já usado nesta tela, sem estado otimista à parte só pra isso.
+  async function bulkMoveTasks(taskIds: string[], newDate: string): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch("/api/tasks/bulk-move", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskIds, newDate }),
+    });
+    const data = await res.json().catch(() => ({}));
+    router.refresh();
+    if (!res.ok) return { ok: false, error: data.error ?? "Não foi possível mover a(s) tarefa(s)" };
+    return { ok: true };
+  }
+
   return (
     <div className="space-y-6">
       <GoogleCalendarBanner
@@ -243,6 +260,7 @@ export function TasksList({
           tasks={filteredTasks}
           onToggle={toggleComplete}
           onDelete={deleteTask}
+          onBulkMove={bulkMoveTasks}
           canDelete={canDelete}
           showOwner={showOwner}
           googleEvents={googleCalendar.events}
