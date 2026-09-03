@@ -102,8 +102,22 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const isMember = membership?.role === "MEMBER";
     const ownerFilter = isMember ? { responsavelId: userId } : {};
 
-    const existing = await prisma.contact.findFirst({ where: { id, organizationId, ...ownerFilter } });
-    if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    // Primeiro verifica se o contato existe na organização
+    const rawExisting = await prisma.contact.findFirst({ where: { id, organizationId } });
+    if (!rawExisting) return NextResponse.json({ error: "Este contato não foi encontrado no sistema." }, { status: 404 });
+
+    // Se o usuário for MEMBER, verifica se ele é de fato o responsável por este contato
+    if (isMember && rawExisting.responsavelId !== userId) {
+      const reason = rawExisting.responsavelId
+        ? "Contato pertence a outro consultor."
+        : "Contato sem responsável. Peça atribuição a um gestor.";
+      return NextResponse.json(
+        { error: "Sem permissão para editar", details: reason, type: "PERMISSION" },
+        { status: 403 }
+      );
+    }
+
+    const existing = rawExisting;
 
     // Só recalcula/valida o que de fato veio no corpo — uma chamada parcial
     // (ex.: ações em massa, que mandam só o campo que está mudando) não pode

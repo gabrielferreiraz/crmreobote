@@ -9,6 +9,8 @@ import { Select } from "@/components/select";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 
+import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
+
 type Contact = {
   id: string;
   name: string;
@@ -82,7 +84,7 @@ export function ContactEditForm({
   const [responsavelId, setResponsavelId] = useState(contact.responsavelId ?? "");
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorData, setErrorData] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -120,7 +122,11 @@ export function ContactEditForm({
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erro ao salvar contato");
+      setErrorData({
+        message: data.error ?? "Não foi possível salvar as alterações do contato.",
+        type: data.type || (res.status === 403 ? "PERMISSION" : res.status === 404 ? "NOT_FOUND" : "SERVER"),
+        details: data.details,
+      });
       return;
     }
 
@@ -188,8 +194,6 @@ export function ContactEditForm({
         </div>
         <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onCancel} className="btn-ghost">
             Cancelar
@@ -207,6 +211,15 @@ export function ContactEditForm({
           </button>
         </div>
       </form>
+
+      {errorData && (
+        <ErrorDialog
+          message={errorData.message}
+          type={errorData.type}
+          details={errorData.details}
+          onClose={() => setErrorData(null)}
+        />
+      )}
     </>
   );
 }

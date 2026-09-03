@@ -520,6 +520,11 @@ model MessageScript {
   // "follow-up"), não é uma taxonomia fixa controlada pelo admin.
   tags String[] @default([])
 
+  // PUBLIC (padrão) = toda a organização vê e usa; PRIVATE = só quem criou
+  // (mais o OWNER, mesmo acesso administrativo total que já tem em
+  // Auditoria/Membros) — ver enforcement em app/api/message-scripts/**.
+  visibility MessageScriptVisibility @default(PUBLIC)
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -528,6 +533,11 @@ model MessageScript {
   createdBy    User         @relation(fields: [createdById], references: [id])
 
   @@index([organizationId])
+}
+
+enum MessageScriptVisibility {
+  PUBLIC
+  PRIVATE
 }
 
 // ─── Campanhas de prospecção em massa ───────────────────────────────

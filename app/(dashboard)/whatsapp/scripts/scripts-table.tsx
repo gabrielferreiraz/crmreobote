@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare } from "lucide-react";
+import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare, Globe2, Lock } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 
@@ -15,6 +15,8 @@ type Script = {
   name: string;
   steps: ScriptStep[];
   tags: string[];
+  visibility: "PUBLIC" | "PRIVATE";
+  createdById: string;
   createdByName: string;
   createdAt: string;
   usage: ScriptUsage[];
@@ -46,7 +48,7 @@ function withFakeVariables(text: string): string {
   return text.replace(/\{(?!\[)([^{}]+)\}/g, (_, key: string) => FAKE_VARIABLE_VALUES[key.trim()] ?? "Maria");
 }
 
-export function ScriptsTable({ initialScripts }: { initialScripts: Script[] }) {
+export function ScriptsTable({ initialScripts, currentUserId }: { initialScripts: Script[]; currentUserId: string }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -144,7 +146,26 @@ export function ScriptsTable({ initialScripts }: { initialScripts: Script[] }) {
             return (
               <div key={s.id} className="card space-y-2 p-4 text-sm">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</h3>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{s.name}</h3>
+                    {s.visibility === "PRIVATE" ? (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                        title={s.createdById === currentUserId ? "Só você vê este script" : "Restrito — você só vê porque é o dono da organização"}
+                      >
+                        <Lock className="h-2.5 w-2.5" strokeWidth={2.5} />
+                        Restrita
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                        title="Toda a organização vê este script"
+                      >
+                        <Globe2 className="h-2.5 w-2.5" strokeWidth={2.5} />
+                        Pública
+                      </span>
+                    )}
+                  </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Link href={`/whatsapp/scripts/novo?duplicate=${s.id}`} className="icon-btn" aria-label="Duplicar">
                       <Copy className="h-3.5 w-3.5" strokeWidth={2} />

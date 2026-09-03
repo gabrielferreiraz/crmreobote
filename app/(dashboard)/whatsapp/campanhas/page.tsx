@@ -7,6 +7,8 @@ import { CampaignsTable } from "./campaigns-table";
 export default async function CampanhasPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
+  const userId = session!.user.id;
+  const isOwner = session!.user.role === "OWNER";
 
   return runWithTenant(organizationId, async () => {
     const [campaigns, instancesRaw, scriptsRaw] = await Promise.all([
@@ -15,7 +17,12 @@ export default async function CampanhasPage() {
         where: { organizationId, status: "CONNECTED" },
         include: { user: { select: { id: true, name: true } } },
       }),
-      prisma.messageScript.findMany({ where: { organizationId }, orderBy: { name: "asc" } }),
+      // Picker de script na criação de campanha respeita a mesma
+      // visibilidade da biblioteca (ver app/(dashboard)/whatsapp/scripts/page.tsx).
+      prisma.messageScript.findMany({
+        where: { organizationId, ...(isOwner ? {} : { OR: [{ visibility: "PUBLIC" }, { createdById: userId }] }) },
+        orderBy: { name: "asc" },
+      }),
     ]);
 
     return (

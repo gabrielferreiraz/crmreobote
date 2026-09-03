@@ -9,6 +9,7 @@ export default async function AutomacoesPage() {
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
   const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
+  const isOwner = session!.user.role === "OWNER";
 
   return runWithTenant(organizationId, async () => {
     const [rulesRaw, pipelines, lossReasons, membersRaw, connectedInstances, customFields, scripts, teams] = await Promise.all([
@@ -46,8 +47,10 @@ export default async function AutomacoesPage() {
         select: { id: true, entityType: true, label: true, type: true, options: true },
       }),
       // Biblioteca de Scripts — usada no picker da ação "Enviar script".
+      // Restrita (PRIVATE) só entra pra quem criou ou pro OWNER — mesma
+      // regra de visibilidade de app/(dashboard)/whatsapp/scripts/page.tsx.
       prisma.messageScript.findMany({
-        where: { organizationId },
+        where: { organizationId, ...(isOwner ? {} : { OR: [{ visibility: "PUBLIC" }, { createdById: userId }] }) },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),

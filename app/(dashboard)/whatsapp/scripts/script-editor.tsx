@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil } from "lucide-react";
+import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock } from "lucide-react";
 import { VariablePills } from "@/components/variable-pills";
 import { LoadingDots } from "@/components/loading-dots";
 import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
@@ -118,6 +118,7 @@ export function ScriptEditor({
   initialName = "",
   initialSteps,
   initialTags = [],
+  initialVisibility = "PUBLIC",
   existingTags,
   redirectTo = "/whatsapp/scripts",
   backLabel = "Scripts",
@@ -127,6 +128,8 @@ export function ScriptEditor({
   initialName?: string;
   initialSteps?: Step[];
   initialTags?: string[];
+  /** Pública (padrão) = toda a organização vê e usa; Restrita = só quem criou. */
+  initialVisibility?: "PUBLIC" | "PRIVATE";
   existingTags: string[];
   /** Pra onde ir depois de salvar, e o destino do link "Voltar"/"Cancelar". */
   redirectTo?: string;
@@ -142,6 +145,7 @@ export function ScriptEditor({
 }) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
+  const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">(initialVisibility);
   const [steps, setSteps] = useState<Step[]>(
     initialSteps?.length
       ? initialSteps
@@ -325,7 +329,7 @@ export function ScriptEditor({
     const res = await fetch(scriptId ? `/api/message-scripts/${scriptId}` : "/api/message-scripts", {
       method: scriptId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, steps, tags }),
+      body: JSON.stringify({ name, steps, tags, visibility }),
     });
 
     setLoading(false);
@@ -417,6 +421,41 @@ export function ScriptEditor({
             </div>
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
               Organiza a biblioteca — ex.: &quot;abertura&quot;, &quot;follow-up&quot;, &quot;objeção&quot;.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="field-label">Visibilidade</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setVisibility("PUBLIC")}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  visibility === "PUBLIC"
+                    ? "border-brand bg-brand/10 text-brand"
+                    : "border-neutral-300 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                }`}
+              >
+                <Globe2 className="h-3.5 w-3.5" strokeWidth={2} />
+                Pública
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibility("PRIVATE")}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  visibility === "PRIVATE"
+                    ? "border-brand bg-brand/10 text-brand"
+                    : "border-neutral-300 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                }`}
+              >
+                <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+                Restrita
+              </button>
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              {visibility === "PUBLIC"
+                ? "Toda a organização vê e pode usar este script."
+                : "Só você (e o dono da organização) vê e pode usar este script."}
             </p>
           </div>
         </div>

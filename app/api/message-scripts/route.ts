@@ -22,7 +22,17 @@ export async function GET(req: Request) {
   return runWithTenant(access.organizationId, async () => {
     const [scripts, usageMap] = await Promise.all([
       prisma.messageScript.findMany({
-        where: { organizationId: access.organizationId, ...(mineOnly ? { createdById: access.userId } : {}) },
+        where: {
+          organizationId: access.organizationId,
+          ...(mineOnly
+            ? { createdById: access.userId }
+            : // Restrita (PRIVATE) só aparece pra quem criou ou pro OWNER
+              // (mesmo acesso administrativo total de Auditoria/Membros) —
+              // Pública aparece pra todo mundo, como sempre foi.
+              access.role === "OWNER"
+              ? {}
+              : { OR: [{ visibility: "PUBLIC" }, { createdById: access.userId }] }),
+        },
         orderBy: { createdAt: "desc" },
         include: { createdBy: { select: { name: true } } },
       }),
@@ -37,7 +47,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { name, steps, tags } = body as { name?: string; steps?: unknown; tags?: string[] };
+  const { name, steps, tags, visibility } = body as {
+    name?: string;
+    steps?: unknown;
+    tags?: string[];
+    visibility?: string;
+  };
 
   // Criação liberada pra todos os papéis — biblioteca de scripts é compartilhada
   // pela organização inteira (ver GET acima).
@@ -47,6 +62,9 @@ export async function POST(req: Request) {
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
   const validated = validateSteps(steps);
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
+  // Público por padrão (preserva o comportamento de hoje) — só vira Restrita
+  // se pedido explicitamente.
+  const resolvedVisibility = visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC";
 
   return runWithTenant(access.organizationId, async () => {
     const script = await prisma.messageScript.create({
@@ -55,6 +73,7 @@ export async function POST(req: Request) {
         name: name.trim(),
         steps: validated.steps as unknown as Prisma.InputJsonValue,
         tags: (tags ?? []).map((t) => t.trim()).filter(Boolean),
+        visibility: resolvedVisibility,
         createdById: access.userId,
       },
     });

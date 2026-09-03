@@ -128,11 +128,20 @@ export function TvView({
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   // Fallback textual da logo (ver JSX mais abaixo) — relato ao vivo:
   // /logo-reobote.svg às vezes não aparecia na TV (ficava só o ícone de
-  // imagem quebrada do navegador). Causa: o arquivo era um auto-trace de
+  // imagem quebrada do navegador). Causa nº1: o arquivo era um auto-trace de
   // PNG com 48KB e milhares de pontos de curva, pesado demais pro
   // navegador embutido da TV parsear/renderizar. Rodado o svgo nele
   // (mesmo desenho, sem redesenho manual) e caiu pra 13KB (-73%) —
   // conferido pixel a pixel contra o original, sem diferença visível.
+  // Causa nº2 (relato de novo mesmo depois do svgo): o export original
+  // envolvia todo o desenho num `<g clip-path="url(#a)">` referenciando um
+  // `<clipPath>` em `<defs>` — o retângulo do clip cobria exatamente o
+  // canvas inteiro (não recortava nada, artefato puro da ferramenta de
+  // export). Navegador embutido de TV renderizando o SVG via `<img src>`
+  // (contexto de "imagem externa") é onde esse tipo de referência
+  // `url(#id)` mais falha silenciosamente — browser de desktop resolve sem
+  // problema. Removido o `<g clip-path>`/`<defs>` (visual idêntico, já que
+  // o clip não recortava nada) — sem fragmento nenhum pra resolver agora.
   // Mesmo assim mantemos o `onError` trocando pro nome estilizado em
   // texto como rede de segurança — pior que a logo de verdade, mas
   // infinitamente melhor que o ícone de imagem quebrada + alt-text em

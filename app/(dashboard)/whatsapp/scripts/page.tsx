@@ -7,11 +7,16 @@ import { ScriptsTable } from "./scripts-table";
 export default async function ScriptsPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
+  const userId = session!.user.id;
+  const isOwner = session!.user.role === "OWNER";
 
   return runWithTenant(organizationId, async () => {
     const [scriptsRaw, usageMap] = await Promise.all([
       prisma.messageScript.findMany({
-        where: { organizationId },
+        // Restrita (PRIVATE) só aparece pra quem criou ou pro OWNER — Pública,
+        // pra organização inteira, como sempre foi (ver mesma regra em
+        // app/api/message-scripts/route.ts).
+        where: { organizationId, ...(isOwner ? {} : { OR: [{ visibility: "PUBLIC" }, { createdById: userId }] }) },
         orderBy: { createdAt: "desc" },
         include: { createdBy: { select: { name: true } } },
       }),
@@ -24,11 +29,14 @@ export default async function ScriptsPage() {
           Mensagens reutilizáveis pras campanhas — escreva uma vez, use em quantas campanhas quiser.
         </p>
         <ScriptsTable
+          currentUserId={userId}
           initialScripts={scriptsRaw.map((s) => ({
             id: s.id,
             name: s.name,
             steps: s.steps as { text: string; delayAfterSec: number }[],
             tags: s.tags,
+            visibility: s.visibility,
+            createdById: s.createdById,
             createdByName: s.createdBy.name,
             createdAt: s.createdAt.toISOString(),
             usage: usageMap.get(s.id) ?? [],
