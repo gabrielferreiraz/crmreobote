@@ -89,7 +89,7 @@ export function ContactEditForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
+    setErrorData(null);
 
     const res = await fetch(`/api/contacts/${contact.id}`, {
       method: "PUT",
