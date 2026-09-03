@@ -32,12 +32,14 @@ export function NextSendCountdown({ targetAt }: { targetAt: string }) {
     return () => clearInterval(interval);
   }, [target]);
 
+  // Nunca mostra texto vago tipo "a qualquer momento" — pedido explícito do
+  // usuário é sempre ter uma contagem regressiva calculada. Quando o alvo já
+  // passou (ex.: cron ainda não rodou o tick que efetiva o envio), trava em
+  // "0:00" em vez de contar pro negativo.
   const display =
-    remaining <= 0
-      ? "a qualquer momento"
-      : remaining <= MAX_COUNTDOWN_MS
-        ? formatCountdown(remaining)
-        : new Date(target).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    remaining <= MAX_COUNTDOWN_MS
+      ? formatCountdown(Math.max(0, remaining))
+      : new Date(target).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
   return (
     <span className="inline-flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-300">

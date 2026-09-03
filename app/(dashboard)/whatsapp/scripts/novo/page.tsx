@@ -11,22 +11,8 @@ export default async function NovoScriptPage({
   const { duplicate, returnTo } = await searchParams;
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  // SUPERVISOR incluído pro fluxo de "Enviar mensagem em massa" (Pipeline →
-  // Lista → "+Criar Script", chega aqui com ?returnTo=...) — a listagem
-  // (../page.tsx) e a edição (../[id]) continuam só dono/gerente, então um
-  // supervisor nunca vê a biblioteca inteira da organização, só cria a
-  // própria (ver POST /api/message-scripts e GET ?mine=true).
-  const canCreate = ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "");
 
   return runWithTenant(organizationId, async () => {
-    if (!canCreate) {
-      return (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos, gerentes e supervisores podem criar scripts.
-        </p>
-      );
-    }
-
     const [allScripts, duplicateFrom] = await Promise.all([
       prisma.messageScript.findMany({ where: { organizationId }, select: { tags: true } }),
       duplicate

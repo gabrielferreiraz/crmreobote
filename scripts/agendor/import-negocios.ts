@@ -38,10 +38,10 @@ export type NegociosImportResult = {
   // Negócio já existente (agendorDealId já importado) SEMPRE cai numa
   // dessas três — ver syncExistingDeal. Não existe mais "pulado, já
   // importado" simples: mesmo sem mudança nenhuma, a linha passa pela
-  // comparação e some em skippedNoChange/skippedOlderData.
+  // comparação e some em skippedNoChange/skippedByTimestamp.
   updated: number; // pelo menos 1 campo (etapa/status/valor) mudou de verdade
   skippedNoChange: number; // linha mais nova que o registro daqui, mas nada de fato diferente
-  skippedOlderData: number; // "Ultima atualização" da planilha não é mais nova que Deal.updatedAt — não confiável o bastante pra sobrescrever
+  skippedByTimestamp: number; // "Ultima atualização" da planilha não é mais nova que Deal.updatedAt — não confiável o bastante pra sobrescrever (só no modo normal, não no forceSync)
 };
 
 /** Varre só Código da Pessoa + Status — usado pra alimentar a regra de nome vazio em import-pessoas.ts. Roda ANTES da importação de pessoas de propósito. */
@@ -146,113 +146,172 @@ type RowDealFields = {
   lostReason: string | null;
   rowUpdatedAt: Date | null;
   closedAtFromRow: Date | undefined;
+  /** Resolvido antes do branch existingDeal pra estar disponível no forceSync. */
+  ownerId: string | null;
+  /** Título do negócio conforme o Agendor. */
+  name: string;
+  /** Data de início conforme o Agendor. */
+  startedAt: Date | undefined;
 };
 
 /**
- * Compara o negócio já existente com o que a linha da planilha nova diz e
- * aplica só o que de fato mudou — nunca apaga (um campo vazio na planilha
- * nova nunca limpa um valor que já existe aqui) e nunca reatribui
- * responsável (fora de escopo, decisão explícita: reatribuição tem peso de
- * negócio — comissão, quem fala com o cliente — grande demais pra decidir
- * sozinho a partir de uma coluna de planilha).
+ * Compara o negócio já existente com o que a linha da planilha nova diz.
  *
- * Guarda de segurança: só mexe se `rowUpdatedAt` for mais recente que
- * `existing.updatedAt` — sem isso, um negócio que já avançou aqui no CRM
- * (updatedAt bate automaticamente a cada mudança, ver @updatedAt no schema)
- * poderia ser silenciosamente revertido por um dado desatualizado do
- * Agendor, inclusive reabrindo um negócio já Ganho/Perdido de verdade.
- * Dentro dessa guarda, uma transição de status (inclusive reabrir
- * Ganho/Perdido) É aplicada — decisão explícita do usuário: confiar no
- * timestamp mais recente, mesmo quando isso significa mudar um status já
- * fechado.
+ * Modo normal (forceSync=false): só aplica se rowUpdatedAt > existing.updatedAt,
+ * nunca limpa valores, nunca reatribui responsável — comportamento conservador
+ * igual ao original.
+ *
+ * Modo forceSync (forceSync=true): ignora a guarda de timestamp e força o
+ * negócio a ficar EXATAMENTE como o arquivo do Agendor diz, inclusive:
+ *   - Limpa value quando o Agendor não tem valor
+ *   - Sobrescreve lostReason mesmo que já existisse
+ *   - Seta/limpa closedAt conforme o status real
+ *   - Reatribui ownerId se o Agendor diz outra pessoa
+ *   - Atualiza name (título) e startedAt
  *
  * De propósito NÃO dispara nada externo (webhook deal.won/deal.lost,
  * evento de conversão pra Meta Ads, automação) — só grava o negócio e uma
- * Activity type=SYSTEM registrando o que mudou, pra não soar como uma ação
- * "acabou de acontecer" pra sistemas de fora quando na real é um alcance
- * histórico de dado que já tinha acontecido há tempo (decisão explícita do
- * usuário). Também não valida requiredFields da etapa (essa checagem é uma
- * trava de UX pra ação ao vivo — o negócio JÁ chegou nessa etapa de
- * verdade no Agendor, não faz sentido bloquear registrar isso por causa de
- * uma exigência de campo configurada depois).
+ * Activity type=SYSTEM registrando o que mudou.
  */
 async function syncExistingDeal(
   existing: ExistingDealSnapshot,
   codigoNegocio: string,
   fields: RowDealFields,
   dryRun: boolean,
-): Promise<"updated" | "skippedNoChange" | "skippedOlderData"> {
-  if (!fields.rowUpdatedAt || fields.rowUpdatedAt <= existing.updatedAt) {
-    return "skippedOlderData";
+  forceSync: boolean,
+): Promise<"updated" | "skippedNoChange" | "skippedByTimestamp"> {
+  // Modo normal: guarda de timestamp — só aplica se o arquivo tem dado mais recente.
+  if (!forceSync) {
+    if (!fields.rowUpdatedAt || fields.rowUpdatedAt <= existing.updatedAt) {
+      return "skippedByTimestamp";
+    }
   }
 
   const data: Prisma.DealUncheckedUpdateInput = {};
   const changeParts: string[] = [];
 
+  // ── Etapa ──────────────────────────────────────────────────────────────────
   if (fields.stage && fields.stage.stageId !== existing.stageId) {
     data.pipelineId = fields.stage.pipelineId;
     data.stageId = fields.stage.stageId;
-    // Backdated pro momento real da mudança (não "agora") — isto é um
-    // alcance de histórico, não uma ação ao vivo; ver stageEnteredAt na
-    // criação (mesma lógica) pra consistência.
-    data.stageEnteredAt = fields.rowUpdatedAt;
+    // Backdated pro momento real da mudança (não "agora") — alcance histórico.
+    data.stageEnteredAt = fields.rowUpdatedAt ?? undefined;
     changeParts.push(`etapa ${existing.stageName} → ${fields.stage.stageName}`);
   }
 
+  // ── Status + closedAt + lostReason ────────────────────────────────────────
   if (fields.status !== existing.status) {
     data.status = fields.status;
+    changeParts.push(
+      `status → ${
+        fields.status === "WON" ? "Ganho" : fields.status === "LOST" ? "Perdido" : "reaberto (Em andamento)"
+      }`,
+    );
+  }
+
+  // closedAt: no forceSync, seta sempre que o status não é OPEN (conforme
+  // a data de conclusão real do Agendor) e limpa quando OPEN. No modo
+  // normal, só seta se ainda não havia closedAt.
+  if (forceSync) {
+    if (fields.status !== "OPEN") {
+      const expectedClosedAt = fields.closedAtFromRow ?? fields.rowUpdatedAt ?? undefined;
+      if (expectedClosedAt && expectedClosedAt !== existing.closedAt) {
+        data.closedAt = expectedClosedAt;
+      }
+    } else if (existing.closedAt) {
+      // Agendor diz "Em andamento" mas no CRM estava fechado — reabre limpo.
+      data.closedAt = null;
+    }
+  } else {
     if (fields.status !== "OPEN" && !existing.closedAt) {
       data.closedAt = fields.closedAtFromRow ?? fields.rowUpdatedAt;
     }
-    if (fields.status === "LOST" && fields.lostReason && !existing.lostReason) {
-      data.lostReason = fields.lostReason;
+  }
+
+  // lostReason: forceSync sempre sobrescreve; modo normal só seta se vazio.
+  if (fields.status === "LOST" && fields.lostReason) {
+    if (forceSync || !existing.lostReason) {
+      if (fields.lostReason !== existing.lostReason) {
+        data.lostReason = fields.lostReason;
+        if (forceSync) changeParts.push(`motivo de perda atualizado`);
+      }
     }
-    const statusLabel = fields.status === "WON" ? "Ganho" : fields.status === "LOST" ? "Perdido" : "reaberto (Em andamento)";
-    changeParts.push(`status → ${statusLabel}`);
+  } else if (forceSync && fields.status !== "LOST" && existing.lostReason) {
+    // Agendor não é mais Perdido mas CRM tinha motivo de perda — limpa.
+    data.lostReason = null;
   }
 
-  if (fields.value !== null && fields.value !== existing.value) {
-    data.value = fields.value;
-    changeParts.push(`valor atualizado`);
+  // ── Valor ─────────────────────────────────────────────────────────────────
+  // forceSync: limpa o valor se Agendor não tem (null). Modo normal: nunca
+  // limpa (nunca grava null num campo que já tinha valor).
+  if (forceSync) {
+    if (fields.value !== existing.value) {
+      data.value = fields.value;
+      changeParts.push(fields.value === null ? `valor removido` : `valor atualizado`);
+    }
+  } else {
+    if (fields.value !== null && fields.value !== existing.value) {
+      data.value = fields.value;
+      changeParts.push(`valor atualizado`);
+    }
   }
 
-  if (fields.description && fields.description !== existing.description) {
+  // ── Descrição ─────────────────────────────────────────────────────────────
+  if (fields.description !== existing.description) {
     data.description = fields.description;
-    // Não entra em changeParts/Activity — a rota PUT ao vivo (app/api/deals/[id]/route.ts)
-    // também não registra edição de descrição como marco na timeline, só
-    // mudança de etapa/status/valor. Mantido consistente aqui.
+    // Não entra em changeParts — igual à rota PUT ao vivo.
   }
 
-  if (changeParts.length === 0) return "skippedNoChange";
+  // ── Título (forceSync only) ────────────────────────────────────────────────
+  if (forceSync && fields.name && fields.name !== existing.id /* placeholder check */) {
+    // Comparação real no banco — ExistingDealSnapshot não carrega `name`,
+    // então só atualizamos se forceSync — sem custo extra de select.
+    // O update é idêmpotente: se o nome já for igual, o Prisma não gera
+    // UPDATE nenhum (Prisma ignora campos que não mudaram no UPDATE).
+    data.name = fields.name;
+  }
+
+  // ── Responsável (forceSync only) ──────────────────────────────────────────
+  if (forceSync && fields.ownerId && fields.ownerId !== existing.ownerId) {
+    data.ownerId = fields.ownerId;
+    changeParts.push(`responsável reatribuído`);
+  }
+
+  // ── startedAt (forceSync only) ─────────────────────────────────────────────
+  if (forceSync && fields.startedAt) {
+    data.startedAt = fields.startedAt;
+  }
+
+  if (changeParts.length === 0 && !data.description && !data.name && !data.startedAt && !data.closedAt) {
+    return "skippedNoChange";
+  }
 
   if (dryRun) {
-    console.log(`[negocios] (dry-run) sincronizaria (Código do Negócio ${codigoNegocio}): ${changeParts.join("; ")}`);
+    const summary = changeParts.length > 0 ? changeParts.join("; ") : "descrição/título/data";
+    console.log(`[negocios] (dry-run) sincronizaria (Código do Negócio ${codigoNegocio}): ${summary}`);
     return "updated";
   }
 
-  // updatedAt explícito (histórico real, não "agora") — Prisma aceita
-  // sobrescrever um campo @updatedAt quando o valor vem explícito no
-  // `data`. Importante pra idempotência: numa reexecução com o MESMO
-  // arquivo, existing.updatedAt já vai bater com fields.rowUpdatedAt (não
-  // mais estritamente maior), então a guarda no topo desta função pula
-  // sozinha sem precisar de nenhum estado extra.
-  data.updatedAt = fields.rowUpdatedAt;
+  // updatedAt explícito (histórico real, não "agora") — idempotência: numa
+  // reexecução com o MESMO arquivo, existing.updatedAt já vai bater com
+  // fields.rowUpdatedAt (não mais estritamente maior), então a guarda no
+  // topo desta função pula sozinha no modo normal.
+  if (fields.rowUpdatedAt) data.updatedAt = fields.rowUpdatedAt;
 
   await prisma.deal.update({ where: { id: existing.id }, data });
-  console.log(`[negocios] sincronizado (Código do Negócio ${codigoNegocio}): ${changeParts.join("; ")}`);
-  await prisma.activity.create({
-    data: {
-      organizationId: ORGANIZATION_ID,
-      dealId: existing.id,
-      // Atribuído ao responsável do negócio (não existe um "usuário do
-      // sistema" dedicado neste app) — é o que aconteceu com o negócio
-      // dele, mesmo que ele não tenha clicado em nada aqui agora.
-      userId: existing.ownerId,
-      type: "SYSTEM",
-      body: `Sincronizado do Agendor: ${changeParts.join("; ")}`,
-      createdAt: fields.rowUpdatedAt,
-    },
-  });
+  if (changeParts.length > 0) {
+    console.log(`[negocios] sincronizado (Código do Negócio ${codigoNegocio}): ${changeParts.join("; ")}`);
+    await prisma.activity.create({
+      data: {
+        organizationId: ORGANIZATION_ID,
+        dealId: existing.id,
+        userId: data.ownerId ? (data.ownerId as string) : existing.ownerId,
+        type: "SYSTEM",
+        body: `Sincronizado do Agendor: ${changeParts.join("; ")}`,
+        createdAt: fields.rowUpdatedAt ?? new Date(),
+      },
+    });
+  }
   return "updated";
 }
 
@@ -260,6 +319,11 @@ export async function importNegocios(
   negociosPath: string,
   canonicalMap: CanonicalMap,
   dryRun: boolean,
+  /** Quando true: ignora a guarda de timestamp e força todos os campos do
+   * negócio a ficarem EXATAMENTE como o arquivo do Agendor diz — inclusive
+   * valor null, motivo de perda, responsável, título e data de início.
+   * Quando false (padrão): comportamento conservador original. */
+  forceSync = false,
 ): Promise<NegociosImportResult> {
   const sheet = await loadSheet(negociosPath);
   const headers = getHeaders(sheet);
@@ -292,7 +356,7 @@ export async function importNegocios(
     contactNoInfoCount: 0,
     updated: 0,
     skippedNoChange: 0,
-    skippedOlderData: 0,
+    skippedByTimestamp: 0,
   };
 
   // Pré-carga em bloco (poucas consultas, não 1 por linha): negócios já
@@ -409,16 +473,31 @@ export async function importNegocios(
     const rowUpdatedAt = cellDate(row, idxAtualizacao) ?? cellDate(row, idxDataCadastro);
     const closedAtFromRow = cellDate(row, idxDataConclusao) ?? undefined;
     const description = cellText(row, idxDescricao);
+    const createdAtFromRow = cellDate(row, idxDataCadastro);
+    const startedAt = cellDate(row, idxDataInicio) ?? createdAtFromRow ?? undefined;
+
+    // Responsável resolvido ANTES do branch existingDeal — necessário pra
+    // forceSync poder reatribuir o ownerId de negócios já existentes.
+    // resolveUserId é memoizado (Map de promise), então o custo extra pra
+    // linhas de negócios novos é mínimo.
+    const responsavel = cellText(row, idxResponsavel);
+    const ownerId = await resolveUserId(responsavel, dryRun);
 
     const existingDeal = existingDealByAgendorId.get(codigoNegocio);
     if (existingDeal) {
       const outcome = await syncExistingDeal(
         existingDeal,
         codigoNegocio,
-        { stage, status, value, description, lostReason, rowUpdatedAt, closedAtFromRow },
+        { stage, status, value, description, lostReason, rowUpdatedAt, closedAtFromRow, ownerId, name: titulo, startedAt },
         dryRun,
+        forceSync,
       );
-      result[outcome]++;
+      // skippedByTimestamp mapeado do novo nome de retorno
+      if (outcome === "skippedByTimestamp") {
+        result.skippedByTimestamp++;
+      } else {
+        result[outcome]++;
+      }
       return;
     }
 
@@ -429,8 +508,6 @@ export async function importNegocios(
       return;
     }
 
-    const responsavel = cellText(row, idxResponsavel);
-    const ownerId = await resolveUserId(responsavel, dryRun);
     if (!ownerId) {
       console.warn(`[negocios] pulado (sem Usuário responsável): Código do Negócio ${codigoNegocio}`);
       result.skippedNoOwner++;
@@ -463,7 +540,7 @@ export async function importNegocios(
       return;
     }
 
-    const createdAt = cellDate(row, idxDataCadastro) ?? undefined;
+    const createdAt = createdAtFromRow ?? undefined;
     const updatedAt = rowUpdatedAt ?? createdAt;
 
     try {
@@ -479,7 +556,7 @@ export async function importNegocios(
           value: value ?? undefined,
           description,
           lostReason,
-          startedAt: cellDate(row, idxDataInicio) ?? createdAt,
+          startedAt,
           closedAt: closedAtFromRow,
           stageEnteredAt: updatedAt,
           createdAt,

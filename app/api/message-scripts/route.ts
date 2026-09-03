@@ -8,9 +8,8 @@ import type { Prisma } from "@/app/generated/prisma/client";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  // Ler a biblioteca (pra usar num envio manual, ver "Enviar script" no chat)
-  // é liberado pra qualquer membro ativo — só criar/editar/apagar continua
-  // restrito a dono/gerente/supervisor (ver POST abaixo e app/(dashboard)/whatsapp/scripts/page.tsx).
+  // Biblioteca de scripts é liberada pra todos os papéis — ver, criar, editar
+  // e apagar (ver POST abaixo e app/(dashboard)/whatsapp/scripts/page.tsx).
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
@@ -40,11 +39,9 @@ export async function POST(req: Request) {
   const body = await req.json();
   const { name, steps, tags } = body as { name?: string; steps?: unknown; tags?: string[] };
 
-  // SUPERVISOR incluído pro fluxo de "Enviar mensagem em massa" (Pipeline →
-  // Lista → "+Criar Script") — cada um só vai enxergar o que criou (ver
-  // ?mine=true acima), então abrir a criação pra esse papel não expõe a
-  // biblioteca inteira da organização, só permite que ele monte a própria.
-  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR"]);
+  // Criação liberada pra todos os papéis — biblioteca de scripts é compartilhada
+  // pela organização inteira (ver GET acima).
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });

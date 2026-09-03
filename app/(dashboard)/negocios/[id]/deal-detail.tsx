@@ -177,6 +177,7 @@ export function DealDetail({
   customFields,
   creditTypes,
   jobTitles,
+  sources,
   currentUserName,
   currentUserPhotoUrl,
   hasUnreadWhatsApp,
@@ -192,6 +193,7 @@ export function DealDetail({
   customFields: CustomFieldDefinitionInput[];
   creditTypes: { id: string; label: string }[];
   jobTitles: { id: string; label: string }[];
+  sources: { id: string; label: string }[];
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
   hasUnreadWhatsApp?: boolean;
@@ -384,7 +386,7 @@ export function DealDetail({
   // PUT (não é um PATCH parcial) — manda sempre os quatro, só trocando o
   // campo editado, senão os que ficarem de fora são apagados sem querer.
   async function saveContactField(
-    field: "name" | "email" | "phone" | "whatsapp" | "jobTitle",
+    field: "name" | "email" | "phone" | "whatsapp" | "jobTitle" | "source",
     value: string,
   ): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch(`/api/contacts/${deal.contact.id}`, {
@@ -416,6 +418,15 @@ export function DealDetail({
     : deal.contact.jobTitle
       ? [{ value: deal.contact.jobTitle, label: `${deal.contact.jobTitle} (antigo)` }, ...jobTitles.map((j) => ({ value: j.label, label: j.label }))]
       : jobTitles.map((j) => ({ value: j.label, label: j.label }));
+
+  // Mesmo raciocínio de jobTitleOptions acima, pra Origem — pedido explícito
+  // de editar direto no card "Dados do contato" (antes só existia como
+  // badge de leitura no card "Origem do lead", ver mais abaixo).
+  const sourceOptions = sources.some((s) => s.label === deal.contact.source)
+    ? sources.map((s) => ({ value: s.label, label: s.label }))
+    : deal.contact.source
+      ? [{ value: deal.contact.source, label: `${deal.contact.source} (antigo)` }, ...sources.map((s) => ({ value: s.label, label: s.label }))]
+      : sources.map((s) => ({ value: s.label, label: s.label }));
 
   async function saveDealValue(value: string): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch(`/api/deals/${deal.id}`, {
@@ -1136,6 +1147,14 @@ export function DealDetail({
               editable={canEditDetails}
               onSave={(v) => saveContactField("jobTitle", v)}
             />
+            <EditableRow
+              label="Origem"
+              value={deal.contact.source ?? ""}
+              type="select"
+              options={sourceOptions}
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("source", v)}
+            />
           </div>
         </div>
       </div>
@@ -1509,6 +1528,14 @@ export function DealDetail({
                 options={jobTitleOptions}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("jobTitle", v)}
+              />
+              <EditableRow
+                label="Origem"
+                value={deal.contact.source ?? ""}
+                type="select"
+                options={sourceOptions}
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("source", v)}
               />
             </div>
           </div>

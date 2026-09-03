@@ -77,7 +77,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // WhatsApp (resolveConnectedInstance/getOrCreateThreadForContact), logo
     // abaixo, continua de fora de propósito — depende de dealRaw.ownerId e
     // tem efeito colateral (pode criar/atualizar WhatsAppThread).
-    const [membersRaw, lossReasons, customFields, creditTypes, jobTitles, unreadCount] = await Promise.all([
+    const [membersRaw, lossReasons, customFields, creditTypes, jobTitles, sources, unreadCount] = await Promise.all([
       prisma.organizationUser.findMany({
         where: { organizationId, active: true },
         orderBy: { createdAt: "asc" },
@@ -101,6 +101,14 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         orderBy: { order: "asc" },
       }),
       prisma.jobTitle.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+      }),
+      // Mesma lista que Clientes já usa (ver app/(dashboard)/clientes/page.tsx)
+      // — pedido explícito: editar a Origem direto no card "Dados do
+      // contato" do negócio, mesmo padrão de Select com opção "(antigo)"
+      // que Cargo já tem logo abaixo (ver sourceOptions em deal-detail.tsx).
+      prisma.leadSource.findMany({
         where: { organizationId },
         orderBy: { order: "asc" },
       }),
@@ -163,6 +171,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           customFields={customFields}
           creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
           jobTitles={jobTitles.map((j) => ({ id: j.id, label: j.label }))}
+          sources={sources.map((s) => ({ id: s.id, label: s.label }))}
           currentUserName={session!.user.name ?? undefined}
           currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}

@@ -8,17 +8,8 @@ export default async function EditScriptPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
-    if (!isManager) {
-      return (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos e gerentes podem gerenciar scripts.
-        </p>
-      );
-    }
-
     const [script, allScripts] = await Promise.all([
       prisma.messageScript.findFirst({ where: { id, organizationId } }),
       prisma.messageScript.findMany({ where: { organizationId }, select: { tags: true } }),

@@ -7,17 +7,8 @@ import { ScriptsTable } from "./scripts-table";
 export default async function ScriptsPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
-    if (!isManager) {
-      return (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos e gerentes podem gerenciar scripts.
-        </p>
-      );
-    }
-
     const [scriptsRaw, usageMap] = await Promise.all([
       prisma.messageScript.findMany({
         where: { organizationId },

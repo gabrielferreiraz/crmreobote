@@ -43,6 +43,7 @@ function parseArgs(): {
   tarefasPendentes: string;
   tarefasFinalizadas: string;
   dryRun: boolean;
+  forceSync: boolean;
 } {
   const args = process.argv.slice(2);
   const get = (flag: string) => {
@@ -54,19 +55,31 @@ function parseArgs(): {
   const tarefasPendentes = get("tarefas-pendentes");
   const tarefasFinalizadas = get("tarefas-finalizadas");
   const dryRun = args.includes("--dry-run");
+  /** Força todos os negócios a ficarem EXATAMENTE como o Agendor diz, inclusive
+   * valor null, motivo de perda, responsável e título. Implica ignorar a
+   * guarda de timestamp. Use depois de uma importação com dados incorretos. */
+  const forceSync = args.includes("--force-sync");
 
   if (!pessoas || !negocios || !tarefasPendentes || !tarefasFinalizadas) {
     console.error(
-      "Uso: npx tsx --env-file=.env scripts/import-agendor.ts --pessoas=<path> --negocios=<path> --tarefas-pendentes=<path> --tarefas-finalizadas=<path> [--dry-run]",
+      "Uso: npx tsx --env-file=.env scripts/import-agendor.ts " +
+        "--pessoas=<path> --negocios=<path> --tarefas-pendentes=<path> --tarefas-finalizadas=<path> " +
+        "[--dry-run] [--force-sync]",
     );
     process.exit(1);
   }
-  return { pessoas, negocios, tarefasPendentes, tarefasFinalizadas, dryRun };
+  return { pessoas, negocios, tarefasPendentes, tarefasFinalizadas, dryRun, forceSync };
 }
 
 async function main() {
-  const { pessoas, negocios, tarefasPendentes, tarefasFinalizadas, dryRun } = parseArgs();
-  console.log(dryRun ? "🔎 MODO DRY-RUN — nada será gravado no banco.\n" : "⚠️  MODO REAL — gravando no banco.\n");
+  const { pessoas, negocios, tarefasPendentes, tarefasFinalizadas, dryRun, forceSync } = parseArgs();
+
+  const modeLabel = dryRun
+    ? "🔎 MODO DRY-RUN — nada será gravado no banco."
+    : forceSync
+      ? "⚡ MODO FORCE-SYNC — todos os negócios serão sobrescritos EXATAMENTE como o Agendor diz (ignora timestamp, reatribui responsável, limpa valores)."
+      : "⚠️  MODO REAL — gravando no banco.";
+  console.log(modeLabel + "\n");
 
   await runWithTenant(ORGANIZATION_ID, async () => {
     console.log("== Usuários ==");
@@ -86,7 +99,7 @@ async function main() {
     console.log("Resultado Pessoas:", pessoasResult);
 
     console.log("\n== Importando Negócios ==");
-    const negociosResult = await withPhaseRetry("Negócios", () => importNegocios(negocios, canonicalMap, dryRun));
+    const negociosResult = await withPhaseRetry("Negócios", () => importNegocios(negocios, canonicalMap, dryRun, forceSync));
     console.log("Resultado Negócios:", negociosResult);
 
     console.log("\n== Importando Tarefas (pendentes) ==");

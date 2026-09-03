@@ -7,17 +7,8 @@ import { CampaignsTable } from "./campaigns-table";
 export default async function CampanhasPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
-  const isManager = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   return runWithTenant(organizationId, async () => {
-    if (!isManager) {
-      return (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Apenas donos e gerentes podem gerenciar campanhas.
-        </p>
-      );
-    }
-
     const [campaigns, instancesRaw, scriptsRaw] = await Promise.all([
       listCampaigns(organizationId),
       prisma.whatsAppInstance.findMany({
