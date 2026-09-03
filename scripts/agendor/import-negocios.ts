@@ -136,6 +136,8 @@ type ExistingDealSnapshot = {
   lostReason: string | null;
   closedAt: Date | null;
   updatedAt: Date;
+  name: string;
+  startedAt: Date | null;
 };
 
 type RowDealFields = {
@@ -215,7 +217,9 @@ async function syncExistingDeal(
   if (forceSync) {
     if (fields.status !== "OPEN") {
       const expectedClosedAt = fields.closedAtFromRow ?? fields.rowUpdatedAt ?? undefined;
-      if (expectedClosedAt && expectedClosedAt !== existing.closedAt) {
+      // Date é objeto — comparar com !== sempre dá "diferente" mesmo com o
+      // mesmo instante. Compara por valor (getTime()).
+      if (expectedClosedAt && (!existing.closedAt || expectedClosedAt.getTime() !== existing.closedAt.getTime())) {
         data.closedAt = expectedClosedAt;
       }
     } else if (existing.closedAt) {
@@ -257,17 +261,20 @@ async function syncExistingDeal(
   }
 
   // ── Descrição ─────────────────────────────────────────────────────────────
-  if (fields.description !== existing.description) {
+  // Modo normal: nunca limpa (mesma regra de "nunca apaga" do resto da
+  // função) — só sobrescreve se a planilha tem texto novo. forceSync: força
+  // igual ao Agendor, inclusive limpando se a planilha estiver vazia.
+  if (forceSync) {
+    if (fields.description !== existing.description) {
+      data.description = fields.description;
+      // Não entra em changeParts — igual à rota PUT ao vivo.
+    }
+  } else if (fields.description && fields.description !== existing.description) {
     data.description = fields.description;
-    // Não entra em changeParts — igual à rota PUT ao vivo.
   }
 
   // ── Título (forceSync only) ────────────────────────────────────────────────
-  if (forceSync && fields.name && fields.name !== existing.id /* placeholder check */) {
-    // Comparação real no banco — ExistingDealSnapshot não carrega `name`,
-    // então só atualizamos se forceSync — sem custo extra de select.
-    // O update é idêmpotente: se o nome já for igual, o Prisma não gera
-    // UPDATE nenhum (Prisma ignora campos que não mudaram no UPDATE).
+  if (forceSync && fields.name && fields.name !== existing.name) {
     data.name = fields.name;
   }
 
@@ -278,16 +285,23 @@ async function syncExistingDeal(
   }
 
   // ── startedAt (forceSync only) ─────────────────────────────────────────────
-  if (forceSync && fields.startedAt) {
+  if (
+    forceSync &&
+    fields.startedAt &&
+    (!existing.startedAt || fields.startedAt.getTime() !== existing.startedAt.getTime())
+  ) {
     data.startedAt = fields.startedAt;
   }
 
-  if (changeParts.length === 0 && !data.description && !data.name && !data.startedAt && !data.closedAt) {
+  // Único critério de "nada mudou": `data` não ganhou nenhum campo. Evita a
+  // classe de bug de listar campo por campo aqui (um campo novo do forceSync
+  // que esqueça de entrar nesta lista faria todo negócio "mudar" à toa).
+  if (Object.keys(data).length === 0) {
     return "skippedNoChange";
   }
 
   if (dryRun) {
-    const summary = changeParts.length > 0 ? changeParts.join("; ") : "descrição/título/data";
+    const summary = changeParts.length > 0 ? changeParts.join("; ") : Object.keys(data).join(", ");
     console.log(`[negocios] (dry-run) sincronizaria (Código do Negócio ${codigoNegocio}): ${summary}`);
     return "updated";
   }
@@ -390,6 +404,8 @@ export async function importNegocios(
           lostReason: true,
           closedAt: true,
           updatedAt: true,
+          name: true,
+          startedAt: true,
         },
         orderBy: { id: "asc" },
         skip,
@@ -420,6 +436,8 @@ export async function importNegocios(
         lostReason: d.lostReason,
         closedAt: d.closedAt,
         updatedAt: d.updatedAt,
+        name: d.name,
+        startedAt: d.startedAt,
       },
     ]),
   );
