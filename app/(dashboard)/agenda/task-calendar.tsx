@@ -197,6 +197,18 @@ export function TaskCalendar({
   }
 
   return (
+    // DndContext precisa ser o wrapper mais externo (não só em volta da
+    // grade) — DragOverlay abaixo é `position:fixed`, e diferente de Modal
+    // (ver components/modal.tsx, que já resolve isso com createPortal pro
+    // document.body), o DragOverlay do @dnd-kit não tem prop de portal
+    // nenhuma. Com ele dentro do `.card` logo abaixo, o backdrop-filter do
+    // `.card` (mesmo motivo já documentado em modal.tsx) virava o
+    // "containing block" do fixed — o cartão fantasma seguia o mouse
+    // deslocado, ancorado no canto do `.card` em vez da tela inteira.
+    // DndContext em si não renderiza elemento DOM próprio (só contexto),
+    // então isso não muda layout nenhum — só tira o DragOverlay de dentro
+    // do `.card`.
+    <DndContext id="task-calendar" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
     <div className="card p-4">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
@@ -255,7 +267,6 @@ export function TaskCalendar({
         </p>
       )}
 
-      <DndContext id="task-calendar" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800">
         {WEEKDAY_LABELS.map((w) => (
           <div
@@ -285,19 +296,6 @@ export function TaskCalendar({
           />
         ))}
       </div>
-      <DragOverlay>
-        {activeDrag ? (
-          activeDrag.count > 1 ? (
-            <div className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
-              <Layers className="h-3.5 w-3.5" strokeWidth={2} />
-              {activeDrag.count} tarefas
-            </div>
-          ) : (
-            <TaskPillContent task={activeDrag.task} overdue={!activeDrag.task.completedAt && new Date(activeDrag.task.dueAt!) < today} showOwner={showOwner} overlay />
-          )
-        ) : null}
-      </DragOverlay>
-      </DndContext>
 
       {selectedDay && (
         // max-w-3xl (era xl) + max-h-[75vh] na lista (era 60vh) — o painel
@@ -359,6 +357,19 @@ export function TaskCalendar({
       )}
       {outcomeDialog}
     </div>
+    <DragOverlay>
+      {activeDrag ? (
+        activeDrag.count > 1 ? (
+          <div className="flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+            <Layers className="h-3.5 w-3.5" strokeWidth={2} />
+            {activeDrag.count} tarefas
+          </div>
+        ) : (
+          <TaskPillContent task={activeDrag.task} overdue={!activeDrag.task.completedAt && new Date(activeDrag.task.dueAt!) < today} showOwner={showOwner} overlay />
+        )
+      ) : null}
+    </DragOverlay>
+    </DndContext>
   );
 }
 
