@@ -26,7 +26,7 @@ import { generateTempPassword } from "@/lib/generate-temp-password";
 
 export const ORGANIZATION_ID = "cmr9i96330001ekvpb3b4o4nn";
 
-type ActiveConsultant = { names: string[]; realName: string; email: string; role: "OWNER" | "MANAGER" | "MEMBER" };
+type ActiveConsultant = { names: string[]; realName: string; email: string; role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER" };
 
 // Confirmado em conversa com o usuário — as duas grafias vistas nos 4
 // arquivos (username com ponto E, quando existe, o nome completo de exibição)
@@ -54,6 +54,16 @@ const ACTIVE_CONSULTANTS: ActiveConsultant[] = [
   // Dono de verdade do negócio (Agendor: "Administrador"/"Dono") — pessoa
   // diferente do Gabriel (TI, já mantido no reset como OWNER técnico).
   { names: ["Reobote Consórcios", "mrenan"], realName: "Renan", email: "mrenan@reoboteconsorcios.com.br", role: "OWNER" },
+  // Achados na revisão do --force-sync de 03/09: mesmo padrão do Cláudio
+  // Ribas acima — essas 4 pessoas já tinham conta REAL e ativa no CRM, mas
+  // como não estavam nesta lista, toda menção a elas nos arquivos do
+  // Agendor foi parar numa conta fantasma paralela (@agendor-inativo.local)
+  // em vez da conta real — Deal/Task/Contact/Activity ficaram presos no
+  // fantasma. Migrados de volta pra conta real por scripts/fix-ghost-consultants.ts.
+  { names: ["mariana.ribeiro"], realName: "Mariana Ribeiro", email: "mariana.ribeiro@reoboteconsorcios.com.br", role: "SUPERVISOR" },
+  { names: ["wander.luis"], realName: "Wander Luis", email: "wander.luis@reoboteconsorcios.com.br", role: "MEMBER" },
+  { names: ["joao.vitor"], realName: "João Vitor", email: "joao.vitor@reoboteconsorcios.com.br", role: "MEMBER" },
+  { names: ["Lucas Cáceres"], realName: "Lucas Cáceres", email: "lucas.caceres@reoboteconsorcios.com.br", role: "MEMBER" },
 ];
 
 const activeByName = new Map<string, ActiveConsultant>();
