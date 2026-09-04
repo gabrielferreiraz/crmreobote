@@ -161,15 +161,11 @@ export function TabSwitcher({
 
 export function ConversationsView({
   initialConversations,
-  currentUserName,
-  currentUserPhotoUrl,
   currentUserId,
   notificationPrefs: initialNotificationPrefs,
   whatsappConnected = true,
 }: {
   initialConversations: Conversation[];
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   currentUserId?: string;
   notificationPrefs?: NotificationPrefs;
   /** Sem instância própria conectada, o chat avisa isso no lugar do "Selecione uma conversa". */
@@ -679,8 +675,6 @@ export function ConversationsView({
               contactId={selected.contactId}
               contactName={selected.displayName}
               contactPhone={formatBrazilianPhone(selected.phoneNormalized)}
-              currentUserName={currentUserName}
-              currentUserPhotoUrl={currentUserPhotoUrl}
               onClose={() => withViewTransition(() => setSelectedThreadId(null))}
               onRenamed={(name) =>
                 setConversations((prev) =>

@@ -5,7 +5,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
-import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
@@ -84,8 +83,6 @@ export default async function ContactPage({
   const members = membersRaw.map((m) => m.user);
   const pipelines = pipelinesRaw.map((p) => ({ id: p.id, name: p.name, stages: p.stages }));
   const customFieldValues = (contact.customFieldValues as Record<string, CustomFieldValue>) ?? {};
-
-  const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
   // A conversa PADRÃO é sempre a do responsável pelo contato — é o número
   // dele que troca mensagem de verdade com esse cliente. Se EU sou o
@@ -276,8 +273,6 @@ export default async function ContactPage({
                   contactId: contact.id,
                   contactName: contact.name,
                   contactPhone: contact.whatsapp || contact.phone,
-                  currentUserName: session!.user.name ?? undefined,
-                  currentUserPhotoUrl,
                   sendAsAlternate,
                 }
               : null

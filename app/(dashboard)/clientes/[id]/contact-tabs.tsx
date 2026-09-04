@@ -37,8 +37,6 @@ type WhatsAppInfo = {
   contactId: string;
   contactName: string;
   contactPhone: string | null;
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
 };
 
@@ -290,8 +288,6 @@ export function ContactTabs({
                 contactId={whatsapp.contactId}
                 contactName={whatsapp.contactName}
                 contactPhone={whatsapp.contactPhone}
-                currentUserName={whatsapp.currentUserName}
-                currentUserPhotoUrl={whatsapp.currentUserPhotoUrl}
                 sendAsAlternate={whatsapp.sendAsAlternate}
               />
             )}

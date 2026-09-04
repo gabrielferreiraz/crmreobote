@@ -178,8 +178,6 @@ export function DealDetail({
   creditTypes,
   jobTitles,
   sources,
-  currentUserName,
-  currentUserPhotoUrl,
   hasUnreadWhatsApp,
   whatsappThreadId,
   isWhatsAppConnected,
@@ -194,14 +192,14 @@ export function DealDetail({
   creditTypes: { id: string; label: string }[];
   jobTitles: { id: string; label: string }[];
   sources: { id: string; label: string }[];
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   hasUnreadWhatsApp?: boolean;
   /** null quando o contato não tem WhatsApp/celular cadastrado — não dá pra conversar. */
   whatsappThreadId: string | null;
   /** WhatsApp do responsável pelo negócio conectado — condição pro convite de reunião oferecer "enviar" (ver MeetingInviteDialog). */
   isWhatsAppConnected: boolean;
-  /** Só pro Dono vendo o negócio de outro consultor com WhatsApp próprio conectado — deixa trocar pra enviar como o responsável do negócio. */
+  /** Dono, Gerente ou Supervisor vendo o negócio de outro consultor, com
+   * WhatsApp próprio conectado — deixa trocar pra "enviar como você" em vez
+   * do padrão (que já é a conversa real do responsável, ver page.tsx). */
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
   canEditDetails: boolean;
@@ -1614,8 +1612,6 @@ export function DealDetail({
             contactId={deal.contact.id}
             contactName={deal.contact.name}
             contactPhone={deal.contact.whatsapp || deal.contact.phone}
-            currentUserName={currentUserName}
-            currentUserPhotoUrl={currentUserPhotoUrl}
             sendAsAlternate={sendAsAlternate}
             onClose={() => setChatOpen(false)}
           />
@@ -1625,8 +1621,6 @@ export function DealDetail({
               contactId={deal.contact.id}
               contactName={deal.contact.name}
               contactPhone={deal.contact.whatsapp || deal.contact.phone}
-              currentUserName={currentUserName}
-              currentUserPhotoUrl={currentUserPhotoUrl}
               sendAsAlternate={sendAsAlternate}
               onClose={() => setChatOpen(false)}
               backMode

@@ -4,7 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { sendPresence } from "@/lib/evolution";
-import { resolveChatMediaUrl } from "@/lib/r2";
+import { resolveChatMediaUrl, resolveAvatarUrlMap } from "@/lib/r2";
 import { getDealScope } from "@/lib/team-scope";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import type { $Enums } from "@/app/generated/prisma/client";
@@ -79,17 +79,32 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
         createdAt: true,
         replyToId: true,
         replyTo: { select: { id: true, type: true, body: true, direction: true } },
-        sentBy: { select: { name: true } },
+        // image junto (não só name) — precisa do mesmo tratamento de avatar
+        // que o resto do app já usa (ver resolveAvatarUrlMap abaixo), pro
+        // balão de cada mensagem mostrar a FOTO de quem mandou de verdade,
+        // não só o nome.
+        sentBy: { select: { name: true, image: true } },
       },
     });
     const messages = messagesDesc.reverse();
 
-    // Abrir a conversa é o próprio ato de "ler" — some com o sinal de
-    // "lead respondeu" no card do negócio.
-    await prisma.whatsAppMessage.updateMany({
-      where: { organizationId, threadId, direction: "INBOUND", read: false },
-      data: { read: true },
-    });
+    // Dono de verdade desta conversa (ownerUserId, não thread.instance —
+    // sobrevive à instância ser apagada, ver comentário de
+    // loadAuthorizedThread acima) — precisa aparecer como remetente de toda
+    // mensagem OUTBOUND que não tenha `sentBy` (ou seja, foi o PRÓPRIO dono
+    // quem mandou, do celular/app dele, não alguém "enviando como"). Pedido
+    // explícito: o balão tem que refletir extremamente correto quem/qual
+    // número mandou, nunca assumir que foi quem está com o chat aberto
+    // agora (ver components/whatsapp-chat.tsx's MessageBubble, que já usou
+    // currentUserName/currentUserPhotoUrl — o VIEWER — pra isso por engano).
+    const threadOwnerUser = thread.ownerUserId
+      ? await prisma.user.findUnique({ where: { id: thread.ownerUserId }, select: { name: true, image: true } })
+      : null;
+
+    const avatarMap = await resolveAvatarUrlMap([
+      threadOwnerUser?.image,
+      ...messages.map((m) => m.sentBy?.image),
+    ]);
 
     // mediaUrl no banco pode ser uma chave interna do R2 (mídia enviada pelo
     // composer nativo) — o navegador precisa de uma URL de verdade pra exibir.
@@ -97,8 +112,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       messages.map(async (msg) => ({
         ...msg,
         mediaUrl: msg.mediaUrl ? await resolveChatMediaUrl(msg.mediaUrl) : msg.mediaUrl,
+        sentBy: msg.sentBy
+          ? { name: msg.sentBy.name, photoUrl: msg.sentBy.image ? (avatarMap.get(msg.sentBy.image) ?? null) : null }
+          : null,
       })),
     );
+    const threadOwner = threadOwnerUser
+      ? { name: threadOwnerUser.name, photoUrl: threadOwnerUser.image ? (avatarMap.get(threadOwnerUser.image) ?? null) : null }
+      : null;
 
     // Renova a inscrição de presença enquanto o chat fica aberto (o
     // frontend chama esta rota a cada 4s — ver components/whatsapp-chat.tsx).
@@ -115,6 +136,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
 
     return NextResponse.json({
       messages: resolved,
+      threadOwner,
       presence: {
         status: thread.presenceStatus,
         updatedAt: thread.presenceUpdatedAt,

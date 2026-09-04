@@ -46,9 +46,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     const avatarMap = await resolveAvatarUrlMap([
       ...dealRaw.activities.map((a) => a.user.image),
       dealRaw.owner.image,
-      session!.user.image,
     ]);
-    const currentUserPhotoUrl = session!.user.image ? (avatarMap.get(session!.user.image) ?? null) : null;
 
     const deal = {
       ...dealRaw,
@@ -185,8 +183,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
           jobTitles={jobTitles.map((j) => ({ id: j.id, label: j.label }))}
           sources={sources.map((s) => ({ id: s.id, label: s.label }))}
-          currentUserName={session!.user.name ?? undefined}
-          currentUserPhotoUrl={currentUserPhotoUrl}
           hasUnreadWhatsApp={unreadCount > 0}
           whatsappThreadId={whatsappThread?.id ?? null}
           isWhatsAppConnected={!!whatsappThread}

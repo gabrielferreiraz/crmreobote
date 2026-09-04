@@ -27,14 +27,10 @@ import {
  */
 export function ConversationsMobile({
   initialConversations,
-  currentUserName,
-  currentUserPhotoUrl,
   currentUserId,
   notificationPrefs: initialNotificationPrefs,
 }: {
   initialConversations: Conversation[];
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   currentUserId?: string;
   notificationPrefs?: NotificationPrefs;
 }) {
@@ -225,8 +221,6 @@ export function ConversationsMobile({
           contactId={selected.contactId}
           contactName={selected.displayName}
           contactPhone={selected.phoneNormalized}
-          currentUserName={currentUserName}
-          currentUserPhotoUrl={currentUserPhotoUrl}
           onClose={() => setSelectedThreadId(null)}
           onRenamed={(name) =>
             setConversations((prev) =>

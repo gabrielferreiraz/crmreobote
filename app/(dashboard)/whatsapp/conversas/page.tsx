@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { resolveAvatarUrl } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
 import { listConversations } from "@/lib/whatsapp/conversations";
@@ -15,7 +14,6 @@ export default async function ConversasPage() {
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
     const conversations = await listConversations(organizationId, scope);
-    const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
     // Preferência de notificação é por instância (cada um só recebe push das
     // próprias mensagens) — mostrada mesmo se a instância estiver
@@ -39,8 +37,6 @@ export default async function ConversasPage() {
       <div className="flex h-full min-h-0 flex-col gap-4">
         <ConversationsView
           initialConversations={conversations}
-          currentUserName={session!.user.name ?? undefined}
-          currentUserPhotoUrl={currentUserPhotoUrl}
           currentUserId={userId}
           notificationPrefs={notificationPrefs}
           whatsappConnected={myWhatsappConnected}
@@ -48,8 +44,6 @@ export default async function ConversasPage() {
         <div className="min-h-0 flex-1 lg:hidden">
           <ConversationsMobile
             initialConversations={conversations}
-            currentUserName={session!.user.name ?? undefined}
-            currentUserPhotoUrl={currentUserPhotoUrl}
             currentUserId={userId}
             notificationPrefs={notificationPrefs}
           />

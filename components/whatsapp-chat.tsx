@@ -64,6 +64,13 @@ type MessageMetadata = {
 
 type QuotedMessage = { id: string; type?: MessageType; body: string | null; direction: "OUTBOUND" | "INBOUND" };
 
+/** Nome + foto de quem mandou uma mensagem OUTBOUND — ou o dono de verdade
+ * da conversa (ver `threadOwner` em ChatWindow), ou quem mandou "enviando
+ * como" outra pessoa (ver `Message.sentBy` abaixo). Nunca é "quem está com
+ * o chat aberto agora" — isso é o VIEWER, pode ser qualquer um com escopo
+ * pra ver a conversa, não tem relação nenhuma com quem apertou "enviar". */
+type SenderInfo = { name: string; photoUrl: string | null };
+
 type Message = {
   id: string;
   direction: "OUTBOUND" | "INBOUND";
@@ -76,7 +83,7 @@ type Message = {
   replyToId?: string | null;
   replyTo?: QuotedMessage | null;
   /** Só preenchido quando quem mandou não é o dono do WhatsApp da conversa (ver WhatsAppMessage.sentByUserId) — rastro interno, nunca vai pro WhatsApp em si. */
-  sentBy?: { name: string } | null;
+  sentBy?: SenderInfo | null;
 };
 
 type ThreadPresence = {
@@ -173,16 +180,12 @@ export function WhatsAppChat({
   contactId,
   contactName,
   contactPhone,
-  currentUserName,
-  currentUserPhotoUrl,
   sendAsAlternate = null,
 }: {
   threadId: string;
   contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -203,8 +206,6 @@ export function WhatsAppChat({
           contactId={contactId}
           contactName={contactName}
           contactPhone={contactPhone}
-          currentUserName={currentUserName}
-          currentUserPhotoUrl={currentUserPhotoUrl}
           sendAsAlternate={sendAsAlternate}
           onClose={() => withViewTransition(() => setOpen(false))}
         />
@@ -224,8 +225,6 @@ export function WhatsAppPanel({
   contactId,
   contactName,
   contactPhone,
-  currentUserName,
-  currentUserPhotoUrl,
   sendAsAlternate = null,
   onClose,
 }: {
@@ -233,8 +232,6 @@ export function WhatsAppPanel({
   contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   onClose: () => void;
 }) {
@@ -245,8 +242,6 @@ export function WhatsAppPanel({
         contactId={contactId}
         contactName={contactName}
         contactPhone={contactPhone}
-        currentUserName={currentUserName}
-        currentUserPhotoUrl={currentUserPhotoUrl}
         sendAsAlternate={sendAsAlternate}
         onClose={() => withViewTransition(onClose)}
         className="h-full"
@@ -260,8 +255,6 @@ function WhatsAppChatModal({
   contactId,
   contactName,
   contactPhone,
-  currentUserName,
-  currentUserPhotoUrl,
   sendAsAlternate = null,
   onClose,
 }: {
@@ -269,8 +262,6 @@ function WhatsAppChatModal({
   contactId?: string | null;
   contactName?: string;
   contactPhone?: string | null;
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   onClose: () => void;
 }) {
@@ -281,8 +272,6 @@ function WhatsAppChatModal({
         contactId={contactId}
         contactName={contactName}
         contactPhone={contactPhone}
-        currentUserName={currentUserName}
-        currentUserPhotoUrl={currentUserPhotoUrl}
         sendAsAlternate={sendAsAlternate}
         onClose={onClose}
         className="h-[75vh] max-h-[42rem] min-h-[28rem]"
@@ -301,8 +290,6 @@ export function ChatWindow({
   contactId,
   contactName,
   contactPhone,
-  currentUserName,
-  currentUserPhotoUrl,
   sendAsAlternate = null,
   onClose,
   onRenamed,
@@ -324,8 +311,6 @@ export function ChatWindow({
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   contactName?: string;
   contactPhone?: string | null;
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
   onClose: () => void;
   /** Avisa quem chamou depois de um "Renomear" bem-sucedido (ver MoreMenu) —
    * opcional: em conversations-view.tsx/conversations-view-mobile.tsx
@@ -346,6 +331,11 @@ export function ChatWindow({
   const effectiveContactName = renamedTo ?? contactName;
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [messages, setMessages] = useState<Message[] | null>(null);
+  // Dono de verdade da conversa ATIVA (ver activeThreadId acima e o
+  // comentário do prop lá embaixo) — vem junto no mesmo fetch de mensagens
+  // porque muda junto com `activeThreadId` (trocar "enviar como" troca de
+  // thread, e o dono de cada thread é uma pessoa diferente).
+  const [threadOwner, setThreadOwner] = useState<SenderInfo | null>(null);
   const [presence, setPresence] = useState<ThreadPresence | null>(null);
   const [contactPhotoUrl, setContactPhotoUrl] = useState<string | null>(null);
   const [contactOrigin, setContactOrigin] = useState<ContactOriginInfo | null>(null);
@@ -414,6 +404,7 @@ export function ChatWindow({
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages);
+        setThreadOwner(data.threadOwner ?? null);
         setPresence(data.presence);
       }
     } catch {
@@ -671,8 +662,7 @@ export function ChatWindow({
                     <MessageBubble
                       message={m}
                       contactName={contactName}
-                      currentUserName={currentUserName}
-                      currentUserPhotoUrl={currentUserPhotoUrl}
+                      threadOwner={threadOwner}
                       onReply={setReplyingTo}
                     />
                   </div>
@@ -796,19 +786,26 @@ export function ChatWindow({
 function MessageBubble({
   message,
   contactName,
-  currentUserName,
-  currentUserPhotoUrl,
+  threadOwner,
   onReply,
 }: {
   message: Message;
   contactName?: string;
-  currentUserName?: string;
-  currentUserPhotoUrl?: string | null;
+  /** Dono de verdade da conversa (ver ChatWindow) — usado como remetente de
+   * toda mensagem OUTBOUND que não tenha `message.sentBy` (ou seja, foi ele
+   * mesmo quem mandou, do próprio celular/app, não alguém "enviando como"). */
+  threadOwner?: SenderInfo | null;
   onReply: (message: Message) => void;
 }) {
   const isOut = message.direction === "OUTBOUND";
+  // Quem mandou de VERDADE esta mensagem — nunca quem está com o chat
+  // aberto agora (isso é só o viewer, sem relação nenhuma com quem
+  // apertou "enviar" quando a mensagem foi criada). `sentBy` vence quando
+  // presente (mensagem mandada "como" outra pessoa); sem ele, foi o
+  // próprio dono da conversa que mandou.
+  const sender = message.sentBy ?? threadOwner;
   const avatar = isOut ? (
-    <Avatar name={currentUserName ?? "?"} src={currentUserPhotoUrl} size="xs" className="shrink-0" />
+    <Avatar name={sender?.name ?? "?"} src={sender?.photoUrl ?? null} size="xs" className="shrink-0" />
   ) : (
     <Avatar name={contactName ?? "?"} size="xs" className="shrink-0" />
   );
