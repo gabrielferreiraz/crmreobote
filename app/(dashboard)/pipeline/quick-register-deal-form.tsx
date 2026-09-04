@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { CurrencyInput } from "@/components/currency-input";
+import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { VoiceInputButton } from "@/components/voice-input-button";
@@ -69,6 +70,8 @@ export function QuickRegisterDealForm({
   const [jobTitles, setJobTitles] = useState<JobTitleOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ContactConflict | null>(null);
+  const [claiming, setClaiming] = useState(false);
 
   // Campos que o parser preencheu sozinho e que o consultor ainda não olhou
   // — só pra dar um destaque visual de "revise isso" no formulário. Some do
@@ -245,71 +248,106 @@ export function QuickRegisterDealForm({
     applyParsed(parseLeadText(rawTextDictation.committed));
   }
 
+  // Extraído pra ser reaproveitado por handleSubmit e handleClaim (o
+  // "Assumir este contato" da ContactConflictNotice reenvia exatamente os
+  // mesmos dados do formulário + claimContactId — ver POST /api/contacts).
+  async function createOrClaimContact(claimContactId?: string): Promise<{ id: string } | null> {
+    const contactRes = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        email: email || undefined,
+        phone: phone || undefined,
+        whatsapp: whatsapp || undefined,
+        company: company || undefined,
+        jobTitle,
+        address: address || undefined,
+        addressNumber: addressNumber || undefined,
+        addressComplement: addressComplement || undefined,
+        neighborhood: neighborhood || undefined,
+        city: city || undefined,
+        state: state || undefined,
+        zipCode: zipCode || undefined,
+        source: "Cadastro rápido",
+        ...(claimContactId ? { claimContactId } : {}),
+      }),
+    });
+    const contactData = await contactRes.json().catch(() => ({}));
+    if (!contactRes.ok) {
+      if (contactData.conflict) {
+        setConflict(contactData.conflict as ContactConflict);
+      } else {
+        setError(contactData.error ?? "Erro ao criar contato");
+      }
+      return null;
+    }
+    return contactData as { id: string };
+  }
+
+  async function createDealForContact(contactId: string): Promise<boolean> {
+    const dealRes = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pipelineId,
+        stageId: firstStageId,
+        contactId,
+        value: value ? Number(value) : undefined,
+        grossValue: grossValue ? Number(grossValue) : undefined,
+        creditType: creditType || undefined,
+        description: description || undefined,
+        ownerId: ownerId || undefined,
+      }),
+    });
+    const dealData = await dealRes.json().catch(() => ({}));
+    if (!dealRes.ok) {
+      setError(dealData.error ?? "Erro ao criar negócio");
+      return false;
+    }
+
+    onCreated({
+      ...dealData,
+      value: dealData.value != null ? Number(dealData.value) : null,
+      grossValue: dealData.grossValue != null ? Number(dealData.grossValue) : null,
+      owner: { id: dealData.owner.id, name: dealData.owner.name, photoUrl: null },
+      nextActivity: null,
+      taskTypes: [],
+    });
+    return true;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!firstStageId || !name.trim() || !jobTitle) return;
     setLoading(true);
     setError(null);
+    setConflict(null);
 
     try {
-      const contactRes = await fetch("/api/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          email: email || undefined,
-          phone: phone || undefined,
-          whatsapp: whatsapp || undefined,
-          company: company || undefined,
-          jobTitle,
-          address: address || undefined,
-          addressNumber: addressNumber || undefined,
-          addressComplement: addressComplement || undefined,
-          neighborhood: neighborhood || undefined,
-          city: city || undefined,
-          state: state || undefined,
-          zipCode: zipCode || undefined,
-          source: "Cadastro rápido",
-        }),
-      });
-      const contactData = await contactRes.json().catch(() => ({}));
-      if (!contactRes.ok) {
-        setError(contactData.error ?? "Erro ao criar contato");
-        return;
-      }
-
-      const dealRes = await fetch("/api/deals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pipelineId,
-          stageId: firstStageId,
-          contactId: contactData.id,
-          value: value ? Number(value) : undefined,
-          grossValue: grossValue ? Number(grossValue) : undefined,
-          creditType: creditType || undefined,
-          description: description || undefined,
-          ownerId: ownerId || undefined,
-        }),
-      });
-      const dealData = await dealRes.json().catch(() => ({}));
-      if (!dealRes.ok) {
-        setError(dealData.error ?? "Erro ao criar negócio");
-        return;
-      }
-
-      onCreated({
-        ...dealData,
-        value: dealData.value != null ? Number(dealData.value) : null,
-        grossValue: dealData.grossValue != null ? Number(dealData.grossValue) : null,
-        owner: { id: dealData.owner.id, name: dealData.owner.name, photoUrl: null },
-        nextActivity: null,
-        taskTypes: [],
-      });
+      const contact = await createOrClaimContact();
+      if (!contact) return;
+      await createDealForContact(contact.id);
     } catch {
       setError("Falha de conexão. Tente novamente.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleClaim() {
+    if (!conflict) return;
+    setClaiming(true);
+    setError(null);
+    try {
+      const contact = await createOrClaimContact(conflict.contactId);
+      if (!contact) return;
+      setConflict(null);
+      await createDealForContact(contact.id);
+    } catch {
+      setError("Falha de conexão. Tente novamente.");
+    } finally {
+      setClaiming(false);
     }
   }
 
@@ -592,6 +630,7 @@ export function QuickRegisterDealForm({
         </div>
       )}
 
+      {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <div className="flex justify-end gap-2 pt-2">

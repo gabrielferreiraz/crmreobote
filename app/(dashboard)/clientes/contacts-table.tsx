@@ -38,6 +38,7 @@ import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { SendLeadsDialog } from "@/components/send-leads-dialog";
 import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
@@ -120,6 +121,8 @@ export function ContactsTable({
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ContactConflict | null>(null);
+  const [claiming, setClaiming] = useState(false);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -464,46 +467,82 @@ export function ContactsTable({
     }
   }
 
+  // Extraído do handleSubmit pra poder reenviar exatamente os mesmos dados
+  // do formulário quando "Assumir este contato" é clicado (claimContactId a
+  // mais é a única diferença) — ver ContactConflictNotice.
+  function buildContactPayload(claimContactId?: string) {
+    return {
+      name,
+      email: email || undefined,
+      phone: phone || undefined,
+      whatsapp: whatsapp || undefined,
+      source: source || undefined,
+      company: company || undefined,
+      jobTitle: jobTitle || undefined,
+      zipCode: zipCode || undefined,
+      address: address || undefined,
+      addressNumber: addressNumber || undefined,
+      addressComplement: addressComplement || undefined,
+      neighborhood: neighborhood || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      tags: tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      responsavelId: responsavelId || undefined,
+      customFieldValues,
+      ...(claimContactId ? { claimContactId } : {}),
+    };
+  }
+
+  async function submitContact(claimContactId?: string) {
+    const res = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildContactPayload(claimContactId)),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.conflict) {
+        setConflict(data.conflict as ContactConflict);
+      } else {
+        setError(data.error ?? "Erro ao criar contato");
+      }
+      return false;
+    }
+    return true;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
     setError(null);
+    setConflict(null);
 
-    const res = await fetch("/api/contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        email: email || undefined,
-        phone: phone || undefined,
-        whatsapp: whatsapp || undefined,
-        source: source || undefined,
-        company: company || undefined,
-        jobTitle: jobTitle || undefined,
-        zipCode: zipCode || undefined,
-        address: address || undefined,
-        addressNumber: addressNumber || undefined,
-        addressComplement: addressComplement || undefined,
-        neighborhood: neighborhood || undefined,
-        city: city || undefined,
-        state: state || undefined,
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
-        responsavelId: responsavelId || undefined,
-        customFieldValues,
-      }),
-    });
-
+    const ok = await submitContact();
     setCreating(false);
+    if (!ok) return;
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erro ao criar contato");
-      return;
-    }
+    resetContactForm();
+    router.refresh();
+  }
 
+  async function handleClaim() {
+    if (!conflict) return;
+    setClaiming(true);
+    setError(null);
+    const ok = await submitContact(conflict.contactId);
+    setClaiming(false);
+    if (!ok) return;
+
+    setConflict(null);
+    resetContactForm();
+    router.refresh();
+  }
+
+  function resetContactForm() {
     setOpen(false);
     setName("");
     setEmail("");
@@ -522,7 +561,6 @@ export function ContactsTable({
     setTags("");
     setResponsavelId("");
     setCustomFieldValues({});
-    router.refresh();
   }
 
   return (
@@ -537,7 +575,14 @@ export function ContactsTable({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => setOpen(true)} className="btn-primary">
+        <button
+          onClick={() => {
+            setError(null);
+            setConflict(null);
+            setOpen(true);
+          }}
+          className="btn-primary"
+        >
           <Plus className="h-4 w-4" strokeWidth={2.5} />
           Novo contato
         </button>
@@ -1055,6 +1100,7 @@ export function ContactsTable({
             </div>
             <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
+            {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
             <div className="flex justify-end gap-2 pt-2">

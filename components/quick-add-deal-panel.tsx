@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { SidePanel } from "@/components/side-panel";
 import { CurrencyInput } from "@/components/currency-input";
+import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { Select } from "@/components/select";
 import { LoadingDots } from "@/components/loading-dots";
 
@@ -48,6 +49,8 @@ export function QuickAddDealPanel({
   const [jobTitle, setJobTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ContactConflict | null>(null);
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,47 +110,77 @@ export function QuickAddDealPanel({
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId) ?? null;
   const firstStage = selectedPipeline?.stages.slice().sort((a, b) => a.order - b.order)[0] ?? null;
 
+  async function createOrClaimContact(claimContactId?: string): Promise<{ id: string } | null> {
+    const contactRes = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, whatsapp: phoneFormatted, jobTitle, ...(claimContactId ? { claimContactId } : {}) }),
+    });
+    const contact = await contactRes.json().catch(() => ({}));
+    if (!contactRes.ok) {
+      if (contact.conflict) {
+        setConflict(contact.conflict as ContactConflict);
+      } else {
+        setError(contact.error ?? "Erro ao criar contato");
+      }
+      return null;
+    }
+    return contact as { id: string };
+  }
+
+  async function createDealForContact(contactId: string): Promise<void> {
+    const dealRes = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pipelineId: selectedPipeline!.id,
+        stageId: firstStage!.id,
+        contactId,
+        value: value ? Number(value) : undefined,
+        creditType: creditType || undefined,
+        ownerId,
+      }),
+    });
+    const deal = await dealRes.json().catch(() => ({}));
+    if (!dealRes.ok) {
+      setError(deal.error ?? "Contato criado, mas houve erro ao criar o negócio");
+      return;
+    }
+
+    onCreated({ contactId, deal: { id: deal.id, name: deal.name } });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!firstStage) return;
     setSubmitting(true);
     setError(null);
+    setConflict(null);
 
     try {
-      const contactRes = await fetch("/api/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, whatsapp: phoneFormatted, jobTitle }),
-      });
-      const contact = await contactRes.json().catch(() => ({}));
-      if (!contactRes.ok) {
-        setError(contact.error ?? "Erro ao criar contato");
-        return;
-      }
-
-      const dealRes = await fetch("/api/deals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pipelineId: selectedPipeline!.id,
-          stageId: firstStage.id,
-          contactId: contact.id,
-          value: value ? Number(value) : undefined,
-          creditType: creditType || undefined,
-          ownerId,
-        }),
-      });
-      const deal = await dealRes.json().catch(() => ({}));
-      if (!dealRes.ok) {
-        setError(deal.error ?? "Contato criado, mas houve erro ao criar o negócio");
-        return;
-      }
-
-      onCreated({ contactId: contact.id, deal: { id: deal.id, name: deal.name } });
+      const contact = await createOrClaimContact();
+      if (!contact) return;
+      await createDealForContact(contact.id);
     } catch {
       setError("Falha de conexão. Tente novamente.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleClaim() {
+    if (!conflict || !firstStage) return;
+    setClaiming(true);
+    setError(null);
+    try {
+      const contact = await createOrClaimContact(conflict.contactId);
+      if (!contact) return;
+      setConflict(null);
+      await createDealForContact(contact.id);
+    } catch {
+      setError("Falha de conexão. Tente novamente.");
+    } finally {
+      setClaiming(false);
     }
   }
 
@@ -208,6 +241,7 @@ export function QuickAddDealPanel({
 
         <p className="text-xs text-neutral-400 dark:text-neutral-500">Responsável: {ownerName}</p>
 
+        {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
         {(error || loadError) && (
           <p className="text-sm text-red-600 dark:text-red-400">{error ?? loadError}</p>
         )}

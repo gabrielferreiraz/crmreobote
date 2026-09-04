@@ -90,6 +90,7 @@ export async function POST(req: Request) {
     tags,
     responsavelId,
     customFieldValues,
+    claimContactId,
   } = body as {
     name?: string;
     email?: string;
@@ -108,6 +109,11 @@ export async function POST(req: Request) {
     tags?: string[];
     responsavelId?: string | null;
     customFieldValues?: Record<string, unknown>;
+    // Confirmação explícita de "assumir esse contato" — ver conflict.claimable
+    // na resposta 409 abaixo. Só some com o bloqueio se bater com o MESMO
+    // contato que o 409 anterior apontou (nunca um "passe qualquer id e
+    // reivindique qualquer contato").
+    claimContactId?: string;
   };
 
   const { organizationId, userId } = await requireSession();
@@ -130,7 +136,89 @@ export async function POST(req: Request) {
 
     const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized);
     if (duplicate) {
-      return NextResponse.json({ error: duplicate.message }, { status: 409 });
+      // Responsável ativo cuidando do lead → nunca deixa passar direto,
+      // mesmo com claimContactId — bloqueia sempre e mostra pra quem
+      // procurar (pedido explícito do usuário).
+      if (duplicate.responsavelActive) {
+        return NextResponse.json(
+          {
+            error: duplicate.message,
+            conflict: {
+              contactId: duplicate.contactId,
+              contactName: duplicate.contactName,
+              createdAt: duplicate.createdAt,
+              responsavelName: duplicate.responsavelName,
+              claimable: false,
+            },
+          },
+          { status: 409 },
+        );
+      }
+
+      // Sem responsável ativo (nunca teve, ou o antigo responsável foi
+      // desativado) — sem claimContactId ainda é só um aviso (409), com a
+      // opção de reivindicar; com claimContactId apontando pro MESMO
+      // contato, confirma e vira UPDATE (responsável passa a ser quem está
+      // criando agora) em vez de tentar CREATE.
+      if (!claimContactId || claimContactId !== duplicate.contactId) {
+        return NextResponse.json(
+          {
+            error: duplicate.message,
+            conflict: {
+              contactId: duplicate.contactId,
+              contactName: duplicate.contactName,
+              createdAt: duplicate.createdAt,
+              responsavelName: duplicate.responsavelName,
+              claimable: true,
+            },
+          },
+          { status: 409 },
+        );
+      }
+
+      const fieldDefsForClaim = await prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "CONTACT" },
+      });
+      let claimCustomFieldValues;
+      try {
+        claimCustomFieldValues = validateCustomFieldValues(fieldDefsForClaim, customFieldValues);
+      } catch (err) {
+        return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+      }
+
+      const claimed = await prisma.contact.update({
+        where: { id: duplicate.contactId },
+        data: {
+          name: sanitizeCell(name),
+          email: sanitizeCell(email),
+          phone: sanitizeCell(whatsappFallback.phone),
+          whatsapp: sanitizeCell(whatsappFallback.whatsapp),
+          source: sanitizeCell(source),
+          company: sanitizeCell(company),
+          jobTitle: sanitizeCell(jobTitle),
+          address: sanitizeCell(address),
+          addressNumber: sanitizeCell(addressNumber),
+          addressComplement: sanitizeCell(addressComplement),
+          neighborhood: sanitizeCell(neighborhood),
+          city: sanitizeCell(city),
+          state: sanitizeCell(state),
+          zipCode: sanitizeCell(zipCode),
+          tags: cleanTags,
+          // Sempre quem está criando agora — não o que veio no formulário
+          // (ver comentário no claimContactId acima: reivindicar É a
+          // atribuição, não uma escolha separada de responsável).
+          responsavelId: userId,
+          phoneNormalized,
+          whatsappNormalized,
+          customFieldValues: claimCustomFieldValues,
+        },
+      });
+
+      recordUserChange(organizationId, userId).catch((err) =>
+        console.error("[user-activity] falha ao registrar alteração", err),
+      );
+
+      return NextResponse.json(claimed, { status: 200 });
     }
 
     const fieldDefs = await prisma.customFieldDefinition.findMany({

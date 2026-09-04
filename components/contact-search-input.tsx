@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search, X, UserPlus, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
@@ -232,6 +233,8 @@ function QuickCreateContactModal({
   const [jobTitle, setJobTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ContactConflict | null>(null);
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -251,36 +254,59 @@ function QuickCreateContactModal({
     };
   }, []);
 
+  async function submitContact(claimContactId?: string) {
+    const res = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        email: email || undefined,
+        phone: phone || undefined,
+        whatsapp: whatsapp || undefined,
+        jobTitle,
+        ...(claimContactId ? { claimContactId } : {}),
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      if (data.conflict) {
+        setConflict(data.conflict as ContactConflict);
+      } else {
+        setError(data.error ?? "Erro ao criar contato");
+      }
+      return;
+    }
+
+    setConflict(null);
+    onCreated({ id: data.id, name: data.name, email: data.email, phone: data.phone });
+  }
+
   async function handleSubmit() {
     if (loading || !name.trim() || !jobTitle) return;
     setLoading(true);
     setError(null);
-
+    setConflict(null);
     try {
-      const res = await fetch("/api/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          email: email || undefined,
-          phone: phone || undefined,
-          whatsapp: whatsapp || undefined,
-          jobTitle,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setError(data.error ?? "Erro ao criar contato");
-        return;
-      }
-
-      onCreated({ id: data.id, name: data.name, email: data.email, phone: data.phone });
+      await submitContact();
     } catch {
       setError("Falha de conexão ao criar contato. Tente novamente.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleClaim() {
+    if (!conflict) return;
+    setClaiming(true);
+    setError(null);
+    try {
+      await submitContact(conflict.contactId);
+    } catch {
+      setError("Falha de conexão ao criar contato. Tente novamente.");
+    } finally {
+      setClaiming(false);
     }
   }
 
@@ -345,6 +371,7 @@ function QuickCreateContactModal({
           />
         </div>
 
+        {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2">
