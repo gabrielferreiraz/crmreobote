@@ -56,6 +56,7 @@ model Organization {
   processRequests        ProcessRequest[]
   auditLogs              AuditLog[]
   undoableActions        UndoableAction[]
+  productivityTipDismissals ProductivityTipDismissal[]
   tvConfig               TvDashboardConfig?
   tvDisplayLinks         TvDisplayLink[]
   importBatches          ImportBatch[]
@@ -114,6 +115,7 @@ model User {
   whatsappThreadsOwned        WhatsAppThread[]          @relation("WhatsAppThreadOwner")
   auditLogsAsActor            AuditLog[]                @relation("AuditLogActor")
   undoableActions             UndoableAction[]
+  productivityTipDismissals   ProductivityTipDismissal[]
   automationRulesCreated      AutomationRule[]          @relation("AutomationRuleCreatedBy")
   importBatchesCreated        ImportBatch[]
   shareGroupsCreated          ShareGroup[]              @relation("ShareGroupCreatedBy")
@@ -2167,4 +2169,35 @@ model TvDisplayLink {
   createdBy    User         @relation(fields: [createdById], references: [id])
 
   @@index([organizationId])
+}
+
+enum ProductivityTipType {
+  WHATSAPP_DISCONNECTED
+  NOSHOW_DEALS
+  MANY_WHATSAPP_TASKS
+  STALE_DEALS
+  NO_MESSAGE_SCRIPTS
+}
+
+// Dispensa de uma dica de produtividade (ver lib/productivity-tips/) — por
+// usuário, por tipo de dica, por escopo (ex.: uma etapa específica de
+// no-show) e por dia (dismissDate = início do dia local em que foi
+// dispensada; forever=true ignora o dia e nunca mais mostra esse tipo/
+// escopo pra esse usuário). organizationId próprio (mesmo padrão de
+// UndoableAction) — RLS simples direto na coluna, sem subquery.
+model ProductivityTipDismissal {
+  id             String              @id @default(cuid())
+  organizationId String
+  tipType        ProductivityTipType
+  scope          String              @default("GLOBAL")
+  dismissDate    DateTime
+  forever        Boolean             @default(false)
+  dismissedBy    String
+  dismissedAt    DateTime            @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dismissedByUser User         @relation(fields: [dismissedBy], references: [id], onDelete: Cascade)
+
+  @@unique([tipType, scope, dismissedBy, dismissDate, forever])
+  @@index([organizationId, dismissedBy, tipType, scope])
 }

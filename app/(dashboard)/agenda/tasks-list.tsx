@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, CheckSquare, Loader2, List, CalendarDays, Search, SearchX } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -9,6 +9,7 @@ import { FilterPopover } from "@/components/filter-popover";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { MeetingInviteDialog, type MeetingInviteTask } from "@/components/meeting-invite-dialog";
 import { ScheduleMessageDialog, type ScheduleMessageTask } from "@/components/schedule-message-dialog";
+import { BulkScheduleTasksDialog, type BulkScheduleTask } from "@/components/bulk-schedule-tasks-dialog";
 import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -20,6 +21,7 @@ import { TaskCalendar } from "./task-calendar";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
 import { useUndoToast } from "@/components/undo-provider";
+import { popTasksScheduleDraft } from "@/lib/tasks-schedule-draft";
 
 export type Option = { id: string; name: string };
 
@@ -74,6 +76,33 @@ export function TasksList({
   // aparecer trocando pra "Finalizadas" ou "Todas" de propósito.
   const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const showOwner = members.length > 1;
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState<BulkScheduleTask[] | null>(null);
+
+  // Ida-e-volta da dica de produtividade MANY_WHATSAPP_TASKS: lê os ids
+  // selecionados no sessionStorage, encontra as tarefas correspondentes e
+  // abre o diálogo de agendamento em massa automaticamente. Pop de uso
+  // único — navegar de volta pra Agenda não reabre o mesmo popup.
+  useEffect(() => {
+    const draft = popTasksScheduleDraft();
+    if (!draft) return;
+    const ids = new Set(draft.taskIds);
+    const matches: BulkScheduleTask[] = initialTasks
+      .filter((t) => ids.has(t.id) && t.type === "WHATSAPP" && t.contact)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        dueAt: t.dueAt as string | Date,
+        contact: {
+          id: t.contact!.id,
+          name: t.contact!.name,
+          jobTitle: t.contact!.jobTitle,
+          company: t.contact!.company,
+          city: t.contact!.city,
+          phone: t.contact!.phone,
+        },
+      }));
+    if (matches.length > 0) setBulkScheduleOpen(matches);
+  }, [initialTasks]);
 
   // statusFilter no padrão ("pending") não conta como filtro "ativo" pro
   // indicador do FilterPopover/hasFilters — é o estado de repouso da tela,
@@ -353,6 +382,12 @@ export function TasksList({
             setOpen(false);
             router.refresh();
           }}
+        />
+      )}
+      {bulkScheduleOpen && (
+        <BulkScheduleTasksDialog
+          tasks={bulkScheduleOpen}
+          onClose={() => setBulkScheduleOpen(null)}
         />
       )}
     </div>

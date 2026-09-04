@@ -16,6 +16,7 @@ import { InstallPwaPrompt } from "@/components/install-pwa-prompt";
 import { PresenceHeartbeat } from "@/components/presence-heartbeat";
 import { PushNotificationsPrompt } from "@/components/push-notifications-prompt";
 import { UndoProvider } from "@/components/undo-provider";
+import { ProductivityTipsHost } from "@/components/productivity-tips-host";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -116,6 +117,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />
+      <ProductivityTipsHost />
     </div>
     </UndoProvider>
   );
