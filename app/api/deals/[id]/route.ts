@@ -137,8 +137,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
+    // BUG em produção corrigido aqui: antes só entrava quando o negócio
+    // vinha de "Em andamento" (existing.status === "OPEN"). Os 3 botões do
+    // topo do negócio (Perdido/Em andamento/Ganho) deixam trocar pra
+    // QUALQUER status num clique só, sem passar por "Em andamento" no meio
+    // — marcar Perdido e depois, direto, Ganho (ou o inverso) NUNCA
+    // atualizava closedAt, que ficava preso na data do fechamento anterior
+    // (às vezes de mês passado). O negócio virava "Ganho" de verdade no
+    // status, mas sumia de qualquer relatório/dashboard filtrado por
+    // "fechado este mês" (ver lib/tv-dashboard.ts, lib/reports/commercial-
+    // data.ts) — o closedAt antigo já estava fora da janela. Corrigido pra
+    // dar match em QUALQUER transição de verdade pra WON/LOST (não só
+    // vindo de OPEN), contanto que o status esteja mesmo mudando.
     let closedAt: Date | undefined;
-    if (status && status !== "OPEN" && existing.status === "OPEN") {
+    if (status && status !== "OPEN" && status !== existing.status) {
       if (closedAtInput) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(closedAtInput)) {
           return NextResponse.json({ error: "Data inválida" }, { status: 400 });
