@@ -9,17 +9,30 @@ export const dynamic = "force-dynamic";
 const CRON_NAME = "db-backup";
 
 async function handleCron() {
-  const lock = await acquireCronLock(CRON_NAME);
-  if (!lock) {
-    // 200 de propósito — ver comentário no catch abaixo.
-    return NextResponse.json({ ok: false, skipped: true, error: "Outra execução do cron já está em andamento" });
-  }
   try {
+    // acquireCronLock roda POR DENTRO do recordCronRun agora (não antes, num
+    // try separado) — se ela mesma falhar (ex.: blip de conexão com o
+    // Postgres bem na hora do tick), a falha precisa ser GRAVADA e ALERTADA
+    // igual a qualquer outra, não escapar crua como um 500 que o cron-job.org
+    // usaria pra desativar o job sozinho e silenciosamente (foi exatamente
+    // isso que aconteceu com o cron de campanhas em 2026-08: ficou 6 dias sem
+    // rodar, sem nenhum registro, porque a falha nunca chegava a ser gravada
+    // — ver lib/cron-watchdog.ts, que agora vigia isso a partir de outro cron).
     // recordCronRun grava sucesso/falha em CronRun e manda e-mail pro Dono
     // se falhar (ver lib/cron-run.ts) — o backup é o cron mais arriscado de
     // falhar em silêncio (erro só voltava numa resposta HTTP que ninguém
     // olhava), por isso este é o motivo original de existir essa gravação.
-    const result = await recordCronRun(CRON_NAME, runDbBackup);
+    const result = await recordCronRun(CRON_NAME, async () => {
+      const lock = await acquireCronLock(CRON_NAME);
+      if (!lock) return { skipped: true };
+      try {
+        return await runDbBackup();
+      } finally {
+        await lock.release().catch((err) =>
+          console.error("[cron:db-backup] falha ao liberar lock", err),
+        );
+      }
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("[cron:db-backup] falha", err);
@@ -29,10 +42,6 @@ async function handleCron() {
     // só arriscaria o cron-job.org desligar o job e a gente parar de saber
     // quando o backup volta a funcionar.
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  } finally {
-    await lock.release().catch((err) =>
-      console.error("[cron:db-backup] falha ao liberar lock", err),
-    );
   }
 }
 

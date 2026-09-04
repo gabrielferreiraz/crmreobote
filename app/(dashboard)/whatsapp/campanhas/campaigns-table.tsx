@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Megaphone, Plus, Loader2, Trash2, Play, Pause, Copy, ListChecks, Send, Pencil, X, Users, Smartphone, MessageSquare, Clock, Repeat } from "lucide-react";
+import { Megaphone, Plus, Loader2, Trash2, Play, Pause, ListChecks, Send, Pencil, X, Users, Smartphone, MessageSquare, Clock, Repeat } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { renderSteps, pickWeighted, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
+import { DuplicateCampaignButton } from "./duplicate-campaign-button";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
 type AudienceFilter = { jobTitles: string[]; tags: string[]; cities: string[] };
@@ -88,7 +89,11 @@ export function CampaignsTable({
   const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  // Histórico: "Ativas" (o que ainda tem trabalho a fazer ou espera revisão)
+  // é o padrão — Concluída some da visão principal sozinha, senão a lista
+  // só cresce pra sempre com campanha que já terminou há meses. "Todas" e
+  // "Concluídas" ficam a um clique pra quem quer rever o que já rodou.
+  const [statusFilter, setStatusFilter] = useState<"active" | "done" | "all">("active");
 
   async function setStatus(campaign: Campaign, status: CampaignStatus) {
     setTogglingId(campaign.id);
@@ -106,12 +111,12 @@ export function CampaignsTable({
     router.refresh();
   }
 
-  async function duplicateCampaign(id: string) {
-    setDuplicatingId(id);
-    const res = await fetch(`/api/campaigns/${id}/duplicate`, { method: "POST" });
-    setDuplicatingId(null);
-    if (res.ok) router.refresh();
-  }
+  const visibleCampaigns = useMemo(() => {
+    if (statusFilter === "all") return initialCampaigns;
+    if (statusFilter === "done") return initialCampaigns.filter((c) => c.status === "DONE");
+    return initialCampaigns.filter((c) => c.status !== "DONE");
+  }, [initialCampaigns, statusFilter]);
+  const doneCount = useMemo(() => initialCampaigns.filter((c) => c.status === "DONE").length, [initialCampaigns]);
 
   async function openEdit(id: string) {
     setLoadingEditId(id);
@@ -125,7 +130,32 @@ export function CampaignsTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Histórico: filtro de status — Ativas some Concluída da visão
+            principal sozinha, sem esconder o histórico de vez (ver
+            statusFilter acima). */}
+        <div className="flex items-center gap-1">
+          {(
+            [
+              ["active", "Ativas"],
+              ["done", `Concluídas${doneCount > 0 ? ` (${doneCount})` : ""}`],
+              ["all", "Todas"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setStatusFilter(value)}
+              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                statusFilter === value
+                  ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+                  : "border-neutral-300 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => {
             setEditCampaign(null);
@@ -153,11 +183,15 @@ export function CampaignsTable({
             description="Filtre um público (cargo, tag ou cidade) e mande uma prospecção com variação de mensagem e intervalo seguro entre envios."
           />
         </div>
+      ) : visibleCampaigns.length === 0 ? (
+        <p className="p-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
+          {statusFilter === "done" ? "Nenhuma campanha concluída ainda." : "Nenhuma campanha nesse filtro."}
+        </p>
       ) : (
         <>
           {/* Mobile: cards */}
           <div className="space-y-2 lg:hidden">
-            {initialCampaigns.map((c) => {
+            {visibleCampaigns.map((c) => {
               const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
               return (
                 <div key={c.id} className="card p-3">
@@ -219,16 +253,11 @@ export function CampaignsTable({
                     <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
                       <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
                     </Link>
-                    <button
-                      type="button"
-                      disabled={duplicatingId === c.id}
-                      onClick={() => duplicateCampaign(c.id)}
-                      className="icon-btn"
-                      aria-label="Duplicar campanha"
-                      title="Duplicar campanha"
-                    >
-                      <Copy className="h-3.5 w-3.5" strokeWidth={2} />
-                    </button>
+                    <DuplicateCampaignButton
+                      campaignId={c.id}
+                      hasAudienceFilter={c.audienceFilter.jobTitles.length > 0 || c.audienceFilter.tags.length > 0 || c.audienceFilter.cities.length > 0}
+                      onDuplicated={() => router.refresh()}
+                    />
                     <button
                       type="button"
                       onClick={() => setCampaignToDelete(c)}
@@ -258,7 +287,7 @@ export function CampaignsTable({
                 </tr>
               </thead>
               <tbody>
-                {initialCampaigns.map((c) => {
+                {visibleCampaigns.map((c) => {
                   const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
                   return (
                     <tr key={c.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
@@ -321,16 +350,11 @@ export function CampaignsTable({
                           <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
                             <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
                           </Link>
-                          <button
-                            type="button"
-                            disabled={duplicatingId === c.id}
-                            onClick={() => duplicateCampaign(c.id)}
-                            className="icon-btn"
-                            aria-label="Duplicar campanha"
-                            title="Duplicar campanha"
-                          >
-                            <Copy className="h-3.5 w-3.5" strokeWidth={2} />
-                          </button>
+                          <DuplicateCampaignButton
+                            campaignId={c.id}
+                            hasAudienceFilter={c.audienceFilter.jobTitles.length > 0 || c.audienceFilter.tags.length > 0 || c.audienceFilter.cities.length > 0}
+                            onDuplicated={() => router.refresh()}
+                          />
                           <button
                             type="button"
                             onClick={() => setCampaignToDelete(c)}

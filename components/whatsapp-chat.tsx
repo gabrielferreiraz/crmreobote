@@ -183,7 +183,7 @@ export function WhatsAppChat({
   contactPhone?: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
-  sendAsAlternate?: { threadId: string; label: string } | null;
+  sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -235,7 +235,7 @@ export function WhatsAppPanel({
   contactPhone?: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
-  sendAsAlternate?: { threadId: string; label: string } | null;
+  sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   onClose: () => void;
 }) {
   return (
@@ -271,7 +271,7 @@ function WhatsAppChatModal({
   contactPhone?: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
-  sendAsAlternate?: { threadId: string; label: string } | null;
+  sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   onClose: () => void;
 }) {
   return (
@@ -312,12 +312,16 @@ export function ChatWindow({
   threadId: string;
   contactId?: string | null;
   /**
-   * Quando quem está vendo o chat pode alternar entre a própria conversa
-   * (`threadId`, o padrão) e a conversa que roda pelo WhatsApp de outra
-   * pessoa (ex.: Dono "enviando como" o consultor responsável) — ver
-   * lib/whatsapp/send.ts's sentByUserId pra como isso fica registrado.
+   * Quando quem está vendo o chat pode alternar entre a conversa PADRÃO
+   * (`threadId` — sempre a conversa real do responsável pelo negócio/
+   * contato, `defaultLabel` é o nome dele) e a própria conversa de quem
+   * está vendo (`sendAsAlternate.threadId`/`label`, ex.: "você") — Dono/
+   * Gerente/Supervisor olhando o negócio de outra pessoa ganham essa opção
+   * pra falar pessoalmente com o lead sem perder de vista o que já foi
+   * conversado pelo número do responsável. Ver lib/whatsapp/send.ts's
+   * sentByUserId pra como o envio fica registrado.
    */
-  sendAsAlternate?: { threadId: string; label: string } | null;
+  sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   contactName?: string;
   contactPhone?: string | null;
   currentUserName?: string;
@@ -363,9 +367,10 @@ export function ChatWindow({
   const wasNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // "Enviar como {consultor}" — troca a conversa exibida/usada pra enviar
-  // pela do WhatsApp de outra pessoa (ver sendAsAlternate acima). Reseta pro
-  // padrão sempre que o `threadId` de base muda (ex.: Dono navega pra outro
+  // "Enviar como você" — troca a conversa exibida/usada pra enviar pela do
+  // PRÓPRIO WhatsApp de quem está vendo, em vez da conversa padrão (que é
+  // sempre a do responsável — ver sendAsAlternate acima). Reseta pro padrão
+  // sempre que o `threadId` de base muda (ex.: Dono navega pra outro
   // negócio/cliente) — sem isso ficaria "grudado" no modo alternativo ao
   // trocar de conversa.
   const [usingAlternate, setUsingAlternate] = useState(false);
@@ -614,18 +619,17 @@ export function ChatWindow({
       {sendAsAlternate && (
         <div className="mt-2 flex shrink-0 items-center justify-between gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-xs dark:border-neutral-800 dark:bg-neutral-800/40">
           <span className="text-neutral-500 dark:text-neutral-400">
-            {usingAlternate ? (
-              <>Enviando como <span className="font-medium text-neutral-800 dark:text-neutral-200">{sendAsAlternate.label}</span></>
-            ) : (
-              "Enviando como você"
-            )}
+            Enviando como{" "}
+            <span className="font-medium text-neutral-800 dark:text-neutral-200">
+              {usingAlternate ? sendAsAlternate.label : sendAsAlternate.defaultLabel}
+            </span>
           </span>
           <button
             type="button"
             onClick={() => setUsingAlternate((v) => !v)}
             className="font-medium text-neutral-700 hover:underline dark:text-neutral-300"
           >
-            {usingAlternate ? "Voltar a enviar como você" : `Enviar como ${sendAsAlternate.label}`}
+            {usingAlternate ? `Voltar a enviar como ${sendAsAlternate.defaultLabel}` : `Enviar como ${sendAsAlternate.label}`}
           </button>
         </div>
       )}

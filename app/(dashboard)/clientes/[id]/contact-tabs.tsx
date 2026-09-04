@@ -39,7 +39,7 @@ type WhatsAppInfo = {
   contactPhone: string | null;
   currentUserName?: string;
   currentUserPhotoUrl?: string | null;
-  sendAsAlternate?: { threadId: string; label: string } | null;
+  sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
 };
 
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };

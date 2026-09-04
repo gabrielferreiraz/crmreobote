@@ -127,33 +127,46 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       members.push({ id: deal.owner.id, name: `${deal.owner.name} (inativo)` });
     }
 
-    // A conversa é sempre a do vendedor responsável pelo negócio — é o
-    // número dele que troca mensagem com esse contato. Pra quem está vendo o
-    // próprio negócio dá no mesmo; pra dono/admin abrindo o negócio de outro
-    // vendedor, é isso que deixa ver e ajudar na conversa mesmo sem ter um
-    // WhatsApp próprio conectado. Sem instância conectada, não tem como
-    // abrir chat aqui.
+    // A conversa PADRÃO é sempre a do vendedor responsável pelo negócio — é
+    // o número dele que troca mensagem com esse contato, e é isso que
+    // precisa aparecer pra quem quer que esteja olhando (o próprio
+    // responsável dá no mesmo; Dono/Gerente/Supervisor olhando o negócio de
+    // outro vendedor precisam ver EXATAMENTE essa conversa, nunca uma
+    // conversa própria — e quase sempre vazia — que por acaso exista com o
+    // mesmo contato). Pedido explícito: o conteúdo mostrado é sempre "o
+    // mesmo do celular do dono do lead". Sem instância conectada, não tem
+    // como abrir chat aqui.
     const ownerInstance = await resolveConnectedInstance(organizationId, dealRaw.ownerId);
     const dealOwnerThread =
       ownerInstance?.status === "CONNECTED"
         ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
         : null;
 
-    // "Enviar como consultor": só pro Dono, e só quando o próprio Dono TEM
-    // WhatsApp conectado — sem isso não haveria pra onde "voltar" no toggle,
-    // então mantém o fallback automático de sempre (dealOwnerThread acima)
-    // como única opção, igual já era antes desse recurso existir.
-    let whatsappThread = dealOwnerThread;
-    let sendAsAlternate: { threadId: string; label: string } | null = null;
-    if (session!.user.role === "OWNER" && dealRaw.ownerId !== session!.user.id) {
+    const whatsappThread = dealOwnerThread;
+
+    // "Enviar como você": Dono, Gerente ou Supervisor vendo o negócio de
+    // outra pessoa (nunca o Consultor — ele só vê as próprias conversas,
+    // regra explícita) ganham a opção de trocar pro PRÓPRIO número na hora
+    // de enviar, quando quiserem falar pessoalmente com o lead em vez de
+    // responder pelo número do responsável. O padrão continua sendo a
+    // conversa do responsável (acima) — isso só oferece a alternativa,
+    // nunca troca sozinho. Só aparece quando o próprio Dono/Gerente/
+    // Supervisor TEM WhatsApp conectado (sem isso não haveria pra onde
+    // trocar) e existe mesmo uma conversa do responsável pra servir de
+    // padrão.
+    let sendAsAlternate: { threadId: string; label: string; defaultLabel: string } | null = null;
+    if (
+      ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
+      dealRaw.ownerId !== session!.user.id &&
+      dealOwnerThread
+    ) {
       const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
       const myThread =
         myInstance?.status === "CONNECTED"
           ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact: dealRaw.contact })
           : null;
-      if (myThread && dealOwnerThread) {
-        whatsappThread = myThread;
-        sendAsAlternate = { threadId: dealOwnerThread.id, label: dealRaw.owner.name };
+      if (myThread) {
+        sendAsAlternate = { threadId: myThread.id, label: "você", defaultLabel: dealRaw.owner.name };
       }
     }
 

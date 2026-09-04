@@ -45,9 +45,8 @@ export function getBrazilParts(date: Date) {
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return {
     year: Number(get("year")),
-    month: Number(get("month")) - 1, // igual Date.getMonth(): 0-indexado
+    month: Number(get("month")) - 1,
     day: Number(get("day")),
-    // O Intl às vezes devolve "24" pra meia-noite em vez de "00".
     hour: get("hour") === "24" ? 0 : Number(get("hour")),
     minute: Number(get("minute")),
     weekday: WEEKDAY_INDEX[get("weekday")] ?? 0,
@@ -66,7 +65,6 @@ export function brazilDayOfMonth(date: Date = new Date()): number {
   return getBrazilParts(date).day;
 }
 
-/** "2026-07-13" no calendário de Brasília — usar em vez de toISOString().slice(0,10), que é UTC. */
 export function brazilDateKey(date: Date = new Date()): string {
   const { year, month, day } = getBrazilParts(date);
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -79,54 +77,50 @@ export function brazilGreeting(date: Date = new Date()): "Bom dia" | "Boa tarde"
   return "Boa noite";
 }
 
-/**
- * Meia-noite do dia 1 do mês corrente, no calendário de Campo Grande/MS —
- * meia-noite lá (UTC-4, sem horário de verão desde 2019) é 04:00 UTC do
- * mesmo dia civil. Usar isso em vez de `new Date().setDate(1)`, que nem zera
- * a hora (deixa passar deals fechados de madrugada no dia 1) nem considera
- * que o UTC já pode estar num dia/mês diferente do local perto da virada.
- */
 export function brazilStartOfMonth(date: Date = new Date()): Date {
   const { year, month } = getBrazilParts(date);
   return new Date(Date.UTC(year, month, 1, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/** Meia-noite de hoje, no calendário local — mesma lógica de brazilStartOfMonth, granularidade dia. */
+/** Meia-noite de hoje, no calendário local. */
 export function brazilStartOfDay(date: Date = new Date()): Date {
   const { year, month, day } = getBrazilParts(date);
   return new Date(Date.UTC(year, month, day, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/** Meia-noite do dia 1 de janeiro do ano corrente, no calendário local — mesma lógica de brazilStartOfMonth, granularidade ano. */
+/** Alias para brazilStartOfDay() — compatível com o sistema de dicas. */
+export function startOfDay(date: Date = new Date()): Date {
+  return brazilStartOfDay(date);
+}
+
+/** Horário atual como Date, com getHours() retornando a hora em Campo Grande/MS. */
+export function brazilNow(): Date {
+  const parts = getBrazilParts(new Date());
+  return new Date(
+    parts.year,
+    parts.month,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    0,
+    0,
+  );
+}
+
 export function brazilStartOfYear(date: Date = new Date()): Date {
   const { year } = getBrazilParts(date);
   return new Date(Date.UTC(year, 0, 1, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/**
- * Meia-noite local do dia "YYYY-MM-DD" recebido, como instante UTC — usar
- * para converter um filtro de data vindo da URL/UI (que representa um dia
- * civil local) no limite inferior de uma busca no banco. `new
- * Date("YYYY-MM-DDT00:00:00")` sem isso vira meia-noite UTC (server roda em
- * UTC), adiantada em relação à meia-noite real local.
- */
 export function brazilDateStringToUTC(dateStr: string): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day, BRAZIL_UTC_OFFSET_HOURS, 0, 0, 0));
 }
 
-/** Fim do dia (23:59:59.999 local) do dia "YYYY-MM-DD" recebido, como instante UTC — usar como limite superior de um filtro de período. */
 export function brazilEndOfDayUTC(dateStr: string): Date {
   return new Date(brazilDateStringToUTC(dateStr).getTime() + 86_400_000 - 1);
 }
 
-/**
- * Combina o dia "YYYY-MM-DD" (calendário local) escolhido pelo usuário
- * com a hora/minuto/segundo ATUAIS (também locais) — usado quando a UI só
- * deixa escolher o dia (ex.: "quando esse negócio foi ganho/perdido?"), mas o
- * timestamp gravado ainda precisa de uma hora plausível em vez de meia-noite
- * (que faria um negócio "ganho hoje" parecer ganho às 00:00).
- */
 export function brazilDateStringWithNowTimeToUTC(dateStr: string, now: Date = new Date()): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   const { hour, minute } = getBrazilParts(now);
@@ -135,36 +129,16 @@ export function brazilDateStringWithNowTimeToUTC(dateStr: string, now: Date = ne
   );
 }
 
-/**
- * Combina o dia "YYYY-MM-DD" e a hora "HH:MM" (ambos no calendário/relógio
- * local) num instante UTC — diferente de brazilDateStringWithNowTimeToUTC
- * (que usa a hora ATUAL), aqui a hora também é escolhida (ex.: grade de
- * horário de reunião — ver lib/scheduling/meeting-availability.ts).
- */
 export function brazilDateTimeStringToUTC(dateStr: string, timeStr: string): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   const [hour, minute] = timeStr.split(":").map(Number);
   return new Date(Date.UTC(year, month - 1, day, hour + BRAZIL_UTC_OFFSET_HOURS, minute, 0, 0));
 }
 
-/**
- * Converte um dueAt CRU vindo de request body (ex.: `${dueDate}T${dueTime}`,
- * montado em várias telas — deal-detail.tsx, meeting-outcome-dialog.tsx —
- * sem nenhum fuso explícito) pro instante UTC certo. Bug real detectado:
- * `new Date("2026-09-09T16:30")` direto no servidor usa o fuso do RUNTIME
- * (container Docker, não necessariamente Campo Grande) pra interpretar essa
- * string — o link "adicionar à agenda" (e o próprio horário salvo da
- * reunião) saíam 1h adiantados. Mesma causa raiz já documentada no topo
- * deste arquivo pra saudação/automação, só que batendo em Task.dueAt agora.
- *
- * String que JÁ vem com fuso explícito (sufixo "Z" ou "+HH:MM"/"-HH:MM" —
- * ex.: de uma integração externa que já manda o instante certo, como
- * /api/v1/appointments) é respeitada como está, nunca reinterpretada.
- */
 export function parseBrazilDateTime(raw: string): Date {
   if (/Z$|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(raw);
   const [datePart, timePart] = raw.split("T");
-  if (!datePart || !timePart) return new Date(raw); // formato inesperado — não trava, só não corrige
+  if (!datePart || !timePart) return new Date(raw);
   const [hour, minute] = timePart.split(":");
   return brazilDateTimeStringToUTC(datePart, `${hour}:${minute}`);
 }
@@ -179,18 +153,6 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
   timeZone: BRAZIL_TZ,
 });
 
-/**
- * "20/08/2026, 15:05:01" no fuso de Campo Grande/MS — usar em vez de
- * `date.toLocaleString("pt-BR")` sem `timeZone` explícito. Sem o fuso fixo,
- * esse método usa o fuso horário PADRÃO DO RUNTIME, que não é o mesmo dos
- * dois lados: o servidor (container Docker/VPS) e o navegador de quem está
- * vendo a TV raramente têm o mesmo fuso configurado no SO. Isso fazia o
- * Next.js hidratar com horários diferentes pro mesmo `Date` (ex.: servidor
- * "16:05:01", cliente "15:05:01") — "A tree hydrated but some attributes of
- * the server rendered HTML didn't match the client properties." Formatador
- * de fuso fixo é determinístico: mesmo `Date`, mesma string, não importa
- * onde o código roda.
- */
 export function brazilDateTime(date: Date): string {
   return DATE_TIME_FORMATTER.format(date);
 }

@@ -549,9 +549,25 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
           // travar todas as outras seria.
           try {
             await recoverStaleSendingRecipients(campaign.id);
-            if (!isWithinSchedule(campaign)) continue;
-            if (await dailyCapReached(campaign)) continue;
-            if (!(await shouldSendNow(campaign))) continue;
+
+            // Janela de horário/dias, teto diário e o throttle de intervalo
+            // (shouldSendNow) são limites de QUANDO mandar a PRÓXIMA
+            // mensagem — nunca devem decidir SE ainda há mensagem pra
+            // mandar. Antes esses 3 gates rodavam primeiro e davam
+            // `continue` cedo, então uma campanha que terminasse de mandar
+            // tudo bem na virada do horário permitido (ou no exato tick em
+            // que bateu o teto diário) nunca chegava a marcar DONE nesse
+            // tick — ficava presa em "Rodando" até a próxima janela
+            // permitida só pra então constatar que não havia mais nada a
+            // fazer (às vezes só no dia seguinte). Calculado uma vez só,
+            // sob demanda (nunca se não houver candidato pra mandar).
+            let canSendNowCache: boolean | null = null;
+            async function canSendNow(): Promise<boolean> {
+              if (canSendNowCache === null) {
+                canSendNowCache = isWithinSchedule(campaign) && !(await dailyCapReached(campaign)) && (await shouldSendNow(campaign));
+              }
+              return canSendNowCache;
+            }
 
             const recipient = await prisma.campaignRecipient.findFirst({
               where: { campaignId: campaign.id, status: "PENDING" },
@@ -560,6 +576,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             });
 
             if (recipient) {
+              if (!(await canSendNow())) continue; // ainda tem gente pra mandar, só não agora
               const outcome = await sendToRecipient(org.id, campaign, recipient, "initial");
               if (outcome === "sent") sent += 1;
               if (outcome === "failed") failed += 1;
@@ -572,6 +589,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             if (campaign.followUpEnabled) {
               const followUpCandidate = await findFollowUpCandidate(campaign);
               if (followUpCandidate) {
+                if (!(await canSendNow())) continue;
                 const outcome = await sendToRecipient(org.id, campaign, followUpCandidate, "followUp");
                 if (outcome === "sent") sent += 1;
                 if (outcome === "failed") failed += 1;
@@ -589,12 +607,15 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             if (campaign.noReplyDays != null) {
               const waveCandidate = await findNextWaveCandidate(campaign);
               if (waveCandidate) {
+                if (!(await canSendNow())) continue;
                 const outcome = await sendToRecipient(org.id, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
                 if (outcome === "sent") sent += 1;
                 if (outcome === "failed") failed += 1;
                 continue;
               }
 
+              // Expirar (marcar FAILED) não é um envio — é só contabilidade
+              // interna, não precisa esperar janela/teto/throttle nenhum.
               const expired = await findExpiredLeadCaptureRecipient(campaign);
               if (expired) {
                 await prisma.campaignRecipient.update({
@@ -607,6 +628,11 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
               if (await hasUnresolvedLeadCaptureRecipients(campaign.id)) continue; // ainda esperando onda/prazo
             }
 
+            // Chegou até aqui: não há destinatário pendente, nem reenvio,
+            // nem onda de RMKT, nem ninguém esperando prazo — de verdade não
+            // há mais nada a fazer. Marca DONE incondicionalmente (mesmo
+            // fora da janela permitida ou com o teto batido, já que não é
+            // um envio, é só reconhecer que a campanha terminou).
             await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "DONE" } });
           } catch (err) {
             console.error(`[campaigns] falha ao processar campanha ${campaign.id} (organização ${org.id}) — outras campanhas seguem normalmente`, err);

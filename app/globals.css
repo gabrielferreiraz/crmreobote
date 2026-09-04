@@ -426,6 +426,26 @@ body {
   animation: step-slide-in 220ms var(--ease-smooth);
 }
 
+/* Entrada do popup de "dica de produtividade" — menor deslocamento e
+   translação do bottom-right (onde ele fica ancorado) em vez de só escala.
+   Faz o efeito de "chegar de baixo pra cima, do canto" em vez de "estica
+   no centro", mais coerente com a posição fixa. */
+@keyframes panel-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+
+  70% {
+    transform: translateY(-2px) scale(1.003);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* Painel auxiliar "encaixando" logo abaixo do que acabou de ganhar foco (ex.:
    caixa de inserir variável seguindo a mensagem ativa no editor de script) —
    assentada suave, não é um popover/modal aparecendo por cima de nada. */

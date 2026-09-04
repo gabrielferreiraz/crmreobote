@@ -202,7 +202,7 @@ export function DealDetail({
   /** WhatsApp do responsável pelo negócio conectado — condição pro convite de reunião oferecer "enviar" (ver MeetingInviteDialog). */
   isWhatsAppConnected: boolean;
   /** Só pro Dono vendo o negócio de outro consultor com WhatsApp próprio conectado — deixa trocar pra enviar como o responsável do negócio. */
-  sendAsAlternate?: { threadId: string; label: string } | null;
+  sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
   canEditDetails: boolean;
   /** Excluir tarefa (Reunião/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */

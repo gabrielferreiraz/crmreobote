@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Pause, Play, Send } from "lucide-react";
+import { DuplicateCampaignButton } from "../duplicate-campaign-button";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
 
-export function CampaignActions({ id, status }: { id: string; status: CampaignStatus }) {
+export function CampaignActions({ id, status, hasAudienceFilter }: { id: string; status: CampaignStatus; hasAudienceFilter: boolean }) {
   const router = useRouter();
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [sendingNow, setSendingNow] = useState(false);
@@ -63,6 +64,15 @@ export function CampaignActions({ id, status }: { id: string; status: CampaignSt
           Enviar agora
         </button>
       )}
+      <DuplicateCampaignButton
+        campaignId={id}
+        hasAudienceFilter={hasAudienceFilter}
+        labeled
+        // O rascunho novo só pode ser editado/iniciado na lista (é lá que
+        // fica o modal de edição) — navega pra lá em vez de ficar na página
+        // de detalhe da campanha original.
+        onDuplicated={() => router.push("/whatsapp/campanhas")}
+      />
       {sendNowResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{sendNowResult}</span>}
     </div>
   );

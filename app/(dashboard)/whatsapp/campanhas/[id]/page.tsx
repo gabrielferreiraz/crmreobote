@@ -51,7 +51,15 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{campaign.name}</h1>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">{campaign.audienceLabel}</p>
           </div>
-          <CampaignActions id={campaign.id} status={campaign.status} />
+          <CampaignActions
+            id={campaign.id}
+            status={campaign.status}
+            hasAudienceFilter={
+              campaign.audienceFilter.jobTitles.length > 0 ||
+              campaign.audienceFilter.tags.length > 0 ||
+              campaign.audienceFilter.cities.length > 0
+            }
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

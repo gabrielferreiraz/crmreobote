@@ -87,33 +87,43 @@ export default async function ContactPage({
 
   const currentUserPhotoUrl = await resolveAvatarUrl(session!.user.image);
 
-  // Mesma regra do envio: a conversa aberta aqui é sempre a de quem está
-  // logado (cada um manda pelo próprio número conectado).
-  const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
+  // A conversa PADRÃO é sempre a do responsável pelo contato — é o número
+  // dele que troca mensagem de verdade com esse cliente. Se EU sou o
+  // responsável (ou não há responsável definido), minha própria conversa já
+  // É a certa, sem diferença nenhuma; senão (Dono/Gerente/Supervisor abrindo
+  // o cliente de outro consultor), isso evita mostrar uma conversa própria
+  // — quase sempre vazia — que por acaso exista com o mesmo contato. Pedido
+  // explícito: o conteúdo mostrado é sempre "o mesmo do celular do dono do
+  // lead".
+  const responsibleUserId = contact.responsavelId ?? session!.user.id;
+  const responsibleInstance = await resolveConnectedInstance(organizationId, responsibleUserId);
   const whatsappThread =
-    myInstance?.status === "CONNECTED"
-      ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact })
+    responsibleInstance?.status === "CONNECTED"
+      ? await getOrCreateThreadForContact({ organizationId, instance: responsibleInstance, contact })
       : null;
 
-  // "Enviar como consultor" — só pro Dono, e só quando o cliente tem um
-  // responsável diferente dele com WhatsApp próprio conectado. Preserva o
-  // padrão de sempre mandar como o próprio usuário (whatsappThread acima);
-  // isso só oferece a alternativa, nunca troca sozinho.
-  let sendAsAlternate: { threadId: string; label: string } | null = null;
+  // "Enviar como você": Dono, Gerente ou Supervisor vendo o cliente de outro
+  // consultor (nunca o Consultor — ele só vê as próprias conversas, regra
+  // explícita) ganham a opção de trocar pro PRÓPRIO número na hora de
+  // enviar, quando quiserem falar pessoalmente com o lead em vez de
+  // responder pelo número do responsável. O padrão continua sendo a
+  // conversa do responsável (acima) — isso só oferece a alternativa, nunca
+  // troca sozinho.
+  let sendAsAlternate: { threadId: string; label: string; defaultLabel: string } | null = null;
   if (
     whatsappThread &&
-    session!.user.role === "OWNER" &&
+    ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
     contact.responsavelId &&
     contact.responsavelId !== session!.user.id &&
     contact.responsavel
   ) {
-    const consultantInstance = await resolveConnectedInstance(organizationId, contact.responsavelId);
-    const consultantThread =
-      consultantInstance?.status === "CONNECTED"
-        ? await getOrCreateThreadForContact({ organizationId, instance: consultantInstance, contact })
+    const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
+    const myThread =
+      myInstance?.status === "CONNECTED"
+        ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact })
         : null;
-    if (consultantThread) {
-      sendAsAlternate = { threadId: consultantThread.id, label: contact.responsavel.name };
+    if (myThread) {
+      sendAsAlternate = { threadId: myThread.id, label: "você", defaultLabel: contact.responsavel.name };
     }
   }
 
