@@ -186,8 +186,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }
 
-      const claimed = await prisma.contact.update({
-        where: { id: duplicate.contactId },
+      // updateMany (não update) com o responsavelId de quando LEMOS o
+      // duplicado no `where` — trava otimista contra a corrida de duas
+      // pessoas clicando "Assumir" no mesmo contato ao mesmo tempo: só
+      // aplica se ninguém mudou o responsável entre a leitura e agora
+      // (senão os dois passariam pela checagem de "claimable" e o segundo
+      // update pisaria no primeiro, exatamente o tipo de "contato foi
+      // parar com outra pessoa" que essa funcionalidade existe pra evitar).
+      const claimResult = await prisma.contact.updateMany({
+        where: { id: duplicate.contactId, responsavelId: duplicate.responsavelId },
         data: {
           name: sanitizeCell(name),
           email: sanitizeCell(email),
@@ -212,6 +219,17 @@ export async function POST(req: Request) {
           whatsappNormalized,
           customFieldValues: claimCustomFieldValues,
         },
+      });
+
+      if (claimResult.count === 0) {
+        return NextResponse.json(
+          { error: "Este contato acabou de ser assumido por outra pessoa — atualize e tente de novo." },
+          { status: 409 },
+        );
+      }
+
+      const claimed = await prisma.contact.findUniqueOrThrow({
+        where: { id: duplicate.contactId },
       });
 
       recordUserChange(organizationId, userId).catch((err) =>

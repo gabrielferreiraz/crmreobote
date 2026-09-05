@@ -3,13 +3,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { brazilStartOfDay, brazilNow } from "@/lib/timezone";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
-import {
-  TIP_APPLIES_ON,
-  TIP_PRIORITY,
-  type EvaluatedTip,
-  type ProductivityTipType,
-  type TipContext,
-} from "./types";
+import { TIP_APPLIES_ON, TIP_PRIORITY, type EvaluatedTip, type ProductivityTipType } from "./types";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 /** Limpa dismissals antigos (de dias passados não-forever) — chamado a cada evaluate, barato. */
@@ -230,23 +224,37 @@ export async function evaluateAllTips(params: {
 }): Promise<EvaluatedTip | null> {
   const { organizationId, userId, role, pathname } = params;
   const todayStart = brazilStartOfDay();
-  await runWithTenant(organizationId, () => cleanupExpiredDismissals(userId, todayStart));
-  const ctx: TipContext = {
-    pathname,
-    todayStart,
-    now: brazilNow(),
-  };
 
-  const evaluators: Array<() => Promise<EvaluatedTip | null>> = [
-    () => runWithTenant(organizationId, () => evaluateWhatsAppDisconnected(organizationId, userId)),
-    () => runWithTenant(organizationId, () => evaluateNoShowDeals(organizationId, userId, role)),
-    () => runWithTenant(organizationId, () => evaluateManyWhatsAppTasks(organizationId, userId)),
+  // Limpeza roda só ocasionalmente (~1 em cada 10 chamadas), não a cada
+  // avaliação — isto é chamado a cada navegação + a cada 2min por usuário
+  // aberto (ver lib/use-productivity-tips.ts), então "sempre limpar" vira
+  // um DELETE constante no banco só pra manter uma tabela pequena em dia;
+  // não ter zero atraso na limpeza é inofensivo (a linha expirada só fica
+  // ali mais um pouco, nunca afeta isTipDismissed — a query de dismissed já
+  // ignora dismissDate vencido independente desta limpeza rodar ou não).
+  if (Math.random() < 0.1) {
+    await runWithTenant(organizationId, () => cleanupExpiredDismissals(userId, todayStart));
+  }
+
+  // Só roda o avaliador cujo tipo de dica PODE aparecer nesta rota — antes
+  // os 3 rodavam sempre (inclusive a consulta cara de no-show: escopo +
+  // todas as etapas do funil + contagem de negócios) e o filtro de rota só
+  // era aplicado depois, descartando o resultado — ou seja, em qualquer
+  // tela fora de Pipeline/Agenda essas consultas rodavam à toa em toda
+  // navegação e a cada poll de 2min, para TODO consultor logado.
+  const allEvaluators: Array<{ type: ProductivityTipType; run: () => Promise<EvaluatedTip | null> }> = [
+    { type: "WHATSAPP_DISCONNECTED", run: () => evaluateWhatsAppDisconnected(organizationId, userId) },
+    { type: "NOSHOW_DEALS", run: () => evaluateNoShowDeals(organizationId, userId, role) },
+    { type: "MANY_WHATSAPP_TASKS", run: () => evaluateManyWhatsAppTasks(organizationId, userId) },
   ];
+  const evaluators = allEvaluators.filter((e) => matchesRoute(e.type, pathname));
+
+  if (evaluators.length === 0) return null;
 
   const results = await Promise.all(
-    evaluators.map(async (fn) => {
+    evaluators.map(async ({ run }) => {
       try {
-        return await fn();
+        return await runWithTenant(organizationId, run);
       } catch (err) {
         // Um avaliador falhar nunca deve impedir os outros de rodar.
         console.error("[productivity-tips] evaluator error", err);
@@ -255,21 +263,27 @@ export async function evaluateAllTips(params: {
     }),
   );
 
-  const applicable = results.filter((r): r is EvaluatedTip => !!r && matchesRoute(r.tipType, pathname));
+  const applicable = results.filter((r): r is EvaluatedTip => !!r);
 
-  // Filtra por dismissed
-  const notDismissed: EvaluatedTip[] = [];
-  for (const tip of applicable) {
-    try {
-      const dismissed = await runWithTenant(organizationId, () =>
-        isTipDismissed({ userId, tipType: tip.tipType, scope: tip.scope, todayStart }),
-      );
-      if (!dismissed) notDismissed.push(tip);
-    } catch (err) {
-      console.error("[productivity-tips] dismiss check error", err);
-      // Em dúvida, não mostra (evita spam de popup bugado).
-    }
-  }
+  // Filtra por dismissed — em paralelo (eram sequenciais, uma ida-e-volta
+  // ao banco de cada vez, quando às vezes há mais de um tipo aplicável ao
+  // mesmo tempo, ex.: WHATSAPP_DISCONNECTED é GLOBAL e pode coexistir com
+  // MANY_WHATSAPP_TASKS na Home).
+  const dismissChecks = await Promise.all(
+    applicable.map(async (tip) => {
+      try {
+        const dismissed = await runWithTenant(organizationId, () =>
+          isTipDismissed({ userId, tipType: tip.tipType, scope: tip.scope, todayStart }),
+        );
+        return dismissed ? null : tip;
+      } catch (err) {
+        console.error("[productivity-tips] dismiss check error", err);
+        // Em dúvida, não mostra (evita spam de popup bugado).
+        return null;
+      }
+    }),
+  );
+  const notDismissed = dismissChecks.filter((t): t is EvaluatedTip => !!t);
 
   if (notDismissed.length === 0) return null;
   notDismissed.sort((a, b) => b.priority - a.priority);

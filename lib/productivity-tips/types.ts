@@ -18,15 +18,6 @@ export const TIP_APPLIES_ON: Record<ProductivityTipType, "GLOBAL" | "PIPELINE" |
 
 export type ProductivityTipType = $Enums.ProductivityTipType;
 
-export type TipContext = {
-  /** rota atual, ex.: "/pipeline", "/" */
-  pathname: string;
-  /** fuso da operação (Campo Grande/MS) — início do dia local */
-  todayStart: Date;
-  /** agora no horário local */
-  now: Date;
-};
-
 export type TipPayload =
   | { type: "WHATSAPP_DISCONNECTED" }
   | {

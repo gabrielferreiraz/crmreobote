@@ -68,85 +68,80 @@ export async function GET(req: Request) {
   //
   // Limiar de similaridade mais baixo que o padrão do Postgres (pedido
   // explícito: "mais globalesca", achar até com letras parecidas/digitação
-  // parcial) — `set_config(..., true)` é escopo de TRANSAÇÃO (reseta
-  // sozinho no commit, nunca vaza pra outra conexão do pool reaproveitada
-  // depois). similarity_threshold (0.3 → 0.15) afeta o operador `%`
-  // (trigrama do texto inteiro); word_similarity_threshold (0.6 → 0.4)
-  // afeta `<%` (melhor pra "nome tem várias palavras, buscou só um pedaço",
-  // ex.: "mar" → "Maria Aparecida Souza" — o `%` sozinho penaliza demais
-  // esse caso porque compara contra a string inteira). As duas continuam
-  // indexáveis pelo mesmo índice GIN trigram (gin_trgm_ops suporta os dois
+  // parcial) — configurado UMA VEZ por conexão física nova, não aqui a cada
+  // busca (ver o hook `pool.on("connect", ...)` em lib/search-db.ts).
+  // similarity_threshold (0.3 → 0.15) afeta o operador `%` (trigrama do
+  // texto inteiro); word_similarity_threshold (0.6 → 0.4) afeta `<%`
+  // (melhor pra "nome tem várias palavras, buscou só um pedaço", ex.: "mar"
+  // → "Maria Aparecida Souza" — o `%` sozinho penaliza demais esse caso
+  // porque compara contra a string inteira). As duas continuam indexáveis
+  // pelo mesmo índice GIN trigram (gin_trgm_ops suporta os dois
   // operadores).
   //
-  // Contatos e negócios em DUAS queries em paralelo (Promise.all), cada uma
-  // na sua própria transação/conexão — já usam bem o índice trigram, mas
-  // ainda visitam cada linha candidata pra computar similarity()/
-  // word_similarity() antes de ordenar (o índice GIN é "lossy": só
-  // credencia candidatos, não decide sozinho). Rodar as duas ao mesmo tempo
-  // em conexões diferentes do pool corta o tempo total pra busca de ~metade.
-  const SIMILARITY_SQL = Prisma.sql`SELECT set_config('pg_trgm.similarity_threshold', '0.15', true), set_config('pg_trgm.word_similarity_threshold', '0.4', true)`;
-  // "Mostrar todas as pesquisas" — sem cap artificial de 5; ainda limitado
-  // (não é uma tela paginada, é um dropdown), mas 20 cobre praticamente
-  // todo cenário real de digitação.
-  const RESULT_LIMIT = 20;
+  // Contatos e negócios em DUAS queries em paralelo (Promise.all) — cada
+  // uma já usa bem o índice trigram, mas ainda visita cada linha candidata
+  // pra computar similarity()/word_similarity() antes de ordenar (o índice
+  // GIN é "lossy": só credencia candidatos, não decide sozinho). Rodar as
+  // duas ao mesmo tempo em conexões diferentes do pool corta o tempo total
+  // pra busca de ~metade. Sem `$transaction` (nem aqui, nem no threshold) —
+  // a pool de busca é pequena (max 5, ver lib/search-db.ts) e compartilhada
+  // só por esta rota; envolver cada busca num BEGIN/COMMIT só pra aplicar o
+  // limiar seguraria a conexão por 2 idas-e-voltas a mais à toa sob uso
+  // concorrente, sem necessidade nenhuma agora que o limiar já vem certo
+  // desde a conexão.
+  const RESULT_LIMIT = 20; // "mostrar todas as pesquisas" — sem cap de 5; 20 cobre praticamente todo cenário real de digitação.
 
   const [contacts, deals] = await Promise.all([
-    searchDb.$transaction(async (tx) => {
-      await tx.$executeRaw(SIMILARITY_SQL);
-      return tx.$queryRaw<ContactRow[]>`
-        SELECT ct.id, ct.name, ct.email, ct.whatsapp, u.name AS "ownerName"
-        FROM "Contact" ct
-        LEFT JOIN "User" u ON u.id = ct."responsavelId"
-        WHERE ct."organizationId" = ${organizationId}
-          ${contactResponsavelFilterSql}
-          AND (
-            ct.name ILIKE '%' || ${q} || '%' OR
-            ct.name % ${q} OR
-            ${q} <% ct.name OR
-            ct.company ILIKE '%' || ${q} || '%' OR
-            ct.company % ${q} OR
-            ${q} <% ct.company OR
-            ct.email ILIKE '%' || ${q} || '%' OR
-            (${digits} <> '' AND (
-              ct."phoneNormalized" LIKE '%' || ${digits} || '%' OR
-              ct."whatsappNormalized" LIKE '%' || ${digits} || '%'
-            ))
-          )
-        ORDER BY GREATEST(
-          similarity(ct.name, ${q}),
-          word_similarity(${q}, ct.name),
-          similarity(coalesce(ct.company, ''), ${q}),
-          word_similarity(${q}, coalesce(ct.company, ''))
-        ) DESC, ct.name ASC
-        LIMIT ${RESULT_LIMIT}
-      `;
-    }),
-    searchDb.$transaction(async (tx) => {
-      await tx.$executeRaw(SIMILARITY_SQL);
-      return tx.$queryRaw<DealRow[]>`
-        SELECT d.id, d.name, c.name AS "contactName", u.name AS "ownerName", d.status
-        FROM "Deal" d
-        JOIN "Contact" c ON c.id = d."contactId"
-        LEFT JOIN "User" u ON u.id = d."ownerId"
-        WHERE d."organizationId" = ${organizationId}
-          ${dealOwnerFilterSql}
-          AND (
-            d.name ILIKE '%' || ${q} || '%' OR
-            d.name % ${q} OR
-            ${q} <% d.name OR
-            c.name ILIKE '%' || ${q} || '%' OR
-            c.name % ${q} OR
-            ${q} <% c.name
-          )
-        ORDER BY GREATEST(
-          similarity(d.name, ${q}),
-          word_similarity(${q}, d.name),
-          similarity(c.name, ${q}),
-          word_similarity(${q}, c.name)
-        ) DESC, d.name ASC
-        LIMIT ${RESULT_LIMIT}
-      `;
-    }),
+    searchDb.$queryRaw<ContactRow[]>`
+      SELECT ct.id, ct.name, ct.email, ct.whatsapp, u.name AS "ownerName"
+      FROM "Contact" ct
+      LEFT JOIN "User" u ON u.id = ct."responsavelId"
+      WHERE ct."organizationId" = ${organizationId}
+        ${contactResponsavelFilterSql}
+        AND (
+          ct.name ILIKE '%' || ${q} || '%' OR
+          ct.name % ${q} OR
+          ${q} <% ct.name OR
+          ct.company ILIKE '%' || ${q} || '%' OR
+          ct.company % ${q} OR
+          ${q} <% ct.company OR
+          ct.email ILIKE '%' || ${q} || '%' OR
+          (${digits} <> '' AND (
+            ct."phoneNormalized" LIKE '%' || ${digits} || '%' OR
+            ct."whatsappNormalized" LIKE '%' || ${digits} || '%'
+          ))
+        )
+      ORDER BY GREATEST(
+        similarity(ct.name, ${q}),
+        word_similarity(${q}, ct.name),
+        similarity(coalesce(ct.company, ''), ${q}),
+        word_similarity(${q}, coalesce(ct.company, ''))
+      ) DESC, ct.name ASC
+      LIMIT ${RESULT_LIMIT}
+    `,
+    searchDb.$queryRaw<DealRow[]>`
+      SELECT d.id, d.name, c.name AS "contactName", u.name AS "ownerName", d.status
+      FROM "Deal" d
+      JOIN "Contact" c ON c.id = d."contactId"
+      LEFT JOIN "User" u ON u.id = d."ownerId"
+      WHERE d."organizationId" = ${organizationId}
+        ${dealOwnerFilterSql}
+        AND (
+          d.name ILIKE '%' || ${q} || '%' OR
+          d.name % ${q} OR
+          ${q} <% d.name OR
+          c.name ILIKE '%' || ${q} || '%' OR
+          c.name % ${q} OR
+          ${q} <% c.name
+        )
+      ORDER BY GREATEST(
+        similarity(d.name, ${q}),
+        word_similarity(${q}, d.name),
+        similarity(c.name, ${q}),
+        word_similarity(${q}, c.name)
+      ) DESC, d.name ASC
+      LIMIT ${RESULT_LIMIT}
+    `,
   ]);
 
   return NextResponse.json({

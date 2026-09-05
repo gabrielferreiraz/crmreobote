@@ -1,5 +1,6 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
 /**
  * Cliente dedicado à busca global (app/api/search/route.ts), conectado como
@@ -24,17 +25,37 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * client, e nunca importe `searchDb` fora da rota de busca.
  */
 function createSearchClient() {
-  const adapter = new PrismaPg(
-    {
-      connectionString: process.env.DATABASE_URL_SEARCH,
-      keepAlive: true,
-      max: 5,
-    },
-    {
-      onPoolError: (err) => console.error("[search pg pool error]", err),
-      onConnectionError: (err) => console.error("[search pg connection error]", err),
-    },
-  );
+  // Pool criado à mão (em vez de passar as opções direto pro PrismaPg) só
+  // pra poder plugar o hook `connect` abaixo — baixa o limiar de
+  // similaridade do pg_trgm (mais "globalesco", acha com letras parecidas/
+  // digitação parcial — ver app/api/search/route.ts) UMA VEZ por conexão
+  // física nova, não a cada busca. A alternativa óbvia (`SELECT
+  // set_config(..., true)` dentro de um `$transaction` por query) funciona,
+  // mas soma 2 idas-e-voltas extras (BEGIN+COMMIT) em CADA busca — nesta
+  // pool pequena (max 5, compartilhada só por esta rota) isso segura a
+  // conexão por mais tempo à toa sob uso concorrente. Rodar uma vez por
+  // conexão custa perto de zero (a pool com keepAlive reaproveita a mesma
+  // conexão física por muito tempo) e nunca precisa de transação nenhuma —
+  // `false` (não `true`) porque aqui é pra ficar valendo a vida toda da
+  // conexão, não só uma transação: esta pool é exclusiva desta rota, então
+  // não existe "outra query" que precisaria do limiar padrão de volta.
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL_SEARCH,
+    keepAlive: true,
+    max: 5,
+  });
+  pool.on("error", (err) => console.error("[search pg pool error]", err));
+  pool.on("connect", (client) => {
+    client
+      .query(
+        `SELECT set_config('pg_trgm.similarity_threshold', '0.15', false), set_config('pg_trgm.word_similarity_threshold', '0.4', false)`,
+      )
+      .catch((err) => console.error("[search pg connect setup error]", err));
+  });
+
+  const adapter = new PrismaPg(pool, {
+    onConnectionError: (err) => console.error("[search pg connection error]", err),
+  });
 
   return new PrismaClient({ adapter });
 }
