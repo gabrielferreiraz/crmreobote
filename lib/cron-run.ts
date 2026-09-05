@@ -1,6 +1,7 @@
 import { prismaRaw } from "@/lib/prisma";
 import { sendSystemAlert } from "@/lib/system-alerts";
 import { escapeHtml } from "@/lib/security/html-escape";
+import { acquireCronLock } from "@/lib/cron-lock";
 
 const ALERT_COOLDOWN_MS = 15 * 60_000;
 const DETAIL_MAX_LENGTH = 2000;
@@ -68,4 +69,38 @@ export async function recordCronRun<T>(name: string, fn: () => Promise<T>): Prom
 
     throw err;
   }
+}
+
+/**
+ * Padrão comum aos 4 crons de app/api/cron/*: adquire o lock, roda, libera
+ * mesmo em erro, tudo gravado por recordCronRun. Extraído aqui pra poder
+ * ser chamado tanto pela rota dedicada de um cron (via cron-job.org) QUANTO
+ * como BACKSTOP de dentro de outro cron mais confiável — ver `runCronTick`
+ * em app/api/cron/automations/route.ts, que agora também dispara
+ * campaigns/webhooks por aqui.
+ *
+ * Por quê o backstop existe: cron-job.org (serviço externo, fora do nosso
+ * controle) já desativou/removeu jobs sozinho duas vezes neste projeto —
+ * "campaigns" ficou 6 dias parado em 2026-08, e de novo "campaigns" +
+ * "webhooks" ficaram parados por dias em 2026-09 (webhooks nunca chegou a
+ * rodar uma vez) — nos dois casos SEM nenhuma falha registrada, porque a
+ * requisição simplesmente parou de chegar, não é algo que o código consiga
+ * detectar sozinho a partir de dentro da própria rota. `checkStaleCrons`
+ * (lib/cron-watchdog.ts) alerta quando isso acontece, mas alertar não
+ * mantém o negócio rodando enquanto ninguém conserta o painel do
+ * cron-job.org. O lock por nome (acquireCronLock) garante que rodar o
+ * mesmo cron duas vezes (a rota dedicada E o backstop, ou dois backstops)
+ * nunca vira processamento duplicado — o segundo sempre acha o lock preso
+ * e sai com `{ skipped: true }`.
+ */
+export async function runLockedCron<T>(name: string, fn: () => Promise<T>): Promise<T | { skipped: true }> {
+  return recordCronRun(name, async () => {
+    const lock = await acquireCronLock(name);
+    if (!lock) return { skipped: true } as const;
+    try {
+      return await fn();
+    } finally {
+      await lock.release().catch((err) => console.error(`[cron:${name}] falha ao liberar lock`, err));
+    }
+  });
 }
