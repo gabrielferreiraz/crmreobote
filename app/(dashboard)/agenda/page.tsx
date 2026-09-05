@@ -66,10 +66,21 @@ export default async function AgendaPage({
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true } } },
       }),
+      // Escopado igual as tarefas (mesmo `scope`, "shareAgenda") — antes
+      // buscava TODO negócio OPEN da organização inteira, sem escopo nenhum
+      // e sem teto, pra alimentar só o seletor "trocar de negócio" do editor
+      // de tarefa. Numa organização com milhares de negócios, isso sozinho
+      // já é uma consulta pesada em TODA visita à Agenda, de qualquer papel
+      // (inclusive Consultor, que nem deveria ver negócio de outra pessoa
+      // nesse seletor). `take` como rede de segurança pro mesmo cenário raro
+      // de organização muito grande mesmo dentro do próprio escopo — o
+      // seletor já tem busca (ver components/select.tsx), não precisa do
+      // negócio inteiro carregado de antemão pra ser útil.
       prisma.deal.findMany({
-        where: { organizationId, status: "OPEN" },
+        where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
+        take: 1000,
       }),
       // Eventos do Google Agenda NÃO entram mais aqui — o Google é uma
       // dependência externa (rede, disponibilidade, latência variável fora

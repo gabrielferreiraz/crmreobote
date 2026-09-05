@@ -91,57 +91,108 @@ export async function GET(req: Request) {
   // desde a conexão.
   const RESULT_LIMIT = 20; // "mostrar todas as pesquisas" — sem cap de 5; 20 cobre praticamente todo cenário real de digitação.
 
+  // Limiar mais baixo (ver lib/search-db.ts) deixa o operador `%`/`<%` do
+  // pg_trgm aceitar MUITO mais linha candidata — cada uma delas precisa
+  // visitar a linha e calcular similarity()/word_similarity() antes do
+  // ORDER BY, então a busca ficou mensuravelmente mais lenta pra digitação
+  // normal (nome/empresa batendo por ILIKE de qualquer forma), mesmo essa
+  // sendo a maioria esmagadora das buscas reais. Resolvido em 2 passadas:
+  // 1ª só ILIKE/telefone (usa o mesmo índice GIN trigram, mas SEM depender
+  // do limiar — sempre rápida, sem `similarity()` nenhuma pra calcular); só
+  // dispara a 2ª passada (fuzzy de verdade, o comportamento "mais
+  // globalesca" pedido) quando a 1ª não achou o suficiente. Resultado:
+  // digitação normal paga só a passada rápida; nome digitado errado/parcial
+  // ainda cai na fuzzy, exatamente como antes.
+  const FUZZY_FALLBACK_MIN = 8;
+
   const [contacts, deals] = await Promise.all([
-    searchDb.$queryRaw<ContactRow[]>`
-      SELECT ct.id, ct.name, ct.email, ct.whatsapp, u.name AS "ownerName"
-      FROM "Contact" ct
-      LEFT JOIN "User" u ON u.id = ct."responsavelId"
-      WHERE ct."organizationId" = ${organizationId}
-        ${contactResponsavelFilterSql}
-        AND (
-          ct.name ILIKE '%' || ${q} || '%' OR
-          ct.name % ${q} OR
-          ${q} <% ct.name OR
-          ct.company ILIKE '%' || ${q} || '%' OR
-          ct.company % ${q} OR
-          ${q} <% ct.company OR
-          ct.email ILIKE '%' || ${q} || '%' OR
-          (${digits} <> '' AND (
-            ct."phoneNormalized" LIKE '%' || ${digits} || '%' OR
-            ct."whatsappNormalized" LIKE '%' || ${digits} || '%'
-          ))
-        )
-      ORDER BY GREATEST(
-        similarity(ct.name, ${q}),
-        word_similarity(${q}, ct.name),
-        similarity(coalesce(ct.company, ''), ${q}),
-        word_similarity(${q}, coalesce(ct.company, ''))
-      ) DESC, ct.name ASC
-      LIMIT ${RESULT_LIMIT}
-    `,
-    searchDb.$queryRaw<DealRow[]>`
-      SELECT d.id, d.name, c.name AS "contactName", u.name AS "ownerName", d.status
-      FROM "Deal" d
-      JOIN "Contact" c ON c.id = d."contactId"
-      LEFT JOIN "User" u ON u.id = d."ownerId"
-      WHERE d."organizationId" = ${organizationId}
-        ${dealOwnerFilterSql}
-        AND (
-          d.name ILIKE '%' || ${q} || '%' OR
-          d.name % ${q} OR
-          ${q} <% d.name OR
-          c.name ILIKE '%' || ${q} || '%' OR
-          c.name % ${q} OR
-          ${q} <% c.name
-        )
-      ORDER BY GREATEST(
-        similarity(d.name, ${q}),
-        word_similarity(${q}, d.name),
-        similarity(c.name, ${q}),
-        word_similarity(${q}, c.name)
-      ) DESC, d.name ASC
-      LIMIT ${RESULT_LIMIT}
-    `,
+    (async (): Promise<ContactRow[]> => {
+      const fast = await searchDb.$queryRaw<ContactRow[]>`
+        SELECT ct.id, ct.name, ct.email, ct.whatsapp, u.name AS "ownerName"
+        FROM "Contact" ct
+        LEFT JOIN "User" u ON u.id = ct."responsavelId"
+        WHERE ct."organizationId" = ${organizationId}
+          ${contactResponsavelFilterSql}
+          AND (
+            ct.name ILIKE '%' || ${q} || '%' OR
+            ct.company ILIKE '%' || ${q} || '%' OR
+            ct.email ILIKE '%' || ${q} || '%' OR
+            (${digits} <> '' AND (
+              ct."phoneNormalized" LIKE '%' || ${digits} || '%' OR
+              ct."whatsappNormalized" LIKE '%' || ${digits} || '%'
+            ))
+          )
+        ORDER BY (ct.name ILIKE ${q + "%"}) DESC, ct.name ASC
+        LIMIT ${RESULT_LIMIT}
+      `;
+      if (fast.length >= FUZZY_FALLBACK_MIN) return fast;
+
+      const excludeIds = fast.map((c) => c.id);
+      const fuzzy = await searchDb.$queryRaw<ContactRow[]>`
+        SELECT ct.id, ct.name, ct.email, ct.whatsapp, u.name AS "ownerName"
+        FROM "Contact" ct
+        LEFT JOIN "User" u ON u.id = ct."responsavelId"
+        WHERE ct."organizationId" = ${organizationId}
+          ${contactResponsavelFilterSql}
+          ${excludeIds.length > 0 ? Prisma.sql`AND ct.id NOT IN (${Prisma.join(excludeIds)})` : Prisma.empty}
+          AND (
+            ct.name % ${q} OR
+            ${q} <% ct.name OR
+            ct.company % ${q} OR
+            ${q} <% ct.company
+          )
+        ORDER BY GREATEST(
+          similarity(ct.name, ${q}),
+          word_similarity(${q}, ct.name),
+          similarity(coalesce(ct.company, ''), ${q}),
+          word_similarity(${q}, coalesce(ct.company, ''))
+        ) DESC, ct.name ASC
+        LIMIT ${RESULT_LIMIT - fast.length}
+      `;
+      return [...fast, ...fuzzy];
+    })(),
+    (async (): Promise<DealRow[]> => {
+      const fast = await searchDb.$queryRaw<DealRow[]>`
+        SELECT d.id, d.name, c.name AS "contactName", u.name AS "ownerName", d.status
+        FROM "Deal" d
+        JOIN "Contact" c ON c.id = d."contactId"
+        LEFT JOIN "User" u ON u.id = d."ownerId"
+        WHERE d."organizationId" = ${organizationId}
+          ${dealOwnerFilterSql}
+          AND (
+            d.name ILIKE '%' || ${q} || '%' OR
+            c.name ILIKE '%' || ${q} || '%'
+          )
+        ORDER BY (d.name ILIKE ${q + "%"}) DESC, d.name ASC
+        LIMIT ${RESULT_LIMIT}
+      `;
+      if (fast.length >= FUZZY_FALLBACK_MIN) return fast;
+
+      const excludeIds = fast.map((d) => d.id);
+      const fuzzy = await searchDb.$queryRaw<DealRow[]>`
+        SELECT d.id, d.name, c.name AS "contactName", u.name AS "ownerName", d.status
+        FROM "Deal" d
+        JOIN "Contact" c ON c.id = d."contactId"
+        LEFT JOIN "User" u ON u.id = d."ownerId"
+        WHERE d."organizationId" = ${organizationId}
+          ${dealOwnerFilterSql}
+          ${excludeIds.length > 0 ? Prisma.sql`AND d.id NOT IN (${Prisma.join(excludeIds)})` : Prisma.empty}
+          AND (
+            d.name % ${q} OR
+            ${q} <% d.name OR
+            c.name % ${q} OR
+            ${q} <% c.name
+          )
+        ORDER BY GREATEST(
+          similarity(d.name, ${q}),
+          word_similarity(${q}, d.name),
+          similarity(c.name, ${q}),
+          word_similarity(${q}, c.name)
+        ) DESC, d.name ASC
+        LIMIT ${RESULT_LIMIT - fast.length}
+      `;
+      return [...fast, ...fuzzy];
+    })(),
   ]);
 
   return NextResponse.json({

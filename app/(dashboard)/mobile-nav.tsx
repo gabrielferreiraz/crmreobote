@@ -169,7 +169,13 @@ export function MobileNav({
             onClick={() => setSheetOpen(false)}
           />
           <div
-            className="surface-glass-panel animate-sheet-up absolute inset-x-0 bottom-0 rounded-t-2xl border-b-0 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+            // max-h + overflow-y-auto: sem isso, numa tela baixa (celular
+            // deitado, ou a lista crescendo no futuro) a folha inteira é
+            // alta o bastante pra estourar por cima da viewport — como ela
+            // nasce grudada embaixo (bottom-0) e cresce pra cima, o que
+            // sobra é literalmente cortado no topo, sem nenhuma barra de
+            // rolagem pra alcançar (Sair, Tema etc. ficavam inacessíveis).
+            className="surface-glass-panel animate-sheet-up absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border-b-0 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-center pt-2.5 pb-1">
