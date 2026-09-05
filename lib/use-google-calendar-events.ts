@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { GoogleEvent } from "@/app/(dashboard)/agenda/task-calendar";
 
-type GoogleCalendarState = {
+export type GoogleCalendarState = {
   /** true enquanto a 1ª resposta de /api/google-calendar/events ainda não chegou. */
   loading: boolean;
   connected: boolean;

@@ -79,7 +79,14 @@ export function BulkSendConversationsDialog({
 
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
+  // Provider de quem está logado — vale só pra metade "contatos sem negócio"
+  // (contactIds abaixo), que sempre manda pelo WhatsApp de quem disparou.
   const { provider } = useMyWhatsappProvider();
+  // Metade "negócio já existe" (dealIds abaixo) manda pelo WhatsApp do
+  // PRÓPRIO dono de cada negócio, não de quem está logado — ver comentário
+  // equivalente em bulk-send-message-dialog.tsx. hasEvolutionInstance aqui
+  // reflete só essa metade, resolvida por /check-provider.
+  const [hasEvolutionInstance, setHasEvolutionInstance] = useState(false);
   const [confirmingBulkSend, setConfirmingBulkSend] = useState(false);
 
   // Divide os destinatários já no render — array estável, não muda.
@@ -87,6 +94,25 @@ export function BulkSendConversationsDialog({
   const contactIds = recipients.filter((r) => r.dealId === null).map((r) => r.contactId);
   const hasLeads = contactIds.length > 0;
   const hasDeals = dealIds.length > 0;
+
+  useEffect(() => {
+    if (!hasDeals) return;
+    let cancelled = false;
+    fetch("/api/deals/bulk-send-message/check-provider", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealIds }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { hasEvolutionInstance?: boolean } | null) => {
+        if (!cancelled) setHasEvolutionInstance(data?.hasEvolutionInstance ?? false);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,8 +156,13 @@ export function BulkSendConversationsDialog({
     scriptIds.length > 0 &&
     rmkt.valid &&
     (!hasLeads || (!!pipelineId && !!stageId));
-  // Ver comentário equivalente em send-leads-dialog.tsx.
-  const needsBulkSendConfirmation = provider === "EVOLUTION" && recipients.length >= MANY_RECIPIENTS_THRESHOLD;
+  // Risco real se QUALQUER uma das duas metades manda por Evolution — a de
+  // contatos sem negócio (provider, sempre o de quem está logado) ou a de
+  // negócio já existente (hasEvolutionInstance, por dono — ver useEffect
+  // acima e o comentário junto da declaração dos dois estados).
+  const needsBulkSendConfirmation =
+    ((hasLeads && provider === "EVOLUTION") || (hasDeals && hasEvolutionInstance)) &&
+    recipients.length >= MANY_RECIPIENTS_THRESHOLD;
 
   function handleSend() {
     if (!canSend) return;

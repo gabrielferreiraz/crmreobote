@@ -5,6 +5,7 @@ import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { resolvePreferredInstancesByOwner } from "@/lib/whatsapp/send";
 import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 import type { Prisma } from "@/app/generated/prisma/client";
 
@@ -96,12 +97,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Nenhum negócio válido nessa seleção" }, { status: 400 });
     }
 
+    // Um dono pode ter 2 instâncias CONECTADAS ao mesmo tempo (Evolution +
+    // Meta — ver WhatsAppInstance.provider); resolve sempre preferindo a
+    // Meta, mesmo critério de resolveConnectedInstance (ver
+    // resolvePreferredInstancesByOwner). Antes disso, um `Map` construído
+    // direto da lista pegava qualquer uma das duas (ordem do Postgres, não
+    // determinística) em vez de sempre a mesma.
     const ownerIds = Array.from(new Set(deals.map((d) => d.owner.id)));
-    const instances = await prisma.whatsAppInstance.findMany({
-      where: { organizationId, userId: { in: ownerIds }, status: "CONNECTED" },
-      select: { id: true, userId: true },
-    });
-    const instanceByOwnerId = new Map(instances.map((i) => [i.userId, i.id]));
+    const instanceByOwnerId = await resolvePreferredInstancesByOwner(organizationId, ownerIds);
 
     type PendingRecipient = { contactId: string; dealId: string; instanceId: string };
     const pending: PendingRecipient[] = [];
@@ -114,12 +117,12 @@ export async function POST(req: Request) {
         skippedNoPhone += 1;
         continue;
       }
-      const instanceId = instanceByOwnerId.get(deal.owner.id);
-      if (!instanceId) {
+      const instance = instanceByOwnerId.get(deal.owner.id);
+      if (!instance) {
         skippedNoInstance += 1;
         continue;
       }
-      pending.push({ contactId: deal.contactId, dealId: deal.id, instanceId });
+      pending.push({ contactId: deal.contactId, dealId: deal.id, instanceId: instance.id });
     }
 
     if (pending.length === 0) {

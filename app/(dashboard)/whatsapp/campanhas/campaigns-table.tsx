@@ -74,6 +74,30 @@ const STATUS_TONE: Record<CampaignStatus, string> = {
 
 const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
 
+/** PIPELINE_BULK/LEAD_CAPTURE sem filtro de público de verdade (lista montada
+ * por seleção manual, ver DuplicateCampaignButton) — "Nenhum critério
+ * definido" (o que describeAudienceFilter devolve nesse caso) lê como um
+ * erro/campo esquecido; isso aqui deixa claro que é intencional. */
+function audienceDisplay(c: Pick<Campaign, "audienceFilter" | "audienceLabel">): string {
+  const hasFilter = c.audienceFilter.jobTitles.length > 0 || c.audienceFilter.tags.length > 0 || c.audienceFilter.cities.length > 0;
+  return hasFilter ? c.audienceLabel : "Lista selecionada manualmente";
+}
+
+/** Barra fina de progresso (mesmo padrão visual do funil de vendas na Home)
+ * — antes só um "4/6" cru, difícil de comparar entre campanhas numa lista;
+ * a barra deixa o quanto falta escaneável de relance. */
+function CampaignProgressBar({ sent, total }: { sent: number; total: number }) {
+  const pct = total > 0 ? (sent / total) * 100 : 0;
+  return (
+    <div className="h-1.5 w-full min-w-16 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+      <div
+        className="h-full rounded-full bg-emerald-500 transition-all duration-300 dark:bg-emerald-400"
+        style={{ width: `${sent > 0 ? Math.max(4, pct) : 0}%` }}
+      />
+    </div>
+  );
+}
+
 export function CampaignsTable({
   initialCampaigns,
   instances,
@@ -117,6 +141,22 @@ export function CampaignsTable({
     return initialCampaigns.filter((c) => c.status !== "DONE");
   }, [initialCampaigns, statusFilter]);
   const doneCount = useMemo(() => initialCampaigns.filter((c) => c.status === "DONE").length, [initialCampaigns]);
+
+  // Resumo do filtro atual (Ativas/Concluídas/Todas) — mesmo padrão visual
+  // dos cartões da página de detalhe (Total/Enviados/Não enviados/
+  // Responderam), só que agregado pela LISTA em vez de uma campanha só. Dá
+  // pra ver o andamento geral sem entrar em cada campanha uma por uma.
+  const summary = useMemo(() => {
+    let sent = 0;
+    let replied = 0;
+    let failed = 0;
+    for (const c of visibleCampaigns) {
+      sent += c.counts.sent;
+      replied += c.counts.replied;
+      failed += c.counts.failed;
+    }
+    return { count: visibleCampaigns.length, sent, replied, failed, replyRate: sent > 0 ? Math.round((replied / sent) * 100) : 0 };
+  }, [visibleCampaigns]);
 
   async function openEdit(id: string) {
     setLoadingEditId(id);
@@ -175,6 +215,32 @@ export function CampaignsTable({
         </p>
       )}
 
+      {initialCampaigns.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="card p-3">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Campanhas</p>
+            <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{summary.count}</p>
+          </div>
+          <div className="card p-3">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Enviados</p>
+            <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{summary.sent}</p>
+          </div>
+          <div className="card p-3">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Respostas</p>
+            <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {summary.replied}
+              <span className="ml-1 text-sm font-normal text-neutral-400 dark:text-neutral-500">({summary.replyRate}%)</span>
+            </p>
+          </div>
+          <div className="card p-3">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Falhas</p>
+            <p className={`text-xl font-semibold tabular-nums ${summary.failed > 0 ? "text-red-500" : "text-neutral-900 dark:text-neutral-100"}`}>
+              {summary.failed}
+            </p>
+          </div>
+        </div>
+      )}
+
       {initialCampaigns.length === 0 ? (
         <div className="card">
           <EmptyState
@@ -204,12 +270,15 @@ export function CampaignsTable({
                     </span>
                   </div>
                   <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
-                    <p>Público: {c.audienceLabel}</p>
-                    <p>Envia por: {c.instanceName}</p>
-                    <p className="tabular-nums">
-                      Progresso: {c.counts.sent}/{total}
-                      {c.counts.failed > 0 && <span className="ml-1 text-red-500">({c.counts.failed} falhas)</span>}
-                    </p>
+                    <p className="truncate">Público: {audienceDisplay(c)}</p>
+                    <p className="truncate">Envia por: {c.instanceName}</p>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <CampaignProgressBar sent={c.counts.sent} total={total} />
+                      <span className="shrink-0 tabular-nums">
+                        {c.counts.sent}/{total}
+                        {c.counts.failed > 0 && <span className="ml-1 text-red-500">({c.counts.failed})</span>}
+                      </span>
+                    </div>
                     <p className="tabular-nums">Respostas: {c.counts.replied}</p>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-neutral-100 pt-2 dark:border-neutral-800">
@@ -218,11 +287,12 @@ export function CampaignsTable({
                         type="button"
                         disabled={togglingId === c.id}
                         onClick={() => setStatus(c, "RUNNING")}
-                        className="icon-btn"
-                        aria-label="Iniciar"
-                        title="Iniciar"
+                        className="icon-btn-labeled"
+                        aria-label="Iniciar campanha"
+                        title="Iniciar campanha"
                       >
                         <Play className="h-3.5 w-3.5" strokeWidth={2} />
+                        Iniciar
                       </button>
                     )}
                     {c.status === "RUNNING" && (
@@ -230,11 +300,12 @@ export function CampaignsTable({
                         type="button"
                         disabled={togglingId === c.id}
                         onClick={() => setStatus(c, "PAUSED")}
-                        className="icon-btn"
-                        aria-label="Pausar"
-                        title="Pausar"
+                        className="icon-btn-labeled"
+                        aria-label="Pausar campanha"
+                        title="Pausar campanha"
                       >
                         <Pause className="h-3.5 w-3.5" strokeWidth={2} />
+                        Pausar
                       </button>
                     )}
                     {c.status === "DRAFT" && (
@@ -258,11 +329,13 @@ export function CampaignsTable({
                       hasAudienceFilter={c.audienceFilter.jobTitles.length > 0 || c.audienceFilter.tags.length > 0 || c.audienceFilter.cities.length > 0}
                       onDuplicated={() => router.refresh()}
                     />
+                    <span className="mx-0.5 h-4 w-px shrink-0 bg-neutral-200 dark:bg-neutral-700" aria-hidden="true" />
                     <button
                       type="button"
                       onClick={() => setCampaignToDelete(c)}
                       className="icon-btn"
                       aria-label="Excluir campanha"
+                      title="Excluir campanha"
                     >
                       <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                     </button>
@@ -281,7 +354,7 @@ export function CampaignsTable({
                   <th className="px-4 py-2 font-medium">Público</th>
                   <th className="px-4 py-2 font-medium">Envia por</th>
                   <th className="px-4 py-2 font-medium">Status</th>
-                  <th className="px-4 py-2 font-medium">Progresso</th>
+                  <th className="w-40 px-4 py-2 font-medium">Progresso</th>
                   <th className="px-4 py-2 font-medium">Respostas</th>
                   <th className="px-4 py-2 font-medium"></th>
                 </tr>
@@ -296,16 +369,21 @@ export function CampaignsTable({
                           {c.name}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.audienceLabel}</td>
+                      <td className="max-w-40 truncate px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{audienceDisplay(c)}</td>
                       <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{c.instanceName}</td>
                       <td className="px-4 py-2.5">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
                           {STATUS_LABELS[c.status]}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">
-                        {c.counts.sent}/{total}
-                        {c.counts.failed > 0 && <span className="ml-1 text-red-500">({c.counts.failed} falhas)</span>}
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <CampaignProgressBar sent={c.counts.sent} total={total} />
+                          <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
+                            {c.counts.sent}/{total}
+                            {c.counts.failed > 0 && <span className="ml-1 text-red-500">({c.counts.failed} falhas)</span>}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">{c.counts.replied}</td>
                       <td className="px-4 py-2.5 text-right">
@@ -315,11 +393,12 @@ export function CampaignsTable({
                               type="button"
                               disabled={togglingId === c.id}
                               onClick={() => setStatus(c, "RUNNING")}
-                              className="icon-btn"
-                              aria-label="Iniciar"
-                              title="Iniciar"
+                              className="icon-btn-labeled"
+                              aria-label="Iniciar campanha"
+                              title="Iniciar campanha"
                             >
                               <Play className="h-3.5 w-3.5" strokeWidth={2} />
+                              Iniciar
                             </button>
                           )}
                           {c.status === "RUNNING" && (
@@ -327,11 +406,12 @@ export function CampaignsTable({
                               type="button"
                               disabled={togglingId === c.id}
                               onClick={() => setStatus(c, "PAUSED")}
-                              className="icon-btn"
-                              aria-label="Pausar"
-                              title="Pausar"
+                              className="icon-btn-labeled"
+                              aria-label="Pausar campanha"
+                              title="Pausar campanha"
                             >
                               <Pause className="h-3.5 w-3.5" strokeWidth={2} />
+                              Pausar
                             </button>
                           )}
                           {c.status === "DRAFT" && (
@@ -355,11 +435,13 @@ export function CampaignsTable({
                             hasAudienceFilter={c.audienceFilter.jobTitles.length > 0 || c.audienceFilter.tags.length > 0 || c.audienceFilter.cities.length > 0}
                             onDuplicated={() => router.refresh()}
                           />
+                          <span className="mx-0.5 h-4 w-px shrink-0 bg-neutral-200 dark:bg-neutral-700" aria-hidden="true" />
                           <button
                             type="button"
                             onClick={() => setCampaignToDelete(c)}
                             className="icon-btn"
                             aria-label="Excluir campanha"
+                            title="Excluir campanha"
                           >
                             <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                           </button>

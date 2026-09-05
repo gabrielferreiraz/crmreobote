@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
+import { getDealScope, contactScopeWhere } from "@/lib/team-scope";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  const { organizationId, userId } = access;
+  const { organizationId, userId, role } = access;
 
   if (!Array.isArray(contactIds) || contactIds.length === 0) {
     return NextResponse.json({ error: "Selecione ao menos um contato" }, { status: 400 });
@@ -98,8 +99,14 @@ export async function POST(req: Request) {
       }
     }
 
+    // Nunca confia na seleção vinda do cliente — revalida contra o escopo de
+    // contato que este usuário de fato enxerga (mesmo padrão de
+    // bulk-send-message pra negócio). Faltava aqui: sem isso, um MEMBER
+    // conseguia mandar `contactId` de qualquer contato da organização (não
+    // só os dele) e a rota disparava a campanha mesmo assim.
+    const scope = await getDealScope(organizationId, userId, role);
     const contacts = await prisma.contact.findMany({
-      where: { id: { in: contactIds }, organizationId },
+      where: { id: { in: contactIds }, organizationId, ...contactScopeWhere(scope) },
       select: { id: true, whatsapp: true, phone: true },
     });
     if (contacts.length === 0) {

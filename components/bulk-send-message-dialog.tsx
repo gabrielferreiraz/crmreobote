@@ -9,7 +9,7 @@ import { DualRangeSlider } from "@/components/dual-range-slider";
 import { RmktWavesFields } from "@/components/rmkt-waves-fields";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useRmktWaves } from "@/lib/use-rmkt-waves";
-import { useMyWhatsappProvider, MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
+import { MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 
@@ -63,7 +63,14 @@ export function BulkSendMessageDialog({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
-  const { provider } = useMyWhatsappProvider();
+  // Não usa useMyWhatsappProvider aqui de propósito: nesse envio, cada
+  // negócio manda pelo WhatsApp do PRÓPRIO dono, não de quem está disparando
+  // (ver CampaignRecipient.instanceId no schema) — um Gerente/Supervisor/
+  // Dono pode ter o próprio número na Meta (sem risco) enquanto um dos
+  // donos dos negócios selecionados ainda usa Evolution (risco de verdade).
+  // check-provider já resolve isso por negócio, com a mesma preferência
+  // Meta > Evolution do envio de verdade.
+  const [hasEvolutionInstance, setHasEvolutionInstance] = useState(false);
   const [confirmingBulkSend, setConfirmingBulkSend] = useState(false);
 
   useEffect(() => {
@@ -83,6 +90,24 @@ export function BulkSendMessageDialog({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/deals/bulk-send-message/check-provider", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealIds }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { hasEvolutionInstance?: boolean } | null) => {
+        if (!cancelled) setHasEvolutionInstance(data?.hasEvolutionInstance ?? false);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function toggleScript(id: string) {
     setScriptIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   }
@@ -96,8 +121,7 @@ export function BulkSendMessageDialog({
   }
 
   const canSend = scriptIds.length > 0 && rmkt.valid;
-  // Ver comentário equivalente em send-leads-dialog.tsx.
-  const needsBulkSendConfirmation = provider === "EVOLUTION" && dealIds.length >= MANY_RECIPIENTS_THRESHOLD;
+  const needsBulkSendConfirmation = hasEvolutionInstance && dealIds.length >= MANY_RECIPIENTS_THRESHOLD;
 
   function handleSend() {
     if (!canSend) return;

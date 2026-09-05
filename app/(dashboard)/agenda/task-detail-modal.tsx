@@ -371,8 +371,8 @@ export function TaskDetailModal({
           title={`Excluir "${task.title}"?`}
           description={
             task.type === "MEETING"
-              ? "Não pode ser desfeito. Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar."
-              : "Não pode ser desfeito."
+              ? "Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
+              : "Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           }
           confirmLabel="Excluir"
           onClose={() => setConfirmingDelete(false)}

@@ -63,28 +63,52 @@ function isWithinSchedule(campaign: CampaignRow): boolean {
 }
 
 /**
- * Teto efetivo é o MENOR entre o configurado na campanha e o permitido pelo
- * aquecimento do número (ver lib/whatsapp/warmup.ts) — mesmo uma campanha
- * configurada sem teto (dailyCap null) fica presa à rampa enquanto o número
- * ainda está esfriando os primeiros dias. Usa sempre o instanceId "principal"
- * da campanha (mesma simplificação que a contagem de SENT já fazia antes:
- * conta todo envio do dia, mesmo os que uma campanha PIPELINE_BULK despachou
- * por uma instância diferente por destinatário).
+ * `instanceId` é a instância de ENVIO de verdade pra este destinatário
+ * específico (recipient.instanceId ?? campaign.instanceId, calculado por
+ * quem chama — mesmo fallback usado em sendToRecipient/getOrCreateThread) —
+ * nunca só o `campaign.instanceId` "principal". Isso importa porque uma
+ * campanha PIPELINE_BULK pode juntar destinatários de VÁRIOS consultores,
+ * cada um com a própria instância (ver comentário de
+ * CampaignRecipient.instanceId no schema); o teto de aquecimento
+ * (lib/whatsapp/warmup.ts) protege um NÚMERO específico, não a campanha —
+ * checar sempre contra a instância "principal" deixava todo mundo, MENOS
+ * esse primeiro destinatário, sem proteção nenhuma de aquecimento (correção
+ * de bug: antes chegava a chamar a função sem esse parâmetro).
+ *
+ * Dois tetos, cada um com o escopo certo: Campaign.dailyCap é um limite de
+ * NEGÓCIO por campanha inteira (soma todo mundo); o de aquecimento é por
+ * NÚMERO (só conta o que essa instância específica mandou hoje) — só refaz
+ * a contagem por instância quando ela difere da "principal" salva na
+ * campanha (caso comum de uma instância só pra campanha inteira já usa a
+ * mesma contagem, sem 2ª query).
  */
-async function dailyCapReached(campaign: CampaignRow): Promise<boolean> {
-  const count = await prisma.campaignRecipient.count({
-    where: { campaignId: campaign.id, status: "SENT", sentAt: { gte: brazilStartOfDay() } },
-  });
+async function dailyCapReached(campaign: CampaignRow, instanceId: string): Promise<boolean> {
+  const todayStart = brazilStartOfDay();
 
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: { id: campaign.instanceId },
-    select: { provider: true, firstConnectedAt: true },
-  });
-  const warmupCap = instance?.provider === "EVOLUTION" ? warmupDailyCap(instance.firstConnectedAt) : null;
+  const [campaignCount, instance] = await Promise.all([
+    prisma.campaignRecipient.count({
+      where: { campaignId: campaign.id, status: "SENT", sentAt: { gte: todayStart } },
+    }),
+    prisma.whatsAppInstance.findUnique({
+      where: { id: instanceId },
+      select: { provider: true, firstConnectedAt: true },
+    }),
+  ]);
 
-  const caps = [campaign.dailyCap, warmupCap].filter((c): c is number => c != null);
-  if (caps.length === 0) return false;
-  return count >= Math.min(...caps);
+  if (campaign.dailyCap != null && campaignCount >= campaign.dailyCap) return true;
+
+  if (instance?.provider !== "EVOLUTION") return false;
+  const warmupCap = warmupDailyCap(instance.firstConnectedAt);
+  if (warmupCap == null) return false;
+
+  const instanceCount =
+    instanceId === campaign.instanceId
+      ? campaignCount
+      : await prisma.campaignRecipient.count({
+          where: { campaignId: campaign.id, status: "SENT", sentAt: { gte: todayStart }, instanceId },
+        });
+
+  return instanceCount >= warmupCap;
 }
 
 /**
@@ -488,14 +512,18 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
     const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, organizationId } });
     if (!campaign || campaign.status !== "RUNNING") return { ok: false, reason: "not-running" };
     if (!isWithinSchedule(campaign)) return { ok: false, reason: "outside-schedule" };
-    if (await dailyCapReached(campaign)) return { ok: false, reason: "daily-cap-reached" };
 
+    // Teto diário é checado só depois de achar QUEM seria enviado — precisa
+    // saber a instância de verdade desse destinatário específico (ver
+    // comentário de dailyCapReached acima), e só faz sentido reportar
+    // "daily-cap-reached" quando de fato havia alguém pra mandar.
     const recipient = await prisma.campaignRecipient.findFirst({
       where: { campaignId: campaign.id, status: "PENDING" },
       orderBy: { createdAt: "asc" },
       include: RECIPIENT_INCLUDE,
     });
     if (recipient) {
+      if (await dailyCapReached(campaign, recipient.instanceId ?? campaign.instanceId)) return { ok: false, reason: "daily-cap-reached" };
       const outcome = await sendToRecipient(organizationId, campaign, recipient, "initial");
       return { ok: true, outcome, kind: "initial" };
     }
@@ -503,6 +531,9 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
     if (campaign.followUpEnabled) {
       const followUpCandidate = await findFollowUpCandidate(campaign);
       if (followUpCandidate) {
+        if (await dailyCapReached(campaign, followUpCandidate.instanceId ?? campaign.instanceId)) {
+          return { ok: false, reason: "daily-cap-reached" };
+        }
         const outcome = await sendToRecipient(organizationId, campaign, followUpCandidate, "followUp");
         return { ok: true, outcome, kind: "followUp" };
       }
@@ -515,6 +546,9 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
     if (campaign.noReplyDays != null) {
       const waveCandidate = await findNextWaveCandidate(campaign);
       if (waveCandidate) {
+        if (await dailyCapReached(campaign, waveCandidate.recipient.instanceId ?? campaign.instanceId)) {
+          return { ok: false, reason: "daily-cap-reached" };
+        }
         const outcome = await sendToRecipient(organizationId, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
         return { ok: true, outcome, kind: "wave" };
       }
@@ -560,13 +594,15 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             // tick — ficava presa em "Rodando" até a próxima janela
             // permitida só pra então constatar que não havia mais nada a
             // fazer (às vezes só no dia seguinte). Calculado uma vez só,
-            // sob demanda (nunca se não houver candidato pra mandar).
-            let canSendNowCache: boolean | null = null;
-            async function canSendNow(): Promise<boolean> {
-              if (canSendNowCache === null) {
-                canSendNowCache = isWithinSchedule(campaign) && !(await dailyCapReached(campaign)) && (await shouldSendNow(campaign));
-              }
-              return canSendNowCache;
+            // sob demanda (nunca se não houver candidato pra mandar). Recebe
+            // a instância de verdade de QUEM seria enviado agora — não dá
+            // pra cachear um resultado só pra campanha inteira feito antes
+            // (cada um dos 3 pontos de chamada abaixo é mutuamente exclusivo
+            // dentro do mesmo tick de qualquer forma, então cachear nunca
+            // economizava nada de verdade, só arriscava aplicar o teto de
+            // aquecimento do destinatário ERRADO — ver dailyCapReached).
+            async function canSendNow(instanceId: string): Promise<boolean> {
+              return isWithinSchedule(campaign) && !(await dailyCapReached(campaign, instanceId)) && (await shouldSendNow(campaign));
             }
 
             const recipient = await prisma.campaignRecipient.findFirst({
@@ -576,7 +612,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             });
 
             if (recipient) {
-              if (!(await canSendNow())) continue; // ainda tem gente pra mandar, só não agora
+              if (!(await canSendNow(recipient.instanceId ?? campaign.instanceId))) continue; // ainda tem gente pra mandar, só não agora
               const outcome = await sendToRecipient(org.id, campaign, recipient, "initial");
               if (outcome === "sent") sent += 1;
               if (outcome === "failed") failed += 1;
@@ -589,7 +625,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             if (campaign.followUpEnabled) {
               const followUpCandidate = await findFollowUpCandidate(campaign);
               if (followUpCandidate) {
-                if (!(await canSendNow())) continue;
+                if (!(await canSendNow(followUpCandidate.instanceId ?? campaign.instanceId))) continue;
                 const outcome = await sendToRecipient(org.id, campaign, followUpCandidate, "followUp");
                 if (outcome === "sent") sent += 1;
                 if (outcome === "failed") failed += 1;
@@ -607,7 +643,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             if (campaign.noReplyDays != null) {
               const waveCandidate = await findNextWaveCandidate(campaign);
               if (waveCandidate) {
-                if (!(await canSendNow())) continue;
+                if (!(await canSendNow(waveCandidate.recipient.instanceId ?? campaign.instanceId))) continue;
                 const outcome = await sendToRecipient(org.id, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
                 if (outcome === "sent") sent += 1;
                 if (outcome === "failed") failed += 1;

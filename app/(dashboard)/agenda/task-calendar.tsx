@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,7 +13,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare, Square, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare, Square, Layers, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Avatar } from "@/components/avatar";
 import { SelectionBar } from "@/components/selection-bar";
@@ -98,6 +98,14 @@ export function TaskCalendar({
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [activeDrag, setActiveDrag] = useState<{ task: Task; count: number } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  // Some sozinho depois de um tempo — sem isso, uma falha de arraste ficava
+  // no canto da tela pra sempre até a pessoa tentar arrastar de novo (nem dá
+  // pra fechar manualmente antes disso, ver botão × abaixo).
+  useEffect(() => {
+    if (!moveError) return;
+    const timeout = setTimeout(() => setMoveError(null), 6000);
+    return () => clearTimeout(timeout);
+  }, [moveError]);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
@@ -267,8 +275,16 @@ export function TaskCalendar({
             </div>
           )}
           {moveError && (
-            <p className="pointer-events-auto rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-600 shadow-lg dark:bg-red-500/10 dark:text-red-400">
+            <p className="pointer-events-auto flex items-center gap-1.5 rounded-md bg-red-50 py-1.5 pr-1.5 pl-2.5 text-xs text-red-600 shadow-lg dark:bg-red-500/10 dark:text-red-400">
               {moveError}
+              <button
+                type="button"
+                onClick={() => setMoveError(null)}
+                className="shrink-0 rounded p-0.5 hover:bg-red-100 dark:hover:bg-red-500/20"
+                aria-label="Fechar aviso"
+              >
+                <X className="h-3 w-3" strokeWidth={2.5} />
+              </button>
             </p>
           )}
         </div>

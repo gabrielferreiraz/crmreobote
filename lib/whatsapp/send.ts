@@ -49,6 +49,39 @@ export async function resolveConnectedInstance(organizationId: string, userId: s
   );
 }
 
+/**
+ * Mesmo critério de resolveConnectedInstance (Meta > Evolution quando as
+ * duas estão conectadas), só que em lote pra vários donos de uma vez —
+ * usado só onde um envio pode ter destinatários de VÁRIOS consultores numa
+ * mesma operação (envio em massa a partir do Pipeline: cada negócio manda
+ * pelo WhatsApp do PRÓPRIO dono, não de quem disparou o envio — ver
+ * CampaignRecipient.instanceId no schema). Extraído aqui pra não duplicar
+ * esse critério de novo em cada lugar que precisa da mesma resolução em
+ * lote (app/api/deals/bulk-send-message/route.ts e a checagem de risco de
+ * banimento que o diálogo consulta antes de disparar).
+ */
+export async function resolvePreferredInstancesByOwner(
+  organizationId: string,
+  ownerIds: string[],
+): Promise<Map<string, { id: string; provider: $Enums.WhatsAppProvider }>> {
+  if (ownerIds.length === 0) return new Map();
+
+  const instances = await prisma.whatsAppInstance.findMany({
+    where: { organizationId, userId: { in: ownerIds }, status: "CONNECTED" },
+    select: { id: true, userId: true, provider: true },
+  });
+
+  const byOwnerId = new Map<string, { id: string; provider: $Enums.WhatsAppProvider }>();
+  for (const provider of ["META_CLOUD", "EVOLUTION"] as const) {
+    for (const instance of instances) {
+      if (instance.provider === provider && !byOwnerId.has(instance.userId)) {
+        byOwnerId.set(instance.userId, { id: instance.id, provider: instance.provider });
+      }
+    }
+  }
+  return byOwnerId;
+}
+
 type ContactMetadata = { name?: string; phone?: string };
 
 /**
