@@ -36,7 +36,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
     let result;
     try {
-      result = await reverseUndoableAction(action.type as UndoActionType, action.payload);
+      result = await reverseUndoableAction(action.type as UndoActionType, action.payload, organizationId);
     } catch (err) {
       console.error(`[undo] falha ao reverter ${action.type} (${action.id})`, err);
       return NextResponse.json({ error: "Não foi possível desfazer — o registro pode ter mudado desde então" }, { status: 409 });

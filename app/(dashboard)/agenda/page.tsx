@@ -5,8 +5,7 @@ import { getSharedScope } from "@/lib/share-groups";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
-import { TasksList } from "./tasks-list";
-import { TasksListMobile } from "./tasks-list-mobile";
+import { AgendaClient } from "./agenda-client";
 
 export default async function AgendaPage({
   searchParams,
@@ -30,7 +29,12 @@ export default async function AgendaPage({
     // data (é o trabalho ativo de verdade, sempre precisa aparecer inteiro);
     // só a concluída ganha uma janela recente + o teto duro de segurança.
     const COMPLETED_TASKS_WINDOW_DAYS = 30;
-    const TASKS_FETCH_CAP = 2000;
+    // Era 2000 — subido pra 5000 (visão de time/gerente com muitos
+    // consultores tem mais chance de passar do teto que a de um consultor
+    // só). Mesmo assim é um `take` fixo, não paginação de verdade — se
+    // algum dia bater 5000 de novo, ver `tasksTruncated` abaixo, que agora
+    // avisa na tela em vez de sumir tarefa em silêncio.
+    const TASKS_FETCH_CAP = 5000;
     const completedSince = new Date(Date.now() - COMPLETED_TASKS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
     const [tasksRaw, membersRaw, deals, whatsappInstance] = await Promise.all([
@@ -71,16 +75,21 @@ export default async function AgendaPage({
       // dependência externa (rede, disponibilidade, latência variável fora
       // do nosso controle) e travava a página inteira até responder, mesmo
       // com timeout de 8s (ver lib/google-calendar-oauth.ts). Agora o
-      // cliente busca via useGoogleCalendarEvents() (TasksList/
-      // TasksListMobile), DEPOIS que a grade principal já está na tela — se
-      // o Google demorar ou falhar, só o bloco dele fica esperando/mostra
-      // que não conectou, nunca bloqueia tarefa nenhuma do CRM.
+      // cliente busca via useGoogleCalendarEvents() (uma única vez, em
+      // AgendaClient — ver comentário lá), DEPOIS que a grade principal já
+      // está na tela — se o Google demorar ou falhar, só o bloco dele fica
+      // esperando/mostra que não conectou, nunca bloqueia tarefa nenhuma do CRM.
       resolveConnectedInstance(organizationId, userId),
     ]);
     // Se meu WhatsApp não está conectado, o convite de reunião (ver
     // MeetingInviteDialog) nem oferece a opção de enviar — só o botão de
     // agenda Google continua disponível.
     const isWhatsAppConnected = !!whatsappInstance;
+    // Bateu exatamente no teto → quase certo que existe mais tarefa que não
+    // veio (não dá pra saber o total real sem um count() à parte, que
+    // custaria uma consulta extra numa tela que já carrega bastante coisa —
+    // "bateu no teto" já é sinal suficiente pra avisar).
+    const tasksTruncated = tasksRaw.length === TASKS_FETCH_CAP;
 
     const avatarMap = await resolveAvatarUrlMap(tasksRaw.map((t) => t.owner.image));
     const tasks = tasksRaw.map((task) => ({
@@ -122,25 +131,15 @@ export default async function AgendaPage({
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Agenda</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Reuniões, ligações e follow-ups do time</p>
         </div>
-        <div className="hidden lg:block">
-          <TasksList
-            initialTasks={tasks}
-            deals={deals}
-            members={members}
-            isWhatsAppConnected={isWhatsAppConnected}
-            googleParam={google}
-          />
-        </div>
-        <div className="lg:hidden">
-          <TasksListMobile
-            initialTasks={tasks}
-            deals={deals}
-            members={members}
-            openNewTask={novo === "1"}
-            isWhatsAppConnected={isWhatsAppConnected}
-            googleParam={google}
-          />
-        </div>
+        <AgendaClient
+          initialTasks={tasks}
+          deals={deals}
+          members={members}
+          openNewTask={novo === "1"}
+          isWhatsAppConnected={isWhatsAppConnected}
+          googleParam={google}
+          tasksTruncated={tasksTruncated}
+        />
       </div>
     );
   });

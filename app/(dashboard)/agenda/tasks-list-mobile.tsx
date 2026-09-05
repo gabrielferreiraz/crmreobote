@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
-import { useGoogleCalendarEvents } from "@/lib/use-google-calendar-events";
+import type { GoogleCalendarState } from "@/lib/use-google-calendar-events";
 import { TaskRow, type Task } from "./task-row";
 import { NewTaskDialog, type Option } from "./tasks-list";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
@@ -46,6 +46,8 @@ export function TasksListMobile({
   openNewTask,
   isWhatsAppConnected,
   googleParam,
+  googleCalendar,
+  tasksTruncated,
 }: {
   initialTasks: Task[];
   deals: Option[];
@@ -53,6 +55,13 @@ export function TasksListMobile({
   openNewTask?: boolean;
   isWhatsAppConnected: boolean;
   googleParam?: string;
+  /** Buscado uma vez só em AgendaClient e repassado pra cá e pra TasksList
+   * (desktop) — ver comentário lá; nunca chamar useGoogleCalendarEvents()
+   * de novo aqui. */
+  googleCalendar: GoogleCalendarState;
+  /** true quando a consulta no servidor bateu no teto de segurança
+   * (TASKS_FETCH_CAP, ver page.tsx) — existe mais tarefa que não veio. */
+  tasksTruncated: boolean;
 }) {
   const router = useRouter();
   const pushUndoToast = useUndoToast();
@@ -60,8 +69,6 @@ export function TasksListMobile({
   // agora qualquer papel com acesso à tarefa pode (backend já valida o
   // escopo real, isto aqui só decide se o botão aparece).
   const canDelete = true;
-  // Ver comentário equivalente em tasks-list.tsx (desktop) — mesmo hook.
-  const googleCalendar = useGoogleCalendarEvents();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
@@ -121,6 +128,12 @@ export function TasksListMobile({
   const isEmpty = initialTasks.length === 0;
   const noResults = !isEmpty && filteredTasks.length === 0;
 
+  // Mesma regra do desktop (tasks-list.tsx): evento do Google não tem
+  // "responsável" nem "tipo" no sentido do CRM, então filtrar por consultor
+  // ou por categoria não tem como incluí-lo de verdade — some quando um dos
+  // dois filtros está ativo.
+  const showGoogleEvents = !ownerFilter && typeFilters.size === 0;
+
   async function toggleComplete(
     taskId: string,
     completed: boolean,
@@ -156,7 +169,14 @@ export function TasksListMobile({
         googleParam={googleParam}
       />
 
-      <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} />
+      {tasksTruncated && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
+          Existem mais tarefas do que a Agenda consegue mostrar de uma vez — algumas podem não estar
+          aparecendo aqui. Tente um filtro mais específico (por consultor ou tipo) pra ver o que falta.
+        </p>
+      )}
+
+      <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} googleEvents={googleCalendar.events} />
 
       {!isEmpty && (
         <CompactMonthCalendar
@@ -166,6 +186,7 @@ export function TasksListMobile({
           canDelete={canDelete}
           showOwner={showOwner}
           deals={deals}
+          googleEvents={showGoogleEvents ? googleCalendar.events : []}
         />
       )}
 

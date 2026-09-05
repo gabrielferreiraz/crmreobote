@@ -340,7 +340,17 @@ export function DealDetail({
     pushUndoToast(data.undo);
   }
 
-  async function reassignOwner(ownerId: string) {
+  // Troca de responsável tem peso de negócio (comissão, quem fala com o
+  // cliente) — o <Select> só ARMA a troca (setPendingOwnerId), nunca grava
+  // direto no onChange. Sem isso, um clique/scroll sem querer no dropdown
+  // (fácil de acontecer, é um <select> nativo embutido no meio da tela)
+  // reatribuía o negócio na hora, sem chance de desfazer o clique antes de
+  // acontecer — relatado como "negócio foi parar com outro responsável".
+  const [pendingOwnerId, setPendingOwnerId] = useState<string | null>(null);
+  const pendingOwnerName = pendingOwnerId ? members.find((m) => m.id === pendingOwnerId)?.name : null;
+
+  async function confirmReassignOwner(ownerId: string) {
+    setPendingOwnerId(null);
     const res = await fetch(`/api/deals/${deal.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -936,7 +946,7 @@ export function DealDetail({
                 <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
                 <Select
                   value={deal.owner.id}
-                  onChange={reassignOwner}
+                  onChange={setPendingOwnerId}
                   className="py-1 text-xs"
                   options={members.map((m) => ({ value: m.id, label: m.name }))}
                 />
@@ -1344,7 +1354,7 @@ export function DealDetail({
                   <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
                   <Select
                     value={deal.owner.id}
-                    onChange={reassignOwner}
+                    onChange={setPendingOwnerId}
                     className="py-1 text-xs"
                     options={members.map((m) => ({ value: m.id, label: m.name }))}
                   />
@@ -1603,6 +1613,16 @@ export function DealDetail({
           onClose={() => setMeetingOutcomeTaskId(null)}
         />
       )}
+
+      {pendingOwnerId && (
+        <ConfirmDialog
+          title={`Reatribuir para ${pendingOwnerName ?? "outro responsável"}?`}
+          description={`O negócio "${deal.name}" passa a ser de ${pendingOwnerName ?? "outra pessoa"} — o contato vinculado também muda de responsável junto.`}
+          confirmLabel="Reatribuir"
+          onClose={() => setPendingOwnerId(null)}
+          onConfirm={() => confirmReassignOwner(pendingOwnerId)}
+        />
+      )}
       </div>
 
       {chatOpen && whatsappThreadId && (
@@ -1736,8 +1756,8 @@ function EditTaskModal({
           title={`Excluir "${task.title}"?`}
           description={
             task.type === "MEETING"
-              ? "Não pode ser desfeito. Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar."
-              : "Não pode ser desfeito."
+              ? "Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
+              : "Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           }
           confirmLabel="Excluir"
           onClose={() => setConfirmingDelete(false)}

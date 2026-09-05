@@ -15,7 +15,7 @@ import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
-import { useGoogleCalendarEvents } from "@/lib/use-google-calendar-events";
+import type { GoogleCalendarState } from "@/lib/use-google-calendar-events";
 import { TaskRow, type Task } from "./task-row";
 import { TaskCalendar } from "./task-calendar";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
@@ -49,12 +49,22 @@ export function TasksList({
   members,
   isWhatsAppConnected,
   googleParam,
+  googleCalendar,
+  tasksTruncated,
 }: {
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
   isWhatsAppConnected: boolean;
   googleParam?: string;
+  /** Buscado uma vez só em AgendaClient (ver comentário lá) e repassado pra
+   * cá e pra TasksListMobile — nunca chamar useGoogleCalendarEvents() de
+   * novo aqui, os dois ficam montados ao mesmo tempo (só um escondido por
+   * CSS) e duplicaria a busca em /api/google-calendar/events. */
+  googleCalendar: GoogleCalendarState;
+  /** true quando a consulta no servidor bateu no teto de segurança
+   * (TASKS_FETCH_CAP, ver page.tsx) — existe mais tarefa que não veio. */
+  tasksTruncated: boolean;
 }) {
   const router = useRouter();
   const pushUndoToast = useUndoToast();
@@ -62,10 +72,6 @@ export function TasksList({
   // agora qualquer papel com acesso à tarefa pode (backend já valida o
   // escopo real, isto aqui só decide se o botão aparece).
   const canDelete = true;
-  // Busca à parte, depois que a tela já está de pé — ver
-  // lib/use-google-calendar-events.ts e app/api/google-calendar/events. Não
-  // trava mais a renderização das tarefas do CRM esperando o Google.
-  const googleCalendar = useGoogleCalendarEvents();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"list" | "calendar">("calendar");
   const [search, setSearch] = useState("");
@@ -213,6 +219,13 @@ export function TasksList({
         loading={googleCalendar.loading}
         googleParam={googleParam}
       />
+
+      {tasksTruncated && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
+          Existem mais tarefas do que a Agenda consegue mostrar de uma vez — algumas podem não estar
+          aparecendo aqui. Tente um filtro mais específico (por consultor ou tipo) pra ver o que falta.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_300px] xl:items-start">
       <div className="min-w-0 space-y-6">
@@ -369,7 +382,7 @@ export function TasksList({
       </div>
 
       <div className="xl:sticky xl:top-4">
-        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} />
+        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} googleEvents={googleCalendar.events} />
       </div>
       </div>
 

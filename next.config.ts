@@ -27,16 +27,23 @@ const nextConfig: NextConfig = {
   // "stale" em 0 segundos — ou seja, voltar pra uma tela que você acabou de
   // visitar refaz a busca no servidor do zero e reexibe o esqueleto de
   // carregamento, mesmo sem nada ter mudado. Isso mantém o payload de cada
-  // rota já visitada em cache no navegador por 1h — navegar entre
-  // Agenda/Clientes/Pipeline/etc. fica instantâneo depois da 1ª visita.
-  // Ações que alteram dado (mover negócio, criar contato, ...) continuam
-  // atualizando na hora porque toda mutação chama router.refresh(), que
-  // ignora esse cache. O que pode ficar "atrasado" é só a mudança feita por
-  // OUTRO usuário numa tela que você não recarregou — só aparece quando
-  // esse cache expirar ou quando alguma ação sua disparar um refresh.
+  // rota já visitada em cache no navegador por um tempo curto — navegar
+  // entre Agenda/Clientes/Pipeline/etc. continua rápido logo depois da 1ª
+  // visita. Ações que alteram dado (mover negócio, criar contato, ...)
+  // continuam atualizando na hora porque toda mutação chama
+  // router.refresh(), que ignora esse cache. O que pode ficar "atrasado" é
+  // só a mudança feita por OUTRO usuário numa tela que você não recarregou.
+  //
+  // Era 3600 (1h) — baixado pra 30s: com ~20 consultores editando dado
+  // compartilhado (times, grupos de compartilhamento, negócios
+  // reatribuídos) ao mesmo tempo, 1h de cache client-side fazia qualquer
+  // mudança de outra pessoa demorar até 1h pra aparecer pra quem não
+  // recarregasse a tela — relatado como "dado errado"/"não é meu". 30s
+  // ainda evita o esqueleto de carregamento em navegação rápida de ida-e-
+  // volta, sem deixar dado de outra pessoa parado por tanto tempo.
   experimental: {
     staleTimes: {
-      dynamic: 3600,
+      dynamic: 30,
     },
   },
 };
