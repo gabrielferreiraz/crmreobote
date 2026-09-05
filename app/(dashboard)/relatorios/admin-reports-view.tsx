@@ -360,14 +360,18 @@ export async function AdminReportsView({
 
   return (
     <div className="space-y-6 lg:space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+      {/* Mesmo ajuste de app/(dashboard)/relatorios/page.tsx (ver comentário
+          lá) — flex-col + xl:flex-row/flex-nowrap em vez de flex-wrap+
+          justify-between, que saltava o bloco de filtros pro lado esquerdo
+          assim que crescia demais pra caber ao lado do título. */}
+      <div className="flex flex-col gap-4 xl:flex-row xl:flex-nowrap xl:items-end xl:justify-between">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">
             Relatório do Administrativo
           </h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Acompanhamento de pós-venda.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 xl:shrink-0">
           <ProcessPipelineFilter categories={filterCategories} />
           <TeamOwnerFilter teams={[]} members={ownerOptions} />
           <DateRangeFilter />

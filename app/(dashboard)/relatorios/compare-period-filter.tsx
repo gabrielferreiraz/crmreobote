@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { GitCompareArrows, Check, ChevronDown, ChevronLeft, X } from "lucide-react";
 import { DateRangeCalendar } from "@/components/date-range-calendar";
-import { COMPARE_MODES, isCompareMode } from "@/lib/reports/period-compare";
+import { COMPARE_MODES, isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
+import { buildQuickRanges } from "@/lib/date-ranges";
+import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 
 function optionClass(active: boolean) {
   return `flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
@@ -55,6 +57,36 @@ export function ComparePeriodFilter() {
   const activeCompare = isCompareMode(activeCompareRaw) ? activeCompareRaw : null;
   const activeCompareFrom = searchParams.get("compareFrom") ?? "";
   const activeCompareTo = searchParams.get("compareTo") ?? "";
+
+  // Mesma resolução de rangeFrom/rangeTo que o servidor faz em
+  // getCommercialReportData (ver lib/reports/commercial-data.ts) — repetida
+  // aqui só pra CALCULAR o rótulo (nunca pra decidir o que a página busca,
+  // isso continua 100% do servidor). Sem from/to na URL, cai no mesmo
+  // padrão "Este mês" que o servidor usa como default.
+  const fromParam = searchParams.get("from") ?? "";
+  const toParam = searchParams.get("to") ?? "";
+  const defaultRange =
+    isAllTime || fromParam || toParam ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
+  const rangeFrom = isAllTime
+    ? null
+    : fromParam
+      ? brazilDateStringToUTC(fromParam)
+      : defaultRange
+        ? brazilDateStringToUTC(defaultRange.from)
+        : null;
+  const rangeTo = isAllTime
+    ? null
+    : toParam
+      ? brazilEndOfDayUTC(toParam)
+      : defaultRange
+        ? brazilEndOfDayUTC(defaultRange.to)
+        : null;
+  // Resolvido só pra EXIBIÇÃO (rótulo do botão) — o cálculo que de fato
+  // filtra os dados roda de novo, igual, do lado do servidor.
+  const resolvedCompare =
+    activeCompare && rangeFrom && rangeTo
+      ? resolveComparePeriod(activeCompare, rangeFrom, rangeTo, { from: activeCompareFrom, to: activeCompareTo })
+      : null;
   const [draftFrom, setDraftFrom] = useState(activeCompareFrom);
   const [draftTo, setDraftTo] = useState(activeCompareTo);
 
@@ -105,6 +137,12 @@ export function ComparePeriodFilter() {
     setShowCustom(false);
   }
 
+  // "Mesmo período" sozinho é ambíguo de propósito ruim — ninguém deveria
+  // precisar abrir o menu de novo só pra saber QUAIS datas estão sendo
+  // comparadas. Personalizado já mostrava as datas exatas (mantido como
+  // estava); os outros 3 modos relativos (mirror/month/last3/year) agora
+  // ganham o intervalo resolvido entre parênteses, calculado pra combinar
+  // exatamente com o que o servidor usa pra filtrar de verdade.
   const activeLabel =
     activeCompare === "custom"
       ? activeCompareFrom && activeCompareTo
@@ -113,7 +151,7 @@ export function ComparePeriodFilter() {
           : `${formatPtBr(activeCompareFrom)} – ${formatPtBr(activeCompareTo)}`
         : "Personalizado"
       : activeCompare
-        ? COMPARE_MODES.find((m) => m.key === activeCompare)?.label
+        ? `${COMPARE_MODES.find((m) => m.key === activeCompare)?.label}${resolvedCompare ? ` (${resolvedCompare.rangeLabel})` : ""}`
         : null;
 
   return (

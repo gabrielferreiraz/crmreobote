@@ -201,9 +201,21 @@ export default async function RelatoriosPage({
     <div className="space-y-16 pb-8">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        {/* flex-col + xl:flex-row/flex-nowrap (não flex-wrap+justify-between
+            de antes) — com justify-between, o bloco de filtros (que só
+            CRESCE conforme escolhe filtro: nome de responsável, comparação
+            de período com data por extenso etc.) passava de "colado na
+            direita" pra "colado na esquerda" assim que deixava de caber ao
+            lado do título, um salto visual pro outro lado da tela bem no
+            meio de usar o filtro (pedido explícito pra corrigir). Abaixo de
+            xl sempre empilhado (título em cima, filtros embaixo, nunca
+            ambíguo); a partir de xl a fileira NUNCA quebra como um todo —
+            só o título encolhe/quebra o próprio texto (min-w-0), os filtros
+            ficam com largura própria (shrink-0) sempre grudados na direita,
+            não importa o quanto cresçam. */}
+        <div className="flex flex-col gap-4 xl:flex-row xl:flex-nowrap xl:items-end xl:justify-between">
           {!isPersonalView && (
-            <div>
+            <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
                 Relatórios
               </p>
@@ -217,11 +229,11 @@ export default async function RelatoriosPage({
           )}
           {isPersonalView && (
             // Filtros compactos (sem o bloco de título) — o PersonalHero ocupa o topo
-            <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
+            <p className="min-w-0 text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
               Relatórios
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 xl:shrink-0">
             <FiltersUrlRestore />
             <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
             {!isPersonalView && (

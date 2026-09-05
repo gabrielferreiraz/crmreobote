@@ -285,8 +285,12 @@ function PerformanceSection({ performance }: { performance: CampaignPerformance 
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+      {/* Mesmo ajuste de app/(dashboard)/relatorios/page.tsx (ver comentário
+          lá) — flex-col + sm:flex-row/flex-nowrap em vez de flex-wrap+
+          justify-between, que salta o bloco de filtros pro lado esquerdo se
+          algum dia crescer demais pra caber ao lado do rótulo. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-center sm:justify-between">
+        <div className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
           <Users className="h-3.5 w-3.5" strokeWidth={2} />
           Desempenho por campanha e anúncio
         </div>
