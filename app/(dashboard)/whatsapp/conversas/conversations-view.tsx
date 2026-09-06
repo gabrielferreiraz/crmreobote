@@ -30,6 +30,11 @@ export type Conversation = {
   deal: { id: string; name: string } | null;
   ownerId: string;
   ownerName: string;
+  /** userIds de quem já mandou mensagem OUTBOUND nesta conversa — ver
+   * lib/whatsapp/conversations.ts. Usado pelo filtro "Você"/consultor
+   * abaixo, não ownerId (responsável pelo negócio pode nunca ter falado
+   * com o lead). */
+  senderIds: string[];
   profilePicUrl: string | null;
 };
 
@@ -383,7 +388,13 @@ export function ConversationsView({
     const term = search.trim().toLowerCase();
     return tabConversations.filter((c) => {
       if (onlyUnread && c.unreadCount === 0) return false;
-      if (ownerFilter && c.ownerId !== ownerFilter) return false;
+      // Filtra por quem MANDOU mensagem nesta conversa, não por quem é
+      // responsável pelo negócio vinculado (ownerId) — são coisas diferentes:
+      // o dono pode atribuir o lead pra outro cuidar sem nunca ter falado
+      // com ele, e "Você"/nome de consultor aqui é sobre atendimento de
+      // verdade, não sobre responsabilidade (ver senderIds em
+      // lib/whatsapp/conversations.ts).
+      if (ownerFilter && !c.senderIds.includes(ownerFilter)) return false;
       if (
         term &&
         !c.displayName.toLowerCase().includes(term) &&
@@ -736,7 +747,9 @@ export function ConversationsView({
           reseta o componente ao trocar de conversa, senão o painel antigo
           ficava visível por um instante com o contato errado enquanto o
           novo fetch ainda não tinha voltado. */}
-      {selected?.contactId && <ContactInfoPanel key={selected.contactId} contactId={selected.contactId} />}
+      {selected?.contactId && (
+        <ContactInfoPanel key={selected.contactId} contactId={selected.contactId} whatsappConnected={whatsappConnected} />
+      )}
 
       {bulkSendOpen && (
         <BulkSendConversationsDialog

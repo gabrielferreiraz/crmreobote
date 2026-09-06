@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { Mail, Phone, Tag, User, Calendar, Megaphone, ExternalLink } from "lucide-react";
+import { Mail, Phone, Tag, User, Calendar, Megaphone, ExternalLink, ListTodo } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge, type BadgeTone } from "@/components/badge";
+import { NewTaskDialog } from "@/components/new-task-dialog";
 import { formatCurrency } from "@/lib/format";
 
 type ContactDetail = {
@@ -56,9 +57,19 @@ const QUALIFICATION_LABEL: Record<string, { label: string; tone: BadgeTone }> = 
  * Só desktop, de propósito (pedido explícito) — a versão mobile da tela de
  * conversas (conversations-view-mobile.tsx) fica de fora por enquanto.
  */
-export function ContactInfoPanel({ contactId }: { contactId: string }) {
+export function ContactInfoPanel({
+  contactId,
+  whatsappConnected,
+}: {
+  contactId: string;
+  /** Só afeta o passo de convite quando a nova tarefa é uma Reunião (ver
+   * NewTaskDialog/MeetingInviteDialog) — sem instância própria conectada,
+   * esse passo não oferece a opção de mandar o convite por WhatsApp. */
+  whatsappConnected?: boolean;
+}) {
   const [contact, setContact] = useState<ContactDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [creatingTask, setCreatingTask] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +118,18 @@ export function ContactInfoPanel({ contactId }: { contactId: string }) {
               Ver ficha completa
               <ExternalLink className="h-3 w-3" strokeWidth={2} />
             </Link>
+            {/* Criar tarefa sem sair da conversa — pedido explícito: antes só
+                dava pra agendar algo indo até a página do negócio. Contato já
+                vem fixo (é este); negócio pré-selecionado quando só existe um
+                em aberto (ver openDeals abaixo), mas continua trocável. */}
+            <button
+              type="button"
+              onClick={() => setCreatingTask(true)}
+              className="btn-secondary !py-1 text-xs"
+            >
+              <ListTodo className="h-3.5 w-3.5" strokeWidth={2} />
+              Nova tarefa
+            </button>
           </div>
 
           <div className="space-y-3 p-4 text-sm">
@@ -167,6 +190,24 @@ export function ContactInfoPanel({ contactId }: { contactId: string }) {
             </div>
           )}
         </>
+      )}
+
+      {creatingTask && contact && (
+        <NewTaskDialog
+          fixedContact={{ id: contact.id, name: contact.name }}
+          // Só os negócios EM ANDAMENTO deste contato — mesmo critério que a
+          // Agenda usa pro dropdown geral (ver app/(dashboard)/agenda/page.tsx).
+          // Pré-seleciona sozinho quando só existe um, mas continua trocável.
+          deals={contact.deals.filter((d) => d.status === "OPEN").map((d) => ({ id: d.id, name: d.name }))}
+          initialDealId={
+            contact.deals.filter((d) => d.status === "OPEN").length === 1
+              ? contact.deals.find((d) => d.status === "OPEN")!.id
+              : undefined
+          }
+          isWhatsAppConnected={whatsappConnected}
+          onClose={() => setCreatingTask(false)}
+          onCreated={() => setCreatingTask(false)}
+        />
       )}
     </div>
   );
