@@ -12,6 +12,7 @@ import { PipelineQuickFilterButtons } from "./pipeline-quick-filter-buttons";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
+import { ColumnFilter } from "@/components/column-filter";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { SelectionBar } from "@/components/selection-bar";
@@ -1184,10 +1185,59 @@ export function DealsList({
                     />
                   </th>
                   <th className="px-3 py-2 font-medium whitespace-nowrap">Negócio</th>
-                  <th className="px-3 py-2 font-medium whitespace-nowrap">Cliente</th>
-                  <th className="px-3 py-2 font-medium whitespace-nowrap">Etapa</th>
-                  <th className="px-3 py-2 font-medium whitespace-nowrap">Status</th>
-                  <th className="px-3 py-2 font-medium whitespace-nowrap">Responsável</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      Cliente
+                      {originOptions.length > 0 && (
+                        <ColumnFilter
+                          value={originFilter}
+                          onChange={(v) => { setOriginFilter(v); setPage(1); }}
+                          allLabel="Todas as origens"
+                          options={originOptions.map((o) => ({ value: o, label: o }))}
+                        />
+                      )}
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      Etapa
+                      <ColumnFilter
+                        value={stageFilter}
+                        onChange={(v) => { setStageFilter(v); setPage(1); }}
+                        allLabel="Todas as etapas"
+                        options={stages.map((s) => ({ value: s.id, label: s.name }))}
+                      />
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      Status
+                      <ColumnFilter
+                        value={statusFilter}
+                        onChange={(v) => { setStatusFilter(v as Deal["status"] | ""); setPage(1); }}
+                        allLabel="Todos"
+                        options={[
+                          { value: "OPEN", label: "Em andamento" },
+                          { value: "WON", label: "Ganhos" },
+                          { value: "LOST", label: "Perdidos" },
+                        ]}
+                      />
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      Responsável
+                      <ColumnFilter
+                        value={ownerFilter}
+                        onChange={(v) => { setOwnerFilter(v); setPage(1); }}
+                        allLabel="Todos os responsáveis"
+                        options={orderedMembers.map((m) => ({
+                          value: m.id,
+                          label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,
+                        }))}
+                      />
+                    </span>
+                  </th>
                   <th className="px-3 py-2 font-medium whitespace-nowrap">Próx. atividade</th>
                   <th className="px-3 py-2 font-medium whitespace-nowrap">
                     <SortableColumnHeader column="date" sort={sort} sortDir={sortDir} onClick={toggleColumnSort}>
@@ -1195,9 +1245,20 @@ export function DealsList({
                     </SortableColumnHeader>
                   </th>
                   <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
-                    <SortableColumnHeader column="value" sort={sort} sortDir={sortDir} onClick={toggleColumnSort} align="right">
-                      Valor
-                    </SortableColumnHeader>
+                    <div className="flex items-center justify-end gap-1">
+                      <ColumnFilter
+                        value={noValueOnly ? "1" : ""}
+                        onChange={(v) => { setNoValueOnly(v === "1"); setPage(1); }}
+                        allLabel="Todos"
+                        options={[{ value: "1", label: "Sem valor" }]}
+                        align="right"
+                      />
+                      <div className="flex-1">
+                        <SortableColumnHeader column="value" sort={sort} sortDir={sortDir} onClick={toggleColumnSort} align="right">
+                          Valor
+                        </SortableColumnHeader>
+                      </div>
+                    </div>
                   </th>
                   <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Parado</th>
                 </tr>

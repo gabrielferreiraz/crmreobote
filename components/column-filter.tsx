@@ -23,11 +23,16 @@ export function ColumnFilter({
   onChange,
   options,
   allLabel = "Todos",
+  align = "left",
 }: {
   value: string;
   onChange: (v: string) => void;
   options: Option[];
   allLabel?: string;
+  /** "right" pra coluna perto da borda direita da tabela (ex.: Valor) —
+   * senão o painel (que sempre abre pra baixo alinhado pela esquerda por
+   * padrão) pode estourar pra fora da tela num viewport estreito. */
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -39,7 +44,7 @@ export function ColumnFilter({
     onClose: () => setOpen(false),
     triggerRef,
     panelRef,
-    align: "left",
+    align,
   });
 
   return (
