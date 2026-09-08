@@ -12,6 +12,7 @@ import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/me
 import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CurrencyInput } from "@/components/currency-input";
@@ -87,6 +88,8 @@ type Deal = {
     whatsapp: string | null;
     jobTitle: string | null;
     source: string | null;
+    responsavelId: string | null;
+    responsavel: { name: string } | null;
     metaLeadgenId: string | null;
     metaCampaignId: string | null;
     metaCampaignName: string | null;
@@ -394,9 +397,9 @@ export function DealDetail({
   // PUT (não é um PATCH parcial) — manda sempre os quatro, só trocando o
   // campo editado, senão os que ficarem de fora são apagados sem querer.
   async function saveContactField(
-    field: "name" | "email" | "phone" | "whatsapp" | "jobTitle" | "source",
+    field: "name" | "email" | "phone" | "whatsapp" | "jobTitle" | "source" | "responsavelId",
     value: string,
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string }> {
     const res = await fetch(`/api/contacts/${deal.contact.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -410,7 +413,20 @@ export function DealDetail({
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      return { ok: false, error: data.error ?? "Erro ao salvar" };
+      // "details" é o motivo específico (ex.: "Contato pertence a outro
+      // consultor." / "Contato sem responsável. Peça atribuição a um
+      // gestor.") — a API já manda isso desde a correção de erros com
+      // modal (ver components/error-dialog.tsx), mas até aqui esse card em
+      // particular descartava e só mostrava "Sem permissão para editar"
+      // sem explicar o motivo real. Mesma inferência de type que
+      // components/edit-contact-dialog.tsx já usa quando a API não manda
+      // um "type" explícito (erro de validação simples, por exemplo).
+      return {
+        ok: false,
+        error: data.error ?? "Erro ao salvar",
+        type: data.type ?? (res.status === 403 ? "PERMISSION" : res.status === 404 ? "NOT_FOUND" : res.status === 400 ? "VALIDATION" : "SERVER"),
+        details: data.details,
+      };
     }
     router.refresh();
     pushUndoToast(data.undo);
@@ -1162,6 +1178,23 @@ export function DealDetail({
               options={sourceOptions}
               editable={canEditDetails}
               onSave={(v) => saveContactField("source", v)}
+            />
+            {/* Pedido explícito: mostrar/editar o responsável do CONTATO
+                (independente do responsável do negócio, que já tem seu
+                próprio seletor no card "Dados do negócio" mais abaixo — os
+                dois podem divergir, ver comentário em confirmReassignOwner)
+                direto aqui. MEMBER só consegue editar se já for o
+                responsável atual (regra de app/api/contacts/[id]/route.ts)
+                — quando bloquear, o ErrorDialog acima explica o motivo
+                exato em vez de só "sem permissão". */}
+            <EditableRow
+              label="Responsável"
+              value={deal.contact.responsavelId ?? ""}
+              displayValue={deal.contact.responsavel?.name ?? "Ninguém"}
+              type="select"
+              options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+              editable={canEditDetails}
+              onSave={(v) => saveContactField("responsavelId", v)}
             />
           </div>
         </div>
@@ -2004,7 +2037,7 @@ function EditableRow({
   value: string;
   /** Como mostrar o valor fora do modo edição, se diferente do value bruto (ex.: data formatada). */
   displayValue?: string;
-  onSave: (value: string) => Promise<{ ok: boolean; error?: string }>;
+  onSave: (value: string) => Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string }>;
   type?: "text" | "email" | "textarea" | "date" | "select";
   /** Só usado quando type="select" — lista de opções fixas (ex.: cargo). */
   options?: { value: string; label: string }[];
@@ -2013,7 +2046,12 @@ function EditableRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Modal (não mais texto vermelho pequeno) — pedido explícito: sempre
+  // mostrar o motivo REAL de por que a edição falhou (ex.: "Contato sem
+  // responsável. Peça atribuição a um gestor." em vez de só "Sem permissão
+  // para editar" sem explicar nada), mesmo componente/padrão que
+  // components/edit-contact-dialog.tsx já usa.
+  const [errorDialog, setErrorDialog] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
 
   if (!editable) return <Row label={label} value={displayValue ?? value ?? "—"} />;
 
@@ -2025,7 +2063,6 @@ function EditableRow({
           type="button"
           onClick={() => {
             setDraft(value);
-            setError(null);
             setEditing(true);
           }}
           className="group/field flex min-w-0 items-center gap-1 rounded text-right"
@@ -2051,11 +2088,10 @@ function EditableRow({
 
   async function handleSave() {
     setSaving(true);
-    setError(null);
     const result = await onSave(draft);
     setSaving(false);
     if (!result.ok) {
-      setError(result.error ?? "Erro ao salvar");
+      setErrorDialog({ message: result.error ?? "Erro ao salvar", type: result.type, details: result.details });
       return;
     }
     setEditing(false);
@@ -2107,7 +2143,14 @@ function EditableRow({
           <X className="h-3.5 w-3.5" strokeWidth={2} />
         </button>
       </div>
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {errorDialog && (
+        <ErrorDialog
+          message={errorDialog.message}
+          type={errorDialog.type}
+          details={errorDialog.details}
+          onClose={() => setErrorDialog(null)}
+        />
+      )}
     </div>
   );
 }

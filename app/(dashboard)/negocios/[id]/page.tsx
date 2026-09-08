@@ -25,6 +25,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         contact: {
           include: {
             qualifiedBy: { select: { name: true } },
+            // Pedido explícito: mostrar/editar o responsável do contato
+            // direto no card "Dados do contato", mesmo padrão de
+            // Origem/Cargo logo abaixo (ver responsavelOptions em
+            // deal-detail.tsx).
+            responsavel: { select: { name: true } },
           },
         },
         owner: true,
