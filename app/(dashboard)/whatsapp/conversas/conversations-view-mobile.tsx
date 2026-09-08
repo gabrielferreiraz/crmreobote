@@ -166,7 +166,8 @@ export function ConversationsMobile({
     const term = search.trim().toLowerCase();
     return tabConversations.filter((c) => {
       if (onlyUnread && c.unreadCount === 0) return false;
-      if (ownerFilter && c.ownerId !== ownerFilter) return false;
+      // Ver comentário equivalente em conversations-view.tsx (desktop).
+      if (ownerFilter && !c.senderIds.includes(ownerFilter)) return false;
       if (
         term &&
         !c.displayName.toLowerCase().includes(term) &&

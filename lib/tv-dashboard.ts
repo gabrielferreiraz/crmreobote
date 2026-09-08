@@ -94,6 +94,11 @@ export async function getTvMetrics(organizationId: string) {
         select: {
           ownerId: true,
           value: true,
+          // Valor bruto (ver Deal.grossValue no schema) — só pro card
+          // "Vendas do mês" (fileira Anuais/Cotas, ver vendasBrutoMes
+          // abaixo), nunca pro Ranking/Última venda/hero, que continuam
+          // 100% líquido (`value`) de propósito.
+          grossValue: true,
           owner: { select: { name: true, image: true } },
         },
       });
@@ -121,6 +126,14 @@ export async function getTvMetrics(organizationId: string) {
         .slice(0, 3);
 
       const totalVendasMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.value || 0), 0);
+      // Bruto do MÊS (não do ano) — mesmo filtro `closedAt >= monthStart` de
+      // totalVendasMes acima (zera sozinho na virada do mês, meia-noite de
+      // Brasília), só somando grossValue em vez de value. Reaproveita
+      // wonDealsThisMonth já buscado ali em cima (mesmas linhas, sem 2ª
+      // consulta) — grossValue é nullable (Deal antigo, de antes de
+      // 08/2026, ou preenchido sem valor bruto) e simplesmente não entra na
+      // soma, igual `value` ausente já era tratado.
+      const vendasBrutoMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.grossValue || 0), 0);
 
       // 2. Última venda — só de consultor ATIVO (mesmo raciocínio do
       // ranking acima: pula pra próxima venda mais recente se a última
@@ -191,10 +204,6 @@ export async function getTvMetrics(organizationId: string) {
         })
       );
 
-      // 5. Vendas Cotas (Assumiremos o total anual como fallback ou o total histórico de consórcio,
-      // mas aqui para manter simples vamos retornar o anual até o usuário pedir alteração)
-      const vendasCotas = vendasAnuais;
-
       // 6b. Aniversariantes do mês — alimenta o carrossel do card Ranking (ver
       // tv-view.tsx: depois de alguns minutos mostrando o pódio, gira pra
       // mostrar quem faz aniversário este mês, destacando quem faz HOJE). Só
@@ -240,7 +249,7 @@ export async function getTvMetrics(organizationId: string) {
 
       return {
         vendasAnuais,
-        vendasCotas,
+        vendasBrutoMes,
         vendasMes: totalVendasMes,
         lastSale: lastSale
           ? {
@@ -267,7 +276,7 @@ export async function getTvMetrics(organizationId: string) {
     // Return empty/safe defaults if DB fails
     return {
       vendasAnuais: 0,
-      vendasCotas: 0,
+      vendasBrutoMes: 0,
       vendasMes: 0,
       lastSale: null,
       leadsInFunnels: [],

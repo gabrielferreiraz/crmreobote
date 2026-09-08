@@ -977,16 +977,38 @@ export async function getCommercialReportData(params: {
     // Prospecção fria: listas importadas + disparo em massa (Campanhas) — cada
     // linha SENT é um lead que só existe na conversa porque o vendedor mandou
     // a primeira mensagem (o oposto de um lead orgânico que chamou primeiro).
+    //
+    // Escopo por dono corrigido aqui: filtrar por `campaign.instance.userId`
+    // (a instância "principal" da campanha) é errado pra campanha
+    // PIPELINE_BULK (envio em massa do Pipeline) — cada destinatário pode ter
+    // sido mandado pela instância do PRÓPRIO dono do negócio, diferente da
+    // "principal" (mesmo raciocínio já aplicado corretamente logo abaixo, em
+    // possibleColdDealsByInstance, via WhatsAppThread.instanceId — aqui não dá
+    // pra usar a thread porque queremos incluir quem ainda nem tem thread
+    // (id null), então resolve pelo mesmo critério `instanceId ??
+    // campaign.instanceId` usado no motor de campanhas, lib/campaigns/
+    // engine.ts). Sem isso, filtrar por equipe/pessoa incluía/excluía
+    // destinatário errado, e campaignStatsByInstance (mais abaixo) atribuía
+    // "enviadas"/"resposta" de Prospecção fria pro vendedor errado.
     prisma.campaignRecipient.findMany({
       where: {
-        campaign: { organizationId, ...(effectiveScope.type === "owners" ? { instance: { userId: { in: effectiveScope.ownerIds } } } : {}) },
+        campaign: { organizationId },
         status: "SENT",
         ...dateWhere("sentAt"),
+        ...(effectiveScope.type === "owners"
+          ? {
+              OR: [
+                { instanceId: null, campaign: { instance: { userId: { in: effectiveScope.ownerIds } } } },
+                { instanceId: { not: null }, instance: { userId: { in: effectiveScope.ownerIds } } },
+              ],
+            }
+          : {}),
       },
       select: {
         repliedAt: true,
         scriptId: true,
         threadId: true,
+        instanceId: true,
         campaign: { select: { instanceId: true } },
         contact: { select: { jobTitle: true } },
       },
@@ -1168,7 +1190,13 @@ export async function getCommercialReportData(params: {
   const campaignStatsByScript = new Map<string, { sent: number; replied: number }>();
   const campaignStatsByJobTitle = new Map<string, { sent: number; replied: number }>();
   for (const r of campaignRecipients) {
-    const key = r.campaign.instanceId;
+    // Instância de verdade de QUEM mandou esse destinatário específico — não
+    // a "principal" da campanha (ver comentário na consulta de
+    // campaignRecipients acima). Mesmo fallback `instanceId ??
+    // campaign.instanceId` usado no motor de campanhas (lib/campaigns/
+    // engine.ts) — null só acontece pra campanha MANUAL/LEAD_CAPTURE, que de
+    // fato usa uma única instância pra todo mundo.
+    const key = r.instanceId ?? r.campaign.instanceId;
     if (!campaignStatsByInstance.has(key)) campaignStatsByInstance.set(key, { sent: 0, replied: 0 });
     const stat = campaignStatsByInstance.get(key)!;
     stat.sent += 1;

@@ -11,6 +11,7 @@ import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
 type ContactOption = { id: string; name: string; email?: string | null; phone?: string | null };
 type JobTitleOption = { id: string; label: string };
+type LeadSourceOption = { id: string; label: string };
 
 function detectQueryKind(query: string): "email" | "phone" | "name" {
   const trimmed = query.trim();
@@ -231,6 +232,8 @@ function QuickCreateContactModal({
   const [phone, setPhone] = useState("");
   const [jobTitles, setJobTitles] = useState<JobTitleOption[]>([]);
   const [jobTitle, setJobTitle] = useState("");
+  const [sources, setSources] = useState<LeadSourceOption[]>([]);
+  const [source, setSource] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
@@ -240,13 +243,18 @@ function QuickCreateContactModal({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/job-titles");
-        if (!res.ok) return;
-        const data: JobTitleOption[] = await res.json();
-        if (!cancelled) setJobTitles(data);
+        const [jobTitlesRes, sourcesRes] = await Promise.all([fetch("/api/job-titles"), fetch("/api/lead-sources")]);
+        if (jobTitlesRes.ok) {
+          const data: JobTitleOption[] = await jobTitlesRes.json();
+          if (!cancelled) setJobTitles(data);
+        }
+        if (sourcesRes.ok) {
+          const data: LeadSourceOption[] = await sourcesRes.json();
+          if (!cancelled) setSources(data);
+        }
       } catch {
-        // sem lista carregada, o Select some vazio — POST /api/contacts ainda
-        // barra no servidor se o cargo não vier preenchido
+        // sem lista carregada, os Select somem vazios — POST /api/contacts ainda
+        // barra no servidor se o cargo não vier preenchido (origem é opcional)
       }
     })();
     return () => {
@@ -264,6 +272,7 @@ function QuickCreateContactModal({
         phone: phone || undefined,
         whatsapp: whatsapp || undefined,
         jobTitle,
+        source: source || undefined,
         ...(claimContactId ? { claimContactId } : {}),
       }),
     });
@@ -361,14 +370,30 @@ function QuickCreateContactModal({
             className="field-input"
           />
         </div>
-        <div className="space-y-1">
-          <label className="field-label">Cargo *</label>
-          <Select
-            value={jobTitle}
-            onChange={setJobTitle}
-            placeholder="Selecione o cargo"
-            options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="field-label">Cargo *</label>
+            <Select
+              value={jobTitle}
+              onChange={setJobTitle}
+              placeholder="Selecione o cargo"
+              options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
+            />
+          </div>
+          <div className="space-y-1">
+            {/* Origem opcional aqui, igual ao resto do app (Clientes, editar
+                contato) — sem isso, um contato criado por aqui (fluxo de
+                "Novo negócio") só ganhava origem se alguém lembrasse de
+                voltar depois em Clientes e preencher, o que pedido explícito
+                do usuário quer evitar. */}
+            <label className="field-label">Origem</label>
+            <Select
+              value={source}
+              onChange={setSource}
+              placeholder="Selecione a origem"
+              options={sources.map((s) => ({ value: s.label, label: s.label }))}
+            />
+          </div>
         </div>
 
         {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}

@@ -891,7 +891,7 @@ export default async function RelatoriosPage({
           <SectionHeading
             eyebrow="WhatsApp"
             title="Atividade por vendedor"
-            description="Geral (fora de negócio), prospecção fria (campanhas), prospecção manual (1ª mensagem sua pra um lead novo) e conversas de negócio — cada mensagem conta numa categoria só."
+            description="Geral (fora de negócio), prospecção fria (campanhas), prospecção manual (1ª mensagem sua pra um lead novo) e conversas de negócio — as 3 primeiras nunca compartilham mensagem entre si; conversas de negócio é a exceção que repete o que já apareceu em prospecção manual (ver nota completa no fim da seção)."
           />
 
           <div className="space-y-3">

@@ -32,6 +32,13 @@ export type ConversationSummary = {
   deal: { id: string; name: string } | null;
   ownerId: string;
   ownerName: string;
+  /** userIds de quem já MANDOU alguma mensagem OUTBOUND nesta conversa (ver
+   * comentário em listConversations abaixo) — diferente de ownerId (quem é
+   * responsável pelo negócio vinculado, não necessariamente quem falou com o
+   * lead). Usado pelo filtro "Você"/nome de consultor em conversations-view:
+   * filtrar por responsabilidade misturava conversa de quem nunca trocou uma
+   * mensagem sequer com quem realmente atendeu o lead. */
+  senderIds: string[];
   /** Cacheada em WhatsAppThread (ver app/api/whatsapp/threads/[threadId]/photo) — null até a conversa ser aberta ao menos uma vez. */
   profilePicUrl: string | null;
 };
@@ -86,7 +93,11 @@ export async function listConversations(
   const threadIds = withMessages.map((t) => t.id);
   const contactIds = withMessages.map((t) => t.contactId).filter((id): id is string => !!id);
 
-  const [unreadCounts, openDeals] = await Promise.all([
+  const instanceUserIdByThread = new Map(
+    withMessages.filter((t) => t.instance).map((t) => [t.id, t.instance!.userId]),
+  );
+
+  const [unreadCounts, openDeals, outboundSenders] = await Promise.all([
     prisma.whatsAppMessage.groupBy({
       by: ["threadId"],
       where: { organizationId, direction: "INBOUND", read: false, threadId: { in: threadIds } },
@@ -99,9 +110,30 @@ export async function listConversations(
           select: { id: true, name: true, contactId: true, ownerId: true, owner: { select: { name: true } } },
         })
       : Promise.resolve([]),
+    // Distinct (threadId, sentByUserId) entre as mensagens OUTBOUND destas
+    // threads — dá quem de fato mandou mensagem em cada conversa, pra
+    // alimentar o filtro "Você"/nome de consultor (ver senderIds acima).
+    // sentByUserId nulo é o caso normal (dono da instância mandando pela
+    // própria) — resolvido abaixo via instanceUserIdByThread; só vira "quem
+    // mandou" de verdade quando preenchido (override, ver schema). Escopado a
+    // `threadIds` (só as ~300 conversas já selecionadas, não o histórico
+    // OUTBOUND da organização inteira) — mesmo escopo que unreadCounts acima.
+    prisma.whatsAppMessage.groupBy({
+      by: ["threadId", "sentByUserId"],
+      where: { organizationId, direction: "OUTBOUND", threadId: { in: threadIds } },
+      _count: { _all: true },
+    }),
   ]);
 
   const unreadByThread = new Map(unreadCounts.map((u) => [u.threadId, u._count._all]));
+  const sendersByThread = new Map<string, Set<string>>();
+  for (const row of outboundSenders) {
+    const effectiveSenderId = row.sentByUserId ?? instanceUserIdByThread.get(row.threadId);
+    if (!effectiveSenderId) continue;
+    const set = sendersByThread.get(row.threadId);
+    if (set) set.add(effectiveSenderId);
+    else sendersByThread.set(row.threadId, new Set([effectiveSenderId]));
+  }
   const dealByContact = new Map<string, { id: string; name: string; ownerId: string; ownerName: string }>();
   for (const deal of openDeals) {
     if (!dealByContact.has(deal.contactId)) {
@@ -142,6 +174,7 @@ export async function listConversations(
       // que é a única informação de "responsável" que existe nesse caso.
       ownerId: deal?.ownerId ?? thread.instance?.userId ?? "",
       ownerName: deal?.ownerName ?? thread.instance?.user.name ?? "",
+      senderIds: Array.from(sendersByThread.get(thread.id) ?? []),
       profilePicUrl: thread.profilePicUrl,
     };
   });

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } from "lucide-react";
 import { AnimatedFire } from "@/components/animated-fire";
+import { ReoboteLogo } from "@/components/reobote-logo";
 import { fetchTvMetrics } from "./actions";
 import { formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
@@ -126,27 +127,11 @@ export function TvView({
   publicCode?: string;
 }) {
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
-  // Fallback textual da logo (ver JSX mais abaixo) — relato ao vivo:
-  // /logo-reobote.svg às vezes não aparecia na TV (ficava só o ícone de
-  // imagem quebrada do navegador). Causa nº1: o arquivo era um auto-trace de
-  // PNG com 48KB e milhares de pontos de curva, pesado demais pro
-  // navegador embutido da TV parsear/renderizar. Rodado o svgo nele
-  // (mesmo desenho, sem redesenho manual) e caiu pra 13KB (-73%) —
-  // conferido pixel a pixel contra o original, sem diferença visível.
-  // Causa nº2 (relato de novo mesmo depois do svgo): o export original
-  // envolvia todo o desenho num `<g clip-path="url(#a)">` referenciando um
-  // `<clipPath>` em `<defs>` — o retângulo do clip cobria exatamente o
-  // canvas inteiro (não recortava nada, artefato puro da ferramenta de
-  // export). Navegador embutido de TV renderizando o SVG via `<img src>`
-  // (contexto de "imagem externa") é onde esse tipo de referência
-  // `url(#id)` mais falha silenciosamente — browser de desktop resolve sem
-  // problema. Removido o `<g clip-path>`/`<defs>` (visual idêntico, já que
-  // o clip não recortava nada) — sem fragmento nenhum pra resolver agora.
-  // Mesmo assim mantemos o `onError` trocando pro nome estilizado em
-  // texto como rede de segurança — pior que a logo de verdade, mas
-  // infinitamente melhor que o ícone de imagem quebrada + alt-text em
-  // fonte de sistema que aparecia antes.
-  const [logoFailed, setLogoFailed] = useState(false);
+  // Logo: ver components/reobote-logo.tsx pro histórico completo (2
+  // causas já corrigidas em `<img src="/logo-reobote.svg">` sem resolver
+  // de vez — arquivo pesado, depois um clip-path de fragmento — até trocar
+  // pra SVG inline de vez, eliminando a classe inteira de bug de
+  // "carregar recurso externo como imagem" em navegador embutido de TV).
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [celebration, setCelebration] = useState<WinSale | null>(null);
   // Aviso discreto de "os números na tela podem estar desatualizados" — ver
@@ -965,36 +950,7 @@ export function TvView({
               {/* A logo NUNCA participa do carrossel abaixo (ver
                   rankingSlide) — fica fora do bloco que troca de
                   conteúdo, sempre no mesmo lugar. */}
-              {logoFailed ? (
-                <div className="flex items-center gap-2" style={{ height: "var(--tv-logo-h)" }}>
-                  <TrendingUp
-                    style={{ width: "calc(var(--tv-logo-h) * 0.55)", height: "calc(var(--tv-logo-h) * 0.55)", color: "var(--brand)" }}
-                    strokeWidth={2.5}
-                  />
-                  <div className="text-left leading-none">
-                    <p
-                      className="font-bold text-white"
-                      style={{ fontSize: "calc(var(--tv-logo-h) * 0.5)" }}
-                    >
-                      reobote
-                    </p>
-                    <p
-                      className="mt-1 font-semibold tracking-[0.2em] text-neutral-400 uppercase"
-                      style={{ fontSize: "calc(var(--tv-logo-h) * 0.17)" }}
-                    >
-                      Consórcios
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <img
-                  src="/logo-reobote.svg"
-                  alt="Reobote Consórcios"
-                  className="w-auto"
-                  style={{ height: "var(--tv-logo-h)" }}
-                  onError={() => setLogoFailed(true)}
-                />
-              )}
+              <ReoboteLogo className="w-auto" style={{ height: "var(--tv-logo-h)" }} />
             </div>
             {showHero && (
               <GlassCard delay={90} className="shrink-0 text-center">
@@ -1030,9 +986,16 @@ export function TvView({
                     </div>
                   </div>
                   <div className="flex-1">
+                    {/* Rótulo "Cotas" mantido de propósito (pedido
+                        explícito — sem mudar texto/design) — o valor por
+                        trás agora é o BRUTO (Deal.grossValue) do mês
+                        corrente, não mais um duplicado do "Anuais" ao lado
+                        (ver vendasBrutoMes em lib/tv-dashboard.ts). Zera
+                        sozinho na virada do mês, mesmo limite de
+                        `closedAt >= início do mês` que "Vendas do mês" já usa. */}
                     <div className="font-semibold text-neutral-400">Cotas</div>
                     <div className="font-bold text-[length:var(--tv-text-value-sm)]">
-                      {formatCurrencyCompact(metrics.vendasCotas)}
+                      {formatCurrencyCompact(metrics.vendasBrutoMes)}
                     </div>
                   </div>
                 </div>
