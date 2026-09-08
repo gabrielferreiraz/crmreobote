@@ -22,6 +22,15 @@ export type ContactsFilterParams = {
   jobTitle?: string;
   /** Id exato, ou NO_RESPONSAVEL pra "sem responsável", ou vazio pra não filtrar. */
   responsavelId?: string;
+  /** Junto com responsavelId (id exato, nunca com NO_RESPONSAVEL): também
+   * inclui contato SEM responsável nenhum, além do próprio. Só faz sentido
+   * pra quem normalmente só vê os próprios contatos (MEMBER) — pra esse
+   * papel poder achar (e reivindicar) um contato órfão na busca de "Novo
+   * negócio"/tarefa (ver includeOrphans em app/api/contacts/route.ts e o
+   * "pegar contato" em components/contact-search-input.tsx). OWNER/MANAGER
+   * já enxergam órfão de qualquer forma (sem filtro de responsável nenhum),
+   * então não precisam disto. */
+  includeUnassigned?: boolean;
   /** Sigla exata (UF) — lista fechada, ver ESTADOS_BR em lib/contacts/constants.ts. */
   state?: string;
   /** Por trecho, sem diferenciar maiúsculas/acentos exatos (ver índice trigram) — cidade é texto livre, não uma lista fechada como estado. */
@@ -37,7 +46,7 @@ export type ContactsFilterParams = {
  * paginação mostra um total que a busca não confirma.
  */
 export function buildContactsWhere(params: ContactsFilterParams): Prisma.ContactWhereInput {
-  const { organizationId, q, source, jobTitle, responsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo } = params;
+  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, registeredFrom, registeredTo } = params;
   const digits = q ? (normalizePhoneNumber(q) ?? "") : "";
 
   const where: Prisma.ContactWhereInput = {
@@ -81,6 +90,7 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
   else if (jobTitle) where.jobTitle = jobTitle;
 
   if (responsavelId === NO_RESPONSAVEL) where.responsavelId = null;
+  else if (responsavelId && includeUnassigned) where.AND = [{ OR: [{ responsavelId }, { responsavelId: null }] }];
   else if (responsavelId) where.responsavelId = responsavelId;
 
   if (onlyWithDeals) where.deals = { some: {} };

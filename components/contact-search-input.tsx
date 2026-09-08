@@ -2,14 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search, X, UserPlus, Loader2 } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Search, X, UserPlus, UserCheck, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
-type ContactOption = { id: string; name: string; email?: string | null; phone?: string | null };
+type ContactOption = {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  /** undefined = endpoint não mandou (ex.: alguém selecionando um contato já
+   * escolhido antes, fora da busca) — tratado igual a "não sei", nunca
+   * mostra nem badge de dono nem de órfão. null = contato existe mas não tem
+   * responsável (pode ser reivindicado ao selecionar, ver select() abaixo). */
+  responsavelId?: string | null;
+  responsavel?: { id: string; name: string } | null;
+};
 type JobTitleOption = { id: string; label: string };
 type LeadSourceOption = { id: string; label: string };
 
@@ -44,6 +56,8 @@ export function ContactSearchInput({
   const triggerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const dropdownOpen = open && !!query.trim();
+  const { data: session } = useSession();
+  const currentUserId = session?.user.id;
 
   const coords = useFloatingDropdown({
     open: dropdownOpen,
@@ -58,7 +72,12 @@ export function ContactSearchInput({
     setLoading(true);
     const timeout = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/contacts?q=${encodeURIComponent(query)}`);
+        // includeOrphans: além dos próprios contatos, também acha contato
+        // sem responsável nenhum — pra poder reivindicar ao selecionar (ver
+        // select() abaixo). Só tem efeito de verdade pra quem já é limitado
+        // aos próprios contatos (MEMBER); OWNER/MANAGER não mudam de
+        // comportamento (ver app/api/contacts/route.ts).
+        const res = await fetch(`/api/contacts?q=${encodeURIComponent(query)}&includeOrphans=1`);
         if (res.ok && !cancelled) setResults(await res.json());
       } catch {
         // Falha de rede: cai no estado "nenhum contato encontrado" em vez de
@@ -74,7 +93,28 @@ export function ContactSearchInput({
     };
   }, [query]);
 
-  function select(c: ContactOption) {
+  async function select(c: ContactOption) {
+    // Contato sem responsável, selecionado pra virar contato de um negócio/
+    // tarefa novo: pedido explícito do usuário é que vire dele automaticamente
+    // (senão fica órfão pra sempre — ninguém mais volta aqui só pra
+    // "adotar" um contato à toa). PUT /api/contacts/[id] com responsavelId já
+    // aceita isso de qualquer papel; pra MEMBER, além disso, QUALQUER edição
+    // no contato já reivindica sozinho (ver rota) — mandar explícito aqui
+    // funciona igual pros dois casos, sem precisar diferenciar papel no
+    // cliente. Só dispara com currentUserId resolvido (useSession já
+    // carregado) — sem isso, segue sem reivindicar (fica pra próxima edição).
+    if (c.responsavelId === null && currentUserId) {
+      try {
+        await fetch(`/api/contacts/${c.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ responsavelId: currentUserId }),
+        });
+      } catch {
+        // Falha ao reivindicar não pode travar a seleção do contato pro
+        // negócio/tarefa — pior caso, o contato só continua órfão.
+      }
+    }
     onChange(c.id, c);
     setPickedLabel(c.name);
     setQuery("");
@@ -167,21 +207,40 @@ export function ContactSearchInput({
                     Nenhum contato encontrado.
                   </p>
                 ) : (
-                  results.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => select(c)}
-                      className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                    >
-                      <span className="truncate font-medium text-neutral-900 dark:text-neutral-100">{c.name}</span>
-                      {(c.email || c.phone) && (
-                        <span className="truncate text-xs text-neutral-400 dark:text-neutral-500">
-                          {c.email ?? c.phone}
-                        </span>
-                      )}
-                    </button>
-                  ))
+                  results.map((c) => {
+                    // undefined = endpoint não mandou essa info (não deveria
+                    // acontecer na busca de verdade, só por segurança) — nesse
+                    // caso não afirma nada, nem dono nem órfão.
+                    const belongsToOther = !!c.responsavelId && c.responsavelId !== currentUserId;
+                    const isOrphan = c.responsavelId === null;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => select(c)}
+                        className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                      >
+                        <span className="truncate font-medium text-neutral-900 dark:text-neutral-100">{c.name}</span>
+                        {(c.email || c.phone) && (
+                          <span className="truncate text-xs text-neutral-400 dark:text-neutral-500">
+                            {c.email ?? c.phone}
+                          </span>
+                        )}
+                        {belongsToOther && (
+                          <span className="mt-0.5 inline-flex items-center gap-1 truncate text-xs text-neutral-400 dark:text-neutral-500">
+                            <UserCheck className="h-3 w-3 shrink-0" strokeWidth={2} />
+                            De {c.responsavel?.name ?? "outro consultor"}
+                          </span>
+                        )}
+                        {isOrphan && (
+                          <span className="mt-0.5 inline-flex items-center gap-1 truncate text-xs font-medium text-amber-600 dark:text-amber-400">
+                            <UserPlus className="h-3 w-3 shrink-0" strokeWidth={2} />
+                            Sem responsável — vira seu ao selecionar
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
                 )}
                 <button
                   type="button"

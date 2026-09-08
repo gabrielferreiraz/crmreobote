@@ -41,6 +41,9 @@ export async function GET(req: Request) {
   const source = searchParams.get("source") ?? undefined;
   const jobTitle = searchParams.get("jobTitle") ?? undefined;
   const responsavelId = searchParams.get("responsavelId") ?? undefined;
+  // Só ContactSearchInput manda isso (ver comentário lá) — pedido explícito:
+  // "se o contato não é de ninguém, qualquer usuário pode pegar pra ele".
+  const includeOrphans = searchParams.get("includeOrphans") === "1";
   const state = searchParams.get("state") ?? undefined;
   const city = searchParams.get("city") ?? undefined;
   const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
@@ -59,7 +62,22 @@ export async function GET(req: Request) {
   const effectiveResponsavelId = isMember ? userId : responsavelId;
 
   return runWithTenant(organizationId, async () => {
-    const filterParams = { organizationId, q, source, jobTitle, responsavelId: effectiveResponsavelId, state, city, onlyWithDeals, registeredFrom, registeredTo };
+    const filterParams = {
+      organizationId,
+      q,
+      source,
+      jobTitle,
+      responsavelId: effectiveResponsavelId,
+      // Só tem efeito quando o filtro acima é o próprio userId (MEMBER,
+      // forçado logo ali em cima) — OWNER/MANAGER já não têm filtro de
+      // responsável nenhum, então já enxergam órfão de qualquer forma.
+      includeUnassigned: isMember && includeOrphans,
+      state,
+      city,
+      onlyWithDeals,
+      registeredFrom,
+      registeredTo,
+    };
 
     const [contacts, totalCount] = await Promise.all([
       fetchContactsList({ ...filterParams, skip, take }),

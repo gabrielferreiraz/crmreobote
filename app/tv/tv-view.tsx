@@ -127,11 +127,33 @@ export function TvView({
   publicCode?: string;
 }) {
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
-  // Logo: ver components/reobote-logo.tsx pro histórico completo (2
-  // causas já corrigidas em `<img src="/logo-reobote.svg">` sem resolver
-  // de vez — arquivo pesado, depois um clip-path de fragmento — até trocar
-  // pra SVG inline de vez, eliminando a classe inteira de bug de
-  // "carregar recurso externo como imagem" em navegador embutido de TV).
+  // Logo: ver components/reobote-logo.tsx pro histórico (arquivo pesado,
+  // depois um clip-path de fragmento, depois SVG inline) — mesmo assim
+  // relatado de novo ao vivo na TV real. Achado novo, provável causa raiz
+  // de verdade: a logo era o ÚNICO elemento desta tela dimensionado só por
+  // ALTURA (`height: var(--tv-logo-h)`, `width` deixado em "auto"),
+  // confiando no navegador calcular a largura pela proporção intrínseca do
+  // SVG (viewBox) — todo ícone lucide-react da tela (que claramente
+  // renderiza bem, sem relato nenhum de problema) sempre fixa altura E
+  // largura explícitas, nunca "auto". Cálculo de proporção intrínseca de
+  // SVG-como-elemento-substituído é um dos cantos mais inconsistentes de
+  // engine pra engine — plausível que esse navegador embutido resolva mal
+  // (largura 0 ou o padrão de substituído sem proporção, 300px, nenhum dos
+  // dois "aparece certo"). Corrigido abaixo: largura agora é `calc()` puro
+  // a partir da MESMA variável de altura + a proporção real do desenho
+  // (3144×1784), nunca mais "auto" — mesma aritmética simples que toda
+  // variável --tv-* já usa, sem depender de cálculo de proporção nenhum.
+  //
+  // Mesmo assim, como já foi "a causa certa" 2 vezes e continuou quebrado,
+  // agora tem uma 2ª camada de verdade, independente: um PNG (gerado do
+  // mesmo SVG via sharp, mesma pasta pública) por BAIXO do SVG, do mesmo
+  // tamanho exato. Se o SVG pintar normalmente, cobre o PNG por completo
+  // (mesmo desenho, nunca aparece dobrado); se o SVG falhar por qualquer
+  // motivo (o de cima ou outro ainda não identificado), o PNG - o formato
+  // de imagem mais universalmente suportado que existe, sem exigir nada
+  // além de decodificar bytes - aparece por baixo. Camadas independentes
+  // de propósito: nenhuma depende da outra ter funcionado.
+  const LOGO_ASPECT_RATIO = 3144 / 1784;
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [celebration, setCelebration] = useState<WinSale | null>(null);
   // Aviso discreto de "os números na tela podem estar desatualizados" — ver
@@ -949,8 +971,18 @@ export function TvView({
             <div className="flex shrink-0 justify-center">
               {/* A logo NUNCA participa do carrossel abaixo (ver
                   rankingSlide) — fica fora do bloco que troca de
-                  conteúdo, sempre no mesmo lugar. */}
-              <ReoboteLogo className="w-auto" style={{ height: "var(--tv-logo-h)" }} />
+                  conteúdo, sempre no mesmo lugar. Duas camadas
+                  independentes (ver comentário de LOGO_ASPECT_RATIO lá em
+                  cima) — largura e altura SEMPRE explícitas nas duas,
+                  nunca "auto". */}
+              <div className="relative shrink-0" style={{ height: "var(--tv-logo-h)", width: `calc(var(--tv-logo-h) * ${LOGO_ASPECT_RATIO})` }}>
+                <img
+                  src="/logo-reobote.png"
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+                <ReoboteLogo className="absolute inset-0 h-full w-full" />
+              </div>
             </div>
             {showHero && (
               <GlassCard delay={90} className="shrink-0 text-center">
