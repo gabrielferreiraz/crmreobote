@@ -55,7 +55,7 @@ export function ColumnFilter({
         className={`shrink-0 rounded p-0.5 transition-colors ${
           active
             ? "text-brand"
-            : "text-neutral-300 opacity-0 group-hover/th:opacity-100 hover:text-neutral-600 focus-visible:opacity-100 dark:text-neutral-600 dark:hover:text-neutral-300"
+            : "text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200"
         }`}
       >
         <Filter className="h-3 w-3" strokeWidth={2.25} fill={active ? "currentColor" : "none"} />
