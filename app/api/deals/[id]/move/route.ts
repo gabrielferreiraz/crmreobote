@@ -71,8 +71,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       contactJobTitle: existing.contact.jobTitle,
     });
     if (missing.length > 0) {
+      // type+details (mesmo padrão de components/error-dialog.tsx já usado
+      // em contato/negócio) — "error" fica só o resumo pro título do modal,
+      // a lista de campos específicos vai em "details" (caixa "Motivo:"),
+      // mais fácil de escanear que uma frase só com tudo junto.
       return NextResponse.json(
-        { error: `Preencha antes de avançar: ${missing.map(labelForRequiredField).join(", ")}` },
+        {
+          error: "Preencha os campos obrigatórios desta etapa antes de avançar.",
+          details: missing.map(labelForRequiredField).join(", "),
+          type: "VALIDATION",
+        },
         { status: 400 },
       );
     }

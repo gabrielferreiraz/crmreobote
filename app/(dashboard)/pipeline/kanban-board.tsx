@@ -15,6 +15,7 @@ import {
 } from "@dnd-kit/core";
 import Link from "next/link";
 import { Search, AlertTriangle, Loader2, ArrowUpDown } from "lucide-react";
+import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { formatCurrency, formatCurrencyCompact, daysSince } from "@/lib/format";
 import { isStale, STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
 import { brazilStartOfDay } from "@/lib/timezone";
@@ -173,7 +174,11 @@ export function KanbanBoard({
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
-  const [moveError, setMoveError] = useState<string | null>(null);
+  // Modal (não mais só uma linha vermelha discreta acima do board, fácil de
+  // não notar — foi relatado como "faltou o modal desse erro, ou ao menos o
+  // popup") — mesmo padrão de components/error-dialog.tsx já usado em
+  // contato/negócio.
+  const [moveError, setMoveError] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
   const pushUndoToast = useUndoToast();
   // false só durante a janela entre montar e a 1ª busca pós-restauração do
   // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
@@ -544,7 +549,11 @@ export function KanbanBoard({
         [targetStageId]: Math.max(0, (prev[targetStageId] ?? 1) - 1),
         [previousStageId]: (prev[previousStageId] ?? 0) + 1,
       }));
-      setMoveError(data.error ?? "Não foi possível mover o negócio");
+      setMoveError({
+        message: data.error ?? "Não foi possível mover o negócio",
+        type: data.type ?? (res.status === 404 ? "NOT_FOUND" : res.status === 400 ? "VALIDATION" : "SERVER"),
+        details: data.details,
+      });
     } else {
       // Ctrl+Z (ver components/undo-provider.tsx) — o refresh que o undo
       // dispara é pego pelo useEffect logo acima (initialDealsByStage →
@@ -663,7 +672,12 @@ export function KanbanBoard({
       </div>
 
       {moveError && (
-        <p className="shrink-0 text-xs text-red-600 dark:text-red-400">{moveError}</p>
+        <ErrorDialog
+          message={moveError.message}
+          type={moveError.type}
+          details={moveError.details}
+          onClose={() => setMoveError(null)}
+        />
       )}
 
       <DndContext
