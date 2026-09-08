@@ -28,6 +28,10 @@ function parseDate(value: string | null): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+function asPresenceFilter(value: string | null): "yes" | "no" | undefined {
+  return value === "yes" || value === "no" ? value : undefined;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q") ?? undefined;
@@ -47,6 +51,8 @@ export async function GET(req: Request) {
   const state = searchParams.get("state") ?? undefined;
   const city = searchParams.get("city") ?? undefined;
   const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
+  const hasEmail = asPresenceFilter(searchParams.get("hasEmail"));
+  const hasWhatsapp = asPresenceFilter(searchParams.get("hasWhatsapp"));
   const registeredFrom = parseDate(searchParams.get("registeredFrom"));
   const registeredTo = parseDate(searchParams.get("registeredTo"));
 
@@ -75,6 +81,8 @@ export async function GET(req: Request) {
       state,
       city,
       onlyWithDeals,
+      hasEmail,
+      hasWhatsapp,
       registeredFrom,
       registeredTo,
     };

@@ -28,6 +28,7 @@ import { Modal } from "@/components/modal";
 import { ImportDialog } from "@/components/import-dialog";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { FilterPopover } from "@/components/filter-popover";
+import { ColumnFilter } from "@/components/column-filter";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
@@ -132,6 +133,10 @@ export function ContactsTable({
   const [stateFilter, setStateFilter] = useState("");
   const [cityFilter, setCityFilter] = useState("");
   const [onlyWithDeals, setOnlyWithDeals] = useState(false);
+  // Filtro rápido de coluna (ver ColumnFilter no cabeçalho da tabela) — "" =
+  // não filtra, "yes"/"no" = só com/sem o campo preenchido.
+  const [hasEmailFilter, setHasEmailFilter] = useState<"" | "yes" | "no">("");
+  const [hasWhatsappFilter, setHasWhatsappFilter] = useState<"" | "yes" | "no">("");
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
 
@@ -157,7 +162,7 @@ export function ContactsTable({
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
   usePersistedFilters(
     "clientes",
-    { search, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, registeredFrom, registeredTo, pageSize },
+    { search, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, pageSize },
     (saved) => {
       if (saved.search !== undefined) setSearch(saved.search);
       if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
@@ -166,6 +171,8 @@ export function ContactsTable({
       if (saved.stateFilter !== undefined) setStateFilter(saved.stateFilter);
       if (saved.cityFilter !== undefined) setCityFilter(saved.cityFilter);
       if (saved.onlyWithDeals !== undefined) setOnlyWithDeals(saved.onlyWithDeals);
+      if (saved.hasEmailFilter !== undefined) setHasEmailFilter(saved.hasEmailFilter);
+      if (saved.hasWhatsappFilter !== undefined) setHasWhatsappFilter(saved.hasWhatsappFilter);
       if (saved.registeredFrom !== undefined) setRegisteredFrom(saved.registeredFrom);
       if (saved.registeredTo !== undefined) setRegisteredTo(saved.registeredTo);
       if (saved.pageSize !== undefined) setPageSize(saved.pageSize);
@@ -193,6 +200,8 @@ export function ContactsTable({
     if (stateFilter) params.set("state", stateFilter);
     if (cityFilter) params.set("city", cityFilter);
     if (onlyWithDeals) params.set("onlyWithDeals", "1");
+    if (hasEmailFilter) params.set("hasEmail", hasEmailFilter);
+    if (hasWhatsappFilter) params.set("hasWhatsapp", hasWhatsappFilter);
     if (registeredFrom) params.set("registeredFrom", brazilDateStringToUTC(registeredFrom).toISOString());
     if (registeredTo) params.set("registeredTo", brazilEndOfDayUTC(registeredTo).toISOString());
     return params;
@@ -224,7 +233,7 @@ export function ContactsTable({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, registeredFrom, registeredTo, initialContacts]);
+  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
   // visto na página atual — cobre valor "antigo" que só apareceria depois de
@@ -252,6 +261,8 @@ export function ContactsTable({
     !!stateFilter ||
     !!cityFilter ||
     onlyWithDeals ||
+    !!hasEmailFilter ||
+    !!hasWhatsappFilter ||
     !!registeredFrom ||
     !!registeredTo;
   // Busca por texto também "filtra" pra fins de mostrar a contagem certa no
@@ -267,6 +278,8 @@ export function ContactsTable({
     setStateFilter("");
     setCityFilter("");
     setOnlyWithDeals(false);
+    setHasEmailFilter("");
+    setHasWhatsappFilter("");
     setRegisteredFrom("");
     setRegisteredTo("");
     setPage(1);
@@ -705,6 +718,17 @@ export function ContactsTable({
           >
             Só com negócios
           </button>
+          {/* Mesmo estado dos ColumnFilter no cabeçalho da tabela (ver
+              abaixo) — repetido aqui pra quem prefere o painel geral, e pra
+              continuar disponível na visão mobile (cards, sem tabela). */}
+          <div className="space-y-1">
+            <label className="field-label">E-mail</label>
+            <PresenceToggle value={hasEmailFilter} onChange={(v) => { setHasEmailFilter(v); setPage(1); }} />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">WhatsApp</label>
+            <PresenceToggle value={hasWhatsappFilter} onChange={(v) => { setHasWhatsappFilter(v); setPage(1); }} />
+          </div>
           <div className="space-y-1.5 border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
             <label className="field-label">Cadastrado em</label>
             <DateRangeField
@@ -895,40 +919,94 @@ export function ContactsTable({
                       Nome
                     </span>
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Mail className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      E-mail
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Mail className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        E-mail
+                      </span>
+                      <ColumnFilter
+                        value={hasEmailFilter}
+                        onChange={(v) => { setHasEmailFilter(v as "" | "yes" | "no"); setPage(1); }}
+                        options={[{ value: "yes", label: "Com e-mail" }, { value: "no", label: "Sem e-mail" }]}
+                      />
                     </span>
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Phone className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      WhatsApp
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Phone className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        WhatsApp
+                      </span>
+                      <ColumnFilter
+                        value={hasWhatsappFilter}
+                        onChange={(v) => { setHasWhatsappFilter(v as "" | "yes" | "no"); setPage(1); }}
+                        options={[{ value: "yes", label: "Com WhatsApp" }, { value: "no", label: "Sem WhatsApp" }]}
+                      />
                     </span>
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex items-center gap-1.5">
-                      <IdCard className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      Cargo
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <IdCard className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        Cargo
+                      </span>
+                      <ColumnFilter
+                        value={jobTitleFilter}
+                        onChange={(v) => { setJobTitleFilter(v); setPage(1); }}
+                        allLabel="Todos os cargos"
+                        options={[
+                          { value: NO_JOB_TITLE, label: "Sem cargo cadastrado" },
+                          ...jobTitleOptions.map((j) => ({ value: j, label: j })),
+                        ]}
+                      />
                     </span>
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Tag className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      Origem
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Tag className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        Origem
+                      </span>
+                      {sourceOptions.length > 0 && (
+                        <ColumnFilter
+                          value={sourceFilter}
+                          onChange={(v) => { setSourceFilter(v); setPage(1); }}
+                          allLabel="Todas as origens"
+                          options={sourceOptions.map((s) => ({ value: s, label: s }))}
+                        />
+                      )}
                     </span>
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex items-center gap-1.5">
-                      <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      Responsável
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        Responsável
+                      </span>
+                      <ColumnFilter
+                        value={responsavelFilter}
+                        onChange={(v) => { setResponsavelFilter(v); setPage(1); }}
+                        allLabel="Todos os responsáveis"
+                        options={[
+                          { value: NO_RESPONSAVEL, label: "Sem responsável" },
+                          ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
+                        ]}
+                      />
                     </span>
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                      Negócios
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        Negócios
+                      </span>
+                      <ColumnFilter
+                        value={onlyWithDeals ? "1" : ""}
+                        onChange={(v) => { setOnlyWithDeals(v === "1"); setPage(1); }}
+                        allLabel="Todos"
+                        options={[{ value: "1", label: "Só com negócios" }]}
+                      />
                     </span>
                   </th>
                   <th className="px-4 py-2.5"></th>
@@ -1170,6 +1248,35 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         className="field-input"
       />
+    </div>
+  );
+}
+
+/** Segmentado de 3 opções (Todos/Com/Sem) pra filtro de campo preenchido ou
+ * não — usado no painel de Filtros geral (o cabeçalho da tabela usa
+ * ColumnFilter, mesmo estado). */
+function PresenceToggle({ value, onChange }: { value: "" | "yes" | "no"; onChange: (v: "" | "yes" | "no") => void }) {
+  const options: { value: "" | "yes" | "no"; label: string }[] = [
+    { value: "", label: "Todos" },
+    { value: "yes", label: "Com" },
+    { value: "no", label: "Sem" },
+  ];
+  return (
+    <div className="flex rounded-md border border-neutral-300 p-0.5 dark:border-neutral-700">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+            value === o.value
+              ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+              : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

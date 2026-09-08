@@ -17,6 +17,10 @@ function parseDate(value: string | null): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+function asPresenceFilter(value: string | null): "yes" | "no" | undefined {
+  return value === "yes" || value === "no" ? value : undefined;
+}
+
 /**
  * Busca e escreve em lotes, direto no stream de saída, em vez de um
  * `findMany` sem limite + workbook inteiro em memória — uma organização com
@@ -98,6 +102,8 @@ export async function GET(req: Request) {
     state: searchParams.get("state") ?? undefined,
     city: searchParams.get("city") ?? undefined,
     onlyWithDeals: searchParams.get("onlyWithDeals") === "1",
+    hasEmail: asPresenceFilter(searchParams.get("hasEmail")),
+    hasWhatsapp: asPresenceFilter(searchParams.get("hasWhatsapp")),
     registeredFrom: parseDate(searchParams.get("registeredFrom")),
     registeredTo: parseDate(searchParams.get("registeredTo")),
   };

@@ -36,6 +36,10 @@ export type ContactsFilterParams = {
   /** Por trecho, sem diferenciar maiúsculas/acentos exatos (ver índice trigram) — cidade é texto livre, não uma lista fechada como estado. */
   city?: string;
   onlyWithDeals?: boolean;
+  /** Filtro rápido de coluna (ver ColumnFilter em contacts-table.tsx) — "yes" = campo preenchido, "no" = vazio, undefined = não filtra. */
+  hasEmail?: "yes" | "no";
+  /** Mesma ideia de hasEmail, mas no campo `whatsapp` cru (não o `phone` de fallback que a coluna mostra quando falta WhatsApp). */
+  hasWhatsapp?: "yes" | "no";
   registeredFrom?: Date;
   registeredTo?: Date;
 };
@@ -46,7 +50,7 @@ export type ContactsFilterParams = {
  * paginação mostra um total que a busca não confirma.
  */
 export function buildContactsWhere(params: ContactsFilterParams): Prisma.ContactWhereInput {
-  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, registeredFrom, registeredTo } = params;
+  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, hasEmail, hasWhatsapp, registeredFrom, registeredTo } = params;
   const digits = q ? (normalizePhoneNumber(q) ?? "") : "";
 
   const where: Prisma.ContactWhereInput = {
@@ -94,6 +98,21 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
   else if (responsavelId) where.responsavelId = responsavelId;
 
   if (onlyWithDeals) where.deals = { some: {} };
+
+  // Sempre empilha em where.AND (nunca where.OR direto): a busca por texto
+  // (q, acima) já pode ter posto o PRÓPRIO OR de nome/e-mail/telefone no
+  // nível raiz — sobrescrever where.OR aqui apagaria essa condição por
+  // engano em vez de somar (ex.: buscar texto + "Sem e-mail" ao mesmo
+  // tempo). "" além de null: alguns caminhos de edição (ex.: card "Dados do
+  // contato" do negócio, que sempre manda o campo mesmo vazio) gravam
+  // string vazia em vez de null ao limpar o campo — sem cobrir os dois,
+  // "Sem e-mail"/"Sem WhatsApp" deixaria contato assim de fora do resultado.
+  const extraAnd: Prisma.ContactWhereInput[] = Array.isArray(where.AND) ? [...where.AND] : [];
+  if (hasEmail === "yes") extraAnd.push({ email: { not: null } }, { NOT: { email: "" } });
+  else if (hasEmail === "no") extraAnd.push({ OR: [{ email: null }, { email: "" }] });
+  if (hasWhatsapp === "yes") extraAnd.push({ whatsapp: { not: null } }, { NOT: { whatsapp: "" } });
+  else if (hasWhatsapp === "no") extraAnd.push({ OR: [{ whatsapp: null }, { whatsapp: "" }] });
+  if (extraAnd.length > 0) where.AND = extraAnd;
 
   if (registeredFrom || registeredTo) {
     where.createdAt = {
