@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2 } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
@@ -351,6 +351,16 @@ export function DealDetail({
   // acontecer — relatado como "negócio foi parar com outro responsável".
   const [pendingOwnerId, setPendingOwnerId] = useState<string | null>(null);
   const pendingOwnerName = pendingOwnerId ? members.find((m) => m.id === pendingOwnerId)?.name : null;
+
+  // "Mostrar como ajustar" no modal de erro de campo do contato (ver
+  // EditableRow) — quando o bloqueio é "contato pertence a outro
+  // consultor", em vez de só explicar o motivo, aponta direto pra linha
+  // "Responsável" do mesmo card: incrementar este contador faz QUALQUER
+  // EditableRow "Responsável" (desktop e mobile, ambas escutam o mesmo
+  // valor) rolar até si mesma, abrir modo de edição e piscar um destaque —
+  // não importa qual das duas está de fato visível na tela do momento.
+  const [responsavelFocusTrigger, setResponsavelFocusTrigger] = useState(0);
+  const showResponsavelFix = () => setResponsavelFocusTrigger((n) => n + 1);
 
   async function confirmReassignOwner(ownerId: string) {
     setPendingOwnerId(null);
@@ -706,8 +716,13 @@ export function DealDetail({
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
+                // Ícone de pessoa só pra deixar claro, sem precisar passar o
+                // mouse, que dá pra clicar aqui e ver os detalhes do
+                // contato — antes só o hover:underline sinalizava isso,
+                // fácil de passar batido (pedido explícito).
+                className="inline-flex items-center gap-1 align-middle text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
               >
+                <User className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
                 {deal.contact.name}
               </Link>
               {" · "}Responsável: {deal.owner.name}
@@ -1143,6 +1158,7 @@ export function DealDetail({
               value={deal.contact.name}
               editable={canEditDetails}
               onSave={(v) => saveContactField("name", v)}
+              onShowFix={showResponsavelFix}
             />
             <EditableRow
               label="E-mail"
@@ -1150,18 +1166,21 @@ export function DealDetail({
               type="email"
               editable={canEditDetails}
               onSave={(v) => saveContactField("email", v)}
+              onShowFix={showResponsavelFix}
             />
             <EditableRow
               label="Celular"
               value={deal.contact.phone ?? ""}
               editable={canEditDetails}
               onSave={(v) => saveContactField("phone", v)}
+              onShowFix={showResponsavelFix}
             />
             <EditableRow
               label="WhatsApp"
               value={deal.contact.whatsapp ?? ""}
               editable={canEditDetails}
               onSave={(v) => saveContactField("whatsapp", v)}
+              onShowFix={showResponsavelFix}
             />
             <EditableRow
               label="Cargo"
@@ -1170,6 +1189,7 @@ export function DealDetail({
               options={jobTitleOptions}
               editable={canEditDetails}
               onSave={(v) => saveContactField("jobTitle", v)}
+              onShowFix={showResponsavelFix}
             />
             <EditableRow
               label="Origem"
@@ -1178,15 +1198,18 @@ export function DealDetail({
               options={sourceOptions}
               editable={canEditDetails}
               onSave={(v) => saveContactField("source", v)}
+              onShowFix={showResponsavelFix}
             />
             {/* Pedido explícito: mostrar/editar o responsável do CONTATO
                 (independente do responsável do negócio, que já tem seu
                 próprio seletor no card "Dados do negócio" mais abaixo — os
                 dois podem divergir, ver comentário em confirmReassignOwner)
-                direto aqui. MEMBER só consegue editar se já for o
-                responsável atual (regra de app/api/contacts/[id]/route.ts)
-                — quando bloquear, o ErrorDialog acima explica o motivo
-                exato em vez de só "sem permissão". */}
+                direto aqui. Sem responsável, quem edita assume
+                automaticamente (regra de app/api/contacts/[id]/route.ts,
+                sem precisar de gestor); pertencendo a outro consultor
+                continua bloqueado, mas o botão "Mostrar como ajustar" do
+                ErrorDialog das linhas acima traz o usuário direto pra cá
+                (autoEditSignal). */}
             <EditableRow
               label="Responsável"
               value={deal.contact.responsavelId ?? ""}
@@ -1195,6 +1218,7 @@ export function DealDetail({
               options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
               editable={canEditDetails}
               onSave={(v) => saveContactField("responsavelId", v)}
+              autoEditSignal={responsavelFocusTrigger}
             />
           </div>
         </div>
@@ -1542,6 +1566,7 @@ export function DealDetail({
                 value={deal.contact.name}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("name", v)}
+                onShowFix={showResponsavelFix}
               />
               <EditableRow
                 label="E-mail"
@@ -1549,18 +1574,21 @@ export function DealDetail({
                 type="email"
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("email", v)}
+                onShowFix={showResponsavelFix}
               />
               <EditableRow
                 label="Celular"
                 value={deal.contact.phone ?? ""}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("phone", v)}
+                onShowFix={showResponsavelFix}
               />
               <EditableRow
                 label="WhatsApp"
                 value={deal.contact.whatsapp ?? ""}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("whatsapp", v)}
+                onShowFix={showResponsavelFix}
               />
               <EditableRow
                 label="Cargo"
@@ -1569,6 +1597,7 @@ export function DealDetail({
                 options={jobTitleOptions}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("jobTitle", v)}
+                onShowFix={showResponsavelFix}
               />
               <EditableRow
                 label="Origem"
@@ -1577,6 +1606,17 @@ export function DealDetail({
                 options={sourceOptions}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("source", v)}
+                onShowFix={showResponsavelFix}
+              />
+              <EditableRow
+                label="Responsável"
+                value={deal.contact.responsavelId ?? ""}
+                displayValue={deal.contact.responsavel?.name ?? "Ninguém"}
+                type="select"
+                options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                editable={canEditDetails}
+                onSave={(v) => saveContactField("responsavelId", v)}
+                autoEditSignal={responsavelFocusTrigger}
               />
             </div>
           </div>
@@ -2032,6 +2072,8 @@ function EditableRow({
   type = "text",
   options,
   editable,
+  onShowFix,
+  autoEditSignal,
 }: {
   label: string;
   value: string;
@@ -2042,6 +2084,15 @@ function EditableRow({
   /** Só usado quando type="select" — lista de opções fixas (ex.: cargo). */
   options?: { value: string; label: string }[];
   editable: boolean;
+  /** Erro de permissão desta linha tem "jeito de resolver" em OUTRA linha do
+      mesmo card (hoje: contato de outro consultor → aponta pra
+      "Responsável") — quando presente, o ErrorDialog ganha o botão
+      "Mostrar como ajustar" chamando isto em vez de só fechar o modal. */
+  onShowFix?: () => void;
+  /** Incrementado externamente (por outra linha, via onShowFix) pra forçar
+      ESTA linha a abrir em edição, rolar até si mesma e piscar um destaque —
+      é assim que "Mostrar como ajustar" leva o usuário até o campo certo. */
+  autoEditSignal?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -2052,12 +2103,35 @@ function EditableRow({
   // para editar" sem explicar nada), mesmo componente/padrão que
   // components/edit-contact-dialog.tsx já usa.
   const [errorDialog, setErrorDialog] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  const [highlight, setHighlight] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const lastSignal = useRef(autoEditSignal);
+
+  useEffect(() => {
+    if (autoEditSignal === undefined || autoEditSignal === lastSignal.current) return;
+    lastSignal.current = autoEditSignal;
+    if (!editable) return; // nada pra "mostrar" se esta linha nem é editável por quem está vendo
+    setDraft(value);
+    setEditing(true);
+    setHighlight(true);
+    rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlight(false), 2200);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoEditSignal]);
+
+  const highlightClass = highlight
+    ? "bg-brand/10 ring-2 ring-brand/40 dark:bg-brand/15"
+    : "ring-2 ring-transparent";
 
   if (!editable) return <Row label={label} value={displayValue ?? value ?? "—"} />;
 
   if (!editing) {
     return (
-      <div className="group flex items-center justify-between gap-2">
+      <div
+        ref={rowRef}
+        className={`group -mx-2 flex items-center justify-between gap-2 rounded-lg px-2 py-0.5 transition-colors duration-700 ${highlightClass}`}
+      >
         <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
         <button
           type="button"
@@ -2097,8 +2171,14 @@ function EditableRow({
     setEditing(false);
   }
 
+  // "Mostrar como ajustar" só faz sentido pra erro de permissão E quando
+  // esta linha sabe pra onde apontar — hoje isso é sempre "contato pertence
+  // a outro consultor" (o outro motivo, "sem responsável", se resolve
+  // sozinho na hora, sem chegar a virar erro — ver app/api/contacts/[id]/route.ts).
+  const canShowFix = errorDialog?.type === "PERMISSION" && !!onShowFix;
+
   return (
-    <div className="space-y-1">
+    <div ref={rowRef} className={`-mx-2 space-y-1 rounded-lg px-2 py-1 transition-colors duration-700 ${highlightClass}`}>
       <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
       <div className="flex items-center gap-1">
         {type === "textarea" ? (
@@ -2149,6 +2229,16 @@ function EditableRow({
           type={errorDialog.type}
           details={errorDialog.details}
           onClose={() => setErrorDialog(null)}
+          actionLabel={canShowFix ? "Mostrar como ajustar" : undefined}
+          onAction={
+            canShowFix
+              ? () => {
+                  setErrorDialog(null);
+                  setEditing(false);
+                  onShowFix!();
+                }
+              : undefined
+          }
         />
       )}
     </div>

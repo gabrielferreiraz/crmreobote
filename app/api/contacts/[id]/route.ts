@@ -97,24 +97,42 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   return runWithTenant(organizationId, async () => {
-    // MEMBER só pode editar contato do qual é responsável.
+    // MEMBER só pode editar contato do qual é responsável (ou sem
+    // responsável — nesse caso assume automaticamente, ver abaixo).
     const membership = await getCurrentMembership();
     const isMember = membership?.role === "MEMBER";
-    const ownerFilter = isMember ? { responsavelId: userId } : {};
 
     // Primeiro verifica se o contato existe na organização
     const rawExisting = await prisma.contact.findFirst({ where: { id, organizationId } });
     if (!rawExisting) return NextResponse.json({ error: "Este contato não foi encontrado no sistema." }, { status: 404 });
 
-    // Se o usuário for MEMBER, verifica se ele é de fato o responsável por este contato
-    if (isMember && rawExisting.responsavelId !== userId) {
-      const reason = rawExisting.responsavelId
-        ? "Contato pertence a outro consultor."
-        : "Contato sem responsável. Peça atribuição a um gestor.";
+    // Se o usuário for MEMBER e o contato pertence a OUTRO consultor, continua
+    // bloqueado — legitimamente não pode mexer no lead de outra pessoa.
+    if (isMember && rawExisting.responsavelId && rawExisting.responsavelId !== userId) {
       return NextResponse.json(
-        { error: "Sem permissão para editar", details: reason, type: "PERMISSION" },
+        { error: "Sem permissão para editar", details: "Contato pertence a outro consultor.", type: "PERMISSION" },
         { status: 403 }
       );
+    }
+
+    // Contato SEM responsável: não bloqueia mais nem pede gestor — quem está
+    // mexendo nele passa a ser o responsável automaticamente (mesmo espírito
+    // do "assumir contato" em POST /api/contacts). Optimistic lock (updateMany
+    // com responsavelId:null no where) evita corrida: se dois MEMBERs
+    // tentarem editar o mesmo contato órfão ao mesmo tempo, só o primeiro
+    // vira responsável — o segundo cai no 409 abaixo e tenta de novo.
+    if (isMember && !rawExisting.responsavelId) {
+      const claim = await prisma.contact.updateMany({
+        where: { id, organizationId, responsavelId: null },
+        data: { responsavelId: userId },
+      });
+      if (claim.count === 0) {
+        return NextResponse.json(
+          { error: "Sem permissão para editar", details: "Este contato acabou de ser assumido por outro consultor. Recarregue a página.", type: "PERMISSION" },
+          { status: 409 },
+        );
+      }
+      rawExisting.responsavelId = userId;
     }
 
     const existing = rawExisting;

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Lock, ServerCrash, FileQuestion, HelpCircle } from "lucide-react";
+import { AlertCircle, Lock, ServerCrash, FileQuestion, HelpCircle, ArrowRight } from "lucide-react";
 import { Modal } from "./modal";
 
 export type ErrorType = "PERMISSION" | "NOT_FOUND" | "VALIDATION" | "SERVER" | "UNKNOWN";
@@ -11,6 +11,12 @@ export interface ErrorDialogProps {
   type?: ErrorType;
   details?: string;
   onClose: () => void;
+  // Botão extra pra erros que o próprio usuário consegue resolver (ex.:
+  // "pertence a outro consultor" — quem tem permissão pra trocar o
+  // responsável quer ser levado direto ao campo, não só ler o motivo).
+  // Some junto com "Entendido", nunca substitui.
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export function ErrorDialog({
@@ -19,6 +25,8 @@ export function ErrorDialog({
   type = "UNKNOWN",
   details,
   onClose,
+  actionLabel,
+  onAction,
 }: ErrorDialogProps) {
   const getConfig = () => {
     switch (type) {
@@ -92,14 +100,24 @@ export function ErrorDialog({
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end">
+      <div className="mt-6 flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="btn-primary px-5 py-2 font-medium"
+          className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
         >
           Entendido
         </button>
+        {actionLabel && onAction && (
+          <button
+            type="button"
+            onClick={onAction}
+            className="btn-primary flex items-center gap-1.5 px-5 py-2 font-medium"
+          >
+            {actionLabel}
+            <ArrowRight className="h-4 w-4" strokeWidth={2} />
+          </button>
+        )}
       </div>
     </Modal>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
@@ -85,6 +85,20 @@ export function ContactEditForm({
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
   const [errorData, setErrorData] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  // "Mostrar como ajustar" (erro de permissão por contato de outro
+  // consultor) — o campo Responsável já está nesta mesma tela (diferente do
+  // card "Dados do contato" do negócio, que precisa rolar até outra linha),
+  // então aqui basta rolar até ele e piscar um destaque, sem trocar de
+  // lugar nenhum.
+  const [highlightResponsavel, setHighlightResponsavel] = useState(false);
+  const responsavelFieldRef = useRef<HTMLDivElement>(null);
+
+  function showResponsavelFix() {
+    setErrorData(null);
+    responsavelFieldRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightResponsavel(true);
+    setTimeout(() => setHighlightResponsavel(false), 2200);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -168,7 +182,12 @@ export function ContactEditForm({
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
+          <div
+            ref={responsavelFieldRef}
+            className={`-m-1.5 space-y-1 rounded-lg p-1.5 transition-colors duration-700 ${
+              highlightResponsavel ? "bg-brand/10 ring-2 ring-brand/40 dark:bg-brand/15" : "ring-2 ring-transparent"
+            }`}
+          >
             <label className="field-label">Responsável</label>
             <Select
               value={responsavelId}
@@ -218,6 +237,8 @@ export function ContactEditForm({
           type={errorData.type}
           details={errorData.details}
           onClose={() => setErrorData(null)}
+          actionLabel={errorData.type === "PERMISSION" ? "Mostrar como ajustar" : undefined}
+          onAction={errorData.type === "PERMISSION" ? showResponsavelFix : undefined}
         />
       )}
     </>
