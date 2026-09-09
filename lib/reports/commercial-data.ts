@@ -105,6 +105,37 @@ export async function getCommercialReportData(params: {
       lastActiveAt: true,
     },
   });
+  // Quem CONTA como time atual pro relatório — negócio ABERTO de quem já
+  // saiu da empresa continua no banco com o ownerId de sempre (não é
+  // reatribuído sozinho quando alguém é desativado, ver mesmo raciocínio em
+  // lib/tv-dashboard.ts) — sem filtrar isso, "Funil por etapa"/"Negócios
+  // abertos" contava pipeline de gente que não trabalha mais aqui, inflando
+  // o volume "hoje" muito acima do funil de prospecção real (pedido
+  // explícito, relato ao vivo comparando com o Pipeline de verdade). Só pra
+  // status OPEN — Ganho/Perdido continua somando TODO mundo, mesmo quem já
+  // saiu: receita já fechada é real e não deveria sumir do histórico só
+  // porque quem vendeu não está mais na empresa (mesma decisão de "Total
+  // ganho" de sempre).
+  const activeOwnerIds = visibleMembers.map((m) => m.userId);
+
+  // Interseção de "quem esta pessoa pode ver" (scope) com "quem ainda está
+  // ativo" (activeOwnerIds), pras 3 consultas de negócio ABERTO abaixo.
+  // NUNCA um `{ ownerId: {in: activeOwnerIds}, ...scopeWhere(scope) }` —
+  // scopeWhere também devolve uma chave `ownerId` quando scope.type ===
+  // "owners", e a que vem depois no spread APAGA a de cima inteira (mesma
+  // chave), em vez de somar as duas condições — um filtro "só ativos"
+  // silenciosamente viraria "só quem o escopo já deixava ver", perdendo o
+  // filtro de ativo bem no meio-termo entre gerente/supervisor com equipe
+  // (scope type "owners") e dono (scope type "all"). Devolve só a
+  // INTERSEÇÃO, pronta pra usar como `ownerId:` direto — sem espalhar
+  // scopeWhere(effectiveScope) de novo em cima nessas 3 consultas.
+  function activeOpenOwnerFilter(scope: DealScope): { in: string[] } {
+    if (scope.type === "owners") {
+      return { in: scope.ownerIds.filter((id) => activeOwnerIds.includes(id)) };
+    }
+    return { in: activeOwnerIds };
+  }
+
   const teamFilterOptions = Array.from(
     new Map(visibleMembers.filter((m) => m.teamId && m.team).map((m) => [m.teamId!, m.team!.name])),
     ([id, name]) => ({ id, name }),
@@ -236,6 +267,7 @@ export async function getCommercialReportData(params: {
     lostByOwner,
     lostByReason,
     meetingsAndVisitsByOwner,
+    funnelActivityByOwner,
     wonDealsForTrend,
     wonByCreditType,
     dailyActivityRaw,
@@ -243,12 +275,20 @@ export async function getCommercialReportData(params: {
     compareLostCount,
     compareWonByCreditType,
     compareLostByReason,
+    orgCreditTypes,
   ] = await Promise.all([
-    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter } }),
+    prisma.deal.count({
+      where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...pipelineFilter },
+    }),
     activePipeline
       ? prisma.deal.groupBy({
           by: ["stageId"],
-          where: { organizationId, pipelineId: activePipeline.id, status: "OPEN", ...scopeWhere(effectiveScope) },
+          where: {
+            organizationId,
+            pipelineId: activePipeline.id,
+            status: "OPEN",
+            ownerId: activeOpenOwnerFilter(effectiveScope),
+          },
           _count: true,
           _sum: { value: true },
         })
@@ -260,7 +300,7 @@ export async function getCommercialReportData(params: {
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "OPEN", ...scopeWhere(effectiveScope), ...pipelineFilter },
+      where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...pipelineFilter },
       _count: true,
       _sum: { value: true },
     }),
@@ -296,6 +336,20 @@ export async function getCommercialReportData(params: {
     prisma.activity.groupBy({
       by: ["userId", "type", "meetingOutcome"],
       where: { organizationId, type: { in: ["MEETING", "VISIT"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
+      _count: true,
+    }),
+    // "Quem movimentou mais o funil" (pedido explícito) — ligação, proposta e
+    // mensagem de WhatsApp registradas na timeline do negócio/contato, além
+    // das reuniões/visitas que já têm o próprio card acima. Diferente de
+    // MEETING/VISIT, esses 3 tipos não têm "resultado" (meetingOutcome é
+    // sempre PENDING/null neles — só faz sentido pra um encontro agendado
+    // que pode ser remarcado/no-show) — a Activity já EXISTIR é o próprio
+    // registro de que a ação aconteceu, então conta tudo, sem filtrar por
+    // outcome. Mesmo motivo de meetingsAndVisitsByOwner pra não aplicar
+    // pipelineFilter: é uma métrica de pessoa, não de funil específico.
+    prisma.activity.groupBy({
+      by: ["userId", "type"],
+      where: { organizationId, type: { in: ["CALL", "PROPOSAL", "WHATSAPP"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
       _count: true,
     }),
     prisma.deal.findMany({
@@ -353,6 +407,15 @@ export async function getCommercialReportData(params: {
           _count: true,
         })
       : Promise.resolve([]),
+    // Tipos de crédito configurados de verdade pela organização (Configurações
+    // → Tipos de crédito) — usado por bucketCreditType abaixo. Achado
+    // investigando por que "Faturamento por tipo de crédito" só mostrava
+    // "Outros": o código tinha só 2 categorias HARDCODED ("IMÓVEL"/"VEÍCULO",
+    // maiúsculo) só que Deal.creditType é texto livre (copiado do label
+    // configurado aqui, ver schema.prisma) — esta organização configurou
+    // "Imóvel" (minúsculo) e "Automóvel" (não "Veículo"), então nenhum negócio
+    // batia a comparação exata e tudo caía em "Outros" por engano.
+    prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
   ]);
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
@@ -384,18 +447,33 @@ export async function getCommercialReportData(params: {
   const openTotalValue = openByOwner.reduce((sum, o) => sum + (o._sum.value ? Number(o._sum.value) : 0), 0);
   const avgWonValue = wonCount > 0 ? wonTotalValue / wonCount : 0;
 
-  // Imóvel e veículo entram em buckets próprios; qualquer outra coisa (null,
-  // "OUTROS", ou um valor futuro ainda não previsto) cai junto em "Outros" —
-  // nunca deixa um tipo de crédito sumir do total por não ter rótulo certo.
-  // Função (não só um bloco solto) porque roda duas vezes — período atual E
-  // período de comparação, ver compareWonByCreditType — mesma regra de
-  // bucket pros dois, nunca duas versões que podem divergir.
-  const CREDIT_TYPE_LABELS: Record<string, string> = { "IMÓVEL": "Imóvel", "VEÍCULO": "Veículo" };
-  const CREDIT_TYPE_COLORS: Record<string, string> = { "IMÓVEL": "#059669", "VEÍCULO": "#64748b" };
+  // Bucket DINÂMICO pelos tipos de crédito de verdade da organização
+  // (Configurações → Tipos de crédito, ver orgCreditTypes acima) — antes
+  // disto era hardcoded pra só 2 categorias fixas ("IMÓVEL"/"VEÍCULO", em
+  // maiúsculo), mas Deal.creditType é texto livre copiado do `label`
+  // configurado (ver schema.prisma), escolhido pela própria organização a
+  // qualquer momento — batia por acaso quando alguém digitava exatamente
+  // "IMÓVEL"/"VEÍCULO" maiúsculo, mas essa organização configurou "Imóvel"
+  // (minúsculo) e "Automóvel" (nem "Veículo" existe) — nenhum negócio batia
+  // a comparação exata e o gráfico inteiro caía em "Outros", relatado como
+  // "não mostra o faturamento correto por tipo de crédito".
+  //
+  // "Outros" continua existindo, com um significado bem mais estreito e
+  // honesto agora: só null/vazio (imensa maioria dos negócios migrados do
+  // Agendor nunca tiveram esse campo preenchido — ver investigação, 1573 de
+  // 1586 negócios ganhos) ou um tipo já renomeado/removido depois de um
+  // negócio já ter sido salvo com o texto antigo. Função (não só um bloco
+  // solto) porque roda duas vezes — período atual E período de comparação,
+  // ver compareWonByCreditType — mesma regra de bucket pros dois, nunca
+  // duas versões que podem divergir.
+  const CREDIT_TYPE_PALETTE = ["#059669", "#64748b", "#d97706", "#7c3aed", "#0ea5e9", "#db2777"];
+  const OUTROS_COLOR = "#a3a3a3";
+  const colorByLabel = new Map(orgCreditTypes.map((c, i) => [c.label, CREDIT_TYPE_PALETTE[i % CREDIT_TYPE_PALETTE.length]]));
+  const validCreditTypeLabels = new Set(orgCreditTypes.map((c) => c.label));
   function bucketCreditType(rows: { creditType: string | null; _count: number; _sum: { value: Prisma.Decimal | null } }[]) {
     const totals = new Map<string, { count: number; value: number }>();
     for (const c of rows) {
-      const key = c.creditType === "IMÓVEL" || c.creditType === "VEÍCULO" ? c.creditType : "OUTROS";
+      const key = c.creditType && validCreditTypeLabels.has(c.creditType) ? c.creditType : "OUTROS";
       const prev = totals.get(key) ?? { count: 0, value: 0 };
       prev.count += c._count;
       prev.value += c._sum.value ? Number(c._sum.value) : 0;
@@ -408,8 +486,8 @@ export async function getCommercialReportData(params: {
   const creditTypeBreakdown = Array.from(creditTypeTotals.entries())
     .map(([key, t]) => ({
       key,
-      label: CREDIT_TYPE_LABELS[key] ?? "Outros",
-      color: CREDIT_TYPE_COLORS[key] ?? "#a3a3a3",
+      label: key === "OUTROS" ? "Outros" : key,
+      color: key === "OUTROS" ? OUTROS_COLOR : (colorByLabel.get(key) ?? OUTROS_COLOR),
       count: t.count,
       value: t.value,
       avgValue: t.count > 0 ? t.value / t.count : 0,
@@ -522,25 +600,45 @@ export async function getCommercialReportData(params: {
     meetingVisitByUser.set(row.userId, prev);
   }
 
+  // "Quem movimentou mais o funil" — ligação/proposta/WhatsApp registradas
+  // (ver funnelActivityByOwner acima). Sem outcome pra separar (diferente
+  // de meetingVisitByUser) — a Activity existir já É o registro de que
+  // aconteceu.
+  const funnelActivityByUser = new Map<string, { callCount: number; proposalCount: number; whatsappCount: number }>();
+  for (const row of funnelActivityByOwner) {
+    const prev = funnelActivityByUser.get(row.userId) ?? { callCount: 0, proposalCount: 0, whatsappCount: 0 };
+    if (row.type === "CALL") prev.callCount += row._count;
+    else if (row.type === "PROPOSAL") prev.proposalCount += row._count;
+    else if (row.type === "WHATSAPP") prev.whatsappCount += row._count;
+    funnelActivityByUser.set(row.userId, prev);
+  }
+
   // ─── Quem CONTA como time atual pros rankings abaixo ───────────────────
   // peopleIds (acima) inclui todo mundo que já foi dono de negócio/reunião
   // um dia — inclusive quem já SAIU da empresa (o negócio antigo continua
   // no banco com o ownerId de quem fechou, não é reatribuído sozinho quando
-  // alguém é desativado). Isso é o comportamento certo pros totais da
-  // organização (funil, faturamento, "Total ganho" etc. — dinheiro que a
-  // empresa ganhou continua contando mesmo que quem vendeu não trabalhe
-  // mais aqui, igual todo CRM de mercado trata receita histórica), mas é
-  // errado pra um RANKING DE TIME: ninguém espera ver um ex-consultor
-  // disputando "quem converte melhor" com o time atual. visibleMembers já é
-  // exatamente "quem está ativo e dentro do escopo de quem está vendo"
-  // (ver declaração acima) — mesma lista que já alimenta o filtro de
-  // responsável/equipe, reaproveitada aqui como a régua de "conta pro
-  // ranking". Aplicado só nos rankings POR PESSOA abaixo (dealsClosedRanking,
-  // meetingsRanking, attendanceRanking, conversionRanking, crmTimeRanking,
-  // crmChangesRanking, sellerWhatsappCards) — os totais/gráficos da
-  // organização (winRate, wonTotalValue, statusSlices, monthTrend,
-  // attendanceRateOverall etc.) de propósito NÃO filtram por isso.
-  const activeMemberIds = new Set(visibleMembers.map((m) => m.userId));
+  // alguém é desativado). Isso é o comportamento certo pros totais de
+  // HISTÓRICO DECIDIDO (faturamento, "Total ganho"/"Total perdido", winRate,
+  // statusSlices, monthTrend, attendanceRateOverall etc. — dinheiro que a
+  // empresa já ganhou/perdeu continua contando mesmo que quem vendeu não
+  // trabalhe mais aqui, igual todo CRM de mercado trata receita histórica).
+  // Mas é ERRADO pros dois casos abaixo, que já filtram por
+  // activeOwnerIds/activeMemberIds — a mesma lista (visibleMembers,
+  // "quem está ativo e dentro do escopo de quem está vendo"), só que em
+  // dois formatos (array pro `in:` do Prisma, Set pro `.has()` aqui):
+  //   1. RANKING DE TIME — ninguém espera ver um ex-consultor disputando
+  //      "quem converte melhor" com o time atual (dealsClosedRanking,
+  //      meetingsRanking, attendanceRanking, conversionRanking,
+  //      crmTimeRanking, crmChangesRanking, sellerWhatsappCards, abaixo).
+  //   2. PIPELINE ABERTO — negócio ABERTO de quem já saiu não é trabalho
+  //      em andamento de verdade, ninguém está cuidando dele; contar isso
+  //      inflava "Funil por etapa"/"Negócios abertos" bem acima do funil de
+  //      prospecção real (pedido explícito, relato ao vivo comparando com o
+  //      Pipeline de verdade — ver activeOwnerIds/activeOpenOwnerFilter, já
+  //      aplicado em openCount/stageValues/openByOwner lá em cima). Só
+  //      ABERTO — o RESULTADO de uma decisão (ganho/perdido) já é histórico,
+  //      cai na regra de cima, nunca filtra.
+  const activeMemberIds = new Set(activeOwnerIds);
 
   const wonByOwnerMap = new Map(wonByOwner.map((w) => [w.ownerId, w]));
   const lostByOwnerMap = new Map(lostByOwner.map((l) => [l.ownerId, l]));
