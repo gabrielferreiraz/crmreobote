@@ -482,17 +482,34 @@ export async function getCommercialReportData(params: {
   // fica "editada por cima"), então este número já reflete tentativas reais.
   const meetingVisitByUser = new Map<
     string,
-    { meetingCount: number; visitCount: number; attendedCount: number; noShowCount: number; rescheduledCount: number }
+    {
+      meetingCount: number;
+      visitCount: number;
+      attendedCount: number;
+      // attendedCount por tipo — pedido explícito: o card de "Reuniões e
+      // visitas realizadas" mostrava só o total combinado (attendedCount),
+      // sem dar pra ver quanto disso era reunião (online) e quanto era
+      // visita (presencial). meetingCount/visitCount acima não servem pra
+      // isso: contam TUDO agendado, não só o que foi de fato realizado.
+      meetingAttendedCount: number;
+      visitAttendedCount: number;
+      noShowCount: number;
+      rescheduledCount: number;
+    }
   >();
   for (const row of meetingsAndVisitsByOwner) {
     const prev =
       meetingVisitByUser.get(row.userId) ??
-      { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
+      { meetingCount: 0, visitCount: 0, attendedCount: 0, meetingAttendedCount: 0, visitAttendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
     if (row.type === "MEETING") prev.meetingCount += row._count;
     else if (row.type === "VISIT") prev.visitCount += row._count;
     if (row.meetingOutcome === "NO_SHOW") prev.noShowCount += row._count;
     else if (row.meetingOutcome === "RESCHEDULED") prev.rescheduledCount += row._count;
-    else if (row.meetingOutcome !== "PENDING") prev.attendedCount += row._count;
+    else if (row.meetingOutcome !== "PENDING") {
+      prev.attendedCount += row._count;
+      if (row.type === "MEETING") prev.meetingAttendedCount += row._count;
+      else if (row.type === "VISIT") prev.visitAttendedCount += row._count;
+    }
     meetingVisitByUser.set(row.userId, prev);
   }
 
@@ -538,7 +555,7 @@ export async function getCommercialReportData(params: {
     const activity = activityByUser.get(id) ?? { activeSeconds: 0, changeCount: 0, activeDayCount: 0 };
     const meetingVisit =
       meetingVisitByUser.get(id) ??
-      { meetingCount: 0, visitCount: 0, attendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
+      { meetingCount: 0, visitCount: 0, attendedCount: 0, meetingAttendedCount: 0, visitAttendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
     // Denominador da taxa = só resultados finais (compareceu ou no-show) —
     // RESCHEDULED fica de fora (ver comentário em meetingVisitByUser acima).
     const attendanceResolved = meetingVisit.attendedCount + meetingVisit.noShowCount;
@@ -555,6 +572,8 @@ export async function getCommercialReportData(params: {
       visitCount: meetingVisit.visitCount,
       meetingsAndVisitsCount: meetingVisit.meetingCount + meetingVisit.visitCount,
       attendedCount: meetingVisit.attendedCount,
+      meetingAttendedCount: meetingVisit.meetingAttendedCount,
+      visitAttendedCount: meetingVisit.visitAttendedCount,
       noShowCount: meetingVisit.noShowCount,
       rescheduledCount: meetingVisit.rescheduledCount,
       attendanceRate: attendanceResolved > 0 ? Math.round((meetingVisit.attendedCount / attendanceResolved) * 100) : null,
@@ -595,6 +614,12 @@ export async function getCommercialReportData(params: {
   // de propósito — pra dar pra ver ONDE está o problema de um consultor com
   // poucas realizadas (agenda muito mas não vai? falta comparecimento do
   // lead? fica remarcando?), não só o número final sem contexto.
+  //
+  // Pedido explícito (2026-09): detalhar o "N reuniões/visitas" — agora abre
+  // em quantas foram reunião (online) e quantas foram visita (presencial)
+  // DENTRE as que de fato aconteceram, não o agendado bruto (meetingCount/
+  // visitCount em ownerStats contam tudo, inclusive no-show/remarcada — não
+  // servem pra esse detalhamento).
   const meetingsRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => activeMemberIds.has(o.id) && o.attendedCount > 0)
     .sort((a, b) => b.attendedCount - a.attendedCount)
@@ -603,7 +628,7 @@ export async function getCommercialReportData(params: {
       name: o.name,
       photoUrl: o.photoUrl,
       primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
-      secondaryValue: `${o.meetingsAndVisitsCount} agendada${o.meetingsAndVisitsCount === 1 ? "" : "s"} · ${o.noShowCount} no-show · ${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`,
+      secondaryValue: `${o.meetingAttendedCount} ${o.meetingAttendedCount === 1 ? "reunião" : "reuniões"} · ${o.visitAttendedCount} visita${o.visitAttendedCount === 1 ? "" : "s"} · ${o.meetingsAndVisitsCount} agendada${o.meetingsAndVisitsCount === 1 ? "" : "s"} · ${o.noShowCount} no-show · ${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`,
     }));
 
   // Taxa de comparecimento por consultor — de quem marcou reunião/visita

@@ -173,7 +173,12 @@ export default async function HomePage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+      {/* 2 colunas já a partir do celular (era 1 coluna, cards empilhados em
+          fileiras finas de ponta a ponta) — pedido explícito: "cards
+          quadrados, um ao lado do outro". sm: fica igual à base agora (era
+          o breakpoint que já virava 2 colunas antes), então não repete mais
+          — só lg: segue diferente, virando 4. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <StatTile icon={Briefcase} label="Negócios abertos" value={openDeals} colorSet={STAT_COLORS.pipeline} />
         <StatTile
           icon={ArrowUpRight}
@@ -218,14 +223,28 @@ export default async function HomePage() {
             <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">Nenhum negócio em aberto.</p>
           ) : (
             <div className="space-y-3">
+              {/* Celular: nome/contagem + barra + valor todos espremidos numa
+                  linha só (w-32 fixo pro bloco do nome) truncava até nome
+                  curto ("Prospec...", "Remarke..." — relato explícito, ver
+                  print). Abaixo de lg agora empilha em 2 linhas — nome+valor
+                  em cima (o nome ganha o resto da largura da linha pra
+                  respirar, valor nunca trunca), barra por baixo ocupando a
+                  largura inteira do card em vez de espremida no que sobrou.
+                  A partir de lg volta pro layout de sempre, 1 linha só —
+                  nunca teve relato de problema lá, sobra espaço de sobra. */}
               {stageData.map((stage) => (
-                <div key={stage.id} className="flex items-center gap-4">
-                  <span className="flex w-32 shrink-0 items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color }} />
-                    <span className="truncate">{stage.name}</span>
-                    <span className="text-neutral-400 dark:text-neutral-500">· {stage.count}</span>
-                  </span>
-                  <div className="group/bar h-2.5 flex-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                <div key={stage.id} className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:gap-4">
+                  <div className="flex items-center justify-between gap-2 lg:w-32 lg:shrink-0">
+                    <span className="flex min-w-0 items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color }} />
+                      <span className="truncate">{stage.name}</span>
+                      <span className="shrink-0 text-neutral-400 dark:text-neutral-500">· {stage.count}</span>
+                    </span>
+                    <span className="shrink-0 text-right text-sm whitespace-nowrap tabular-nums text-neutral-500 dark:text-neutral-400 lg:hidden">
+                      {formatCurrency(stage.value)}
+                    </span>
+                  </div>
+                  <div className="group/bar h-2.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800 lg:flex-1">
                     <div
                       className="h-full rounded-full transition-all duration-300 group-hover/bar:opacity-100"
                       style={{
@@ -240,7 +259,7 @@ export default async function HomePage() {
                       }}
                     />
                   </div>
-                  <span className="shrink-0 text-right text-sm whitespace-nowrap tabular-nums text-neutral-500 dark:text-neutral-400">
+                  <span className="hidden shrink-0 text-right text-sm whitespace-nowrap tabular-nums text-neutral-500 dark:text-neutral-400 lg:block">
                     {formatCurrency(stage.value)}
                   </span>
                 </div>
@@ -380,8 +399,30 @@ function StatTile({
           <Icon className={`h-4 w-4 ${colorSet.icon}`} strokeWidth={2} />
         </div>
       </div>
-      <p className="text-lg font-semibold tracking-tight tabular-nums whitespace-nowrap text-neutral-900 dark:text-neutral-100 lg:text-2xl">
-        <CountUpValue value={value} format={format} />
+      {/* text-base (não mais text-lg) na base — card ficou mais estreito
+          (2 colunas desde o celular agora, ver grid acima), sobra menos
+          espaço na largura. whitespace-nowrap saiu: se algum valor ainda
+          assim não couber numa linha só, quebra pra 2 linhas dentro do
+          card em vez de cortar/estourar de lado. */}
+      <p className="text-base font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 lg:text-2xl">
+        {format === "currency" ? (
+          <>
+            {/* Card de moeda ficou estreito demais pro valor cheio ("R$
+                645.700.863,00") numa coluna de celular — sm: pra cima
+                (onde a coluna já era mais larga mesmo antes desta mudança,
+                comportamento intocado) mostra o valor cheio; abaixo disso,
+                a versão compacta que já existia pronta pra exatamente isso
+                (ver formatCurrencyCompact/CountUpValue). */}
+            <span className="sm:hidden">
+              <CountUpValue value={value} format="currency-compact" />
+            </span>
+            <span className="hidden sm:inline">
+              <CountUpValue value={value} format={format} />
+            </span>
+          </>
+        ) : (
+          <CountUpValue value={value} format={format} />
+        )}
       </p>
       {hint && <p className="mt-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>

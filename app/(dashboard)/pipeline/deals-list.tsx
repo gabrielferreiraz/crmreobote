@@ -1097,7 +1097,21 @@ export function DealsList({
         <>
           {/* Mobile: cards — a tabela de 9 colunas força rolagem horizontal
               por cima de tudo num celular; aqui cada negócio vira um cartão
-              com só o essencial, mesmo padrão de clientes/contacts-table.tsx. */}
+              com só o essencial, mesmo padrão de clientes/contacts-table.tsx.
+              "Selecionar todos" — a tabela de desktop já tinha isso no
+              cabeçalho da coluna de checkbox (thead), só a versão mobile
+              nunca teve nenhum jeito de marcar todos de uma vez (pedido
+              explícito) — mesmo estado/função de sempre (allSelected/
+              toggleSelectAll), só uma UI nova pra chegar nele aqui. */}
+          <label className="mb-1 flex w-fit items-center gap-2 px-1 lg:hidden">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              className="accent-neutral-900 dark:accent-white"
+            />
+            <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Selecionar todos</span>
+          </label>
           <div className="space-y-2 lg:hidden">
             {deals.map((deal) => (
               <div key={deal.id} className="group card p-3">
@@ -1129,24 +1143,33 @@ export function DealsList({
                     {formatCurrency(deal.value)}
                   </span>
                 </div>
-                <p className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                  {deal.contact.name}
-                  {deal.contact.source && ` · ${deal.contact.source}`}
-                  {deal.creditType && ` · ${deal.creditType}`}
-                </p>
+                {/* Origem/tipo de crédito saíram daqui (celular) — secundário
+                    demais pra um cartão de escaneio rápido, continuam
+                    visíveis a 1 toque no detalhe do negócio (pedido
+                    explícito: "muito poluída", tirar elementos). */}
+                <p className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">{deal.contact.name}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: deal.stage.color ?? "#999" }} />
                     {deal.stage.name}
                   </span>
-                  <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                    {STATUS_LABELS[deal.status]}
-                    {deal.status === "LOST" && (deal.lossReason?.label ?? deal.lostReason) && ` · ${deal.lossReason?.label ?? deal.lostReason}`}
-                  </span>
+                  {/* "Em andamento" some — é o status do filtro padrão desta
+                      lista (OPEN), já óbvio pela própria etapa mostrada ao
+                      lado; Ganho/Perdido continuam aparecendo, aí sim é
+                      informação nova que a etapa sozinha não conta. */}
+                  {deal.status !== "OPEN" && (
+                    <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {STATUS_LABELS[deal.status]}
+                      {deal.status === "LOST" && (deal.lossReason?.label ?? deal.lostReason) && ` · ${deal.lossReason?.label ?? deal.lostReason}`}
+                    </span>
+                  )}
                 </div>
-                {deal.nextActivity && (
-                  <p className="mt-1.5 truncate text-xs text-neutral-400 dark:text-neutral-500">Próxima: {deal.nextActivity}</p>
-                )}
+                {/* "Próxima: {atividade}" saiu do cartão — já dá pra filtrar
+                    só quem não tem tarefa/está parado pelos atalhos rápidos
+                    logo acima (Ação hoje/Sem tarefa/Parados), então o texto
+                    solto aqui era mais uma linha de poluição do que
+                    informação nova pro escaneio rápido; continua visível no
+                    detalhe do negócio. */}
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                   <span className="flex items-center gap-1.5">
                     <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />

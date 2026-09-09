@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Briefcase, BriefcaseBusiness, MessageCircle, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -185,6 +185,26 @@ export function ConversationsMobile({
     return groupByOwner(filteredConversations);
   }, [showOwnerInfo, ownerFilter, filteredConversations]);
 
+  // Reserva a altura real do menu inferior do celular (#mobile-bottom-nav,
+  // ver mobile-nav.tsx) quando uma conversa está aberta — ele é
+  // `position:fixed`, fica POR CIMA do conteúdo em vez de empurrá-lo
+  // (não entra no fluxo normal), então h-full/flex-1 sozinhos não sabem que
+  // aquela faixa de baixo está coberta (mesmo ajuste já feito na fileira do
+  // Kanban, ver kanban-board.tsx). Sem isso, a caixa "Digite uma mensagem"
+  // do ChatWindow ficava atrás do menu, inalcançável (relatado com print).
+  // Em telas lg+ o menu some (lg:hidden) e getBoundingClientRect já retorna
+  // altura 0 sozinho, sem precisar de tratamento especial aqui.
+  const [bottomNavHeight, setBottomNavHeight] = useState(0);
+  useLayoutEffect(() => {
+    function measure() {
+      const nav = document.getElementById("mobile-bottom-nav");
+      setBottomNavHeight(nav ? nav.getBoundingClientRect().height : 0);
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
 
   function handleDealAdded(threadId: string, result: { contactId: string; deal: { id: string; name: string } }) {
@@ -197,7 +217,7 @@ export function ConversationsMobile({
 
   if (selected) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="flex h-full flex-col" style={{ paddingBottom: bottomNavHeight }}>
         {selected.deal ? (
           <Link
             href={`/negocios/${selected.deal.id}`}
