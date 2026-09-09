@@ -49,5 +49,7 @@ export function TeamOwnerFilter({
     ...orderedMembers.map((m) => ({ value: `owner:${m.id}`, label: m.id === currentUserId ? "Eu" : m.name })),
   ];
 
-  return <Select value={current} onChange={apply} options={options} className="w-52" />;
+  {/* w-full abaixo de sm — mesmo motivo de pipeline-filter.tsx (grade 2
+      colunas do celular, ver relatorios/page.tsx). */}
+  return <Select value={current} onChange={apply} options={options} className="w-full sm:w-52" />;
 }

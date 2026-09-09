@@ -121,7 +121,10 @@ export function DateRangeFilter() {
           setShowCustom(false);
           setOpen((v) => !v);
         }}
-        className={`field-input flex w-64 items-center gap-1.5 text-left text-sm ${
+        // w-full abaixo de sm — precisa preencher a célula da grade 2
+        // colunas do celular (ver relatorios/page.tsx), não os w-64 fixos
+        // de sempre.
+        className={`field-input flex w-full items-center gap-1.5 text-left text-sm sm:w-64 ${
           open ? "border-neutral-400 ring-1 ring-neutral-400 dark:border-neutral-500 dark:ring-neutral-500" : ""
         }`}
       >

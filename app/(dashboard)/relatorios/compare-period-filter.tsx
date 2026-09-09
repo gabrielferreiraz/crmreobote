@@ -164,12 +164,21 @@ export function ComparePeriodFilter() {
           setShowCustom(false);
           setOpen((v) => !v);
         }}
-        className={`field-input flex items-center gap-1.5 text-left text-sm ${
+        // w-full abaixo de sm (preenche a célula da grade 2 colunas do
+        // celular, ver relatorios/page.tsx) — sm:w-auto volta pro tamanho
+        // pelo conteúdo de sempre. min-w-0 deixa o texto truncar (ver span
+        // abaixo) em vez de estourar a célula quando o rótulo cresce
+        // (comparação relativa agora mostra a data resolvida, ver
+        // activeLabel — pode ficar comprido: "Mesmo período (01/09 –
+        // 05/09/2026)").
+        className={`field-input flex w-full min-w-0 items-center gap-1.5 text-left text-sm sm:w-auto ${
           activeCompare ? "border-brand/40 text-brand dark:border-brand/50" : ""
         } ${open ? "border-neutral-400 ring-1 ring-neutral-400 dark:border-neutral-500 dark:ring-neutral-500" : ""}`}
       >
         <GitCompareArrows className="h-3.5 w-3.5 shrink-0 opacity-50" strokeWidth={2} />
-        <span className="whitespace-nowrap">{activeLabel ? `Comparando: ${activeLabel}` : "Comparar período"}</span>
+        <span className="min-w-0 flex-1 truncate sm:flex-none sm:whitespace-nowrap">
+          {activeLabel ? `Comparando: ${activeLabel}` : "Comparar período"}
+        </span>
         {activeCompare ? (
           <span
             role="button"

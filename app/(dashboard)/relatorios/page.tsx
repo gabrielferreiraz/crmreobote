@@ -233,7 +233,17 @@ export default async function RelatoriosPage({
               Relatórios
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-2 xl:shrink-0">
+          {/* Celular: grade 2 colunas (era flex-wrap, cada filtro só
+              ocupando a própria largura fixa — 4 caixas de tamanhos
+              diferentes empilhadas, uma por linha, sem alinhar entre si —
+              pedido explícito, "não parece harmônico"). Cada filtro vira
+              w-full DENTRO da célula abaixo de sm (ver className de cada um
+              — Select recebe isso via prop, DateRangeFilter/
+              ComparePeriodFilter têm o próprio botão ajustado). A partir de
+              sm volta a ser a fileira flex de sempre, cada um com a própria
+              largura — nunca teve relato de problema lá, sobra espaço de
+              sobra pra não precisar de grade. */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center xl:shrink-0">
             <FiltersUrlRestore />
             <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
             {!isPersonalView && (

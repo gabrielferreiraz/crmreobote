@@ -34,5 +34,7 @@ export function PipelineFilter({ pipelines }: { pipelines: { id: string; name: s
 
   const options = [{ value: "", label: "Todos os funis" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))];
 
-  return <Select value={current} onChange={apply} options={options} className="w-48" />;
+  {/* w-full abaixo de sm — precisa preencher a célula da grade 2 colunas do
+      celular (ver relatorios/page.tsx), não a largura fixa de sempre. */}
+  return <Select value={current} onChange={apply} options={options} className="w-full sm:w-48" />;
 }

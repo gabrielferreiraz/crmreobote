@@ -27,12 +27,21 @@ const STALE_DEALS_PAGE_SIZE = 10;
  * `bg` virou um degradê de 2 tons da MESMA família (não uma cor nova) — pedido
  * explícito de dar mais sofisticação ao Início sem fugir da identidade de cor
  * de cada métrica; mesma técnica que a barra de etapa do funil logo abaixo já
- * usa (degradê dentro do próprio tom, nunca uma cor emprestada de outro lugar). */
+ * usa (degradê dentro do próprio tom, nunca uma cor emprestada de outro lugar).
+ * `glow` é o degradê do CARD em si (pedido explícito: "colocar um degradê
+ * nesses cards"), não só do selo do ícone — mesmo par GlassCard+Glow que o
+ * dashboard da TV já usa (ver app/tv/tv-view.tsx): uma mancha borrada e
+ * suave da cor da própria família, encostada num canto, por baixo do
+ * conteúdo. Nunca mexe no `background` do .card em si (glassmorphism
+ * compartilhado por toda a tela, ver .card em globals.css) — é uma camada
+ * decorativa própria, pra não arriscar mudar a cor de fundo de cada `.card`
+ * do sistema inteiro só por causa deste pedido pontual. */
 const STAT_COLORS = {
-  pipeline: { bg: "bg-gradient-to-br from-brand-light to-brand-light-hover", icon: "text-brand dark:text-brand" },
+  pipeline: { bg: "bg-gradient-to-br from-brand-light to-brand-light-hover", icon: "text-brand dark:text-brand", glow: "bg-brand" },
   value: {
     bg: "bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-500/10 dark:to-blue-500/20",
     icon: "text-blue-600 dark:text-blue-400",
+    glow: "bg-blue-400 dark:bg-blue-500",
   },
   // Cinza-azulado (slate) em vez do verde padrão de "ganho" — pedido
   // explícito pro tile "Fechado no mês", pra combinar com o tom do card
@@ -40,10 +49,12 @@ const STAT_COLORS = {
   won: {
     bg: "bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-500/15 dark:to-slate-500/25",
     icon: "text-slate-600 dark:text-slate-300",
+    glow: "bg-slate-400 dark:bg-slate-500",
   },
   clients: {
     bg: "bg-gradient-to-br from-violet-50 to-violet-100 dark:from-violet-500/10 dark:to-violet-500/20",
     icon: "text-violet-600 dark:text-violet-400",
+    glow: "bg-violet-400 dark:bg-violet-500",
   },
 } as const;
 
@@ -389,42 +400,48 @@ function StatTile({
   value: number;
   format?: "number" | "currency";
   hint?: string;
-  colorSet: { bg: string; icon: string };
+  colorSet: { bg: string; icon: string; glow: string };
 }) {
   return (
-    <div className="card p-3 transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none lg:p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="truncate text-xs font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${colorSet.bg}`}>
-          <Icon className={`h-4 w-4 ${colorSet.icon}`} strokeWidth={2} />
+    <div className="card relative overflow-hidden p-3 transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none lg:p-4">
+      {/* Degradê do card em si (pedido explícito) — mancha borrada da cor da
+          família, encostada no canto, por baixo do conteúdo (nunca mexe no
+          `background` do .card, ver comentário de STAT_COLORS lá em cima). */}
+      <div className={`pointer-events-none absolute -top-6 -right-6 h-24 w-24 rounded-full opacity-20 blur-2xl ${colorSet.glow}`} />
+      <div className="relative">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="truncate text-xs font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
+          <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${colorSet.bg}`}>
+            <Icon className={`h-4 w-4 ${colorSet.icon}`} strokeWidth={2} />
+          </div>
         </div>
+        {/* text-base (não mais text-lg) na base — card ficou mais estreito
+            (2 colunas desde o celular agora, ver grid acima), sobra menos
+            espaço na largura. whitespace-nowrap saiu: se algum valor ainda
+            assim não couber numa linha só, quebra pra 2 linhas dentro do
+            card em vez de cortar/estourar de lado. */}
+        <p className="text-base font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 lg:text-2xl">
+          {format === "currency" ? (
+            <>
+              {/* Card de moeda ficou estreito demais pro valor cheio ("R$
+                  645.700.863,00") numa coluna de celular — sm: pra cima
+                  (onde a coluna já era mais larga mesmo antes desta mudança,
+                  comportamento intocado) mostra o valor cheio; abaixo disso,
+                  a versão compacta que já existia pronta pra exatamente isso
+                  (ver formatCurrencyCompact/CountUpValue). */}
+              <span className="sm:hidden">
+                <CountUpValue value={value} format="currency-compact" />
+              </span>
+              <span className="hidden sm:inline">
+                <CountUpValue value={value} format={format} />
+              </span>
+            </>
+          ) : (
+            <CountUpValue value={value} format={format} />
+          )}
+        </p>
+        {hint && <p className="mt-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
       </div>
-      {/* text-base (não mais text-lg) na base — card ficou mais estreito
-          (2 colunas desde o celular agora, ver grid acima), sobra menos
-          espaço na largura. whitespace-nowrap saiu: se algum valor ainda
-          assim não couber numa linha só, quebra pra 2 linhas dentro do
-          card em vez de cortar/estourar de lado. */}
-      <p className="text-base font-semibold tracking-tight tabular-nums text-neutral-900 dark:text-neutral-100 lg:text-2xl">
-        {format === "currency" ? (
-          <>
-            {/* Card de moeda ficou estreito demais pro valor cheio ("R$
-                645.700.863,00") numa coluna de celular — sm: pra cima
-                (onde a coluna já era mais larga mesmo antes desta mudança,
-                comportamento intocado) mostra o valor cheio; abaixo disso,
-                a versão compacta que já existia pronta pra exatamente isso
-                (ver formatCurrencyCompact/CountUpValue). */}
-            <span className="sm:hidden">
-              <CountUpValue value={value} format="currency-compact" />
-            </span>
-            <span className="hidden sm:inline">
-              <CountUpValue value={value} format={format} />
-            </span>
-          </>
-        ) : (
-          <CountUpValue value={value} format={format} />
-        )}
-      </p>
-      {hint && <p className="mt-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
     </div>
   );
 }
