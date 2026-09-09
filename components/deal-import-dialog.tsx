@@ -254,8 +254,13 @@ export function DealImportDialog({
   // hook usado em contact-import-dialog.tsx, ver lib/use-file-drop.ts.
   const { isDraggingOver, dropZoneProps } = useFileDrop(pickFile, step === "analyzing");
 
-  function updateOverride(field: ImportField, index: number) {
-    const next = { ...overrides, [field]: index };
+  // value === "" (opção "Não usar" da grade) vira -1, não `Number("")` (que
+  // daria 0 — a PRIMEIRA coluna do arquivo, o oposto do que a pessoa
+  // pediu). -1 explícito é o que detectColumns (lib/deals/import-resolve.ts)
+  // entende como "vontade explícita de não usar", diferente da chave
+  // simplesmente ausente (deixa a detecção automática decidir).
+  function updateOverride(field: ImportField, value: string) {
+    const next = { ...overrides, [field]: value === "" ? -1 : Number(value) };
     setOverrides(next);
     if (file) runPreview(file, next, fieldDefaults);
   }
@@ -549,10 +554,20 @@ export function DealImportDialog({
                   </span>
                   <Select
                     value={col.index === -1 ? "" : String(col.index)}
-                    onChange={(v) => updateOverride(col.field, Number(v))}
+                    onChange={(v) => updateOverride(col.field, v)}
                     className="w-40 py-1 text-xs"
                     placeholder="Não usar"
-                    options={preview.rawHeaderRow.map((h, i) => ({ value: String(i), label: h || `Coluna ${i + 1}` }))}
+                    // "Não usar" precisa ser uma OPÇÃO de verdade na lista
+                    // (não só o placeholder mostrado quando value === ""),
+                    // senão não tem como voltar atrás depois de escolher uma
+                    // coluna — relatado direto (mesmo bug em
+                    // contact-import-dialog.tsx): "não tem como remover
+                    // coluna". Só aparece pra campo OPCIONAL — Contato é o
+                    // único obrigatório aqui, sempre precisa de alguma coluna.
+                    options={[
+                      ...(col.required ? [] : [{ value: "", label: "Não usar" }]),
+                      ...preview.rawHeaderRow.map((h, i) => ({ value: String(i), label: h || `Coluna ${i + 1}` })),
+                    ]}
                   />
                 </div>
               ))}

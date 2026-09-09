@@ -69,6 +69,13 @@ export type ColumnDetection = {
  * como o usuário corrige na tela de prévia quando o cabeçalho do arquivo
  * dele não bate com nenhum sinônimo conhecido (ver ColumnMappingFix no
  * componente de prévia).
+ *
+ * Chave AUSENTE em `overrides` = deixa a detecção automática decidir.
+ * Chave PRESENTE (mesmo com valor -1) = vontade explícita do usuário, nunca
+ * cai pra detecção automática — é assim que "Não usar" funciona pra campo
+ * opcional (ver updateOverride em deal-import-dialog.tsx): sem essa
+ * distinção, mandar -1 (índice "nenhuma coluna") caía neste `?? auto-detect`
+ * e reimportava sozinho a MESMA coluna que a pessoa acabou de tirar.
  */
 export function detectColumns(rawHeaderRow: string[], overrides?: Partial<Record<ImportField, number>>): ColumnDetection[] {
   const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
@@ -76,8 +83,8 @@ export function detectColumns(rawHeaderRow: string[], overrides?: Partial<Record
     const meta = FIELD_META[field];
     const overrideIndex = overrides?.[field];
     const index =
-      overrideIndex !== undefined && overrideIndex >= 0 && overrideIndex < rawHeaderRow.length
-        ? overrideIndex
+      overrideIndex !== undefined
+        ? (overrideIndex >= 0 && overrideIndex < rawHeaderRow.length ? overrideIndex : -1)
         : normalizedHeaderRow.findIndex((h) => meta.candidates.includes(h));
     return {
       field,
