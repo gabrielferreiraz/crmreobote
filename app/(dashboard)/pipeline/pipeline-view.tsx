@@ -396,7 +396,7 @@ export function PipelineView({
         />
       )}
 
-      {importHistoryOpen && <ImportHistoryDialog onClose={() => setImportHistoryOpen(false)} />}
+      {importHistoryOpen && <ImportHistoryDialog kind="deals" onClose={() => setImportHistoryOpen(false)} />}
     </div>
   );
 }

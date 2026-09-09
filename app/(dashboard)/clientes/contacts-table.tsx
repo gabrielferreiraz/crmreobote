@@ -20,12 +20,14 @@ import {
   IdCard,
   Trash2,
   Send,
+  History,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge, type BadgeTone } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
-import { ImportDialog } from "@/components/import-dialog";
+import { ContactImportDialog } from "@/components/contact-import-dialog";
+import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { FilterPopover } from "@/components/filter-popover";
 import { ColumnFilter } from "@/components/column-filter";
@@ -103,6 +105,7 @@ export function ContactsTable({
 
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -602,6 +605,13 @@ export function ContactsTable({
         <button onClick={() => setImportOpen(true)} className="btn-secondary">
           <Upload className="h-4 w-4" strokeWidth={2} />
           Importar
+        </button>
+        {/* Mesmo padrão do Pipeline (ver pipeline-view.tsx) — botão só-ícone
+            ao lado de "Importar", abre o histórico com desfazer/baixar
+            erros. Pedido explícito: "histórico de importações nos clientes
+            também, mesma coisa dos negócios". */}
+        <button onClick={() => setImportHistoryOpen(true)} className="icon-btn" title="Histórico de importações">
+          <History className="h-4 w-4" strokeWidth={2} />
         </button>
         {isOwner && (
           <a
@@ -1202,22 +1212,13 @@ export function ContactsTable({
       )}
 
       {importOpen && (
-        <ImportDialog
-          title="Importar contatos"
-          hint="Arquivo .csv ou .xlsx com colunas: nome (obrigatório), cargo (obrigatório), email, whatsapp, celular (número 2, usado se o WhatsApp não funcionar), origem, empresa, tags."
-          endpoint="/api/contacts/import"
+        <ContactImportDialog
           onClose={() => setImportOpen(false)}
           onImported={() => router.refresh()}
-          renderSummary={(r) => {
-            const withoutJobTitle = r.withoutJobTitle ?? 0;
-            const otherSkipped = r.skipped - withoutJobTitle;
-            const parts: string[] = [];
-            if (otherSkipped > 0) parts.push(`${otherSkipped} ignorados por já existirem (celular duplicado)`);
-            if (withoutJobTitle > 0) parts.push(`${withoutJobTitle} ignorados por não terem cargo preenchido`);
-            return `${r.created} de ${r.total} contatos importados.${parts.length > 0 ? ` ${parts.join("; ")}.` : ""}`;
-          }}
         />
       )}
+
+      {importHistoryOpen && <ImportHistoryDialog kind="contacts" onClose={() => setImportHistoryOpen(false)} />}
     </div>
   );
 }

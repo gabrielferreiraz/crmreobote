@@ -9,19 +9,18 @@ export const dynamic = "force-dynamic";
 const MAX_BATCHES = 100;
 
 /**
- * Histórico de importações — qualquer usuário autenticado acessa, mas cada
- * um vê APENAS os lotes que ele mesmo criou (createdById = userId logado).
- * Se um dono/TI importou e atribuiu os negócios a outro consultor, o
- * consultor NÃO vê o lote — ele já enxerga os negócios no pipeline dele;
- * o lote de importação é restrito a quem clicou em "Importar".
+ * Histórico de importações de CONTATO — mesmo espírito de
+ * app/api/deals/import/history/route.ts (rota própria, não a mesma rota
+ * filtrada por query param, pra manter a URL de cada tipo de importação sob
+ * seu próprio namespace /api/{entidade}/import/*, igual preview/commit já
+ * são). Filtra type: "contacts" — sem isso, um ImportBatch de negócio
+ * (type: "deals") apareceria aqui também, já que os dois tipos vivem na
+ * mesma tabela (ver ImportBatch no schema).
  *
- * type: "deals" — desde que ImportBatch passou a valer também pra
- * importação de contato (ver app/api/contacts/import/history/route.ts), sem
- * esse filtro um lote de contato apareceria misturado aqui também (mesma
- * tabela, tipos diferentes).
+ * Qualquer usuário autenticado acessa, mas cada um vê APENAS os lotes que
+ * ele mesmo criou (createdById = userId logado) — mesma regra de negócios.
  */
 export async function GET() {
-  // requireRole sem lista de roles = qualquer papel autenticado na organização
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
@@ -29,8 +28,7 @@ export async function GET() {
     const batches = await prisma.importBatch.findMany({
       where: {
         organizationId: access.organizationId,
-        type: "deals",
-        // Cada usuário vê apenas os lotes que ele próprio importou
+        type: "contacts",
         createdById: access.userId,
       },
       orderBy: { createdAt: "desc" },

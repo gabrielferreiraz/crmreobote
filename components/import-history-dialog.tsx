@@ -20,19 +20,34 @@ type ImportBatch = {
   createdBy: { name: string; photoUrl: string | null };
 };
 
-type IssueRow = { rowNumber: number; contactName: string | null; dealName: string | null; issues: { code: string; message: string }[] };
+type IssueRow = { rowNumber: number; issues: { code: string; message: string }[] } & Record<string, unknown>;
 
-const TYPE_LABEL: Record<string, string> = { deals: "Negócios" };
+// "name"/"jobTitle" (contato) vs. "contactName"/"dealName" (negócio) — os
+// dois formatos de ResolvedRow (ver lib/contacts/import-resolve.ts e
+// lib/deals/import-resolve.ts) num painel só, sem precisar de dois
+// componentes quase idênticos.
+function describeIssueRow(r: IssueRow): string {
+  const label = (r.contactName as string | undefined) ?? (r.name as string | undefined);
+  return label ? ` (${label})` : "";
+}
+
+/** Rótulo do que "não virou X" — plural do tipo, usado no vazio/undo abaixo. */
+const ENTITY_LABEL: Record<ImportKind, { singular: string; plural: string }> = {
+  deals: { singular: "negócio", plural: "negócios" },
+  contacts: { singular: "contato", plural: "contatos" },
+};
+
+export type ImportKind = "deals" | "contacts";
 
 /** Linhas com problema de um lote — buscado sob demanda ao expandir (ver toggleExpand), não vem junto na lista pra não pesar o carregamento inicial. */
-function IssueRowsPanel({ batchId }: { batchId: string }) {
+function IssueRowsPanel({ kind, batchId }: { kind: ImportKind; batchId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<IssueRow[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/deals/import/${batchId}`)
+    fetch(`/api/${kind}/import/${batchId}`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
@@ -53,7 +68,7 @@ function IssueRowsPanel({ batchId }: { batchId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [batchId]);
+  }, [kind, batchId]);
 
   if (loading) {
     return (
@@ -65,15 +80,15 @@ function IssueRowsPanel({ batchId }: { batchId: string }) {
   }
   if (error) return <p className="py-3 text-xs text-red-600 dark:text-red-400">{error}</p>;
   if (!rows || rows.length === 0) {
-    return <p className="py-3 text-xs text-neutral-400 dark:text-neutral-500">Nenhuma linha com problema — tudo virou negócio.</p>;
+    return <p className="py-3 text-xs text-neutral-400 dark:text-neutral-500">Nenhuma linha com problema — tudo virou {ENTITY_LABEL[kind].singular}.</p>;
   }
 
   return (
     <div className="max-h-48 space-y-1 overflow-y-auto py-2 text-xs">
       {rows.map((r) => (
         <div key={r.rowNumber} className="text-neutral-500 dark:text-neutral-400">
-          <span className="font-medium text-neutral-700 dark:text-neutral-300">Linha {r.rowNumber}</span>
-          {r.contactName ? ` (${r.contactName})` : ""}: {r.issues.map((i) => i.message).join("; ")}
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">Linha {r.rowNumber as number}</span>
+          {describeIssueRow(r)}: {r.issues.map((i) => i.message).join("; ")}
         </div>
       ))}
     </div>
@@ -81,13 +96,19 @@ function IssueRowsPanel({ batchId }: { batchId: string }) {
 }
 
 /**
- * Histórico de importações — direto na página de Pipeline (ver botão ao
- * lado de "Importar" em pipeline-view.tsx), sem sair pra Configurações.
- * Busca ao abrir, não recebe nada pronto do servidor (é um modal, não uma
- * página) — mesmo espírito do DealImportDialog, que também resolve tudo
- * client-side depois de aberto.
+ * Histórico de importações — direto na página de origem (Pipeline pra
+ * negócio, Clientes pra contato — ver botão ao lado de "Importar"), sem sair
+ * pra Configurações. Busca ao abrir, não recebe nada pronto do servidor (é
+ * um modal, não uma página) — mesmo espírito do DealImportDialog/
+ * ContactImportDialog, que também resolvem tudo client-side depois de
+ * abertos.
+ *
+ * `kind` decide o namespace da API (/api/deals/import/* ou
+ * /api/contacts/import/*) — os dois tipos de ImportBatch (ver schema)
+ * nunca se misturam aqui: cada rota de histórico já filtra pelo próprio
+ * `type` (ver comentário em app/api/deals/import/history/route.ts).
  */
-export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
+export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [batches, setBatches] = useState<ImportBatch[] | null>(null);
@@ -99,7 +120,7 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
   function loadBatches() {
     setLoading(true);
     setError(null);
-    fetch("/api/deals/import/history")
+    fetch(`/api/${kind}/import/history`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -116,14 +137,15 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
       });
   }
 
-  useEffect(loadBatches, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadBatches, [kind]);
 
   async function confirmDelete() {
     if (!batchToDelete) return;
     setDeleting(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`/api/deals/import/${batchToDelete.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/${kind}/import/${batchToDelete.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setDeleteError(data.error ?? "Erro ao desfazer importação");
@@ -208,7 +230,7 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
                             <>
                               {b.rowsSkipped > 0 && (
                                 <a
-                                  href={`/api/deals/import/${b.id}/errors`}
+                                  href={`/api/${kind}/import/${b.id}/errors`}
                                   download
                                   className="icon-btn"
                                   title="Baixar planilha de erros"
@@ -223,7 +245,7 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
                                   setBatchToDelete(b);
                                 }}
                                 className="icon-btn hover:text-red-600 dark:hover:text-red-400"
-                                title="Desfazer importação (apaga os negócios criados por ela)"
+                                title={`Desfazer importação (apaga os ${ENTITY_LABEL[kind].plural} criados por ela)`}
                               >
                                 <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                               </button>
@@ -235,7 +257,7 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
                     {isExpanded && (
                       <tr className="border-b border-neutral-50 bg-neutral-50/50 dark:border-neutral-900 dark:bg-neutral-900/30">
                         <td colSpan={7} className="px-3">
-                          <IssueRowsPanel batchId={b.id} />
+                          <IssueRowsPanel kind={kind} batchId={b.id} />
                         </td>
                       </tr>
                     )}
@@ -258,7 +280,9 @@ export function ImportHistoryDialog({ onClose }: { onClose: () => void }) {
           title={`Desfazer a importação de "${batchToDelete.fileName}"?`}
           description={
             deleteError ??
-            `Apaga os ${batchToDelete.rowsCreated} negócio${batchToDelete.rowsCreated === 1 ? "" : "s"} criados por esse arquivo — só funciona se nenhum deles tiver sido alterado desde então (movido, ganho/perdido, ou já ter atividade registrada). O contato criado junto só é apagado se não tiver ganhado mais nada desde a importação. Essa ação não pode ser desfeita.`
+            (kind === "deals"
+              ? `Apaga os ${batchToDelete.rowsCreated} negócio${batchToDelete.rowsCreated === 1 ? "" : "s"} criados por esse arquivo — só funciona se nenhum deles tiver sido alterado desde então (movido, ganho/perdido, ou já ter atividade registrada). O contato criado junto só é apagado se não tiver ganhado mais nada desde a importação. Essa ação não pode ser desfeita.`
+              : `Apaga os ${batchToDelete.rowsCreated} contato${batchToDelete.rowsCreated === 1 ? "" : "s"} criados por esse arquivo — só funciona se nenhum deles tiver ganho negócio, tarefa, conversa de WhatsApp, campanha ou processo desde então. Essa ação não pode ser desfeita.`)
           }
           confirmLabel={deleting ? "Desfazendo…" : "Desfazer importação"}
           onClose={() => {
