@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Users, Kanban, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
@@ -36,7 +36,33 @@ const DEAL_STATUS_LABELS: Record<Result["deals"][number]["status"], string> = {
   LOST: "Perdido",
 };
 
-export function CommandPalette({ compact = false }: { compact?: boolean }) {
+// Só o gatilho ("abrir a busca") — o botão em si não precisa de mais nada
+// do estado interno (query/resultados/etc.), só de saber COMO pedir pra
+// abrir. `null` fora do Provider (nunca deve acontecer de verdade, ver
+// CommandPalette abaixo).
+const CommandPaletteContext = createContext<(() => void) | null>(null);
+
+/**
+ * Estado ÚNICO da busca (aberto/fechado, texto digitado, resultados,
+ * listener global de Cmd+K) — montado 1x aqui, em layout.tsx, mesmo padrão
+ * de UndoProvider (contexto + hook consumido em vários lugares, sem
+ * duplicar estado nenhum).
+ *
+ * Antes disso existir, CommandPalette era um componente com o PRÓPRIO
+ * estado completo, e cada botão de busca na tela (desktop cheio, desktop
+ * compacto, cabeçalho mobile) montava a própria instância dele — inclusive
+ * o próprio `document.addEventListener("keydown", ...)` do Cmd+K. Como o
+ * cabeçalho de desktop e o de mobile ficam os DOIS montados ao mesmo tempo
+ * (alternados só por CSS — `hidden lg:flex`/`lg:hidden`, nunca desmontados —
+ * mesmo padrão já corrigido em Agenda pro Google Calendar, ver
+ * agenda-client.tsx), Cmd+K dava um bug de verdade: os DOIS listeners
+ * disparavam juntos, abrindo DOIS modais de busca empilhados, cada um com
+ * o próprio estado — Esc só fechava o de cima, o de baixo ficava preso
+ * aberto. Um Provider só, com um `open` acionado por qualquer botão, corta
+ * isso de vez — só existe um modal, uma busca, um listener de teclado, não
+ * importa quantos botões (trigger) apareçam na tela ao mesmo tempo.
+ */
+export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -104,27 +130,8 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
   const hasResults = filteredLinks.length > 0 || results.contacts.length > 0 || results.deals.length > 0;
 
   return (
-    <>
-      {compact ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="icon-btn"
-          aria-label="Buscar"
-        >
-          <Search className="h-4 w-4" strokeWidth={2} />
-        </button>
-      ) : (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex h-9 w-48 shrink-0 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-400 shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
-        >
-          <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-          <span className="flex-1 truncate text-left whitespace-nowrap">Buscar...</span>
-          <kbd className="shrink-0 rounded border border-neutral-200 bg-neutral-50 px-1 py-0.5 font-mono text-[9px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
-            ⌘K
-          </kbd>
-        </button>
-      )}
+    <CommandPaletteContext.Provider value={() => setOpen(true)}>
+      {children}
 
       {open && (
         <Modal onClose={() => setOpen(false)} maxWidth="max-w-lg">
@@ -250,6 +257,38 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
           </div>
         </Modal>
       )}
-    </>
+    </CommandPaletteContext.Provider>
+  );
+}
+
+/**
+ * Só o BOTÃO que abre a busca — sem estado próprio nenhum, chama o gatilho
+ * do CommandPaletteProvider (montado 1x em layout.tsx, ver comentário lá).
+ * Pode aparecer em quantos lugares quiser ao mesmo tempo (desktop cheio,
+ * desktop compacto, cabeçalho mobile — hoje já ficam 2 montados ao mesmo
+ * tempo, alternados por CSS) sem duplicar listener nem estado nenhum.
+ */
+export function CommandPalette({ compact = false }: { compact?: boolean }) {
+  const openPalette = useContext(CommandPaletteContext);
+
+  function handleClick() {
+    openPalette?.();
+  }
+
+  return compact ? (
+    <button onClick={handleClick} className="icon-btn" aria-label="Buscar">
+      <Search className="h-4 w-4" strokeWidth={2} />
+    </button>
+  ) : (
+    <button
+      onClick={handleClick}
+      className="flex h-9 w-48 shrink-0 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-400 shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
+    >
+      <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+      <span className="flex-1 truncate text-left whitespace-nowrap">Buscar...</span>
+      <kbd className="shrink-0 rounded border border-neutral-200 bg-neutral-50 px-1 py-0.5 font-mono text-[9px] font-medium text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-500">
+        ⌘K
+      </kbd>
+    </button>
   );
 }

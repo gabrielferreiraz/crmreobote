@@ -8,6 +8,7 @@ import { Select } from "./select";
 import { Badge } from "./badge";
 import { formatCurrency } from "@/lib/format";
 import { sortSelfFirst } from "@/lib/sort-self-first";
+import { useFileDrop } from "@/lib/use-file-drop";
 
 type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "grossValue" | "creditType" | "stage" | "owner";
 
@@ -234,9 +235,7 @@ export function DealImportDialog({
     }
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = e.target.files?.[0];
-    if (!picked) return;
+  function pickFile(picked: File) {
     setFile(picked);
     setOverrides({});
     const initialFieldDefaults = { owner: currentUserId };
@@ -244,6 +243,16 @@ export function DealImportDialog({
     setSourceDraft("");
     runPreview(picked, {}, initialFieldDefaults);
   }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+    pickFile(picked);
+  }
+
+  // "importar contatos deve ser drag and drop" (pedido explícito) — mesmo
+  // hook usado em contact-import-dialog.tsx, ver lib/use-file-drop.ts.
+  const { isDraggingOver, dropZoneProps } = useFileDrop(pickFile, step === "analyzing");
 
   function updateOverride(field: ImportField, index: number) {
     const next = { ...overrides, [field]: index };
@@ -698,7 +707,14 @@ export function DealImportDialog({
         Só cria negócio novo. Se o contato já tiver um negócio aberto nesse funil, a linha é pulada — nenhum campo
         (responsável, valor, etapa...) é atualizado no negócio existente.
       </div>
-      <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 p-6 text-center hover:border-neutral-400 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800/60">
+      <label
+        {...dropZoneProps}
+        className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center transition-colors ${
+          isDraggingOver
+            ? "border-brand bg-brand-light dark:bg-[var(--brand-subtle)]"
+            : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/60"
+        }`}
+      >
         {step === "analyzing" ? (
           <>
             <Loader2 className="h-6 w-6 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={1.5} />
@@ -709,8 +725,10 @@ export function DealImportDialog({
           </>
         ) : (
           <>
-            <FileSpreadsheet className="h-6 w-6 text-neutral-400 dark:text-neutral-500" strokeWidth={1.5} />
-            <span className="text-sm text-neutral-600 dark:text-neutral-400">{file?.name ?? "Clique para escolher um arquivo"}</span>
+            <FileSpreadsheet className={`h-6 w-6 ${isDraggingOver ? "text-brand" : "text-neutral-400 dark:text-neutral-500"}`} strokeWidth={1.5} />
+            <span className="text-sm text-neutral-600 dark:text-neutral-400">
+              {isDraggingOver ? "Solte o arquivo aqui" : (file?.name ?? "Clique ou arraste um arquivo aqui")}
+            </span>
           </>
         )}
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleFileChange} disabled={step === "analyzing"} />

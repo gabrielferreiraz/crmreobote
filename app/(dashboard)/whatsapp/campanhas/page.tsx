@@ -1,7 +1,9 @@
+import { TriangleAlert } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { listCampaigns } from "@/lib/campaigns/list";
+import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
 import { CampaignsTable } from "./campaigns-table";
 
 export default async function CampanhasPage() {
@@ -25,11 +27,32 @@ export default async function CampanhasPage() {
       }),
     ]);
 
+    // Só checa quando existe alguma campanha rodando de verdade — sem isso a
+    // consulta ao CronRun (barata, mas desnecessária) rodaria em toda visita
+    // à tela, mesmo sem nenhum envio automático em jogo pra avisar sobre.
+    const hasRunningCampaign = campaigns.some((c) => c.status === "RUNNING");
+    const cronStatus = hasRunningCampaign
+      ? await getCronStaleness(CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES)
+      : null;
+
     return (
       <div className="space-y-4">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Prospecção em massa por WhatsApp — variação de mensagem e intervalo seguro entre envios.
         </p>
+        {cronStatus?.stale && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
+            <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
+            <span>
+              <strong>Envio automático parado</strong> — o disparador de campanhas não roda{" "}
+              {cronStatus.minutesSinceLastRun === null
+                ? "há muito tempo"
+                : `há ${Math.round(cronStatus.minutesSinceLastRun)} min`}{" "}
+              (esperado a cada 1-2min). Campanhas com gente pendente não vão sair sozinhas até isso ser resolvido —
+              avise quem administra o sistema.
+            </span>
+          </div>
+        )}
         <CampaignsTable
           initialCampaigns={campaigns.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
           instances={instancesRaw.map((i) => ({ id: i.id, label: i.user.name }))}

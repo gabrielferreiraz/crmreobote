@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { getCurrentUserArea } from "@/lib/user-area";
+import { getCurrentMembership } from "@/lib/current-membership";
 import { ContactsTable } from "./contacts-table";
 import { AdminClientsView } from "./admin-clients-view";
 
@@ -21,9 +22,22 @@ export default async function ClientesPage() {
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
 
   return runWithTenant(organizationId, async () => {
+    // Mesma régua de GET /api/contacts (isMember → só os PRÓPRIOS contatos,
+    // nunca a carteira toda) — reconfere no banco via getCurrentMembership(),
+    // não confia só no `role` do JWT (pode estar desatualizado até o próximo
+    // login). Faltava aqui: a 1ª renderização (esta função) buscava a
+    // organização INTEIRA pra qualquer papel, inclusive Consultor — o
+    // client-side (contacts-table.tsx) só corrigia depois que a pessoa
+    // mexesse em algum filtro (só ele bate no GET /api/contacts, que já
+    // aplicava a restrição certa). Até lá, um Consultor via a carteira de
+    // TODOS os outros consultores na 1ª tela — achado em 2026-09.
+    const membership = await getCurrentMembership();
+    const isMember = membership?.role === "MEMBER";
+    const effectiveResponsavelId = isMember ? session!.user.id : undefined;
+
     const [contacts, totalCount, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
-      fetchContactsList({ organizationId, take: DEFAULT_PAGE_SIZE }),
-      countContacts({ organizationId }),
+      fetchContactsList({ organizationId, responsavelId: effectiveResponsavelId, take: DEFAULT_PAGE_SIZE }),
+      countContacts({ organizationId, responsavelId: effectiveResponsavelId }),
       prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.customFieldDefinition.findMany({

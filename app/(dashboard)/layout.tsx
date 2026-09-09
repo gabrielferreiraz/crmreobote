@@ -8,7 +8,7 @@ import { TopNavLinks } from "./top-nav-links";
 import { AdaptiveHeaderRow } from "./adaptive-header-row";
 import { AppMain } from "./app-main";
 import { NotificationBell } from "@/components/notification-bell";
-import { CommandPalette } from "@/components/command-palette";
+import { CommandPalette, CommandPaletteProvider } from "@/components/command-palette";
 import { UserMenu } from "@/components/user-menu";
 import { MobileHeader } from "./mobile-header";
 import { MobileNav } from "./mobile-nav";
@@ -54,6 +54,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // dessa classe: nada dentro desta div tem z-index negativo pra furar
     // por baixo, e overflow-hidden (já existia) contém a malha nos cantos.
     <UndoProvider>
+    {/* Estado da busca (Cmd+K) montado 1x aqui — os botões <CommandPalette>
+        abaixo (desktop cheio/compacto + cabeçalho mobile, este último
+        SEMPRE montado, só escondido por CSS — ver mobile-header.tsx) são só
+        gatilhos, sem estado próprio. Ver comentário completo em
+        components/command-palette.tsx (o bug real que isso corrige: Cmd+K
+        abria 2 modais de busca empilhados, um por header). */}
+    <CommandPaletteProvider>
     <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
       <MobileHeader
         photoUrl={photoUrl}
@@ -119,6 +126,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PushNotificationsPrompt />
       <ProductivityTipsHost />
     </div>
+    </CommandPaletteProvider>
     </UndoProvider>
   );
 }

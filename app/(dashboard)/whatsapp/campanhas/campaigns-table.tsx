@@ -321,8 +321,9 @@ export function CampaignsTable({
                         Editar
                       </button>
                     )}
-                    <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
+                    <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn-labeled" aria-label="Ver detalhes" title="Ver detalhes">
                       <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
+                      Ver detalhes
                     </Link>
                     <DuplicateCampaignButton
                       campaignId={c.id}
@@ -427,8 +428,9 @@ export function CampaignsTable({
                               Editar
                             </button>
                           )}
-                          <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn" aria-label="Ver destinatários" title="Ver destinatários">
+                          <Link href={`/whatsapp/campanhas/${c.id}`} className="icon-btn-labeled" aria-label="Ver detalhes" title="Ver detalhes">
                             <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
+                            Ver detalhes
                           </Link>
                           <DuplicateCampaignButton
                             campaignId={c.id}
