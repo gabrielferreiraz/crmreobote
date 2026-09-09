@@ -129,6 +129,7 @@ export default async function RelatoriosPage({
     closedCount,
     winRate,
     wonTotalValue,
+    wonGrossTotalValue,
     openTotalValue,
     avgWonValue,
     compareData,
@@ -331,11 +332,24 @@ export default async function RelatoriosPage({
           </div>
           <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-7">
             <Stat
-              label="Total ganho"
+              label="Vendas líquidas"
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               emphasize
               delta={<DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
+            />
+            {/* Pedido explícito: card próprio ao lado de "Vendas líquidas" —
+                mesmo período/escopo/funil, só troca Deal.value por
+                Deal.grossValue na soma (ver wonGrossTotalValue em
+                lib/reports/commercial-data.ts). Sem `emphasize` de
+                propósito — esse destaque (fundo/borda esmeralda) é
+                reservado a UM card só (ver comentário em Stat mais abaixo),
+                senão os dois lado a lado tiram o destaque um do outro. */}
+            <Stat
+              label="Vendas brutas"
+              value={formatCurrency(wonGrossTotalValue)}
+              hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
+              delta={<DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
             />
             <Stat
               label="Ticket médio"
@@ -1126,8 +1140,9 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
 }
 
 /** `emphasize`: destaque visual (fundo/borda esmeralda, valor maior) — reservado
- * pra UM stat por linha no máximo (hoje só "Total ganho"), pra continuar
- * chamando atenção; virar padrão em todo card tiraria o próprio destaque.
+ * pra UM stat só (hoje "Vendas líquidas", antes chamado "Total ganho"), pra
+ * continuar chamando atenção; virar padrão em todo card tiraria o próprio
+ * destaque (por isso "Vendas brutas", ao lado, não usa).
  * `delta`: badge opcional de variação vs período anterior (ver DeltaBadge). */
 function Stat({ label, value, hint, emphasize, delta }: { label: string; value: string; hint?: string; emphasize?: boolean; delta?: ReactNode }) {
   if (emphasize) {

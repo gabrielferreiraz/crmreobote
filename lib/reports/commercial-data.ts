@@ -268,7 +268,11 @@ export async function getCommercialReportData(params: {
       by: ["ownerId"],
       where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
       _count: true,
-      _sum: { value: true },
+      // grossValue junto — pedido explícito: card "Vendas brutas" ao lado
+      // de "Vendas líquidas" (era "Total ganho") na Visão geral. Mesma
+      // query, mesmo `where`, só mais uma soma — não vale abrir uma 2ª
+      // consulta pro mesmo grupo de linhas só por causa de um campo a mais.
+      _sum: { value: true, grossValue: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
@@ -319,7 +323,7 @@ export async function getCommercialReportData(params: {
       ? prisma.deal.aggregate({
           where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
           _count: true,
-          _sum: { value: true },
+          _sum: { value: true, grossValue: true },
         })
       : Promise.resolve(null),
     comparePeriod
@@ -363,6 +367,7 @@ export async function getCommercialReportData(params: {
   // abaixo — nunca duas fórmulas divergentes pra a "mesma" métrica.
   const compareWonCount = compareWonAgg?._count ?? 0;
   const compareWonTotalValue = compareWonAgg?._sum.value != null ? Number(compareWonAgg._sum.value) : 0;
+  const compareWonGrossTotalValue = compareWonAgg?._sum.grossValue != null ? Number(compareWonAgg._sum.grossValue) : 0;
   const compareClosedCount = compareWonCount + compareLostCount;
 
   // Só conta negócio já decidido (ganho ou perdido) — um negócio ainda em
@@ -372,6 +377,10 @@ export async function getCommercialReportData(params: {
   const winRate = closedCount > 0 ? Math.round((wonCount / closedCount) * 100) : 0;
 
   const wonTotalValue = wonByOwner.reduce((sum, w) => sum + (w._sum.value ? Number(w._sum.value) : 0), 0);
+  // Vendas brutas — mesmo agrupamento de wonTotalValue (líquido), só somando
+  // grossValue em vez de value. Pedido explícito: card "Vendas brutas" ao
+  // lado de "Vendas líquidas" na Visão geral.
+  const wonGrossTotalValue = wonByOwner.reduce((sum, w) => sum + (w._sum.grossValue ? Number(w._sum.grossValue) : 0), 0);
   const openTotalValue = openByOwner.reduce((sum, o) => sum + (o._sum.value ? Number(o._sum.value) : 0), 0);
   const avgWonValue = wonCount > 0 ? wonTotalValue / wonCount : 0;
 
@@ -1450,6 +1459,7 @@ export async function getCommercialReportData(params: {
           rangeLabel: comparePeriod.rangeLabel,
           wonCount: compareWonCount,
           wonTotalValue: compareWonTotalValue,
+          wonGrossTotalValue: compareWonGrossTotalValue,
           lostCount: compareLostCount,
           closedCount: compareClosedCount,
           winRate: compareClosedCount > 0 ? Math.round((compareWonCount / compareClosedCount) * 100) : 0,
@@ -1696,6 +1706,7 @@ export async function getCommercialReportData(params: {
     closedCount,
     winRate,
     wonTotalValue,
+    wonGrossTotalValue,
     openTotalValue,
     avgWonValue,
     compareData,
