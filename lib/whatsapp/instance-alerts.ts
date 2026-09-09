@@ -14,6 +14,7 @@
 import { sendEmail } from "@/lib/email";
 import { resolveUserAndOrgOwners, type ResolvedRecipients } from "@/lib/notify-recipients";
 import { escapeHtml } from "@/lib/security/html-escape";
+import { isEmailNotificationEnabled } from "@/lib/notification-settings";
 
 type InstanceRef = {
   id: string;
@@ -42,6 +43,7 @@ async function dispatch(subject: string, html: string, resolved: ResolvedRecipie
 
 /** Disparado na transição pra CONNECTED (primeira conexão ou reconexão) — avisa que o número voltou a atender. */
 export async function notifyInstanceConnected(instance: InstanceRef): Promise<void> {
+  if (!(await isEmailNotificationEnabled(instance.organizationId, "whatsappConnected"))) return;
   const resolved = await resolveRecipients(instance);
   if (!resolved) return;
 
@@ -61,6 +63,7 @@ export async function notifyInstanceConnected(instance: InstanceRef): Promise<vo
 }
 
 export async function notifyInstanceDisconnected(instance: InstanceRef): Promise<void> {
+  if (!(await isEmailNotificationEnabled(instance.organizationId, "whatsappDisconnected"))) return;
   const resolved = await resolveRecipients(instance);
   if (!resolved) return;
 
@@ -89,6 +92,9 @@ const ESCALATION_COPY: Record<number, { emoji: string; tone: string }> = {
 
 /** `days` é 1, 2 ou 3 — outros valores não têm cópia definida e não devem ser chamados. */
 export async function notifyInstanceStillDisconnected(instance: InstanceRef, days: 1 | 2 | 3): Promise<void> {
+  // Mesma chave que a desconexão inicial acima — são o mesmo evento
+  // escalando, não faria sentido silenciar um e continuar mandando o outro.
+  if (!(await isEmailNotificationEnabled(instance.organizationId, "whatsappDisconnected"))) return;
   const resolved = await resolveRecipients(instance);
   if (!resolved) return;
 

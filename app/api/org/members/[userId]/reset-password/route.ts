@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail } from "@/lib/email";
+import { isEmailNotificationEnabled } from "@/lib/notification-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export async function POST(
     ]);
 
     const ownerEmails = owners.map((o) => o.user.email).filter(Boolean);
-    if (ownerEmails.length > 0) {
+    if (ownerEmails.length > 0 && (await isEmailNotificationEnabled(access.organizationId, "passwordChanged"))) {
       const actorName = actor?.name ?? "Um proprietário";
       const targetName = membership.user.name;
       const targetEmail = membership.user.email;

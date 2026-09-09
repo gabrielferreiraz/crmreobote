@@ -1,4 +1,5 @@
-import { Mail } from "lucide-react";
+import Link from "next/link";
+import { Mail, ChevronRight } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
@@ -234,6 +235,13 @@ export default async function ConfiguracoesPage() {
                 description: "Última execução de cada cron (automações, campanhas, backup, webhooks) e falhas recentes.",
                 keywords: ["erro", "falha", "cron", "backup", "automação", "webhook", "monitoramento", "status", "quebrou"],
               },
+              {
+                href: "/configuracoes/notificacoes-email",
+                icon: "Mail",
+                title: "Alertas por e-mail",
+                description: "Escolha o que o CRM manda por e-mail: WhatsApp conectado/desconectado, senha alterada.",
+                keywords: ["e-mail", "email", "notificação", "alerta", "whatsapp", "senha", "desconexão", "conexão", "aviso"],
+              },
             ],
           },
         ]
@@ -276,6 +284,19 @@ export default async function ConfiguracoesPage() {
             <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">Alertas por e-mail</h2>
           </div>
           <TestEmailButton />
+          {/* Link pro controle novo (pedido explícito: "escolher o que
+              enviar e o que não enviar") — mora numa página própria (ver
+              configuracoes/notificacoes-email/) por ter conteúdo demais pra
+              caber neste card pequeno, mas o card do teste de SMTP é o lugar
+              mais óbvio pra achar isto, então aponta pra lá também, além de
+              já aparecer na busca geral (ConfigSearch) como item próprio. */}
+          <Link
+            href="/configuracoes/notificacoes-email"
+            className="flex items-center justify-between gap-2 border-t border-neutral-100 px-4 py-3 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800/60"
+          >
+            Escolher quais alertas enviar
+            <ChevronRight className="h-4 w-4 text-neutral-400" strokeWidth={2} />
+          </Link>
         </div>
       )}
     </div>

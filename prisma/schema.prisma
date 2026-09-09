@@ -24,6 +24,23 @@ model Organization {
    * disparam até alguém configurar).
    */
   businessHours Json?
+  /**
+   * Quais e-mails de alerta automático a organização quer receber — pedido
+   * explícito: "eu possa verificar o que eu quero enviar e o que eu não
+   * quero" em vez de todo alerta sempre disparar sem controle (ver
+   * lib/notification-settings.ts pra chaves válidas/rótulos e
+   * isEmailNotificationEnabled, o único lugar que lê isto). Formato:
+   * `{ whatsappConnected: true, whatsappDisconnected: false, ... }` — chave
+   * ausente = liga por padrão (null inteiro = tudo ligado, comportamento de
+   * sempre antes desta configuração existir). NÃO cobre todo e-mail do
+   * sistema: alerta de infraestrutura (cron/backup quebrado, ver
+   * lib/system-alerts.ts) fica de fora de propósito — atinge TODAS as
+   * organizações de uma vez e é sinal de uma falha real, não algo que uma
+   * organização deveria conseguir silenciar sozinha; e-mail de automação
+   * (ação "Enviar e-mail" configurada pelo próprio usuário) já se controla
+   * ativando/desativando a regra, um botão a mais aqui só duplicaria isso.
+   */
+  emailNotificationSettings Json?
 
   users                  OrganizationUser[]
   pipelines              Pipeline[]

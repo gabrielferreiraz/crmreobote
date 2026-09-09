@@ -1,0 +1,13 @@
+-- Preferência de e-mail automático por organização (ver
+-- lib/notification-settings.ts) — coluna opcional, nula = tudo ligado
+-- (comportamento de sempre antes desta feature existir).
+--
+-- Aplicada via `prisma db execute` + `prisma migrate resolve --applied` em
+-- vez de `prisma migrate dev` normal: o shadow database do `migrate dev`
+-- falha ao tentar reaplicar TODO o histórico do zero, porque a migração
+-- 20260812090000_tv_dashboard_config_rls pressupõe que TvDashboardConfig já
+-- existe (criada fora do fluxo de migração — ver comentário nela), o que só
+-- é verdade no banco real, nunca numa shadow DB vazia. Bug pré-existente na
+-- história de migrações, não relacionado a esta mudança; `prisma migrate
+-- status` confirma o banco real já em dia com todo o histórico até aqui.
+ALTER TABLE "Organization" ADD COLUMN "emailNotificationSettings" JSONB;
