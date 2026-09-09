@@ -30,6 +30,7 @@ export async function POST(req: Request) {
   const formData = await req.formData();
   const file = formData.get("file");
   const columnOverridesRaw = formData.get("columnOverrides");
+  const fieldDefaultsRaw = formData.get("fieldDefaults");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
@@ -43,6 +44,14 @@ export async function POST(req: Request) {
       columnOverrides = JSON.parse(columnOverridesRaw);
     } catch {
       return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
+    }
+  }
+  let fieldDefaults: { responsavel?: string } | undefined;
+  if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
+    try {
+      fieldDefaults = JSON.parse(fieldDefaultsRaw);
+    } catch {
+      return NextResponse.json({ error: "fieldDefaults inválido" }, { status: 400 });
     }
   }
 
@@ -80,16 +89,25 @@ export async function POST(req: Request) {
     const dataRows = rows.slice(1, 1 + MAX_ROWS);
     const rawHeaderRow = rows[0];
 
-    const existingContacts = await prisma.contact.findMany({
-      where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
-      select: { phoneNormalized: true, whatsappNormalized: true },
-    });
+    const [existingContacts, members] = await Promise.all([
+      prisma.contact.findMany({
+        where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
+        select: { phoneNormalized: true, whatsappNormalized: true },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+    ]);
 
     const plan = resolveImportPlan({
       dataRows,
       rawHeaderRow,
       columnOverrides,
       existingContacts,
+      members: members.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email })),
+      fieldDefaults,
       includeWrites: true,
     });
 
@@ -137,6 +155,7 @@ export async function POST(req: Request) {
           company: c.company,
           jobTitle: c.jobTitle,
           tags: c.tags,
+          responsavelId: c.responsavelId,
           phoneNormalized: c.phoneNormalized,
           whatsappNormalized: c.whatsappNormalized,
           importBatchId: batch.id,
@@ -181,6 +200,7 @@ export async function POST(req: Request) {
       skippedNoName: plan.summary.skippedNoName,
       skippedNoJobTitle: plan.summary.skippedNoJobTitle,
       duplicateContacts: plan.summary.duplicateContacts,
+      ownerFallbacks: plan.summary.ownerFallbacks,
       importBatchId,
       // Linhas com problema, pra quem quiser conferir o que exatamente não
       // bateu — cap de 200 pra não estourar o payload numa importação de

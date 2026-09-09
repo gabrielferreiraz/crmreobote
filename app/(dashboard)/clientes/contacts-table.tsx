@@ -1213,6 +1213,7 @@ export function ContactsTable({
 
       {importOpen && (
         <ContactImportDialog
+          members={members}
           onClose={() => setImportOpen(false)}
           onImported={() => router.refresh()}
         />

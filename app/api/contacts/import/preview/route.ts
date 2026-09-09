@@ -30,6 +30,7 @@ export async function POST(req: Request) {
   const formData = await req.formData();
   const file = formData.get("file");
   const columnOverridesRaw = formData.get("columnOverrides");
+  const fieldDefaultsRaw = formData.get("fieldDefaults");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
@@ -43,6 +44,14 @@ export async function POST(req: Request) {
       columnOverrides = JSON.parse(columnOverridesRaw);
     } catch {
       return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
+    }
+  }
+  let fieldDefaults: { responsavel?: string } | undefined;
+  if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
+    try {
+      fieldDefaults = JSON.parse(fieldDefaultsRaw);
+    } catch {
+      return NextResponse.json({ error: "fieldDefaults inválido" }, { status: 400 });
     }
   }
 
@@ -79,16 +88,25 @@ export async function POST(req: Request) {
     // Só quem tem telefone OU whatsapp preenchido — os únicos dois campos
     // com constraint única (ver lib/contacts/import-resolve.ts), o resto
     // nunca colide.
-    const existingContacts = await prisma.contact.findMany({
-      where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
-      select: { phoneNormalized: true, whatsappNormalized: true },
-    });
+    const [existingContacts, members] = await Promise.all([
+      prisma.contact.findMany({
+        where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
+        select: { phoneNormalized: true, whatsappNormalized: true },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+    ]);
 
     const plan = resolveImportPlan({
       dataRows,
       rawHeaderRow,
       columnOverrides,
       existingContacts,
+      members: members.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email })),
+      fieldDefaults,
       includeWrites: false,
     });
 

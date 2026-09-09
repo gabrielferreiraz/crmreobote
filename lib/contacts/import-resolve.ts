@@ -15,7 +15,7 @@
 import { normalizeHeader } from "@/lib/parse-spreadsheet";
 import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
 
-export type ContactImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "source" | "company" | "tags";
+export type ContactImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "source" | "company" | "tags" | "responsavel";
 
 const FIELD_META: Record<ContactImportField, { candidates: string[]; required: boolean; label: string }> = {
   name: { required: true, label: "Nome", candidates: ["nome", "name", "nome completo"] },
@@ -32,6 +32,12 @@ const FIELD_META: Record<ContactImportField, { candidates: string[]; required: b
   source: { required: false, label: "Origem", candidates: ["origem", "source"] },
   company: { required: false, label: "Empresa", candidates: ["empresa", "company"] },
   tags: { required: false, label: "Tags", candidates: ["tags", "etiquetas"] },
+  // Relatado com print da prévia: "ele não mostra o responsável" — faltava
+  // por completo (nem coluna reconhecida, nem no mapeamento manual). Nome OU
+  // e-mail do consultor (mesma resolução de lib/deals/import-resolve.ts) —
+  // não encontrado não bloqueia a linha, só fica sem responsável (igual ao
+  // cadastro manual, onde "Ninguém" é um estado válido).
+  responsavel: { required: false, label: "Responsável", candidates: ["responsavel", "responsável", "vendedor", "consultor", "owner"] },
 };
 
 export const IMPORT_FIELDS = Object.keys(FIELD_META) as ContactImportField[];
@@ -71,7 +77,7 @@ export function detectColumns(rawHeaderRow: string[], overrides?: Partial<Record
   });
 }
 
-export type RowIssueCode = "NO_NAME" | "NO_JOB_TITLE" | "DUPLICATE_CONTACT";
+export type RowIssueCode = "NO_NAME" | "NO_JOB_TITLE" | "DUPLICATE_CONTACT" | "OWNER_NOT_FOUND";
 
 export type ResolvedRow = {
   /** 1-based, contando a linha de cabeçalho como 1 — bate com o número de linha que a pessoa vê ao abrir a planilha. */
@@ -80,6 +86,7 @@ export type ResolvedRow = {
   name: string | null;
   jobTitle: string | null;
   source: string | null;
+  responsavelName: string | null;
   issues: { code: RowIssueCode; message: string }[];
 };
 
@@ -89,6 +96,7 @@ export type ImportPlanSummary = {
   skippedNoName: number;
   skippedNoJobTitle: number;
   duplicateContacts: number;
+  ownerFallbacks: number;
 };
 
 export type NewContactWrite = {
@@ -100,9 +108,12 @@ export type NewContactWrite = {
   company?: string;
   jobTitle: string;
   tags: string[];
+  responsavelId?: string;
   phoneNormalized: string | null;
   whatsappNormalized: string | null;
 };
+
+export type MemberInput = { userId: string; name: string; email: string };
 
 export type ImportPlan = {
   columns: ColumnDetection[];
@@ -121,6 +132,9 @@ export type ResolveImportInput = {
   columnOverrides?: Partial<Record<ContactImportField, number>>;
   /** Todo contato já cadastrado na organização com telefone OU whatsapp preenchido — usado só pra detectar colisão com a constraint única do banco (ver DUPLICATE_CONTACT), nunca pra decidir "atualizar" nada. */
   existingContacts: ExistingContactInput[];
+  members: MemberInput[];
+  /** Valor único aplicado em toda linha cuja célula de "responsavel" veio vazia — mesma ideia de fieldDefaults em lib/deals/import-resolve.ts, só que com um campo só (contato não tem etapa/tipo de crédito pra "aplicar a todos"). Ausente/vazio = fica sem responsável (comportamento de sempre). */
+  fieldDefaults?: { responsavel?: string };
   includeWrites: boolean;
 };
 
@@ -157,6 +171,14 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     claim(c.whatsappNormalized);
   }
 
+  const memberByName = new Map(input.members.map((m) => [normalizeHeader(m.name), m.userId]));
+  const memberByEmail = new Map(input.members.map((m) => [m.email.toLowerCase(), m.userId]));
+  const memberNameById = new Map(input.members.map((m) => [m.userId, m.name]));
+  const defaultResponsavelId =
+    input.fieldDefaults?.responsavel && input.members.some((m) => m.userId === input.fieldDefaults!.responsavel)
+      ? input.fieldDefaults.responsavel
+      : undefined;
+
   const newContacts: NewContactWrite[] = [];
   const rows: ResolvedRow[] = [];
 
@@ -164,6 +186,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   let skippedNoName = 0;
   let skippedNoJobTitle = 0;
   let duplicateContacts = 0;
+  let ownerFallbacks = 0;
 
   for (let i = 0; i < input.dataRows.length; i++) {
     const row = input.dataRows[i];
@@ -174,7 +197,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (!name) {
       skippedNoName += 1;
       issues.push({ code: "NO_NAME", message: "Sem nome — linha ignorada" });
-      rows.push({ rowNumber, willImport: false, name: null, jobTitle: null, source: null, issues });
+      rows.push({ rowNumber, willImport: false, name: null, jobTitle: null, source: null, responsavelName: null, issues });
       continue;
     }
 
@@ -183,7 +206,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (!jobTitle) {
       skippedNoJobTitle += 1;
       issues.push({ code: "NO_JOB_TITLE", message: "Sem cargo — linha ignorada (cargo é obrigatório)" });
-      rows.push({ rowNumber, willImport: false, name, jobTitle: null, source: source ?? null, issues });
+      rows.push({ rowNumber, willImport: false, name, jobTitle: null, source: source ?? null, responsavelName: null, issues });
       continue;
     }
 
@@ -195,11 +218,20 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (isClaimed(phoneNormalized) || isClaimed(whatsappNormalized)) {
       duplicateContacts += 1;
       issues.push({ code: "DUPLICATE_CONTACT", message: "Já existe contato com esse telefone ou WhatsApp — linha ignorada" });
-      rows.push({ rowNumber, willImport: false, name, jobTitle, source: source ?? null, issues });
+      rows.push({ rowNumber, willImport: false, name, jobTitle, source: source ?? null, responsavelName: null, issues });
       continue;
     }
     claim(phoneNormalized);
     claim(whatsappNormalized);
+
+    const responsavelRaw = cell(row, "responsavel");
+    let responsavelId = responsavelRaw ? (memberByEmail.get(responsavelRaw.toLowerCase()) ?? memberByName.get(normalizeHeader(responsavelRaw))) : undefined;
+    if (!responsavelId && responsavelRaw) {
+      ownerFallbacks += 1;
+      issues.push({ code: "OWNER_NOT_FOUND", message: `Responsável "${responsavelRaw}" não encontrado — contato ficou sem responsável` });
+    }
+    if (!responsavelId) responsavelId = defaultResponsavelId;
+    const responsavelName = responsavelId ? (memberNameById.get(responsavelId) ?? null) : null;
 
     const email = cell(row, "email") || undefined;
     const company = cell(row, "company") || undefined;
@@ -212,9 +244,9 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       : [];
 
     toCreate += 1;
-    rows.push({ rowNumber, willImport: true, name, jobTitle, source: source ?? null, issues });
+    rows.push({ rowNumber, willImport: true, name, jobTitle, source: source ?? null, responsavelName, issues });
     if (input.includeWrites) {
-      newContacts.push({ name, email, phone, whatsapp, source, company, jobTitle, tags, phoneNormalized, whatsappNormalized });
+      newContacts.push({ name, email, phone, whatsapp, source, company, jobTitle, tags, responsavelId, phoneNormalized, whatsappNormalized });
     }
   }
 
@@ -223,6 +255,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     toCreate,
     skippedNoName,
     skippedNoJobTitle,
+    ownerFallbacks,
     duplicateContacts,
   };
 
