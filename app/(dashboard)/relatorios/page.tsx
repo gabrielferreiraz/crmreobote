@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet, PhoneCall } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
@@ -138,6 +138,7 @@ export default async function RelatoriosPage({
     stageData,
     dealsClosedRanking,
     meetingsRanking,
+    funnelActivityRanking,
     attendanceRanking,
     attendanceSummary,
     attendanceRateOverall,
@@ -303,7 +304,7 @@ export default async function RelatoriosPage({
       <section className="space-y-6">
         <SectionHeading eyebrow="Visão geral" title="Como o funil está hoje" />
         <div className="grid grid-cols-12 items-start gap-5">
-          <div className="card col-span-12 p-6 lg:col-span-5">
+          <div className="card col-span-12 p-6 lg:col-span-4">
             <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Negócios por status</p>
             <div className="mt-4">
               <DonutChart slices={statusSlices} centerValue={`${winRate}%`} centerLabel="conversão" />
@@ -330,13 +331,23 @@ export default async function RelatoriosPage({
               </div>
             )}
           </div>
-          <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-7">
+          {/* Grid de 6 (não flex-wrap nem grid-cols-2) de propósito — são
+              sempre exatamente 5 stats fixos (não uma lista dinâmica), então
+              dá pra travar o desenho hard-coded: os 3 primeiros com 2/6
+              (fecham a 1ª fileira, 2+2+2=6) e os 2 últimos com 3/6 (fecham a
+              2ª fileira sozinhos, 3+3=6) — 3 em cima, 2 embaixo, as duas
+              fileiras SEMPRE cheias, sem vão vazio (pedido explícito) e sem
+              depender de flex-wrap decidir quantos cabem por fileira (isso
+              variava com a largura disponível e deixava "Vendas líquidas"
+              apertado demais quando cabiam 4 por fileira em vez de 3). */}
+          <div className="col-span-12 grid grid-cols-1 gap-5 lg:col-span-8 lg:grid-cols-6">
             <Stat
               label="Vendas líquidas"
               value={formatCurrency(wonTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               emphasize
               delta={<DeltaBadge current={wonTotalValue} previous={compareData?.wonTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
+              className="lg:col-span-2"
             />
             {/* Pedido explícito: card próprio ao lado de "Vendas líquidas" —
                 mesmo período/escopo/funil, só troca Deal.value por
@@ -350,13 +361,20 @@ export default async function RelatoriosPage({
               value={formatCurrency(wonGrossTotalValue)}
               hint={`${wonCount} negócio${wonCount === 1 ? "" : "s"} fechado${wonCount === 1 ? "" : "s"} no período`}
               delta={<DeltaBadge current={wonGrossTotalValue} previous={compareData?.wonGrossTotalValue ?? null} compareLabel={compareData?.rangeLabel} />}
+              className="lg:col-span-2"
             />
             <Stat
               label="Ticket médio"
               value={wonCount > 0 ? formatCurrency(avgWonValue) : "—"}
               delta={<DeltaBadge current={avgWonValue} previous={compareData?.avgWonValue ?? null} compareLabel={compareData?.rangeLabel} />}
+              className="lg:col-span-2"
             />
-            <Stat label="Pipeline em aberto" value={formatCurrency(openTotalValue)} hint={`${openCount} negócios · agora`} />
+            <Stat
+              label="Pipeline em aberto"
+              value={formatCurrency(openTotalValue)}
+              hint={`${openCount} negócios · agora`}
+              className="lg:col-span-3"
+            />
             <Stat
               label="Negócios decididos"
               value={String(closedCount)}
@@ -368,6 +386,7 @@ export default async function RelatoriosPage({
                   <ConversionBadge rate={winRate} />
                 ) : null
               }
+              className="lg:col-span-3"
             />
           </div>
         </div>
@@ -375,6 +394,124 @@ export default async function RelatoriosPage({
           Ganhos e perdidos consideram o período selecionado acima; pipeline em aberto sempre reflete o momento atual.
         </p>
       </section>
+
+      {/* ─── Ranking do time — consultor vê só a própria posição no hero;
+           supervisor vê o ranking da própria equipe; gerente/dono veem tudo.
+           Pedido explícito: "deixar em uma posição mais privilegiada" — uma
+           das informações mais importantes do relatório, então sobe pra
+           logo depois da Visão geral, antes de Faturamento por tipo de
+           crédito e Funil (só estavam mais acima antes por ordem histórica
+           de quando cada seção foi escrita, nunca por prioridade real). ── */}
+      {!isMember && (
+      <section className="space-y-6">
+        <SectionHeading
+          eyebrow={isSupervisor ? "Minha equipe" : "Time"}
+          title={isSupervisor ? "Ranking da equipe" : "Ranking do time"}
+          description={isSupervisor
+            ? "Desempenho de cada membro da sua equipe no período."
+            : "Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), quem mais movimentou o funil (ligação, proposta, WhatsApp), a taxa de comparecimento desses encontros e quem converte melhor."
+          }
+        />
+        {/* flex-wrap + min-w/basis (não grid-cols-12 col-span-N) de propósito
+            — com 5 cards, um grid-12 em col-span-4 (3 por fileira) sobra uma
+            2ª fileira com só 2 cards e um vão vazio enorme do lado direito
+            (2×4=8 de 12), feio de doer. flex-1 nos cards faz o que COUBER em
+            cada fileira esticar e preencher o espaço sozinho, em qualquer
+            combinação de largura de tela — mesmo padrão já usado nos painéis
+            de estatística do card de WhatsApp mais abaixo (SellerStatPanel). */}
+        <div className="flex flex-wrap gap-5">
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
+              <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Negócios fechados</h3>
+            </div>
+            {/* Time inteiro, não só o top 8 (ver comentário em
+                lib/reports/commercial-data.ts) — rola dentro do card em vez
+                de esticar o card (e a fileira inteira, já que os cards
+                dividem altura por serem da mesma fileira) até o tamanho do
+                time. */}
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
+            </div>
+          </div>
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
+              <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas realizadas</h3>
+            </div>
+            {/* Só conta quem o cliente de fato COMPARECEU — agendada que
+                virou no-show ou remarcação não é reunião realizada (ver
+                comentário em lib/reports/commercial-data.ts). O detalhamento
+                por consultor (agendadas/no-show/remarcadas) mostra onde cada
+                um está perdendo reunião, não só o número final. */}
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita realizada ainda" />
+            </div>
+          </div>
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
+              <PhoneCall className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Quem movimentou mais o funil</h3>
+            </div>
+            {/* Ligação + proposta + WhatsApp registrados (ver comentário em
+                lib/reports/commercial-data.ts) — diferente do card de
+                reuniões/visitas ao lado, esses 3 tipos não têm "resultado"
+                pra separar: a própria Activity existir já é o registro de
+                que a ação aconteceu. */}
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={funnelActivityRanking} emptyLabel="Nenhuma ligação, proposta ou WhatsApp registrado ainda" />
+            </div>
+          </div>
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de comparecimento</h3>
+              </div>
+              {/* Total do time (não por consultor) — bate o olho na taxa
+                  geral antes de abrir o detalhamento por pessoa logo abaixo.
+                  Mesma régua do ranking: só conta quem já teve reunião/visita
+                  com resultado final (compareceu ou no-show), remarcado fica
+                  de fora — ver comentário em lib/reports/commercial-data.ts. */}
+              {attendanceRateOverall !== null && (
+                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
+                  {attendanceRateOverall}%
+                </span>
+              )}
+            </div>
+            {attendanceRateOverall !== null && (
+              <p className="mb-2 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
+                {attendanceSummary.attended} compareceu{attendanceSummary.attended === 1 ? "" : "ram"} de{" "}
+                {attendanceSummary.attended + attendanceSummary.noShow} marcado
+                {attendanceSummary.attended + attendanceSummary.noShow === 1 ? "" : "s"} ({attendanceSummary.noShow} no-show)
+              </p>
+            )}
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
+            </div>
+          </div>
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
+              <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>
+            </div>
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
+            </div>
+          </div>
+        </div>
+
+        {showTeamRanking && teamRanking.length > 0 && (
+          <div className="card p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Ranking de equipes</h3>
+            </div>
+            <Leaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
+          </div>
+        )}
+      </section>
+      )}
 
       {/* ─── Faturamento por tipo de crédito ───────────────────────────── */}
       {creditTypeBreakdown.length > 0 && (
@@ -477,97 +614,6 @@ export default async function RelatoriosPage({
           </div>
         </div>
       </section>
-
-      {/* ─── Ranking do time — consultor vê só a própria posição no hero;
-           supervisor vê o ranking da própria equipe; gerente/dono veem tudo ── */}
-      {!isMember && (
-      <section className="space-y-6">
-        <SectionHeading
-          eyebrow={isSupervisor ? "Minha equipe" : "Time"}
-          title={isSupervisor ? "Ranking da equipe" : "Ranking do time"}
-          description={isSupervisor
-            ? "Desempenho de cada membro da sua equipe no período."
-            : "Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), a taxa de comparecimento desses encontros e quem converte melhor."
-          }
-        />
-        <div className="grid grid-cols-12 gap-5">
-          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Negócios fechados</h3>
-            </div>
-            {/* Time inteiro, não só o top 8 (ver comentário em
-                lib/reports/commercial-data.ts) — rola dentro do card em vez
-                de esticar o card (e a fileira inteira, já que os 4 dividem
-                altura por causa do grid) até o tamanho do time. */}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
-            </div>
-          </div>
-          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas realizadas</h3>
-            </div>
-            {/* Só conta quem o cliente de fato COMPARECEU — agendada que
-                virou no-show ou remarcação não é reunião realizada (ver
-                comentário em lib/reports/commercial-data.ts). O detalhamento
-                por consultor (agendadas/no-show/remarcadas) mostra onde cada
-                um está perdendo reunião, não só o número final. */}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita realizada ainda" />
-            </div>
-          </div>
-          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de comparecimento</h3>
-              </div>
-              {/* Total do time (não por consultor) — bate o olho na taxa
-                  geral antes de abrir o detalhamento por pessoa logo abaixo.
-                  Mesma régua do ranking: só conta quem já teve reunião/visita
-                  com resultado final (compareceu ou no-show), remarcado fica
-                  de fora — ver comentário em lib/reports/commercial-data.ts. */}
-              {attendanceRateOverall !== null && (
-                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
-                  {attendanceRateOverall}%
-                </span>
-              )}
-            </div>
-            {attendanceRateOverall !== null && (
-              <p className="mb-2 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                {attendanceSummary.attended} compareceu{attendanceSummary.attended === 1 ? "" : "ram"} de{" "}
-                {attendanceSummary.attended + attendanceSummary.noShow} marcado
-                {attendanceSummary.attended + attendanceSummary.noShow === 1 ? "" : "s"} ({attendanceSummary.noShow} no-show)
-              </p>
-            )}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
-            </div>
-          </div>
-          <div className="card col-span-12 flex flex-col p-6 md:col-span-6 lg:col-span-3">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>
-            </div>
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
-            </div>
-          </div>
-        </div>
-
-        {showTeamRanking && teamRanking.length > 0 && (
-          <div className="card p-6">
-            <div className="mb-1 flex items-center gap-2">
-              <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Ranking de equipes</h3>
-            </div>
-            <Leaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
-          </div>
-        )}
-      </section>
-      )}
 
       {/* ─── SLA e Health de equipe — gerente/dono veem a tabela completa;
            supervisor vê a equipe dele (já filtrada pelo escopo do servidor);
@@ -1144,10 +1190,10 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
  * continuar chamando atenção; virar padrão em todo card tiraria o próprio
  * destaque (por isso "Vendas brutas", ao lado, não usa).
  * `delta`: badge opcional de variação vs período anterior (ver DeltaBadge). */
-function Stat({ label, value, hint, emphasize, delta }: { label: string; value: string; hint?: string; emphasize?: boolean; delta?: ReactNode }) {
+function Stat({ label, value, hint, emphasize, delta, className = "" }: { label: string; value: string; hint?: string; emphasize?: boolean; delta?: ReactNode; className?: string }) {
   if (emphasize) {
     return (
-      <div className="card border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/60 dark:bg-emerald-500/10">
+      <div className={`card border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/60 dark:bg-emerald-500/10 ${className}`}>
         <div className="flex items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
             <Wallet className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -1161,7 +1207,7 @@ function Stat({ label, value, hint, emphasize, delta }: { label: string; value: 
     );
   }
   return (
-    <div className="card p-5">
+    <div className={`card p-5 ${className}`}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{label}</p>
         {delta}
