@@ -666,6 +666,7 @@ export async function getCommercialReportData(params: {
     // Denominador da taxa = só resultados finais (compareceu ou no-show) —
     // RESCHEDULED fica de fora (ver comentário em meetingVisitByUser acima).
     const attendanceResolved = meetingVisit.attendedCount + meetingVisit.noShowCount;
+    const funnelActivity = funnelActivityByUser.get(id) ?? { callCount: 0, proposalCount: 0, whatsappCount: 0 };
     return {
       id,
       name: personName(id),
@@ -684,6 +685,10 @@ export async function getCommercialReportData(params: {
       noShowCount: meetingVisit.noShowCount,
       rescheduledCount: meetingVisit.rescheduledCount,
       attendanceRate: attendanceResolved > 0 ? Math.round((meetingVisit.attendedCount / attendanceResolved) * 100) : null,
+      callCount: funnelActivity.callCount,
+      proposalCount: funnelActivity.proposalCount,
+      whatsappCount: funnelActivity.whatsappCount,
+      funnelActivityCount: funnelActivity.callCount + funnelActivity.proposalCount + funnelActivity.whatsappCount,
       activeSeconds: activity.activeSeconds,
       changeCount: activity.changeCount,
       activeDayCount: activity.activeDayCount,
@@ -736,6 +741,22 @@ export async function getCommercialReportData(params: {
       photoUrl: o.photoUrl,
       primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
       secondaryValue: `${o.meetingAttendedCount} ${o.meetingAttendedCount === 1 ? "reunião" : "reuniões"} · ${o.visitAttendedCount} visita${o.visitAttendedCount === 1 ? "" : "s"} · ${o.meetingsAndVisitsCount} agendada${o.meetingsAndVisitsCount === 1 ? "" : "s"} · ${o.noShowCount} no-show · ${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`,
+    }));
+
+  // "Quem movimentou mais o funil" (pedido explícito) — soma ligação +
+  // proposta + WhatsApp registrados (ver funnelActivityByUser acima). Sem
+  // "resultado" pra separar, diferente de meetingsRanking — cada um desses
+  // 3 tipos já É a ação em si (aconteceu ou não existiria a Activity), não
+  // um agendamento que pode falhar.
+  const funnelActivityRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => activeMemberIds.has(o.id) && o.funnelActivityCount > 0)
+    .sort((a, b) => b.funnelActivityCount - a.funnelActivityCount)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      photoUrl: o.photoUrl,
+      primaryValue: `${o.funnelActivityCount} ${o.funnelActivityCount === 1 ? "ação" : "ações"}`,
+      secondaryValue: `${o.callCount} ligaç${o.callCount === 1 ? "ão" : "ões"} · ${o.proposalCount} proposta${o.proposalCount === 1 ? "" : "s"} · ${o.whatsappCount} WhatsApp`,
     }));
 
   // Taxa de comparecimento por consultor — de quem marcou reunião/visita
@@ -1813,6 +1834,7 @@ export async function getCommercialReportData(params: {
     stageData,
     dealsClosedRanking,
     meetingsRanking,
+    funnelActivityRanking,
     attendanceRanking,
     attendanceSummary,
     attendanceRateOverall,
