@@ -7,7 +7,7 @@ import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 import { ACTIVITY_ICON, ACTIVITY_LABEL } from "@/lib/activity-icons";
 import { TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { getDealScope, scopeWhere, contactScopeWhere } from "@/lib/team-scope";
-import { brazilGreeting, brazilStartOfMonth } from "@/lib/timezone";
+import { brazilGreeting, brazilStartOfMonth, brazilDateKey } from "@/lib/timezone";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { fetchDealsList, countDeals } from "@/lib/deals/list-query";
@@ -172,6 +172,12 @@ export default async function HomePage() {
     goalPct !== null
       ? `${goalPct}% da meta de ${formatCurrencyCompact(goalProgress!.goalValue)}`
       : `${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`;
+  // "Fechado no mês" clicável → Pipeline em Lista, já filtrado pros mesmos
+  // negócios que o card soma: status Ganho + fechado a partir do início do
+  // mês (mesmo startOfMonth da consulta acima, sem limite superior — igual
+  // à consulta, "fechado no futuro" não existe, então closedTo nem precisa
+  // existir aqui). Pedido explícito do usuário.
+  const wonThisMonthHref = `/pipeline?view=lista&status=WON&closedFrom=${brazilDateKey(startOfMonth)}`;
 
   return (
     <div className="space-y-6 lg:space-y-8">
@@ -205,6 +211,7 @@ export default async function HomePage() {
           format="currency"
           hint={wonHint}
           colorSet={STAT_COLORS.won}
+          href={wonThisMonthHref}
         />
         <StatTile icon={Users} label="Clientes ativos" value={activeClients} colorSet={STAT_COLORS.clients} />
       </div>
@@ -394,6 +401,7 @@ function StatTile({
   format = "number",
   hint,
   colorSet,
+  href,
 }: {
   icon: typeof Briefcase;
   label: string;
@@ -401,9 +409,17 @@ function StatTile({
   format?: "number" | "currency";
   hint?: string;
   colorSet: { bg: string; icon: string; glow: string };
+  /** Quando presente, o card inteiro vira link — o hover (sombra + leve
+   * elevação) já sugere "clicável" mesmo nos tiles sem href, então isso não
+   * muda visual nenhum, só liga a navegação de verdade em quem precisa
+   * (pedido explícito: "Fechado no mês" → Pipeline em Lista já filtrado
+   * pros mesmos negócios que o número soma). */
+  href?: string;
 }) {
-  return (
-    <div className="card relative overflow-hidden p-3 transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none lg:p-4">
+  const className =
+    "card relative block overflow-hidden p-3 transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none lg:p-4";
+  const content = (
+    <>
       {/* Degradê do card em si (pedido explícito) — mancha borrada da cor da
           família, encostada no canto, por baixo do conteúdo (nunca mexe no
           `background` do .card, ver comentário de STAT_COLORS lá em cima). */}
@@ -442,6 +458,15 @@ function StatTile({
         </p>
         {hint && <p className="mt-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
       </div>
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    );
+  }
+  return <div className={className}>{content}</div>;
 }

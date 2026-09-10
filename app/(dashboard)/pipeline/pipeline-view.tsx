@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Kanban, List, Upload, History } from "lucide-react";
+import { Kanban, List, Upload, History, Trophy } from "lucide-react";
 import { DealImportDialog } from "@/components/deal-import-dialog";
 import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { NewDealDialog } from "./new-deal-dialog";
@@ -49,6 +49,8 @@ export function PipelineView({
   canBulkMessage,
   canViewImportHistory,
   openNewDeal,
+  openLista,
+  initialListaFilter,
 }: {
   pipelineId: string;
   pipelines: PipelineOption[];
@@ -89,6 +91,14 @@ export function PipelineView({
    */
   canViewImportHistory: boolean;
   openNewDeal?: boolean;
+  /** Link externo (ver "Fechado no mês" no Início) pedindo pra abrir direto
+   * na visão Lista, independente do que ficou salvo da última vez (ver
+   * usePersistedFilters("pipeline-view", ...) logo abaixo). */
+  openLista?: boolean;
+  /** Idem, pro filtro de status/período da Lista — repassado pra
+   * deals-list.tsx, que aplica UMA vez, também por cima do que estivesse
+   * salvo (ver initialFilterOverride lá). */
+  initialListaFilter?: { status?: "OPEN" | "WON" | "LOST"; closedFrom?: string; closedTo?: string } | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -174,6 +184,22 @@ export function PipelineView({
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [dealDialogOpen, setDealDialogOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
+  // Botão "Mostrar negócios Ganhos" (pedido explícito) — incrementa a cada
+  // clique só pra dar um valor NOVO pro efeito de deals-list.tsx reagir
+  // (ver applyWonFilterToken lá); precisa ser um contador, não um boolean,
+  // porque clicar de novo com o filtro WON já aplicado (ex.: depois de trocar
+  // pra Kanban e voltar) tem que continuar disparando o efeito — um boolean
+  // preso em `true` não muda de valor num 2º clique, o efeito nunca dispararia
+  // de novo. A escopagem por papel (Consultor só os próprios, Supervisor só
+  // da equipe, Dono/Gerente todos) não precisa de nada extra aqui: é a MESMA
+  // regra (getSharedScope) que já filtra Kanban/Lista inteiros hoje, GET
+  // /api/deals já aplica sozinho pra qualquer filtro, este incluso.
+  const [wonFilterToken, setWonFilterToken] = useState(0);
+
+  function showWonDeals() {
+    setView("lista");
+    setWonFilterToken((t) => t + 1);
+  }
 
   useEffect(() => {
     if (openNewDeal) {
@@ -182,6 +208,21 @@ export function PipelineView({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewDeal]);
+
+  // Link externo pedindo a visão Lista (ver "Fechado no mês" no Início) —
+  // roda DEPOIS do usePersistedFilters("pipeline-view", ...) acima (ordem de
+  // declaração = ordem de execução dos efeitos no mesmo commit), então
+  // vence o que estivesse salvo da última vez. initialListaFilter em si
+  // (status/período) é só repassado adiante pra deals-list.tsx — quem
+  // aplica de fato é lá, junto com a mesma trava contra o localStorage
+  // salvo (ver initialFilterOverride).
+  useEffect(() => {
+    if (openLista) {
+      setView("lista");
+      router.replace("/pipeline");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openLista]);
 
   // Atualização ao vivo (SSE, ver lib/deals/live-events.ts) — negócio novo
   // em QUALQUER lugar (webhook do Meta Ads, criação manual de outra pessoa,
@@ -289,6 +330,14 @@ export function PipelineView({
             Lista
           </button>
         </div>
+        {/* Vai pra Lista já filtrada em Ganho — escopo (só meus/da equipe/
+            todos) vem de graça do mesmo getSharedScope que já regula
+            Kanban/Lista inteiros por papel, não precisa de nada especial
+            aqui (ver comentário de wonFilterToken acima). */}
+        <button onClick={showWonDeals} className="btn-secondary">
+          <Trophy className="h-4 w-4" strokeWidth={2} />
+          Mostrar negócios Ganhos
+        </button>
         <button onClick={() => setImportOpen(true)} className="btn-secondary">
           <Upload className="h-4 w-4" strokeWidth={2} />
           Importar
@@ -362,6 +411,8 @@ export function PipelineView({
           onToggleQuickFilter={toggleQuickFilter}
           toolbarRight={toolbar}
           onTotalCountChange={setListaTotalCountLive}
+          initialFilterOverride={initialListaFilter}
+          applyWonFilterToken={wonFilterToken}
         />
       )}
 

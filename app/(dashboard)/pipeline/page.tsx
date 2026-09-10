@@ -12,12 +12,23 @@ import type { Deal } from "./kanban-board";
 export default async function PipelinePage({
   searchParams,
 }: {
-  searchParams: Promise<{ pipelineId?: string; novo?: string }>;
+  searchParams: Promise<{ pipelineId?: string; novo?: string; view?: string; status?: string; closedFrom?: string; closedTo?: string }>;
 }) {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
-  const { pipelineId: pipelineIdParam, novo } = await searchParams;
+  const { pipelineId: pipelineIdParam, novo, view, status, closedFrom, closedTo } = await searchParams;
+  // Link "Fechado no mês" do Início (ver app/(dashboard)/page.tsx) — abre
+  // direto na Lista, já filtrado por status/período, sem precisar que a
+  // pessoa configure isso na mão. `view`/`initialListaFilter` são
+  // independentes de propósito: um link pode querer só trocar de visão, só
+  // filtrar, ou os dois juntos. Só repassa status se for um dos 3 valores de
+  // verdade (nunca confia cego em query string vinda de fora).
+  const openLista = view === "lista";
+  const validStatus: "OPEN" | "WON" | "LOST" | undefined =
+    status === "OPEN" || status === "WON" || status === "LOST" ? status : undefined;
+  const initialListaFilter =
+    validStatus || closedFrom || closedTo ? { status: validStatus, closedFrom, closedTo } : null;
   // Cookie do último funil escolhido (ver PIPELINE_LAST_ID_COOKIE) — 2ª
   // prioridade, atrás só de um `?pipelineId=` explícito na URL. É o que
   // resolve um link ESTÁTICO de volta pro Pipeline (sem esse parâmetro, ex.:
@@ -202,6 +213,8 @@ export default async function PipelinePage({
         canViewImportHistory={true}
         canBulkMessage={canBulkMessage}
         openNewDeal={novo === "1"}
+        openLista={openLista}
+        initialListaFilter={initialListaFilter}
       />
     </div>
   );

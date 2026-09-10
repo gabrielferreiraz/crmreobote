@@ -99,6 +99,8 @@ export function DealsList({
   onToggleQuickFilter,
   toolbarRight,
   onTotalCountChange,
+  initialFilterOverride,
+  applyWonFilterToken,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
@@ -131,6 +133,19 @@ export function DealsList({
    * pipeline-view.tsx mostrar "N negócios" na fileira de busca independente
    * de qual view (Kanban/Lista) está montada no momento. */
   onTotalCountChange?: (count: number) => void;
+  /** Link externo pedindo um status/período específico já na 1ª carga (ver
+   * "Fechado no mês" no Início → app/(dashboard)/pipeline/page.tsx) — vence
+   * o que estivesse salvo no localStorage desta tela (ver
+   * usePersistedFilters abaixo, que pula a própria restauração quando isto
+   * está presente). */
+  initialFilterOverride?: { status?: Deal["status"]; closedFrom?: string; closedTo?: string } | null;
+  /** Botão "Mostrar negócios Ganhos" (ver pipeline-view.tsx) — um contador,
+   * não um boolean: precisa de um valor NOVO a cada clique pra disparar o
+   * efeito abaixo de novo, mesmo que o filtro WON já estivesse aplicado
+   * antes (ex.: clicou, foi pra Kanban, voltou e clicou de novo). Diferente
+   * de initialFilterOverride (só a 1ª carga), isto reage a QUALQUER
+   * momento, com a Lista já montada ou não. */
+  applyWonFilterToken?: number;
 }) {
   const router = useRouter();
 
@@ -160,7 +175,7 @@ export function DealsList({
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">("OPEN");
+  const [statusFilter, setStatusFilter] = useState<Deal["status"] | "">(initialFilterOverride?.status ?? "OPEN");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [ownerStatusFilter, setOwnerStatusFilter] = useState<"" | "active" | "inactive">("");
   const [stageFilter, setStageFilter] = useState("");
@@ -200,8 +215,22 @@ export function DealsList({
   const [cityFilter, setCityFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [closedFrom, setClosedFrom] = useState("");
-  const [closedTo, setClosedTo] = useState("");
+  const [closedFrom, setClosedFrom] = useState(initialFilterOverride?.closedFrom ?? "");
+  const [closedTo, setClosedTo] = useState(initialFilterOverride?.closedTo ?? "");
+
+  // Botão "Mostrar negócios Ganhos" — ver applyWonFilterToken acima. Ref (não
+  // um simples "if (token) ...") porque token=0 é um valor válido de
+  // "nenhum clique ainda" (useState(0) em pipeline-view.tsx) — sem a ref pra
+  // lembrar o ÚLTIMO valor já aplicado, não daria pra distinguir "1º clique"
+  // de "nenhum clique", e comparar contra 0 direto falharia se o pai algum
+  // dia reiniciar o contador.
+  const lastAppliedWonToken = useRef(0);
+  useEffect(() => {
+    if (!applyWonFilterToken || applyWonFilterToken === lastAppliedWonToken.current) return;
+    lastAppliedWonToken.current = applyWonFilterToken;
+    setStatusFilter("WON");
+    setPage(1);
+  }, [applyWonFilterToken]);
 
   // Debounce só do texto — os demais filtros já resetam a página e buscam na
   // hora (ver os handlers "with reset" abaixo).
@@ -277,6 +306,12 @@ export function DealsList({
   // lib/use-persisted-filters.ts.
   const persistedFilterValues = { ...captureFilters(), pageSize, noValueOnly, sort, sortDir };
   const { hydrated } = usePersistedFilters("pipeline-lista", persistedFilterValues, (saved) => {
+    // Link externo com status/período próprio (ver initialFilterOverride)
+    // vence o que ficou salvo da última visita — nunca restaura por cima
+    // dele, senão "Fechado no mês" abriria mostrando o filtro antigo da
+    // pessoa (ex.: "Em andamento" de uma busca de semanas atrás) em vez do
+    // que o link pediu.
+    if (initialFilterOverride) return;
     const { pageSize: savedPageSize, noValueOnly: savedNoValueOnly, sort: savedSort, sortDir: savedSortDir, ...filterFields } = saved;
     restoreFilters(filterFields as Record<string, string>);
     if (typeof savedPageSize === "number") setPageSize(savedPageSize);
