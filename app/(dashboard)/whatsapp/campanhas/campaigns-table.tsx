@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Megaphone, Plus, Loader2, Trash2, Play, Pause, ListChecks, Send, Pencil, X, Users, Smartphone, MessageSquare, Clock, Repeat } from "lucide-react";
+import { Megaphone, Plus, Loader2, Trash2, Play, Pause, StopCircle, ListChecks, Send, Pencil, X, Users, Smartphone, MessageSquare, Clock, Repeat } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -83,6 +83,17 @@ function audienceDisplay(c: Pick<Campaign, "audienceFilter" | "audienceLabel">):
   return hasFilter ? c.audienceLabel : "Lista selecionada manualmente";
 }
 
+/** "Rodando" com tudo já enviado (0 pendente) confunde — parece travada, mas
+ * campanha com remarketing (RMKT: ondas + noReplyDays, ver source
+ * LEAD_CAPTURE) só vira DONE quando TODO destinatário responde ou expira
+ * (até noReplyDays depois do envio inicial, ver lib/campaigns/engine.ts) —
+ * pode ficar assim por dias/semanas de propósito, só tocando reenvio de
+ * onda/expiração, nunca mais envio inicial novo. Pedido explícito do
+ * usuário depois de estranhar exatamente essa tela. */
+function isInFollowUpPhase(c: Pick<Campaign, "status">, pending: number, total: number): boolean {
+  return c.status === "RUNNING" && total > 0 && pending === 0;
+}
+
 /** Barra fina de progresso (mesmo padrão visual do funil de vendas na Home)
  * — antes só um "4/6" cru, difícil de comparar entre campanhas numa lista;
  * a barra deixa o quanto falta escaneável de relance. */
@@ -112,6 +123,11 @@ export function CampaignsTable({
   const [editCampaign, setEditCampaign] = useState<RawCampaign | null>(null);
   const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+  // "Parar" (vira DONE de vez) é diferente de "Pausar" (PAUSED, reversível
+  // com "Iniciar") — precisa de confirmação porque, ao contrário de pausar,
+  // não tem volta: destinatário ainda PENDING fica pra sempre sem ser
+  // enviado (pedido explícito do usuário).
+  const [campaignToStop, setCampaignToStop] = useState<Campaign | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   // Histórico: "Ativas" (o que ainda tem trabalho a fazer ou espera revisão)
   // é o padrão — Concluída some da visão principal sozinha, senão a lista
@@ -265,8 +281,13 @@ export function CampaignsTable({
                     <Link href={`/whatsapp/campanhas/${c.id}`} className="min-w-0 truncate font-medium text-neutral-900 hover:underline dark:text-neutral-100">
                       {c.name}
                     </Link>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
-                      {STATUS_LABELS[c.status]}
+                    <span className="flex shrink-0 flex-col items-end gap-0.5">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
+                        {STATUS_LABELS[c.status]}
+                      </span>
+                      {isInFollowUpPhase(c, c.counts.pending, total) && (
+                        <span className="text-[11px] text-neutral-400 dark:text-neutral-500">Fase de follow-up</span>
+                      )}
                     </span>
                   </div>
                   <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -306,6 +327,18 @@ export function CampaignsTable({
                       >
                         <Pause className="h-3.5 w-3.5" strokeWidth={2} />
                         Pausar
+                      </button>
+                    )}
+                    {(c.status === "RUNNING" || c.status === "PAUSED") && (
+                      <button
+                        type="button"
+                        onClick={() => setCampaignToStop(c)}
+                        className="icon-btn-labeled"
+                        aria-label="Parar campanha"
+                        title="Parar campanha"
+                      >
+                        <StopCircle className="h-3.5 w-3.5" strokeWidth={2} />
+                        Parar
                       </button>
                     )}
                     {c.status === "DRAFT" && (
@@ -376,6 +409,9 @@ export function CampaignsTable({
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[c.status]}`}>
                           {STATUS_LABELS[c.status]}
                         </span>
+                        {isInFollowUpPhase(c, c.counts.pending, total) && (
+                          <p className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">Fase de follow-up</p>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
@@ -413,6 +449,18 @@ export function CampaignsTable({
                             >
                               <Pause className="h-3.5 w-3.5" strokeWidth={2} />
                               Pausar
+                            </button>
+                          )}
+                          {(c.status === "RUNNING" || c.status === "PAUSED") && (
+                            <button
+                              type="button"
+                              onClick={() => setCampaignToStop(c)}
+                              className="icon-btn-labeled"
+                              aria-label="Parar campanha"
+                              title="Parar campanha"
+                            >
+                              <StopCircle className="h-3.5 w-3.5" strokeWidth={2} />
+                              Parar
                             </button>
                           )}
                           {c.status === "DRAFT" && (
@@ -480,6 +528,19 @@ export function CampaignsTable({
           onConfirm={async () => {
             await deleteCampaign(campaignToDelete.id);
             setCampaignToDelete(null);
+          }}
+        />
+      )}
+
+      {campaignToStop && (
+        <ConfirmDialog
+          title={`Parar "${campaignToStop.name}" de vez?`}
+          description="Isso termina a campanha permanentemente, mesmo que ainda faltem destinatários pendentes — eles NUNCA serão enviados. Diferente de pausar, não tem como retomar depois. Se for só uma parada temporária, use Pausar em vez disso."
+          confirmLabel="Parar campanha"
+          onClose={() => setCampaignToStop(null)}
+          onConfirm={async () => {
+            await setStatus(campaignToStop, "DONE");
+            setCampaignToStop(null);
           }}
         />
       )}
