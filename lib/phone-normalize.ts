@@ -29,6 +29,63 @@ export function normalizePhoneNumber(raw: string | null | undefined): string | n
 }
 
 /**
+ * Valida se um número de telefone tem formato aceitável antes de salvar.
+ * Retorna `true` para campo vazio/null (opcional) ou para números que, após
+ * remover os separadores padrão (espaços, traços, parênteses, +), resultem
+ * somente em dígitos com comprimento entre 7 e 15 (padrão E.164).
+ *
+ * Rejeita entradas como ", 6799 615." ou "98765-abc" que claramente não são
+ * números — caracteres como vírgula, ponto, letras etc. não fazem parte de
+ * nenhum formato telefônico válido.
+ */
+export function isValidPhoneInput(raw: string | null | undefined): boolean {
+  if (!raw || !raw.trim()) return true; // campo vazio é ok (opcional)
+  // Remove apenas os separadores que existem em formatos reais de telefone —
+  // ponto NUNCA entra aqui de propósito (bug corrigido: um "." solto no meio
+  // do character class abaixo era removido como se fosse formatação válida,
+  // então "6799 615." ou "67.99961.5000" passavam como válidos mesmo tendo
+  // ponto, contradizendo a própria regra documentada acima).
+  const stripped = raw.trim().replace(/^[+]/, "").replace(/[\s\-()]/g, "");
+  // Depois de remover formatação legítima, só dígitos devem restar
+  if (!/^\d+$/.test(stripped)) return false;
+  // E.164: mínimo 7, máximo 15 dígitos
+  return stripped.length >= 7 && stripped.length <= 15;
+}
+
+/**
+ * Máscara "ao vivo" de telefone/WhatsApp brasileiro — `(DD) NNNNN-NNNN`
+ * (celular, 11 dígitos) ou `(DD) NNNN-NNNN` (fixo, 10 dígitos) enquanto a
+ * pessoa digita. Só dá pra saber se o número é celular ou fixo depois que o
+ * 11º dígito é digitado (os dois começam iguais) — o traço "pula" de
+ * posição nesse instante, comportamento normal de qualquer máscara de
+ * telefone brasileira.
+ *
+ * Nunca força esse formato pra número que claramente não é brasileiro —
+ * "+" no início ou mais de 11 dígitos (a empresa atende cliente de fora,
+ * ver comentário de VALID_BRAZILIAN_DDDS acima) faz a máscara desistir de
+ * agrupar e devolver só os dígitos (com o "+" na frente, se foi digitado):
+ * nunca reordena nem descarta o que a pessoa digitou, só decide se desenha
+ * parênteses/traço ou não.
+ */
+export function formatPhoneMask(raw: string): string {
+  const hasPlus = raw.trimStart().startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+
+  if (hasPlus || digits.length > 11) {
+    return hasPlus ? `+${digits}` : digits;
+  }
+
+  const len = digits.length;
+  if (len === 0) return "";
+  if (len <= 2) return `(${digits}`;
+  const ddd = digits.slice(0, 2);
+  if (len <= 6) return `(${ddd}) ${digits.slice(2)}`;
+  const splitAt = len === 11 ? 7 : 6;
+  return `(${ddd}) ${digits.slice(2, splitAt)}-${digits.slice(splitAt)}`;
+}
+
+
+/**
  * Praticamente todo celular no Brasil também é WhatsApp — contato que fica
  * com celular preenchido e WhatsApp vazio MUDA o número pro campo WhatsApp
  * (não copia: o celular fica vazio depois, o número passa a existir só num

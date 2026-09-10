@@ -33,6 +33,7 @@ import { FilterPopover } from "@/components/filter-popover";
 import { ColumnFilter } from "@/components/column-filter";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { PhoneInput } from "@/components/phone-input";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { Pagination } from "@/components/pagination";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
@@ -48,6 +49,7 @@ import { countBulkFailures } from "@/lib/bulk-fetch";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
+import { isValidPhoneInput } from "@/lib/phone-normalize";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -125,6 +127,8 @@ export function ContactsTable({
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>({});
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
 
@@ -533,6 +537,14 @@ export function ContactsTable({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Valida formato dos campos de telefone no cliente antes de bater na API
+    const phoneErr = !isValidPhoneInput(phone) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    const waErr = !isValidPhoneInput(whatsapp) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    setPhoneError(phoneErr);
+    setWhatsappError(waErr);
+    if (phoneErr || waErr) return;
+
     setCreating(true);
     setError(null);
     setConflict(null);
@@ -1136,8 +1148,18 @@ export function ContactsTable({
               <Field label="Empresa" value={company} onChange={setCompany} />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Celular" value={phone} onChange={setPhone} />
-              <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
+              <PhoneInput
+                label="Celular"
+                value={phone}
+                onChange={(v) => { setPhone(v); setPhoneError(null); }}
+                error={phoneError}
+              />
+              <PhoneInput
+                label="WhatsApp"
+                value={whatsapp}
+                onChange={(v) => { setWhatsapp(v); setWhatsappError(null); }}
+                error={whatsappError}
+              />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">

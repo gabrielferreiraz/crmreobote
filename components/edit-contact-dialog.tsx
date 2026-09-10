@@ -6,8 +6,10 @@ import { Pencil, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { PhoneInput } from "@/components/phone-input";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
+import { isValidPhoneInput } from "@/lib/phone-normalize";
 
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 
@@ -85,6 +87,8 @@ export function ContactEditForm({
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
   const [errorData, setErrorData] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
   // "Mostrar como ajustar" (erro de permissão por contato de outro
   // consultor) — o campo Responsável já está nesta mesma tela (diferente do
   // card "Dados do contato" do negócio, que precisa rolar até outra linha),
@@ -102,6 +106,14 @@ export function ContactEditForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Valida formato dos campos de telefone antes de bater na API
+    const phoneErr = !isValidPhoneInput(phone) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    const waErr = !isValidPhoneInput(whatsapp) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    setPhoneError(phoneErr);
+    setWhatsappError(waErr);
+    if (phoneErr || waErr) return;
+
     setLoading(true);
     setErrorData(null);
 
@@ -158,8 +170,18 @@ export function ContactEditForm({
         <Field label="Nome" value={name} onChange={setName} required autoFocus />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="E-mail" value={email} onChange={setEmail} type="email" />
-          <Field label="Celular" value={phone} onChange={setPhone} />
-          <Field label="WhatsApp" value={whatsapp} onChange={setWhatsapp} />
+          <PhoneInput
+            label="Celular"
+            value={phone}
+            onChange={(v) => { setPhone(v); setPhoneError(null); }}
+            error={phoneError}
+          />
+          <PhoneInput
+            label="WhatsApp"
+            value={whatsapp}
+            onChange={(v) => { setWhatsapp(v); setWhatsappError(null); }}
+            error={whatsappError}
+          />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Empresa" value={company} onChange={setCompany} />

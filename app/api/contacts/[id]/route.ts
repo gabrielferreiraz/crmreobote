@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getCurrentMembership } from "@/lib/current-membership";
-import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -136,6 +136,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const existing = rawExisting;
+
+    // Rejeita números com formato inválido (vírgulas, pontos, letras, etc.)
+    // antes de qualquer normalização — mesma proteção do POST, agora no PUT.
+    if ("phone" in body && phone && !isValidPhoneInput(phone)) {
+      return NextResponse.json({ error: "Celular com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
+    }
+    if ("whatsapp" in body && whatsapp && !isValidPhoneInput(whatsapp)) {
+      return NextResponse.json({ error: "WhatsApp com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
+    }
 
     // Só recalcula/valida o que de fato veio no corpo — uma chamada parcial
     // (ex.: ações em massa, que mandam só o campo que está mudando) não pode

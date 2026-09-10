@@ -3,7 +3,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
-import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -153,6 +153,16 @@ export async function POST(req: Request) {
   }
 
   return runWithTenant(organizationId, async () => {
+    // Rejeita números com formato inválido (vírgulas, pontos, letras, etc.)
+    // antes de qualquer normalização — melhor devolver um erro claro do que
+    // silenciosamente gravar ", 6799 615." no banco e quebrar o matching.
+    if (phone && !isValidPhoneInput(phone)) {
+      return NextResponse.json({ error: "Celular com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
+    }
+    if (whatsapp && !isValidPhoneInput(whatsapp)) {
+      return NextResponse.json({ error: "WhatsApp com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
+    }
+
     const whatsappFallback = fallbackWhatsappToPhone(phone, normalizePhoneNumber(phone), whatsapp, normalizePhoneNumber(whatsapp));
     const phoneNormalized = whatsappFallback.phoneNormalized;
     const whatsappNormalized = whatsappFallback.whatsappNormalized;
