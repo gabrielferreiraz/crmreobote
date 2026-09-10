@@ -5,7 +5,7 @@ import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } fro
 import { AnimatedFire } from "@/components/animated-fire";
 import { ReoboteLogo } from "@/components/reobote-logo";
 import { fetchTvMetrics } from "./actions";
-import { formatCurrencyCompact } from "@/lib/format";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
 import { TvClock } from "./tv-clock";
@@ -1001,7 +1001,7 @@ export function TvView({
                   className="relative mt-2 font-extrabold tabular-nums text-[length:var(--tv-text-hero)]"
                   style={{ color: "var(--brand)" }}
                 >
-                  {formatCurrencyCompact(metrics.vendasMes)}
+                  {formatCurrency(metrics.vendasMes)}
                 </div>
                 {/* marginTop/paddingTop reduzidos (eram var(--tv-gap) cheio
                     nos dois, 2× o respiro) — pedido explícito: "diminuir a
@@ -1018,14 +1018,12 @@ export function TvView({
                     </div>
                   </div>
                   <div className="flex-1">
-                    {/* Rótulo "Cotas" mantido de propósito (pedido
-                        explícito — sem mudar texto/design) — o valor por
-                        trás agora é o BRUTO (Deal.grossValue) do mês
-                        corrente, não mais um duplicado do "Anuais" ao lado
-                        (ver vendasBrutoMes em lib/tv-dashboard.ts). Zera
-                        sozinho na virada do mês, mesmo limite de
+                    {/* Rótulo trocado de "Cotas" pra "Valor Bruto" (pedido
+                        explícito) — valor é o BRUTO (Deal.grossValue) do mês
+                        corrente (ver vendasBrutoMes em lib/tv-dashboard.ts).
+                        Zera sozinho na virada do mês, mesmo limite de
                         `closedAt >= início do mês` que "Vendas do mês" já usa. */}
-                    <div className="font-semibold text-neutral-400">Cotas</div>
+                    <div className="font-semibold text-neutral-400">Valor Bruto</div>
                     <div className="font-bold text-[length:var(--tv-text-value-sm)]">
                       {formatCurrencyCompact(metrics.vendasBrutoMes)}
                     </div>
