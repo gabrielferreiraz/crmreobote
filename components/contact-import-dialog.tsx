@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, SlidersHorizontal, Download } from "lucide-react";
+import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, SlidersHorizontal, Download, UserPlus, Send, Clock3 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
@@ -12,6 +12,13 @@ type ImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "sourc
 
 type ColumnDetection = { field: ImportField; label: string; required: boolean; index: number; headerLabel: string | null };
 type RowIssue = { code: string; message: string };
+type ExistingContactMatch = {
+  id: string;
+  name: string;
+  responsavelId: string | null;
+  responsavelName: string | null;
+  responsavelActive: boolean;
+};
 type ResolvedRow = {
   rowNumber: number;
   willImport: boolean;
@@ -20,6 +27,7 @@ type ResolvedRow = {
   source: string | null;
   responsavelName: string | null;
   issues: RowIssue[];
+  existingContact?: ExistingContactMatch | null;
 };
 type ImportPlanSummary = {
   totalRows: number;
@@ -150,6 +158,15 @@ export function ContactImportDialog({
   // bloqueia continuar).
   const [showColumnMapping, setShowColumnMapping] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
+  // Ação por contato já existente (ver "linhas ignoradas" abaixo) — chave é
+  // o id do CONTATO existente (não da linha), porque a mesma pessoa pode
+  // aparecer em mais de uma linha da planilha (telefone E whatsapp
+  // duplicados, por exemplo) e as duas devem refletir a mesma ação.
+  const [showDuplicateRows, setShowDuplicateRows] = useState(false);
+  const [duplicateActionBusyId, setDuplicateActionBusyId] = useState<string | null>(null);
+  const [duplicateActionResult, setDuplicateActionResult] = useState<
+    Record<string, "claimed" | "requested" | "already-requested" | "already-yours" | "error">
+  >({});
 
   async function runPreview(
     pickedFile: File,
@@ -214,6 +231,38 @@ export function ContactImportDialog({
     else delete next[field];
     setFieldDefaults(next);
     if (file) runPreview(file, overrides, next);
+  }
+
+  // Assumir (dono inativo/sem dono, reatribui na hora) ou solicitar (dono
+  // ativo, cria pedido — ver POST /api/lead-requests) — o mesmo endpoint
+  // decide sozinho qual dos dois caminhos vale, pelo estado ATUAL do dono
+  // no banco (nunca confia no que a prévia mostrou, que pode ter minutos).
+  async function handleLeadAction(contactId: string) {
+    setDuplicateActionBusyId(contactId);
+    try {
+      const res = await fetch("/api/lead-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
+        return;
+      }
+      const result: "claimed" | "requested" | "already-requested" | "already-yours" = data.alreadyYours
+        ? "already-yours"
+        : data.alreadyRequested
+          ? "already-requested"
+          : data.claimed
+            ? "claimed"
+            : "requested";
+      setDuplicateActionResult((prev) => ({ ...prev, [contactId]: result }));
+    } catch {
+      setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
+    } finally {
+      setDuplicateActionBusyId(null);
+    }
   }
 
   async function confirmImport() {
@@ -314,6 +363,20 @@ export function ContactImportDialog({
     );
     const visibleRows = showAllRows ? preview.rows : preview.rows.slice(0, PREVIEW_ROWS_COLLAPSED);
     const hiddenRowCount = preview.rows.length - visibleRows.length;
+    // Pedido explícito: mostrar quem já tem cada contato ignorado por
+    // duplicidade, com ação de assumir (dono inativo/sem dono) ou pedir
+    // (dono ativo). Uma linha por CONTATO existente (não por linha da
+    // planilha) — a mesma pessoa pode colidir em mais de uma linha.
+    const duplicateRows = (() => {
+      const seen = new Set<string>();
+      const list: (ResolvedRow & { existingContact: ExistingContactMatch })[] = [];
+      for (const r of preview.rows) {
+        if (!r.existingContact || seen.has(r.existingContact.id)) continue;
+        seen.add(r.existingContact.id);
+        list.push(r as ResolvedRow & { existingContact: ExistingContactMatch });
+      }
+      return list;
+    })();
 
     return (
       <Modal onClose={onClose} maxWidth="max-w-3xl">
@@ -366,7 +429,86 @@ export function ContactImportDialog({
               </strong>{" "}
               — já existe contato com esse telefone ou WhatsApp (nesta planilha ou já cadastrado). Nada é atualizado nele: a
               importação só cria contato novo, nunca edita um existente.
+              {duplicateRows.length > 0 && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={() => setShowDuplicateRows((v) => !v)}
+                    className="font-medium text-neutral-800 underline hover:text-neutral-900 dark:text-neutral-200 dark:hover:text-neutral-100"
+                  >
+                    {showDuplicateRows ? "Esconder" : "Ver"} de quem são ({duplicateRows.length}
+                    {duplicateRows.length < s.duplicateContacts ? `+` : ""})
+                  </button>
+                </>
+              )}
             </p>
+          </div>
+        )}
+
+        {showDuplicateRows && duplicateRows.length > 0 && (
+          <div className="mb-4 max-h-56 space-y-1.5 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+            {duplicateRows.map(({ existingContact: c }) => {
+              const busy = duplicateActionBusyId === c.id;
+              const result = duplicateActionResult[c.id];
+              // Sem responsável OU responsável inativo (saiu da empresa) =
+              // ninguém pra pedir, assume na hora. Responsável ativo =
+              // precisa pedir (ver POST /api/lead-requests, mesma regra no
+              // servidor — este botão só reflete o que a prévia já sabe).
+              const canClaimDirectly = !c.responsavelId || !c.responsavelActive;
+              return (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between gap-2 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs dark:bg-neutral-900/40"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-neutral-800 dark:text-neutral-200">{c.name}</p>
+                    <p className="truncate text-neutral-500 dark:text-neutral-400">
+                      {c.responsavelName
+                        ? `Responsável: ${c.responsavelName}${c.responsavelActive ? "" : " (inativo)"}`
+                        : "Sem responsável"}
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    {result === "claimed" ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
+                        Assumido
+                      </span>
+                    ) : result === "requested" || result === "already-requested" ? (
+                      <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
+                        <Clock3 className="h-3 w-3" strokeWidth={2} />
+                        Solicitado
+                      </span>
+                    ) : result === "already-yours" ? (
+                      <span className="text-neutral-400 dark:text-neutral-500">Já é seu</span>
+                    ) : result === "error" ? (
+                      <span className="text-red-600 dark:text-red-400">Erro — tente de novo</span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => handleLeadAction(c.id)}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          canClaimDirectly
+                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
+                            : "bg-brand-light text-brand hover:bg-brand/15 dark:bg-[var(--brand-subtle)]"
+                        }`}
+                      >
+                        {busy ? (
+                          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                        ) : canClaimDirectly ? (
+                          <UserPlus className="h-3 w-3" strokeWidth={2} />
+                        ) : (
+                          <Send className="h-3 w-3" strokeWidth={2} />
+                        )}
+                        {canClaimDirectly ? "Assumir" : `Solicitar a ${c.responsavelName}`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

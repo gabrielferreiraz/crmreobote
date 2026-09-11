@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellOff, Loader2 } from "lucide-react";
+import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 
@@ -17,10 +17,19 @@ type NotificationTask = {
   overdue: boolean;
 };
 
+type LeadRequestNotification = {
+  id: string;
+  createdAt: string;
+  contact: { id: string; name: string };
+  requester: { id: string; name: string };
+};
+
 const POLL_INTERVAL_MS = 60_000;
 
 export function NotificationBell() {
   const [tasks, setTasks] = useState<NotificationTask[]>([]);
+  const [leadRequests, setLeadRequests] = useState<LeadRequestNotification[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
@@ -29,10 +38,12 @@ export function NotificationBell() {
     let cancelled = false;
 
     async function load() {
-      const res = await fetch("/api/tasks/notifications");
-      if (!res.ok || cancelled) return;
-      const data = await res.json();
-      if (!cancelled) setTasks(data);
+      const [tasksRes, leadRequestsRes] = await Promise.all([
+        fetch("/api/tasks/notifications"),
+        fetch("/api/lead-requests"),
+      ]);
+      if (!cancelled && tasksRes.ok) setTasks(await tasksRes.json());
+      if (!cancelled && leadRequestsRes.ok) setLeadRequests(await leadRequestsRes.json());
     }
 
     load();
@@ -42,6 +53,23 @@ export function NotificationBell() {
       clearInterval(interval);
     };
   }, []);
+
+  // Aprovar/recusar direto do sino — sem sair da tela nem abrir mais nada
+  // (pedido explícito: "mostra um modal pequeno logo abaixo do sino"; este
+  // painel JÁ é esse "modal pequeno", não precisa de um segundo).
+  async function resolveLeadRequest(id: string, action: "approve" | "decline") {
+    setResolvingId(id);
+    try {
+      const res = await fetch(`/api/lead-requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) setLeadRequests((prev) => prev.filter((r) => r.id !== id));
+    } finally {
+      setResolvingId(null);
+    }
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -60,6 +88,7 @@ export function NotificationBell() {
   // então só filtrar preserva a ordem cronológica dentro de cada um.
   const overdueTasks = tasks.filter((t) => t.overdue);
   const todayTasks = tasks.filter((t) => !t.overdue);
+  const totalCount = tasks.length + leadRequests.length;
 
   return (
     <div ref={containerRef} className="relative">
@@ -69,9 +98,9 @@ export function NotificationBell() {
         className="icon-btn relative h-9 w-9"
       >
         <Bell className="h-4 w-4" strokeWidth={2} />
-        {tasks.length > 0 && (
+        {totalCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white">
-            {tasks.length > 9 ? "9+" : tasks.length}
+            {totalCount > 9 ? "9+" : totalCount}
           </span>
         )}
       </button>
@@ -83,11 +112,20 @@ export function NotificationBell() {
               Tarefas atrasadas/hoje
             </p>
           </div>
+          {leadRequests.length > 0 && (
+            <LeadRequestsGroup requests={leadRequests} resolvingId={resolvingId} onResolve={resolveLeadRequest} />
+          )}
           <div className="scrollbar-thin max-h-96 overflow-y-auto pb-1">
             {tasks.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                Nenhuma tarefa pendente.
-              </p>
+              // Só mostra "nenhuma tarefa" quando não tem NADA no painel —
+              // com pedido de lead em cima, repetir "nenhuma tarefa
+              // pendente" logo abaixo lê estranho (tem, sim, algo pendente
+              // ali em cima, só não é tarefa).
+              leadRequests.length === 0 && (
+                <p className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
+                  Nenhuma tarefa pendente.
+                </p>
+              )
             ) : (
               <>
                 {overdueTasks.length > 0 && (
@@ -134,6 +172,61 @@ export function NotificationBell() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** "Fulano pediu Beltrano pra carteira dele" — aprovar reatribui o contato na hora (ver PATCH /api/lead-requests/[id]); recusar só fecha o pedido. */
+function LeadRequestsGroup({
+  requests,
+  resolvingId,
+  onResolve,
+}: {
+  requests: LeadRequestNotification[];
+  resolvingId: string | null;
+  onResolve: (id: string, action: "approve" | "decline") => void;
+}) {
+  return (
+    <div className="border-b border-neutral-100 dark:border-neutral-800">
+      <p className="px-4 pt-2.5 pb-1 text-[11px] font-semibold tracking-wide text-brand uppercase">
+        Pedidos de lead
+      </p>
+      {requests.map((r) => {
+        const busy = resolvingId === r.id;
+        return (
+          <div key={r.id} className="flex items-start gap-2.5 px-4 py-2.5 text-sm">
+            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-light dark:bg-[var(--brand-subtle)]">
+              <UserPlus className="h-3 w-3 text-brand" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-neutral-700 dark:text-neutral-300">
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.requester.name}</span> pediu{" "}
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.contact.name}</span> pra carteira dele
+              </p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onResolve(r.id, "approve")}
+                  className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
+                >
+                  {busy ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} /> : <Check className="h-3 w-3" strokeWidth={2.5} />}
+                  Aprovar
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onResolve(r.id, "decline")}
+                  className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                >
+                  <XIcon className="h-3 w-3" strokeWidth={2.5} />
+                  Recusar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

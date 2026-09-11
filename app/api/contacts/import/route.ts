@@ -89,17 +89,39 @@ export async function POST(req: Request) {
     const dataRows = rows.slice(1, 1 + MAX_ROWS);
     const rawHeaderRow = rows[0];
 
-    const [existingContacts, members] = await Promise.all([
+    // Mesma consulta enriquecida da prévia (ver preview/route.ts) — o
+    // commit usa a MESMA função resolveImportPlan, então precisa do mesmo
+    // formato de entrada, mesmo não usando o detalhe de dono aqui (só a
+    // prévia mostra isso na tela).
+    const [existingContactsRaw, allMembers] = await Promise.all([
       prisma.contact.findMany({
         where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
-        select: { phoneNormalized: true, whatsappNormalized: true },
+        select: {
+          id: true,
+          name: true,
+          phoneNormalized: true,
+          whatsappNormalized: true,
+          responsavelId: true,
+          responsavel: { select: { name: true } },
+        },
       }),
       prisma.organizationUser.findMany({
-        where: { organizationId, active: true },
+        where: { organizationId },
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
       }),
     ]);
+    const members = allMembers.filter((m) => m.active);
+    const activeMemberIds = new Set(members.map((m) => m.user.id));
+    const existingContacts = existingContactsRaw.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phoneNormalized: c.phoneNormalized,
+      whatsappNormalized: c.whatsappNormalized,
+      responsavelId: c.responsavelId,
+      responsavelName: c.responsavel?.name ?? null,
+      responsavelActive: !!c.responsavelId && activeMemberIds.has(c.responsavelId),
+    }));
 
     const plan = resolveImportPlan({
       dataRows,

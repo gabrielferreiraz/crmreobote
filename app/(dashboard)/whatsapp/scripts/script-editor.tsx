@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock } from "lucide-react";
@@ -9,6 +10,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
 import { MessageVariationEditor } from "@/components/message-variation-editor";
 import { renderTemplate } from "@/lib/campaigns/spintax";
+import { SYNONYM_REGEX, synonymsFor } from "@/lib/message-synonyms";
 
 type Step = { text: string; delayAfterSec: number };
 
@@ -49,6 +51,27 @@ function buildVariationChipHtml(options: string[]): string {
   return `<span contenteditable="false" data-variation-options="${encoded}" class="variation-pill" title="Clique para editar as opções">🔀 ${label}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span></span> `;
 }
 
+/** Pílula AZUL de sugestão de sinônimo (ver lib/message-synonyms.ts) — nunca
+ * faz parte da mensagem salva (ver serializeEditor abaixo, que pula ela de
+ * propósito); só existe até a pessoa clicar (vira variação de verdade) ou
+ * digitar de novo (some e talvez reapareça em outra palavra, ver
+ * scheduleSynonymSuggestions). `data-synonym-key` guarda a forma exata
+ * digitada, com a MAIÚSCULA original preservada — precisa dela intacta pra
+ * virar a 1ª opção da variação quando clicada.
+ */
+function buildSynonymSuggestionHtml(matchedText: string): string {
+  return `<span contenteditable="false" data-synonym-key="${escapeHtml(matchedText)}" class="synonym-suggestion-pill" title="Clique para variar esta palavra também">🔄 sinônimo</span>`;
+}
+
+/** Pílula "usar todos" — some no fim do texto quando tem mais de uma
+ * sugestão azul ativa ao mesmo tempo (ver applySynonymSuggestions), pra
+ * transformar todas em variação de uma vez só, sem precisar clicar pílula
+ * por pílula. Nunca faz parte da mensagem salva (mesma lógica de
+ * buildSynonymSuggestionHtml, ver serializeEditor abaixo). */
+function buildSynonymApplyAllHtml(): string {
+  return ` <span contenteditable="false" data-synonym-apply-all="true" class="synonym-suggestion-pill synonym-suggestion-pill--all" title="Trocar todas as palavras sugeridas de uma vez">✅ usar todos</span>`;
+}
+
 /** DOM do editor → string com `{token}`/`{[a|b]}` (mesmo formato que sempre foi salvo/renderizado). */
 function serializeEditor(root: HTMLElement): string {
   let out = "";
@@ -61,6 +84,11 @@ function serializeEditor(root: HTMLElement): string {
         out += `{[${options.join("|")}]}`;
       } else if (node.dataset.token) {
         out += `{${node.dataset.token}}`;
+      } else if (node.dataset.synonymKey !== undefined || node.dataset.synonymApplyAll !== undefined) {
+        // Sugestão (ou o botão "usar todos") ainda não confirmada — não é
+        // conteúdo de verdade, some da mensagem salva (ver comentário em
+        // buildSynonymSuggestionHtml/buildSynonymApplyAllHtml).
+        continue;
       } else if (node.tagName === "BR") {
         out += "\n";
       } else {
@@ -113,6 +141,23 @@ function randomInRange([min, max]: [number, number]): number {
   return Math.round(min + Math.random() * (max - min));
 }
 
+/**
+ * Posição (fixed) pro botão/popover flutuante de variação, a partir do
+ * retângulo do texto selecionado (ou da pílula clicada) — calculado uma vez
+ * só na abertura, não reativo a scroll/resize (o popover é uma interação
+ * curta: abre, preenche, salva/cancela; não vale a complexidade de
+ * reposicionar ao vivo pra essa janela de tempo). `width` é só uma
+ * estimativa pra decidir se cabe à esquerda ou precisa empurrar pra dentro
+ * da tela — o elemento real usa `max-w`, não largura fixa.
+ */
+function computeFloatingPosition(rect: DOMRect, estimatedHeight: number, width = 320): { top: number; left: number } {
+  const margin = 8;
+  const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const top = spaceBelow > estimatedHeight + 12 ? rect.bottom + 6 : Math.max(margin, rect.top - estimatedHeight - 6);
+  return { top, left };
+}
+
 export function ScriptEditor({
   scriptId,
   initialName = "",
@@ -163,24 +208,71 @@ export function ScriptEditor({
   const [focusedStepIndex, setFocusedStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Editor inline de variação de mensagem (não é modal — aparece embutido
-  // no card "Inserir em") — editingChip aponta pra pílula real no DOM quando
-  // é edição (reabrindo com as opções atuais); null quando é uma variação
-  // nova, ainda sem pílula nenhuma.
+  // Pedido explícito: variação nasce DIRETO do texto que a pessoa já
+  // escreveu, não de um botão separado que abre uma caixa vazia lá embaixo.
+  // Fluxo: seleciona um trecho já escrito → aparece um botãozinho flutuante
+  // "Variar este trecho" bem ali do lado (pendingSelection) → clica → abre o
+  // popover flutuante (variationDialog) com o próprio trecho selecionado já
+  // preenchido na opção 1, pedindo só as alternativas. `target` guarda ONDE
+  // aplicar o resultado: "range" = substitui o trecho selecionado por uma
+  // pílula nova; "chip" = reescreve uma pílula de variação já existente
+  // (clicada pra editar).
+  const [pendingSelection, setPendingSelection] = useState<{ stepIdx: number; range: Range; rect: DOMRect } | null>(
+    null,
+  );
   const [variationDialog, setVariationDialog] = useState<{
     stepIdx: number;
     options: string[];
-    editingChip: HTMLElement | null;
+    anchorRect: DOMRect;
+    target: { type: "chip"; el: HTMLElement } | { type: "range"; range: Range };
   } | null>(null);
 
   const editorRefs = useRef<(HTMLDivElement | null)[]>([]);
   const initializedSteps = useRef<Set<number>>(new Set());
+  const floatingButtonRef = useRef<HTMLButtonElement>(null);
+  const synonymDebounceRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // Marca qual mensagem acabou de receber um COLAR — consumido (e limpo) na
+  // próxima varredura de sugestão (ver applySynonymSuggestions): colar um
+  // script inteiro de uma vez merece ver TODAS as trocas possíveis, não só 2
+  // aleatórias como no modo normal de digitação.
+  const pastedStepsRef = useRef<Set<number>>(new Set());
+
+  // Nunca deixa um timer de sugestão disparar depois que a tela já fechou
+  // (ex.: saiu da tela no meio da janela de 900ms) — o handler já se
+  // protegeria sozinho (editorRefs.current[idx] viraria null), mas não tem
+  // motivo pra deixar o timer vivo à toa depois do componente desmontar.
+  useEffect(
+    () => () => {
+      for (const timer of synonymDebounceRef.current.values()) clearTimeout(timer);
+    },
+    [],
+  );
+
+  // Fecha o botão flutuante "Variar este trecho" ao clicar em QUALQUER lugar
+  // que não seja ele mesmo nem dentro de um editor (esse último caso já é
+  // resolvido pelo próprio handleEditorSelect, chamado no mouseup de lá) —
+  // sem isso, clicar no campo "Nome" ou nas tags, por exemplo, deixava o
+  // botão flutuando na posição antiga, apontando pra uma seleção que já não
+  // existe mais.
+  useEffect(() => {
+    function handlePointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (floatingButtonRef.current?.contains(target)) return;
+      if (editorRefs.current.some((el) => el?.contains(target))) return;
+      setPendingSelection(null);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
 
   function setEditorRef(idx: number, el: HTMLDivElement | null) {
     editorRefs.current[idx] = el;
     if (el && !initializedSteps.current.has(idx)) {
       deserializeIntoEditor(el, steps[idx]?.text ?? "");
       initializedSteps.current.add(idx);
+      // Script já existente (modo "Editar") abrindo com texto pronto — sugere
+      // sinônimo já de cara, sem exigir que a pessoa digite algo primeiro.
+      scheduleSynonymSuggestions(idx);
     }
   }
 
@@ -210,6 +302,108 @@ export function ScriptEditor({
     const el = editorRefs.current[idx];
     if (!el) return;
     updateStepText(idx, serializeEditor(el));
+    scheduleSynonymSuggestions(idx);
+  }
+
+  /** Só sugere depois que a digitação PARA — nunca no meio de uma tecla,
+   * senão uma pílula nascendo no meio do texto ainda sendo escrito
+   * atrapalharia o cursor. */
+  function scheduleSynonymSuggestions(idx: number) {
+    const existing = synonymDebounceRef.current.get(idx);
+    if (existing) clearTimeout(existing);
+    synonymDebounceRef.current.set(
+      idx,
+      setTimeout(() => applySynonymSuggestions(idx), 900),
+    );
+  }
+
+  /**
+   * Acha as palavras/frases do dicionário (lib/message-synonyms.ts) no texto
+   * de VERDADE do editor (varre só os nós de texto puro — o conteúdo de uma
+   * pílula já existente, variável ou variação, é outro nó de elemento, nunca
+   * entra aqui) e insere a pilulazinha azul logo depois de cada uma. Sempre
+   * limpa qualquer sugestão antiga primeiro e recalcula do zero — nunca
+   * acumula sugestão de uma versão anterior do texto nem deixa uma pílula
+   * "órfã" apontando pra uma palavra que já mudou.
+   *
+   * Modo digitação (padrão): sorteia até 2 — "palavras aleatórias mesmo"
+   * (pedido explícito), nunca marca tudo de uma vez, isso poluiria a
+   * mensagem de pílula azul a cada pausa na digitação. Modo colar
+   * (pastedStepsRef marcado em handleEditorPaste): mostra TODAS de uma vez —
+   * colar já é um evento único (a pessoa colou o script inteiro pronto), não
+   * uma sequência de pausas, então não faz sentido esconder a maioria atrás
+   * de sorteio.
+   */
+  function applySynonymSuggestions(idx: number) {
+    const el = editorRefs.current[idx];
+    if (!el) return;
+    el.querySelectorAll("[data-synonym-key], [data-synonym-apply-all]").forEach((n) => n.remove());
+
+    const candidates: { node: Text; start: number; end: number; text: string }[] = [];
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      const text = node.textContent ?? "";
+      // matchAll (não um loop manual de .exec() com reset de .lastIndex) —
+      // SYNONYM_REGEX é um único RegExp de módulo, compartilhado por toda
+      // chamada; mutar .lastIndex nele seria mexer em estado global
+      // compartilhado. matchAll nunca precisa disso, cuida da iteração sozinho.
+      for (const m of text.matchAll(SYNONYM_REGEX)) {
+        const start = m.index ?? 0;
+        candidates.push({ node: node as Text, start, end: start + m[0].length, text: m[0] });
+      }
+    }
+    if (candidates.length === 0) return;
+
+    // Set.delete devolve se o item existia — checa E já limpa a marca numa
+    // tacada só, ela só vale pra esta ÚNICA varredura pós-colar.
+    const isPaste = pastedStepsRef.current.delete(idx);
+
+    const chosen = (
+      isPaste
+        ? candidates
+        : candidates
+            .map((c) => ({ c, sort: Math.random() }))
+            .sort((a, b) => a.sort - b.sort)
+            .slice(0, 2)
+            .map(({ c }) => c)
+    )
+      // Do fim do texto pro começo: dividir um nó (splitText) desloca os
+      // offsets de qualquer match MAIS À FRENTE no MESMO nó — processando de
+      // trás pra frente, os offsets já usados nunca mudam embaixo do próximo.
+      .sort((a, b) => b.start - a.start);
+
+    for (const c of chosen) {
+      const middle = c.node.splitText(c.start);
+      middle.splitText(c.end - c.start);
+      const wrapper = document.createElement("span");
+      wrapper.innerHTML = buildSynonymSuggestionHtml(c.text);
+      middle.parentNode?.insertBefore(wrapper.firstChild!, middle.nextSibling);
+    }
+
+    // "Usar todos" só compensa com mais de uma sugestão na tela — com 1 só,
+    // clicar nela direto já é tão rápido quanto.
+    if (chosen.length >= 2) {
+      const wrapper = document.createElement("span");
+      wrapper.innerHTML = buildSynonymApplyAllHtml();
+      el.appendChild(wrapper.firstChild!);
+    }
+  }
+
+  /** Converte UMA pilulazinha azul de sugestão numa variação de verdade —
+   * opção 1 = exatamente o que já estava escrito (data-synonym-key preserva
+   * a maiúscula original), o resto vem do dicionário. Usado tanto no clique
+   * individual quanto no "usar todos" (ver handleEditorClick). */
+  function applySynonymChip(chip: HTMLElement) {
+    const matchedText = chip.dataset.synonymKey ?? "";
+    const options = [matchedText, ...synonymsFor(matchedText)].filter(Boolean);
+    // O nó de texto da palavra em si é sempre o irmão IMEDIATAMENTE anterior
+    // à pílula — foi cortado bem ali por applySynonymSuggestions, nunca
+    // sobra nada entre os dois.
+    const wordNode = chip.previousSibling;
+    const wrapper = document.createElement("span");
+    wrapper.innerHTML = buildVariationChipHtml(options);
+    chip.replaceWith(wrapper.firstChild!);
+    if (wordNode instanceof Text) wordNode.remove();
   }
 
   function handleEditorKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -218,14 +412,34 @@ export function ScriptEditor({
     document.execCommand("insertLineBreak");
   }
 
-  function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+  function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>, idx: number) {
     // Sempre como texto puro — colar de um site/Word traria formatação/HTML
     // estranho pro corpo da mensagem.
     e.preventDefault();
-    document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    const text = e.clipboardData.getData("text/plain");
+    // NUNCA insertText com o texto de várias linhas cru: pra cada "\n" o
+    // navegador aplica o MESMO parágrafo padrão do Enter (defaultParagraphSeparator)
+    // e embrulha cada linha num <div> novo — a armadilha que handleEditorKeyDown
+    // já contorna pro Enter, mas que insertText não evita sozinho. Isso deixava
+    // o texto colado ANINHADO (texto dentro de <div>, não filho direto da
+    // raiz do editor) e invisível pra applySynonymSuggestions, que só varre
+    // childNodes de texto diretos — colar um script de várias linhas não
+    // sugeria nada. Monta HTML já achatado (texto + <br>, sem <div>) — mesma
+    // estrutura que o Enter já produz — escapando o texto antes (insertHTML
+    // interpretaria "<"/"&" do que foi colado como tag/entidade de verdade).
+    document.execCommand(
+      "insertHTML",
+      false,
+      // \r\n (Windows) e \r solto (Mac clássico) primeiro viram \n puro —
+      // senão sobra um \r perdido no meio do texto (visível ou não).
+      escapeHtml(text.replace(/\r\n?/g, "\n")).replace(/\n/g, "<br>"),
+    );
+    // Consumido na próxima varredura (ver applySynonymSuggestions) — colar
+    // mostra TODAS as trocas possíveis de uma vez, não só 2 aleatórias.
+    pastedStepsRef.current.add(idx);
   }
 
-  /** Clique numa pílula: variável remove direto; variação abre o editor visual (ou remove, se foi no "×"). */
+  /** Clique numa pílula: variável remove direto; variação existente abre o popover flutuante pra editar (ou remove, se foi no "×"). */
   function handleEditorClick(e: React.MouseEvent<HTMLDivElement>, idx: number) {
     const target = e.target as HTMLElement;
 
@@ -239,13 +453,41 @@ export function ScriptEditor({
     const variationChip = target.closest<HTMLElement>("[data-variation-options]");
     if (variationChip) {
       const options: string[] = JSON.parse(decodeURIComponent(variationChip.dataset.variationOptions!));
-      setVariationDialog({ stepIdx: idx, options, editingChip: variationChip });
+      setPendingSelection(null);
+      setVariationDialog({
+        stepIdx: idx,
+        options,
+        anchorRect: variationChip.getBoundingClientRect(),
+        target: { type: "chip", el: variationChip },
+      });
       return;
     }
 
     const tokenChip = target.closest<HTMLElement>("[data-token]");
     if (tokenChip) {
       tokenChip.remove();
+      handleEditorInput(idx);
+    }
+
+    // Clique na pilulazinha azul de sugestão: a palavra clicada vira
+    // variação de verdade (ver applySynonymChip).
+    const synonymChip = target.closest<HTMLElement>("[data-synonym-key]");
+    if (synonymChip) {
+      applySynonymChip(synonymChip);
+      handleEditorInput(idx);
+      return;
+    }
+
+    // Clique em "usar todos": mesma conversão, só que pra CADA pilulazinha
+    // azul ainda na tela de uma vez — a pílula "usar todos" é sempre filha
+    // direta da raiz do editor (ver applySynonymSuggestions/el.appendChild),
+    // então basta olhar os irmãos dela.
+    const applyAllChip = target.closest<HTMLElement>("[data-synonym-apply-all]");
+    if (applyAllChip) {
+      const root = applyAllChip.parentElement;
+      const pills = Array.from(root?.querySelectorAll<HTMLElement>("[data-synonym-key]") ?? []);
+      for (const pill of pills) applySynonymChip(pill);
+      applyAllChip.remove();
       handleEditorInput(idx);
     }
   }
@@ -261,27 +503,59 @@ export function ScriptEditor({
     handleEditorInput(idx);
   }
 
-  /** Abre o editor visual de variação vazio pra uma mensagem específica, pra inserir uma pílula nova nela. */
-  function openNewVariationDialog(stepIdx: number) {
-    setVariationDialog({ stepIdx, options: ["", ""], editingChip: null });
+  /**
+   * Roda a cada solta-do-mouse/tecla dentro de um editor — detecta se sobrou
+   * uma SELEÇÃO DE TEXTO de verdade (não um clique/cursor simples) pra
+   * mostrar o botão flutuante "Variar este trecho" bem ao lado dela. Nunca
+   * ativa em cima de uma seleção que já inclui pílula (variável ou variação)
+   * — o texto VISÍVEL de uma pílula não é o valor real por trás dela
+   * ({cargo}, ou as opções já salvas), então virar isso em variação nova
+   * criaria uma variação com o RÓTULO errado.
+   */
+  function handleEditorSelect(idx: number) {
+    const el = editorRefs.current[idx];
+    const sel = window.getSelection();
+    if (!el || !sel || sel.isCollapsed || sel.rangeCount === 0) {
+      setPendingSelection((prev) => (prev?.stepIdx === idx ? null : prev));
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return;
+    if (range.cloneContents().querySelector("[data-token], [data-variation-options]")) return;
+    if (!range.toString().trim()) return;
+    setPendingSelection({ stepIdx: idx, range: range.cloneRange(), rect: range.getBoundingClientRect() });
   }
 
-  /** Confirma o editor inline: atualiza a pílula existente no DOM, ou insere uma nova no cursor. */
+  /** Botão flutuante "Variar este trecho": abre o popover com o próprio trecho selecionado já na opção 1. */
+  function openVariationFromSelection() {
+    if (!pendingSelection) return;
+    const { stepIdx, range, rect } = pendingSelection;
+    setVariationDialog({ stepIdx, options: [range.toString().trim(), ""], anchorRect: rect, target: { type: "range", range } });
+    setPendingSelection(null);
+  }
+
+  /** Confirma o popover: reescreve a pílula existente (edição), ou substitui o trecho selecionado por uma pílula nova. */
   function saveVariationDialog(options: string[]) {
     if (!variationDialog) return;
-    const { stepIdx, editingChip } = variationDialog;
+    const { stepIdx, target } = variationDialog;
     const el = editorRefs.current[stepIdx];
     if (!el) {
       setVariationDialog(null);
       return;
     }
 
-    if (editingChip && el.contains(editingChip)) {
+    if (target.type === "chip" && el.contains(target.el)) {
       const encoded = encodeURIComponent(JSON.stringify(options));
-      editingChip.setAttribute("data-variation-options", encoded);
-      editingChip.innerHTML = `🔀 ${escapeHtml(options.join(" / "))}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span>`;
-    } else {
-      ensureFocusInsideEditor(el);
+      target.el.setAttribute("data-variation-options", encoded);
+      target.el.innerHTML = `🔀 ${escapeHtml(options.join(" / "))}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span>`;
+    } else if (target.type === "range") {
+      // Restaura a seleção original (o range continua válido mesmo com o
+      // foco/seleção "de verdade" já tendo saído pra dentro do popover) e
+      // deixa o insertHTML SUBSTITUIR o trecho, mesmo mecanismo de sempre.
+      el.focus();
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(target.range);
       document.execCommand("insertHTML", false, buildVariationChipHtml(options));
     }
     handleEditorInput(stepIdx);
@@ -518,8 +792,10 @@ export function ScriptEditor({
                           onFocus={() => setFocusedStepIndex(idx)}
                           onInput={() => handleEditorInput(idx)}
                           onKeyDown={handleEditorKeyDown}
-                          onPaste={handleEditorPaste}
+                          onPaste={(e) => handleEditorPaste(e, idx)}
                           onClick={(e) => handleEditorClick(e, idx)}
+                          onMouseUp={() => handleEditorSelect(idx)}
+                          onKeyUp={() => handleEditorSelect(idx)}
                           className="field-input scrollbar-thin min-h-[4.5rem] cursor-text overflow-y-auto pr-8 whitespace-pre-wrap"
                         />
                         {!step.text && (
@@ -558,27 +834,18 @@ export function ScriptEditor({
                           </label>
                         )}
                       </div>
-                    </div>
-
-                    {/* Seção de variação A/B — sempre visível neste card
-                        (não depende mais de foco), sempre a mesma unidade
-                        visual da mensagem acima dela. */}
-                    <div className="border-t border-neutral-100 p-3 dark:border-neutral-800">
-                      {variationDialog?.stepIdx === idx ? (
-                        <MessageVariationEditor
-                          initialOptions={variationDialog.options}
-                          onCancel={() => setVariationDialog(null)}
-                          onSave={saveVariationDialog}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openNewVariationDialog(idx)}
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-700 transition-colors hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100"
-                        >
-                          <Shuffle className="h-3 w-3" strokeWidth={2.5} />
-                          Adicionar variação A/B
-                        </button>
+                      {/* Pedido explícito: variação nasce direto de um
+                          trecho que a pessoa já escreveu (seleciona o texto,
+                          aparece um botão "Variar este trecho" ali do lado —
+                          ver handleEditorSelect), não de uma seção separada
+                          embaixo. Esta dica é só pra ensinar o gesto na
+                          primeira vez; some sozinha quando a mensagem já tem
+                          alguma variação (🔀) dentro. */}
+                      {!/\{\[[^[\]]+\]\}/.test(step.text) && (
+                        <p className="flex items-center gap-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+                          <Shuffle className="h-3 w-3 shrink-0 text-violet-400 dark:text-violet-500" strokeWidth={2} />
+                          Selecione um trecho do texto acima pra variar como ele é dito (ex.: &quot;Tudo bem?&quot;).
+                        </p>
                       )}
                     </div>
                   </div>
@@ -600,6 +867,57 @@ export function ScriptEditor({
                 Adicionar próximo passo no fluxo
               </button>
             </div>
+
+            {/* Botão flutuante "Variar este trecho" — aparece bem ao lado do
+                texto selecionado (ver handleEditorSelect/pendingSelection).
+                Portal pro body: precisa escapar do overflow do `.card` e
+                ficar por cima de tudo, `position:fixed` com coordenadas de
+                tela (não relativas a nenhum container). */}
+            {pendingSelection &&
+              typeof document !== "undefined" &&
+              createPortal(
+                (() => {
+                  const pos = computeFloatingPosition(pendingSelection.rect, 40, 180);
+                  return (
+                    <button
+                      ref={floatingButtonRef}
+                      type="button"
+                      onClick={openVariationFromSelection}
+                      style={{ top: pos.top, left: pos.left }}
+                      className="fixed z-[70] inline-flex animate-pop-in items-center gap-1.5 rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-medium text-violet-700 shadow-lg hover:bg-violet-50 dark:border-violet-500/30 dark:bg-neutral-900 dark:text-violet-300 dark:hover:bg-violet-500/10"
+                    >
+                      <Shuffle className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      Variar este trecho
+                    </button>
+                  );
+                })(),
+                document.body,
+              )}
+
+            {/* Popover flutuante do editor de variação — mesmo componente de
+                sempre (MessageVariationEditor), só que agora aparece ancorado
+                perto do trecho selecionado (ou da pílula clicada pra editar)
+                em vez de fixo numa seção do card. */}
+            {variationDialog &&
+              typeof document !== "undefined" &&
+              createPortal(
+                (() => {
+                  const pos = computeFloatingPosition(variationDialog.anchorRect, 260);
+                  return (
+                    <div
+                      style={{ top: pos.top, left: pos.left }}
+                      className="fixed z-[70] w-80 max-w-[calc(100vw-16px)] animate-pop-in rounded-md shadow-xl"
+                    >
+                      <MessageVariationEditor
+                        initialOptions={variationDialog.options}
+                        onCancel={() => setVariationDialog(null)}
+                        onSave={saveVariationDialog}
+                      />
+                    </div>
+                  );
+                })(),
+                document.body,
+              )}
           </div>
 
           <div className="card relative space-y-3 overflow-hidden p-4 lg:sticky lg:top-4 lg:col-span-5">

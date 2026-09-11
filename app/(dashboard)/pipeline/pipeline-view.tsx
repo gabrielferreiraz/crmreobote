@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Kanban, List, Upload, History, Trophy } from "lucide-react";
+import { Kanban, List, Upload, History } from "lucide-react";
 import { DealImportDialog } from "@/components/deal-import-dialog";
 import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { NewDealDialog } from "./new-deal-dialog";
@@ -330,14 +330,6 @@ export function PipelineView({
             Lista
           </button>
         </div>
-        {/* Vai pra Lista já filtrada em Ganho — escopo (só meus/da equipe/
-            todos) vem de graça do mesmo getSharedScope que já regula
-            Kanban/Lista inteiros por papel, não precisa de nada especial
-            aqui (ver comentário de wonFilterToken acima). */}
-        <button onClick={showWonDeals} className="btn-secondary">
-          <Trophy className="h-4 w-4" strokeWidth={2} />
-          Mostrar negócios Ganhos
-        </button>
         <button onClick={() => setImportOpen(true)} className="btn-secondary">
           <Upload className="h-4 w-4" strokeWidth={2} />
           Importar
@@ -347,6 +339,18 @@ export function PipelineView({
             <History className="h-4 w-4" strokeWidth={2} />
           </button>
         )}
+        {/* Discreto de propósito (só texto, sem ícone/borda, no canto depois
+            de tudo) — pedido explícito: "algo de canto, que quase ninguém
+            vai usar". Vai pra Lista já filtrada em Ganho — escopo (só meus/
+            da equipe/todos) vem de graça do mesmo getSharedScope que já
+            regula Kanban/Lista inteiros por papel, não precisa de nada
+            especial aqui (ver comentário de wonFilterToken acima). */}
+        <button
+          onClick={showWonDeals}
+          className="text-xs font-medium text-neutral-400 hover:text-neutral-700 hover:underline dark:text-neutral-500 dark:hover:text-neutral-300"
+        >
+          Negócios ganhos
+        </button>
       </div>
     </div>
   );

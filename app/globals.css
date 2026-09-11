@@ -978,6 +978,25 @@ input[type="radio"] {
   .variation-pill__remove {
     @apply ml-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[13px] leading-none text-violet-400 hover:bg-violet-200 hover:text-violet-700 dark:text-violet-500 dark:hover:bg-violet-500/30 dark:hover:text-violet-200;
   }
+
+  /* Sugestão de sinônimo (ver lib/message-synonyms.ts) — pílula AZUL de
+   * propósito, pra nunca confundir com a roxa de variação já confirmada
+   * (.variation-pill acima): esta é só uma sugestão descartável, ainda não
+   * vira parte da mensagem até a pessoa clicar. Menor/mais discreta que as
+   * outras duas pílulas — não pode competir visualmente com o texto de
+   * verdade que a pessoa está escrevendo. */
+  .synonym-suggestion-pill {
+    @apply ml-1 inline-flex cursor-pointer items-center gap-0.5 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0 align-baseline text-[10px] font-medium whitespace-nowrap text-blue-600 transition-colors hover:border-blue-300 hover:bg-blue-100 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20;
+  }
+
+  /* Pílula "usar todos" — some ao lado de cada pilulazinha azul de sinônimo
+   * quando tem mais de uma sugestão de uma vez (típico ao colar um script
+   * inteiro, ver applySynonymSuggestions em script-editor.tsx); mesma cor,
+   * mas preenchida (não outline) pra se destacar como AÇÃO em lote, não mais
+   * uma sugestão individual. */
+  .synonym-suggestion-pill--all {
+    @apply border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-500 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-600;
+  }
 }
 
 /* Fundo do chat: grade de pontos discreta (tipo "canvas" de app de

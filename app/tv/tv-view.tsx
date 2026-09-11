@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } from "lucide-react";
 import { AnimatedFire } from "@/components/animated-fire";
-import { ReoboteLogo } from "@/components/reobote-logo";
+// import { ReoboteLogo } from "@/components/reobote-logo"; // desligado — ver comentário de LOGO_ASPECT_RATIO mais abaixo
 import { fetchTvMetrics } from "./actions";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
@@ -978,10 +978,19 @@ export function TvView({
               <div className="relative shrink-0" style={{ height: "var(--tv-logo-h)", width: `calc(var(--tv-logo-h) * ${LOGO_ASPECT_RATIO})` }}>
                 <img
                   src="/logo-reobote.png"
-                  alt=""
+                  alt="Reobote"
                   className="absolute inset-0 h-full w-full object-contain"
                 />
-                <ReoboteLogo className="absolute inset-0 h-full w-full" />
+                {/* SVG desligado — relatado quebrado na TV real de novo,
+                    mesmo depois de 2 correções (proporção intrínseca, depois
+                    o PNG por baixo como rede de segurança — ver comentário
+                    de LOGO_ASPECT_RATIO acima). O PNG sozinho é o formato
+                    mais universalmente suportado que existe; sem o SVG por
+                    cima não tem mais nada nesse navegador embutido pra
+                    quebrar o desenho da logo. Reative só se algum dia
+                    precisar de novo do SVG vetorial (ex.: telas de
+                    resolução muito maior que o PNG fonte). */}
+                {/* <ReoboteLogo className="absolute inset-0 h-full w-full" /> */}
               </div>
             </div>
             {showHero && (

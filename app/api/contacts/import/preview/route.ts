@@ -87,18 +87,42 @@ export async function POST(req: Request) {
 
     // Só quem tem telefone OU whatsapp preenchido — os únicos dois campos
     // com constraint única (ver lib/contacts/import-resolve.ts), o resto
-    // nunca colide.
-    const [existingContacts, members] = await Promise.all([
+    // nunca colide. responsavel + nome/id do contato: pedido explícito —
+    // mostrar de quem é cada linha ignorada por duplicidade, com ação de
+    // assumir (dono inativo) ou pedir (dono ativo) direto na prévia.
+    const [existingContactsRaw, allMembers] = await Promise.all([
       prisma.contact.findMany({
         where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
-        select: { phoneNormalized: true, whatsappNormalized: true },
+        select: {
+          id: true,
+          name: true,
+          phoneNormalized: true,
+          whatsappNormalized: true,
+          responsavelId: true,
+          responsavel: { select: { name: true } },
+        },
       }),
+      // Ativos E inativos aqui — precisa saber se o dono de um contato
+      // já cadastrado está ativo (mesmo teor de allMembers, não só o
+      // `members` ativo de sempre, que continua servindo só pro
+      // mapeamento da coluna "Responsável" das linhas NOVAS).
       prisma.organizationUser.findMany({
-        where: { organizationId, active: true },
+        where: { organizationId },
         orderBy: { createdAt: "asc" },
         include: { user: { select: { id: true, name: true, email: true } } },
       }),
     ]);
+    const members = allMembers.filter((m) => m.active);
+    const activeMemberIds = new Set(members.map((m) => m.user.id));
+    const existingContacts = existingContactsRaw.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phoneNormalized: c.phoneNormalized,
+      whatsappNormalized: c.whatsappNormalized,
+      responsavelId: c.responsavelId,
+      responsavelName: c.responsavel?.name ?? null,
+      responsavelActive: !!c.responsavelId && activeMemberIds.has(c.responsavelId),
+    }));
 
     const plan = resolveImportPlan({
       dataRows,

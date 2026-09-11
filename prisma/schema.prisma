@@ -80,6 +80,7 @@ model Organization {
   shareGroups            ShareGroup[]
   processTemplates       ProcessTemplate[]
   processTemplateUsages  ProcessTemplateUsage[]
+  leadRequests           LeadRequest[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -137,6 +138,9 @@ model User {
   importBatchesCreated        ImportBatch[]
   shareGroupsCreated          ShareGroup[]              @relation("ShareGroupCreatedBy")
   shareGroupMemberships       ShareGroupMember[]
+  leadRequestsMade            LeadRequest[]             @relation("LeadRequestRequester")
+  leadRequestsReceived        LeadRequest[]             @relation("LeadRequestOwner")
+  leadRequestsResolved        LeadRequest[]             @relation("LeadRequestResolvedBy")
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -1019,6 +1023,7 @@ model Contact {
   whatsappThreads    WhatsAppThread[]
   campaignRecipients CampaignRecipient[]
   processes          Process[]
+  leadRequests       LeadRequest[]
 
   @@unique([organizationId, phoneNormalized])
   @@unique([organizationId, whatsappNormalized])
@@ -1541,6 +1546,49 @@ model ProcessRequest {
 
   @@index([organizationId, resolvedAt])
   @@index([processId])
+}
+
+// ─── Pedido de lead (importação encontra duplicado de outro consultor) ──
+// Achado importando uma planilha (ver lib/contacts/import-resolve.ts): uma
+// linha "duplicada" (telefone/WhatsApp já cadastrado) aponta pra um Contact
+// que já tem responsável ATIVO — quem importa não pode simplesmente tomar o
+// lead (isso é diferente do dono já ter SAÍDO da empresa, ver
+// OrganizationUser.active, caso que reatribui na hora sem passar por aqui,
+// sem gerar linha nenhuma nesta tabela). PENDING até o dono aprovar/recusar
+// — aprovar reatribui Contact.responsavelId pro requester (ver PATCH
+// /api/lead-requests/[id]).
+model LeadRequest {
+  id             String            @id @default(cuid())
+  organizationId String
+  contactId      String
+  requesterId    String
+  // Dono do contato NO MOMENTO do pedido — guardado à parte de
+  // contact.responsavelId (que pode já ter mudado por outro caminho quando
+  // alguém for resolver este pedido) pra sempre saber quem deveria aprovar,
+  // mesmo que o dono real do contato já tenha mudado nesse meio-tempo.
+  ownerId        String
+  status         LeadRequestStatus @default(PENDING)
+  createdAt      DateTime          @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  requester    User         @relation("LeadRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  owner        User         @relation("LeadRequestOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  resolvedBy   User?        @relation("LeadRequestResolvedBy", fields: [resolvedById], references: [id])
+
+  // Sino (ver GET /api/lead-requests) só lista PENDING de um dono — mesmo
+  // padrão de índice composto já usado pro resto do app pra essa consulta
+  // ser sempre por índice, nunca scan.
+  @@index([organizationId, ownerId, status])
+  @@index([contactId])
+}
+
+enum LeadRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
 }
 
 // ─── Modelos de solicitação (documentação/petição) ────────────────────

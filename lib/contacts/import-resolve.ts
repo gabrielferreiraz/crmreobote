@@ -86,6 +86,24 @@ export function detectColumns(rawHeaderRow: string[], overrides?: Partial<Record
 
 export type RowIssueCode = "NO_NAME" | "NO_JOB_TITLE" | "DUPLICATE_CONTACT" | "OWNER_NOT_FOUND";
 
+/** Contato JÁ existente que colidiu com esta linha (telefone OU WhatsApp já
+ * cadastrado) — presente só quando o issue é DUPLICATE_CONTACT contra um
+ * contato de VERDADE no banco (nunca preenchido quando a colisão é com
+ * outra linha do MESMO arquivo, que não tem dono nenhum pra pedir/assumir
+ * ainda). Alimenta o "quem é o dono desse lead" na prévia (ver
+ * contact-import-dialog.tsx) — pedido explícito: mostrar de quem é cada
+ * linha ignorada, com ação de assumir (dono inativo) ou pedir (dono ativo). */
+export type ExistingContactMatch = {
+  id: string;
+  name: string;
+  responsavelId: string | null;
+  responsavelName: string | null;
+  /** false também quando não tem responsável nenhum — nesse caso não tem
+   * "consultor pra pedir", é o mesmo caminho de "assumir direto" do dono
+   * inativo (ver EditContactDialog/ContactConflictNotice, mesmo padrão). */
+  responsavelActive: boolean;
+};
+
 export type ResolvedRow = {
   /** 1-based, contando a linha de cabeçalho como 1 — bate com o número de linha que a pessoa vê ao abrir a planilha. */
   rowNumber: number;
@@ -95,6 +113,7 @@ export type ResolvedRow = {
   source: string | null;
   responsavelName: string | null;
   issues: { code: RowIssueCode; message: string }[];
+  existingContact?: ExistingContactMatch | null;
 };
 
 export type ImportPlanSummary = {
@@ -131,7 +150,15 @@ export type ImportPlan = {
   writes?: { newContacts: NewContactWrite[] };
 };
 
-export type ExistingContactInput = { phoneNormalized: string | null; whatsappNormalized: string | null };
+export type ExistingContactInput = {
+  id: string;
+  name: string;
+  phoneNormalized: string | null;
+  whatsappNormalized: string | null;
+  responsavelId: string | null;
+  responsavelName: string | null;
+  responsavelActive: boolean;
+};
 
 export type ResolveImportInput = {
   dataRows: string[][];
@@ -164,18 +191,28 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   // que uma linha não virou contato). Por variante (9º dígito) — mesmo
   // motivo de sempre em phone-normalize.ts: planilha com número num formato
   // diferente do já salvo ainda precisa reconhecer a mesma pessoa.
-  const claimed = new Set<string>();
-  function claim(normalized: string | null) {
+  // Valor "in-file" = reivindicado por uma linha ANTERIOR deste mesmo
+  // arquivo (nunca um contato de verdade, então nunca tem dono pra
+  // pedir/assumir — ver ExistingContactMatch). Um ExistingContactInput real
+  // preenche com os dados do contato já cadastrado.
+  const claimed = new Map<string, ExistingContactInput | "in-file">();
+  function claim(normalized: string | null, owner: ExistingContactInput | "in-file") {
     if (!normalized) return;
-    for (const v of brazilianMobileVariants(normalized)) claimed.add(v);
+    for (const v of brazilianMobileVariants(normalized)) {
+      if (!claimed.has(v)) claimed.set(v, owner);
+    }
   }
-  function isClaimed(normalized: string | null): boolean {
-    if (!normalized) return false;
-    return brazilianMobileVariants(normalized).some((v) => claimed.has(v));
+  function findClaim(normalized: string | null): ExistingContactInput | "in-file" | null {
+    if (!normalized) return null;
+    for (const v of brazilianMobileVariants(normalized)) {
+      const found = claimed.get(v);
+      if (found) return found;
+    }
+    return null;
   }
   for (const c of input.existingContacts) {
-    claim(c.phoneNormalized);
-    claim(c.whatsappNormalized);
+    claim(c.phoneNormalized, c);
+    claim(c.whatsappNormalized, c);
   }
 
   const memberByName = new Map(input.members.map((m) => [normalizeHeader(m.name), m.userId]));
@@ -222,14 +259,25 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     const phoneNormalized = normalizePhoneNumber(phone);
     const whatsappNormalized = normalizePhoneNumber(whatsapp);
 
-    if (isClaimed(phoneNormalized) || isClaimed(whatsappNormalized)) {
+    const claimant = findClaim(phoneNormalized) ?? findClaim(whatsappNormalized);
+    if (claimant) {
       duplicateContacts += 1;
       issues.push({ code: "DUPLICATE_CONTACT", message: "Já existe contato com esse telefone ou WhatsApp — linha ignorada" });
-      rows.push({ rowNumber, willImport: false, name, jobTitle, source: source ?? null, responsavelName: null, issues });
+      const existingContact: ExistingContactMatch | null =
+        claimant === "in-file"
+          ? null
+          : {
+              id: claimant.id,
+              name: claimant.name,
+              responsavelId: claimant.responsavelId,
+              responsavelName: claimant.responsavelName,
+              responsavelActive: claimant.responsavelActive,
+            };
+      rows.push({ rowNumber, willImport: false, name, jobTitle, source: source ?? null, responsavelName: null, issues, existingContact });
       continue;
     }
-    claim(phoneNormalized);
-    claim(whatsappNormalized);
+    claim(phoneNormalized, "in-file");
+    claim(whatsappNormalized, "in-file");
 
     const responsavelRaw = cell(row, "responsavel");
     let responsavelId = responsavelRaw ? (memberByEmail.get(responsavelRaw.toLowerCase()) ?? memberByName.get(normalizeHeader(responsavelRaw))) : undefined;
