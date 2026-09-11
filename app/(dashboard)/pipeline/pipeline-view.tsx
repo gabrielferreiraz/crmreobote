@@ -383,7 +383,12 @@ export function PipelineView({
           initialCountByStage={initialKanbanCountByStage}
           initialSumByStage={initialKanbanSumByStage}
           initialWithTaskByStage={initialKanbanWithTaskByStage}
-          members={members}
+          // allMembers (não `members`, que fica só ativos — usado por
+          // NewDealDialog logo abaixo, pra nunca deixar atribuir negócio NOVO
+          // a alguém inativo): o filtro "Status do consultor" do próprio
+          // Kanban (ver kanban-board.tsx) precisa enxergar os inativos
+          // também, senão "Somente inativos" nunca teria ninguém pra listar.
+          members={allMembers}
           currentUserId={currentUserId}
           leadSources={leadSources}
           jobTitles={jobTitles}

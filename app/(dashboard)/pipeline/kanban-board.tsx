@@ -68,8 +68,14 @@ export type Deal = {
   lostReason: string | null;
 };
 
-type MemberOption = { id: string; name: string };
+type MemberOption = { id: string; name: string; active: boolean };
 type LabelOption = { label: string };
+
+// Sentinela impossível — mesmo truque de deals-list.tsx: combinar um
+// responsável específico com "somente ativos/inativos" contraditório entre
+// si (a pessoa escolhida não bate com o status escolhido) precisa dar ZERO
+// negócios, não cair de volta pra "sem filtro de responsável".
+const IMPOSSIBLE_OWNER_ID = "__none__";
 
 // Referência estável pra etapas sem nenhum negócio carregado — evitar criar
 // um array novo a cada render aqui deixa o memo() do StageColumn (ver abaixo)
@@ -96,6 +102,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 const KANBAN_DEFAULT_FILTERS_JSON = JSON.stringify({
   search: "",
   ownerFilter: "",
+  ownerStatusFilter: "",
   sourceFilter: "",
   jobTitleFilter: "",
   noValueOnly: false,
@@ -204,6 +211,13 @@ export function KanbanBoard({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
+  // Ativos/inativos (pedido explícito: "vai mostrar os negócios de
+  // consultores ativos ou só de inativos, e os dois") — mesmo mecanismo já
+  // existente na Lista (ver deals-list.tsx), eixo independente de QUAL
+  // responsável (ownerFilter): dá pra combinar os dois (uma pessoa
+  // específica + status) ou usar só o status sozinho (todos os inativos, de
+  // qualquer um).
+  const [ownerStatusFilter, setOwnerStatusFilter] = useState<"" | "active" | "inactive">("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
   const [noValueOnly, setNoValueOnly] = useState(false);
@@ -287,17 +301,19 @@ export function KanbanBoard({
     return Array.from(set).sort();
   }, [dealsByStage, jobTitles]);
 
-  const hasFilters = !!search || !!ownerFilter || !!sourceFilter || !!jobTitleFilter || noValueOnly || !!sort;
+  const hasFilters =
+    !!search || !!ownerFilter || !!ownerStatusFilter || !!sourceFilter || !!jobTitleFilter || noValueOnly || !!sort;
 
   // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
   // quickFilter fica de fora de propósito: já vem controlado pela URL (ver
   // pipeline-view.tsx), persistir os dois em paralelo daria dois "últimos
   // valores lembrados" competindo.
-  const persistedFilterValues = { search, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort };
+  const persistedFilterValues = { search, ownerFilter, ownerStatusFilter, sourceFilter, jobTitleFilter, noValueOnly, sort };
   const { hydrated } = usePersistedFilters("pipeline-kanban", persistedFilterValues, (saved) => {
     if (saved.search !== undefined) setSearch(saved.search);
     if (saved.ownerFilter !== undefined) setOwnerFilter(saved.ownerFilter);
+    if (saved.ownerStatusFilter !== undefined) setOwnerStatusFilter(saved.ownerStatusFilter);
     if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
     if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
     if (saved.noValueOnly !== undefined) setNoValueOnly(saved.noValueOnly);
@@ -307,6 +323,7 @@ export function KanbanBoard({
   function clearFilters() {
     setSearch("");
     setOwnerFilter("");
+    setOwnerStatusFilter("");
     setSourceFilter("");
     setJobTitleFilter("");
     setNoValueOnly(false);
@@ -322,10 +339,28 @@ export function KanbanBoard({
   // handleLoadMore abaixo) — sem isso, "Carregar mais" precisaria entrar nas
   // dependências do useCallback, e sua identidade mudaria a cada tecla
   // digitada, quebrando o memo() de StageColumn (ver comentário mais abaixo).
-  const filtersRef = useRef({ debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter });
+  const filtersRef = useRef({
+    debouncedSearch,
+    ownerFilter,
+    ownerStatusFilter,
+    sourceFilter,
+    jobTitleFilter,
+    noValueOnly,
+    sort,
+    quickFilter,
+  });
   useEffect(() => {
-    filtersRef.current = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter };
-  }, [debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter]);
+    filtersRef.current = {
+      debouncedSearch,
+      ownerFilter,
+      ownerStatusFilter,
+      sourceFilter,
+      jobTitleFilter,
+      noValueOnly,
+      sort,
+      quickFilter,
+    };
+  }, [debouncedSearch, ownerFilter, ownerStatusFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter]);
 
   // Mesmo motivo do filtersRef acima: handleLoadMore precisa saber quantos
   // negócios cada coluna já tem carregado (pro `skip`) sem depender de
@@ -340,7 +375,20 @@ export function KanbanBoard({
     params.set("pipelineId", pipelineId);
     params.set("status", "OPEN");
     if (filters.debouncedSearch) params.set("q", filters.debouncedSearch);
-    if (filters.ownerFilter) params.set("ownerId", filters.ownerFilter);
+    // Combina responsável específico + status ativo/inativo (mesma lógica de
+    // deals-list.tsx) — /api/deals já aceita "ownerId" como lista separada
+    // por vírgula (ver app/api/deals/route.ts), então "somente inativos"
+    // sozinho vira a lista de todo mundo inativo.
+    if (filters.ownerFilter && filters.ownerStatusFilter) {
+      const isActive = members.find((m) => m.id === filters.ownerFilter)?.active ?? true;
+      const matches = filters.ownerStatusFilter === "active" ? isActive : !isActive;
+      params.set("ownerId", matches ? filters.ownerFilter : IMPOSSIBLE_OWNER_ID);
+    } else if (filters.ownerFilter) {
+      params.set("ownerId", filters.ownerFilter);
+    } else if (filters.ownerStatusFilter) {
+      const ids = members.filter((m) => (filters.ownerStatusFilter === "active" ? m.active : !m.active)).map((m) => m.id);
+      params.set("ownerId", ids.length > 0 ? ids.join(",") : IMPOSSIBLE_OWNER_ID);
+    }
     if (filters.sourceFilter) params.set("source", filters.sourceFilter);
     if (filters.jobTitleFilter) params.set("jobTitle", filters.jobTitleFilter);
     if (filters.noValueOnly) params.set("noValue", "1");
@@ -391,7 +439,16 @@ export function KanbanBoard({
     }
     let cancelled = false;
     setStagesLoading(true);
-    const filters = { debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter };
+    const filters = {
+      debouncedSearch,
+      ownerFilter,
+      ownerStatusFilter,
+      sourceFilter,
+      jobTitleFilter,
+      noValueOnly,
+      sort,
+      quickFilter,
+    };
 
     // Duas consultas no total (não uma por coluna) — ver o mesmo motivo em
     // page.tsx: N consultas em paralelo (uma por etapa) chegou a estourar o
@@ -437,7 +494,19 @@ export function KanbanBoard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, debouncedSearch, ownerFilter, sourceFilter, jobTitleFilter, noValueOnly, sort, quickFilter, pipelineId, reloadToken]);
+  }, [
+    hydrated,
+    debouncedSearch,
+    ownerFilter,
+    ownerStatusFilter,
+    sourceFilter,
+    jobTitleFilter,
+    noValueOnly,
+    sort,
+    quickFilter,
+    pipelineId,
+    reloadToken,
+  ]);
 
   // Identidade estável (deps vazias) — lida com filtros/contagem carregada
   // via ref em vez de closure, pra não recriar a função (e derrubar o
@@ -608,7 +677,23 @@ export function KanbanBoard({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
-                ...orderedMembers.map((m) => ({ value: m.id, label: m.id === currentUserId ? "Eu" : m.name })),
+                ...orderedMembers.map((m) => ({
+                  value: m.id,
+                  label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,
+                })),
+              ]}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Status do consultor</label>
+            <Select
+              value={ownerStatusFilter}
+              onChange={(v) => setOwnerStatusFilter(v as "" | "active" | "inactive")}
+              className="w-full py-1.5 text-sm"
+              options={[
+                { value: "", label: "Ativos e inativos" },
+                { value: "active", label: "Somente ativos" },
+                { value: "inactive", label: "Somente inativos" },
               ]}
             />
           </div>
