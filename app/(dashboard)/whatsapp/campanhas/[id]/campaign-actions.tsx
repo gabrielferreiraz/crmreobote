@@ -59,7 +59,13 @@ export function CampaignActions({ id, status, hasAudienceFilter }: { id: string;
         </button>
       )}
       {status === "RUNNING" && (
-        <button type="button" disabled={sendingNow} onClick={sendNow} className="btn-secondary" title="Envia o próximo pendente agora, sem esperar o delay entre contatos">
+        <button
+          type="button"
+          disabled={sendingNow}
+          onClick={sendNow}
+          className="btn-secondary"
+          title="Envia o próximo pendente agora (inicial, reenvio ou onda de RMKT que já venceu — nessa ordem), sem esperar o delay entre contatos. Só envia quem já está no prazo; não adianta quem ainda não venceu."
+        >
           {sendingNow ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
           Enviar agora
         </button>
