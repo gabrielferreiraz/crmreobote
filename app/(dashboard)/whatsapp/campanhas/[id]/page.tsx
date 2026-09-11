@@ -76,6 +76,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
               campaign.audienceFilter.tags.length > 0 ||
               campaign.audienceFilter.cities.length > 0
             }
+            hasRmktWaves={campaign.hasRmktWaves}
           />
         </div>
 

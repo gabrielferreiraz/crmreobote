@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
-import { sendCampaignRecipientNow } from "@/lib/campaigns/engine";
+import { sendCampaignRecipientNow, sendNextRmktWaveNow } from "@/lib/campaigns/engine";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +12,21 @@ const REASON_MESSAGES: Record<string, string> = {
   "no-pending": "Não há ninguém pendente pra enviar agora.",
 };
 
-/** Força o próximo envio (inicial ou de reenvio) imediatamente, pulando só o throttle de delay — ver sendCampaignRecipientNow. */
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+// "no-pending" pro alvo wave merece uma mensagem própria — "ninguém
+// pendente" soa como a campanha inteira parada, quando pode só ser que
+// ninguém tem onda vencida agora (tem gente esperando o prazo, só ainda
+// não chegou).
+const WAVE_NO_PENDING_MESSAGE = "Não há ninguém com onda de RMKT vencida agora — a próxima ainda não chegou no prazo.";
+
+/**
+ * Força um envio imediatamente, pulando só o throttle de delay (ver
+ * sendCampaignRecipientNow/sendNextRmktWaveNow). Body opcional
+ * `{ target: "wave" }` — pedido explícito: botão dedicado "Enviar onda de
+ * RMKT agora", que pula direto pra onda em vez de seguir a ordem de
+ * prioridade normal (inicial → reenvio único → onda) do botão genérico.
+ * Sem `target` (ou qualquer outro valor), comportamento de sempre.
+ */
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -22,9 +35,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const rateLimited = rateLimitOrResponse(`campaign-send-now:${access.organizationId}`, 20, 60_000);
   if (rateLimited) return rateLimited;
 
-  const result = await sendCampaignRecipientNow(access.organizationId, id);
+  const body = await req.json().catch(() => ({}));
+  const onlyWave = (body as { target?: string }).target === "wave";
+
+  const result = onlyWave
+    ? await sendNextRmktWaveNow(access.organizationId, id)
+    : await sendCampaignRecipientNow(access.organizationId, id);
+
   if (!result.ok) {
-    return NextResponse.json({ error: REASON_MESSAGES[result.reason] ?? "Não foi possível enviar agora" }, { status: 400 });
+    const message = onlyWave && result.reason === "no-pending" ? WAVE_NO_PENDING_MESSAGE : (REASON_MESSAGES[result.reason] ?? "Não foi possível enviar agora");
+    return NextResponse.json({ error: message }, { status: 400 });
   }
   return NextResponse.json(result);
 }
