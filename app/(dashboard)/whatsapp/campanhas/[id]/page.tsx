@@ -38,13 +38,17 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     const { completionEstimate } = campaign;
 
     // Só checa quando faz diferença de verdade: campanha rodando com gente
-    // pendente é exatamente o cenário em que o cron parado (job desativado
-    // no cron-job.org — ver lib/cron-watchdog.ts) faz a Estimativa/contagem
-    // regressiva abaixo mentir (mostra um horário que nunca vai se cumprir
-    // sozinho). Pedido explícito: mostrar isso aqui na tela, não só mandar
-    // e-mail de alerta pro Dono — quem está aqui olhando o painel também
-    // precisa saber.
-    const showAutoSendInfo = campaign.status === "RUNNING" && campaign.counts.pending > 0;
+    // pendente (envio inicial OU reenvio automático em fila) é exatamente o
+    // cenário em que o cron parado (job desativado no cron-job.org — ver
+    // lib/cron-watchdog.ts) faz a Estimativa/contagem regressiva abaixo
+    // mentir (mostra um horário que nunca vai se cumprir sozinho). Inclui
+    // pendingFollowUpCount de propósito — antes só olhava o envio inicial,
+    // então uma campanha já na "fase de follow-up" (envio inicial 100%
+    // feito, só esperando reenvio) nunca acionava esse aviso, mesmo com o
+    // mesmo cron parado. Pedido explícito: mostrar isso aqui na tela, não só
+    // mandar e-mail de alerta pro Dono — quem está aqui olhando o painel
+    // também precisa saber.
+    const showAutoSendInfo = campaign.status === "RUNNING" && (campaign.counts.pending > 0 || campaign.pendingFollowUpCount > 0);
     const cronStatus = showAutoSendInfo
       ? await getCronStaleness(CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES)
       : null;
@@ -100,21 +104,22 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </div>
         </div>
 
+        {cronStatus?.stale && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
+            <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
+            <span>
+              <strong>Envio automático parado</strong> — o disparador não roda{" "}
+              {cronStatus.minutesSinceLastRun === null
+                ? "há muito tempo"
+                : `há ${Math.round(cronStatus.minutesSinceLastRun)} min`}{" "}
+              (esperado a cada 1-2min). Os horários abaixo (envio inicial e reenvio) não vão se cumprir sozinhos —
+              use &quot;Enviar agora&quot; ou avise quem administra o sistema.
+            </span>
+          </div>
+        )}
+
         {campaign.counts.pending > 0 && (
           <div className="card space-y-2 p-3 text-sm text-neutral-600 dark:text-neutral-300">
-            {cronStatus?.stale && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
-                <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
-                <span>
-                  <strong>Envio automático parado</strong> — o disparador não roda{" "}
-                  {cronStatus.minutesSinceLastRun === null
-                    ? "há muito tempo"
-                    : `há ${Math.round(cronStatus.minutesSinceLastRun)} min`}{" "}
-                  (esperado a cada 1-2min). Os horários abaixo não vão se cumprir sozinhos — use &quot;Enviar
-                  agora&quot; ou avise quem administra o sistema.
-                </span>
-              </div>
-            )}
             <div className="flex flex-wrap items-center gap-2">
               <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <span className="font-medium">Estimativa de conclusão:</span>
@@ -136,6 +141,33 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </div>
         )}
 
+        {/* Pedido explícito: "não mostra quando vai começar a fase de
+            follow-up" — antes disso não existia nenhum horário previsto pra
+            reenvio em lugar nenhum da tela, só o rótulo genérico "Fase de
+            follow-up" no status (ver campaigns-table.tsx), sem dizer QUANDO.
+            Card próprio (não reaproveita o de cima) porque os dois podem
+            aparecer juntos: o disparo inicial ainda pode estar rolando (uns
+            poucos PENDING) enquanto os já enviados há tempo suficiente já
+            entraram na fila de reenvio. */}
+        {campaign.followUpEnabled && campaign.pendingFollowUpCount > 0 && (
+          <div className="card space-y-1 p-3 text-sm text-neutral-600 dark:text-neutral-300">
+            <div className="flex flex-wrap items-center gap-2">
+              <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <span className="font-medium">Fase de follow-up:</span>
+              <span>
+                {campaign.pendingFollowUpCount} destinatário{campaign.pendingFollowUpCount === 1 ? "" : "s"} sem resposta aguardando reenvio
+                automático
+              </span>
+            </div>
+            {campaign.nextFollowUpEstimateAt && (
+              <NextSendCountdown targetAt={campaign.nextFollowUpEstimateAt.toISOString()} label="Próximo reenvio estimado" />
+            )}
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Reenvia sozinho pra quem não respondeu, {formatHours(campaign.followUpDelayHours)} depois do envio inicial de cada um — veja o previsto de cada pessoa na coluna &quot;Reenvio&quot; abaixo.
+            </p>
+          </div>
+        )}
+
         <CampaignMetricsChart data={campaign.dailyMetrics} />
 
         <RecipientsTable
@@ -144,6 +176,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             sentAt: r.sentAt?.toISOString() ?? null,
             repliedAt: r.repliedAt?.toISOString() ?? null,
             followUpSentAt: r.followUpSentAt?.toISOString() ?? null,
+            nextFollowUpAt: r.nextFollowUpAt?.toISOString() ?? null,
           }))}
         />
       </div>

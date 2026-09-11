@@ -13,6 +13,8 @@ type Recipient = {
   sentAt: string | null;
   repliedAt: string | null;
   followUpSentAt: string | null;
+  /** Previsão de quando o reenvio automático deve sair — null quando já foi reenviado (ver followUpSentAt), já respondeu, ou não está na fila. */
+  nextFollowUpAt: string | null;
   scriptName: string | null;
   followUpScriptName: string | null;
   error: string | null;
@@ -37,6 +39,18 @@ const STATUS_TONE: Record<RecipientStatus, string> = {
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** "Reenvio" da linha — já aconteceu (followUpSentAt) tem prioridade sobre a
+ * previsão (nextFollowUpAt, sempre null depois que o reenvio de fato sai —
+ * ver nextFollowUpAtByRecipient em lib/campaigns/list.ts). Previsão vem
+ * marcada como tal (itálico + "Previsto:") pra nunca ser lida como já
+ * confirmada — pedido explícito: "não mostra quando vai começar a fase de
+ * follow-up". */
+function FollowUpCell({ sentAt, nextAt }: { sentAt: string | null; nextAt: string | null }) {
+  if (sentAt) return <>{formatDateTime(sentAt)}</>;
+  if (nextAt) return <span className="text-neutral-400 italic dark:text-neutral-500">Previsto: {formatDateTime(nextAt)}</span>;
+  return <>—</>;
 }
 
 export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
@@ -118,7 +132,7 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                   </p>
                   <p>Enviada em: {formatDateTime(r.sentAt)}</p>
                   <p>Respondeu em: {formatDateTime(r.repliedAt)}</p>
-                  <p>Reenvio em: {formatDateTime(r.followUpSentAt)}</p>
+                  <p>Reenvio: <FollowUpCell sentAt={r.followUpSentAt} nextAt={r.nextFollowUpAt} /></p>
                 </div>
               </div>
             ))}
@@ -159,7 +173,9 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                     </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.repliedAt)}</td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.followUpSentAt)}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
+                      <FollowUpCell sentAt={r.followUpSentAt} nextAt={r.nextFollowUpAt} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

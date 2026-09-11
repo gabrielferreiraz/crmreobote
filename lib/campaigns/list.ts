@@ -93,6 +93,17 @@ export type CampaignRecipientRow = {
   sentAt: Date | null;
   repliedAt: Date | null;
   followUpSentAt: Date | null;
+  /**
+   * Previsão de quando o reenvio automático deve sair pra ESTE destinatário
+   * — sentAt + followUpDelayHours, só quando ele de fato está na fila (ver
+   * findFollowUpCandidate em lib/campaigns/engine.ts: SENT, nunca respondeu,
+   * reenvio ainda não tentado). null quando já foi reenviado (ver
+   * followUpSentAt), já respondeu, ou a campanha não tem reenvio ligado —
+   * nesses casos não há "próximo reenvio" nenhum pra prever. Mesma ideia de
+   * "estimativa, não garantia" que nextSendEstimateAt já é lá embaixo: o
+   * motor real ainda respeita janela de horário/dias e teto diário.
+   */
+  nextFollowUpAt: Date | null;
   scriptName: string | null;
   followUpScriptName: string | null;
   error: string | null;
@@ -114,6 +125,16 @@ export type CampaignDetail = CampaignSummary & {
    * envio em andamento pra estimar (campanha não RUNNING, ou sem pendentes).
    */
   nextSendEstimateAt: Date | null;
+  /**
+   * Quantos destinatários já foram enviados, não responderam, e ainda vão
+   * receber o reenvio automático (ver nextFollowUpAt em
+   * CampaignRecipientRow) — pedido explícito: "não mostra quando vai
+   * começar a fase de follow-up". 0 quando followUpEnabled é falso, ou
+   * quando todo mundo já respondeu/já foi reenviado.
+   */
+  pendingFollowUpCount: number;
+  /** O mais próximo entre todos os nextFollowUpAt de pendingFollowUpCount — null quando esse contador é 0. */
+  nextFollowUpEstimateAt: Date | null;
 };
 
 /** Usado pela tela de destinatários — uma linha por contato, com status individual, mais a série diária pro painel de métricas. */
@@ -152,6 +173,15 @@ export async function getCampaignDetail(
     metricsByDay.set(key, entry);
   };
 
+  // Previsão de reenvio por destinatário — mesmo critério exato de
+  // findFollowUpCandidate em lib/campaigns/engine.ts (SENT, nunca
+  // respondeu, reenvio ainda não tentado), calculado uma vez aqui e
+  // reaproveitado tanto no total agregado (pendingFollowUpCount/
+  // nextFollowUpEstimateAt) quanto por linha (recipients.map lá embaixo).
+  const nextFollowUpAtByRecipient = new Map<string, Date>();
+  let pendingFollowUpCount = 0;
+  let nextFollowUpEstimateAt: Date | null = null;
+
   for (const r of campaign.recipients) {
     if (r.status === "PENDING") counts.pending += 1;
     if (r.status === "SENT") counts.sent += 1;
@@ -164,6 +194,13 @@ export async function getCampaignDetail(
     // maior timestamp entre envio inicial e reenvio, não só um dos dois.
     if (r.sentAt && (!lastAt || r.sentAt > lastAt)) lastAt = r.sentAt;
     if (r.followUpSentAt && (!lastAt || r.followUpSentAt > lastAt)) lastAt = r.followUpSentAt;
+
+    if (campaign.followUpEnabled && r.status === "SENT" && !r.repliedAt && !r.followUpSentAt && r.sentAt) {
+      const at = new Date(r.sentAt.getTime() + campaign.followUpDelayHours * 60 * 60 * 1000);
+      nextFollowUpAtByRecipient.set(r.id, at);
+      pendingFollowUpCount += 1;
+      if (!nextFollowUpEstimateAt || at < nextFollowUpEstimateAt) nextFollowUpEstimateAt = at;
+    }
   }
 
   const audienceFilter = parseAudienceFilter(campaign.audienceFilter);
@@ -193,6 +230,13 @@ export async function getCampaignDetail(
         )
       : null;
 
+  // Mesmo empurrão pra dentro da janela permitida que nextSendEstimateAt já
+  // leva acima — reenvio passa pelo mesmo shouldSendNow/janela de horário
+  // do envio inicial (ver lib/campaigns/engine.ts), então um prazo que caiu
+  // de madrugada só sai de verdade na próxima janela permitida.
+  const nextFollowUpEstimateAtInWindow =
+    campaign.status === "RUNNING" && nextFollowUpEstimateAt ? nextAllowedSendWindow(campaign, nextFollowUpEstimateAt) : nextFollowUpEstimateAt;
+
   return {
     id: campaign.id,
     name: campaign.name,
@@ -220,6 +264,7 @@ export async function getCampaignDetail(
       sentAt: r.sentAt,
       repliedAt: r.repliedAt,
       followUpSentAt: r.followUpSentAt,
+      nextFollowUpAt: nextFollowUpAtByRecipient.get(r.id) ?? null,
       scriptName: r.scriptId ? (scriptNameById.get(r.scriptId) ?? "Script removido") : null,
       followUpScriptName: r.followUpScriptId ? (scriptNameById.get(r.followUpScriptId) ?? "Script removido") : null,
       error: r.error ?? r.followUpError,
@@ -227,5 +272,7 @@ export async function getCampaignDetail(
     dailyMetrics: Array.from(metricsByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
     completionEstimate,
     nextSendEstimateAt,
+    pendingFollowUpCount,
+    nextFollowUpEstimateAt: nextFollowUpEstimateAtInWindow,
   };
 }

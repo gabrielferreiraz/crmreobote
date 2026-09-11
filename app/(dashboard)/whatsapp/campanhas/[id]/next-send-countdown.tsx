@@ -23,7 +23,7 @@ function formatCountdown(ms: number): string {
  * faixa min/max a cada checagem do cron, então o envio real pode acontecer um
  * pouco antes ou depois de zerar.
  */
-export function NextSendCountdown({ targetAt }: { targetAt: string }) {
+export function NextSendCountdown({ targetAt, label = "Próximo envio estimado" }: { targetAt: string; label?: string }) {
   const target = new Date(targetAt).getTime();
   const [remaining, setRemaining] = useState(() => target - Date.now());
 
@@ -44,7 +44,7 @@ export function NextSendCountdown({ targetAt }: { targetAt: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-300">
       <Clock3 className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-      Próximo envio estimado:
+      {label}:
       <span className="tabular-nums">{display}</span>
     </span>
   );
