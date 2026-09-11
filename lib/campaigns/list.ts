@@ -130,11 +130,15 @@ export type CampaignDetail = CampaignSummary & {
    * receber o reenvio automático (ver nextFollowUpAt em
    * CampaignRecipientRow) — pedido explícito: "não mostra quando vai
    * começar a fase de follow-up". 0 quando followUpEnabled é falso, ou
-   * quando todo mundo já respondeu/já foi reenviado.
+   * quando todo mundo já respondeu/já foi reenviado. Alimentado tanto por
+   * followUpEnabled (reenvio único) quanto por rmktWaves (várias ondas,
+   * campanhas LEAD_CAPTURE) — os dois mecanismos que a engine processa.
    */
   pendingFollowUpCount: number;
   /** O mais próximo entre todos os nextFollowUpAt de pendingFollowUpCount — null quando esse contador é 0. */
   nextFollowUpEstimateAt: Date | null;
+  /** true quando a campanha usa ondas de RMKT (Campaign.rmktWaves) em vez do reenvio único — decide o texto do card de fase de follow-up (dias por onda, não "Xh depois"). */
+  hasRmktWaves: boolean;
 };
 
 /** Usado pela tela de destinatários — uma linha por contato, com status individual, mais a série diária pro painel de métricas. */
@@ -173,11 +177,29 @@ export async function getCampaignDetail(
     metricsByDay.set(key, entry);
   };
 
-  // Previsão de reenvio por destinatário — mesmo critério exato de
-  // findFollowUpCandidate em lib/campaigns/engine.ts (SENT, nunca
-  // respondeu, reenvio ainda não tentado), calculado uma vez aqui e
-  // reaproveitado tanto no total agregado (pendingFollowUpCount/
-  // nextFollowUpEstimateAt) quanto por linha (recipients.map lá embaixo).
+  // Ondas de RMKT (Campaign.rmktWaves) — mesmo parse trivial (sem validação,
+  // o formato já foi validado na criação) de parseRmktWaves em
+  // lib/campaigns/engine.ts, não exportado de lá pra não criar acoplamento
+  // com um arquivo de motor só por causa de uma linha.
+  const rmktWaves = Array.isArray(campaign.rmktWaves) ? (campaign.rmktWaves as { dayOffset: number }[]) : [];
+
+  // Previsão de reenvio por destinatário — cobre os DOIS mecanismos que a
+  // engine (lib/campaigns/engine.ts) sabe processar, cada campanha usa só
+  // um dos dois na prática (nunca os dois ao mesmo tempo):
+  // - followUpEnabled: reenvio único, mesmo critério de findFollowUpCandidate
+  //   (SENT, nunca respondeu, reenvio ainda não tentado).
+  // - rmktWaves: sequência de ondas (campanhas LEAD_CAPTURE), mesmo critério
+  //   de findNextWaveCandidate (SENT, nunca respondeu, ainda dentro do
+  //   array de ondas) — dayOffset conta do envio INICIAL, não da onda
+  //   anterior (mesma regra da engine).
+  // Calculado uma vez aqui e reaproveitado tanto no total agregado
+  // (pendingFollowUpCount/nextFollowUpEstimateAt) quanto por linha
+  // (recipients.map lá embaixo) — sem isso, uma campanha com RMKT
+  // configurado (não followUpEnabled) nunca mostrava nada na coluna
+  // "Reenvio" nem no card de fase de follow-up, mesmo enviando onda de
+  // verdade sozinha (relatado: "verifique se está sendo enviado o rmkt
+  // porque foi programado e não foi ainda parece" — a engine estava
+  // funcionando certo, só a tela não sabia mostrar esse tipo de campanha).
   const nextFollowUpAtByRecipient = new Map<string, Date>();
   let pendingFollowUpCount = 0;
   let nextFollowUpEstimateAt: Date | null = null;
@@ -195,8 +217,14 @@ export async function getCampaignDetail(
     if (r.sentAt && (!lastAt || r.sentAt > lastAt)) lastAt = r.sentAt;
     if (r.followUpSentAt && (!lastAt || r.followUpSentAt > lastAt)) lastAt = r.followUpSentAt;
 
+    let at: Date | null = null;
     if (campaign.followUpEnabled && r.status === "SENT" && !r.repliedAt && !r.followUpSentAt && r.sentAt) {
-      const at = new Date(r.sentAt.getTime() + campaign.followUpDelayHours * 60 * 60 * 1000);
+      at = new Date(r.sentAt.getTime() + campaign.followUpDelayHours * 60 * 60 * 1000);
+    } else if (rmktWaves.length > 0 && r.status === "SENT" && !r.repliedAt && r.nextWaveIndex < rmktWaves.length && r.sentAt) {
+      const wave = rmktWaves[r.nextWaveIndex];
+      if (wave) at = new Date(r.sentAt.getTime() + wave.dayOffset * 24 * 60 * 60 * 1000);
+    }
+    if (at) {
       nextFollowUpAtByRecipient.set(r.id, at);
       pendingFollowUpCount += 1;
       if (!nextFollowUpEstimateAt || at < nextFollowUpEstimateAt) nextFollowUpEstimateAt = at;
@@ -274,5 +302,6 @@ export async function getCampaignDetail(
     nextSendEstimateAt,
     pendingFollowUpCount,
     nextFollowUpEstimateAt: nextFollowUpEstimateAtInWindow,
+    hasRmktWaves: rmktWaves.length > 0,
   };
 }

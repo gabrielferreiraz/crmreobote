@@ -148,8 +148,16 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             Card próprio (não reaproveita o de cima) porque os dois podem
             aparecer juntos: o disparo inicial ainda pode estar rolando (uns
             poucos PENDING) enquanto os já enviados há tempo suficiente já
-            entraram na fila de reenvio. */}
-        {campaign.followUpEnabled && campaign.pendingFollowUpCount > 0 && (
+            entraram na fila de reenvio. Cobre os DOIS mecanismos que a
+            engine processa (ver pendingFollowUpCount em
+            lib/campaigns/list.ts) — followUpEnabled (reenvio único) E
+            rmktWaves (várias ondas, campanhas LEAD_CAPTURE); antes disso
+            campanha com RMKT configurado (não followUpEnabled) nunca
+            acionava este card nem a coluna "Reenvio" da tabela, mesmo
+            enviando onda de verdade sozinha (relatado: "está sendo enviado
+            o rmkt porque foi programado e não foi ainda parece" — a engine
+            estava certa, só a tela não sabia mostrar). */}
+        {(campaign.followUpEnabled || campaign.hasRmktWaves) && campaign.pendingFollowUpCount > 0 && (
           <div className="card space-y-1 p-3 text-sm text-neutral-600 dark:text-neutral-300">
             <div className="flex flex-wrap items-center gap-2">
               <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
@@ -163,7 +171,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
               <NextSendCountdown targetAt={campaign.nextFollowUpEstimateAt.toISOString()} label="Próximo reenvio estimado" />
             )}
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Reenvia sozinho pra quem não respondeu, {formatHours(campaign.followUpDelayHours)} depois do envio inicial de cada um — veja o previsto de cada pessoa na coluna &quot;Reenvio&quot; abaixo.
+              {campaign.hasRmktWaves
+                ? "Reenvia sozinho pra quem não respondeu, seguindo as ondas de remarketing configuradas — veja o previsto de cada pessoa na coluna “Reenvio” abaixo."
+                : `Reenvia sozinho pra quem não respondeu, ${formatHours(campaign.followUpDelayHours)} depois do envio inicial de cada um — veja o previsto de cada pessoa na coluna "Reenvio" abaixo.`}
             </p>
           </div>
         )}
