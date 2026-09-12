@@ -43,11 +43,14 @@ function toMinutesLabel(sec: number): string {
  */
 export function BulkSendMessageDialog({
   dealIds,
+  lossReasons,
   onClose,
   onSent,
   onCreateScript,
 }: {
   dealIds: string[];
+  /** Pra oferecer "marcar negócio como perdido se não responder" (ver RmktWavesFields) — mesma lista já usada em deals-list.tsx pro bulk "Marcar como perdido". */
+  lossReasons: { id: string; label: string }[];
   onClose: () => void;
   onSent: () => void;
   /** Chamado ao clicar em "+ Criar script" — quem chama salva o estado (filtros/seleção) antes de navegar. */
@@ -278,7 +281,7 @@ export function BulkSendMessageDialog({
             ESTA mensagem específica, mesmo já tendo negócio aberto de
             antes (ver lib/campaigns/engine.ts pro porquê isso já
             funciona). */}
-        <RmktWavesFields rmkt={rmkt} scripts={scripts ?? []} />
+        <RmktWavesFields rmkt={rmkt} scripts={scripts ?? []} dealsContext lossReasons={lossReasons} />
 
         <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
           <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">

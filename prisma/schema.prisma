@@ -634,6 +634,22 @@ model Campaign {
   targetPipelineId String?
   targetStageId    String?
 
+  // Se true, quando um destinatário vencer noReplyDays sem responder, o
+  // negócio vinculado (CampaignRecipient.dealId) é marcado LOST
+  // automaticamente com noReplyLossReasonId — pedido explícito: "a opção de
+  // colocar 'não respondeu' em perdido deve estar com uma opção de dar
+  // perdido ou não" (antes só dava pra escolher a quantidade de dias, nunca
+  // desligar a consequência). Só tem efeito em quem TEM dealId — em
+  // LEAD_CAPTURE o negócio só nasce se/quando responde (ver
+  // lib/campaigns/reply.ts), então nunca há o que marcar perdido ali; a UI
+  // (RmktWavesFields) só oferece este toggle no contexto de negócios já
+  // existentes (Pipeline → disparo em massa). Default false: mudança de
+  // comportamento, não deve ligar sozinha em campanha nenhuma já criada nem
+  // surpreender quem não marcou a caixinha.
+  markLostOnNoReply   Boolean     @default(false)
+  noReplyLossReasonId String?
+  noReplyLossReason   LossReason? @relation(fields: [noReplyLossReasonId], references: [id], onDelete: SetNull)
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1076,8 +1092,9 @@ model LossReason {
   // novo daqui pra frente).
   selectable Boolean @default(true)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  deals        Deal[]
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals                Deal[]
+  campaignsNoReplyLoss Campaign[]
 
   @@index([organizationId])
 }

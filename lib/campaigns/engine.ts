@@ -16,6 +16,7 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { renderSteps, pickWeighted, type WeightedScript } from "@/lib/campaigns/spintax";
 import { warmupDailyCap } from "@/lib/whatsapp/warmup";
 import { getSuppressionReason, suppressionMessage } from "@/lib/campaigns/engagement";
+import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import type { $Enums, Contact } from "@/app/generated/prisma/client";
 
 function sleep(ms: number): Promise<void> {
@@ -40,6 +41,11 @@ type CampaignRow = {
   followUpTemplates: unknown;
   rmktWaves: unknown;
   noReplyDays: number | null;
+  // Ver comentário no schema (Campaign.markLostOnNoReply) — usados só no
+  // ponto onde um destinatário expira sem resposta (findExpiredLeadCaptureRecipient
+  // + o trecho que chama ela abaixo).
+  markLostOnNoReply: boolean;
+  noReplyLossReasonId: string | null;
   delayMinSec: number;
   delayMaxSec: number;
   dailyCap: number | null;
@@ -263,6 +269,49 @@ async function findExpiredLeadCaptureRecipient(campaign: CampaignRow) {
   return prisma.campaignRecipient.findFirst({
     where: { campaignId: campaign.id, status: "SENT", repliedAt: null, sentAt: { lte: cutoff } },
   });
+}
+
+/**
+ * Marca o negócio vinculado (CampaignRecipient.dealId) como perdido quando
+ * ele expira sem resposta — só roda quando a campanha ligou o toggle
+ * (Campaign.markLostOnNoReply) e tem motivo configurado (ver comentário no
+ * schema; pedido explícito: "a opção de colocar 'não respondeu' em perdido
+ * deve estar com uma opção de dar perdido ou não"). Só tem efeito em quem
+ * TEM dealId — em LEAD_CAPTURE isso nunca acontece (negócio só nasce se/
+ * quando responde). Mesmo padrão de MARK_LOST em lib/automations/engine.ts
+ * (só marca negócio ainda OPEN, registra nota, dispara webhook deal.lost) —
+ * função própria porque aquela espera um `rule`/`entity` de automação que
+ * não existe neste fluxo.
+ */
+async function markDealLostOnExpiry(organizationId: string, campaign: CampaignRow, dealId: string): Promise<void> {
+  if (!campaign.markLostOnNoReply || !campaign.noReplyLossReasonId) return;
+
+  const updated = await prisma.deal.updateMany({
+    where: { id: dealId, organizationId, status: "OPEN" },
+    data: { status: "LOST", closedAt: new Date(), lossReasonId: campaign.noReplyLossReasonId },
+  });
+  if (updated.count === 0) return; // já não estava aberto (ganho/perdido antes) — nada a mudar
+
+  const deal = await prisma.deal.findUnique({
+    where: { id: dealId },
+    include: { contact: true, owner: true, stage: true, lossReason: true },
+  });
+  if (!deal) return;
+
+  await prisma.activity.create({
+    data: {
+      organizationId,
+      dealId,
+      contactId: deal.contactId,
+      userId: deal.ownerId,
+      type: "NOTE",
+      body: "Negócio marcado como perdido automaticamente — não respondeu ao disparo em massa.",
+    },
+  });
+
+  enqueueWebhookEvent(organizationId, "deal.lost", buildDealWebhookPayload(deal)).catch((err) =>
+    console.error("[campaigns] falha ao enfileirar deal.lost (não respondeu)", err),
+  );
 }
 
 /** Ainda há destinatário enviado sem resposta — a campanha não pode ser
@@ -690,6 +739,7 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
                   where: { id: expired.id },
                   data: { status: "FAILED", error: "Não respondeu" },
                 });
+                if (expired.dealId) await markDealLostOnExpiry(org.id, campaign, expired.dealId);
                 continue;
               }
 

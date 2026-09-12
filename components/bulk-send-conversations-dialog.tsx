@@ -14,6 +14,7 @@ import { useMyWhatsappProvider, MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-what
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string; order: number }[] };
+type LossReasonOption = { id: string; label: string };
 
 type Recipient = {
   contactId: string;
@@ -67,6 +68,7 @@ export function BulkSendConversationsDialog({
 }) {
   const [scripts, setScripts] = useState<ScriptOption[] | null>(null);
   const [pipelines, setPipelines] = useState<PipelineOption[] | null>(null);
+  const [lossReasons, setLossReasons] = useState<LossReasonOption[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [scriptIds, setScriptIds] = useState<string[]>([]);
@@ -106,6 +108,24 @@ export function BulkSendConversationsDialog({
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { hasEvolutionInstance?: boolean } | null) => {
         if (!cancelled) setHasEvolutionInstance(data?.hasEvolutionInstance ?? false);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Só pra oferecer "marcar negócio como perdido se não responder" (ver
+  // RmktWavesFields dealsContext) — sem sentido buscar quando não há
+  // negócio nenhum na seleção.
+  useEffect(() => {
+    if (!hasDeals) return;
+    let cancelled = false;
+    fetch("/api/loss-reasons")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: LossReasonOption[]) => {
+        if (!cancelled) setLossReasons(data);
       })
       .catch(() => {});
     return () => {
@@ -406,7 +426,7 @@ export function BulkSendConversationsDialog({
           </p>
 
           {/* RMKT */}
-          <RmktWavesFields rmkt={rmkt} scripts={scripts} />
+          <RmktWavesFields rmkt={rmkt} scripts={scripts} dealsContext={hasDeals} lossReasons={lossReasons} />
 
           {/* Delay */}
           <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">

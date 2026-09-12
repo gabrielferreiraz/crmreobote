@@ -1440,6 +1440,7 @@ export function DealsList({
       {bulkSendOpen && (
         <BulkSendMessageDialog
           dealIds={Array.from(selectedIds)}
+          lossReasons={lossReasons}
           onClose={() => setBulkSendOpen(false)}
           onSent={() => {
             clearSelection();

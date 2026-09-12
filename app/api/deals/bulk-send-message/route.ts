@@ -25,15 +25,22 @@ const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"] as const;
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, delayMinSec, delayMaxSec } = body as {
-    dealIds?: string[];
-    scriptIds?: string[];
-    rmktEnabled?: boolean;
-    rmktWaves?: RmktWaveInput[];
-    noReplyDays?: number;
-    delayMinSec?: number;
-    delayMaxSec?: number;
-  };
+  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, markLostOnNoReply, noReplyLossReasonId, delayMinSec, delayMaxSec } =
+    body as {
+      dealIds?: string[];
+      scriptIds?: string[];
+      rmktEnabled?: boolean;
+      rmktWaves?: RmktWaveInput[];
+      noReplyDays?: number;
+      /** Pedido explícito: opção de marcar o negócio como perdido quando
+       * "não respondeu" vencer, com liga/desliga (ver Campaign.markLostOnNoReply
+       * no schema) — só tem efeito de verdade quando `waves.length > 0`
+       * (mesma condição que já vale pro noReplyDays em si, ver abaixo). */
+      markLostOnNoReply?: boolean;
+      noReplyLossReasonId?: string;
+      delayMinSec?: number;
+      delayMaxSec?: number;
+    };
 
   const access = await requireRole([...ALLOWED_ROLES]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -82,6 +89,19 @@ export async function POST(req: Request) {
       if (!stepsByScriptId.has(wave.scriptId)) {
         return NextResponse.json({ error: "Script de uma das ondas de RMKT é inválido" }, { status: 400 });
       }
+    }
+
+    // markLostOnNoReply só faz sentido de verdade quando o "não respondeu"
+    // em si vai rodar (waves.length > 0, mesma condição de noReplyDays
+    // logo abaixo) — sem onda configurada, ninguém nunca expira, então o
+    // motivo nunca seria usado.
+    const resolvedMarkLostOnNoReply = waves.length > 0 && !!markLostOnNoReply;
+    if (resolvedMarkLostOnNoReply) {
+      if (!noReplyLossReasonId) {
+        return NextResponse.json({ error: "Selecione o motivo de perda pra usar quando \"não respondeu\" vencer" }, { status: 400 });
+      }
+      const reason = await prisma.lossReason.findFirst({ where: { id: noReplyLossReasonId, organizationId } });
+      if (!reason) return NextResponse.json({ error: "Motivo de perda inválido" }, { status: 400 });
     }
 
     // Nunca confia na seleção vinda do cliente — revalida contra o escopo
@@ -185,6 +205,8 @@ export async function POST(req: Request) {
               })) as unknown as Prisma.InputJsonValue)
             : undefined,
         noReplyDays: waves.length > 0 ? resolvedNoReplyDays : undefined,
+        markLostOnNoReply: resolvedMarkLostOnNoReply,
+        noReplyLossReasonId: resolvedMarkLostOnNoReply ? noReplyLossReasonId : undefined,
         createdById: userId,
       },
     });

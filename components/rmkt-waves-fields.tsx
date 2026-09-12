@@ -5,14 +5,32 @@ import { Select } from "@/components/select";
 import type { UseRmktWavesReturn } from "@/lib/use-rmkt-waves";
 
 type ScriptOption = { id: string; name: string };
+type LossReasonOption = { id: string; label: string };
 
 /**
  * UI de "RMKT" (ondas de reengajamento) — extraída de
  * components/send-leads-dialog.tsx pra ser reaproveitada junto com o hook
  * (ver lib/use-rmkt-waves.ts, mesmo comentário lá explica o porquê). Só
  * apresentacional: todo o estado vem de fora (`rmkt`, o retorno do hook).
+ *
+ * `dealsContext`/`lossReasons`: liga o bloco de "marcar negócio como
+ * perdido" — só faz sentido onde o destinatário JÁ é negócio (Pipeline →
+ * disparo em massa), nunca em LEAD_CAPTURE (negócio só nasce se/quando
+ * responde, ver lib/campaigns/reply.ts) — pedido explícito: "a opção de
+ * colocar 'não respondeu' em perdido deve estar com uma opção de dar
+ * perdido ou não (hoje em dia não tem como)".
  */
-export function RmktWavesFields({ rmkt, scripts }: { rmkt: UseRmktWavesReturn; scripts: ScriptOption[] }) {
+export function RmktWavesFields({
+  rmkt,
+  scripts,
+  dealsContext = false,
+  lossReasons = [],
+}: {
+  rmkt: UseRmktWavesReturn;
+  scripts: ScriptOption[];
+  dealsContext?: boolean;
+  lossReasons?: LossReasonOption[];
+}) {
   return (
     <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
       <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
@@ -76,6 +94,40 @@ export function RmktWavesFields({ rmkt, scripts }: { rmkt: UseRmktWavesReturn; s
         />
         <span className="shrink-0">dias</span>
       </div>
+
+      {/* Só no contexto de negócio já existente — sem isso "não respondeu"
+          era só contabilidade interna (FAILED no destinatário), nunca
+          mexia no negócio no pipeline. Aninhado em rmktEnabled porque
+          noReplyDays só é levado a sério pela campanha quando há onda
+          configurada (ver waves.length > 0 em
+          app/api/deals/bulk-send-message/route.ts) — sem RMKT ligado,
+          ninguém nunca expira, então não há quando marcar perdido. */}
+      {dealsContext && rmkt.rmktEnabled && (
+        <div className="space-y-2 pl-6">
+          <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+            <input
+              type="checkbox"
+              checked={rmkt.markLostOnNoReply}
+              onChange={(e) => rmkt.setMarkLostOnNoReply(e.target.checked)}
+              className="accent-neutral-900 dark:accent-white"
+            />
+            Marcar negócio como perdido quando &quot;não respondeu&quot; vencer
+          </label>
+          {rmkt.markLostOnNoReply && (
+            <div className="pl-6">
+              <Select
+                value={rmkt.noReplyLossReasonId}
+                onChange={rmkt.setNoReplyLossReasonId}
+                className="text-sm"
+                options={[
+                  { value: "", label: "Selecione o motivo de perda" },
+                  ...lossReasons.map((r) => ({ value: r.id, label: r.label })),
+                ]}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

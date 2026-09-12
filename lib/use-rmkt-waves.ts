@@ -21,6 +21,11 @@ export function useRmktWaves() {
   const [rmktEnabled, setRmktEnabled] = useState(false);
   const [waves, setWaves] = useState<WaveRow[]>([{ dayOffset: "3", scriptId: "" }]);
   const [noReplyDays, setNoReplyDays] = useState("3");
+  // Só usado no contexto de negócio já existente (Pipeline → disparo em
+  // massa) — ver dealsContext em rmkt-waves-fields.tsx. Default false:
+  // pedido explícito era ter a OPÇÃO de ligar/desligar, não ligar sozinho.
+  const [markLostOnNoReply, setMarkLostOnNoReply] = useState(false);
+  const [noReplyLossReasonId, setNoReplyLossReasonId] = useState("");
 
   function addWave() {
     setWaves((prev) => [...prev, { dayOffset: "", scriptId: "" }]);
@@ -39,21 +44,36 @@ export function useRmktWaves() {
       waves.every((w) => w.dayOffset.trim() && w.scriptId) &&
       waves.every((w, i) => i === 0 || Number(w.dayOffset) > Number(waves[i - 1].dayOffset)) &&
       waves.every((w) => Number(w.dayOffset) < Number(noReplyDays || 0)));
-  // As duas condições sempre andaram juntas em canSend (ver
-  // send-leads-dialog.tsx original) — expostas já combinadas aqui, cada
-  // chamador não precisa lembrar de checar as duas separado.
-  const valid = noReplyDaysValid && wavesValid;
+  // Só exige motivo escolhido quando o toggle está ligado — se
+  // markLostOnNoReply nunca foi marcado, o valor vazio de
+  // noReplyLossReasonId não deveria bloquear o envio.
+  const markLostValid = !markLostOnNoReply || !!noReplyLossReasonId;
+  // As condições sempre andaram juntas em canSend (ver send-leads-dialog.tsx
+  // original) — expostas já combinadas aqui, cada chamador não precisa
+  // lembrar de checar cada uma separado.
+  const valid = noReplyDaysValid && wavesValid && markLostValid;
 
   /** Pronto pra espalhar (`...`) no body da requisição — mesmo shape que
    * app/api/contacts/bulk-send-leads/route.ts e
-   * app/api/deals/bulk-send-message/route.ts esperam. */
-  function serialize(): { rmktEnabled: boolean; rmktWaves?: RmktWaveInput[]; noReplyDays: number } {
+   * app/api/deals/bulk-send-message/route.ts esperam. markLostOnNoReply/
+   * noReplyLossReasonId só têm efeito em quem lê esses dois campos (hoje só
+   * bulk-send-message/route.ts — bulk-send-leads ignora, LEAD_CAPTURE nunca
+   * tem negócio nesse ponto). */
+  function serialize(): {
+    rmktEnabled: boolean;
+    rmktWaves?: RmktWaveInput[];
+    noReplyDays: number;
+    markLostOnNoReply: boolean;
+    noReplyLossReasonId?: string;
+  } {
     return {
       rmktEnabled,
       rmktWaves: rmktEnabled
         ? waves.map((w) => ({ dayOffset: Number(w.dayOffset), scriptId: w.scriptId }))
         : undefined,
       noReplyDays: Number(noReplyDays),
+      markLostOnNoReply,
+      noReplyLossReasonId: markLostOnNoReply ? noReplyLossReasonId : undefined,
     };
   }
 
@@ -66,6 +86,10 @@ export function useRmktWaves() {
     updateWave,
     noReplyDays,
     setNoReplyDays,
+    markLostOnNoReply,
+    setMarkLostOnNoReply,
+    noReplyLossReasonId,
+    setNoReplyLossReasonId,
     valid,
     serialize,
   };
