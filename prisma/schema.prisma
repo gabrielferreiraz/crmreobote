@@ -697,6 +697,14 @@ model CampaignRecipient {
   // Quando >= rmktWaves.length, não há mais onda pra mandar (só resta
   // esperar Campaign.noReplyDays vencer e marcar FAILED).
   nextWaveIndex Int @default(0)
+  // Quando a ÚLTIMA onda foi tentada (sucesso ou falha, mesmo espírito de
+  // followUpSentAt acima) — nextWaveIndex sozinho diz QUAL onda já saiu
+  // (nextWaveIndex - 1), mas não diz QUANDO. Pedido explícito: "deve
+  // mostrar também quando foi enviado as ondas de rmkt" — sem isso a
+  // coluna "Reenvio" da tela da campanha (ver lib/campaigns/list.ts) só
+  // conseguia mostrar a PRÓXIMA onda prevista, nunca confirmar que uma
+  // onda anterior já saiu de verdade.
+  lastWaveSentAt DateTime?
 
   // dealId: em PIPELINE_BULK, de qual negócio esse destinatário VEIO; em
   // LEAD_CAPTURE, o negócio CRIADO automaticamente quando este destinatário

@@ -337,7 +337,10 @@ async function claimRecipient(recipient: RecipientRow, kind: SendKind): Promise<
   }
   const claim = await prisma.campaignRecipient.updateMany({
     where: { id: recipient.id, nextWaveIndex: recipient.nextWaveIndex },
-    data: { nextWaveIndex: recipient.nextWaveIndex + 1 },
+    // lastWaveSentAt junto — pedido explícito: mostrar quando cada onda foi
+    // enviada, não só qual onda é a próxima (nextWaveIndex sozinho não diz
+    // QUANDO a anterior saiu, ver comentário no schema).
+    data: { nextWaveIndex: recipient.nextWaveIndex + 1, lastWaveSentAt: new Date() },
   });
   return claim.count === 1;
 }

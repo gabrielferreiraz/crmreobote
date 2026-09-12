@@ -13,7 +13,11 @@ type Recipient = {
   sentAt: string | null;
   repliedAt: string | null;
   followUpSentAt: string | null;
-  /** Previsão de quando o reenvio automático deve sair — null quando já foi reenviado (ver followUpSentAt), já respondeu, ou não está na fila. */
+  /** Quando a última onda de RMKT foi enviada — null se a campanha não usa ondas, ou nenhuma saiu ainda. */
+  lastWaveSentAt: string | null;
+  /** Número (1-based) da onda que lastWaveSentAt registra. */
+  lastWaveNumber: number | null;
+  /** Previsão de quando o próximo reenvio/onda deve sair — null quando já foi reenviado/não tem mais onda, já respondeu, ou não está na fila. */
   nextFollowUpAt: string | null;
   scriptName: string | null;
   followUpScriptName: string | null;
@@ -41,14 +45,42 @@ function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-/** "Reenvio" da linha — já aconteceu (followUpSentAt) tem prioridade sobre a
- * previsão (nextFollowUpAt, sempre null depois que o reenvio de fato sai —
- * ver nextFollowUpAtByRecipient em lib/campaigns/list.ts). Previsão vem
- * marcada como tal (itálico + "Previsto:") pra nunca ser lida como já
- * confirmada — pedido explícito: "não mostra quando vai começar a fase de
- * follow-up". */
-function FollowUpCell({ sentAt, nextAt }: { sentAt: string | null; nextAt: string | null }) {
+/** "Reenvio" da linha. Três fatos possíveis, do mais concreto pro mais incerto:
+ * 1) reenvio simples já saiu (followUpSentAt) — mostra a data, fim de história
+ *    (campanha sem ondas não tem "onda 2" pra prever depois).
+ * 2) campanha de ondas: mostra a ÚLTIMA onda que já saiu de verdade
+ *    (lastWaveSentAt + lastWaveNumber — pedido explícito: "deve mostrar
+ *    também quando foi enviado as ondas de rmkt") e, se ainda houver uma
+ *    próxima prevista (nextAt), essa previsão some junto, sem confundir uma
+ *    com a outra.
+ * 3) nada saiu ainda, só previsão (nextAt) — itálico + "Previsto:" pra nunca
+ *    ser lida como já confirmada — pedido explícito: "não mostra quando vai
+ *    começar a fase de follow-up".
+ */
+function FollowUpCell({
+  sentAt,
+  lastWaveSentAt,
+  lastWaveNumber,
+  nextAt,
+}: {
+  sentAt: string | null;
+  lastWaveSentAt: string | null;
+  lastWaveNumber: number | null;
+  nextAt: string | null;
+}) {
   if (sentAt) return <>{formatDateTime(sentAt)}</>;
+  if (lastWaveSentAt) {
+    return (
+      <>
+        Onda {lastWaveNumber} enviada: {formatDateTime(lastWaveSentAt)}
+        {nextAt && (
+          <span className="block text-xs text-neutral-400 italic dark:text-neutral-500">
+            Próxima prevista: {formatDateTime(nextAt)}
+          </span>
+        )}
+      </>
+    );
+  }
   if (nextAt) return <span className="text-neutral-400 italic dark:text-neutral-500">Previsto: {formatDateTime(nextAt)}</span>;
   return <>—</>;
 }
@@ -132,7 +164,15 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                   </p>
                   <p>Enviada em: {formatDateTime(r.sentAt)}</p>
                   <p>Respondeu em: {formatDateTime(r.repliedAt)}</p>
-                  <p>Reenvio: <FollowUpCell sentAt={r.followUpSentAt} nextAt={r.nextFollowUpAt} /></p>
+                  <p>
+                    Reenvio:{" "}
+                    <FollowUpCell
+                      sentAt={r.followUpSentAt}
+                      lastWaveSentAt={r.lastWaveSentAt}
+                      lastWaveNumber={r.lastWaveNumber}
+                      nextAt={r.nextFollowUpAt}
+                    />
+                  </p>
                 </div>
               </div>
             ))}
@@ -174,7 +214,12 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.repliedAt)}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
-                      <FollowUpCell sentAt={r.followUpSentAt} nextAt={r.nextFollowUpAt} />
+                      <FollowUpCell
+                        sentAt={r.followUpSentAt}
+                        lastWaveSentAt={r.lastWaveSentAt}
+                        lastWaveNumber={r.lastWaveNumber}
+                        nextAt={r.nextFollowUpAt}
+                      />
                     </td>
                   </tr>
                 ))}

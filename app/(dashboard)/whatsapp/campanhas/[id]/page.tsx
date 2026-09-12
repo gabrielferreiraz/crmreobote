@@ -187,6 +187,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             sentAt: r.sentAt?.toISOString() ?? null,
             repliedAt: r.repliedAt?.toISOString() ?? null,
             followUpSentAt: r.followUpSentAt?.toISOString() ?? null,
+            lastWaveSentAt: r.lastWaveSentAt?.toISOString() ?? null,
+            lastWaveNumber: r.lastWaveNumber,
             nextFollowUpAt: r.nextFollowUpAt?.toISOString() ?? null,
           }))}
         />

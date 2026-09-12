@@ -94,14 +94,26 @@ export type CampaignRecipientRow = {
   repliedAt: Date | null;
   followUpSentAt: Date | null;
   /**
+   * Quando a ÚLTIMA onda de RMKT foi enviada pra ESTE destinatário (ver
+   * CampaignRecipient.lastWaveSentAt no schema) — pedido explícito: "deve
+   * mostrar também quando foi enviado as ondas de rmkt". null quando a
+   * campanha não usa rmktWaves, ou nenhuma onda saiu ainda. Junto com
+   * nextWaveNumber (a onda que ISSO foi) dá pra mostrar "Onda 2 enviada:
+   * 11/09" em vez de só uma data solta sem contexto de qual onda era.
+   */
+  lastWaveSentAt: Date | null;
+  /** Número (1-based) da onda que lastWaveSentAt registra — null quando lastWaveSentAt também é null. */
+  lastWaveNumber: number | null;
+  /**
    * Previsão de quando o reenvio automático deve sair pra ESTE destinatário
-   * — sentAt + followUpDelayHours, só quando ele de fato está na fila (ver
-   * findFollowUpCandidate em lib/campaigns/engine.ts: SENT, nunca respondeu,
-   * reenvio ainda não tentado). null quando já foi reenviado (ver
-   * followUpSentAt), já respondeu, ou a campanha não tem reenvio ligado —
-   * nesses casos não há "próximo reenvio" nenhum pra prever. Mesma ideia de
-   * "estimativa, não garantia" que nextSendEstimateAt já é lá embaixo: o
-   * motor real ainda respeita janela de horário/dias e teto diário.
+   * — sentAt + followUpDelayHours (reenvio único) ou sentAt +
+   * rmktWaves[nextWaveIndex].dayOffset dias (onda de RMKT), só quando ele
+   * de fato está na fila (ver findFollowUpCandidate/findNextWaveCandidate
+   * em lib/campaigns/engine.ts). null quando já foi reenviado/todas as
+   * ondas já saíram, já respondeu, ou a campanha não tem reenvio nem RMKT
+   * ligado. Mesma ideia de "estimativa, não garantia" que
+   * nextSendEstimateAt já é lá embaixo: o motor real ainda respeita janela
+   * de horário/dias e teto diário.
    */
   nextFollowUpAt: Date | null;
   scriptName: string | null;
@@ -292,6 +304,12 @@ export async function getCampaignDetail(
       sentAt: r.sentAt,
       repliedAt: r.repliedAt,
       followUpSentAt: r.followUpSentAt,
+      lastWaveSentAt: r.lastWaveSentAt,
+      // nextWaveIndex já avançou pra depois da onda enviada quando
+      // lastWaveSentAt existe (ver claimRecipient em lib/campaigns/engine.ts:
+      // os dois são gravados juntos, no mesmo updateMany) — nextWaveIndex
+      // (1-based) É o número da onda que acabou de sair.
+      lastWaveNumber: r.lastWaveSentAt ? r.nextWaveIndex : null,
       nextFollowUpAt: nextFollowUpAtByRecipient.get(r.id) ?? null,
       scriptName: r.scriptId ? (scriptNameById.get(r.scriptId) ?? "Script removido") : null,
       followUpScriptName: r.followUpScriptId ? (scriptNameById.get(r.followUpScriptId) ?? "Script removido") : null,
