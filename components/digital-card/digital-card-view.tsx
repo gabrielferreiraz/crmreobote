@@ -61,12 +61,16 @@ export function DigitalCardView({
             lib/digital-cards/config.ts pro porquê disso ficar null por
             enquanto). Sem foto nenhuma, cai pro gradiente abstrato + efeitos
             de luz de sempre — nunca um placeholder inventado. */}
-        <div className="relative h-36 overflow-hidden bg-gradient-to-br from-[#0c2a4a] via-[#0f1b33] to-[#08090e]">
+        <div className={`relative overflow-hidden bg-gradient-to-br from-[#0c2a4a] via-[#0f1b33] to-[#08090e] ${data.coverPhotoUrl ? "h-52" : "h-36"}`}>
           {data.coverPhotoUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={data.coverPhotoUrl} alt="" className="h-full w-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/40 to-[#090d16]" />
+              {/* Mais clara no topo (a foto aparece de verdade, como na
+                  referência) escurecendo gradualmente até se fundir com o
+                  corpo do cartão — não um filtro escuro uniforme por cima
+                  de tudo. */}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/35 to-[#090d16]" />
             </>
           ) : (
             <>
@@ -79,7 +83,7 @@ export function DigitalCardView({
           )}
         </div>
 
-        <div className="relative -mt-16 px-4.5 pb-0">
+        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-20" : "-mt-16"}`}>
           {/* Avatar com Anel de Brilho em Gradiente Neon */}
           <div className="relative mx-auto mb-3 h-26 w-26">
             <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_22px_rgba(0,174,238,0.45)]">
