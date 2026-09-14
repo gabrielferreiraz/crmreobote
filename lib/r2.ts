@@ -78,6 +78,24 @@ export async function resizeCoverPhoto(buffer: Buffer, contentType: string): Pro
   return resized.jpeg({ quality: 80, mozjpeg: true }).toBuffer();
 }
 
+// Proporção RETRATO (não paisagem como a capa) — fica atrás do CORPO
+// INTEIRO do cartão (avatar, ações, ícones, rodapé), não só de uma faixa no
+// topo. 900x1600 (9:16, a mesma proporção de tela de celular) garante que
+// cobre a altura toda do cartão sem esticar nem repetir.
+const BACKGROUND_PHOTO_WIDTH = 900;
+const BACKGROUND_PHOTO_HEIGHT = 1600;
+
+/** Mesma ideia de resizeCoverPhoto, mas pro fundo do CORPO INTEIRO do cartão (DigitalCard.backgroundPhotoKey) — proporção retrato, não paisagem. */
+export async function resizeBackgroundPhoto(buffer: Buffer, contentType: string): Promise<Buffer> {
+  const resized = sharp(buffer)
+    .rotate()
+    .resize({ width: BACKGROUND_PHOTO_WIDTH, height: BACKGROUND_PHOTO_HEIGHT, fit: "cover", withoutEnlargement: true });
+
+  if (contentType === "image/png") return resized.png({ compressionLevel: 8 }).toBuffer();
+  if (contentType === "image/webp") return resized.webp({ quality: 78 }).toBuffer();
+  return resized.jpeg({ quality: 78, mozjpeg: true }).toBuffer();
+}
+
 /** Chave R2 imprevisível — nem o userId nem sequência são adivinháveis a partir dela. */
 export function buildAvatarKey(userId: string, contentType: string) {
   const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
@@ -105,6 +123,13 @@ export function buildCardCoverPhotoKey(cardId: string, contentType: string) {
   return `card-covers/${cardId}/${random}.${ext}`;
 }
 
+/** Mesma ideia de buildCardCoverPhotoKey, mas pro fundo do CORPO INTEIRO do cartão (DigitalCard.backgroundPhotoKey) — prefixo próprio, nunca se mistura com capa/avatar. */
+export function buildCardBackgroundKey(cardId: string, contentType: string) {
+  const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `card-backgrounds/${cardId}/${random}.${ext}`;
+}
+
 export async function uploadAvatar(key: string, body: Buffer, contentType: string) {
   await client.send(
     new PutObjectCommand({
@@ -121,19 +146,26 @@ export async function deleteAvatar(key: string) {
 }
 
 /**
- * `image`/`photoKey`/`coverPhotoKey` no banco guarda ou uma URL externa
- * completa (foto de perfil do Google, por exemplo) ou uma chave interna do
- * R2 — sempre iniciando com "avatars/" (foto de perfil normal),
- * "card-photos/" (override de foto do Cartão Digital) ou "card-covers/"
- * (foto de capa/banner do Cartão Digital, ver buildCardCoverPhotoKey
- * acima); mesmo bucket privado, só prefixo diferente pra nunca se misturar
- * com o avatar usado no resto do CRM. URLs externas são retornadas como
- * estão; chaves do R2 viram uma URL assinada de curta duração, já que o
- * bucket é privado.
+ * `image`/`photoKey`/`coverPhotoKey`/`backgroundPhotoKey` no banco guarda
+ * ou uma URL externa completa (foto de perfil do Google, por exemplo) ou
+ * uma chave interna do R2 — sempre iniciando com "avatars/" (foto de
+ * perfil normal), "card-photos/" (override de foto do Cartão Digital),
+ * "card-covers/" (foto de capa/banner, ver buildCardCoverPhotoKey acima)
+ * ou "card-backgrounds/" (fundo do corpo inteiro do cartão, ver
+ * buildCardBackgroundKey acima); mesmo bucket privado, só prefixo
+ * diferente pra nunca se misturar com o avatar usado no resto do CRM. URLs
+ * externas são retornadas como estão; chaves do R2 viram uma URL assinada
+ * de curta duração, já que o bucket é privado.
  */
 export async function resolveAvatarUrl(image: string | null | undefined): Promise<string | null> {
   if (!image) return null;
-  if (!image.startsWith("avatars/") && !image.startsWith("card-photos/") && !image.startsWith("card-covers/")) return image;
+  if (
+    !image.startsWith("avatars/") &&
+    !image.startsWith("card-photos/") &&
+    !image.startsWith("card-covers/") &&
+    !image.startsWith("card-backgrounds/")
+  )
+    return image;
 
   return getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: image }), {
     expiresIn: SIGNED_URL_TTL_SECONDS,

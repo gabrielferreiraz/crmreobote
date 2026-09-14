@@ -2320,6 +2320,13 @@ model DigitalCard {
   // lib/r2.ts) — pedido explícito do usuário depois de discutir a ideia do
   // Gemini sobre foto de fundo do cartão.
   coverPhotoKey String?
+  // Foto de fundo do CORPO INTEIRO do cartão (atrás dos botões/ícones/
+  // rodapé, não só atrás do avatar como coverPhotoKey acima) — pedido
+  // explícito: "a capa de fundo atrás do avatar e outra de fundo com todo
+  // o corpo do cartão" são DUAS imagens distintas na referência. Mesmo
+  // mecanismo de override+padrão da organização+voltar ao padrão do
+  // coverPhotoKey (ver lib/digital-cards/config.ts).
+  backgroundPhotoKey String?
   // Override do e-mail — null = usa User.email.
   emailOverride String?
   // Telefone/WhatsApp públicos do cartão — User não tem telefone hoje.

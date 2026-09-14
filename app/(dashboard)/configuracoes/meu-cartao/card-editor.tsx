@@ -34,15 +34,26 @@ const LINK_TYPE_OPTIONS = [
  * nunca um círculo cinza vazio) + botão "Trocar/Adicionar foto" no mesmo
  * estilo de ProfileAvatarForm (configuracoes/perfil/profile-avatar-form.tsx).
  */
+const DEFAULT_ADDRESS = "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030";
+const DEFAULT_BIO = "Inteligência em Consórcios";
+const DEFAULT_COMPANY = "Reobote Consórcios";
+const DEFAULT_JOB_TITLE = "Consultor de Vendas";
+
+const JOB_TITLE_OPTIONS = [
+  "Consultor de Vendas",
+  "Supervisor de Vendas",
+  "Gerente de Vendas",
+];
+
 export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publicUrl: string }) {
   const [active, setActive] = useState(card.active);
-  const [jobTitle, setJobTitle] = useState(card.jobTitle ?? "");
-  const [bio, setBio] = useState(card.bio ?? "");
-  const [companyName, setCompanyName] = useState(card.companyName ?? "");
-  const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? "");
+  const [jobTitle, setJobTitle] = useState(card.jobTitle ?? DEFAULT_JOB_TITLE);
+  const [bio, setBio] = useState(card.bio ?? DEFAULT_BIO);
+  const [companyName, setCompanyName] = useState(card.companyName ?? DEFAULT_COMPANY);
+  const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? card.user.email);
   const [phone, setPhone] = useState(card.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(card.whatsapp ?? "");
-  const [address, setAddress] = useState(card.address ?? "");
+  const [address, setAddress] = useState(card.address ?? DEFAULT_ADDRESS);
   const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
   const [portfolioValueDisplay, setPortfolioValueDisplay] = useState(card.portfolioValueDisplay ?? "");
   const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
@@ -50,6 +61,8 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [coverPhotoUrl, setCoverPhotoUrl] = useState(card.coverPhotoUrl);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState(card.backgroundPhotoUrl);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -118,6 +131,32 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     if (res.ok) setCoverPhotoUrl(null);
   }
 
+  async function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingBackground(true);
+    setError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    setUploadingBackground(false);
+    if (!res.ok) {
+      setError(data.error ?? "Erro ao enviar foto de fundo");
+      return;
+    }
+    setBackgroundPhotoUrl(data.backgroundPhotoUrl);
+  }
+
+  async function handleRemoveBackground() {
+    setUploadingBackground(true);
+    setError(null);
+    const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "DELETE" });
+    setUploadingBackground(false);
+    if (res.ok) setBackgroundPhotoUrl(null);
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -169,6 +208,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     bio: bio.trim() || null,
     photoUrl,
     coverPhotoUrl,
+    backgroundPhotoUrl,
     phone: displayPhone(phone.trim() || null),
     whatsapp: displayPhone(whatsapp.trim() || null),
     displayEmail: emailOverride.trim() || card.user.email,
@@ -295,12 +335,76 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
           </div>
         </div>
 
+        {/* Foto de fundo do CORPO INTEIRO do cartão — imagem distinta da
+            capa acima (aquela fica só atrás do avatar; esta fica atrás dos
+            botões/ícones/rodapé, todo o resto). Sem ela, cai pro padrão da
+            organização (quando configurado) ou pro fundo escuro sólido. */}
+        <div className="card p-4">
+          <p className="field-label mb-3">Foto de fundo do cartão</p>
+          <div className="space-y-3">
+            <div className="relative h-32 w-full overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
+              {backgroundPhotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={backgroundPhotoUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-neutral-400 dark:text-neutral-500">
+                  Sem foto de fundo
+                </div>
+              )}
+              {uploadingBackground && (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <Loader2 className="h-5 w-5 animate-spin text-white" strokeWidth={2} />
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Diferente da foto de capa (só atrás da sua foto) — esta fica atrás do cartão inteiro, sempre com um filtro
+              escuro por cima. JPEG, PNG ou WebP · até 10MB.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <label className="btn-secondary btn-sm cursor-pointer">
+                <Camera className="h-3.5 w-3.5" strokeWidth={2} />
+                {backgroundPhotoUrl ? "Trocar fundo" : "Adicionar fundo"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={uploadingBackground}
+                  onChange={handleBackgroundChange}
+                />
+              </label>
+              {backgroundPhotoUrl && (
+                <button type="button" onClick={handleRemoveBackground} disabled={uploadingBackground} className="btn-ghost btn-sm">
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  Remover
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Dados exibidos no cartão */}
         <div className="card space-y-4 p-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label className="field-label">Cargo</label>
-              <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Diretor Comercial" className="field-input" />
+              <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {JOB_TITLE_OPTIONS.map((title) => (
+                  <button
+                    key={title}
+                    type="button"
+                    onClick={() => setJobTitle(title)}
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
+                      jobTitle === title
+                        ? "bg-[#00aeee]/15 border-[#00aeee] text-[#00aeee]"
+                        : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                    }`}
+                  >
+                    {title}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="space-y-1.5">
               <label className="field-label">Empresa</label>

@@ -16,6 +16,7 @@ export type DigitalCardData = {
   bio: string | null;
   photoUrl: string | null;
   coverPhotoUrl: string | null;
+  backgroundPhotoUrl: string | null;
   phone: string | null;
   whatsapp: string | null;
   displayEmail: string | null;
@@ -54,7 +55,26 @@ export function DigitalCardView({
 
   return (
     <div className={`mx-auto w-full max-w-full overflow-x-hidden ${!interactive ? "[&_a]:pointer-events-none [&_button]:pointer-events-none" : ""}`}>
-      <div className="w-full overflow-hidden rounded-[2.2rem] bg-[#090d16] text-center shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
+      <div className="relative w-full overflow-hidden rounded-[2.2rem] shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
+        {/* Fundo do CORPO INTEIRO do cartão (atrás de ações/ícones/bio/
+            rodapé — imagem DISTINTA da capa abaixo, que fica só atrás do
+            avatar) — pedido explícito: "a capa de fundo atrás do avatar e
+            outra de fundo com todo o corpo do cartão" são duas imagens.
+            Camada absoluta atrás de TUDO (z-10 no wrapper de conteúdo
+            abaixo garante isso, independente da ordem no DOM); sem foto
+            própria/padrão da organização, cai pro fundo escuro sólido de
+            sempre — nunca um placeholder inventado. */}
+        {data.backgroundPhotoUrl ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={data.backgroundPhotoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/60 to-[#090d16]" />
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-[#090d16]" />
+        )}
+
+        <div className="relative z-10 text-center">
         {/* Capa — foto própria/padrão da organização quando existir (SEMPRE
             com um filtro escuro por cima, não é opcional: o nome/cargo
             ficam em cima dela e precisam de contraste garantido, ver
@@ -168,6 +188,7 @@ export function DigitalCardView({
         <div className="mt-5 flex items-center justify-center gap-2 border-t border-white/10 bg-white/[0.02] px-5 py-3">
           <ReoboteLogo className="h-3 w-auto opacity-75" />
           <span className="text-[10px] font-medium text-white/40">Cartão Digital</span>
+        </div>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
-import { DEFAULT_COVER_PHOTO_URL } from "@/lib/digital-cards/config";
+import { DEFAULT_COVER_PHOTO_URL, DEFAULT_BACKGROUND_PHOTO_URL, DEFAULT_AVATAR_URL } from "@/lib/digital-cards/config";
 // Reexportado por compatibilidade com quem já importava daqui — mas
 // componente "use client" deve importar de @/lib/phone-normalize
 // diretamente (ver comentário lá: importar deste arquivo no cliente arrasta
@@ -27,26 +27,33 @@ async function enrichCard<
   T extends {
     photoKey: string | null;
     coverPhotoKey: string | null;
+    backgroundPhotoKey: string | null;
     emailOverride: string | null;
     user: { name: string; email: string; image: string | null };
   },
 >(card: T) {
-  const [photoUrl, ownCoverUrl] = await Promise.all([
+  const [ownPhotoUrl, ownCoverUrl, ownBackgroundUrl] = await Promise.all([
     resolveAvatarUrl(card.photoKey ?? card.user.image),
     resolveAvatarUrl(card.coverPhotoKey),
+    resolveAvatarUrl(card.backgroundPhotoKey),
   ]);
-  // Sem capa própria, cai pro padrão da organização (DEFAULT_COVER_PHOTO_URL,
-  // ver lib/digital-cards/config.ts — null enquanto nenhuma foto real
-  // chegou; nesse caso o componente visual usa o gradiente abstrato) antes
-  // de cair pro gradiente — nunca pula direto pro gradiente se existir um
-  // padrão configurado.
+  // Ordem de fallback SEMPRE: override do próprio cartão → foto real do
+  // perfil (só pro avatar, ver photoUrl) → padrão da organização (ver
+  // lib/digital-cards/config.ts — null enquanto nenhuma foto real chegou,
+  // nesse caso o componente visual usa gradiente/ícone genérico) — pedido
+  // explícito: "todos podem remover e colocar uma nova foto, mas pode
+  // voltar ao padrão" — remover a própria SEMPRE cai no padrão da
+  // organização, nunca pula direto pro fallback final.
+  const photoUrl = ownPhotoUrl ?? DEFAULT_AVATAR_URL;
   const coverPhotoUrl = ownCoverUrl ?? DEFAULT_COVER_PHOTO_URL;
+  const backgroundPhotoUrl = ownBackgroundUrl ?? DEFAULT_BACKGROUND_PHOTO_URL;
   return {
     ...card,
     displayName: card.user.name,
     displayEmail: card.emailOverride || card.user.email,
     photoUrl,
     coverPhotoUrl,
+    backgroundPhotoUrl,
   };
 }
 
@@ -99,7 +106,16 @@ export async function getOrCreateOwnCard(organizationId: string, userId: string)
   ]);
 
   const created = await prisma.digitalCard.create({
-    data: { organizationId, userId, slug, whatsapp: instance?.phoneNumber ?? null },
+    data: {
+      organizationId,
+      userId,
+      slug,
+      whatsapp: instance?.phoneNumber ?? null,
+      address: "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030",
+      companyName: "Reobote Consórcios",
+      jobTitle: "Consultor de Vendas",
+      bio: "Inteligência em Consórcios",
+    },
     include: CARD_INCLUDE,
   });
   return enrichCard(created);

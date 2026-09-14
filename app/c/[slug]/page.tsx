@@ -69,6 +69,7 @@ export default async function DigitalCardPublicPage({
     bio: card.bio,
     photoUrl: card.photoUrl,
     coverPhotoUrl: card.coverPhotoUrl,
+    backgroundPhotoUrl: card.backgroundPhotoUrl,
     phone: displayPhone(card.phone),
     whatsapp: displayPhone(card.whatsapp),
     displayEmail: card.displayEmail,
