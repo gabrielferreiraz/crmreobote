@@ -1,6 +1,7 @@
 "use client";
 
 import { User as UserIcon } from "lucide-react";
+import { ReoboteLogo } from "@/components/reobote-logo";
 import { DigitalCardLogos } from "./digital-card-logos";
 import { DigitalCardActions } from "./digital-card-actions";
 import { DigitalCardContactActions } from "./digital-card-contact-actions";
@@ -53,18 +54,22 @@ export function DigitalCardView({
   return (
     <div className="mx-auto w-full max-w-sm">
       <div className="overflow-hidden rounded-3xl bg-[#0a0b10] text-center shadow-2xl ring-1 ring-white/10">
-        {/* Capa — abstrata (nunca uma foto inventada), só pra dar profundidade acima do avatar. */}
-        <div className="h-24 bg-gradient-to-br from-[#0e3a52] via-[#132038] to-[#0a0b10]" />
+        {/* Capa — abstrata (nunca uma foto inventada), com um brilho radial
+            simulando profundidade/atmosfera atrás do avatar, mais alta e
+            com mais presença (pedido: "mais parecido" com a referência). */}
+        <div className="relative h-36 overflow-hidden bg-gradient-to-br from-[#0e3a52] via-[#132038] to-[#0a0b10]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(0,174,238,0.35),transparent_60%)]" />
+        </div>
 
-        <div className="relative -mt-12 px-6 pb-7">
-          {/* Foto — puxada por cima da costura entre a capa e o corpo do cartão. */}
-          <div className="mx-auto mb-4 h-24 w-24 overflow-hidden rounded-full ring-4 ring-[#0a0b10]">
+        <div className="relative -mt-16 px-6 pb-0">
+          {/* Foto — puxada por cima da costura entre a capa e o corpo do cartão, maior (mesma proporção da referência). */}
+          <div className="mx-auto mb-4 h-28 w-28 overflow-hidden rounded-full ring-[6px] ring-[#0a0b10]">
             {data.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={data.photoUrl} alt={data.displayName} className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-white/10">
-                <UserIcon className="h-9 w-9 text-white/40" strokeWidth={1.5} />
+                <UserIcon className="h-10 w-10 text-white/40" strokeWidth={1.5} />
               </div>
             )}
           </div>
@@ -119,9 +124,13 @@ export function DigitalCardView({
               <DigitalCardLinks links={data.links} onTrack={onTrack} />
             </div>
           )}
+        </div>
 
-          {/* Rodapé */}
-          <p className="mt-6 text-[11px] text-white/25">Cartão Digital · Reobote</p>
+        {/* Rodapé — barra própria (não só texto solto), mesma ideia de peso
+            visual da referência, com a marca real da Reobote. */}
+        <div className="mt-6 flex items-center justify-center gap-2 border-t border-white/10 bg-white/[0.03] px-6 py-3.5">
+          <ReoboteLogo className="h-3 w-auto opacity-60" />
+          <span className="text-[11px] text-white/40">Cartão Digital</span>
         </div>
       </div>
     </div>
