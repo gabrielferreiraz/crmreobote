@@ -64,7 +64,10 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
           <span>Salvar Contato</span>
         </button>
 
-        {/* Ações Secundárias em Grid de 2 Colunas Equilibradas */}
+        {/* Ações Secundárias em Grid de 2 Colunas Equilibradas — mais finas
+            que o botão principal (py-2 em vez de py-2.5, ícone menor):
+            são ações de apoio, não precisam do mesmo peso visual do
+            "Salvar Contato". */}
         <div className="grid grid-cols-2 gap-2 w-full">
           {/* Mostrar QR Code */}
           <button
@@ -73,9 +76,9 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
               onTrack("QR_CODE_OPEN");
               setShowQrModal(true);
             }}
-            className="flex items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/10 py-2.5 px-3 text-xs font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/10 py-2 px-3 text-xs font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
           >
-            <QrCode className="h-4 w-4 shrink-0 text-cyan-400" strokeWidth={2.2} />
+            <QrCode className="h-3.5 w-3.5 shrink-0 text-cyan-400" strokeWidth={2.2} />
             <span>QR Code</span>
           </button>
 
@@ -83,12 +86,12 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
           <button
             type="button"
             onClick={handleShare}
-            className="flex items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/10 py-2.5 px-3 text-xs font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/10 py-2 px-3 text-xs font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
           >
             {copied ? (
-              <Check className="h-4 w-4 shrink-0 text-emerald-400" strokeWidth={2.5} />
+              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" strokeWidth={2.5} />
             ) : (
-              <Share2 className="h-4 w-4 shrink-0 text-white/80" strokeWidth={2.2} />
+              <Share2 className="h-3.5 w-3.5 shrink-0 text-white/80" strokeWidth={2.2} />
             )}
             <span>{copied ? "Copiado!" : "Enviar Cartão"}</span>
           </button>
