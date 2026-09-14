@@ -226,7 +226,14 @@ export function ConversationsMobile({
             quando de fato não existe nenhum (nada pra ver); "Novo negócio"/
             "Adicionar negócio" aparece sempre — o painel decide sozinho se
             precisa criar o Contact junto (ver existingContactId em
-            QuickAddDealPanel). */}
+            QuickAddDealPanel).
+            Rótulo usa `contactId` (existe Contact de verdade?), nunca
+            `deal` — `selected.deal` só reflete negócio OPEN (ver
+            listConversations em lib/whatsapp/conversations.ts, filtra
+            status:"OPEN" de propósito). Cliente com negócio já
+            Ganho/Perdido tem `deal: null` mas `contactId` preenchido — usar
+            `deal` aqui mostrava "Adicionar negócio" de novo pra esse caso,
+            exatamente o relato original. */}
         <div className="mx-3 mt-2 mb-1 flex flex-wrap items-center gap-1.5">
           {selected.deal && (
             <Link
@@ -243,7 +250,7 @@ export function ConversationsMobile({
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
           >
             <BriefcaseBusiness className="h-3 w-3" strokeWidth={2} />
-            {selected.deal ? "Novo negócio" : "Adicionar negócio"}
+            {selected.contactId ? "Novo negócio" : "Adicionar negócio"}
           </button>
         </div>
         <ChatWindow

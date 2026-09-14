@@ -665,7 +665,17 @@ export function ConversationsView({
             {/* Não é mais um "ou" — ver comentário equivalente em
                 conversations-view-mobile.tsx (mesmo pedido: cliente já tinha
                 negócio, mas o consultor queria registrar OUTRA venda pro
-                mesmo cliente sem sair do WhatsApp). */}
+                mesmo cliente sem sair do WhatsApp).
+                Rótulo do botão de criar usa `contactId` (existe um Contact
+                de verdade?), NUNCA `deal` — `selected.deal` só reflete
+                negócio OPEN (ver listConversations em
+                lib/whatsapp/conversations.ts, filtra status:"OPEN" de
+                propósito, é só o atalho pra negociação ATIVA). Cliente com
+                negócio já Ganho/Perdido tem `deal: null` mas `contactId`
+                preenchido — usar `deal` aqui mostrava "Adicionar negócio"
+                de novo pra esse caso, exatamente o relato original (negócio
+                já fechado, sem indicação nenhuma de que dava pra criar
+                outro). */}
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               {selected.deal && (
                 <Link
@@ -682,7 +692,7 @@ export function ConversationsView({
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
               >
                 <BriefcaseBusiness className="h-3 w-3" strokeWidth={2} />
-                {selected.deal ? "Novo negócio" : "Adicionar negócio"}
+                {selected.contactId ? "Novo negócio" : "Adicionar negócio"}
               </button>
             </div>
             <ChatWindow
