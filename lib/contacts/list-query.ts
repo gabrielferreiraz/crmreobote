@@ -1,5 +1,5 @@
 import { Prisma } from "@/app/generated/prisma/client";
-import { prisma } from "@/lib/prisma";
+import { searchDb } from "@/lib/search-db";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 
@@ -124,14 +124,25 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
   return where;
 }
 
+// Usam searchDb (BYPASSRLS, ver lib/search-db.ts), não o `prisma` normal —
+// pedido explícito do usuário: "a velocidade de busca de clientes no CRM
+// está muito lenta". Causa raiz medida em produção (141k+ contatos): sob
+// RLS, o Postgres se recusa a combinar a policy (que usa current_setting())
+// com um Bitmap Index Scan nos índices trigram porque ILIKE/`%` não são
+// operadores "leakproof" — cai pra sequential scan mesmo com os índices
+// existindo e válidos (300ms-2s+ por busca comum). Via searchDb, a MESMA
+// query usa os índices normalmente (2-30ms). buildContactsWhere sempre
+// inclui organizationId incondicionalmente (1ª condição do `where`, nunca
+// opcional no tipo) — essa é a única proteção multi-tenant aqui agora,
+// então isso NUNCA pode virar opcional nestas duas funções.
 export async function countContacts(params: ContactsFilterParams): Promise<number> {
-  return prisma.contact.count({ where: buildContactsWhere(params) });
+  return searchDb.contact.count({ where: buildContactsWhere(params) });
 }
 
 export async function fetchContactsList(params: ContactsFilterParams & { skip?: number; take: number }): Promise<EnrichedContact[]> {
   const { skip, take } = params;
 
-  return prisma.contact.findMany({
+  return searchDb.contact.findMany({
     where: buildContactsWhere(params),
     orderBy: { createdAt: "desc" },
     select: {
