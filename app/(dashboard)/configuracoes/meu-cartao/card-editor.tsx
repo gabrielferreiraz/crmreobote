@@ -5,6 +5,7 @@ import { Loader2, Plus, X, Camera, Trash2, Copy, Check } from "lucide-react";
 import { Select } from "@/components/select";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
+import { PhonePreviewFrame } from "@/components/digital-card/phone-preview-frame";
 import { displayPhone } from "@/lib/phone-normalize";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
 
@@ -340,7 +341,9 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             Contato, WhatsApp, etc.) navegam de verdade se clicados, o que
             faria sentido na página pública mas não aqui dentro do editor. */}
         <div className="pointer-events-none select-none">
-          <DigitalCardView data={previewData} interactive={false} />
+          <PhonePreviewFrame>
+            <DigitalCardView data={previewData} interactive={false} />
+          </PhonePreviewFrame>
         </div>
       </div>
     </div>
