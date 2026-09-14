@@ -81,8 +81,10 @@ export default async function DigitalCardPublicPage({
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0b10] px-4 py-10">
-      <DigitalCardView data={data} source={src ?? null} />
+    <div className="min-h-screen bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8 flex justify-center">
+      <div className="w-full max-w-md min-h-screen sm:min-h-0">
+        <DigitalCardView data={data} source={src ?? null} />
+      </div>
     </div>
   );
 }

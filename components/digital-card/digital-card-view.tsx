@@ -55,7 +55,7 @@ export function DigitalCardView({
 
   return (
     <div className={`mx-auto w-full max-w-full overflow-x-hidden ${!interactive ? "[&_a]:pointer-events-none [&_button]:pointer-events-none" : ""}`}>
-      <div className="relative w-full overflow-hidden rounded-[2.2rem] shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
+      <div className="relative w-full overflow-hidden rounded-none sm:rounded-[2.2rem] min-h-screen sm:min-h-0 shadow-none sm:shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-0 sm:ring-1 sm:ring-white/10 bg-[#090d16]">
         {/* Fundo do CORPO INTEIRO do cartão (atrás de ações/ícones/bio/
             rodapé — imagem DISTINTA da capa abaixo, que fica só atrás do
             avatar) — pedido explícito: "a capa de fundo atrás do avatar e
@@ -138,6 +138,14 @@ export function DigitalCardView({
             <DigitalCardLogos />
           </div>
 
+          {/* Valor em carteira */}
+          {data.showPortfolioValue && data.portfolioValueDisplay && (
+            <div className="mt-4 rounded-2xl border border-[#00aeee]/30 bg-gradient-to-r from-[#00aeee]/15 via-cyan-500/10 to-blue-600/15 p-3 text-center shadow-lg backdrop-blur-md">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300/80">Carteira sob gestão</p>
+              <p className="mt-0.5 text-base font-extrabold text-white">{data.portfolioValueDisplay}</p>
+            </div>
+          )}
+
           {/* Ações principais */}
           <div className="mt-4">
             <DigitalCardActions
@@ -157,6 +165,7 @@ export function DigitalCardView({
               whatsapp={data.whatsapp}
               email={data.displayEmail}
               address={data.address}
+              instagram={data.links.find((l) => l.type === "INSTAGRAM")?.url ?? "https://www.instagram.com/reoboteconsorcios"}
               onTrack={onTrack}
             />
           </div>
@@ -165,14 +174,6 @@ export function DigitalCardView({
           {data.bio && (
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-relaxed text-white/80 backdrop-blur-md">
               {data.bio}
-            </div>
-          )}
-
-          {/* Valor em carteira */}
-          {data.showPortfolioValue && data.portfolioValueDisplay && (
-            <div className="mt-4 rounded-2xl border border-[#00aeee]/30 bg-gradient-to-r from-[#00aeee]/15 via-cyan-500/10 to-blue-600/15 p-3 text-center shadow-lg backdrop-blur-md">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300/80">Carteira sob gestão</p>
-              <p className="mt-0.5 text-base font-extrabold text-white">{data.portfolioValueDisplay}</p>
             </div>
           )}
 
