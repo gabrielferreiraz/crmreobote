@@ -50,7 +50,14 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [jobTitle, setJobTitle] = useState(card.jobTitle ?? DEFAULT_JOB_TITLE);
   const [bio, setBio] = useState(card.bio ?? DEFAULT_BIO);
   const [companyName, setCompanyName] = useState(card.companyName ?? DEFAULT_COMPANY);
-  const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? card.user.email);
+  // Vazio por padrão (não pré-preenchido com card.user.email) de propósito:
+  // salvar com o campo assim intocado NÃO deve gravar um override — e-mail
+  // é o único campo aqui com fonte de verdade externa (User.email, ver
+  // comentário em lib/digital-cards/queries.ts), então precisa continuar
+  // acompanhando a pessoa trocar de e-mail no perfil até que ela digite
+  // algo diferente aqui de propósito. O e-mail real aparece só como
+  // placeholder (ver input abaixo), nunca como valor pré-preenchido.
+  const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? "");
   const [phone, setPhone] = useState(card.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(card.whatsapp ?? "");
   const [address, setAddress] = useState(card.address ?? DEFAULT_ADDRESS);
