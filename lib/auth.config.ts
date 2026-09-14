@@ -18,7 +18,12 @@ const AUTH_ONLY_PATHS = ["/login", "/register"];
 // segurança de verdade continua sendo o código em si (hash + rate limit em
 // lib/require-tv-link.ts), isto aqui só destranca o proxy pra deixar a
 // página decidir.
-const PUBLIC_PATHS = ["/docs", "/t/"];
+//
+// "/c/" é o mesmo tipo de liberação, pro Cartão Digital público (ver
+// app/c/[slug]/page.tsx, lib/require-digital-card.ts) — slug não é
+// segredo (feito pra ser compartilhado), a "segurança" aqui é só
+// active=true na policy de RLS + rate limit por IP.
+const PUBLIC_PATHS = ["/docs", "/t/", "/c/"];
 
 export const authConfig = {
   trustHost: true,

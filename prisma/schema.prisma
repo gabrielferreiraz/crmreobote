@@ -76,6 +76,9 @@ model Organization {
   productivityTipDismissals ProductivityTipDismissal[]
   tvConfig               TvDashboardConfig?
   tvDisplayLinks         TvDisplayLink[]
+  digitalCards           DigitalCard[]
+  digitalCardEvents      DigitalCardEvent[]
+  digitalCardPresentations DigitalCardPresentation[]
   importBatches          ImportBatch[]
   shareGroups            ShareGroup[]
   processTemplates       ProcessTemplate[]
@@ -116,6 +119,8 @@ model User {
   googleCalendarConnection    GoogleCalendarConnection?
   apiKeysCreated              ApiKey[]
   tvDisplayLinksCreated       TvDisplayLink[]
+  digitalCard                 DigitalCard?
+  digitalCardPresentations    DigitalCardPresentation[]
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
   contactsLeadQualified       Contact[]                 @relation("ContactLeadQualifiedBy")
@@ -2266,6 +2271,186 @@ model TvDisplayLink {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation(fields: [createdById], references: [id])
 
+  @@index([organizationId])
+}
+
+// ─── Cartão Digital ──────────────────────────────────────────────────
+//
+// Cartão de visita digital (QR Code + link permanente) pra consultor/
+// diretor apresentar presencialmente ou compartilhar. Fonte de verdade
+// continua sendo User/OrganizationUser — este model só guarda o que o User
+// NÃO tem hoje (cargo, bio, telefone/WhatsApp público, endereço, valor em
+// carteira) + overrides opcionais (foto, e-mail) pra quem quer algo
+// diferente no cartão do que no resto do CRM. Nome/e-mail/foto default
+// SEMPRE lidos do User em tempo de render (ver lib/digital-cards/queries.ts)
+// — nunca copiados pra cá, pra nunca dessincronizar se a pessoa trocar de
+// nome/foto no perfil.
+//
+// 1 cartão por usuário (userId @unique) — igual "ativar um Cartão Digital
+// pra ele" foi pedido, não uma lista de cartões por pessoa.
+//
+// slug é ÚNICO GLOBAL (não por organização) — a URL pública
+// (cartao.reobote.com.br/c/marcelo-souza) não carrega segmento de
+// organização nenhum, mesmo formato já usado por Organization.slug (também
+// global neste projeto). Se outra organização um dia usar o mesmo sistema,
+// dois slugs iguais colidiriam — aceito conscientemente, é o formato de URL
+// pedido.
+model DigitalCard {
+  id             String  @id @default(cuid())
+  organizationId String
+  userId         String  @unique
+  slug           String  @unique
+  // Nasce inativo — "ativar" é um passo explícito da pessoa (Meu Cartão),
+  // nunca fica público sozinho só por existir a linha.
+  active         Boolean @default(false)
+
+  jobTitle String? // User não tem cargo hoje — só existe aqui.
+  bio      String?
+  // "Reobote Consórcios" como default sensato, mas editável (pedido cobre
+  // "empresa" como campo próprio do cartão).
+  companyName String? @default("Reobote Consórcios")
+  // Override da foto — null = cai pro User.image (ver
+  // lib/digital-cards/queries.ts). Mesma convenção de chave do avatar
+  // normal (ver lib/r2.ts), bucket privado + URL assinada.
+  photoKey String?
+  // Override do e-mail — null = usa User.email.
+  emailOverride String?
+  // Telefone/WhatsApp públicos do cartão — User não tem telefone hoje.
+  // whatsapp é PRÉ-preenchido a partir da WhatsAppInstance conectada do
+  // usuário no momento da criação do cartão (ver
+  // app/api/digital-cards/route.ts), mas vira um campo próprio e editável
+  // depois disso — trocar de instância no CRM não muda o cartão sozinho.
+  phone    String?
+  whatsapp String?
+  // Texto livre — alimenta o botão "Mapa" (query pro Google Maps) e o
+  // campo ADR do vCard. Não é o endereço estruturado de Contact
+  // (address/addressNumber/...) de propósito: cartão de visita não precisa
+  // desse nível de estrutura, só de um texto que abre bem no Maps.
+  address String?
+
+  // Valor em carteira — comercialmente sensível, por isso off por padrão e
+  // sempre um TEXTO livre formatado (nunca um número puro): "+R$ 5
+  // milhões", "Mais de R$ 5 milhões" etc., nunca dado exato exposto sem a
+  // pessoa escolher como.
+  showPortfolioValue    Boolean @default(false)
+  portfolioValueDisplay String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization  Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  links         DigitalCardLink[]
+  events        DigitalCardEvent[]
+  presentations DigitalCardPresentation[]
+
+  @@index([organizationId])
+}
+
+enum DigitalCardLinkType {
+  INSTAGRAM
+  LINKEDIN
+  WEBSITE
+  FACEBOOK
+  YOUTUBE
+  OTHER
+}
+
+model DigitalCardLink {
+  id     String              @id @default(cuid())
+  cardId String
+  type   DigitalCardLinkType
+  label  String
+  url    String
+  order  Int                 @default(0)
+  active Boolean             @default(true)
+
+  card DigitalCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+}
+
+enum DigitalCardEventType {
+  CARD_VIEW
+  QR_PRESENTED
+  CLIENT_ACCESSED
+  CLIENT_REFUSED
+  WHATSAPP_CLICK
+  PHONE_CLICK
+  EMAIL_CLICK
+  MAP_CLICK
+  INSTAGRAM_CLICK
+  LINKEDIN_CLICK
+  LINK_CLICK
+  VCARD_DOWNLOAD
+  SHARE_CLICK
+}
+
+/**
+ * Evento de analytics do cartão — sempre gravado a partir de um
+ * organizationId JÁ resolvido (a página pública resolve via
+ * runWithCardSlugLookup uma vez, e escreve o evento com runWithTenant
+ * normal depois, ver lib/digital-cards/events.ts) — este model não precisa
+ * de policy de bootstrap própria, diferente de DigitalCard. Nunca guarda
+ * dado pessoal do visitante — só o tipo de evento, uma sessão anônima
+ * (cookie aleatório, nunca fingerprint) e a origem (?src=qr/whatsapp/...).
+ */
+model DigitalCardEvent {
+  id             String               @id @default(cuid())
+  organizationId String
+  cardId         String
+  eventType      DigitalCardEventType
+  sessionId      String?
+  source         String?
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  card         DigitalCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, eventType, createdAt])
+  @@index([organizationId])
+}
+
+enum PresentationResponse {
+  ACCESSED
+  REFUSED
+  SELF_VIEW
+  PENDING
+}
+
+/**
+ * Uma sessão de apresentação presencial — criada quando o consultor abre
+ * "Meu QR Code" pra mostrar ao cliente (ver
+ * components/digital-card/use-presentation-session.ts). Como o QR é
+ * permanente (nunca um link de uso único, pedido explícito), não existe
+ * prova técnica de que UM acesso específico veio desta apresentação —
+ * automaticAccessDetected é só uma DICA (houve CARD_VIEW deste cartão
+ * nessa janela de tempo?), nunca a resposta em si: quem decide
+ * consultantResponse é sempre o próprio consultor, respondendo à pergunta
+ * pós-apresentação.
+ */
+model DigitalCardPresentation {
+  id                      String               @id @default(cuid())
+  organizationId          String
+  cardId                  String
+  consultantUserId        String
+  startedAt               DateTime             @default(now())
+  endedAt                 DateTime?
+  consultantResponse      PresentationResponse @default(PENDING)
+  automaticAccessDetected Boolean              @default(false)
+  visitorSessionId        String?
+  whatsappClicked         Boolean              @default(false)
+  vcardDownloaded         Boolean              @default(false)
+  instagramClicked        Boolean              @default(false)
+  createdAt               DateTime             @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  card         DigitalCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  consultant   User         @relation(fields: [consultantUserId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, createdAt])
+  @@index([consultantUserId, createdAt])
   @@index([organizationId])
 }
 

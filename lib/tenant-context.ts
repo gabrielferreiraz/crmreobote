@@ -8,6 +8,7 @@ type TenantStore = {
   apiKeyHash?: string;
   metaPageId?: string;
   tvLinkTokenHash?: string;
+  cardSlug?: string;
 };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
@@ -43,6 +44,10 @@ export function getCurrentMetaPageId(): string | undefined {
 
 export function getCurrentTvLinkTokenHash(): string | undefined {
   return storage.getStore()?.tvLinkTokenHash;
+}
+
+export function getCurrentCardSlug(): string | undefined {
+  return storage.getStore()?.cardSlug;
 }
 
 /**
@@ -120,6 +125,20 @@ export function runWithMetaPageLookup<T>(pageId: string, fn: () => Promise<T>): 
  */
 export function runWithTvLinkLookup<T>(tokenHash: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ tvLinkTokenHash: tokenHash }, async () => await fn());
+}
+
+/**
+ * Mesma ideia, mas pro Cartão Digital (lib/require-digital-card.ts): a
+ * requisição pública (sem login, ver app/c/[slug]/page.tsx) só traz o slug
+ * do cartão, o organizationId ainda precisa ser descoberto a partir dele. A
+ * policy de RLS de DigitalCard permite achar a própria linha por
+ * slug+active mesmo sem organizationId definido — igual ao WhatsAppInstance
+ * permite achar a própria linha por instanceName. Diferente dos outros
+ * bootstraps acima, slug NÃO é um segredo (é feito pra ser compartilhado),
+ * então não há hash aqui — só o valor puro.
+ */
+export function runWithCardSlugLookup<T>(slug: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ cardSlug: slug }, async () => await fn());
 }
 
 /**

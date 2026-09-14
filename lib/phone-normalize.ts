@@ -205,3 +205,18 @@ export function formatBrazilianPhone(normalized: string | null | undefined): str
   if (rest.length === 8) return `+55 (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
   return `+55 ${normalized}`;
 }
+
+/**
+ * Mesma ideia de formatBrazilianPhone, mas recebe o número CRU (com ou sem
+ * formatação) — usado pelo Cartão Digital (lib/digital-cards/queries.ts e
+ * o preview em "Meu Cartão", app/(dashboard)/configuracoes/meu-cartao/
+ * card-editor.tsx). Vive aqui (não em lib/digital-cards/queries.ts) de
+ * propósito: aquele módulo importa `prisma`/`sharp`/`pg` no topo, e
+ * card-editor.tsx é "use client" — importar de lá quebrava o build
+ * (Turbopack tentava colocar `pg`/`sharp`/`fs`/`dns`/`tls` no bundle do
+ * navegador). Esta função é pura, sem nenhuma dependência de servidor.
+ */
+export function displayPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return formatBrazilianPhone(raw.replace(/\D/g, "")) ?? raw;
+}

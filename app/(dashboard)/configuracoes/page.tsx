@@ -46,6 +46,13 @@ export default async function ConfiguracoesPage() {
           description: "Foto, notificações push e conexão do WhatsApp.",
           keywords: ["foto", "avatar", "notificação", "push", "whatsapp", "senha", "perfil"],
         },
+        {
+          href: "/configuracoes/meu-cartao",
+          icon: "CreditCard",
+          title: "Cartão Digital",
+          description: "Seu cartão de visita — QR Code, link público e estatísticas.",
+          keywords: ["cartão", "cartao digital", "qr code", "qrcode", "vcard", "visita", "apresentação"],
+        },
         // Sub-item da própria "Perfil e preferências" (mesmo href, com
         // âncora direto pra seção — ver id="whatsapp" em
         // configuracoes/perfil/page.tsx) — só aparece buscando, com

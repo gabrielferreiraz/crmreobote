@@ -1,0 +1,287 @@
+"use client";
+
+import { useState } from "react";
+import { Loader2, Plus, X, Camera, Copy, Check } from "lucide-react";
+import { Select } from "@/components/select";
+import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
+import { displayPhone } from "@/lib/phone-normalize";
+import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
+
+type Card = Awaited<ReturnType<typeof getOrCreateOwnCard>>;
+type LinkRow = { id: string; type: string; label: string; url: string };
+
+const LINK_TYPE_OPTIONS = [
+  { value: "INSTAGRAM", label: "Instagram" },
+  { value: "LINKEDIN", label: "LinkedIn" },
+  { value: "WEBSITE", label: "Site" },
+  { value: "FACEBOOK", label: "Facebook" },
+  { value: "YOUTUBE", label: "YouTube" },
+  { value: "OTHER", label: "Outro" },
+];
+
+/**
+ * Formulário + preview ao vivo (pedido explícito: "o usuário deve
+ * conseguir visualizar como o cartão ficará antes de publicar") — a
+ * pré-visualização usa DigitalCardView com `interactive={false}` (editar o
+ * próprio cartão nunca conta como visita/clique de verdade).
+ */
+export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publicUrl: string }) {
+  const [active, setActive] = useState(card.active);
+  const [jobTitle, setJobTitle] = useState(card.jobTitle ?? "");
+  const [bio, setBio] = useState(card.bio ?? "");
+  const [companyName, setCompanyName] = useState(card.companyName ?? "");
+  const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? "");
+  const [phone, setPhone] = useState(card.phone ?? "");
+  const [whatsapp, setWhatsapp] = useState(card.whatsapp ?? "");
+  const [address, setAddress] = useState(card.address ?? "");
+  const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
+  const [portfolioValueDisplay, setPortfolioValueDisplay] = useState(card.portfolioValueDisplay ?? "");
+  const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
+  const [photoUrl, setPhotoUrl] = useState(card.photoUrl);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  function addLink() {
+    setLinks((prev) => [...prev, { id: `new-${Date.now()}`, type: "INSTAGRAM", label: "", url: "" }]);
+  }
+  function updateLink(id: string, patch: Partial<LinkRow>) {
+    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+  function removeLink(id: string) {
+    setLinks((prev) => prev.filter((l) => l.id !== id));
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    setError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`/api/digital-cards/${card.id}/photo`, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    setUploadingPhoto(false);
+    if (!res.ok) {
+      setError(data.error ?? "Erro ao enviar foto");
+      return;
+    }
+    setPhotoUrl(data.photoUrl);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+
+    const res = await fetch(`/api/digital-cards/${card.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        active,
+        jobTitle: jobTitle.trim() || null,
+        bio: bio.trim() || null,
+        companyName: companyName.trim() || null,
+        emailOverride: emailOverride.trim() || null,
+        phone: phone.trim() || null,
+        whatsapp: whatsapp.trim() || null,
+        address: address.trim() || null,
+        showPortfolioValue,
+        portfolioValueDisplay: portfolioValueDisplay.trim() || null,
+        links: links.map((l, i) => ({ type: l.type, label: l.label, url: l.url, order: i })),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+
+    if (!res.ok) {
+      setError(data.error ?? "Erro ao salvar");
+      return;
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // sem fallback melhor sem um input visível
+    }
+  }
+
+  const previewData: DigitalCardData = {
+    slug: card.slug,
+    displayName: card.displayName,
+    jobTitle: jobTitle.trim() || null,
+    companyName: companyName.trim() || null,
+    bio: bio.trim() || null,
+    photoUrl,
+    phone: displayPhone(phone.trim() || null),
+    whatsapp: displayPhone(whatsapp.trim() || null),
+    displayEmail: emailOverride.trim() || card.user.email,
+    address: address.trim() || null,
+    showPortfolioValue,
+    portfolioValueDisplay: portfolioValueDisplay.trim() || null,
+    links: links.filter((l) => l.label.trim() && l.url.trim()),
+    publicUrl,
+  };
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="space-y-4">
+        <label className="flex items-center justify-between rounded-lg border border-neutral-100 p-3 dark:border-neutral-800">
+          <span>
+            <span className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">Cartão ativo</span>
+            <span className="block text-xs text-neutral-400 dark:text-neutral-500">
+              Desativado, o link público mostra "cartão não encontrado".
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={active}
+            onChange={(e) => setActive(e.target.checked)}
+            className="h-5 w-5 accent-neutral-900 dark:accent-white"
+          />
+        </label>
+
+        {active && (
+          <div className="flex items-center gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:bg-neutral-800/60 dark:text-neutral-400">
+            <span className="min-w-0 flex-1 truncate">{publicUrl}</span>
+            <button type="button" onClick={handleCopyLink} className="icon-btn h-6 w-6 shrink-0">
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <label className="field-label">Foto do cartão (opcional — sem isso, usa a foto do seu perfil)</label>
+          <div className="flex items-center gap-3">
+            <div className="h-14 w-14 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+              {photoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+              )}
+            </div>
+            <label className="btn-ghost btn-sm cursor-pointer">
+              {uploadingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" strokeWidth={2.3} />}
+              Trocar foto
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handlePhotoChange} />
+            </label>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="field-label">Cargo</label>
+            <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Diretor Comercial" className="field-input" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="field-label">Empresa</label>
+            <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="field-input" />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="field-label">Bio / descrição (opcional)</label>
+          <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={2} className="field-input" placeholder="Soluções em consórcio e planejamento patrimonial" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="field-label">Telefone</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="field-label">WhatsApp</label>
+            <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="field-label">E-mail (padrão: {card.user.email})</label>
+          <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="field-label">Endereço (alimenta o botão "Mapa")</label>
+          <input value={address} onChange={(e) => setAddress(e.target.value)} className="field-input" />
+        </div>
+
+        <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+          <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+            <input
+              type="checkbox"
+              checked={showPortfolioValue}
+              onChange={(e) => setShowPortfolioValue(e.target.checked)}
+              className="accent-neutral-900 dark:accent-white"
+            />
+            Mostrar valor em carteira
+          </label>
+          {showPortfolioValue && (
+            <input
+              value={portfolioValueDisplay}
+              onChange={(e) => setPortfolioValueDisplay(e.target.value)}
+              placeholder="+R$ 5 milhões"
+              className="field-input"
+            />
+          )}
+        </div>
+
+        <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+          <label className="field-label">Links adicionais</label>
+          {links.map((link) => (
+            <div key={link.id} className="flex items-center gap-2">
+              <Select
+                value={link.type}
+                onChange={(v) => updateLink(link.id, { type: v })}
+                options={LINK_TYPE_OPTIONS}
+                className="w-32 shrink-0 py-1.5 text-sm"
+              />
+              <input
+                value={link.label}
+                onChange={(e) => updateLink(link.id, { label: e.target.value })}
+                placeholder="Título"
+                className="field-input min-w-0 flex-1 px-2 py-1.5 text-sm"
+              />
+              <input
+                value={link.url}
+                onChange={(e) => updateLink(link.id, { url: e.target.value })}
+                placeholder="https://..."
+                className="field-input min-w-0 flex-[1.5] px-2 py-1.5 text-sm"
+              />
+              <button type="button" onClick={() => removeLink(link.id)} className="icon-btn h-7 w-7 shrink-0" aria-label="Remover link">
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={addLink} className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
+            <Plus className="h-3 w-3" strokeWidth={2.5} />
+            Adicionar link
+          </button>
+        </div>
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary">
+          {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+          {saved ? "Salvo!" : saving ? "Salvando..." : "Salvar"}
+        </button>
+      </div>
+
+      <div className="lg:sticky lg:top-4 lg:self-start">
+        <p className="mb-2 text-center text-xs font-medium text-neutral-400 dark:text-neutral-500">Pré-visualização</p>
+        {/* pointer-events-none: preview é só visual — os botões (Salvar
+            Contato, WhatsApp, etc.) navegam de verdade se clicados, o que
+            faria sentido na página pública mas não aqui dentro do editor. */}
+        <div className="pointer-events-none scale-90 origin-top select-none">
+          <DigitalCardView data={previewData} interactive={false} />
+        </div>
+      </div>
+    </div>
+  );
+}

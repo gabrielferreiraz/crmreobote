@@ -68,6 +68,19 @@ export function buildAvatarKey(userId: string, contentType: string) {
   return `avatars/${userId}/${random}.${ext}`;
 }
 
+/**
+ * Mesmo pipeline/bucket/validação do avatar (assertValidAvatar/
+ * resizeAvatar/uploadAvatar/resolveAvatarUrl — reaproveitados sem cópia),
+ * só um prefixo de chave diferente — foto do Cartão Digital é um OVERRIDE
+ * opcional da foto de perfil (ver DigitalCard.photoKey no schema), guardada
+ * separada pra nunca sobrescrever o avatar usado no resto do CRM.
+ */
+export function buildCardPhotoKey(cardId: string, contentType: string) {
+  const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `card-photos/${cardId}/${random}.${ext}`;
+}
+
 export async function uploadAvatar(key: string, body: Buffer, contentType: string) {
   await client.send(
     new PutObjectCommand({
@@ -84,14 +97,17 @@ export async function deleteAvatar(key: string) {
 }
 
 /**
- * `image` no banco guarda ou uma URL externa completa (foto de perfil do Google, por
- * exemplo) ou uma chave interna do R2 (sempre iniciando com "avatars/"). URLs externas
- * são retornadas como estão; chaves do R2 viram uma URL assinada de curta duração,
- * já que o bucket é privado.
+ * `image`/`photoKey` no banco guarda ou uma URL externa completa (foto de
+ * perfil do Google, por exemplo) ou uma chave interna do R2 — sempre
+ * iniciando com "avatars/" (foto de perfil normal) ou "card-photos/"
+ * (override de foto do Cartão Digital, ver buildCardPhotoKey acima; mesmo
+ * bucket privado, só prefixo diferente pra nunca se misturar com o avatar
+ * usado no resto do CRM). URLs externas são retornadas como estão; chaves
+ * do R2 viram uma URL assinada de curta duração, já que o bucket é privado.
  */
 export async function resolveAvatarUrl(image: string | null | undefined): Promise<string | null> {
   if (!image) return null;
-  if (!image.startsWith("avatars/")) return image;
+  if (!image.startsWith("avatars/") && !image.startsWith("card-photos/")) return image;
 
   return getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: image }), {
     expiresIn: SIGNED_URL_TTL_SECONDS,

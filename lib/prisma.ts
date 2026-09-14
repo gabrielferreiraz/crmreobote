@@ -7,6 +7,7 @@ import {
   getCurrentApiKeyHash,
   getCurrentMetaPageId,
   getCurrentTvLinkTokenHash,
+  getCurrentCardSlug,
 } from "@/lib/tenant-context";
 
 function createBaseClient() {
@@ -62,6 +63,13 @@ function createBaseClient() {
  * link público (sem login) da TV (lib/require-tv-link.ts): a requisição só
  * traz o hash do token do link, e a policy de TvDisplayLink permite achar a
  * própria linha por ele antes de conhecer o organizationId.
+ *
+ * `app.current_card_slug` é o mesmo tipo de bootstrap, só que pro Cartão
+ * Digital público (lib/require-digital-card.ts): a requisição só traz o
+ * slug do cartão, e a policy de DigitalCard permite achar a própria linha
+ * por slug+active antes de conhecer o organizationId. Diferente dos outros
+ * bootstraps, slug não é secreto (é feito pra ser compartilhado) — não há
+ * hash aqui, só o valor puro.
  */
 function withTenantRls(client: PrismaClient) {
   return client.$extends({
@@ -75,7 +83,8 @@ function withTenantRls(client: PrismaClient) {
           const apiKeyHash = getCurrentApiKeyHash();
           const metaPageId = getCurrentMetaPageId();
           const tvLinkTokenHash = getCurrentTvLinkTokenHash();
-          if (!organizationId && !userId && !instanceName && !apiKeyHash && !metaPageId && !tvLinkTokenHash) return query(args);
+          const cardSlug = getCurrentCardSlug();
+          if (!organizationId && !userId && !instanceName && !apiKeyHash && !metaPageId && !tvLinkTokenHash && !cardSlug) return query(args);
 
           // Importante: tem que ser a forma em array do $transaction, não
           // `$transaction(async (tx) => ...)`. Na forma de callback, `query(args)`
@@ -85,10 +94,10 @@ function withTenantRls(client: PrismaClient) {
           // filtrando tudo silenciosamente (zero linhas, sem erro nenhum). A forma
           // em array agrupa todas as operações numa única transação/conexão real.
           //
-          // As 6 chamadas set_config viram uma ÚNICA consulta (uma SELECT com 6
-          // colunas, não 6 SELECTs) — banco é remoto (~40ms de ida-e-volta por
+          // As 7 chamadas set_config viram uma ÚNICA consulta (uma SELECT com 7
+          // colunas, não 7 SELECTs) — banco é remoto (~40ms de ida-e-volta por
           // consulta), e cada uma dessas era uma ida-e-volta própria. Isso corta
-          // de 8 idas-e-voltas por operação (BEGIN + 6 set_config + a consulta
+          // de 9 idas-e-voltas por operação (BEGIN + 7 set_config + a consulta
           // de verdade + COMMIT) pra 4 (BEGIN + 1 set_config combinado + a
           // consulta + COMMIT) — em TODA operação do Prisma no app inteiro, não
           // só numa tela. Continua sendo uma única query parametrizada (sem
@@ -108,7 +117,8 @@ function withTenantRls(client: PrismaClient) {
                 set_config('app.current_instance_name', ${instanceName ?? ""}, true),
                 set_config('app.current_api_key_hash', ${apiKeyHash ?? ""}, true),
                 set_config('app.current_meta_page_id', ${metaPageId ?? ""}, true),
-                set_config('app.current_tv_link_token_hash', ${tvLinkTokenHash ?? ""}, true)`,
+                set_config('app.current_tv_link_token_hash', ${tvLinkTokenHash ?? ""}, true),
+                set_config('app.current_card_slug', ${cardSlug ?? ""}, true)`,
               query(args),
             ],
             { maxWait: 10_000, timeout: 15_000 },
