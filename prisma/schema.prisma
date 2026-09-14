@@ -2313,6 +2313,13 @@ model DigitalCard {
   // lib/digital-cards/queries.ts). Mesma convenção de chave do avatar
   // normal (ver lib/r2.ts), bucket privado + URL assinada.
   photoKey String?
+  // Foto de capa (banner do topo do cartão) — opcional, por cartão. null =
+  // cai pro gradiente abstrato padrão (ver components/digital-card/
+  // digital-card-view.tsx). Mesmo bucket privado + URL assinada do
+  // photoKey acima, prefixo de chave próprio (buildCardCoverPhotoKey em
+  // lib/r2.ts) — pedido explícito do usuário depois de discutir a ideia do
+  // Gemini sobre foto de fundo do cartão.
+  coverPhotoKey String?
   // Override do e-mail — null = usa User.email.
   emailOverride String?
   // Telefone/WhatsApp públicos do cartão — User não tem telefone hoje.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Plus, X, Camera, Trash2, Copy, Check } from "lucide-react";
+import { Loader2, Plus, X, Camera, Trash2, Copy, Check, Maximize2 } from "lucide-react";
 import { Select } from "@/components/select";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
@@ -48,10 +48,13 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
   const [photoUrl, setPhotoUrl] = useState(card.photoUrl);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState(card.coverPhotoUrl);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showFullscreenPreview, setShowFullscreenPreview] = useState(false);
 
   function addLink() {
     setLinks((prev) => [...prev, { id: `new-${Date.now()}`, type: "INSTAGRAM", label: "", url: "" }]);
@@ -87,6 +90,32 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     const res = await fetch(`/api/digital-cards/${card.id}/photo`, { method: "DELETE" });
     setUploadingPhoto(false);
     if (res.ok) setPhotoUrl(null);
+  }
+
+  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingCover(true);
+    setError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    setUploadingCover(false);
+    if (!res.ok) {
+      setError(data.error ?? "Erro ao enviar foto de capa");
+      return;
+    }
+    setCoverPhotoUrl(data.coverPhotoUrl);
+  }
+
+  async function handleRemoveCover() {
+    setUploadingCover(true);
+    setError(null);
+    const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "DELETE" });
+    setUploadingCover(false);
+    if (res.ok) setCoverPhotoUrl(null);
   }
 
   async function handleSave() {
@@ -139,6 +168,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     companyName: companyName.trim() || null,
     bio: bio.trim() || null,
     photoUrl,
+    coverPhotoUrl,
     phone: displayPhone(phone.trim() || null),
     whatsapp: displayPhone(whatsapp.trim() || null),
     displayEmail: emailOverride.trim() || card.user.email,
@@ -150,7 +180,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px] lg:items-start">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_345px] lg:items-start">
       <div className="space-y-4">
         {/* Ativação + link público */}
         <div className="card space-y-3 p-4">
@@ -214,6 +244,53 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Foto de capa (banner do topo) — opcional, por cartão. Sem ela,
+            cai pro padrão da organização (quando configurado, ver
+            lib/digital-cards/config.ts) ou pro gradiente abstrato. */}
+        <div className="card p-4">
+          <p className="field-label mb-3">Foto de capa</p>
+          <div className="space-y-3">
+            <div className="relative h-24 w-full overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
+              {coverPhotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={coverPhotoUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-neutral-400 dark:text-neutral-500">
+                  Sem foto de capa
+                </div>
+              )}
+              {uploadingCover && (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <Loader2 className="h-5 w-5 animate-spin text-white" strokeWidth={2} />
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Aparece como banner atrás da sua foto, com um filtro escuro por cima (pro nome continuar legível). JPEG, PNG ou
+              WebP · até 10MB.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <label className="btn-secondary btn-sm cursor-pointer">
+                <Camera className="h-3.5 w-3.5" strokeWidth={2} />
+                {coverPhotoUrl ? "Trocar capa" : "Adicionar capa"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={uploadingCover}
+                  onChange={handleCoverChange}
+                />
+              </label>
+              {coverPhotoUrl && (
+                <button type="button" onClick={handleRemoveCover} disabled={uploadingCover} className="btn-ghost btn-sm">
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  Remover
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -336,16 +413,54 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
       </div>
 
       <div className="lg:sticky lg:top-4">
-        <p className="mb-2 text-center text-xs font-medium text-neutral-400 dark:text-neutral-500">Pré-visualização</p>
-        {/* pointer-events-none: preview é só visual — os botões (Salvar
-            Contato, WhatsApp, etc.) navegam de verdade se clicados, o que
-            faria sentido na página pública mas não aqui dentro do editor. */}
-        <div className="pointer-events-none select-none">
+        <div className="mx-auto mb-3 flex w-fit items-center justify-center gap-2">
+          <div className="flex items-center justify-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 backdrop-blur-md shadow-xs">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <span>Pré-visualização ao vivo</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowFullscreenPreview(true)}
+            className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-semibold text-neutral-700 shadow-xs hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+            title="Expandir pré-visualização em tela cheia"
+          >
+            <Maximize2 className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
+            <span>Tela Cheia</span>
+          </button>
+        </div>
+
+        <div className="select-none">
           <PhonePreviewFrame>
             <DigitalCardView data={previewData} interactive={false} />
           </PhonePreviewFrame>
         </div>
       </div>
+
+      {/* Modal de Pré-visualização em Tela Cheia */}
+      {showFullscreenPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
+          <div className="relative my-auto flex w-full max-w-sm flex-col items-center py-4">
+            <button
+              type="button"
+              onClick={() => setShowFullscreenPreview(false)}
+              className="mb-3 flex items-center gap-1.5 rounded-full bg-white/20 px-4 py-1.5 text-xs font-bold text-white hover:bg-white/30 transition-colors shadow-lg backdrop-blur-md"
+            >
+              <X className="h-4 w-4" />
+              <span>Fechar Tela Cheia</span>
+            </button>
+            <div className="w-full">
+              <PhonePreviewFrame>
+                <DigitalCardView data={previewData} interactive={true} />
+              </PhonePreviewFrame>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

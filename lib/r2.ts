@@ -61,6 +61,23 @@ export async function resizeAvatar(buffer: Buffer, contentType: string): Promise
   return resized.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
 }
 
+// Proporção paisagem (não quadrada como o avatar) — é um banner no topo do
+// cartão, não um retrato. 1200x600 (2:1) dá folga suficiente pra caber
+// tanto num celular estreito quanto numa tela maior sem esticar.
+const COVER_PHOTO_WIDTH = 1200;
+const COVER_PHOTO_HEIGHT = 600;
+
+/** Mesma ideia de resizeAvatar, mas pra foto de capa (banner) do Cartão Digital — proporção paisagem, não quadrada. */
+export async function resizeCoverPhoto(buffer: Buffer, contentType: string): Promise<Buffer> {
+  const resized = sharp(buffer)
+    .rotate()
+    .resize({ width: COVER_PHOTO_WIDTH, height: COVER_PHOTO_HEIGHT, fit: "cover", withoutEnlargement: true });
+
+  if (contentType === "image/png") return resized.png({ compressionLevel: 8 }).toBuffer();
+  if (contentType === "image/webp") return resized.webp({ quality: 80 }).toBuffer();
+  return resized.jpeg({ quality: 80, mozjpeg: true }).toBuffer();
+}
+
 /** Chave R2 imprevisível — nem o userId nem sequência são adivinháveis a partir dela. */
 export function buildAvatarKey(userId: string, contentType: string) {
   const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
@@ -81,6 +98,13 @@ export function buildCardPhotoKey(cardId: string, contentType: string) {
   return `card-photos/${cardId}/${random}.${ext}`;
 }
 
+/** Mesma ideia de buildCardPhotoKey, mas pra foto de capa (DigitalCard.coverPhotoKey) — prefixo próprio, nunca se mistura com a foto de perfil do cartão. */
+export function buildCardCoverPhotoKey(cardId: string, contentType: string) {
+  const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+  const random = crypto.randomBytes(16).toString("hex");
+  return `card-covers/${cardId}/${random}.${ext}`;
+}
+
 export async function uploadAvatar(key: string, body: Buffer, contentType: string) {
   await client.send(
     new PutObjectCommand({
@@ -97,17 +121,19 @@ export async function deleteAvatar(key: string) {
 }
 
 /**
- * `image`/`photoKey` no banco guarda ou uma URL externa completa (foto de
- * perfil do Google, por exemplo) ou uma chave interna do R2 — sempre
- * iniciando com "avatars/" (foto de perfil normal) ou "card-photos/"
- * (override de foto do Cartão Digital, ver buildCardPhotoKey acima; mesmo
- * bucket privado, só prefixo diferente pra nunca se misturar com o avatar
- * usado no resto do CRM). URLs externas são retornadas como estão; chaves
- * do R2 viram uma URL assinada de curta duração, já que o bucket é privado.
+ * `image`/`photoKey`/`coverPhotoKey` no banco guarda ou uma URL externa
+ * completa (foto de perfil do Google, por exemplo) ou uma chave interna do
+ * R2 — sempre iniciando com "avatars/" (foto de perfil normal),
+ * "card-photos/" (override de foto do Cartão Digital) ou "card-covers/"
+ * (foto de capa/banner do Cartão Digital, ver buildCardCoverPhotoKey
+ * acima); mesmo bucket privado, só prefixo diferente pra nunca se misturar
+ * com o avatar usado no resto do CRM. URLs externas são retornadas como
+ * estão; chaves do R2 viram uma URL assinada de curta duração, já que o
+ * bucket é privado.
  */
 export async function resolveAvatarUrl(image: string | null | undefined): Promise<string | null> {
   if (!image) return null;
-  if (!image.startsWith("avatars/") && !image.startsWith("card-photos/")) return image;
+  if (!image.startsWith("avatars/") && !image.startsWith("card-photos/") && !image.startsWith("card-covers/")) return image;
 
   return getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: image }), {
     expiresIn: SIGNED_URL_TTL_SECONDS,

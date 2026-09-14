@@ -15,6 +15,7 @@ export type DigitalCardData = {
   companyName: string | null;
   bio: string | null;
   photoUrl: string | null;
+  coverPhotoUrl: string | null;
   phone: string | null;
   whatsapp: string | null;
   displayEmail: string | null;
@@ -52,40 +53,69 @@ export function DigitalCardView({
   const onTrack = interactive ? track : () => {};
 
   return (
-    <div className="mx-auto w-full max-w-sm">
-      <div className="overflow-hidden rounded-3xl bg-[#0a0b10] text-center shadow-2xl ring-1 ring-white/10">
-        {/* Capa — abstrata (nunca uma foto inventada), com um brilho radial
-            simulando profundidade/atmosfera atrás do avatar, mais alta e
-            com mais presença (pedido: "mais parecido" com a referência). */}
-        <div className="relative h-36 overflow-hidden bg-gradient-to-br from-[#0e3a52] via-[#132038] to-[#0a0b10]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(0,174,238,0.35),transparent_60%)]" />
+    <div className={`mx-auto w-full max-w-full overflow-x-hidden ${!interactive ? "[&_a]:pointer-events-none [&_button]:pointer-events-none" : ""}`}>
+      <div className="w-full overflow-hidden rounded-[2.2rem] bg-[#090d16] text-center shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
+        {/* Capa — foto própria/padrão da organização quando existir (SEMPRE
+            com um filtro escuro por cima, não é opcional: o nome/cargo
+            ficam em cima dela e precisam de contraste garantido, ver
+            lib/digital-cards/config.ts pro porquê disso ficar null por
+            enquanto). Sem foto nenhuma, cai pro gradiente abstrato + efeitos
+            de luz de sempre — nunca um placeholder inventado. */}
+        <div className="relative h-36 overflow-hidden bg-gradient-to-br from-[#0c2a4a] via-[#0f1b33] to-[#08090e]">
+          {data.coverPhotoUrl ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={data.coverPhotoUrl} alt="" className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/40 to-[#090d16]" />
+            </>
+          ) : (
+            <>
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(0,174,238,0.45),transparent_70%)]" />
+              <div className="absolute -top-10 -right-10 h-36 w-36 rounded-full bg-[#00aeee]/25 blur-2xl" />
+              <div className="absolute -bottom-10 -left-10 h-36 w-36 rounded-full bg-blue-600/25 blur-2xl" />
+              {/* Padrão geométrico abstrato sutil */}
+              <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:16px_16px]" />
+            </>
+          )}
         </div>
 
-        <div className="relative -mt-16 px-6 pb-0">
-          {/* Foto — puxada por cima da costura entre a capa e o corpo do cartão, maior (mesma proporção da referência). */}
-          <div className="mx-auto mb-4 h-28 w-28 overflow-hidden rounded-full ring-[6px] ring-[#0a0b10]">
-            {data.photoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={data.photoUrl} alt={data.displayName} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-white/10">
-                <UserIcon className="h-10 w-10 text-white/40" strokeWidth={1.5} />
+        <div className="relative -mt-16 px-4.5 pb-0">
+          {/* Avatar com Anel de Brilho em Gradiente Neon */}
+          <div className="relative mx-auto mb-3 h-26 w-26">
+            <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_22px_rgba(0,174,238,0.45)]">
+              <div className="h-full w-full overflow-hidden rounded-full bg-[#090d16]">
+                {data.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={data.photoUrl} alt={data.displayName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-white/10">
+                    <UserIcon className="h-10 w-10 text-white/50" strokeWidth={1.5} />
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
-          {/* Nome / cargo */}
-          <h1 className="text-lg font-semibold tracking-tight text-white">{data.displayName}</h1>
-          {data.jobTitle && <p className="mt-0.5 text-sm font-medium text-[#00aeee]">{data.jobTitle}</p>}
-          {data.companyName && <p className="mt-0.5 text-xs text-white/40">{data.companyName}</p>}
+          {/* Nome e Info Principal */}
+          <h1 className="text-lg font-extrabold tracking-tight text-white">{data.displayName}</h1>
+          
+          {data.jobTitle && (
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#00aeee]/30 bg-[#00aeee]/15 px-3.5 py-0.5 text-xs font-semibold text-[#00aeee] shadow-[0_2px_10px_rgba(0,174,238,0.15)]">
+              {data.jobTitle}
+            </div>
+          )}
+          
+          {data.companyName && (
+            <p className="mt-1 text-xs font-medium text-white/50">{data.companyName}</p>
+          )}
 
           {/* Logos parceiras */}
-          <div className="mt-5">
+          <div className="mt-4">
             <DigitalCardLogos />
           </div>
 
           {/* Ações principais */}
-          <div className="mt-5">
+          <div className="mt-4">
             <DigitalCardActions
               slug={data.slug}
               displayName={data.displayName}
@@ -96,8 +126,8 @@ export function DigitalCardView({
             />
           </div>
 
-          {/* Contato — fileira de ícones + pills grandes de telefone/WhatsApp */}
-          <div className="mt-5">
+          {/* Contato */}
+          <div className="mt-4">
             <DigitalCardContactActions
               phone={data.phone}
               whatsapp={data.whatsapp}
@@ -108,29 +138,32 @@ export function DigitalCardView({
           </div>
 
           {/* Bio */}
-          {data.bio && <p className="mt-5 text-sm leading-relaxed text-white/70">{data.bio}</p>}
+          {data.bio && (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-relaxed text-white/80 backdrop-blur-md">
+              {data.bio}
+            </div>
+          )}
 
-          {/* Valor em carteira — só se ligado explicitamente */}
+          {/* Valor em carteira */}
           {data.showPortfolioValue && data.portfolioValueDisplay && (
-            <div className="mt-5 rounded-xl border border-[#00aeee]/25 bg-[#00aeee]/[0.07] px-4 py-2.5">
-              <p className="text-[11px] uppercase tracking-wide text-white/40">Carteira sob gestão</p>
-              <p className="mt-0.5 text-sm font-semibold text-white">{data.portfolioValueDisplay}</p>
+            <div className="mt-4 rounded-2xl border border-[#00aeee]/30 bg-gradient-to-r from-[#00aeee]/15 via-cyan-500/10 to-blue-600/15 p-3 text-center shadow-lg backdrop-blur-md">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300/80">Carteira sob gestão</p>
+              <p className="mt-0.5 text-base font-extrabold text-white">{data.portfolioValueDisplay}</p>
             </div>
           )}
 
           {/* Links adicionais */}
           {data.links.length > 0 && (
-            <div className="mt-5">
+            <div className="mt-4">
               <DigitalCardLinks links={data.links} onTrack={onTrack} />
             </div>
           )}
         </div>
 
-        {/* Rodapé — barra própria (não só texto solto), mesma ideia de peso
-            visual da referência, com a marca real da Reobote. */}
-        <div className="mt-6 flex items-center justify-center gap-2 border-t border-white/10 bg-white/[0.03] px-6 py-3.5">
-          <ReoboteLogo className="h-3 w-auto opacity-60" />
-          <span className="text-[11px] text-white/40">Cartão Digital</span>
+        {/* Rodapé Premium */}
+        <div className="mt-5 flex items-center justify-center gap-2 border-t border-white/10 bg-white/[0.02] px-5 py-3">
+          <ReoboteLogo className="h-3 w-auto opacity-75" />
+          <span className="text-[10px] font-medium text-white/40">Cartão Digital</span>
         </div>
       </div>
     </div>

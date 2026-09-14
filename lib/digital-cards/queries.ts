@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
+import { DEFAULT_COVER_PHOTO_URL } from "@/lib/digital-cards/config";
 // Reexportado por compatibilidade com quem já importava daqui — mas
 // componente "use client" deve importar de @/lib/phone-normalize
 // diretamente (ver comentário lá: importar deste arquivo no cliente arrasta
@@ -22,15 +23,30 @@ const CARD_INCLUDE = {
   links: { where: { active: true }, orderBy: { order: "asc" as const } },
 } satisfies Parameters<typeof prisma.digitalCard.findUnique>[0]["include"];
 
-async function enrichCard<T extends { photoKey: string | null; emailOverride: string | null; user: { name: string; email: string; image: string | null } }>(
-  card: T,
-) {
-  const photoUrl = await resolveAvatarUrl(card.photoKey ?? card.user.image);
+async function enrichCard<
+  T extends {
+    photoKey: string | null;
+    coverPhotoKey: string | null;
+    emailOverride: string | null;
+    user: { name: string; email: string; image: string | null };
+  },
+>(card: T) {
+  const [photoUrl, ownCoverUrl] = await Promise.all([
+    resolveAvatarUrl(card.photoKey ?? card.user.image),
+    resolveAvatarUrl(card.coverPhotoKey),
+  ]);
+  // Sem capa própria, cai pro padrão da organização (DEFAULT_COVER_PHOTO_URL,
+  // ver lib/digital-cards/config.ts — null enquanto nenhuma foto real
+  // chegou; nesse caso o componente visual usa o gradiente abstrato) antes
+  // de cair pro gradiente — nunca pula direto pro gradiente se existir um
+  // padrão configurado.
+  const coverPhotoUrl = ownCoverUrl ?? DEFAULT_COVER_PHOTO_URL;
   return {
     ...card,
     displayName: card.user.name,
     displayEmail: card.emailOverride || card.user.email,
     photoUrl,
+    coverPhotoUrl,
   };
 }
 
