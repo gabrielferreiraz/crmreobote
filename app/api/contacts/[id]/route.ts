@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
+import { isValidBirthDateIso } from "@/lib/birth-date";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -56,6 +57,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     source,
     company,
     jobTitle,
+    birthDate,
     address,
     addressNumber,
     addressComplement,
@@ -74,6 +76,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     source?: string;
     company?: string;
     jobTitle?: string;
+    /** "YYYY-MM-DD" (dia civil puro, ver Contact.birthDate no schema) ou undefined pra não tocar no campo. */
+    birthDate?: string;
     address?: string;
     addressNumber?: string;
     addressComplement?: string;
@@ -145,6 +149,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if ("whatsapp" in body && whatsapp && !isValidPhoneInput(whatsapp)) {
       return NextResponse.json({ error: "WhatsApp com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
     }
+    if ("birthDate" in body && birthDate && !isValidBirthDateIso(birthDate)) {
+      return NextResponse.json({ error: "Data de nascimento inválida" }, { status: 400 });
+    }
 
     // Só recalcula/valida o que de fato veio no corpo — uma chamada parcial
     // (ex.: ações em massa, que mandam só o campo que está mudando) não pode
@@ -192,6 +199,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       source: sanitizeCell(source),
       company: sanitizeCell(company),
       jobTitle: sanitizeCell(jobTitle),
+      birthDate: birthDate ? new Date(birthDate) : undefined,
       address: sanitizeCell(address),
       addressNumber: sanitizeCell(addressNumber),
       addressComplement: sanitizeCell(addressComplement),

@@ -34,6 +34,7 @@ import { ColumnFilter } from "@/components/column-filter";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { PhoneInput } from "@/components/phone-input";
+import { BirthDateInput } from "@/components/birth-date-input";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { Pagination } from "@/components/pagination";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
@@ -50,6 +51,7 @@ import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
 import { isValidPhoneInput } from "@/lib/phone-normalize";
+import { isBirthDateInputInvalid, parseBirthDateInput } from "@/lib/birth-date";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -115,6 +117,8 @@ export function ContactsTable({
   const [source, setSource] = useState("");
   const [company, setCompany] = useState("");
   const [jobTitle, setJobTitle] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [birthDateError, setBirthDateError] = useState<string | null>(null);
   const [zipCode, setZipCode] = useState("");
   const [address, setAddress] = useState("");
   const [addressNumber, setAddressNumber] = useState("");
@@ -499,6 +503,7 @@ export function ContactsTable({
       source: source || undefined,
       company: company || undefined,
       jobTitle: jobTitle || undefined,
+      birthDate: parseBirthDateInput(birthDate) || undefined,
       zipCode: zipCode || undefined,
       address: address || undefined,
       addressNumber: addressNumber || undefined,
@@ -538,12 +543,14 @@ export function ContactsTable({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    // Valida formato dos campos de telefone no cliente antes de bater na API
+    // Valida formato dos campos de telefone/data de nascimento no cliente antes de bater na API
     const phoneErr = !isValidPhoneInput(phone) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
     const waErr = !isValidPhoneInput(whatsapp) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    const birthDateErr = isBirthDateInputInvalid(birthDate) ? "Data inválida. Use o formato DD/MM/AAAA." : null;
     setPhoneError(phoneErr);
     setWhatsappError(waErr);
-    if (phoneErr || waErr) return;
+    setBirthDateError(birthDateErr);
+    if (phoneErr || waErr || birthDateErr) return;
 
     setCreating(true);
     setError(null);
@@ -579,6 +586,8 @@ export function ContactsTable({
     setSource("");
     setCompany("");
     setJobTitle("");
+    setBirthDate("");
+    setBirthDateError(null);
     setZipCode("");
     setAddress("");
     setAddressNumber("");
@@ -1184,9 +1193,14 @@ export function ContactsTable({
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <BirthDateInput
+                value={birthDate}
+                onChange={(v) => { setBirthDate(v); setBirthDateError(null); }}
+                error={birthDateError}
+              />
               <Field label="CEP" value={zipCode} onChange={setZipCode} />
-              <Field label="Cidade" value={city} onChange={setCity} />
             </div>
+            <Field label="Cidade" value={city} onChange={setCity} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Endereço" value={address} onChange={setAddress} />
               <div className="space-y-1">

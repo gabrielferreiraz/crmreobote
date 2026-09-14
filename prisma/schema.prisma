@@ -985,6 +985,14 @@ model Contact {
   source              String?
   company             String?
   jobTitle            String?
+  // Dia/mês/ano de nascimento do CLIENTE — mesma ideia (e mesmo tipo,
+  // @db.Date puro, sem hora/fuso) de User.birthDate acima no arquivo, só que
+  // pro contato, não pro consultor. Pedido explícito: "a gente não consegue
+  // colocar" — o <input type="date"> nativo que essa tela usaria por padrão
+  // é notoriamente ruim pra digitar um ano antigo (calendário exige clicar
+  // "mês anterior" dezenas de vezes); a UI (ver components/birth-date-input.tsx)
+  // usa uma máscara de texto DD/MM/AAAA em vez do seletor nativo.
+  birthDate           DateTime?                 @db.Date
   address             String?
   addressNumber       String?
   addressComplement   String?

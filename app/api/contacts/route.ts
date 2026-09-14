@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
+import { isValidBirthDateIso } from "@/lib/birth-date";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -106,6 +107,7 @@ export async function POST(req: Request) {
     source,
     company,
     jobTitle,
+    birthDate,
     address,
     addressNumber,
     addressComplement,
@@ -125,6 +127,8 @@ export async function POST(req: Request) {
     source?: string;
     company?: string;
     jobTitle?: string;
+    /** "YYYY-MM-DD" (dia civil puro, ver Contact.birthDate no schema) ou undefined pra não preencher. */
+    birthDate?: string;
     address?: string;
     addressNumber?: string;
     addressComplement?: string;
@@ -150,6 +154,9 @@ export async function POST(req: Request) {
   }
   if (!jobTitle) {
     return NextResponse.json({ error: "Cargo é obrigatório" }, { status: 400 });
+  }
+  if (birthDate && !isValidBirthDateIso(birthDate)) {
+    return NextResponse.json({ error: "Data de nascimento inválida" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
@@ -239,6 +246,7 @@ export async function POST(req: Request) {
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),
+          birthDate: birthDate ? new Date(birthDate) : undefined,
           address: sanitizeCell(address),
           addressNumber: sanitizeCell(addressNumber),
           addressComplement: sanitizeCell(addressComplement),
@@ -296,6 +304,7 @@ export async function POST(req: Request) {
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),
+          birthDate: birthDate ? new Date(birthDate) : undefined,
           address: sanitizeCell(address),
           addressNumber: sanitizeCell(addressNumber),
           addressComplement: sanitizeCell(addressComplement),

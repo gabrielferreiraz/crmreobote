@@ -218,24 +218,34 @@ export function ConversationsMobile({
   if (selected) {
     return (
       <div className="flex h-full flex-col" style={{ paddingBottom: bottomNavHeight }}>
-        {selected.deal ? (
-          <Link
-            href={`/negocios/${selected.deal.id}`}
-            className="mx-3 mt-2 mb-1 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
-          >
-            <Briefcase className="h-3 w-3" strokeWidth={2} />
-            Ver negócio: {selected.deal.name}
-          </Link>
-        ) : (
+        {/* As duas linhas abaixo NÃO são mais um "ou" — antes, ter negócio
+            escondia por completo a opção de criar outro, e um cliente que já
+            tinha negócio aberto ficava sem jeito de registrar uma NOVA venda
+            pro mesmo cliente direto do WhatsApp (relatado: "cliente já tem
+            negócio, mas quer dar ganho em outro"). "Ver negócio" só some
+            quando de fato não existe nenhum (nada pra ver); "Novo negócio"/
+            "Adicionar negócio" aparece sempre — o painel decide sozinho se
+            precisa criar o Contact junto (ver existingContactId em
+            QuickAddDealPanel). */}
+        <div className="mx-3 mt-2 mb-1 flex flex-wrap items-center gap-1.5">
+          {selected.deal && (
+            <Link
+              href={`/negocios/${selected.deal.id}`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
+            >
+              <Briefcase className="h-3 w-3" strokeWidth={2} />
+              Ver negócio: {selected.deal.name}
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => setQuickAddOpen(true)}
-            className="mx-3 mt-2 mb-1 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
           >
             <BriefcaseBusiness className="h-3 w-3" strokeWidth={2} />
-            Adicionar negócio
+            {selected.deal ? "Novo negócio" : "Adicionar negócio"}
           </button>
-        )}
+        </div>
         <ChatWindow
           key={selected.threadId}
           threadId={selected.threadId}
@@ -259,6 +269,7 @@ export function ConversationsMobile({
             phoneFormatted={formatBrazilianPhone(selected.phoneNormalized) ?? selected.phoneNormalized}
             ownerId={selected.ownerId}
             ownerName={selected.ownerName}
+            existingContactId={selected.contactId ?? undefined}
             onCreated={(result) => handleDealAdded(selected.threadId, result)}
           />
         )}

@@ -662,24 +662,29 @@ export function ConversationsView({
       <div className="surface-glass-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
         {selected ? (
           <div className="flex h-full flex-col p-3">
-            {selected.deal ? (
-              <Link
-                href={`/negocios/${selected.deal.id}`}
-                className="mb-2 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
-              >
-                <Briefcase className="h-3 w-3" strokeWidth={2} />
-                Ver negócio: {selected.deal.name}
-              </Link>
-            ) : (
+            {/* Não é mais um "ou" — ver comentário equivalente em
+                conversations-view-mobile.tsx (mesmo pedido: cliente já tinha
+                negócio, mas o consultor queria registrar OUTRA venda pro
+                mesmo cliente sem sair do WhatsApp). */}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              {selected.deal && (
+                <Link
+                  href={`/negocios/${selected.deal.id}`}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                >
+                  <Briefcase className="h-3 w-3" strokeWidth={2} />
+                  Ver negócio: {selected.deal.name}
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => setQuickAddOpen(true)}
-                className="mb-2 inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
               >
                 <BriefcaseBusiness className="h-3 w-3" strokeWidth={2} />
-                Adicionar negócio
+                {selected.deal ? "Novo negócio" : "Adicionar negócio"}
               </button>
-            )}
+            </div>
             <ChatWindow
               key={selected.threadId}
               threadId={selected.threadId}
@@ -702,6 +707,7 @@ export function ConversationsView({
                 phoneFormatted={formatBrazilianPhone(selected.phoneNormalized) ?? selected.phoneNormalized}
                 ownerId={selected.ownerId}
                 ownerName={selected.ownerName}
+                existingContactId={selected.contactId ?? undefined}
                 onCreated={(result) => handleDealAdded(selected.threadId, result)}
               />
             )}

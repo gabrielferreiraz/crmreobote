@@ -7,9 +7,11 @@ import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { PhoneInput } from "@/components/phone-input";
+import { BirthDateInput } from "@/components/birth-date-input";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { isValidPhoneInput } from "@/lib/phone-normalize";
+import { isBirthDateInputInvalid, isoToBirthDateMask, parseBirthDateInput } from "@/lib/birth-date";
 
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 
@@ -22,6 +24,7 @@ type Contact = {
   source: string | null;
   company?: string | null;
   jobTitle?: string | null;
+  birthDate?: string | Date | null;
   address?: string | null;
   addressNumber?: string | null;
   addressComplement?: string | null;
@@ -75,6 +78,8 @@ export function ContactEditForm({
   const [source, setSource] = useState(contact.source ?? "");
   const [company, setCompany] = useState(contact.company ?? "");
   const [jobTitle, setJobTitle] = useState(contact.jobTitle ?? "");
+  const [birthDate, setBirthDate] = useState(isoToBirthDateMask(contact.birthDate));
+  const [birthDateError, setBirthDateError] = useState<string | null>(null);
   const [zipCode, setZipCode] = useState(contact.zipCode ?? "");
   const [address, setAddress] = useState(contact.address ?? "");
   const [addressNumber, setAddressNumber] = useState(contact.addressNumber ?? "");
@@ -107,12 +112,14 @@ export function ContactEditForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    // Valida formato dos campos de telefone antes de bater na API
+    // Valida formato dos campos de telefone/data de nascimento antes de bater na API
     const phoneErr = !isValidPhoneInput(phone) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
     const waErr = !isValidPhoneInput(whatsapp) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    const birthDateErr = isBirthDateInputInvalid(birthDate) ? "Data inválida. Use o formato DD/MM/AAAA." : null;
     setPhoneError(phoneErr);
     setWhatsappError(waErr);
-    if (phoneErr || waErr) return;
+    setBirthDateError(birthDateErr);
+    if (phoneErr || waErr || birthDateErr) return;
 
     setLoading(true);
     setErrorData(null);
@@ -128,6 +135,7 @@ export function ContactEditForm({
         source: source || undefined,
         company: company || undefined,
         jobTitle: jobTitle || undefined,
+        birthDate: parseBirthDateInput(birthDate) || undefined,
         zipCode: zipCode || undefined,
         address: address || undefined,
         addressNumber: addressNumber || undefined,
@@ -217,22 +225,27 @@ export function ContactEditForm({
               options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
             />
           </div>
+          <BirthDateInput
+            value={birthDate}
+            onChange={(v) => { setBirthDate(v); setBirthDateError(null); }}
+            error={birthDateError}
+          />
           <Field label="CEP" value={zipCode} onChange={setZipCode} />
-          <Field label="Cidade" value={city} onChange={setCity} />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Cidade" value={city} onChange={setCity} />
           <Field label="Endereço" value={address} onChange={setAddress} />
           <div className="space-y-1">
             <label className="field-label">Estado</label>
             <Select value={state} onChange={setState} placeholder="Selecione o estado" options={[{ value: "", label: "—" }, ...ESTADOS_BR]} />
           </div>
-          <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Número" value={addressNumber} onChange={setAddressNumber} />
           <Field label="Complemento" value={addressComplement} onChange={setAddressComplement} />
           <Field label="Bairro" value={neighborhood} onChange={setNeighborhood} />
-          <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
         </div>
+        <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
         <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
         <div className="flex justify-end gap-2 pt-2">

@@ -14,13 +14,23 @@ type CreditTypeOption = { id: string; label: string };
 type JobTitleOption = { id: string; label: string };
 
 /**
- * Cadastro rápido de contato + negócio a partir de uma conversa de WhatsApp
- * ainda não vinculada a nenhum Contact ("WhatsApp Geral"). Cria o Contact e,
- * em seguida, o Deal na primeira etapa do funil — duas chamadas encadeadas,
- * mesmo padrão já usado em QuickCreateContactModal + NewDealDialog. A
- * conversa se vincula sozinha ao Contact recém-criado (linkOrphanThreadsForOrganization,
- * disparado dentro de POST /api/contacts), então não precisamos repetir esse
- * passo aqui — só avisar o chamador do resultado pra ele atualizar a lista.
+ * Cadastro rápido de negócio a partir de uma conversa de WhatsApp — dois
+ * modos, decididos por `existingContactId`:
+ *
+ *  - AUSENTE ("WhatsApp Geral", thread ainda sem nenhum Contact): cria o
+ *    Contact e, em seguida, o Deal na primeira etapa do funil — duas
+ *    chamadas encadeadas, mesmo padrão já usado em QuickCreateContactModal +
+ *    NewDealDialog. A conversa se vincula sozinha ao Contact recém-criado
+ *    (linkOrphanThreadsForOrganization, disparado dentro de POST
+ *    /api/contacts), então não precisamos repetir esse passo aqui.
+ *  - PRESENTE (contato já existe, com ou sem negócio aberto): pula direto
+ *    pra criação do negócio — nada de nome/WhatsApp/cargo pra preencher de
+ *    novo, o contato já está completo. Existe porque um consultor pode
+ *    querer registrar uma NOVA venda pro MESMO cliente que já tem negócio
+ *    (relatado: "cliente já tem negócio, mas quer dar ganho em outro") —
+ *    antes disso só existia o caminho "sem negócio nenhum ainda", então tudo
+ *    que já tinha UM negócio ficava sem jeito de abrir um segundo direto do
+ *    WhatsApp.
  */
 export function QuickAddDealPanel({
   onClose,
@@ -28,6 +38,7 @@ export function QuickAddDealPanel({
   phoneFormatted,
   ownerId,
   ownerName,
+  existingContactId,
   onCreated,
 }: {
   onClose: () => void;
@@ -35,6 +46,7 @@ export function QuickAddDealPanel({
   phoneFormatted: string;
   ownerId: string;
   ownerName: string;
+  existingContactId?: string;
   onCreated: (result: { contactId: string; deal: { id: string; name: string } }) => void;
 }) {
   const [pipelines, setPipelines] = useState<Pipeline[] | null>(null);
@@ -90,6 +102,9 @@ export function QuickAddDealPanel({
   }, []);
 
   useEffect(() => {
+    // Contato já existe (existingContactId) = já tem cargo cadastrado, esse
+    // campo nem aparece no formulário — não precisa buscar a lista.
+    if (existingContactId) return;
     let cancelled = false;
     (async () => {
       try {
@@ -105,7 +120,7 @@ export function QuickAddDealPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [existingContactId]);
 
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId) ?? null;
   const firstStage = selectedPipeline?.stages.slice().sort((a, b) => a.order - b.order)[0] ?? null;
@@ -158,9 +173,9 @@ export function QuickAddDealPanel({
     setConflict(null);
 
     try {
-      const contact = await createOrClaimContact();
-      if (!contact) return;
-      await createDealForContact(contact.id);
+      const contactId = existingContactId ?? (await createOrClaimContact())?.id;
+      if (!contactId) return;
+      await createDealForContact(contactId);
     } catch {
       setError("Falha de conexão. Tente novamente.");
     } finally {
@@ -185,32 +200,36 @@ export function QuickAddDealPanel({
   }
 
   return (
-    <SidePanel onClose={onClose} title="Adicionar negócio">
+    <SidePanel onClose={onClose} title={existingContactId ? "Novo negócio" : "Adicionar negócio"}>
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col space-y-3">
-        <div className="space-y-1">
-          <label className="field-label">Nome</label>
-          <input
-            autoFocus
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="field-input"
-            placeholder="Nome do contato"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="field-label">WhatsApp</label>
-          <input value={phoneFormatted} disabled className="field-input opacity-70" />
-        </div>
-        <div className="space-y-1">
-          <label className="field-label">Cargo *</label>
-          <Select
-            value={jobTitle}
-            onChange={setJobTitle}
-            placeholder="Selecione o cargo"
-            options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
-          />
-        </div>
+        {!existingContactId && (
+          <>
+            <div className="space-y-1">
+              <label className="field-label">Nome</label>
+              <input
+                autoFocus
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="field-input"
+                placeholder="Nome do contato"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">WhatsApp</label>
+              <input value={phoneFormatted} disabled className="field-input opacity-70" />
+            </div>
+            <div className="space-y-1">
+              <label className="field-label">Cargo *</label>
+              <Select
+                value={jobTitle}
+                onChange={setJobTitle}
+                placeholder="Selecione o cargo"
+                options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
+              />
+            </div>
+          </>
+        )}
 
         {pipelines && pipelines.length > 1 && (
           <div className="space-y-1">
@@ -250,7 +269,11 @@ export function QuickAddDealPanel({
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={submitting || !name.trim() || !jobTitle || !firstStage} className="btn-primary">
+          <button
+            type="submit"
+            disabled={submitting || (!existingContactId && (!name.trim() || !jobTitle)) || !firstStage}
+            className="btn-primary"
+          >
             {submitting && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {submitting ? (
               <span className="inline-flex items-center gap-1">

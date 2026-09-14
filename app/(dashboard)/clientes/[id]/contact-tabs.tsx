@@ -189,24 +189,38 @@ export function ContactTabs({
             </div>
           ) : (
             <>
-              {/* Resumo só aparece com mais de 1 negócio — com um só, ele só
-                  repetiria o que o card logo abaixo já mostra. Soma o valor
-                  dos negócios EM ABERTO (é o número que importa pra "quanto
-                  ainda dá pra fechar com esse cliente"; ganho/perdido já tem
-                  seu próprio total no relatório, não faz sentido misturar
-                  aqui). */}
-              {deals.length > 1 && (
-                <p className="px-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
-                  {deals.some((d) => d.status === "OPEN") && (
-                    <> · {formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))} em aberto</>
-                  )}
-                </p>
-              )}
-              {/* Com negócio(s) já vinculado(s), a ação disponível aqui é
-                  apagar (ver canDeleteDeals abaixo) — não criar mais um; o
-                  pedido foi especificamente "se não tiver, um botão pra
-                  criar", não "sempre". */}
+              {/* Resumo (só com mais de 1 negócio — com um só, ele só
+                  repetiria o que o card logo abaixo já mostra) e o botão de
+                  criar UM NOVO negócio dividem a mesma linha. O botão
+                  aparece mesmo já tendo negócio(s) vinculado(s) — pedido
+                  explícito: a pessoa pode querer abrir outro negócio pra
+                  esse mesmo contato (outra cota, outro produto), não só
+                  ver/apagar os que já existem. `justify-between` com um
+                  `<span />` vazio no lugar do resumo (quando só há 1
+                  negócio) mantém o botão sempre encostado à direita. Soma
+                  do resumo é só dos negócios EM ABERTO (é o número que
+                  importa pra "quanto ainda dá pra fechar com esse
+                  cliente"; ganho/perdido já tem seu próprio total no
+                  relatório, não faz sentido misturar aqui). */}
+              <div className="flex items-center justify-between gap-2 px-1">
+                {deals.length > 1 ? (
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                    {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
+                    {deals.some((d) => d.status === "OPEN") && (
+                      <> · {formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))} em aberto</>
+                    )}
+                  </p>
+                ) : (
+                  <span />
+                )}
+                <CreateDealForContactDialog
+                  contactId={contactId}
+                  pipelines={pipelines}
+                  members={members}
+                  creditTypes={creditTypes}
+                  onCreated={(deal: CreatedDeal) => setDeals((prev) => [deal, ...prev])}
+                />
+              </div>
               {deals.map((deal) => (
                 <div
                   key={deal.id}

@@ -9,6 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
+import { isoToBirthDateMask } from "@/lib/birth-date";
 import { ContactTabs } from "./contact-tabs";
 
 function formatAddress(contact: {
@@ -157,6 +158,7 @@ export default async function ContactPage({
               source: contact.source,
               company: contact.company,
               jobTitle: contact.jobTitle,
+              birthDate: contact.birthDate,
               address: contact.address,
               addressNumber: contact.addressNumber,
               addressComplement: contact.addressComplement,
@@ -245,6 +247,7 @@ export default async function ContactPage({
             { label: "WhatsApp", value: contact.whatsapp ?? "—" },
             { label: "Empresa", value: contact.company ?? "—" },
             { label: "Cargo", value: contact.jobTitle ?? "—" },
+            { label: "Data de nascimento", value: isoToBirthDateMask(contact.birthDate) || "—" },
             { label: "Origem", value: contact.source ?? "—" },
             { label: "Responsável", value: contact.responsavel?.name ?? "—" },
             // Data/hora real de cadastro — vem certa até pra quem migrou do
