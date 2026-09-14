@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Share2, Check } from "lucide-react";
+import { Download, Share2, Check, QrCode, X } from "lucide-react";
+import { QrCodeDisplay } from "./qr-code-display";
 
 type Props = {
   slug: string;
@@ -13,13 +14,13 @@ type Props = {
 };
 
 /**
- * "Salvar Contato" (baixa o .vcf gerado na hora — nunca armazenado, ver
- * app/api/public/cards/[slug]/vcard/route.ts) e "Enviar Cartão" (Web Share
- * API quando disponível, com fallback "Copiar link" — sempre o MESMO link
- * público permanente, nunca uma URL interna do CRM).
+ * Ações do cartão (Estrutura limpa e de alta conversão):
+ * 1. Botão Principal (Full Width): "Salvar Contato" — Destaque total e máximo espaço visual.
+ * 2. Grid Secundário (2 Colunas): "QR Code" | "Enviar Cartão" — Organizados lado a lado abaixo.
  */
 export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, onTrack }: Props) {
   const [copied, setCopied] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
 
   function handleSaveContact() {
     onTrack("VCARD_DOWNLOAD");
@@ -38,7 +39,7 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
         await navigator.share(shareData);
         return;
       } catch {
-        // usuário cancelou o share nativo — cai pro fallback de copiar
+        // fallback para clipboard se o usuário cancelar o share nativo
       }
     }
     try {
@@ -46,30 +47,90 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // clipboard indisponível — sem fallback melhor sem um input visível
+      // clipboard indisponível
     }
   }
 
   return (
-    <div className="flex items-center gap-3">
-      {/* Dominante — mesma hierarquia da referência (Salvar Contato é a ação principal, ocupa a maior parte da largura). */}
-      <button
-        type="button"
-        onClick={handleSaveContact}
-        className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#00aeee] px-4 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:opacity-80"
-      >
-        <Download className="h-4 w-4" strokeWidth={2.3} />
-        Salvar Contato
-      </button>
-      {/* Secundária — ícone sobre rótulo, sem fundo (mesmo peso visual leve da referência). */}
-      <button
-        type="button"
-        onClick={handleShare}
-        className="flex shrink-0 flex-col items-center gap-1 px-1 text-white/70 transition-colors hover:text-white"
-      >
-        {copied ? <Check className="h-5 w-5" strokeWidth={2} /> : <Share2 className="h-5 w-5" strokeWidth={2} />}
-        <span className="text-[11px] font-medium">{copied ? "Copiado" : "Enviar Cartão"}</span>
-      </button>
-    </div>
+    <>
+      <div className="w-full space-y-2 max-w-full">
+        {/* Ação Principal: Salvar Contato (Largura Total - Destaque Máximo) */}
+        <button
+          type="button"
+          onClick={handleSaveContact}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#00aeee] via-cyan-500 to-blue-600 py-3.5 px-4 text-sm font-extrabold text-white shadow-[0_4px_20px_rgba(0,174,238,0.4)] transition-all hover:brightness-110 active:scale-[0.98]"
+        >
+          <Download className="h-4.5 w-4.5 shrink-0" strokeWidth={2.5} />
+          <span>Salvar Contato</span>
+        </button>
+
+        {/* Ações Secundárias em Grid de 2 Colunas Equilibradas */}
+        <div className="grid grid-cols-2 gap-2 w-full">
+          {/* Mostrar QR Code */}
+          <button
+            type="button"
+            onClick={() => {
+              onTrack("QR_CODE_OPEN");
+              setShowQrModal(true);
+            }}
+            className="flex items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/10 py-2.5 px-3 text-xs font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
+          >
+            <QrCode className="h-4 w-4 shrink-0 text-cyan-400" strokeWidth={2.2} />
+            <span>QR Code</span>
+          </button>
+
+          {/* Enviar / Compartilhar */}
+          <button
+            type="button"
+            onClick={handleShare}
+            className="flex items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/10 py-2.5 px-3 text-xs font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
+          >
+            {copied ? (
+              <Check className="h-4 w-4 shrink-0 text-emerald-400" strokeWidth={2.5} />
+            ) : (
+              <Share2 className="h-4 w-4 shrink-0 text-white/80" strokeWidth={2.2} />
+            )}
+            <span>{copied ? "Copiado!" : "Enviar Cartão"}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Modal Popup com o QR Code */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative flex flex-col items-center gap-4 rounded-3xl border border-white/15 bg-[#090d16] p-6 shadow-2xl text-center max-w-xs w-full">
+            <button
+              type="button"
+              onClick={() => setShowQrModal(false)}
+              className="absolute top-3.5 right-3.5 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+            >
+              <X className="h-4 w-4" strokeWidth={2.5} />
+            </button>
+
+            <div className="space-y-1 pt-1">
+              <p className="text-sm font-bold text-white">QR Code do Cartão</p>
+              <p className="text-xs text-white/60">Aponte a câmera para abrir o cartão digital de {displayName}</p>
+            </div>
+
+            <div className="rounded-2xl p-2 bg-white shadow-xl">
+              <QrCodeDisplay url={publicUrl} size={190} />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowQrModal(false)}
+              className="w-full rounded-xl bg-white/10 py-2 text-xs font-bold text-white hover:bg-white/20 transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
+
+
+
+
+
