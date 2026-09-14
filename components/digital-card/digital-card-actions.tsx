@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Share2, Check, Copy } from "lucide-react";
+import { Download, Share2, Check } from "lucide-react";
 
 type Props = {
   slug: string;
@@ -51,37 +51,25 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2.5">
+    <div className="flex items-center gap-3">
+      {/* Dominante — mesma hierarquia da referência (Salvar Contato é a ação principal, ocupa a maior parte da largura). */}
       <button
         type="button"
         onClick={handleSaveContact}
-        className="flex items-center justify-center gap-2 rounded-xl bg-[#00aeee] px-4 py-3 text-sm font-semibold text-neutral-950 transition-opacity hover:opacity-90 active:opacity-80"
+        className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#00aeee] px-4 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:opacity-80"
       >
         <Download className="h-4 w-4" strokeWidth={2.3} />
         Salvar Contato
       </button>
+      {/* Secundária — ícone sobre rótulo, sem fundo (mesmo peso visual leve da referência). */}
       <button
         type="button"
         onClick={handleShare}
-        className="flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+        className="flex shrink-0 flex-col items-center gap-1 px-1 text-white/70 transition-colors hover:text-white"
       >
-        {copied ? (
-          <>
-            <Check className="h-4 w-4" strokeWidth={2.3} />
-            Copiado
-          </>
-        ) : (
-          <>
-            <Share2 className="h-4 w-4" strokeWidth={2.3} />
-            Enviar Cartão
-          </>
-        )}
+        {copied ? <Check className="h-5 w-5" strokeWidth={2} /> : <Share2 className="h-5 w-5" strokeWidth={2} />}
+        <span className="text-[11px] font-medium">{copied ? "Copiado" : "Enviar Cartão"}</span>
       </button>
-      {copied && (
-        <p className="col-span-2 flex items-center justify-center gap-1 text-xs text-white/50">
-          <Copy className="h-3 w-3" /> Link copiado — cole onde quiser compartilhar
-        </p>
-      )}
     </div>
   );
 }
