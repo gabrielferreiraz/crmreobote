@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, Settings, UserCircle, Sun, Moon } from "lucide-react";
+import { LogOut, Settings, UserCircle, Sun, Moon, IdCard } from "lucide-react";
 import { Avatar } from "./avatar";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { useTheme } from "./theme-provider";
@@ -94,6 +94,19 @@ export function UserMenu({
           >
             <UserCircle className="h-3.5 w-3.5" strokeWidth={2} />
             Editar perfil
+          </Link>
+          {/* Atalho direto pro modo "mostrar" (ver card-quick-view.tsx) —
+              pedido explícito: em vez de ter que ir em Configurações achar
+              a ação, um clique aqui já mostra o cartão como está
+              configurado, pronto pra apresentar. Editar continua só em
+              Configurações → Cartão Digital (link acima). */}
+          <Link
+            href="/configuracoes/meu-cartao?mostrar=1"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          >
+            <IdCard className="h-3.5 w-3.5" strokeWidth={2} />
+            Cartão de visita
           </Link>
           <button
             type="button"

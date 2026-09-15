@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QrCode as QrCodeIcon, X } from "lucide-react";
 import { QrCodeDisplay } from "@/components/digital-card/qr-code-display";
 import { usePresentationSession } from "@/components/digital-card/use-presentation-session";
@@ -11,8 +11,13 @@ import { usePresentationSession } from "@/components/digital-card/use-presentati
  * DigitalCardPresentation (ver usePresentationSession); a pergunta
  * pós-apresentação aparece sozinha quando o tempo em primeiro plano cruza o
  * limiar (nunca um setTimeout cego — ver hook).
+ *
+ * `autoOpen` — usado pelo atalho "Cartão de visita" do menu do usuário
+ * (ver components/user-menu.tsx + card-quick-view.tsx): quem clicou ali já
+ * quer mostrar o cartão NA HORA, não navegar até achar o botão — abre
+ * sozinho ao montar, sem precisar desse clique extra.
  */
-export function QrCodePanel({ cardId, publicUrl }: { cardId: string; publicUrl: string }) {
+export function QrCodePanel({ cardId, publicUrl, autoOpen = false }: { cardId: string; publicUrl: string; autoOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   const { askVisible, likelyAccessed, responded, start, respond, dismissForNow } = usePresentationSession(cardId);
 
@@ -20,6 +25,11 @@ export function QrCodePanel({ cardId, publicUrl }: { cardId: string; publicUrl: 
     setOpen(true);
     start();
   }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoOpen) handleOpen();
+  }, []);
 
   return (
     <div>
