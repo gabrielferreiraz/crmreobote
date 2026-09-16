@@ -2,7 +2,7 @@ import { Phone, Mail, MapPin, ChevronRight } from "lucide-react";
 import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normalize";
 
 type Props = {
-  phone: string | null;
+  phone?: string | null;
   whatsapp: string | null;
   email: string | null;
   address: string | null;

@@ -172,18 +172,10 @@ export function DigitalCardView({
           {/* Contato */}
           <div className="mt-4">
             <DigitalCardContactActions
-              phone={data.phone}
               whatsapp={data.whatsapp}
               email={data.displayEmail}
               address={data.address}
-              // Só o Instagram do PRÓPRIO consultor (link cadastrado em
-              // "Links adicionais") — sem fallback fixo pra conta da
-              // empresa: mostrar isso como se fosse contato pessoal era
-              // enganoso, e hardcoded quebraria se este componente um dia
-              // servir outra organização (ver project_product_direction).
-              // Sem link próprio, o botão simplesmente não aparece — mesmo
-              // comportamento de WhatsApp/telefone/e-mail vazios.
-              instagram={data.links.find((l) => l.type === "INSTAGRAM")?.url ?? null}
+              instagram="reoboteconsorcios"
               onTrack={onTrack}
             />
           </div>
