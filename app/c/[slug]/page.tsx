@@ -44,16 +44,24 @@ export const metadata: Metadata = {
  * abrir suavemente o QR Code pro consultor mostrar" — o consultor cria um
  * atalho do Chrome pro celular apontando pra cá, então basta tocar o
  * atalho e o QR já aparece, sem precisar achar o botão na tela.
+ *
+ * `?pid=` — id de uma DigitalCardPresentation em andamento (ver
+ * qr-code-panel.tsx/usePresentationSession) — só existe quando ESTE
+ * carregamento veio de alguém escaneando o QR mostrado pelo consultor em
+ * "Meu QR Code" dentro do CRM. Repassado só pra correlacionar cliques
+ * (whatsappClicked/vcardDownloaded/instagramClicked no schema) com essa
+ * apresentação específica — nunca usado pra autenticar nada (o acesso ao
+ * cartão em si já foi resolvido acima, por slug).
  */
 export default async function DigitalCardPublicPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ src?: string; qr?: string }>;
+  searchParams: Promise<{ src?: string; qr?: string; pid?: string }>;
 }) {
   const { slug } = await params;
-  const { src, qr } = await searchParams;
+  const { src, qr, pid } = await searchParams;
   const hdrs = await headers();
   const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
@@ -103,6 +111,7 @@ export default async function DigitalCardPublicPage({
     address: card.address,
     showPortfolioValue: card.showPortfolioValue,
     portfolioValueDisplay: card.portfolioValueDisplay,
+    selectedLogos: card.selectedLogos,
     links: card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })),
     publicUrl: publicCardUrlFromHeaders(slug, hdrs),
   };
@@ -110,7 +119,7 @@ export default async function DigitalCardPublicPage({
   return (
     <div className="min-h-screen bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8 flex justify-center">
       <div className="w-full max-w-md min-h-screen sm:min-h-0">
-        <DigitalCardView data={data} source={src ?? null} autoOpenQr={qr === "1"} />
+        <DigitalCardView data={data} source={src ?? null} autoOpenQr={qr === "1"} presentationId={pid ?? null} />
       </div>
     </div>
   );
