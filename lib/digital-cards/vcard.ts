@@ -1,3 +1,5 @@
+import { slugify } from "@/lib/digital-cards/slug";
+
 /**
  * Gera o vCard (.vcf) do cartão — texto puro, sem lib nenhuma (o formato é
  * simples o bastante): baixado dinamicamente a cada clique em "Salvar
@@ -44,11 +46,5 @@ export function buildVCard(input: VCardInput): string {
 
 /** Nome de arquivo amigável pro download — "Marcelo Souza" -> "marcelo-souza.vcf". */
 export function vCardFileName(name: string): string {
-  const clean = name
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `${clean || "contato"}.vcf`;
+  return `${slugify(name) || "contato"}.vcf`;
 }

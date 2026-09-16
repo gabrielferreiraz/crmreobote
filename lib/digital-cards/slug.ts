@@ -4,12 +4,14 @@ import { prisma } from "@/lib/prisma";
  * "Marcelo Souza" -> "marcelo-souza" — minúsculo, sem acento, só letras/
  * dígitos/hífen, sem hífen duplicado nem nas pontas. Usado pra sugerir o
  * slug inicial do cartão a partir do nome do usuário (ver
- * app/api/digital-cards/route.ts) — a pessoa pode editar depois.
+ * app/api/digital-cards/route.ts) — a pessoa pode editar depois. Reaproveitada
+ * também por vCardFileName (lib/digital-cards/vcard.ts) — mesma
+ * transformação, nome de arquivo só precisa ser "seguro", não bonito.
  */
 export function slugify(input: string): string {
   return input
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // remove acentos
+    .replace(/[̀-ͯ]/g, "") // remove acentos (marcas diacríticas combinantes)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
