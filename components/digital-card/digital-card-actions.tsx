@@ -10,6 +10,11 @@ type Props = {
   publicUrl: string;
   sessionId: string | null;
   source: string | null;
+  /** Ver comentário em digital-card-view.tsx — repassado até aqui só pra
+   * ir junto no download do vCard (handleSaveContact abaixo), que é a
+   * única ação com uma rota própria (GET, fora do POST de eventos de
+   * clique) que também precisa saber disso. */
+  presentationId: string | null;
   onTrack: (eventType: string) => void;
   /** `?qr=1` na URL (ver app/c/[slug]/page.tsx) — atalho "Cartão de
    * visita" do menu do usuário (components/user-menu.tsx) leva direto pra
@@ -25,7 +30,7 @@ type Props = {
  * 1. Botão Principal (Full Width): "Salvar Contato" — Destaque total e máximo espaço visual.
  * 2. Grid Secundário (2 Colunas): "QR Code" | "Enviar Cartão" — Organizados lado a lado abaixo.
  */
-export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, onTrack, autoOpenQr = false }: Props) {
+export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, presentationId, onTrack, autoOpenQr = false }: Props) {
   const [copied, setCopied] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
 
@@ -42,6 +47,7 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
     const params = new URLSearchParams();
     if (sessionId) params.set("sid", sessionId);
     if (source) params.set("src", source);
+    if (presentationId) params.set("pid", presentationId);
     const qs = params.toString();
     window.location.href = `/api/public/cards/${slug}/vcard${qs ? `?${qs}` : ""}`;
   }

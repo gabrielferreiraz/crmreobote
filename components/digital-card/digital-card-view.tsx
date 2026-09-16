@@ -47,13 +47,19 @@ export function DigitalCardView({
   source,
   interactive = true,
   autoOpenQr = false,
+  presentationId = null,
 }: {
   data: DigitalCardData;
   source?: string | null;
   interactive?: boolean;
   autoOpenQr?: boolean;
+  /** `?pid=` — ver comentário em app/c/[slug]/page.tsx. Correlaciona
+   * cliques com uma DigitalCardPresentation em andamento; null no caso
+   * comum (acesso direto/link/QR "solto" da própria página, sem passar
+   * pelo fluxo de "Meu QR Code"). */
+  presentationId?: string | null;
 }) {
-  const { track, sessionId } = useCardTracking(data.slug, source ?? null, null);
+  const { track, sessionId } = useCardTracking(data.slug, source ?? null, presentationId);
   const onTrack = interactive ? track : () => {};
 
   return (
@@ -157,6 +163,7 @@ export function DigitalCardView({
               publicUrl={data.publicUrl}
               sessionId={sessionId}
               source={source ?? null}
+              presentationId={presentationId}
               onTrack={onTrack}
               autoOpenQr={interactive && autoOpenQr}
             />
@@ -169,7 +176,14 @@ export function DigitalCardView({
               whatsapp={data.whatsapp}
               email={data.displayEmail}
               address={data.address}
-              instagram={data.links.find((l) => l.type === "INSTAGRAM")?.url ?? "https://www.instagram.com/reoboteconsorcios"}
+              // Só o Instagram do PRÓPRIO consultor (link cadastrado em
+              // "Links adicionais") — sem fallback fixo pra conta da
+              // empresa: mostrar isso como se fosse contato pessoal era
+              // enganoso, e hardcoded quebraria se este componente um dia
+              // servir outra organização (ver project_product_direction).
+              // Sem link próprio, o botão simplesmente não aparece — mesmo
+              // comportamento de WhatsApp/telefone/e-mail vazios.
+              instagram={data.links.find((l) => l.type === "INSTAGRAM")?.url ?? null}
               onTrack={onTrack}
             />
           </div>
