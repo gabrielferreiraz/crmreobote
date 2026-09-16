@@ -4,12 +4,20 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
 import { getCardDetails } from "@/lib/digital-cards/queries";
+import { AVAILABLE_PARTNER_LOGOS } from "@/lib/digital-cards/logos";
+import { isValidPhoneInput } from "@/lib/phone-normalize";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
 const LINK_TYPES = new Set(["INSTAGRAM", "LINKEDIN", "WEBSITE", "FACEBOOK", "YOUTUBE", "OTHER"]);
 const MAX_LINKS = 12;
+// Mesma regra simples já usada em app/api/register/route.ts — só pra pegar
+// erro de digitação óbvio (sem @ ou sem ponto), nunca uma validação de
+// e-mail "de verdade" (RFC 5322 é bem mais permissivo do que qualquer
+// regex razoável cobre).
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const VALID_LOGO_KEYS = new Set(AVAILABLE_PARTNER_LOGOS.map((l) => l.key));
 
 type LinkInput = { type: string; label: string; url: string; order?: number; active?: boolean };
 
@@ -51,6 +59,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       address,
       showPortfolioValue,
       portfolioValueDisplay,
+      selectedLogos,
       links,
     } = body as {
       slug?: string;
@@ -64,6 +73,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       address?: string | null;
       showPortfolioValue?: boolean;
       portfolioValueDisplay?: string | null;
+      selectedLogos?: string[];
       links?: LinkInput[];
     };
 
@@ -72,6 +82,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const clean = slugify(slug);
       if (!clean) return NextResponse.json({ error: "Slug inválido" }, { status: 400 });
       resolvedSlug = clean === card.slug ? clean : await ensureUniqueSlug(clean, card.id);
+    }
+
+    // Validação simples — mesma disciplina já aplicada em outros formulários
+    // de contato do CRM (ver lib/phone-normalize.ts). Campo vazio/null
+    // continua ok (opcional); só barra lixo óbvio (letras num telefone,
+    // e-mail sem @/ponto).
+    if (emailOverride && !EMAIL_REGEX.test(emailOverride)) {
+      return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+    }
+    if (phone && !isValidPhoneInput(phone)) {
+      return NextResponse.json({ error: "Telefone inválido" }, { status: 400 });
+    }
+    if (whatsapp && !isValidPhoneInput(whatsapp)) {
+      return NextResponse.json({ error: "WhatsApp inválido" }, { status: 400 });
+    }
+    if (selectedLogos !== undefined) {
+      if (!Array.isArray(selectedLogos) || selectedLogos.some((k) => typeof k !== "string" || !VALID_LOGO_KEYS.has(k))) {
+        return NextResponse.json({ error: "Seleção de logos inválida" }, { status: 400 });
+      }
     }
 
     if (Array.isArray(links)) {
@@ -106,6 +135,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           ...(address !== undefined ? { address } : {}),
           ...(showPortfolioValue !== undefined ? { showPortfolioValue } : {}),
           ...(portfolioValueDisplay !== undefined ? { portfolioValueDisplay } : {}),
+          ...(selectedLogos !== undefined ? { selectedLogos } : {}),
         },
       });
 
