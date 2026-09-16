@@ -23,7 +23,16 @@ const AUTH_ONLY_PATHS = ["/login", "/register"];
 // app/c/[slug]/page.tsx, lib/require-digital-card.ts) — slug não é
 // segredo (feito pra ser compartilhado), a "segurança" aqui é só
 // active=true na policy de RLS + rate limit por IP.
-const PUBLIC_PATHS = ["/docs", "/t/", "/c/"];
+//
+// "/partner-logos/" — os arquivos estáticos das logos parceiras (ver
+// lib/digital-cards/logos.ts) moram em public/partner-logos/, FORA da
+// raiz de public/. A página do cartão (/c/[slug]) já é pública, mas cada
+// <img src="/partner-logos/x.svg"> nela é uma requisição HTTP à parte —
+// sem isto aqui, o proxy barrava essa requisição (raiz de public/ não
+// tem liberação nenhuma) e redirecionava pro /login antes do arquivo
+// estático ser servido, então a logo nunca aparecia pra quem visse o
+// cartão deslogado (todo mundo, exceto o próprio consultor logado).
+const PUBLIC_PATHS = ["/docs", "/t/", "/c/", "/partner-logos/"];
 
 export const authConfig = {
   trustHost: true,
