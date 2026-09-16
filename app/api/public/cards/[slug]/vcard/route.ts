@@ -5,7 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getCardDetails, displayPhone } from "@/lib/digital-cards/queries";
 import { buildVCard, vCardFileName } from "@/lib/digital-cards/vcard";
 import { recordCardEvent } from "@/lib/digital-cards/events";
-import { publicCardUrl } from "@/lib/digital-cards/public-url";
+import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const sessionId = searchParams.get("sid") ?? undefined;
   const source = searchParams.get("src") ?? undefined;
 
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const hdrs = await headers();
+  const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const { ok, organizationId, cardId } = await requireDigitalCard(slug, ip);
   if (!ok || !organizationId || !cardId) return NextResponse.json({ error: "Cartão não encontrado" }, { status: 404 });
 
@@ -32,7 +33,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       whatsapp: displayPhone(card.whatsapp),
       email: card.displayEmail,
       address: card.address,
-      publicUrl: publicCardUrl(slug, new URL(req.url).origin),
+      // hdrs (x-forwarded-proto/host), não new URL(req.url).origin — atrás
+      // do proxy reverso do Easypanel, req.url reflete o endereço INTERNO
+      // do container Docker (ex.: "https://<container-id>:3000"), nunca o
+      // domínio real que o visitante usou. Mesmo bug-fix já aplicado na
+      // página pública (app/c/[slug]/page.tsx) desde o início — aqui tinha
+      // ficado pra trás, achado ao conferir CARD_PUBLIC_BASE_URL em
+      // produção: o .vcf gerado vinha com uma URL interna sem sentido
+      // nenhum embutida.
+      publicUrl: publicCardUrlFromHeaders(slug, hdrs),
     });
 
     recordCardEvent(organizationId, cardId, "VCARD_DOWNLOAD", { sessionId, source }).catch(() => {});
