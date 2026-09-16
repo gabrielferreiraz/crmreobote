@@ -60,9 +60,17 @@ const ISSUE_LABEL: Record<string, string> = {
   OWNER_NOT_FOUND: "Resp. não achado",
 };
 
-/** Campo que faz sentido ter UM valor só aplicado a toda a planilha quando a coluna correspondente não existe no arquivo — mesma ideia de DEFAULTABLE_FIELDS em deal-import-dialog.tsx, só que com um campo (contato não tem etapa/tipo de crédito pra "aplicar a todos"). */
-type DefaultableField = "responsavel";
-const DEFAULTABLE_FIELDS: DefaultableField[] = ["responsavel"];
+/**
+ * Campo que faz sentido ter UM valor só aplicado a toda a planilha quando a
+ * coluna correspondente não existe no arquivo — mesma ideia de
+ * DEFAULTABLE_FIELDS em deal-import-dialog.tsx. `jobTitle` é diferente de
+ * `responsavel` (opcional): Cargo é OBRIGATÓRIO (ver FIELD_META em
+ * lib/contacts/import-resolve.ts) — sem coluna nem default, a linha inteira
+ * é ignorada. Pedido explícito do usuário: planilha sem coluna de cargo
+ * nenhuma travava a importação por completo, sem saída.
+ */
+type DefaultableField = "responsavel" | "jobTitle";
+const DEFAULTABLE_FIELDS: DefaultableField[] = ["responsavel", "jobTitle"];
 
 /**
  * Resumo em uma frase do que vai acontecer — a primeira coisa que a pessoa
@@ -129,10 +137,13 @@ function StatChip({ label, value, tone }: { label: string; value: number; tone?:
  */
 export function ContactImportDialog({
   members,
+  jobTitles,
   onClose,
   onImported,
 }: {
   members: { id: string; name: string }[];
+  /** Lista canônica (Configurações → Cargos) — só pra sugerir no campo de texto do "cargo pra usar em todos" abaixo (ver datalist), nunca restringe o que dá pra digitar ali (cargo de contato é texto livre, não uma FK). */
+  jobTitles: { id: string; label: string }[];
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -150,6 +161,11 @@ export function ContactImportDialog({
   // manual, "Novo contato"), não faria sentido atribuir a planilha inteira
   // a quem importou sem essa pessoa pedir.
   const [fieldDefaults, setFieldDefaults] = useState<Partial<Record<DefaultableField, string>>>({});
+  // Rascunho separado do campo de texto do Cargo padrão — só confirma (e
+  // dispara nova prévia) no blur, não a cada tecla (diferente do Select de
+  // Responsável, que já dispara por escolha discreta). Mesmo padrão do
+  // campo "Origem" em deal-import-dialog.tsx.
+  const [jobTitleDraft, setJobTitleDraft] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [showIssueRows, setShowIssueRows] = useState(false);
   // Grade completa de mapeamento (9 campos) escondida por padrão — na
@@ -201,6 +217,7 @@ export function ContactImportDialog({
     setFile(picked);
     setOverrides({});
     setFieldDefaults({});
+    setJobTitleDraft("");
     runPreview(picked, {}, {});
   }
 
@@ -513,18 +530,60 @@ export function ContactImportDialog({
         )}
 
         {/* Campo sem coluna correspondente na planilha — mesma ideia de
-            deal-import-dialog.tsx, sempre visível quando se aplica. */}
+            deal-import-dialog.tsx, sempre visível quando se aplica. Cargo
+            (obrigatório) e Responsável (opcional) podem aparecer juntos
+            aqui — 1 frase de intro só (não repetida por campo) + rótulo
+            curto por controle, mesmo padrão "field-label" do resto do
+            formulário (ver "Cargo *"/"Responsável" no cadastro manual). */}
         {hasMissingDefaultableColumn && (
-          <div className="mb-4 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-            <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
-              Não veio na planilha — escolha o responsável pra usar em <strong>todos</strong> os contatos (opcional):
+          <div className="mb-4 space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Não veio na planilha. Valor pra aplicar em <strong>todos</strong> os contatos:
             </p>
-            <Select
-              value={fieldDefaults.responsavel ?? ""}
-              onChange={(v) => updateFieldDefault("responsavel", v)}
-              className="w-full py-1.5 text-sm"
-              options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-            />
+            {preview.columns
+              .filter((col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField))
+              .map((col) => {
+                const field = col.field as DefaultableField;
+                return (
+                  <div key={field} className="space-y-1">
+                    <label className="field-label">{field === "jobTitle" ? "Cargo *" : "Responsável"}</label>
+                    {field === "responsavel" ? (
+                      <Select
+                        value={fieldDefaults.responsavel ?? ""}
+                        onChange={(v) => updateFieldDefault("responsavel", v)}
+                        className="w-full py-1.5 text-sm"
+                        options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
+                      />
+                    ) : (
+                      <>
+                        {/* Texto livre (não Select) — cargo de contato não é
+                            uma lista fechada (ver comentário na prop
+                            jobTitles acima), a pessoa pode digitar um cargo
+                            novo que ainda não existe em Configurações. O
+                            datalist só SUGERE os já cadastrados, sem
+                            restringir o que dá pra escrever — pedido
+                            explícito ("um campo de escrever... que dá pra
+                            escolher"). */}
+                        <input
+                          value={jobTitleDraft}
+                          onChange={(e) => setJobTitleDraft(e.target.value)}
+                          onBlur={() => {
+                            if (jobTitleDraft !== (fieldDefaults.jobTitle ?? "")) updateFieldDefault("jobTitle", jobTitleDraft);
+                          }}
+                          list="contact-import-job-titles"
+                          placeholder="Ex.: Produtor rural"
+                          className="field-input w-full py-1.5 text-sm"
+                        />
+                        <datalist id="contact-import-job-titles">
+                          {jobTitles.map((j) => (
+                            <option key={j.id} value={j.label} />
+                          ))}
+                        </datalist>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         )}
 

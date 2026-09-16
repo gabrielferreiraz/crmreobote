@@ -1250,6 +1250,7 @@ export function ContactsTable({
       {importOpen && (
         <ContactImportDialog
           members={members}
+          jobTitles={jobTitles}
           onClose={() => setImportOpen(false)}
           onImported={() => router.refresh()}
         />

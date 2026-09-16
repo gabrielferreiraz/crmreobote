@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
     }
   }
-  let fieldDefaults: { responsavel?: string } | undefined;
+  let fieldDefaults: { responsavel?: string; jobTitle?: string } | undefined;
   if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
     try {
       fieldDefaults = JSON.parse(fieldDefaultsRaw);

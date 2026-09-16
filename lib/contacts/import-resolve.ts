@@ -167,8 +167,16 @@ export type ResolveImportInput = {
   /** Todo contato já cadastrado na organização com telefone OU whatsapp preenchido — usado só pra detectar colisão com a constraint única do banco (ver DUPLICATE_CONTACT), nunca pra decidir "atualizar" nada. */
   existingContacts: ExistingContactInput[];
   members: MemberInput[];
-  /** Valor único aplicado em toda linha cuja célula de "responsavel" veio vazia — mesma ideia de fieldDefaults em lib/deals/import-resolve.ts, só que com um campo só (contato não tem etapa/tipo de crédito pra "aplicar a todos"). Ausente/vazio = fica sem responsável (comportamento de sempre). */
-  fieldDefaults?: { responsavel?: string };
+  /**
+   * Valor único aplicado em toda linha cuja célula do campo correspondente
+   * veio vazia — mesma ideia de fieldDefaults em lib/deals/import-resolve.ts.
+   * `responsavel` ausente/vazio = fica sem responsável (comportamento de
+   * sempre). `jobTitle` é diferente: o campo é OBRIGATÓRIO (ver FIELD_META
+   * acima) — com um default preenchido, deixa de ser bloqueante mesmo sem
+   * NENHUMA coluna de cargo na planilha (ver missingRequiredColumns abaixo),
+   * pedido explícito do usuário pra planilha que nunca teve essa coluna.
+   */
+  fieldDefaults?: { responsavel?: string; jobTitle?: string };
   includeWrites: boolean;
 };
 
@@ -176,7 +184,15 @@ export type ResolveImportInput = {
 export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   const columns = detectColumns(input.rawHeaderRow, input.columnOverrides);
   const byField = new Map(columns.map((c) => [c.field, c]));
-  const missingRequiredColumns = columns.filter((c) => c.required && c.index === -1);
+  const defaultJobTitle = input.fieldDefaults?.jobTitle?.trim() || undefined;
+  // Cargo tem um default aplicável a toda a planilha (ver fieldDefaults) —
+  // com ele preenchido, a coluna deixa de ser obrigatória DE VERDADE: toda
+  // linha sem a própria célula cai pro default (ver `jobTitle` no loop
+  // abaixo), nunca fica sem cargo só por falta de COLUNA — só planilha E
+  // default os dois vazios ainda bloqueiam/pulam a linha.
+  const missingRequiredColumns = columns.filter(
+    (c) => c.required && c.index === -1 && !(c.field === "jobTitle" && defaultJobTitle),
+  );
 
   const cell = (row: string[], field: ContactImportField) => {
     const idx = byField.get(field)!.index;
@@ -245,7 +261,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       continue;
     }
 
-    const jobTitle = cell(row, "jobTitle");
+    const jobTitle = cell(row, "jobTitle") || defaultJobTitle;
     const source = cell(row, "source") || undefined;
     if (!jobTitle) {
       skippedNoJobTitle += 1;
