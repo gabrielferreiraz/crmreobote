@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { requireDigitalCard } from "@/lib/require-digital-card";
 import { runWithTenant } from "@/lib/tenant-context";
+import { prisma } from "@/lib/prisma";
 import { getCardDetails, displayPhone } from "@/lib/digital-cards/queries";
 import { buildVCard, vCardFileName } from "@/lib/digital-cards/vcard";
 import { recordCardEvent } from "@/lib/digital-cards/events";
@@ -15,6 +16,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sid") ?? undefined;
   const source = searchParams.get("src") ?? undefined;
+  // Ver comentário em app/c/[slug]/page.tsx — só existe quando o clique
+  // veio de dentro de uma DigitalCardPresentation em andamento.
+  const presentationId = searchParams.get("pid");
 
   const hdrs = await headers();
   const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
@@ -45,6 +49,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     });
 
     recordCardEvent(organizationId, cardId, "VCARD_DOWNLOAD", { sessionId, source }).catch(() => {});
+    // Mesmo padrão best-effort de app/api/public/cards/[slug]/events/route.ts
+    // (whatsappClicked/instagramClicked) — nunca bloqueia o download por
+    // causa disso, e o `where` com cardId garante que um pid forjado só
+    // pode, no pior caso, marcar uma apresentação do PRÓPRIO cartão, nunca
+    // de outro (updateMany não acha linha nenhuma se não bater as duas).
+    if (presentationId) {
+      prisma.digitalCardPresentation
+        .updateMany({ where: { id: presentationId, cardId }, data: { vcardDownloaded: true } })
+        .catch(() => {});
+    }
 
     return new NextResponse(vcard, {
       headers: {
