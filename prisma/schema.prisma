@@ -2349,6 +2349,13 @@ model DigitalCard {
   showPortfolioValue    Boolean @default(false)
   portfolioValueDisplay String?
 
+  // Quais logos parceiras aparecem e em que ordem (ver
+  // lib/digital-cards/logos.ts, AVAILABLE_PARTNER_LOGOS) — array de "key"
+  // (ex.: ["reobote","servopa","rodobens"]), na ordem de exibição. Vazio =
+  // cai pro DEFAULT_SELECTED_LOGOS (todas, ordem padrão) — nunca um cartão
+  // sem logo nenhuma só porque a coluna começou vazia antes desta migration.
+  selectedLogos String[] @default([])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2387,6 +2394,11 @@ model DigitalCardLink {
 enum DigitalCardEventType {
   CARD_VIEW
   QR_PRESENTED
+  // Botão "QR Code" clicado (manual ou via ?qr=1 automático, ver
+  // digital-card-actions.tsx) — distinto de QR_PRESENTED, que é o consultor
+  // abrindo "Meu QR Code" dentro do CRM (lado de quem apresenta); este é o
+  // lado de quem está NA página pública abrindo o modal do QR.
+  QR_CODE_OPEN
   CLIENT_ACCESSED
   CLIENT_REFUSED
   WHATSAPP_CLICK
