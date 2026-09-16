@@ -1,9 +1,13 @@
 import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { Plus, Calculator } from "lucide-react";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { getCurrentMembership } from "@/lib/current-membership";
+import { runWithTenant } from "@/lib/tenant-context";
+import { getOwnCardShortcut } from "@/lib/digital-cards/queries";
+import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { TopNavLinks } from "./top-nav-links";
 import { AdaptiveHeaderRow } from "./adaptive-header-row";
 import { AppMain } from "./app-main";
@@ -33,6 +37,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const photoUrl = await resolveAvatarUrl(membership.photoKey);
   const isAdministrativo = membership.area === "ADMINISTRATIVO";
+
+  // Atalho "Cartão de visita" do menu do usuário (ver components/
+  // user-menu.tsx) — pedido explícito: ir DIRETO pra Landing Page pública
+  // (nunca a tela de edição) com o QR já se abrindo sozinho. Só monta o
+  // link quando existe um cartão ATIVO (senão a página pública mostra
+  // "não encontrado") — sem cartão ainda/inativo, o menu cai pro fluxo de
+  // configurar primeiro (ver user-menu.tsx). getOwnCardShortcut é a versão
+  // mínima da consulta (só slug+active, sem join/URL assinada) porque isto
+  // roda em TODA navegação do CRM.
+  const hdrs = await headers();
+  const cardShortcut = await runWithTenant(membership.organizationId, () => getOwnCardShortcut(membership.userId));
+  const cardShowUrl = cardShortcut?.active ? `${publicCardUrlFromHeaders(cardShortcut.slug, hdrs)}?qr=1` : null;
 
   async function handleSignOut() {
     "use server";
@@ -67,6 +83,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         name={session.user.name ?? session.user.email ?? "?"}
         email={session.user.email ?? ""}
         signOutAction={handleSignOut}
+        cardShowUrl={cardShowUrl}
       />
 
       <header className="surface-glass relative z-30 hidden h-14 shrink-0 items-center gap-6 border-x-0 border-t-0 px-6 lg:flex">
@@ -112,6 +129,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 email={session.user.email ?? ""}
                 photoUrl={photoUrl}
                 signOutAction={handleSignOut}
+                cardShowUrl={cardShowUrl}
               />
             </>
           }

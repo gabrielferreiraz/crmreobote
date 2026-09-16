@@ -27,11 +27,13 @@ export function MobileHeader({
   name,
   email,
   signOutAction,
+  cardShowUrl,
 }: {
   photoUrl: string | null;
   name: string;
   email: string;
   signOutAction: () => Promise<void>;
+  cardShowUrl: string | null;
 }) {
   const pathname = usePathname();
   const section = SECTION_NAMES.find((s) => s.match(pathname));
@@ -56,7 +58,7 @@ export function MobileHeader({
         <CommandPalette compact />
         <NotificationBell />
         <div className="ml-1">
-          <UserMenu name={name} email={email} photoUrl={photoUrl} signOutAction={signOutAction} />
+          <UserMenu name={name} email={email} photoUrl={photoUrl} signOutAction={signOutAction} cardShowUrl={cardShowUrl} />
         </div>
       </div>
     </header>

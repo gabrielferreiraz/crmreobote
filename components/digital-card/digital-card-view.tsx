@@ -46,10 +46,12 @@ export function DigitalCardView({
   data,
   source,
   interactive = true,
+  autoOpenQr = false,
 }: {
   data: DigitalCardData;
   source?: string | null;
   interactive?: boolean;
+  autoOpenQr?: boolean;
 }) {
   const { track, sessionId } = useCardTracking(data.slug, source ?? null, null);
   const onTrack = interactive ? track : () => {};
@@ -156,6 +158,7 @@ export function DigitalCardView({
               sessionId={sessionId}
               source={source ?? null}
               onTrack={onTrack}
+              autoOpenQr={interactive && autoOpenQr}
             />
           </div>
 

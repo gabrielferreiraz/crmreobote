@@ -13,11 +13,16 @@ export function UserMenu({
   email,
   photoUrl,
   signOutAction,
+  cardShowUrl,
 }: {
   name: string;
   email: string;
   photoUrl?: string | null;
   signOutAction: () => Promise<void>;
+  /** URL pública do PRÓPRIO cartão (com ?qr=1 já embutido) — null quando a
+   * pessoa ainda não tem cartão ativo (ver getOwnCardShortcut, calculado
+   * uma vez em app/(dashboard)/layout.tsx). */
+  cardShowUrl: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -95,13 +100,18 @@ export function UserMenu({
             <UserCircle className="h-3.5 w-3.5" strokeWidth={2} />
             Editar perfil
           </Link>
-          {/* Atalho direto pro modo "mostrar" (ver card-quick-view.tsx) —
-              pedido explícito: em vez de ter que ir em Configurações achar
-              a ação, um clique aqui já mostra o cartão como está
-              configurado, pronto pra apresentar. Editar continua só em
-              Configurações → Cartão Digital (link acima). */}
+          {/* Pedido explícito: "ir direto na Landing Page e abrir
+              suavemente o QR Code pro consultor mostrar" — nunca a tela de
+              edição (essa fica só em Configurações → Cartão Digital,
+              link acima). Abre em aba nova (é outro domínio,
+              cartaovisita.reoboteconsorcios.com.br — sai do CRM de
+              verdade) — o consultor depois cria um atalho do Chrome pro
+              celular apontando direto pra essa URL. Sem cartão ativo
+              ainda, cai pro fluxo de configurar primeiro. */}
           <Link
-            href="/configuracoes/meu-cartao?mostrar=1"
+            href={cardShowUrl ?? "/configuracoes/meu-cartao"}
+            target={cardShowUrl ? "_blank" : undefined}
+            rel={cardShowUrl ? "noopener noreferrer" : undefined}
             onClick={() => setOpen(false)}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
           >

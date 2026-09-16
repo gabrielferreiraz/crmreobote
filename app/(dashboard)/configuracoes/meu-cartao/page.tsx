@@ -6,7 +6,6 @@ import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { CardEditor } from "./card-editor";
 import { QrCodePanel } from "./qr-code-panel";
 import { CardStats } from "./card-stats";
-import { CardQuickView } from "./card-quick-view";
 
 export const dynamic = "force-dynamic";
 
@@ -18,28 +17,23 @@ export const dynamic = "force-dynamic";
  * (inativo, ver getOrCreateOwnCard) — a pessoa nunca precisa de um passo
  * separado de "criar cartão" antes de poder configurá-lo.
  *
- * `?mostrar=1` — atalho "Cartão de visita" no menu do usuário (ver
- * components/user-menu.tsx): pula direto pro modo de apresentar (ver
- * card-quick-view.tsx), sem o formulário de edição. Editar continua só
- * chegando por aqui sem o parâmetro (pedido explícito: "a configuração
- * deve ainda manter e lá dentro de configurações aí sim editar").
+ * Só o formulário de edição mora aqui (pedido explícito: "a configuração
+ * deve ainda manter e lá dentro de configurações aí sim editar") —
+ * apresentar/mostrar o cartão pronto é feito na Landing Page pública de
+ * verdade (app/c/[slug]/page.tsx), acessada pelo atalho "Cartão de visita"
+ * do menu do usuário (ver components/user-menu.tsx).
  */
-export default async function MeuCartaoPage({ searchParams }: { searchParams: Promise<{ mostrar?: string }> }) {
+export default async function MeuCartaoPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
   const hdrs = await headers();
-  const { mostrar } = await searchParams;
 
   const { card, stats, publicUrl } = await runWithTenant(organizationId, async () => {
     const card = await getOrCreateOwnCard(organizationId, userId);
     const stats = await getCardStats(card.id);
     return { card, stats, publicUrl: publicCardUrlFromHeaders(card.slug, hdrs) };
   });
-
-  if (mostrar === "1") {
-    return <CardQuickView card={card} stats={stats} publicUrl={publicUrl} />;
-  }
 
   return (
     // max-w-5xl (não max-w-2xl como o resto de Configurações) de propósito:

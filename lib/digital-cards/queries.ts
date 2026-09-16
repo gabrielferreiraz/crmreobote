@@ -87,6 +87,18 @@ export async function getOwnCard(userId: string) {
 }
 
 /**
+ * Versão MÍNIMA de getOwnCard — só slug+active, sem include de user/links
+ * nem resolução de URL assinada de foto nenhuma. Usada em
+ * app/(dashboard)/layout.tsx (o menu "Cartão de visita" precisa saber pra
+ * onde linkar), que roda em TODA navegação do CRM — buscar o cartão
+ * completo ali seria trabalho à toa (2 URLs assinadas + join de links) só
+ * pra decidir um href.
+ */
+export async function getOwnCardShortcut(userId: string): Promise<{ slug: string; active: boolean } | null> {
+  return prisma.digitalCard.findUnique({ where: { userId }, select: { slug: true, active: true } });
+}
+
+/**
  * Primeira visita a "Meu Cartão" ainda sem cartão nenhum — cria um NASCENDO
  * INATIVO (nunca fica público sozinho só por existir a linha), com slug
  * sugerido a partir do nome e WhatsApp pré-preenchido a partir da

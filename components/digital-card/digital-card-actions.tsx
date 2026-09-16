@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Share2, Check, QrCode, X } from "lucide-react";
 import { QrCodeDisplay } from "./qr-code-display";
 
@@ -11,6 +11,13 @@ type Props = {
   sessionId: string | null;
   source: string | null;
   onTrack: (eventType: string) => void;
+  /** `?qr=1` na URL (ver app/c/[slug]/page.tsx) — atalho "Cartão de
+   * visita" do menu do usuário (components/user-menu.tsx) leva direto pra
+   * cá com isso ligado: pedido explícito "ir direto na Landing Page e
+   * abrir suavemente o QR Code pro consultor mostrar" — sem precisar do
+   * toque extra no botão "QR Code". A transição em si já é suave
+   * (animate-in fade-in, ver o modal abaixo), só o GATILHO que muda. */
+  autoOpenQr?: boolean;
 };
 
 /**
@@ -18,9 +25,17 @@ type Props = {
  * 1. Botão Principal (Full Width): "Salvar Contato" — Destaque total e máximo espaço visual.
  * 2. Grid Secundário (2 Colunas): "QR Code" | "Enviar Cartão" — Organizados lado a lado abaixo.
  */
-export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, onTrack }: Props) {
+export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, onTrack, autoOpenQr = false }: Props) {
   const [copied, setCopied] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+
+  useEffect(() => {
+    if (autoOpenQr) {
+      onTrack("QR_CODE_OPEN");
+      setShowQrModal(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleSaveContact() {
     onTrack("VCARD_DOWNLOAD");

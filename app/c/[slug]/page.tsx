@@ -17,16 +17,22 @@ export const dynamic = "force-dynamic";
  *
  * `?src=` (qr/whatsapp/instagram/direct/...) alimenta DigitalCardEvent.source
  * — pedido explícito de comparar origem de acesso depois.
+ *
+ * `?qr=1` — atalho "Cartão de visita" do menu do usuário (ver
+ * components/user-menu.tsx): pedido explícito "ir direto na Landing Page e
+ * abrir suavemente o QR Code pro consultor mostrar" — o consultor cria um
+ * atalho do Chrome pro celular apontando pra cá, então basta tocar o
+ * atalho e o QR já aparece, sem precisar achar o botão na tela.
  */
 export default async function DigitalCardPublicPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ src?: string }>;
+  searchParams: Promise<{ src?: string; qr?: string }>;
 }) {
   const { slug } = await params;
-  const { src } = await searchParams;
+  const { src, qr } = await searchParams;
   const hdrs = await headers();
   const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
@@ -83,7 +89,7 @@ export default async function DigitalCardPublicPage({
   return (
     <div className="min-h-screen bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8 flex justify-center">
       <div className="w-full max-w-md min-h-screen sm:min-h-0">
-        <DigitalCardView data={data} source={src ?? null} />
+        <DigitalCardView data={data} source={src ?? null} autoOpenQr={qr === "1"} />
       </div>
     </div>
   );
