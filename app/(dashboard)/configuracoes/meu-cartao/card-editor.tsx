@@ -64,7 +64,13 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [address, setAddress] = useState(card.address ?? DEFAULT_ADDRESS);
   const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
   const [portfolioValueDisplay, setPortfolioValueDisplay] = useState(card.portfolioValueDisplay ?? "");
-  const [selectedLogos, setSelectedLogos] = useState<string[]>(DEFAULT_SELECTED_LOGOS);
+  // card.selectedLogos vazio = nunca configurado (ou usuário escolheu
+  // "todas, ordem padrão" — ver comentário em getActivePartnerLogos,
+  // lib/digital-cards/logos.ts, que trata [] do mesmo jeito) — mesmo
+  // fallback usado na renderização pública.
+  const [selectedLogos, setSelectedLogos] = useState<string[]>(
+    card.selectedLogos.length > 0 ? card.selectedLogos : DEFAULT_SELECTED_LOGOS,
+  );
   const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
   const [photoUrl, setPhotoUrl] = useState(card.photoUrl);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -272,6 +278,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         address: address.trim() || null,
         showPortfolioValue,
         portfolioValueDisplay: portfolioValueDisplay.trim() || null,
+        selectedLogos,
         links: links.map((l, i) => ({ type: l.type, label: l.label, url: l.url, order: i })),
       }),
     });
@@ -640,6 +647,17 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
           </div>
 
+          {/* Achado na revisão: o campo `phone` sempre existiu no schema/
+              PATCH/exibição do cartão (botão "Telefone" separado do
+              WhatsApp em digital-card-contact-actions.tsx), mas não tinha
+              nenhum <input> aqui — não tinha como o consultor preencher.
+              Opcional de propósito: quem só usa WhatsApp deixa vazio, e o
+              botão "Telefone" simplesmente não aparece no cartão. */}
+          <div className="space-y-1.5">
+            <label className="field-label">Telefone (opcional, se diferente do WhatsApp)</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 3345-0000" className="field-input" />
+          </div>
+
           <div className="space-y-1.5">
             <label className="field-label">E-mail (padrão: {card.user.email})</label>
             <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
@@ -759,8 +777,15 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
               <span>Fechar Tela Cheia</span>
             </button>
             <div className="w-full">
+              {/* interactive=false — igual ao preview pequeno ao lado (é o
+                  MESMO objetivo, só maior). Corrigido: estava true aqui,
+                  então abrir "Tela Cheia" e tocar em qualquer botão navegava
+                  de verdade pro vCard/WhatsApp/e-mail/mapa (perdendo edição
+                  não salva) e gravava DigitalCardEvent reais contra o
+                  próprio cartão — poluindo as estatísticas que deveriam
+                  refletir só visitante de verdade. */}
               <PhonePreviewFrame>
-                <DigitalCardView data={previewData} interactive={true} />
+                <DigitalCardView data={previewData} interactive={false} />
               </PhonePreviewFrame>
             </div>
           </div>
