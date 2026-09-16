@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/app/generated/prisma/client";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
@@ -117,20 +118,33 @@ export async function getOrCreateOwnCard(organizationId: string, userId: string)
     resolveConnectedInstance(organizationId, userId),
   ]);
 
-  const created = await prisma.digitalCard.create({
-    data: {
-      organizationId,
-      userId,
-      slug,
-      whatsapp: instance?.phoneNumber ?? null,
-      address: "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030",
-      companyName: "Reobote Consórcios",
-      jobTitle: "Consultor de Vendas",
-      bio: "Inteligência em Consórcios",
-    },
-    include: CARD_INCLUDE,
-  });
-  return enrichCard(created);
+  try {
+    const created = await prisma.digitalCard.create({
+      data: {
+        organizationId,
+        userId,
+        slug,
+        whatsapp: instance?.phoneNumber ?? null,
+        address: "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030",
+        companyName: "Reobote Consórcios",
+        jobTitle: "Consultor de Vendas",
+        bio: "Inteligência em Consórcios",
+      },
+      include: CARD_INCLUDE,
+    });
+    return enrichCard(created);
+  } catch (err) {
+    // Corrida: duas abas abrindo "Meu Cartão" pela primeira vez ao mesmo
+    // tempo podem ambas ver `existing === null` acima e tentar criar — a
+    // constraint única em userId garante que só uma vence, a outra cai
+    // aqui. Em vez de estourar um 500 genérico, busca a linha que a
+    // primeira acabou de criar (ela já existe garantidamente nesse ponto).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const winner = await getOwnCard(userId);
+      if (winner) return winner;
+    }
+    throw err;
+  }
 }
 
 export type CardStats = {

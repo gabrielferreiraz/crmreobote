@@ -1,6 +1,6 @@
-import { prisma } from "@/lib/prisma";
 import { runWithCardSlugLookup } from "@/lib/tenant-context";
 import { rateLimit } from "@/lib/rate-limit";
+import { getCardRowBySlug } from "@/lib/digital-cards/queries";
 
 /**
  * Autenticação da página pública do Cartão Digital (app/c/[slug]/) — mesmo
@@ -20,7 +20,7 @@ export async function requireDigitalCard(slug: string, ip: string) {
   const rl = rateLimit(`digital-card:${ip}`, 120, 5 * 60 * 1000);
   if (!rl.allowed) return { ok: false as const, organizationId: null, cardId: null };
 
-  const row = await runWithCardSlugLookup(slug, () => prisma.digitalCard.findUnique({ where: { slug } }));
+  const row = await runWithCardSlugLookup(slug, () => getCardRowBySlug(slug));
   if (!row || !row.active) return { ok: false as const, organizationId: null, cardId: null };
 
   return { ok: true as const, organizationId: row.organizationId, cardId: row.id };
