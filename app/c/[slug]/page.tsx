@@ -25,8 +25,23 @@ export const dynamic = "force-dynamic";
 // (?qr=1 incluso). Atalhos já criados no celular ANTES desta correção
 // continuam apontando pro comportamento antigo — precisam ser apagados e
 // recriados.
+// title: controla o nome que o navegador sugere ao criar o atalho de tela
+// inicial (Android/Chrome usa o <title> da página quando não há manifest;
+// iOS/Safari idem, a menos que a pessoa edite o campo na hora — não dá pra
+// forçar isso, só sugerir). Estático de propósito (não o nome do
+// consultor) — pedido explícito: "deixar especificamente o nome como
+// cartão de visita".
 export const metadata: Metadata = {
+  title: "Cartão de visita",
   manifest: null,
+  // appleWebApp herdaria { capable: true, title: "CRM", ... } do layout raiz
+  // (app/layout.tsx) — capable:true é o que faz o iOS abrir o atalho em
+  // tela cheia (sem a barra do Safari), tratando como um app instalado;
+  // title "CRM" também vazaria pro nome do atalho no iOS, por cima do
+  // <title> desta página. Cancelado aqui do mesmo jeito que o manifest
+  // acima (appleWebApp aceita null explicitamente) — pedido explícito do
+  // usuário: "não é PWA, é só atalho".
+  appleWebApp: null,
 };
 
 /**
