@@ -19,7 +19,21 @@ import { usePresentationSession } from "@/components/digital-card/use-presentati
  */
 export function QrCodePanel({ cardId, publicUrl, autoOpen = false }: { cardId: string; publicUrl: string; autoOpen?: boolean }) {
   const [open, setOpen] = useState(false);
-  const { askVisible, likelyAccessed, responded, start, respond, dismissForNow } = usePresentationSession(cardId);
+  const { presentationId, askVisible, likelyAccessed, responded, start, respond, dismissForNow } = usePresentationSession(cardId);
+
+  // Achado na revisão: o QR mostrado aqui codificava só `publicUrl` puro —
+  // o presentationId criado por start() (acima) nunca chegava até o
+  // navegador de quem escaneia, então whatsappClicked/vcardDownloaded/
+  // instagramClicked (ver DigitalCardPresentation no schema) nunca eram
+  // preenchidos, e o CARD_VIEW do cliente nem ficava marcado como vindo de
+  // QR (source). presentationId chega async (POST em start()) — o QR
+  // recalcula sozinho assim que ele fica pronto (useEffect de
+  // QrCodeDisplay já reage a mudança de `url`).
+  const qrUrl = (() => {
+    const params = new URLSearchParams({ src: "qr" });
+    if (presentationId) params.set("pid", presentationId);
+    return `${publicUrl}?${params.toString()}`;
+  })();
 
   function handleOpen() {
     setOpen(true);
@@ -61,7 +75,7 @@ export function QrCodePanel({ cardId, publicUrl, autoOpen = false }: { cardId: s
               <>
                 <p className="mb-4 text-sm font-medium text-neutral-700 dark:text-neutral-300">Mostre a tela pro cliente</p>
                 <div className="flex justify-center">
-                  <QrCodeDisplay url={publicUrl} size={200} />
+                  <QrCodeDisplay url={qrUrl} size={200} />
                 </div>
               </>
             ) : (
