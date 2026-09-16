@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { requireDigitalCard } from "@/lib/require-digital-card";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -7,6 +8,26 @@ import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
 
 export const dynamic = "force-dynamic";
+
+// Sem isto, esta página herdava o manifest.ts do app inteiro (o PWA do CRM,
+// start_url: "/", scope: "/" — ver app/manifest.ts). O Chrome detecta esse
+// manifesto linkado e, ao "Adicionar à tela inicial", instala um atalho
+// estilo PWA que abre no start_url do MANIFESTO (a raiz do CRM, "/") em vez
+// de simplesmente marcar a URL exata que a pessoa visitou — é por isso que
+// o atalho criado a partir do Cartão de Visita caía direto no "Início" do
+// CRM (e a sessão de login, compartilhada no domínio pai
+// .reoboteconsorcios.com.br, deixava passar direto sem pedir login de
+// novo). `manifest: null` aqui cancela a herança (metadata é "shallow
+// merged" por segmento — um valor definido no segmento mais específico
+// substitui o do pai, ver node_modules/next/dist/docs/.../generate-metadata.md
+// #overwriting-fields) — o Chrome passa a tratar isto como uma página comum,
+// sem manifesto, e o atalho vira um bookmark de verdade da URL exata
+// (?qr=1 incluso). Atalhos já criados no celular ANTES desta correção
+// continuam apontando pro comportamento antigo — precisam ser apagados e
+// recriados.
+export const metadata: Metadata = {
+  manifest: null,
+};
 
 /**
  * Página pública (sem login) do Cartão Digital — mesma família de
