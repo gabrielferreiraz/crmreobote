@@ -21,6 +21,12 @@ const CLICK_EVENT_TYPES = new Set([
   "LINKEDIN_CLICK",
   "LINK_CLICK",
   "SHARE_CLICK",
+  // Achado na revisão: digital-card-actions.tsx sempre chamou
+  // onTrack("QR_CODE_OPEN") ao abrir o modal do QR (manual ou via ?qr=1),
+  // mas faltava tanto aqui quanto no enum DigitalCardEventType — o POST
+  // dava 400 silencioso toda vez (ver migration
+  // 20260916180000_digital_card_review_fixes).
+  "QR_CODE_OPEN",
 ]);
 
 /**
