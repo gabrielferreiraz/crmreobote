@@ -125,15 +125,6 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
             accentClass="group-hover:border-emerald-500/40 group-hover:bg-emerald-500/20 group-hover:text-emerald-400 group-hover:shadow-[0_0_15px_rgba(16,185,129,0.35)]"
           />
         )}
-        {phoneHref && (
-          <IconAction
-            icon={Phone}
-            label="Ligar"
-            href={phoneHref}
-            onClick={() => onTrack("PHONE_CLICK")}
-            accentClass="group-hover:border-cyan-500/40 group-hover:bg-cyan-500/20 group-hover:text-cyan-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.35)]"
-          />
-        )}
         {emailHref && (
           <IconAction
             icon={Mail}
@@ -163,29 +154,17 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
         )}
       </div>
 
-      {/* Pills grandes — WhatsApp e Telefone com destaque visual interativo */}
-      {(whatsappHref || phoneHref) && (
+      {/* Pill grande — WhatsApp com destaque visual interativo */}
+      {whatsappHref && whatsappDigits && (
         <div className="space-y-2 pt-0.5">
-          {whatsappHref && whatsappDigits && (
-            <ProminentPill
-              icon={WhatsappIcon}
-              label="WhatsApp"
-              sub={formatBrazilianPhone(whatsappDigits) ?? ""}
-              href={whatsappHref}
-              onClick={() => onTrack("WHATSAPP_CLICK")}
-              variant="emerald"
-            />
-          )}
-          {phoneHref && phoneDigits && (
-            <ProminentPill
-              icon={Phone}
-              label="Telefone"
-              sub={formatBrazilianPhone(phoneDigits) ?? ""}
-              href={phoneHref}
-              onClick={() => onTrack("PHONE_CLICK")}
-              variant="cyan"
-            />
-          )}
+          <ProminentPill
+            icon={WhatsappIcon}
+            label="WhatsApp"
+            sub={formatBrazilianPhone(whatsappDigits) ?? ""}
+            href={whatsappHref}
+            onClick={() => onTrack("WHATSAPP_CLICK")}
+            variant="emerald"
+          />
         </div>
       )}
     </div>

@@ -170,6 +170,7 @@ export default async function RelatoriosPage({
     slaTotalQualified,
     sellerWhatsappCards,
     currentMonthLabel,
+    selectedMonthLabel,
     activeSellerCount,
     goalValue,
     goalAchievedValue,
@@ -221,9 +222,23 @@ export default async function RelatoriosPage({
               <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
                 Relatórios
               </p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-                {isManager ? "Panorama da operação" : "Panorama comercial"}
-              </h1>
+              {/* Nome do mês em destaque ao lado do título quando o período
+                  selecionado bate com um mês civil inteiro (ver
+                  selectedMonthLabel em lib/reports/commercial-data.ts) —
+                  pedido explícito: o botão do filtro ("Há 2 meses") sozinho
+                  não diz QUAL mês é. flex-wrap: no celular (título grande +
+                  selo já não cabem lado a lado) o selo desce pra própria
+                  linha em vez de espremer o título. */}
+              <div className="mt-1 flex flex-wrap items-center gap-2.5">
+                <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+                  {isManager ? "Panorama da operação" : "Panorama comercial"}
+                </h1>
+                {selectedMonthLabel && (
+                  <span className="inline-flex shrink-0 items-center rounded-full bg-brand/10 px-3 py-1 text-sm font-semibold text-brand dark:bg-brand/20">
+                    {selectedMonthLabel}
+                  </span>
+                )}
+              </div>
               <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
                 Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
               </p>

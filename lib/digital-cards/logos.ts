@@ -21,17 +21,30 @@ export type PartnerLogo = {
   label: string;
   active: boolean;
   order: number;
-  /** "reobote" = usa o componente SVG inline; caminho = usa <img src>; null = ainda não temos o arquivo. */
+  /** "reobote" = usa o componente SVG inline; caminho = usa <img src>; null = vetor/placeholder de texto de fallback. */
   src: string | "reobote" | null;
 };
 
-export const PARTNER_LOGOS: PartnerLogo[] = [
+export const AVAILABLE_PARTNER_LOGOS: PartnerLogo[] = [
   { key: "reobote", label: "Reobote", active: true, order: 1, src: "reobote" },
-  { key: "rodobens", label: "Rodobens", active: true, order: 2, src: null },
-  { key: "yamaha", label: "Yamaha", active: true, order: 3, src: null },
-  { key: "servopa", label: "Servopa", active: true, order: 4, src: null },
+  { key: "rodobens", label: "Rodobens", active: true, order: 2, src: "/logo-rodobens.svg" },
+  { key: "yamaha", label: "Yamaha", active: true, order: 3, src: "/logo-yamaha.svg" },
+  { key: "servopa", label: "Servopa", active: true, order: 4, src: "/logo-servopa.svg" },
 ];
 
-export function getActivePartnerLogos(): PartnerLogo[] {
-  return PARTNER_LOGOS.filter((logo) => logo.active).sort((a, b) => a.order - b.order);
+export const DEFAULT_SELECTED_LOGOS = ["reobote", "rodobens", "yamaha", "servopa"];
+
+export function getActivePartnerLogos(customKeys?: string[]): PartnerLogo[] {
+  const keys = customKeys && customKeys.length > 0 ? customKeys : DEFAULT_SELECTED_LOGOS;
+  const logoMap = new Map(AVAILABLE_PARTNER_LOGOS.map((l) => [l.key, l]));
+  
+  const resolved: PartnerLogo[] = [];
+  keys.forEach((key, index) => {
+    const found = logoMap.get(key);
+    if (found) {
+      resolved.push({ ...found, order: index + 1 });
+    }
+  });
+
+  return resolved;
 }

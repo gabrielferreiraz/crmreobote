@@ -40,6 +40,36 @@ export function buildQuickRanges(): QuickRange[] {
   ];
 }
 
+/**
+ * Se um "de/até" (YYYY-MM-DD) cobre um mês CIVIL inteiro — 1º dia até o
+ * último dia do MESMO mês — devolve o nome dele por extenso ("Setembro de
+ * 2026"); senão null. Usado pra mostrar qual mês o filtro de período dos
+ * Relatórios selecionou com destaque no topo da tela (pedido explícito: "Há
+ * 2 meses"/"Há 3 meses" sozinho não diz QUAL mês é — ver relatorios/page.tsx),
+ * não só quando um dos atalhos de mês é clicado — um período PERSONALIZADO
+ * que por acaso bata exatamente com um mês inteiro também é reconhecido,
+ * mesma regra, sem distinguir a origem do range.
+ */
+export function singleMonthLabel(from: string, to: string): string | null {
+  // Parse local (não UTC) de propósito — from/to já são dias civis de
+  // Brasília na origem (ver comentário em lib/reports/commercial-data.ts),
+  // então só precisa comparar componentes de calendário, nunca fuso.
+  const fromDate = new Date(`${from}T00:00:00`);
+  const toDate = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return null;
+  if (fromDate.getDate() !== 1) return null;
+  // Dia 0 do mês seguinte = último dia do mês de `from` — mesmo truque de
+  // isValidCalendarDate em lib/birth-date.ts, cobre ano bissexto sozinho.
+  const lastDayOfFromMonth = new Date(fromDate.getFullYear(), fromDate.getMonth() + 1, 0).getDate();
+  const isSameMonth = toDate.getFullYear() === fromDate.getFullYear() && toDate.getMonth() === fromDate.getMonth();
+  if (!isSameMonth || toDate.getDate() !== lastDayOfFromMonth) return null;
+
+  // toLocaleDateString já devolve minúsculo em pt-BR ("setembro de 2026") —
+  // só capitaliza a 1ª letra pra virar título ("Setembro de 2026").
+  const label = fromDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 /** Usado nos filtros de "Cadastrado em"/"Criado em" de Clientes e Negócios —
  * atalhos mais curtos, pensados pra triagem do dia a dia (não comparação de
  * meses). O calendário personalizado (DateRangeField) cobre qualquer período

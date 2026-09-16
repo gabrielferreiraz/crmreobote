@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Plus, X, Camera, Trash2, Copy, Check, Maximize2 } from "lucide-react";
+import { Loader2, Plus, X, Camera, Trash2, Copy, Check, Maximize2, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import { Select } from "@/components/select";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
 import { PhonePreviewFrame } from "@/components/digital-card/phone-preview-frame";
 import { displayPhone } from "@/lib/phone-normalize";
+import { AVAILABLE_PARTNER_LOGOS, DEFAULT_SELECTED_LOGOS } from "@/lib/digital-cards/logos";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
 
 type Card = Awaited<ReturnType<typeof getOrCreateOwnCard>>;
@@ -63,6 +64,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [address, setAddress] = useState(card.address ?? DEFAULT_ADDRESS);
   const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
   const [portfolioValueDisplay, setPortfolioValueDisplay] = useState(card.portfolioValueDisplay ?? "");
+  const [selectedLogos, setSelectedLogos] = useState<string[]>(DEFAULT_SELECTED_LOGOS);
   const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
   const [photoUrl, setPhotoUrl] = useState(card.photoUrl);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -75,6 +77,93 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showFullscreenPreview, setShowFullscreenPreview] = useState(false);
+
+  function moveLogoLeft(index: number) {
+    if (index <= 0) return;
+    setSelectedLogos((prev) => {
+      const next = [...prev];
+      const temp = next[index - 1];
+      next[index - 1] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  }
+
+  function moveLogoRight(index: number) {
+    if (index >= selectedLogos.length - 1) return;
+    setSelectedLogos((prev) => {
+      const next = [...prev];
+      const temp = next[index + 1];
+      next[index + 1] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  }
+
+  function toggleLogo(key: string) {
+    setSelectedLogos((prev) => {
+      if (prev.includes(key)) {
+        return prev.filter((k) => k !== key);
+      } else {
+        return [...prev, key];
+      }
+    });
+  }
+
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  function handleDragStart(index: number) {
+    setDraggedIndex(index);
+  }
+
+  function handleDragOver(e: React.DragEvent, targetIndex: number) {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+    setSelectedLogos((prev) => {
+      const next = [...prev];
+      const draggedItem = next[draggedIndex];
+      next.splice(draggedIndex, 1);
+      next.splice(targetIndex, 0, draggedItem);
+      return next;
+    });
+    setDraggedIndex(targetIndex);
+  }
+
+  function handleDragEnd() {
+    setDraggedIndex(null);
+  }
+
+  function handleTouchStart(index: number) {
+    setDraggedIndex(index);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (draggedIndex === null) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
+    const itemCard = targetElement?.closest("[data-logo-index]") as HTMLElement | null;
+
+    if (itemCard) {
+      const targetIndex = Number(itemCard.getAttribute("data-logo-index"));
+      if (!isNaN(targetIndex) && targetIndex !== draggedIndex) {
+        setSelectedLogos((prev) => {
+          const next = [...prev];
+          const draggedItem = next[draggedIndex];
+          next.splice(draggedIndex, 1);
+          next.splice(targetIndex, 0, draggedItem);
+          return next;
+        });
+        setDraggedIndex(targetIndex);
+      }
+    }
+  }
+
+  function handleTouchEnd() {
+    setDraggedIndex(null);
+  }
 
   function addLink() {
     setLinks((prev) => [...prev, { id: `new-${Date.now()}`, type: "INSTAGRAM", label: "", url: "" }]);
@@ -222,6 +311,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     address: address.trim() || null,
     showPortfolioValue,
     portfolioValueDisplay: portfolioValueDisplay.trim() || null,
+    selectedLogos,
     links: links.filter((l) => l.label.trim() && l.url.trim()),
     publicUrl,
   };
@@ -420,29 +510,134 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
           </div>
 
           <div className="space-y-1.5">
-            <label className="field-label">Bio / descrição (opcional)</label>
+            <label className="field-label">Bio / citação (exibida em itálico e aspas)</label>
             <textarea
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               rows={2}
-              className="field-input"
-              placeholder="Soluções em consórcio e planejamento patrimonial"
+              className="field-input italic"
+              placeholder="Inteligência em Consórcios"
             />
+          </div>
+        </div>
+
+        {/* Logos parceiras (Administradoras) */}
+        <div className="card space-y-4 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="field-label text-sm font-semibold">Logos das Administradoras</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Selecione quais marcas exibir e ajuste a ordem de apresentação (arraste com o mouse/dedo ou use as setas).
+              </p>
+            </div>
+          </div>
+
+          {/* Lista ordenada atual */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+              Grade de logos ativas ({selectedLogos.length})
+            </p>
+            {selectedLogos.length === 0 ? (
+              <p className="text-xs text-neutral-400 italic py-2">Nenhuma logo selecionada. Selecione abaixo para ativar no cartão.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {selectedLogos.map((key, index) => {
+                  const logoInfo = AVAILABLE_PARTNER_LOGOS.find((l) => l.key === key);
+                  if (!logoInfo) return null;
+                  const isDragging = draggedIndex === index;
+                  return (
+                    <div
+                      key={key}
+                      data-logo-index={index}
+                      draggable
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onTouchStart={() => handleTouchStart(index)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium cursor-grab active:cursor-grabbing transition-all select-none ${
+                        isDragging
+                          ? "border-[#00aeee] bg-[#00aeee]/20 shadow-lg ring-2 ring-[#00aeee]/40 scale-[1.02]"
+                          : "border-neutral-200 bg-neutral-50 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-800/60 dark:hover:border-neutral-700"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <GripVertical className="h-4 w-4 shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-grab active:cursor-grabbing" />
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00aeee]/15 text-[10px] font-bold text-[#00aeee]">
+                          {index + 1}
+                        </span>
+                        <span className="font-semibold text-neutral-800 dark:text-neutral-200 truncate">{logoInfo.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => moveLogoLeft(index)}
+                          disabled={index === 0}
+                          title="Mover para frente"
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveLogoRight(index)}
+                          disabled={index === selectedLogos.length - 1}
+                          title="Mover para trás"
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleLogo(key)}
+                          title="Remover logo do cartão"
+                          className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Seletor de logos disponíveis */}
+          <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
+            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+              Seletor de Logos Disponíveis (clique para adicionar/remover)
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {AVAILABLE_PARTNER_LOGOS.map((logo) => {
+                const isSelected = selectedLogos.includes(logo.key);
+                return (
+                  <button
+                    key={logo.key}
+                    type="button"
+                    onClick={() => toggleLogo(logo.key)}
+                    className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-all ${
+                      isSelected
+                        ? "border-[#00aeee] bg-[#00aeee]/15 text-[#00aeee] font-semibold"
+                        : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:border-neutral-600"
+                    }`}
+                  >
+                    <span>{logo.label}</span>
+                    {isSelected ? <Check className="h-3 w-3 text-[#00aeee]" /> : <Plus className="h-3 w-3 text-neutral-400" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* Contato */}
         <div className="card space-y-4 p-4">
           <p className="field-label">Contato</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="field-label">Telefone</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="field-label">WhatsApp</label>
-              <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
-            </div>
+          <div className="space-y-1.5">
+            <label className="field-label">WhatsApp</label>
+            <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
           </div>
 
           <div className="space-y-1.5">

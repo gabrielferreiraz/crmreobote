@@ -23,6 +23,7 @@ export type DigitalCardData = {
   address: string | null;
   showPortfolioValue: boolean;
   portfolioValueDisplay: string | null;
+  selectedLogos?: string[];
   links: { id: string; type: string; label: string; url: string }[];
   publicUrl: string;
 };
@@ -81,29 +82,27 @@ export function DigitalCardView({
             lib/digital-cards/config.ts pro porquê disso ficar null por
             enquanto). Sem foto nenhuma, cai pro gradiente abstrato + efeitos
             de luz de sempre — nunca um placeholder inventado. */}
-        <div className={`relative overflow-hidden bg-gradient-to-br from-[#0c2a4a] via-[#0f1b33] to-[#08090e] ${data.coverPhotoUrl ? "h-52" : "h-36"}`}>
+        <div className={`relative overflow-hidden bg-gradient-to-br from-[#0c2a4a] via-[#0f1b33] to-[#08090e] ${data.coverPhotoUrl ? "h-64" : "h-48"}`}>
           {data.coverPhotoUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={data.coverPhotoUrl} alt="" className="h-full w-full object-cover" />
-              {/* Mais clara no topo (a foto aparece de verdade, como na
-                  referência) escurecendo gradualmente até se fundir com o
-                  corpo do cartão — não um filtro escuro uniforme por cima
-                  de tudo. */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/35 to-[#090d16]" />
+              {/* Transição em degradê suave que escurece gradualmente até a altura do nome do contato */}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/25 via-50% to-[#090d16]" />
             </>
           ) : (
             <>
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(0,174,238,0.45),transparent_70%)]" />
-              <div className="absolute -top-10 -right-10 h-36 w-36 rounded-full bg-[#00aeee]/25 blur-2xl" />
-              <div className="absolute -bottom-10 -left-10 h-36 w-36 rounded-full bg-blue-600/25 blur-2xl" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(0,174,238,0.45),transparent_75%)]" />
+              <div className="absolute -top-10 -right-10 h-44 w-44 rounded-full bg-[#00aeee]/25 blur-2xl" />
+              <div className="absolute -bottom-10 -left-10 h-44 w-44 rounded-full bg-blue-600/25 blur-2xl" />
               {/* Padrão geométrico abstrato sutil */}
               <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:16px_16px]" />
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/20 to-[#090d16]" />
             </>
           )}
         </div>
 
-        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-20" : "-mt-16"}`}>
+        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-28" : "-mt-22"}`}>
           {/* Avatar com Anel de Brilho em Gradiente Neon */}
           <div className="relative mx-auto mb-3 h-26 w-26">
             <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_22px_rgba(0,174,238,0.45)]">
@@ -135,14 +134,16 @@ export function DigitalCardView({
 
           {/* Logos parceiras */}
           <div className="mt-4">
-            <DigitalCardLogos />
+            <DigitalCardLogos selectedLogos={data.selectedLogos} />
           </div>
 
           {/* Valor em carteira */}
           {data.showPortfolioValue && data.portfolioValueDisplay && (
-            <div className="mt-4 rounded-2xl border border-[#00aeee]/30 bg-gradient-to-r from-[#00aeee]/15 via-cyan-500/10 to-blue-600/15 p-3 text-center shadow-lg backdrop-blur-md">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300/80">Carteira sob gestão</p>
-              <p className="mt-0.5 text-base font-extrabold text-white">{data.portfolioValueDisplay}</p>
+            <div className="mt-5 flex flex-col items-center">
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/50">Carteira sob gestão</p>
+              <p className="mt-0.5 bg-gradient-to-r from-[#00aeee] via-cyan-300 to-[#00aeee] bg-clip-text text-lg font-black text-transparent drop-shadow-md">
+                {data.portfolioValueDisplay}
+              </p>
             </div>
           )}
 
@@ -170,10 +171,12 @@ export function DigitalCardView({
             />
           </div>
 
-          {/* Bio */}
+          {/* Bio (Itálico limpo sem bordas/caixa) */}
           {data.bio && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-relaxed text-white/80 backdrop-blur-md">
-              {data.bio}
+            <div className="mt-3 px-2 text-center">
+              <p className="text-xs font-medium italic leading-relaxed text-white/85 tracking-wide">
+                “{data.bio}”
+              </p>
             </div>
           )}
 

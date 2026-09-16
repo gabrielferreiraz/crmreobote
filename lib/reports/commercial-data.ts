@@ -29,7 +29,7 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { type LeaderboardEntry } from "@/components/leaderboard";
 import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
 import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildQuickRanges, singleMonthLabel } from "@/lib/date-ranges";
 import { countActiveSellers, suggestedGoalValue } from "@/lib/goals/suggestion";
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { average, percentile } from "@/lib/reports/stats";
@@ -210,6 +210,18 @@ export async function getCommercialReportData(params: {
     rangeFrom || rangeTo
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
       : {};
+
+  // Nome do mês por extenso quando o período selecionado bate com um mês
+  // civil inteiro (qualquer um dos atalhos "Este mês"/"Mês passado"/"Há 2
+  // meses"/"Há 3 meses", OU um período personalizado que por acaso caia
+  // certinho num mês) — pedido explícito: o botão do filtro sozinho ("Há 2
+  // meses") não diz QUAL mês é, então mostra em destaque no topo da tela
+  // (ver relatorios/page.tsx). "Tudo" e "Este ano" nunca batem (não são um
+  // mês só), ficam null de propósito — sem selo nenhum nesses casos.
+  const effectiveFromStr = isAllTime ? null : fromParam || defaultRange?.from || null;
+  const effectiveToStr = isAllTime ? null : toParam || defaultRange?.to || null;
+  const selectedMonthLabel =
+    effectiveFromStr && effectiveToStr ? singleMonthLabel(effectiveFromStr, effectiveToStr) : null;
 
   // ─── Comparar período ("Comparar período" na UI, ver compare-period-filter.tsx)
   // Só faz sentido com um período ATUAL de limites reais — "Tudo" (rangeFrom/
@@ -1867,6 +1879,7 @@ export async function getCommercialReportData(params: {
     slaTotalQualified,
     sellerWhatsappCards,
     currentMonthLabel,
+    selectedMonthLabel,
     activeSellerCount,
     goalValue,
     goalAchievedValue,
