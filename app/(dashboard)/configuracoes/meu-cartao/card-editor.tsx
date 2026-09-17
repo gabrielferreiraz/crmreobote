@@ -568,11 +568,17 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         <div className="card space-y-4 p-4">
           <p className="field-label text-sm font-semibold">Como você aparece</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="field-label">Seu cargo</label>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">Mostrado em destaque, logo abaixo do seu nome.</p>
+            <div className="space-y-2">
+              {/* min-h reserva o espaço de 2 linhas de legenda — sem isso,
+                  "Seu cargo" (legenda mais longa, quebra em 2 linhas) e
+                  "Empresa" (cabe em 1) empurravam os inputs pra alturas
+                  diferentes, ficando visualmente desalinhados lado a lado. */}
+              <div className="sm:min-h-[3.4rem]">
+                <label className="field-label">Seu cargo</label>
+                <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Aparece em destaque, logo abaixo do seu nome.</p>
+              </div>
               <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
-              <div className="flex flex-wrap gap-1.5 pt-1">
+              <div className="flex flex-wrap gap-1.5 pt-1.5">
                 {JOB_TITLE_OPTIONS.map((title) => (
                   <button
                     key={title}
@@ -589,16 +595,20 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
                 ))}
               </div>
             </div>
-            <div className="space-y-1.5">
-              <label className="field-label">Empresa</label>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">Aparece logo abaixo do cargo, em texto menor.</p>
+            <div className="space-y-2">
+              <div className="sm:min-h-[3.4rem]">
+                <label className="field-label">Empresa</label>
+                <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Aparece logo abaixo do cargo, em texto menor.</p>
+              </div>
               <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="field-input" />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="field-label">Uma frase sua (opcional)</label>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Aparece em itálico e entre aspas, como uma assinatura pessoal.</p>
+          <div className="space-y-2">
+            <div>
+              <label className="field-label">Uma frase sua (opcional)</label>
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Aparece em itálico e entre aspas, como uma assinatura pessoal.</p>
+            </div>
             <textarea
               value={bio}
               onChange={(e) => setBio(e.target.value)}
@@ -719,27 +729,35 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         {/* Como o cliente fala com você */}
         <div className="card space-y-4 p-4">
           <p className="field-label text-sm font-semibold">Como o cliente fala com você</p>
-          <div className="space-y-1.5">
-            <label className="field-label">WhatsApp</label>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Vira o botão verde de destaque — a forma mais rápida do cliente te chamar.</p>
+          <div className="space-y-2">
+            <div>
+              <label className="field-label">WhatsApp</label>
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Vira o botão verde de destaque — a forma mais rápida do cliente te chamar.</p>
+            </div>
             <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="field-label">Outro telefone (opcional)</label>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Só preencha se for diferente do WhatsApp — vira um botão extra, separado.</p>
+          <div className="space-y-2">
+            <div>
+              <label className="field-label">Outro telefone (opcional)</label>
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Só preencha se for diferente do WhatsApp — vira um botão extra, separado.</p>
+            </div>
             <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 3345-0000" className="field-input" />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="field-label">E-mail</label>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Deixe em branco pra usar automaticamente o e-mail do seu perfil ({card.user.email}).</p>
+          <div className="space-y-2">
+            <div>
+              <label className="field-label">E-mail</label>
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Deixe em branco pra usar automaticamente o e-mail do seu perfil ({card.user.email}).</p>
+            </div>
             <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="field-label">Endereço</label>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Abre direto no mapa quando o cliente toca no botão "Mapa".</p>
+          <div className="space-y-2">
+            <div>
+              <label className="field-label">Endereço</label>
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Abre direto no mapa quando o cliente toca no botão "Mapa".</p>
+            </div>
             <input value={address} onChange={(e) => setAddress(e.target.value)} className="field-input" />
           </div>
         </div>
