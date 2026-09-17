@@ -31,19 +31,25 @@ const LINK_TYPE_OPTIONS = [
  *
  * Redesenhado a pedido explícito: "muito mais intuitiva e com foco em
  * mensagens diretas, campos mais diretos pro consultor ler e entender na
- * hora". Três mudanças de fundo, não só de texto:
+ * hora". Passou por 2 rodadas:
  *
  * 1. "Ativo/inativo" virou uma ação IMEDIATA (PATCH próprio + router.refresh,
  *    igual às fotos), não mais um checkbox que só vale depois de rolar até
  *    o fim e clicar "Salvar" — é a decisão de maior consequência da página
  *    (se o cartão existe pro mundo ou não) e não devia ficar misturada com
  *    "salvei o cargo errado por engano".
- * 2. Toda legenda de campo agora diz ONDE aquilo aparece no cartão de
- *    verdade ("Vira o botão verde de destaque", "Aparece embaixo do seu
- *    nome"...), não só o nome técnico do campo.
- * 3. O botão "Salvar" mostra se há algo pendente (hasUnsavedChanges) —
+ * 2. O botão "Salvar" mostra se há algo pendente (hasUnsavedChanges) —
  *    antes ficava sempre clicável, sem dar nenhum sinal de "isso aqui já
  *    foi salvo" ou "isso aqui ainda não".
+ *
+ * Primeira rodada também tinha adicionado uma legenda embaixo de CADA
+ * campo explicando onde ele aparece no cartão ("Vira o botão verde de
+ * destaque", "Aparece embaixo do seu nome"...) — pedido explícito de
+ * volta atrás: "não precisa de tantas descrições para os campos, só o
+ * nome dos campos mesmo". Removidas: o rótulo do campo + a pré-visualização
+ * ao vivo (sempre visível ao lado) já bastam. Ficaram só as explicações que
+ * NÃO são sobre "onde aparece" (arrastar pra reordenar logo, o que salva
+ * sozinho vs. o que precisa do botão Salvar).
  *
  * Seções em cards (mesmo padrão de configuracoes/perfil/page.tsx).
  */
@@ -458,10 +464,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             faz explicado de cara. Sobem na hora do upload — nenhuma delas
             depende do botão "Salvar" lá embaixo. */}
         <div className="card p-4 space-y-4">
-          <div>
-            <p className="field-label text-sm font-semibold">Fotos do cartão</p>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada uma sobe (ou some) na hora — não precisa clicar em Salvar pra elas valerem.</p>
-          </div>
+          <p className="field-label text-sm font-semibold">Fotos do cartão</p>
 
           <div className="flex items-center gap-3">
             <div className="relative shrink-0">
@@ -474,7 +477,6 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Sua foto</p>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">O rosto dentro do círculo, no topo do cartão. Sem uma própria, usa a foto do seu perfil.</p>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <label className="btn-secondary btn-sm cursor-pointer">
                   <Camera className="h-3.5 w-3.5" strokeWidth={2} />
@@ -509,7 +511,6 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Capa</p>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">Atrás da sua foto, só ali em cima — com um filtro escuro pro seu nome continuar legível.</p>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <label className="btn-secondary btn-sm cursor-pointer">
                   <Camera className="h-3.5 w-3.5" strokeWidth={2} />
@@ -544,7 +545,6 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Fundo</p>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">Atrás do cartão INTEIRO, da ponta a ponta — diferente da capa, que fica só atrás da sua foto.</p>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <label className="btn-secondary btn-sm cursor-pointer">
                   <Camera className="h-3.5 w-3.5" strokeWidth={2} />
@@ -562,23 +562,17 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
           </div>
         </div>
 
-        {/* Como você aparece — cargo/empresa/bio, cada legenda diz onde
-            aquilo mostra no cartão de verdade em vez do nome técnico do
-            campo. */}
+        {/* Como você aparece — cargo/empresa/bio. Pedido explícito: "não
+            precisa de tantas descrições para os campos, só o nome dos
+            campos mesmo" — a pré-visualização ao vivo ao lado já mostra
+            onde cada campo aparece, sem precisar de legenda explicando. */}
         <div className="card space-y-4 p-4">
           <p className="field-label text-sm font-semibold">Como você aparece</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              {/* min-h reserva o espaço de 2 linhas de legenda — sem isso,
-                  "Seu cargo" (legenda mais longa, quebra em 2 linhas) e
-                  "Empresa" (cabe em 1) empurravam os inputs pra alturas
-                  diferentes, ficando visualmente desalinhados lado a lado. */}
-              <div className="sm:min-h-[3.4rem]">
-                <label className="field-label">Seu cargo</label>
-                <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Aparece em destaque, logo abaixo do seu nome.</p>
-              </div>
+            <div className="space-y-1.5">
+              <label className="field-label">Seu cargo</label>
               <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
-              <div className="flex flex-wrap gap-1.5 pt-1.5">
+              <div className="flex flex-wrap gap-1.5 pt-1">
                 {JOB_TITLE_OPTIONS.map((title) => (
                   <button
                     key={title}
@@ -595,20 +589,14 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
                 ))}
               </div>
             </div>
-            <div className="space-y-2">
-              <div className="sm:min-h-[3.4rem]">
-                <label className="field-label">Empresa</label>
-                <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Aparece logo abaixo do cargo, em texto menor.</p>
-              </div>
+            <div className="space-y-1.5">
+              <label className="field-label">Empresa</label>
               <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="field-input" />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div>
-              <label className="field-label">Uma frase sua (opcional)</label>
-              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Aparece em itálico e entre aspas, como uma assinatura pessoal.</p>
-            </div>
+          <div className="space-y-1.5">
+            <label className="field-label">Uma frase sua (opcional)</label>
             <textarea
               value={bio}
               onChange={(e) => setBio(e.target.value)}
@@ -729,35 +717,23 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         {/* Como o cliente fala com você */}
         <div className="card space-y-4 p-4">
           <p className="field-label text-sm font-semibold">Como o cliente fala com você</p>
-          <div className="space-y-2">
-            <div>
-              <label className="field-label">WhatsApp</label>
-              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Vira o botão verde de destaque — a forma mais rápida do cliente te chamar.</p>
-            </div>
+          <div className="space-y-1.5">
+            <label className="field-label">WhatsApp</label>
             <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
           </div>
 
-          <div className="space-y-2">
-            <div>
-              <label className="field-label">Outro telefone (opcional)</label>
-              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Só preencha se for diferente do WhatsApp — vira um botão extra, separado.</p>
-            </div>
+          <div className="space-y-1.5">
+            <label className="field-label">Outro telefone (opcional)</label>
             <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 3345-0000" className="field-input" />
           </div>
 
-          <div className="space-y-2">
-            <div>
-              <label className="field-label">E-mail</label>
-              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Deixe em branco pra usar automaticamente o e-mail do seu perfil ({card.user.email}).</p>
-            </div>
+          <div className="space-y-1.5">
+            <label className="field-label">E-mail</label>
             <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
           </div>
 
-          <div className="space-y-2">
-            <div>
-              <label className="field-label">Endereço</label>
-              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">Abre direto no mapa quando o cliente toca no botão "Mapa".</p>
-            </div>
+          <div className="space-y-1.5">
+            <label className="field-label">Endereço</label>
             <input value={address} onChange={(e) => setAddress(e.target.value)} className="field-input" />
           </div>
         </div>
@@ -765,9 +741,6 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         {/* Valor em carteira */}
         <div className="card space-y-2 p-4">
           <p className="field-label text-sm font-semibold">Carteira sob gestão (opcional)</p>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Um destaque extra de autoridade, acima dos botões de contato. Nunca coloque um valor exato — prefira algo como "+R$ 5 milhões".
-          </p>
           <label className="flex items-center gap-2 pt-1 text-sm text-neutral-700 dark:text-neutral-300">
             <input
               type="checkbox"
@@ -790,7 +763,6 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         {/* Links adicionais */}
         <div className="card space-y-2 p-4">
           <p className="field-label text-sm font-semibold">Redes sociais e outros links</p>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada um vira um botão extra no cartão, abaixo do WhatsApp e do telefone.</p>
           {links.map((link) => (
             <div key={link.id} className="flex items-center gap-2 pt-1">
               <Select
