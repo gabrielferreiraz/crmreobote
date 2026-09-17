@@ -22,6 +22,10 @@ type LeadRequestNotification = {
   createdAt: string;
   contact: { id: string; name: string };
   requester: { id: string; name: string };
+  /** Pra quem o lead vai se aprovado, só quando é ALGUÉM DIFERENTE de quem
+   * pediu (ex.: admin importando planilha "pro Fulano") — null = pedido
+   * normal, pra própria carteira de quem pediu. */
+  assignee: { id: string; name: string } | null;
 };
 
 const POLL_INTERVAL_MS = 60_000;
@@ -201,7 +205,14 @@ function LeadRequestsGroup({
             <div className="min-w-0 flex-1">
               <p className="text-neutral-700 dark:text-neutral-300">
                 <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.requester.name}</span> pediu{" "}
-                <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.contact.name}</span> pra carteira dele
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.contact.name}</span>{" "}
+                {r.assignee && r.assignee.id !== r.requester.id ? (
+                  <>
+                    pra <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.assignee.name}</span>
+                  </>
+                ) : (
+                  "pra carteira dele"
+                )}
               </p>
               <div className="mt-1.5 flex items-center gap-2">
                 <button

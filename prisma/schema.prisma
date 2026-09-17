@@ -145,6 +145,7 @@ model User {
   shareGroupMemberships       ShareGroupMember[]
   leadRequestsMade            LeadRequest[]             @relation("LeadRequestRequester")
   leadRequestsReceived        LeadRequest[]             @relation("LeadRequestOwner")
+  leadRequestsAssigned        LeadRequest[]             @relation("LeadRequestAssignee")
   leadRequestsResolved        LeadRequest[]             @relation("LeadRequestResolvedBy")
 }
 
@@ -1605,6 +1606,15 @@ model LeadRequest {
   // alguém for resolver este pedido) pra sempre saber quem deveria aprovar,
   // mesmo que o dono real do contato já tenha mudado nesse meio-tempo.
   ownerId        String
+  // Pra quem o contato vai se o pedido for aprovado — normalmente o próprio
+  // requester (pedindo pra si), mas pode ser OUTRA pessoa quando quem está
+  // solicitando é um admin/assistente importando planilha em nome de
+  // alguém (ver "Responsável pra usar em todos" na importação de contatos):
+  // aí quem clica e quem recebe o lead são pessoas diferentes. Null = trata
+  // como o próprio requesterId (linha antiga, de antes deste campo existir,
+  // ou pedido feito sem escolher ninguém — sempre resolvido com
+  // `assigneeId ?? requesterId`, nunca lido sozinho).
+  assigneeId     String?
   status         LeadRequestStatus @default(PENDING)
   createdAt      DateTime          @default(now())
   resolvedAt     DateTime?
@@ -1614,6 +1624,7 @@ model LeadRequest {
   contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
   requester    User         @relation("LeadRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   owner        User         @relation("LeadRequestOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assignee     User?        @relation("LeadRequestAssignee", fields: [assigneeId], references: [id])
   resolvedBy   User?        @relation("LeadRequestResolvedBy", fields: [resolvedById], references: [id])
 
   // Sino (ver GET /api/lead-requests) só lista PENDING de um dono — mesmo

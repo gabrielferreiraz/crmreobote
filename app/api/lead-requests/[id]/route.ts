@@ -36,12 +36,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "Este pedido já foi resolvido" }, { status: 400 });
     }
 
+    // Pra quem o contato vai se aprovado — normalmente o próprio requester,
+    // mas pode ser outra pessoa (ver assigneeId em prisma/schema.prisma:
+    // admin/assistente que pediu EM NOME de alguém, ex.: importação de
+    // planilha "pro Fulano"). `?? requesterId` cobre linha antiga, de antes
+    // deste campo existir.
+    const newOwnerId = request.assigneeId ?? request.requesterId;
+
     if (action === "approve") {
       // prismaRaw.$transaction + setTenantOnTx (não prisma.$transaction, nem
       // a forma em array) — mesmo padrão/motivo de POST /api/lead-requests.
       await prismaRaw.$transaction(async (tx) => {
         await setTenantOnTx(tx, organizationId);
-        await tx.contact.update({ where: { id: request.contactId }, data: { responsavelId: request.requesterId } });
+        await tx.contact.update({ where: { id: request.contactId }, data: { responsavelId: newOwnerId } });
         await tx.leadRequest.update({
           where: { id },
           data: { status: "APPROVED", resolvedAt: new Date(), resolvedById: userId },
@@ -58,6 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       contactId: request.contact.id,
       contactName: request.contact.name,
       requesterId: request.requester.id,
+      assigneeId: request.assigneeId,
       approved: action === "approve",
     }).catch((err) => console.error("[lead-requests] falha ao notificar resolução", err));
 

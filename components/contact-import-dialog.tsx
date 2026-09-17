@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, SlidersHorizontal, Download, UserPlus, Send, Clock3 } from "lucide-react";
+import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, SlidersHorizontal, Download, UserPlus, Send, Clock3, RefreshCw } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
@@ -12,12 +12,14 @@ type ImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "sourc
 
 type ColumnDetection = { field: ImportField; label: string; required: boolean; index: number; headerLabel: string | null };
 type RowIssue = { code: string; message: string };
+type DivergentField = { field: "jobTitle" | "source" | "company" | "email"; label: string; oldValue: string | null; newValue: string };
 type ExistingContactMatch = {
   id: string;
   name: string;
   responsavelId: string | null;
   responsavelName: string | null;
   responsavelActive: boolean;
+  divergentFields: DivergentField[];
 };
 type ResolvedRow = {
   rowNumber: number;
@@ -69,8 +71,8 @@ const ISSUE_LABEL: Record<string, string> = {
  * é ignorada. Pedido explícito do usuário: planilha sem coluna de cargo
  * nenhuma travava a importação por completo, sem saída.
  */
-type DefaultableField = "responsavel" | "jobTitle";
-const DEFAULTABLE_FIELDS: DefaultableField[] = ["responsavel", "jobTitle"];
+type DefaultableField = "responsavel" | "jobTitle" | "source";
+const DEFAULTABLE_FIELDS: DefaultableField[] = ["responsavel", "jobTitle", "source"];
 
 /**
  * Resumo em uma frase do que vai acontecer — a primeira coisa que a pessoa
@@ -138,12 +140,22 @@ function StatChip({ label, value, tone }: { label: string; value: number; tone?:
 export function ContactImportDialog({
   members,
   jobTitles,
+  sources,
+  currentUserId,
   onClose,
   onImported,
 }: {
   members: { id: string; name: string }[];
   /** Lista canônica (Configurações → Cargos) — só pra sugerir no campo de texto do "cargo pra usar em todos" abaixo (ver datalist), nunca restringe o que dá pra digitar ali (cargo de contato é texto livre, não uma FK). */
   jobTitles: { id: string; label: string }[];
+  /** Idem, lista canônica (Configurações → Origens) — mesmo raciocínio do datalist de Cargo, pro default de Origem. */
+  sources: { id: string; label: string }[];
+  /** Pra saber se o Responsável padrão escolhido abaixo é a PRÓPRIA pessoa
+   * (comportamento de sempre: "Assumir"/"Solicitar" mira em quem clicou) ou
+   * OUTRA pessoa (admin/assistente importando planilha pra alguém — nesse
+   * caso o mesmo botão precisa mirar em quem foi escolhido, não em quem
+   * está com o mouse). */
+  currentUserId?: string;
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -166,6 +178,8 @@ export function ContactImportDialog({
   // Responsável, que já dispara por escolha discreta). Mesmo padrão do
   // campo "Origem" em deal-import-dialog.tsx.
   const [jobTitleDraft, setJobTitleDraft] = useState("");
+  // Mesma ideia do rascunho de Cargo acima, pro default de Origem.
+  const [sourceDraft, setSourceDraft] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [showIssueRows, setShowIssueRows] = useState(false);
   // Grade completa de mapeamento (9 campos) escondida por padrão — na
@@ -183,6 +197,10 @@ export function ContactImportDialog({
   const [duplicateActionResult, setDuplicateActionResult] = useState<
     Record<string, "claimed" | "requested" | "already-requested" | "already-yours" | "error">
   >({});
+  // "Atualizar campos divergentes" (ver ExistingContactMatch.divergentFields)
+  // — mesma chave por CONTATO existente (não por linha) do bloco acima.
+  const [divergentUpdateBusyId, setDivergentUpdateBusyId] = useState<string | null>(null);
+  const [divergentUpdateResult, setDivergentUpdateResult] = useState<Record<string, "updated" | "error">>({});
 
   async function runPreview(
     pickedFile: File,
@@ -218,6 +236,7 @@ export function ContactImportDialog({
     setOverrides({});
     setFieldDefaults({});
     setJobTitleDraft("");
+    setSourceDraft("");
     runPreview(picked, {}, {});
   }
 
@@ -254,13 +273,16 @@ export function ContactImportDialog({
   // ativo, cria pedido — ver POST /api/lead-requests) — o mesmo endpoint
   // decide sozinho qual dos dois caminhos vale, pelo estado ATUAL do dono
   // no banco (nunca confia no que a prévia mostrou, que pode ter minutos).
+  // targetUserId: pra quem vai o lead — o Responsável padrão escolhido
+  // acima (quando presente), não necessariamente quem está clicando (ver
+  // comentário na prop currentUserId).
   async function handleLeadAction(contactId: string) {
     setDuplicateActionBusyId(contactId);
     try {
       const res = await fetch("/api/lead-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactId }),
+        body: JSON.stringify({ contactId, targetUserId: fieldDefaults.responsavel || undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -279,6 +301,36 @@ export function ContactImportDialog({
       setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
     } finally {
       setDuplicateActionBusyId(null);
+    }
+  }
+
+  /**
+   * "Atualizar campos divergentes" — pedido explícito: "o que for divergente
+   * ele muda" em vez de só pular a linha. Reaproveita o PUT de edição de
+   * contato de sempre (mesma validação/sanitização/undo já existentes lá) —
+   * nunca um endpoint novo. Manda só os campos QUE DIVERGEM (nunca a linha
+   * inteira): campo não incluído no corpo = "não toca" pro PUT (ver
+   * app/api/contacts/[id]/route.ts), então um campo que já bate não corre
+   * risco de ser sobrescrito por engano. A permissão de editar continua
+   * sendo decidida pelo PUT em si (MEMBER só edita contato próprio/sem dono/
+   * dono inativo) — sem checagem duplicada aqui, um 403 vira só "error" na
+   * linha, igual a qualquer outra falha.
+   */
+  async function handleUpdateDivergentFields(contactId: string, fields: DivergentField[]) {
+    setDivergentUpdateBusyId(contactId);
+    try {
+      const body: Record<string, string> = {};
+      for (const f of fields) body[f.field] = f.newValue;
+      const res = await fetch(`/api/contacts/${contactId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: res.ok ? "updated" : "error" }));
+    } catch {
+      setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "error" }));
+    } finally {
+      setDivergentUpdateBusyId(null);
     }
   }
 
@@ -444,8 +496,8 @@ export function ContactImportDialog({
               <strong className="text-neutral-800 dark:text-neutral-200">
                 {s.duplicateContacts} linha{s.duplicateContacts === 1 ? "" : "s"} ignorada{s.duplicateContacts === 1 ? "" : "s"}
               </strong>{" "}
-              — já existe contato com esse telefone ou WhatsApp (nesta planilha ou já cadastrado). Nada é atualizado nele: a
-              importação só cria contato novo, nunca edita um existente.
+              — já existe contato com esse telefone ou WhatsApp (nesta planilha ou já cadastrado). A importação não atualiza
+              contato existente sozinha. O que for diferente aparece abaixo, com opção de atualizar.
               {duplicateRows.length > 0 && (
                 <>
                   {" "}
@@ -473,56 +525,117 @@ export function ContactImportDialog({
               // precisa pedir (ver POST /api/lead-requests, mesma regra no
               // servidor — este botão só reflete o que a prévia já sabe).
               const canClaimDirectly = !c.responsavelId || !c.responsavelActive;
+              // Pra quem vai o lead — o Responsável padrão escolhido acima,
+              // quando presente, senão a própria pessoa clicando (ver
+              // comentário na prop currentUserId). Rótulo do botão muda
+              // conforme isso: "Assumir"/"Solicitar" (pra mim mesmo, de
+              // sempre) vira "Atribuir a X"/"Solicitar... pra X" quando um
+              // admin/assistente está importando em nome de outra pessoa.
+              const targetIsSelf = !fieldDefaults.responsavel || fieldDefaults.responsavel === currentUserId;
+              const targetId = fieldDefaults.responsavel || currentUserId;
+              const targetName = targetIsSelf ? null : (members.find((m) => m.id === fieldDefaults.responsavel)?.name ?? "outra pessoa");
+              // Contato já é exatamente de quem receberia o lead (ex.: você
+              // escolheu "Eduardo" como Responsável padrão e este contato já
+              // é do Eduardo) — nada pra pedir/assumir, nem vale mostrar um
+              // botão "Solicitar a Eduardo" sem sentido nenhum pro próprio
+              // Eduardo. Checagem só de UI: o servidor já cobre isso sozinho
+              // (alreadyYours) se algo mudar entre a prévia e o clique.
+              const alreadyBelongsToTarget = !!targetId && c.responsavelId === targetId;
+              const divergentBusy = divergentUpdateBusyId === c.id;
+              const divergentResult = divergentUpdateResult[c.id];
               return (
-                <div
-                  key={c.id}
-                  className="flex items-center justify-between gap-2 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs dark:bg-neutral-900/40"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-neutral-800 dark:text-neutral-200">{c.name}</p>
-                    <p className="truncate text-neutral-500 dark:text-neutral-400">
-                      {c.responsavelName
-                        ? `Responsável: ${c.responsavelName}${c.responsavelActive ? "" : " (inativo)"}`
-                        : "Sem responsável"}
-                    </p>
+                <div key={c.id} className="space-y-1.5 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs dark:bg-neutral-900/40">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-neutral-800 dark:text-neutral-200">{c.name}</p>
+                      <p className="truncate text-neutral-500 dark:text-neutral-400">
+                        {c.responsavelName
+                          ? `Responsável: ${c.responsavelName}${c.responsavelActive ? "" : " (inativo)"}`
+                          : "Sem responsável"}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      {result === "claimed" ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
+                          {targetIsSelf ? "Assumido" : `Atribuído a ${targetName}`}
+                        </span>
+                      ) : result === "requested" || result === "already-requested" ? (
+                        <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
+                          <Clock3 className="h-3 w-3" strokeWidth={2} />
+                          Solicitado
+                        </span>
+                      ) : result === "already-yours" || alreadyBelongsToTarget ? (
+                        <span className="text-neutral-400 dark:text-neutral-500">{targetIsSelf ? "Já é seu" : `Já é de ${targetName}`}</span>
+                      ) : result === "error" ? (
+                        <span className="text-red-600 dark:text-red-400">Erro — tente de novo</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleLeadAction(c.id)}
+                          title={!targetIsSelf ? `O lead vai pra ${targetName}, não pra você` : undefined}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                            canClaimDirectly
+                              ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
+                              : "bg-brand-light text-brand hover:bg-brand/15 dark:bg-[var(--brand-subtle)]"
+                          }`}
+                        >
+                          {busy ? (
+                            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                          ) : canClaimDirectly ? (
+                            <UserPlus className="h-3 w-3" strokeWidth={2} />
+                          ) : (
+                            <Send className="h-3 w-3" strokeWidth={2} />
+                          )}
+                          {canClaimDirectly
+                            ? targetIsSelf
+                              ? "Assumir"
+                              : `Atribuir a ${targetName}`
+                            : targetIsSelf
+                              ? `Solicitar a ${c.responsavelName}`
+                              : `Solicitar a ${c.responsavelName} (pra ${targetName})`}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="shrink-0">
-                    {result === "claimed" ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                        <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
-                        Assumido
-                      </span>
-                    ) : result === "requested" || result === "already-requested" ? (
-                      <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
-                        <Clock3 className="h-3 w-3" strokeWidth={2} />
-                        Solicitado
-                      </span>
-                    ) : result === "already-yours" ? (
-                      <span className="text-neutral-400 dark:text-neutral-500">Já é seu</span>
-                    ) : result === "error" ? (
-                      <span className="text-red-600 dark:text-red-400">Erro — tente de novo</span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => handleLeadAction(c.id)}
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                          canClaimDirectly
-                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
-                            : "bg-brand-light text-brand hover:bg-brand/15 dark:bg-[var(--brand-subtle)]"
-                        }`}
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
-                        ) : canClaimDirectly ? (
-                          <UserPlus className="h-3 w-3" strokeWidth={2} />
-                        ) : (
-                          <Send className="h-3 w-3" strokeWidth={2} />
-                        )}
-                        {canClaimDirectly ? "Assumir" : `Solicitar a ${c.responsavelName}`}
-                      </button>
-                    )}
-                  </div>
+
+                  {/* Campos que a planilha (ou um default acima) traz
+                      diferente do que já está salvo — pedido explícito: "o
+                      que for divergente ele muda", em vez de só pular a
+                      linha. Só oferece Atualizar quando tem alguma
+                      divergência de verdade (ver buildDivergentFields em
+                      lib/contacts/import-resolve.ts). */}
+                  {c.divergentFields.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 border-t border-neutral-200/70 pt-1.5 dark:border-neutral-800/70">
+                      {c.divergentFields.map((f) => (
+                        <span
+                          key={f.field}
+                          className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                        >
+                          {f.label}: {f.oldValue ?? "—"} → {f.newValue}
+                        </span>
+                      ))}
+                      {divergentResult === "updated" ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
+                          Atualizado
+                        </span>
+                      ) : divergentResult === "error" ? (
+                        <span className="text-red-600 dark:text-red-400">Sem permissão ou erro — tente de novo</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={divergentBusy}
+                          onClick={() => handleUpdateDivergentFields(c.id, c.divergentFields)}
+                          className="inline-flex items-center gap-1 rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+                        >
+                          {divergentBusy ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} /> : <RefreshCw className="h-3 w-3" strokeWidth={2} />}
+                          Atualizar
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -544,9 +657,10 @@ export function ContactImportDialog({
               .filter((col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField))
               .map((col) => {
                 const field = col.field as DefaultableField;
+                const fieldLabel = field === "jobTitle" ? "Cargo *" : field === "source" ? "Origem" : "Responsável";
                 return (
                   <div key={field} className="space-y-1">
-                    <label className="field-label">{field === "jobTitle" ? "Cargo *" : "Responsável"}</label>
+                    <label className="field-label">{fieldLabel}</label>
                     {field === "responsavel" ? (
                       <Select
                         value={fieldDefaults.responsavel ?? ""}
@@ -555,30 +669,41 @@ export function ContactImportDialog({
                         options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
                       />
                     ) : (
+                      // Texto livre (não Select) — Cargo/Origem de contato não
+                      // são lista fechada (ver comentário nas props jobTitles/
+                      // sources acima), a pessoa pode digitar um valor novo
+                      // que ainda não existe em Configurações. O datalist só
+                      // SUGERE os já cadastrados, sem restringir o que dá pra
+                      // escrever — pedido explícito ("um campo de escrever...
+                      // que dá pra escolher").
                       <>
-                        {/* Texto livre (não Select) — cargo de contato não é
-                            uma lista fechada (ver comentário na prop
-                            jobTitles acima), a pessoa pode digitar um cargo
-                            novo que ainda não existe em Configurações. O
-                            datalist só SUGERE os já cadastrados, sem
-                            restringir o que dá pra escrever — pedido
-                            explícito ("um campo de escrever... que dá pra
-                            escolher"). */}
                         <input
-                          value={jobTitleDraft}
-                          onChange={(e) => setJobTitleDraft(e.target.value)}
+                          value={field === "jobTitle" ? jobTitleDraft : sourceDraft}
+                          onChange={(e) => (field === "jobTitle" ? setJobTitleDraft : setSourceDraft)(e.target.value)}
                           onBlur={() => {
-                            if (jobTitleDraft !== (fieldDefaults.jobTitle ?? "")) updateFieldDefault("jobTitle", jobTitleDraft);
+                            if (field === "jobTitle") {
+                              if (jobTitleDraft !== (fieldDefaults.jobTitle ?? "")) updateFieldDefault("jobTitle", jobTitleDraft);
+                            } else if (sourceDraft !== (fieldDefaults.source ?? "")) {
+                              updateFieldDefault("source", sourceDraft);
+                            }
                           }}
-                          list="contact-import-job-titles"
-                          placeholder="Ex.: Produtor rural"
+                          list={field === "jobTitle" ? "contact-import-job-titles" : "contact-import-sources"}
+                          placeholder={field === "jobTitle" ? "Ex.: Produtor rural" : "Ex.: Indicação"}
                           className="field-input w-full py-1.5 text-sm"
                         />
-                        <datalist id="contact-import-job-titles">
-                          {jobTitles.map((j) => (
-                            <option key={j.id} value={j.label} />
-                          ))}
-                        </datalist>
+                        {field === "jobTitle" ? (
+                          <datalist id="contact-import-job-titles">
+                            {jobTitles.map((j) => (
+                              <option key={j.id} value={j.label} />
+                            ))}
+                          </datalist>
+                        ) : (
+                          <datalist id="contact-import-sources">
+                            {sources.map((s) => (
+                              <option key={s.id} value={s.label} />
+                            ))}
+                          </datalist>
+                        )}
                       </>
                     )}
                   </div>

@@ -1251,6 +1251,8 @@ export function ContactsTable({
         <ContactImportDialog
           members={members}
           jobTitles={jobTitles}
+          sources={sources}
+          currentUserId={currentUserId}
           onClose={() => setImportOpen(false)}
           onImported={() => router.refresh()}
         />

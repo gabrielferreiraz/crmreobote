@@ -20,6 +20,7 @@ export async function GET() {
         createdAt: true,
         contact: { select: { id: true, name: true } },
         requester: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
       },
     });
     return NextResponse.json(requests);
@@ -43,13 +44,30 @@ export async function GET() {
  *    /api/lead-requests/[id]).
  */
 export async function POST(req: Request) {
-  const { contactId } = (await req.json()) as { contactId?: string };
+  const { contactId, targetUserId } = (await req.json()) as { contactId?: string; targetUserId?: string };
   const { organizationId, userId, session } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   if (!contactId) return NextResponse.json({ error: "contactId é obrigatório" }, { status: 400 });
   const requesterName = session?.user.name ?? session?.user.email ?? "Alguém";
 
   return runWithTenant(organizationId, async () => {
+    // Pra quem vai o lead, se diferente de quem está pedindo — caso do
+    // admin/assistente importando planilha "pro Fulano" (ver "Responsável
+    // pra usar em todos" na importação de contatos). Nunca confia cru no
+    // que veio: precisa ser um membro de verdade da mesma organização,
+    // senão qualquer um poderia tentar atribuir lead a um id qualquer.
+    let target = userId;
+    let targetName = requesterName;
+    if (targetUserId && targetUserId !== userId) {
+      const targetMembership = await prisma.organizationUser.findFirst({
+        where: { organizationId, userId: targetUserId },
+        select: { user: { select: { id: true, name: true } } },
+      });
+      if (!targetMembership) return NextResponse.json({ error: "Usuário de destino não encontrado" }, { status: 400 });
+      target = targetMembership.user.id;
+      targetName = targetMembership.user.name;
+    }
+
     const contact = await prisma.contact.findFirst({
       where: { id: contactId, organizationId },
       select: { id: true, name: true, responsavelId: true },
@@ -57,11 +75,11 @@ export async function POST(req: Request) {
     if (!contact) return NextResponse.json({ error: "Contato não encontrado" }, { status: 404 });
 
     if (!contact.responsavelId) {
-      await prisma.contact.update({ where: { id: contact.id }, data: { responsavelId: userId } });
+      await prisma.contact.update({ where: { id: contact.id }, data: { responsavelId: target } });
       return NextResponse.json({ claimed: true, needsApproval: false });
     }
 
-    if (contact.responsavelId === userId) {
+    if (contact.responsavelId === target) {
       return NextResponse.json({ claimed: true, needsApproval: false, alreadyYours: true });
     }
 
@@ -83,12 +101,13 @@ export async function POST(req: Request) {
       // no meio deixava o 1º write já commitado).
       await prismaRaw.$transaction(async (tx) => {
         await setTenantOnTx(tx, organizationId);
-        await tx.contact.update({ where: { id: contact.id }, data: { responsavelId: userId } });
+        await tx.contact.update({ where: { id: contact.id }, data: { responsavelId: target } });
         await tx.leadRequest.create({
           data: {
             organizationId,
             contactId: contact.id,
             requesterId: userId,
+            assigneeId: target,
             ownerId: previousOwnerId,
             status: "APPROVED",
             resolvedAt: new Date(),
@@ -109,12 +128,20 @@ export async function POST(req: Request) {
     }
 
     await prisma.leadRequest.create({
-      data: { organizationId, contactId: contact.id, requesterId: userId, ownerId: contact.responsavelId, status: "PENDING" },
+      data: {
+        organizationId,
+        contactId: contact.id,
+        requesterId: userId,
+        assigneeId: target,
+        ownerId: contact.responsavelId,
+        status: "PENDING",
+      },
     });
 
     notifyLeadRequestCreated({
       contactName: contact.name,
       requesterName,
+      assigneeName: targetName,
       ownerId: contact.responsavelId,
     }).catch((err) => console.error("[lead-requests] falha ao notificar pedido criado", err));
 

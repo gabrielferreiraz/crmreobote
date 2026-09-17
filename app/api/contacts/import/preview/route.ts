@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
     }
   }
-  let fieldDefaults: { responsavel?: string; jobTitle?: string } | undefined;
+  let fieldDefaults: { responsavel?: string; jobTitle?: string; source?: string } | undefined;
   if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
     try {
       fieldDefaults = JSON.parse(fieldDefaultsRaw);
@@ -100,6 +100,10 @@ export async function POST(req: Request) {
           whatsappNormalized: true,
           responsavelId: true,
           responsavel: { select: { name: true } },
+          jobTitle: true,
+          source: true,
+          company: true,
+          email: true,
         },
       }),
       // Ativos E inativos aqui — precisa saber se o dono de um contato
@@ -122,6 +126,10 @@ export async function POST(req: Request) {
       responsavelId: c.responsavelId,
       responsavelName: c.responsavel?.name ?? null,
       responsavelActive: !!c.responsavelId && activeMemberIds.has(c.responsavelId),
+      jobTitle: c.jobTitle,
+      source: c.source,
+      company: c.company,
+      email: c.email,
     }));
 
     const plan = resolveImportPlan({

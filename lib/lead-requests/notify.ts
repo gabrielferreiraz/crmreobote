@@ -12,22 +12,36 @@ export async function notifyLeadRequestCreated(request: {
   contactName: string;
   requesterName: string;
   ownerId: string;
+  /** Nome de quem VAI RECEBER o lead se aprovado, só quando é OUTRA pessoa
+   * (não quem pediu) — caso do admin/assistente importando planilha em
+   * nome de alguém (ver assigneeId em prisma/schema.prisma). Ausente/igual
+   * a requesterName = pedido normal, "pra própria carteira". */
+  assigneeName?: string | null;
 }): Promise<void> {
+  const forSomeoneElse = request.assigneeName && request.assigneeName !== request.requesterName;
   await sendPushToUser(request.ownerId, {
     title: "Pedido de lead",
-    body: `${request.requesterName} pediu ${request.contactName} para a carteira dele`,
+    body: forSomeoneElse
+      ? `${request.requesterName} pediu ${request.contactName} para ${request.assigneeName}`
+      : `${request.requesterName} pediu ${request.contactName} para a carteira dele`,
     url: "/clientes",
   }).catch((err) => console.error("[lead-requests] falha ao mandar push de pedido", err));
 }
 
-/** Avisa quem pediu quando o dono resolve — aprovado ou recusado, os dois merecem resposta (senão o pedido só "some" sem explicação). */
+/**
+ * Avisa quando o dono resolve — aprovado ou recusado, merece resposta
+ * (senão o pedido só "some" sem explicação). Vai pra quem VAI FICAR com o
+ * lead (assigneeId, se o pedido foi feito em nome de outra pessoa — ver
+ * notifyLeadRequestCreated acima) — não necessariamente quem pediu.
+ */
 export async function notifyLeadRequestResolved(request: {
   contactId: string;
   contactName: string;
   requesterId: string;
+  assigneeId?: string | null;
   approved: boolean;
 }): Promise<void> {
-  await sendPushToUser(request.requesterId, {
+  await sendPushToUser(request.assigneeId ?? request.requesterId, {
     title: request.approved ? "Lead liberado" : "Pedido de lead recusado",
     body: request.approved
       ? `${request.contactName} agora é seu`

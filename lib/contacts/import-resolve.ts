@@ -102,6 +102,14 @@ export type ExistingContactMatch = {
    * "consultor pra pedir", é o mesmo caminho de "assumir direto" do dono
    * inativo (ver EditContactDialog/ContactConflictNotice, mesmo padrão). */
   responsavelActive: boolean;
+  /** Campos que a planilha (ou um default de fieldDefaults) traz DIFERENTE
+   * do que já está salvo neste contato — pedido explícito do usuário:
+   * mostrar o que mudou numa linha duplicada, com opção de atualizar em
+   * vez de só pular. Nunca inclui telefone/WhatsApp (é a própria CHAVE da
+   * duplicidade, nunca diverge no sentido que importa aqui) nem
+   * responsável (tem o próprio fluxo de Assumir/Solicitar, já é outra
+   * decisão). Vazio = nada divergente, não precisa oferecer "Atualizar". */
+  divergentFields: { field: "jobTitle" | "source" | "company" | "email"; label: string; oldValue: string | null; newValue: string }[];
 };
 
 export type ResolvedRow = {
@@ -158,7 +166,39 @@ export type ExistingContactInput = {
   responsavelId: string | null;
   responsavelName: string | null;
   responsavelActive: boolean;
+  /** Só pra montar divergentFields (ver ExistingContactMatch) — nunca usado pra decidir duplicidade (isso é só phoneNormalized/whatsappNormalized). */
+  jobTitle: string | null;
+  source: string | null;
+  company: string | null;
+  email: string | null;
 };
+
+const DIVERGENT_FIELD_LABELS = { jobTitle: "Cargo", source: "Origem", company: "Empresa", email: "E-mail" } as const;
+
+/**
+ * Compara o que a linha resolveu (já com default aplicado, se houver) contra
+ * o que já está salvo no contato existente — só entra na lista quando a
+ * linha trouxe um valor NÃO VAZIO e ele é DIFERENTE do salvo (célula vazia
+ * na planilha nunca "apaga" o que já existe, mesmo espírito de todo campo
+ * opcional no cadastro manual). Comparação por texto exato após trim — um
+ * espaço a mais/menos ou capitalização diferente já conta como divergente
+ * de propósito: mostrar de mais (a pessoa decide ignorar clicando fora) é
+ * bem menos arriscado que esconder uma divergência real.
+ */
+function buildDivergentFields(
+  existing: ExistingContactInput,
+  resolved: { jobTitle: string; source: string | undefined; company: string | undefined; email: string | undefined },
+): ExistingContactMatch["divergentFields"] {
+  const candidates: { field: keyof typeof DIVERGENT_FIELD_LABELS; oldValue: string | null; newValue: string | undefined }[] = [
+    { field: "jobTitle", oldValue: existing.jobTitle, newValue: resolved.jobTitle },
+    { field: "source", oldValue: existing.source, newValue: resolved.source },
+    { field: "company", oldValue: existing.company, newValue: resolved.company },
+    { field: "email", oldValue: existing.email, newValue: resolved.email },
+  ];
+  return candidates
+    .filter((c): c is typeof c & { newValue: string } => !!c.newValue && c.newValue.trim() !== (c.oldValue ?? "").trim())
+    .map((c) => ({ field: c.field, label: DIVERGENT_FIELD_LABELS[c.field], oldValue: c.oldValue, newValue: c.newValue }));
+}
 
 export type ResolveImportInput = {
   dataRows: string[][];
@@ -176,7 +216,7 @@ export type ResolveImportInput = {
    * NENHUMA coluna de cargo na planilha (ver missingRequiredColumns abaixo),
    * pedido explícito do usuário pra planilha que nunca teve essa coluna.
    */
-  fieldDefaults?: { responsavel?: string; jobTitle?: string };
+  fieldDefaults?: { responsavel?: string; jobTitle?: string; source?: string };
   includeWrites: boolean;
 };
 
@@ -185,6 +225,10 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   const columns = detectColumns(input.rawHeaderRow, input.columnOverrides);
   const byField = new Map(columns.map((c) => [c.field, c]));
   const defaultJobTitle = input.fieldDefaults?.jobTitle?.trim() || undefined;
+  // Origem não é obrigatória — o default aqui só preenche quando a célula
+  // (ou a coluna inteira) vier vazia, nunca bloqueia nada (ver "source" no
+  // loop abaixo, mesmo `||` de sempre pra campo opcional).
+  const defaultSource = input.fieldDefaults?.source?.trim() || undefined;
   // Cargo tem um default aplicável a toda a planilha (ver fieldDefaults) —
   // com ele preenchido, a coluna deixa de ser obrigatória DE VERDADE: toda
   // linha sem a própria célula cai pro default (ver `jobTitle` no loop
@@ -262,7 +306,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     }
 
     const jobTitle = cell(row, "jobTitle") || defaultJobTitle;
-    const source = cell(row, "source") || undefined;
+    const source = cell(row, "source") || defaultSource;
     if (!jobTitle) {
       skippedNoJobTitle += 1;
       issues.push({ code: "NO_JOB_TITLE", message: "Sem cargo — linha ignorada (cargo é obrigatório)" });
@@ -274,6 +318,11 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     const whatsapp = cell(row, "whatsapp") || undefined;
     const phoneNormalized = normalizePhoneNumber(phone);
     const whatsappNormalized = normalizePhoneNumber(whatsapp);
+    // Resolvidos aqui (não só lá embaixo, na hora de criar) — o ramo de
+    // duplicidade logo abaixo também precisa deles pra montar
+    // divergentFields (ver ExistingContactMatch).
+    const email = cell(row, "email") || undefined;
+    const company = cell(row, "company") || undefined;
 
     const claimant = findClaim(phoneNormalized) ?? findClaim(whatsappNormalized);
     if (claimant) {
@@ -288,6 +337,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
               responsavelId: claimant.responsavelId,
               responsavelName: claimant.responsavelName,
               responsavelActive: claimant.responsavelActive,
+              divergentFields: buildDivergentFields(claimant, { jobTitle, source, company, email }),
             };
       rows.push({ rowNumber, willImport: false, name, jobTitle, source: source ?? null, responsavelName: null, issues, existingContact });
       continue;
@@ -304,8 +354,6 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     if (!responsavelId) responsavelId = defaultResponsavelId;
     const responsavelName = responsavelId ? (memberNameById.get(responsavelId) ?? null) : null;
 
-    const email = cell(row, "email") || undefined;
-    const company = cell(row, "company") || undefined;
     const tagsRaw = cell(row, "tags");
     const tags = tagsRaw
       ? tagsRaw
