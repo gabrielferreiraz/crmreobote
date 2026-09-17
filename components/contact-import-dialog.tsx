@@ -197,10 +197,17 @@ export function ContactImportDialog({
   const [duplicateActionResult, setDuplicateActionResult] = useState<
     Record<string, "claimed" | "requested" | "already-requested" | "already-yours" | "error">
   >({});
+  // Mensagem de verdade do servidor quando dá "error" acima — sem isso, todo
+  // erro virava o mesmo "Erro — tente de novo" genérico, impossível de
+  // diagnosticar de longe (relatado: "cliquei e deu erro", sem detalhe
+  // nenhum pra investigar). Chave separada (não dentro do union acima) pra
+  // não precisar carregar essa string em todo outro estado que não é erro.
+  const [duplicateActionErrorMessage, setDuplicateActionErrorMessage] = useState<Record<string, string>>({});
   // "Atualizar campos divergentes" (ver ExistingContactMatch.divergentFields)
   // — mesma chave por CONTATO existente (não por linha) do bloco acima.
   const [divergentUpdateBusyId, setDivergentUpdateBusyId] = useState<string | null>(null);
   const [divergentUpdateResult, setDivergentUpdateResult] = useState<Record<string, "updated" | "error">>({});
+  const [divergentUpdateErrorMessage, setDivergentUpdateErrorMessage] = useState<Record<string, string>>({});
 
   async function runPreview(
     pickedFile: File,
@@ -287,6 +294,7 @@ export function ContactImportDialog({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
+        setDuplicateActionErrorMessage((prev) => ({ ...prev, [contactId]: data.error || `Erro ${res.status}` }));
         return;
       }
       const result: "claimed" | "requested" | "already-requested" | "already-yours" = data.alreadyYours
@@ -297,8 +305,9 @@ export function ContactImportDialog({
             ? "claimed"
             : "requested";
       setDuplicateActionResult((prev) => ({ ...prev, [contactId]: result }));
-    } catch {
+    } catch (err) {
       setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
+      setDuplicateActionErrorMessage((prev) => ({ ...prev, [contactId]: err instanceof Error ? err.message : "Falha de conexão" }));
     } finally {
       setDuplicateActionBusyId(null);
     }
@@ -326,9 +335,16 @@ export function ContactImportDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: res.ok ? "updated" : "error" }));
-    } catch {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "error" }));
+        setDivergentUpdateErrorMessage((prev) => ({ ...prev, [contactId]: data.error || `Erro ${res.status}` }));
+        return;
+      }
+      setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "updated" }));
+    } catch (err) {
       setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "error" }));
+      setDivergentUpdateErrorMessage((prev) => ({ ...prev, [contactId]: err instanceof Error ? err.message : "Falha de conexão" }));
     } finally {
       setDivergentUpdateBusyId(null);
     }
@@ -568,7 +584,9 @@ export function ContactImportDialog({
                       ) : result === "already-yours" || alreadyBelongsToTarget ? (
                         <span className="text-neutral-400 dark:text-neutral-500">{targetIsSelf ? "Já é seu" : `Já é de ${targetName}`}</span>
                       ) : result === "error" ? (
-                        <span className="text-red-600 dark:text-red-400">Erro — tente de novo</span>
+                        <span className="text-red-600 dark:text-red-400" title={duplicateActionErrorMessage[c.id]}>
+                          {duplicateActionErrorMessage[c.id] ?? "Erro — tente de novo"}
+                        </span>
                       ) : (
                         <button
                           type="button"
@@ -622,7 +640,9 @@ export function ContactImportDialog({
                           Atualizado
                         </span>
                       ) : divergentResult === "error" ? (
-                        <span className="text-red-600 dark:text-red-400">Sem permissão ou erro — tente de novo</span>
+                        <span className="text-red-600 dark:text-red-400" title={divergentUpdateErrorMessage[c.id]}>
+                          {divergentUpdateErrorMessage[c.id] ?? "Sem permissão ou erro — tente de novo"}
+                        </span>
                       ) : (
                         <button
                           type="button"

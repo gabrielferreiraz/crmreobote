@@ -4,11 +4,9 @@ export const size = { width: 512, height: 512 };
 export const contentType = "image/png";
 
 /**
- * Ícone nativo do WebApp / iOS (apple-touch-icon) para o Cartão de Visita Reobote.
- * Renderiza dinamicamente a marca oficial com fundo gradiente escuro,
- * cartão glassmorphism e o emblema da seta ascendente em cyan #00aeee com efeito de brilho.
+ * Ícone padrão de abas do navegador (favicon / icon.png) para a Reobote.
  */
-export default function AppleIcon() {
+export default function Icon() {
   return new ImageResponse(
     (
       <div
@@ -23,7 +21,6 @@ export default function AppleIcon() {
           overflow: "hidden",
         }}
       >
-        {/* Luz de fundo superior */}
         <div
           style={{
             position: "absolute",
@@ -35,7 +32,6 @@ export default function AppleIcon() {
           }}
         />
 
-        {/* Cartão Glassmorphism no centro */}
         <div
           style={{
             width: "72%",
@@ -51,7 +47,6 @@ export default function AppleIcon() {
             padding: 30,
           }}
         >
-          {/* Emblema Seta Reobote */}
           <svg viewBox="0 0 2466 886" style={{ width: "85%", height: "85%" }}>
             <path
               fill="#00aeee"

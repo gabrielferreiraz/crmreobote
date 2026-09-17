@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon } from "lucide-react";
+import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
 import { usePushSubscription } from "@/lib/use-push-subscription";
+import { LeadRequestContactModal } from "@/components/lead-request-contact-modal";
 
 type NotificationTask = {
   id: string;
@@ -35,6 +36,11 @@ export function NotificationBell() {
   const [leadRequests, setLeadRequests] = useState<LeadRequestNotification[]>([]);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  // Pedido de lead que está aberto no popup "Ver cliente" (ver
+  // LeadRequestContactModal) — guarda o request inteiro, não só o
+  // contactId, porque o popup também precisa saber PRA QUAL pedido
+  // aprovar/recusar (o mesmo botão do popup resolve o pedido certo).
+  const [previewRequest, setPreviewRequest] = useState<LeadRequestNotification | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
 
@@ -69,7 +75,12 @@ export function NotificationBell() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      if (res.ok) setLeadRequests((prev) => prev.filter((r) => r.id !== id));
+      if (res.ok) {
+        setLeadRequests((prev) => prev.filter((r) => r.id !== id));
+        // Resolveu pelo popup "Ver cliente" — fecha junto, o pedido nem
+        // existe mais pra continuar mostrando.
+        setPreviewRequest((prev) => (prev?.id === id ? null : prev));
+      }
     } finally {
       setResolvingId(null);
     }
@@ -117,7 +128,12 @@ export function NotificationBell() {
             </p>
           </div>
           {leadRequests.length > 0 && (
-            <LeadRequestsGroup requests={leadRequests} resolvingId={resolvingId} onResolve={resolveLeadRequest} />
+            <LeadRequestsGroup
+              requests={leadRequests}
+              resolvingId={resolvingId}
+              onResolve={resolveLeadRequest}
+              onPreview={setPreviewRequest}
+            />
           )}
           <div className="scrollbar-thin max-h-96 overflow-y-auto pb-1">
             {tasks.length === 0 ? (
@@ -176,19 +192,31 @@ export function NotificationBell() {
           </div>
         </div>
       )}
+
+      {previewRequest && (
+        <LeadRequestContactModal
+          contactId={previewRequest.contact.id}
+          onClose={() => setPreviewRequest(null)}
+          onApprove={() => resolveLeadRequest(previewRequest.id, "approve")}
+          onDecline={() => resolveLeadRequest(previewRequest.id, "decline")}
+          resolving={resolvingId === previewRequest.id}
+        />
+      )}
     </div>
   );
 }
 
-/** "Fulano pediu Beltrano pra carteira dele" — aprovar reatribui o contato na hora (ver PATCH /api/lead-requests/[id]); recusar só fecha o pedido. */
+/** "Fulano pediu Beltrano pra carteira dele" — aprovar reatribui o contato na hora (ver PATCH /api/lead-requests/[id]); recusar só fecha o pedido; "Ver cliente" abre o popup de consulta (ver LeadRequestContactModal) antes de decidir. */
 function LeadRequestsGroup({
   requests,
   resolvingId,
   onResolve,
+  onPreview,
 }: {
   requests: LeadRequestNotification[];
   resolvingId: string | null;
   onResolve: (id: string, action: "approve" | "decline") => void;
+  onPreview: (request: LeadRequestNotification) => void;
 }) {
   return (
     <div className="border-b border-neutral-100 dark:border-neutral-800">
@@ -214,7 +242,7 @@ function LeadRequestsGroup({
                   "pra carteira dele"
                 )}
               </p>
-              <div className="mt-1.5 flex items-center gap-2">
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   disabled={busy}
@@ -232,6 +260,21 @@ function LeadRequestsGroup({
                 >
                   <XIcon className="h-3 w-3" strokeWidth={2.5} />
                   Recusar
+                </button>
+                {/* Antes de decidir, dá pra abrir um popup com os dados do
+                    cliente (pessoais + negócios) — pedido explícito, pensado
+                    pra quem não lembra de cabeça quem é esse contato só
+                    pelo nome. Não remove nem substitui Aprovar/Recusar
+                    daqui: o popup também tem os dois botões, pra quem quiser
+                    decidir na hora sem fechar. */}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onPreview(r)}
+                  className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
+                >
+                  <Eye className="h-3 w-3" strokeWidth={2} />
+                  Ver cliente
                 </button>
               </div>
             </div>
