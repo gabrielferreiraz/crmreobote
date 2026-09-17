@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Plus, X, Camera, Trash2, Copy, Check, Maximize2, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Loader2, Plus, X, Camera, Trash2, Copy, Check, ExternalLink, Maximize2, ChevronLeft, ChevronRight, GripVertical, Power } from "lucide-react";
 import { Select } from "@/components/select";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
@@ -28,12 +29,23 @@ const LINK_TYPE_OPTIONS = [
  * pré-visualização usa DigitalCardView com `interactive={false}` (editar o
  * próprio cartão nunca conta como visita/clique de verdade).
  *
- * Seções separadas em cards (mesmo padrão de configuracoes/perfil/page.tsx
- * — vários ".card p-4" empilhados, não um bloco único) e foto/e-mail/cargo
- * com o MESMO tratamento visual já usado no resto do CRM: componente
- * Avatar (components/avatar.tsx, cai pras iniciais coloridas sem foto —
- * nunca um círculo cinza vazio) + botão "Trocar/Adicionar foto" no mesmo
- * estilo de ProfileAvatarForm (configuracoes/perfil/profile-avatar-form.tsx).
+ * Redesenhado a pedido explícito: "muito mais intuitiva e com foco em
+ * mensagens diretas, campos mais diretos pro consultor ler e entender na
+ * hora". Três mudanças de fundo, não só de texto:
+ *
+ * 1. "Ativo/inativo" virou uma ação IMEDIATA (PATCH próprio + router.refresh,
+ *    igual às fotos), não mais um checkbox que só vale depois de rolar até
+ *    o fim e clicar "Salvar" — é a decisão de maior consequência da página
+ *    (se o cartão existe pro mundo ou não) e não devia ficar misturada com
+ *    "salvei o cargo errado por engano".
+ * 2. Toda legenda de campo agora diz ONDE aquilo aparece no cartão de
+ *    verdade ("Vira o botão verde de destaque", "Aparece embaixo do seu
+ *    nome"...), não só o nome técnico do campo.
+ * 3. O botão "Salvar" mostra se há algo pendente (hasUnsavedChanges) —
+ *    antes ficava sempre clicável, sem dar nenhum sinal de "isso aqui já
+ *    foi salvo" ou "isso aqui ainda não".
+ *
+ * Seções em cards (mesmo padrão de configuracoes/perfil/page.tsx).
  */
 const DEFAULT_ADDRESS = "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030";
 const DEFAULT_BIO = "Inteligência em Consórcios";
@@ -46,8 +58,29 @@ const JOB_TITLE_OPTIONS = [
   "Gerente de Vendas",
 ];
 
+/** Payload "normalizado" pro Salvar em lote — usado tanto pra montar o body
+ * do PATCH quanto (via JSON.stringify comparado) pra saber se há algo
+ * pendente de salvar. `active` fica de FORA de propósito (ver comentário
+ * acima do componente — agora é uma ação própria, imediata). */
+type SavedFields = {
+  jobTitle: string | null;
+  bio: string | null;
+  companyName: string | null;
+  emailOverride: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  address: string | null;
+  showPortfolioValue: boolean;
+  portfolioValueDisplay: string | null;
+  selectedLogos: string[];
+  links: { type: string; label: string; url: string }[];
+};
+
 export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publicUrl: string }) {
+  const router = useRouter();
   const [active, setActive] = useState(card.active);
+  const [activeSaving, setActiveSaving] = useState(false);
+  const [activeError, setActiveError] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState(card.jobTitle ?? DEFAULT_JOB_TITLE);
   const [bio, setBio] = useState(card.bio ?? DEFAULT_BIO);
   const [companyName, setCompanyName] = useState(card.companyName ?? DEFAULT_COMPANY);
@@ -83,6 +116,57 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showFullscreenPreview, setShowFullscreenPreview] = useState(false);
+
+  function buildSavedFields(): SavedFields {
+    return {
+      jobTitle: jobTitle.trim() || null,
+      bio: bio.trim() || null,
+      companyName: companyName.trim() || null,
+      emailOverride: emailOverride.trim() || null,
+      phone: phone.trim() || null,
+      whatsapp: whatsapp.trim() || null,
+      address: address.trim() || null,
+      showPortfolioValue,
+      portfolioValueDisplay: portfolioValueDisplay.trim() || null,
+      selectedLogos,
+      links: links.filter((l) => l.label.trim() && l.url.trim()).map((l) => ({ type: l.type, label: l.label.trim(), url: l.url.trim() })),
+    };
+  }
+
+  // Snapshot do que já está salvo de verdade no banco — computado uma vez
+  // (a partir do próprio `card`, então bate exatamente com buildSavedFields()
+  // no primeiro render) e atualizado de novo só depois de um Salvar bem
+  // sucedido. `hasUnsavedChanges` é só comparar os dois — mais simples e
+  // menos propenso a erro do que rastrear "sujeira" campo por campo.
+  const [savedSnapshot, setSavedSnapshot] = useState<string>(() => JSON.stringify(buildSavedFields()));
+  const hasUnsavedChanges = JSON.stringify(buildSavedFields()) !== savedSnapshot;
+
+  /**
+   * Ativar/desativar é uma ação PRÓPRIA e imediata (mesmo espírito das
+   * fotos abaixo) — não fica esperando o consultor lembrar de rolar até o
+   * fim e clicar "Salvar". router.refresh() reflete a mudança nas seções
+   * que só aparecem com o cartão ativo (QR Code/Estatísticas, ver page.tsx
+   * — Server Component, não sabe sozinho que o PATCH abaixo aconteceu).
+   */
+  async function handleToggleActive() {
+    const next = !active;
+    setActiveSaving(true);
+    setActiveError(null);
+    setActive(next);
+    const res = await fetch(`/api/digital-cards/${card.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: next }),
+    });
+    setActiveSaving(false);
+    if (!res.ok) {
+      setActive(!next);
+      const data = await res.json().catch(() => ({}));
+      setActiveError(data.error ?? "Não deu pra mudar agora — tenta de novo.");
+      return;
+    }
+    router.refresh();
+  }
 
   function moveLogoLeft(index: number) {
     if (index <= 0) return;
@@ -264,23 +348,11 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     setError(null);
     setSaved(false);
 
+    const fields = buildSavedFields();
     const res = await fetch(`/api/digital-cards/${card.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        active,
-        jobTitle: jobTitle.trim() || null,
-        bio: bio.trim() || null,
-        companyName: companyName.trim() || null,
-        emailOverride: emailOverride.trim() || null,
-        phone: phone.trim() || null,
-        whatsapp: whatsapp.trim() || null,
-        address: address.trim() || null,
-        showPortfolioValue,
-        portfolioValueDisplay: portfolioValueDisplay.trim() || null,
-        selectedLogos,
-        links: links.map((l, i) => ({ type: l.type, label: l.label, url: l.url, order: i })),
-      }),
+      body: JSON.stringify({ ...fields, links: links.map((l, i) => ({ type: l.type, label: l.label, url: l.url, order: i })) }),
     });
     const data = await res.json().catch(() => ({}));
     setSaving(false);
@@ -289,6 +361,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
       setError(data.error ?? "Erro ao salvar");
       return;
     }
+    setSavedSnapshot(JSON.stringify(fields));
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -326,60 +399,87 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_345px] lg:items-start">
       <div className="space-y-4">
-        {/* Ativação + link público */}
-        <div className="card space-y-3 p-4">
-          <label className="flex items-center justify-between gap-4">
-            <span>
-              <span className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">Cartão ativo</span>
-              <span className="block text-xs text-neutral-400 dark:text-neutral-500">
-                Desativado, o link público mostra "cartão não encontrado".
-              </span>
+        {/* Status do cartão — a decisão mais importante da página, por isso
+            fica sozinha no topo, com linguagem direta ("está no ar" / "não
+            está visível") em vez de um checkbox técnico "ativo". Ação
+            imediata (ver handleToggleActive) — nunca depende do botão
+            Salvar lá embaixo. */}
+        <div className="card p-4">
+          <div className="flex items-start gap-3">
+            <span className="relative mt-0.5 flex h-2.5 w-2.5 shrink-0">
+              {active && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+              <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${active ? "bg-emerald-500" : "bg-neutral-300 dark:bg-neutral-600"}`} />
             </span>
-            <input
-              type="checkbox"
-              checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-              className="h-5 w-5 shrink-0 accent-neutral-900 dark:accent-white"
-            />
-          </label>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {active ? "Seu cartão está no ar" : "Seu cartão ainda não está visível"}
+              </p>
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
+                {active
+                  ? "Qualquer pessoa com o link ou o QR Code consegue ver — desative se precisar tirar do ar."
+                  : "Ninguém consegue acessar ainda, nem quem já tem o link. Ative quando estiver pronto pra mostrar."}
+              </p>
+              {activeError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{activeError}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleActive}
+              disabled={activeSaving}
+              className={active ? "btn-secondary btn-sm shrink-0" : "btn-primary btn-sm shrink-0"}
+            >
+              {activeSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Power className="h-3.5 w-3.5" strokeWidth={2.5} />}
+              {active ? "Desativar" : "Ativar cartão"}
+            </button>
+          </div>
 
           {active && (
-            <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-400">
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-400">
               <span className="min-w-0 flex-1 truncate">{publicUrl}</span>
-              <button type="button" onClick={handleCopyLink} className="icon-btn h-6 w-6 shrink-0">
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button type="button" onClick={handleCopyLink} title="Copiar link" className="icon-btn h-6 w-6">
+                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+                <a
+                  href={publicUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Abrir cartão"
+                  className="icon-btn flex h-6 w-6 items-center justify-center text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Foto — mesmo padrão visual do avatar de perfil (Avatar + botão Trocar/Remover). */}
-        <div className="card p-4">
-          <p className="field-label mb-3">Foto do cartão</p>
-          <div className="flex items-center gap-4">
+        {/* Fotos — as 3 juntas num único bloco (antes eram 3 cards
+            separados, ocupando a tela toda de rolagem) com o que cada uma
+            faz explicado de cara. Sobem na hora do upload — nenhuma delas
+            depende do botão "Salvar" lá embaixo. */}
+        <div className="card p-4 space-y-4">
+          <div>
+            <p className="field-label text-sm font-semibold">Fotos do cartão</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada uma sobe (ou some) na hora — não precisa clicar em Salvar pra elas valerem.</p>
+          </div>
+
+          <div className="flex items-center gap-3">
             <div className="relative shrink-0">
-              <Avatar name={card.displayName} src={photoUrl} size="xl" />
+              <Avatar name={card.displayName} src={photoUrl} size="lg" />
               {uploadingPhoto && (
                 <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
-                  <Loader2 className="h-5 w-5 animate-spin text-white" strokeWidth={2} />
+                  <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
                 </span>
               )}
             </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Sem foto própria, o cartão usa a foto do seu perfil. JPEG, PNG ou WebP · até 10MB.
-              </p>
-              <div className="flex flex-wrap gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Sua foto</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">O rosto dentro do círculo, no topo do cartão. Sem uma própria, usa a foto do seu perfil.</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
                 <label className="btn-secondary btn-sm cursor-pointer">
                   <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                  {photoUrl ? "Trocar foto" : "Adicionar foto"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    disabled={uploadingPhoto}
-                    onChange={handlePhotoChange}
-                  />
+                  {photoUrl ? "Trocar" : "Adicionar"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingPhoto} onChange={handlePhotoChange} />
                 </label>
                 {photoUrl && (
                   <button type="button" onClick={handleRemovePhoto} disabled={uploadingPhoto} className="btn-ghost btn-sm">
@@ -390,108 +490,87 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Foto de capa (banner do topo) — opcional, por cartão. Sem ela,
-            cai pro padrão da organização (quando configurado, ver
-            lib/digital-cards/config.ts) ou pro gradiente abstrato. */}
-        <div className="card p-4">
-          <p className="field-label mb-3">Foto de capa</p>
-          <div className="space-y-3">
-            <div className="relative h-24 w-full overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
+          <div className="border-t border-neutral-100 dark:border-neutral-800" />
+
+          <div className="flex items-center gap-3">
+            <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
               {coverPhotoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={coverPhotoUrl} alt="" className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-neutral-400 dark:text-neutral-500">
-                  Sem foto de capa
-                </div>
+                <div className="flex h-full items-center justify-center text-[10px] text-neutral-400 dark:text-neutral-500">Sem capa</div>
               )}
               {uploadingCover && (
                 <span className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  <Loader2 className="h-5 w-5 animate-spin text-white" strokeWidth={2} />
+                  <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
                 </span>
               )}
             </div>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Aparece como banner atrás da sua foto, com um filtro escuro por cima (pro nome continuar legível). JPEG, PNG ou
-              WebP · até 10MB.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <label className="btn-secondary btn-sm cursor-pointer">
-                <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                {coverPhotoUrl ? "Trocar capa" : "Adicionar capa"}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  disabled={uploadingCover}
-                  onChange={handleCoverChange}
-                />
-              </label>
-              {coverPhotoUrl && (
-                <button type="button" onClick={handleRemoveCover} disabled={uploadingCover} className="btn-ghost btn-sm">
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                  Remover
-                </button>
-              )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Capa</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">Atrás da sua foto, só ali em cima — com um filtro escuro pro seu nome continuar legível.</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                <label className="btn-secondary btn-sm cursor-pointer">
+                  <Camera className="h-3.5 w-3.5" strokeWidth={2} />
+                  {coverPhotoUrl ? "Trocar" : "Adicionar"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingCover} onChange={handleCoverChange} />
+                </label>
+                {coverPhotoUrl && (
+                  <button type="button" onClick={handleRemoveCover} disabled={uploadingCover} className="btn-ghost btn-sm">
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                    Remover
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Foto de fundo do CORPO INTEIRO do cartão — imagem distinta da
-            capa acima (aquela fica só atrás do avatar; esta fica atrás dos
-            botões/ícones/rodapé, todo o resto). Sem ela, cai pro padrão da
-            organização (quando configurado) ou pro fundo escuro sólido. */}
-        <div className="card p-4">
-          <p className="field-label mb-3">Foto de fundo do cartão</p>
-          <div className="space-y-3">
-            <div className="relative h-32 w-full overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
+          <div className="border-t border-neutral-100 dark:border-neutral-800" />
+
+          <div className="flex items-center gap-3">
+            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
               {backgroundPhotoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={backgroundPhotoUrl} alt="" className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-neutral-400 dark:text-neutral-500">
-                  Sem foto de fundo
-                </div>
+                <div className="flex h-full items-center justify-center text-[10px] text-neutral-400 dark:text-neutral-500">Sem fundo</div>
               )}
               {uploadingBackground && (
                 <span className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  <Loader2 className="h-5 w-5 animate-spin text-white" strokeWidth={2} />
+                  <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
                 </span>
               )}
             </div>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Diferente da foto de capa (só atrás da sua foto) — esta fica atrás do cartão inteiro, sempre com um filtro
-              escuro por cima. JPEG, PNG ou WebP · até 10MB.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <label className="btn-secondary btn-sm cursor-pointer">
-                <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                {backgroundPhotoUrl ? "Trocar fundo" : "Adicionar fundo"}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  disabled={uploadingBackground}
-                  onChange={handleBackgroundChange}
-                />
-              </label>
-              {backgroundPhotoUrl && (
-                <button type="button" onClick={handleRemoveBackground} disabled={uploadingBackground} className="btn-ghost btn-sm">
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                  Remover
-                </button>
-              )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Fundo</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">Atrás do cartão INTEIRO, da ponta a ponta — diferente da capa, que fica só atrás da sua foto.</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                <label className="btn-secondary btn-sm cursor-pointer">
+                  <Camera className="h-3.5 w-3.5" strokeWidth={2} />
+                  {backgroundPhotoUrl ? "Trocar" : "Adicionar"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingBackground} onChange={handleBackgroundChange} />
+                </label>
+                {backgroundPhotoUrl && (
+                  <button type="button" onClick={handleRemoveBackground} disabled={uploadingBackground} className="btn-ghost btn-sm">
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                    Remover
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Dados exibidos no cartão */}
+        {/* Como você aparece — cargo/empresa/bio, cada legenda diz onde
+            aquilo mostra no cartão de verdade em vez do nome técnico do
+            campo. */}
         <div className="card space-y-4 p-4">
+          <p className="field-label text-sm font-semibold">Como você aparece</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="field-label">Cargo</label>
+              <label className="field-label">Seu cargo</label>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">Mostrado em destaque, logo abaixo do seu nome.</p>
               <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {JOB_TITLE_OPTIONS.map((title) => (
@@ -512,12 +591,14 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             </div>
             <div className="space-y-1.5">
               <label className="field-label">Empresa</label>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">Aparece logo abaixo do cargo, em texto menor.</p>
               <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="field-input" />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="field-label">Bio / citação (exibida em itálico e aspas)</label>
+            <label className="field-label">Uma frase sua (opcional)</label>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Aparece em itálico e entre aspas, como uma assinatura pessoal.</p>
             <textarea
               value={bio}
               onChange={(e) => setBio(e.target.value)}
@@ -530,22 +611,20 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
 
         {/* Logos parceiras (Administradoras) */}
         <div className="card space-y-4 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="field-label text-sm font-semibold">Logos das Administradoras</p>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Selecione quais marcas exibir e ajuste a ordem de apresentação (arraste com o mouse/dedo ou use as setas).
-              </p>
-            </div>
+          <div>
+            <p className="field-label text-sm font-semibold">Logos das administradoras</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Toque numa marca pra ligar/desligar. Arraste (ou use as setas) pra mudar a ordem que elas aparecem no cartão.
+            </p>
           </div>
 
           {/* Lista ordenada atual */}
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-              Grade de logos ativas ({selectedLogos.length})
+              Aparecem no cartão, nesta ordem ({selectedLogos.length})
             </p>
             {selectedLogos.length === 0 ? (
-              <p className="text-xs text-neutral-400 italic py-2">Nenhuma logo selecionada. Selecione abaixo para ativar no cartão.</p>
+              <p className="text-xs text-neutral-400 italic py-2">Nenhuma logo selecionada — escolha abaixo pra mostrar no cartão.</p>
             ) : (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {selectedLogos.map((key, index) => {
@@ -613,9 +692,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
 
           {/* Seletor de logos disponíveis */}
           <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
-            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-              Seletor de Logos Disponíveis (clique para adicionar/remover)
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Todas as marcas disponíveis</p>
             <div className="flex flex-wrap gap-1.5">
               {AVAILABLE_PARTNER_LOGOS.map((logo) => {
                 const isSelected = selectedLogos.includes(logo.key);
@@ -639,46 +716,48 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
           </div>
         </div>
 
-        {/* Contato */}
+        {/* Como o cliente fala com você */}
         <div className="card space-y-4 p-4">
-          <p className="field-label">Contato</p>
+          <p className="field-label text-sm font-semibold">Como o cliente fala com você</p>
           <div className="space-y-1.5">
             <label className="field-label">WhatsApp</label>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Vira o botão verde de destaque — a forma mais rápida do cliente te chamar.</p>
             <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
           </div>
 
-          {/* Achado na revisão: o campo `phone` sempre existiu no schema/
-              PATCH/exibição do cartão (botão "Telefone" separado do
-              WhatsApp em digital-card-contact-actions.tsx), mas não tinha
-              nenhum <input> aqui — não tinha como o consultor preencher.
-              Opcional de propósito: quem só usa WhatsApp deixa vazio, e o
-              botão "Telefone" simplesmente não aparece no cartão. */}
           <div className="space-y-1.5">
-            <label className="field-label">Telefone (opcional, se diferente do WhatsApp)</label>
+            <label className="field-label">Outro telefone (opcional)</label>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Só preencha se for diferente do WhatsApp — vira um botão extra, separado.</p>
             <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 3345-0000" className="field-input" />
           </div>
 
           <div className="space-y-1.5">
-            <label className="field-label">E-mail (padrão: {card.user.email})</label>
+            <label className="field-label">E-mail</label>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Deixe em branco pra usar automaticamente o e-mail do seu perfil ({card.user.email}).</p>
             <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
           </div>
 
           <div className="space-y-1.5">
-            <label className="field-label">Endereço (alimenta o botão "Mapa")</label>
+            <label className="field-label">Endereço</label>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Abre direto no mapa quando o cliente toca no botão "Mapa".</p>
             <input value={address} onChange={(e) => setAddress(e.target.value)} className="field-input" />
           </div>
         </div>
 
         {/* Valor em carteira */}
         <div className="card space-y-2 p-4">
-          <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+          <p className="field-label text-sm font-semibold">Carteira sob gestão (opcional)</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Um destaque extra de autoridade, acima dos botões de contato. Nunca coloque um valor exato — prefira algo como "+R$ 5 milhões".
+          </p>
+          <label className="flex items-center gap-2 pt-1 text-sm text-neutral-700 dark:text-neutral-300">
             <input
               type="checkbox"
               checked={showPortfolioValue}
               onChange={(e) => setShowPortfolioValue(e.target.checked)}
               className="accent-neutral-900 dark:accent-white"
             />
-            Mostrar valor em carteira
+            Mostrar esse destaque no cartão
           </label>
           {showPortfolioValue && (
             <input
@@ -692,9 +771,10 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
 
         {/* Links adicionais */}
         <div className="card space-y-2 p-4">
-          <label className="field-label">Links adicionais</label>
+          <p className="field-label text-sm font-semibold">Redes sociais e outros links</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada um vira um botão extra no cartão, abaixo do WhatsApp e do telefone.</p>
           {links.map((link) => (
-            <div key={link.id} className="flex items-center gap-2">
+            <div key={link.id} className="flex items-center gap-2 pt-1">
               <Select
                 value={link.type}
                 onChange={(v) => updateLink(link.id, { type: v })}
@@ -704,7 +784,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
               <input
                 value={link.label}
                 onChange={(e) => updateLink(link.id, { label: e.target.value })}
-                placeholder="Título"
+                placeholder="Nome do botão"
                 className="field-input min-w-0 flex-1 px-2 py-1.5 text-sm"
               />
               <input
@@ -730,10 +810,18 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary">
-          {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-          {saved ? "Salvo!" : saving ? "Salvando..." : "Salvar"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={handleSave} disabled={saving || (!hasUnsavedChanges && !saved)} className="btn-primary">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+            {saved ? "Salvo!" : saving ? "Salvando..." : hasUnsavedChanges ? "Salvar alterações" : "Tudo salvo"}
+          </button>
+          {hasUnsavedChanges && !saving && (
+            <span className="text-xs text-amber-600 dark:text-amber-400">Você tem alterações não salvas nesta seção.</span>
+          )}
+        </div>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          As fotos (acima) e o botão "Ativar cartão" (no topo) já salvam sozinhos, na hora — este botão é só pro resto: cargo, contato, logos, carteira e links.
+        </p>
       </div>
 
       <div className="lg:sticky lg:top-4">
@@ -794,4 +882,3 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     </div>
   );
 }
-
