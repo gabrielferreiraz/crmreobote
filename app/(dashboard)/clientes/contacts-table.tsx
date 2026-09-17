@@ -81,6 +81,7 @@ export function ContactsTable({
   isManager,
   sources,
   jobTitles,
+  availableTags,
   members,
   currentUserId,
   pipelines,
@@ -92,6 +93,9 @@ export function ContactsTable({
   isManager: boolean;
   sources: { id: string; label: string }[];
   jobTitles: { id: string; label: string }[];
+  /** Todas as tags já usadas na organização (ver getDistinctContactTags) —
+   * o filtro de Tag mostra essa lista ao ser aberto. */
+  availableTags: string[];
   members: MemberOption[];
   /** Pra "Eu" aparecer sempre em primeiro no filtro de Responsável (ver lib/sort-self-first.ts). */
   currentUserId?: string;
@@ -140,6 +144,7 @@ export function ContactsTable({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [jobTitleFilter, setJobTitleFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [responsavelFilter, setResponsavelFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [cityFilter, setCityFilter] = useState("");
@@ -173,11 +178,12 @@ export function ContactsTable({
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
   usePersistedFilters(
     "clientes",
-    { search, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, pageSize },
+    { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, pageSize },
     (saved) => {
       if (saved.search !== undefined) setSearch(saved.search);
       if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
       if (saved.jobTitleFilter !== undefined) setJobTitleFilter(saved.jobTitleFilter);
+      if (saved.tagFilter !== undefined) setTagFilter(saved.tagFilter);
       if (saved.responsavelFilter !== undefined) setResponsavelFilter(saved.responsavelFilter);
       if (saved.stateFilter !== undefined) setStateFilter(saved.stateFilter);
       if (saved.cityFilter !== undefined) setCityFilter(saved.cityFilter);
@@ -207,6 +213,7 @@ export function ContactsTable({
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (sourceFilter) params.set("source", sourceFilter);
     if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
+    if (tagFilter) params.set("tag", tagFilter);
     if (responsavelFilter) params.set("responsavelId", responsavelFilter);
     if (stateFilter) params.set("state", stateFilter);
     if (cityFilter) params.set("city", cityFilter);
@@ -244,7 +251,7 @@ export function ContactsTable({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, initialContacts]);
+  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
   // visto na página atual — cobre valor "antigo" que só apareceria depois de
@@ -262,12 +269,25 @@ export function ContactsTable({
     return Array.from(set);
   }, [contacts, jobTitles]);
 
+  // availableTags já vem do servidor com TODAS as tags da organização (ver
+  // getDistinctContactTags) — diferente de source/jobTitle, não dá pra
+  // montar essa lista só com os contatos carregados na tela (uma tag usada
+  // só em contato de outra página nunca apareceria). Ainda junta com o que
+  // está carregado agora por segurança: cobre uma tag criada agora mesmo
+  // (bulk "Etiquetar") que ainda não voltou nesse array do servidor.
+  const tagOptions = useMemo(() => {
+    const set = new Set(availableTags);
+    for (const c of contacts) for (const t of c.tags) set.add(t);
+    return Array.from(set).sort();
+  }, [contacts, availableTags]);
+
   // "Eu" sempre em primeiro no filtro de Responsável.
   const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
 
   const hasFilters =
     !!sourceFilter ||
     !!jobTitleFilter ||
+    !!tagFilter ||
     !!responsavelFilter ||
     !!stateFilter ||
     !!cityFilter ||
@@ -285,6 +305,7 @@ export function ContactsTable({
   function clearFilters() {
     setSourceFilter("");
     setJobTitleFilter("");
+    setTagFilter("");
     setResponsavelFilter("");
     setStateFilter("");
     setCityFilter("");
@@ -696,6 +717,23 @@ export function ContactsTable({
               ]}
             />
           </div>
+          {tagOptions.length > 0 && (
+            <div className="space-y-1">
+              <label className="field-label">Tag</label>
+              <Select
+                value={tagFilter}
+                onChange={(v) => {
+                  setTagFilter(v);
+                  setPage(1);
+                }}
+                className="w-full py-1.5 text-sm"
+                options={[
+                  { value: "", label: "Todas as tags" },
+                  ...tagOptions.map((t) => ({ value: t, label: t })),
+                ]}
+              />
+            </div>
+          )}
           <div className="space-y-1">
             <label className="field-label">Responsável</label>
             <Select

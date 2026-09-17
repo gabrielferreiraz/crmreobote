@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
+import { fetchContactsList, countContacts, getDistinctContactTags } from "@/lib/contacts/list-query";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { ContactsTable } from "./contacts-table";
@@ -35,9 +35,14 @@ export default async function ClientesPage() {
     const isMember = membership?.role === "MEMBER";
     const effectiveResponsavelId = isMember ? session!.user.id : undefined;
 
-    const [contacts, totalCount, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
+    const [contacts, totalCount, availableTags, sources, jobTitles, customFields, membersRaw, pipelinesRaw] = await Promise.all([
       fetchContactsList({ organizationId, responsavelId: effectiveResponsavelId, take: DEFAULT_PAGE_SIZE }),
       countContacts({ organizationId, responsavelId: effectiveResponsavelId }),
+      // Todas as tags já usadas na organização (não só as da 1ª página) —
+      // pedido explícito: filtro de Tag que mostra as tags disponíveis ao
+      // clicar. Sem tabela própria (Contact.tags é texto livre), calculado
+      // direto do banco — ver comentário em getDistinctContactTags.
+      getDistinctContactTags(organizationId, effectiveResponsavelId),
       prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
       prisma.customFieldDefinition.findMany({
@@ -69,6 +74,7 @@ export default async function ClientesPage() {
         isManager={isManager}
         sources={sources}
         jobTitles={jobTitles}
+        availableTags={availableTags}
         members={members}
         currentUserId={session!.user.id}
         pipelines={pipelines}

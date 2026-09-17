@@ -51,6 +51,7 @@ export async function GET(req: Request) {
   const includeOrphans = searchParams.get("includeOrphans") === "1";
   const state = searchParams.get("state") ?? undefined;
   const city = searchParams.get("city") ?? undefined;
+  const tag = searchParams.get("tag") ?? undefined;
   const onlyWithDeals = searchParams.get("onlyWithDeals") === "1";
   const hasEmail = asPresenceFilter(searchParams.get("hasEmail"));
   const hasWhatsapp = asPresenceFilter(searchParams.get("hasWhatsapp"));
@@ -81,6 +82,7 @@ export async function GET(req: Request) {
       includeUnassigned: isMember && includeOrphans,
       state,
       city,
+      tag,
       onlyWithDeals,
       hasEmail,
       hasWhatsapp,

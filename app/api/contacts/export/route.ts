@@ -101,6 +101,7 @@ export async function GET(req: Request) {
     responsavelId: searchParams.get("responsavelId") ?? undefined,
     state: searchParams.get("state") ?? undefined,
     city: searchParams.get("city") ?? undefined,
+    tag: searchParams.get("tag") ?? undefined,
     onlyWithDeals: searchParams.get("onlyWithDeals") === "1",
     hasEmail: asPresenceFilter(searchParams.get("hasEmail")),
     hasWhatsapp: asPresenceFilter(searchParams.get("hasWhatsapp")),

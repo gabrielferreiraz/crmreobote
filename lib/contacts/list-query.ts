@@ -36,6 +36,11 @@ export type ContactsFilterParams = {
   /** Por trecho, sem diferenciar maiúsculas/acentos exatos (ver índice trigram) — cidade é texto livre, não uma lista fechada como estado. */
   city?: string;
   onlyWithDeals?: boolean;
+  /** Uma tag exata (ver Contact.tags no schema — array livre, sem tabela
+   * própria) — contato precisa TER essa tag entre as suas (`has`), pode ter
+   * outras também. Lista de tags disponíveis pra filtrar vem de
+   * getDistinctContactTags abaixo. */
+  tag?: string;
   /** Filtro rápido de coluna (ver ColumnFilter em contacts-table.tsx) — "yes" = campo preenchido, "no" = vazio, undefined = não filtra. */
   hasEmail?: "yes" | "no";
   /** Mesma ideia de hasEmail, mas no campo `whatsapp` cru (não o `phone` de fallback que a coluna mostra quando falta WhatsApp). */
@@ -50,13 +55,14 @@ export type ContactsFilterParams = {
  * paginação mostra um total que a busca não confirma.
  */
 export function buildContactsWhere(params: ContactsFilterParams): Prisma.ContactWhereInput {
-  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, hasEmail, hasWhatsapp, registeredFrom, registeredTo } = params;
+  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, tag, hasEmail, hasWhatsapp, registeredFrom, registeredTo } = params;
   const digits = q ? (normalizePhoneNumber(q) ?? "") : "";
 
   const where: Prisma.ContactWhereInput = {
     organizationId,
     NOT: { tags: { has: NO_CONTACT_TAG } },
     ...(source ? { source } : {}),
+    ...(tag ? { tags: { has: tag } } : {}),
     ...(state ? { state } : {}),
     ...(city ? { city: { contains: city, mode: "insensitive" } } : {}),
     // `phone`/`whatsapp` (campo cru, com formatação) saíram da busca —
@@ -137,6 +143,37 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
 // então isso NUNCA pode virar opcional nestas duas funções.
 export async function countContacts(params: ContactsFilterParams): Promise<number> {
   return searchDb.contact.count({ where: buildContactsWhere(params) });
+}
+
+/**
+ * Todas as tags já usadas em algum contato da organização — pro filtro de
+ * Tag saber o que oferecer (ver "Tags" no FilterPopover de
+ * contacts-table.tsx: "quando eu clico no filtro ele mostra as tags
+ * disponíveis"). Não dá pra montar essa lista só com os contatos já
+ * carregados na tela (como sourceOptions/jobTitleOptions em
+ * contacts-table.tsx fazem) — igual origem/cargo, tag é texto livre sem
+ * tabela própria, então uma tag usada só em contatos de outra página nunca
+ * apareceria. `unnest` "desempacota" o array de cada linha em várias linhas
+ * (1 por tag) pra dar pra fazer DISTINCT — mesmo raciocínio de índice/RLS
+ * das outras buscas deste arquivo, por isso via searchDb também.
+ */
+export async function getDistinctContactTags(organizationId: string, responsavelId?: string): Promise<string[]> {
+  // `responsavelId` (opcional) — MEMBER só pode ver/filtrar pelas tags dos
+  // PRÓPRIOS contatos (mesma régua do resto da listagem, ver isMember em
+  // app/(dashboard)/clientes/page.tsx e GET /api/contacts) — sem isso, o
+  // filtro ofereceria tags de contatos de outros consultores que esse
+  // usuário nem consegue ver, e escolher uma delas sempre daria "0
+  // resultados" sem explicação nenhuma.
+  const rows = await searchDb.$queryRaw<{ tag: string }[]>`
+    SELECT DISTINCT tag
+    FROM "Contact", unnest(tags) AS tag
+    WHERE "organizationId" = ${organizationId}
+      ${responsavelId ? Prisma.sql`AND "responsavelId" = ${responsavelId}` : Prisma.empty}
+      AND NOT (tags @> ARRAY[${NO_CONTACT_TAG}]::text[])
+      AND tag <> ${NO_CONTACT_TAG}
+    ORDER BY tag
+  `;
+  return rows.map((r) => r.tag);
 }
 
 export async function fetchContactsList(params: ContactsFilterParams & { skip?: number; take: number }): Promise<EnrichedContact[]> {
