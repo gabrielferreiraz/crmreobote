@@ -84,7 +84,7 @@ export default async function DigitalCardPublicPage({
 
   if (!ok || !organizationId || !cardId) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0b10] px-6 text-center">
+      <div className="flex min-h-dvh items-center justify-center bg-[#0a0b10] px-6 text-center">
         <div>
           <p className="text-lg font-semibold text-white">Cartão não encontrado</p>
           <p className="mt-1 text-sm text-white/50">Esse link pode estar errado, ou o cartão ainda não foi ativado.</p>
@@ -103,7 +103,7 @@ export default async function DigitalCardPublicPage({
 
   if (!card) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0b10] px-6 text-center">
+      <div className="flex min-h-dvh items-center justify-center bg-[#0a0b10] px-6 text-center">
         <div>
           <p className="text-lg font-semibold text-white">Cartão não encontrado</p>
         </div>
@@ -132,8 +132,8 @@ export default async function DigitalCardPublicPage({
   };
 
   return (
-    <div className="min-h-screen bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8 flex justify-center">
-      <div className="w-full max-w-md min-h-screen sm:min-h-0">
+    <div className="min-h-dvh bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8 flex justify-center">
+      <div className="w-full max-w-md min-h-dvh sm:min-h-0">
         <DigitalCardView data={data} source={src ?? null} autoOpenQr={qr === "1"} presentationId={pid ?? null} />
       </div>
     </div>

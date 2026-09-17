@@ -9,6 +9,7 @@ import { DigitalCardView, type DigitalCardData } from "@/components/digital-card
 import { PhonePreviewFrame } from "@/components/digital-card/phone-preview-frame";
 import { displayPhone } from "@/lib/phone-normalize";
 import { AVAILABLE_PARTNER_LOGOS, DEFAULT_SELECTED_LOGOS } from "@/lib/digital-cards/logos";
+import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
 
 type Card = Awaited<ReturnType<typeof getOrCreateOwnCard>>;
@@ -122,6 +123,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showFullscreenPreview, setShowFullscreenPreview] = useState(false);
+  useLockBodyScroll(showFullscreenPreview);
 
   function buildSavedFields(): SavedFields {
     return {

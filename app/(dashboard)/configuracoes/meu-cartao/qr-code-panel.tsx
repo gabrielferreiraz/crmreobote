@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { QrCode as QrCodeIcon, X } from "lucide-react";
 import { QrCodeDisplay } from "@/components/digital-card/qr-code-display";
 import { usePresentationSession } from "@/components/digital-card/use-presentation-session";
+import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
 
 /**
  * "Meu QR Code" — o consultor abre isto na hora de apresentar
@@ -19,6 +20,7 @@ import { usePresentationSession } from "@/components/digital-card/use-presentati
  */
 export function QrCodePanel({ cardId, publicUrl, autoOpen = false }: { cardId: string; publicUrl: string; autoOpen?: boolean }) {
   const [open, setOpen] = useState(false);
+  useLockBodyScroll(open);
   const { presentationId, askVisible, likelyAccessed, responded, start, respond, dismissForNow } = usePresentationSession(cardId);
 
   // Achado na revisão: o QR mostrado aqui codificava só `publicUrl` puro —

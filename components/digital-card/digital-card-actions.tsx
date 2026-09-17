@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, Share2, Check, QrCode, X } from "lucide-react";
 import { QrCodeDisplay } from "./qr-code-display";
+import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
 
 type Props = {
   slug: string;
@@ -33,6 +34,7 @@ type Props = {
 export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, presentationId, onTrack, autoOpenQr = false }: Props) {
   const [copied, setCopied] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+  useLockBodyScroll(showQrModal);
 
   useEffect(() => {
     if (autoOpenQr) {
@@ -56,12 +58,19 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
     onTrack("SHARE_CLICK");
     const shareData = { title: `Cartão de ${displayName}`, text: `Contato de ${displayName}`, url: publicUrl };
     if (typeof navigator !== "undefined" && navigator.share) {
+      // Nunca cai pro fallback de copiar link se o navigator.share existe —
+      // mesmo se a pessoa CANCELAR a folha nativa (rejeita com AbortError),
+      // isso é a decisão dela de não compartilhar, não um "não funcionou".
+      // Antes, cancelar no iOS acabava copiando o link escondido mesmo
+      // assim, parecendo compartilhar por trás depois dela dizer "não".
       try {
         await navigator.share(shareData);
-        return;
       } catch {
-        // fallback para clipboard se o usuário cancelar o share nativo
+        // AbortError (cancelou) ou qualquer outro erro — nos dois casos,
+        // sem fallback: só faz sentido copiar quando NÃO existe share
+        // nativo pra tentar, não quando ele existiu e não deu certo.
       }
+      return;
     }
     try {
       await navigator.clipboard.writeText(publicUrl);

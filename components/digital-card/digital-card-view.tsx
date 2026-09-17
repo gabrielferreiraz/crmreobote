@@ -64,7 +64,11 @@ export function DigitalCardView({
 
   return (
     <div className={`mx-auto w-full max-w-full overflow-x-hidden ${!interactive ? "[&_a]:pointer-events-none [&_button]:pointer-events-none" : ""}`}>
-      <div className="relative w-full overflow-hidden rounded-none sm:rounded-[2.2rem] min-h-screen sm:min-h-0 shadow-none sm:shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-0 sm:ring-1 sm:ring-white/10 bg-[#090d16]">
+      {/* min-h-dvh (não min-h-screen) — no Safari iOS, 100vh conta a área
+          por trás da barra de endereço/toolbar dinâmica, deixando uma
+          sobra de espaço em branco embaixo enquanto ela está expandida;
+          dvh (dynamic viewport height) já desconta isso. */}
+      <div className="relative w-full overflow-hidden rounded-none sm:rounded-[2.2rem] min-h-dvh sm:min-h-0 shadow-none sm:shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-0 sm:ring-1 sm:ring-white/10 bg-[#090d16]">
         {/* Fundo do CORPO INTEIRO do cartão (atrás de ações/ícones/bio/
             rodapé — imagem DISTINTA da capa abaixo, que fica só atrás do
             avatar) — pedido explícito: "a capa de fundo atrás do avatar e
@@ -110,9 +114,9 @@ export function DigitalCardView({
           )}
         </div>
 
-        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-28" : "-mt-22"}`}>
+        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-28" : "-mt-24"}`}>
           {/* Avatar com Anel de Brilho em Gradiente Neon */}
-          <div className="relative mx-auto mb-3 h-26 w-26">
+          <div className="relative mx-auto mb-3 h-30 w-30">
             <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_22px_rgba(0,174,238,0.45)]">
               <div className="h-full w-full overflow-hidden rounded-full bg-[#090d16]">
                 {data.photoUrl ? (
