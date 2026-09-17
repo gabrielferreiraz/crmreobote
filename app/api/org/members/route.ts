@@ -74,7 +74,19 @@ export async function POST(req: Request) {
     }
 
     const membership = await prisma.organizationUser.create({
-      data: { organizationId: access.organizationId, userId: user.id, role, area },
+      data: {
+        organizationId: access.organizationId,
+        userId: user.id,
+        role,
+        area,
+        // Consultor/Supervisor/Gerente contam pra meta por padrão (mesmo
+        // @default(true) do schema); Dono é a única exceção — sócio pode
+        // fechar negócio da própria Reobote, mas isso não é meta de
+        // consultor (ver comentário completo em prisma/schema.prisma, campo
+        // countsTowardGoal). Só a CRIAÇÃO decide isso sozinha — depois é
+        // 100% manual (toggle em Configurações → Usuários).
+        countsTowardGoal: role !== "OWNER",
+      },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
 

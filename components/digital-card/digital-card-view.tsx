@@ -114,9 +114,9 @@ export function DigitalCardView({
           )}
         </div>
 
-        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-28" : "-mt-24"}`}>
+        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-32" : "-mt-26"}`}>
           {/* Avatar com Anel de Brilho em Gradiente Neon */}
-          <div className="relative mx-auto mb-3 h-30 w-30">
+          <div className="relative mx-auto mb-3.5 h-36 w-36">
             <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_22px_rgba(0,174,238,0.45)]">
               <div className="h-full w-full overflow-hidden rounded-full bg-[#090d16]">
                 {data.photoUrl ? (
@@ -144,9 +144,14 @@ export function DigitalCardView({
             <p className="mt-1 text-xs font-medium text-white/50">{data.companyName}</p>
           )}
 
-          {/* Logos parceiras */}
-          <div className="mt-4">
-            <DigitalCardLogos selectedLogos={data.selectedLogos} />
+          {/* Logo da Reobote (Fixo logo abaixo da Empresa) */}
+          <div className="mt-4 flex justify-center">
+            <ReoboteLogo className="h-11 sm:h-12 w-auto opacity-95" />
+          </div>
+
+          {/* Logos parceiras (Rodobens, Yamaha, Servopa, etc.) */}
+          <div className="mt-3">
+            <DigitalCardLogos selectedLogos={data.selectedLogos} excludeReobote />
           </div>
 
           {/* Valor em carteira */}

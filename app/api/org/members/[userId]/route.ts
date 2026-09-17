@@ -15,7 +15,7 @@ export async function PATCH(
 ) {
   const { userId } = await params;
   const body = await req.json();
-  const { role, teamId, active, name, canManageProcesses, area, birthDate, email } = body as {
+  const { role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal } = body as {
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
@@ -25,6 +25,8 @@ export async function PATCH(
     /** "YYYY-MM-DD" (dia civil puro, ver User.birthDate no schema) ou null pra limpar. */
     birthDate?: string | null;
     email?: string;
+    /** "Conta na meta" (ver OrganizationUser.countsTowardGoal no schema). */
+    countsTowardGoal?: boolean;
   };
 
   const access = await requireRole(["OWNER"]);
@@ -42,10 +44,11 @@ export async function PATCH(
     canManageProcesses === undefined &&
     area === undefined &&
     birthDate === undefined &&
-    email === undefined
+    email === undefined &&
+    countsTowardGoal === undefined
   ) {
     return NextResponse.json(
-      { error: "role, teamId, active, name, canManageProcesses, area, birthDate ou email é obrigatório" },
+      { error: "role, teamId, active, name, canManageProcesses, area, birthDate, email ou countsTowardGoal é obrigatório" },
       { status: 400 },
     );
   }
@@ -138,7 +141,7 @@ export async function PATCH(
 
       const updatedMembership = await tx.organizationUser.update({
         where: { organizationId_userId: { organizationId: access.organizationId, userId } },
-        data: { role, teamId, active, canManageProcesses, area },
+        data: { role, teamId, active, canManageProcesses, area, countsTowardGoal },
         include: { user: { select: { id: true, name: true, email: true, image: true } } },
       });
 

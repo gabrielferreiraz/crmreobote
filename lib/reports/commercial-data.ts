@@ -30,7 +30,7 @@ import { type LeaderboardEntry } from "@/components/leaderboard";
 import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
 import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { buildQuickRanges, singleMonthLabel } from "@/lib/date-ranges";
-import { countActiveSellers, suggestedGoalValue } from "@/lib/goals/suggestion";
+import { countActiveSellers, suggestedGoalValue, getGoalExcludedOwnerIds } from "@/lib/goals/suggestion";
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { average, percentile } from "@/lib/reports/stats";
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
@@ -1798,16 +1798,25 @@ export async function getCommercialReportData(params: {
     year: "numeric",
     timeZone: "UTC",
   });
-  const [monthlyGoal, goalWonAgg, activeSellerCount] = await Promise.all([
+  const [monthlyGoal, goalExcludedOwnerIds, activeSellerCount] = await Promise.all([
     prisma.monthlyGoal.findUnique({
       where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
     }),
-    prisma.deal.aggregate({
-      where: { organizationId, status: "WON", closedAt: { gte: brazilStartOfMonth() } },
-      _sum: { value: true },
-    }),
+    getGoalExcludedOwnerIds(organizationId),
     countActiveSellers(organizationId),
   ]);
+  // Sócio (Dono) que fecha negócio da própria Reobote não deve contar como
+  // meta do time (ver countsTowardGoal no schema/getGoalExcludedOwnerIds) —
+  // igual ao card de meta do Início e ao Churrascômetro da TV.
+  const goalWonAgg = await prisma.deal.aggregate({
+    where: {
+      organizationId,
+      status: "WON",
+      closedAt: { gte: brazilStartOfMonth() },
+      ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
+    },
+    _sum: { value: true },
+  });
   const goalValue = monthlyGoal ? Number(monthlyGoal.value) : null;
   const goalAchievedValue = goalWonAgg._sum.value ? Number(goalWonAgg._sum.value) : 0;
   const goalSuggestedValue = suggestedGoalValue(activeSellerCount);

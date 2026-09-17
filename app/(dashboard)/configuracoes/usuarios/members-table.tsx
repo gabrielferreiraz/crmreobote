@@ -18,6 +18,10 @@ type Member = {
   active: boolean;
   canManageProcesses: boolean;
   area: "VENDAS" | "ADMINISTRATIVO";
+  /** "Conta na meta" — se as vendas ganhas desta pessoa entram na meta mensal
+   * e nos números da TV (ver comentário completo em prisma/schema.prisma,
+   * campo OrganizationUser.countsTowardGoal). */
+  countsTowardGoal: boolean;
   user: { id: string; name: string; email: string; birthDate: Date | string | null };
   team: { id: string; name: string } | null;
   photoUrl: string | null;
@@ -50,7 +54,7 @@ const ROLE_LABELS: Record<Member["role"], string> = {
 // select, badge, checkbox ou nada (célula vazia) sempre caem exatamente sob
 // a coluna certa, em vez de empurrar o resto da linha quando um campo não
 // se aplica (ex.: Dono não tem Papel/Área pra escolher).
-const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_100px_120px_140px_100px_140px]";
+const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_100px_120px_140px_100px_110px_140px]";
 
 // Espelha ONLINE_THRESHOLD_MS de lib/user-activity.ts — não importa direto
 // de lá porque esse módulo puxa o client do Prisma, que não pode entrar no
@@ -217,6 +221,15 @@ export function MembersTable({
     if (res.ok) router.refresh();
   }
 
+  async function setCountsTowardGoal(userId: string, countsTowardGoal: boolean) {
+    const res = await fetch(`/api/org/members/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ countsTowardGoal }),
+    });
+    if (res.ok) router.refresh();
+  }
+
   function triggerPhotoUpload(userId: string) {
     uploadTargetId.current = userId;
     fileInputRef.current?.click();
@@ -359,6 +372,7 @@ export function MembersTable({
             <span>WhatsApp</span>
             <span>Área</span>
             <span>Processos</span>
+            <span>Conta na meta</span>
             <span />
           </div>
           {visibleMembers.map((m) => {
@@ -514,6 +528,25 @@ export function MembersTable({
                   </label>
                 ) : (
                   <span className="text-xs text-neutral-400 dark:text-neutral-500">{m.canManageProcesses ? "Sim" : "—"}</span>
+                )}
+              </div>
+
+              <div className="min-w-0">
+                {isOwner ? (
+                  <label
+                    className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
+                    title="Se as vendas ganhas desta pessoa entram na meta mensal da organização e nos números de ganho do dashboard da TV (vendas do mês/ano, ranking, última venda, Churrascômetro). Consultor/Supervisor/Gerente contam por padrão; Dono não, porque sócio vendendo cota da própria Reobote não é meta de consultor."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={m.countsTowardGoal}
+                      onChange={(e) => setCountsTowardGoal(m.user.id, e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-neutral-300 dark:border-neutral-700"
+                    />
+                    {m.countsTowardGoal ? "Sim" : "Não"}
+                  </label>
+                ) : (
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">{m.countsTowardGoal ? "Sim" : "Não"}</span>
                 )}
               </div>
 

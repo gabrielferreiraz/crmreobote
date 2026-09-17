@@ -9,6 +9,7 @@ import { DigitalCardView, type DigitalCardData } from "@/components/digital-card
 import { PhonePreviewFrame } from "@/components/digital-card/phone-preview-frame";
 import { displayPhone } from "@/lib/phone-normalize";
 import { AVAILABLE_PARTNER_LOGOS, DEFAULT_SELECTED_LOGOS } from "@/lib/digital-cards/logos";
+import { ImageCropModal } from "@/components/image-crop-modal";
 import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
 
@@ -199,6 +200,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   }
 
   function toggleLogo(key: string) {
+    if (key === "reobote") return; // Logo da Reobote é obrigatória e sempre fixa
     setSelectedLogos((prev) => {
       if (prev.includes(key)) {
         return prev.filter((k) => k !== key);
@@ -273,22 +275,84 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     setLinks((prev) => prev.filter((l) => l.id !== id));
   }
 
-  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // Estado do Modal de Corte Profissional
+  const [cropModal, setCropModal] = useState<{
+    open: boolean;
+    type: "photo" | "cover" | "background" | null;
+    imageSrc: string | null;
+    aspectRatio: number;
+    title: string;
+  }>({
+    open: false,
+    type: null,
+    imageSrc: null,
+    aspectRatio: 2.5,
+    title: "Ajustar Foto",
+  });
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>, type: "photo" | "cover" | "background") {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    setUploadingPhoto(true);
-    setError(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setCropModal({
+          open: true,
+          type,
+          imageSrc: reader.result,
+          aspectRatio: type === "photo" ? 1 : type === "cover" ? 2.5 : 9 / 16,
+          title:
+            type === "photo"
+              ? "Corte Profissional — Foto de Perfil"
+              : type === "cover"
+              ? "Corte Profissional — Foto de Capa"
+              : "Corte Profissional — Foto de Fundo",
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleCroppedUpload(blob: Blob) {
+    if (!cropModal.type) return;
+    const type = cropModal.type;
+    setCropModal((prev) => ({ ...prev, open: false }));
+
+    const file = new File([blob], `${type}-cropped.jpg`, { type: "image/jpeg" });
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch(`/api/digital-cards/${card.id}/photo`, { method: "POST", body: formData });
-    const data = await res.json().catch(() => ({}));
-    setUploadingPhoto(false);
-    if (!res.ok) {
-      setError(data.error ?? "Erro ao enviar foto");
-      return;
+
+    if (type === "photo") {
+      setUploadingPhoto(true);
+      setError(null);
+      const res = await fetch(`/api/digital-cards/${card.id}/photo`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      setUploadingPhoto(false);
+      if (!res.ok) setError(data.error ?? "Erro ao enviar foto de perfil");
+      else setPhotoUrl(data.photoUrl);
+    } else if (type === "cover") {
+      setUploadingCover(true);
+      setError(null);
+      const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      setUploadingCover(false);
+      if (!res.ok) setError(data.error ?? "Erro ao enviar foto de capa");
+      else setCoverPhotoUrl(data.coverPhotoUrl);
+    } else if (type === "background") {
+      setUploadingBackground(true);
+      setError(null);
+      const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      setUploadingBackground(false);
+      if (!res.ok) setError(data.error ?? "Erro ao enviar foto de fundo");
+      else setBackgroundPhotoUrl(data.backgroundPhotoUrl);
     }
-    setPhotoUrl(data.photoUrl);
+  }
+
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    handleFileSelect(e, "photo");
   }
 
   async function handleRemovePhoto() {
@@ -299,22 +363,8 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     if (res.ok) setPhotoUrl(null);
   }
 
-  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploadingCover(true);
-    setError(null);
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "POST", body: formData });
-    const data = await res.json().catch(() => ({}));
-    setUploadingCover(false);
-    if (!res.ok) {
-      setError(data.error ?? "Erro ao enviar foto de capa");
-      return;
-    }
-    setCoverPhotoUrl(data.coverPhotoUrl);
+  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    handleFileSelect(e, "cover");
   }
 
   async function handleRemoveCover() {
@@ -325,22 +375,8 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     if (res.ok) setCoverPhotoUrl(null);
   }
 
-  async function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploadingBackground(true);
-    setError(null);
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "POST", body: formData });
-    const data = await res.json().catch(() => ({}));
-    setUploadingBackground(false);
-    if (!res.ok) {
-      setError(data.error ?? "Erro ao enviar foto de fundo");
-      return;
-    }
-    setBackgroundPhotoUrl(data.backgroundPhotoUrl);
+  function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
+    handleFileSelect(e, "background");
   }
 
   async function handleRemoveBackground() {
@@ -618,83 +654,90 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             </p>
           </div>
 
-          {/* Lista ordenada atual */}
+          {/* Lista ordenada atual (apenas administradoras parceiras) */}
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-              Aparecem no cartão, nesta ordem ({selectedLogos.length})
-            </p>
-            {selectedLogos.length === 0 ? (
-              <p className="text-xs text-neutral-400 italic py-2">Nenhuma logo selecionada — escolha abaixo pra mostrar no cartão.</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {selectedLogos.map((key, index) => {
-                  const logoInfo = AVAILABLE_PARTNER_LOGOS.find((l) => l.key === key);
-                  if (!logoInfo) return null;
-                  const isDragging = draggedIndex === index;
-                  return (
-                    <div
-                      key={key}
-                      data-logo-index={index}
-                      draggable
-                      onDragStart={() => handleDragStart(index)}
-                      onDragOver={(e) => handleDragOver(e, index)}
-                      onDragEnd={handleDragEnd}
-                      onTouchStart={() => handleTouchStart(index)}
-                      onTouchMove={handleTouchMove}
-                      onTouchEnd={handleTouchEnd}
-                      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium cursor-grab active:cursor-grabbing transition-all select-none ${
-                        isDragging
-                          ? "border-[#00aeee] bg-[#00aeee]/20 shadow-lg ring-2 ring-[#00aeee]/40 scale-[1.02]"
-                          : "border-neutral-200 bg-neutral-50 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-800/60 dark:hover:border-neutral-700"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <GripVertical className="h-4 w-4 shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-grab active:cursor-grabbing" />
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00aeee]/15 text-[10px] font-bold text-[#00aeee]">
-                          {index + 1}
-                        </span>
-                        <span className="font-semibold text-neutral-800 dark:text-neutral-200 truncate">{logoInfo.label}</span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => moveLogoLeft(index)}
-                          disabled={index === 0}
-                          title="Mover para frente"
-                          className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveLogoRight(index)}
-                          disabled={index === selectedLogos.length - 1}
-                          title="Mover para trás"
-                          className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleLogo(key)}
-                          title="Remover logo do cartão"
-                          className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+            {(() => {
+              const adminLogos = selectedLogos.filter((k) => k !== "reobote");
+              return (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                    Aparecem no cartão, nesta ordem ({adminLogos.length})
+                  </p>
+                  {adminLogos.length === 0 ? (
+                    <p className="text-xs text-neutral-400 italic py-2">Nenhuma administradora selecionada — escolha abaixo pra mostrar no cartão.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {adminLogos.map((key, index) => {
+                        const logoInfo = AVAILABLE_PARTNER_LOGOS.find((l) => l.key === key);
+                        if (!logoInfo) return null;
+                        const isDragging = draggedIndex === index;
+                        return (
+                          <div
+                            key={key}
+                            data-logo-index={index}
+                            draggable
+                            onDragStart={() => handleDragStart(index)}
+                            onDragOver={(e) => handleDragOver(e, index)}
+                            onDragEnd={handleDragEnd}
+                            onTouchStart={() => handleTouchStart(index)}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                            className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium cursor-grab active:cursor-grabbing transition-all select-none ${
+                              isDragging
+                                ? "border-[#00aeee] bg-[#00aeee]/20 shadow-lg ring-2 ring-[#00aeee]/40 scale-[1.02]"
+                                : "border-neutral-200 bg-neutral-50 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-800/60 dark:hover:border-neutral-700"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <GripVertical className="h-4 w-4 shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-grab active:cursor-grabbing" />
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00aeee]/15 text-[10px] font-bold text-[#00aeee]">
+                                {index + 1}
+                              </span>
+                              <span className="font-semibold text-neutral-800 dark:text-neutral-200 truncate">{logoInfo.label}</span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => moveLogoLeft(index)}
+                                disabled={index === 0}
+                                title="Mover para frente"
+                                className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                              >
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveLogoRight(index)}
+                                disabled={index === adminLogos.length - 1}
+                                title="Mover para trás"
+                                className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                              >
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleLogo(key)}
+                                title="Remover logo do cartão"
+                                className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  )}
+                </>
+              );
+            })()}
           </div>
 
-          {/* Seletor de logos disponíveis */}
+          {/* Seletor de logos disponíveis (apenas administradoras) */}
           <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
             <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Todas as marcas disponíveis</p>
             <div className="flex flex-wrap gap-1.5">
-              {AVAILABLE_PARTNER_LOGOS.map((logo) => {
+              {AVAILABLE_PARTNER_LOGOS.filter((l) => l.key !== "reobote").map((logo) => {
                 const isSelected = selectedLogos.includes(logo.key);
                 return (
                   <button
@@ -724,10 +767,7 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
             <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="field-label">Outro telefone (opcional)</label>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(67) 3345-0000" className="field-input" />
-          </div>
+
 
           <div className="space-y-1.5">
             <label className="field-label">E-mail</label>
@@ -871,6 +911,16 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
           </div>
         </div>
       )}
+
+      {/* Modal de Recorte Profissional de Imagem */}
+      <ImageCropModal
+        isOpen={cropModal.open}
+        imageSrc={cropModal.imageSrc}
+        title={cropModal.title}
+        aspectRatio={cropModal.aspectRatio}
+        onClose={() => setCropModal((prev) => ({ ...prev, open: false }))}
+        onCropComplete={handleCroppedUpload}
+      />
     </div>
   );
 }

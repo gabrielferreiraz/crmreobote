@@ -22,6 +22,25 @@ export function suggestedGoalValue(sellerCount: number): number {
 }
 
 /**
+ * Ids de quem NÃO conta na meta (ver OrganizationUser.countsTowardGoal no
+ * schema) — pedido explícito: sócio (Dono) pode fechar negócio da própria
+ * Reobote de vez em quando, mas isso não é meta de consultor nem "ganho" pra
+ * aparecer pro time inteiro na TV. Usado em toda consulta de negócio GANHO
+ * que alimenta meta/TV (ver getCurrentMonthGoalProgress logo abaixo,
+ * lib/reports/commercial-data.ts e lib/tv-dashboard.ts) como
+ * `ownerId: { notIn: excludedIds }` — nunca aplicado a relatório de
+ * desempenho PESSOAL (ranking "quem mais vendeu" continua mostrando a
+ * pessoa certa, isso só tira do TOTAL agregado da organização).
+ */
+export async function getGoalExcludedOwnerIds(organizationId: string): Promise<string[]> {
+  const excluded = await prisma.organizationUser.findMany({
+    where: { organizationId, countsTowardGoal: false },
+    select: { userId: true },
+  });
+  return excluded.map((m) => m.userId);
+}
+
+/**
  * Meta do mês corrente + quanto já foi Ganho — sempre organização inteira
  * (não respeita escopo de equipe/responsável, é uma meta só do time todo) e
  * sempre o mês civil de Brasília atual, igual ao GoalCard de Relatórios (ver
@@ -34,15 +53,21 @@ export async function getCurrentMonthGoalProgress(
   organizationId: string,
 ): Promise<{ goalValue: number | null; achievedValue: number }> {
   const nowParts = getBrazilParts(new Date());
-  const [monthlyGoal, goalWonAgg] = await Promise.all([
+  const [monthlyGoal, excludedOwnerIds] = await Promise.all([
     prisma.monthlyGoal.findUnique({
       where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
     }),
-    prisma.deal.aggregate({
-      where: { organizationId, status: "WON", closedAt: { gte: brazilStartOfMonth() } },
-      _sum: { value: true },
-    }),
+    getGoalExcludedOwnerIds(organizationId),
   ]);
+  const goalWonAgg = await prisma.deal.aggregate({
+    where: {
+      organizationId,
+      status: "WON",
+      closedAt: { gte: brazilStartOfMonth() },
+      ...(excludedOwnerIds.length > 0 ? { ownerId: { notIn: excludedOwnerIds } } : {}),
+    },
+    _sum: { value: true },
+  });
   return {
     goalValue: monthlyGoal ? Number(monthlyGoal.value) : null,
     achievedValue: goalWonAgg._sum.value ? Number(goalWonAgg._sum.value) : 0,

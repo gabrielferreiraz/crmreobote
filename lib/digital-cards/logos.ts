@@ -45,7 +45,11 @@ export const AVAILABLE_PARTNER_LOGOS: PartnerLogo[] = [
 export const DEFAULT_SELECTED_LOGOS = ["reobote", "rodobens", "yamaha", "servopa"];
 
 export function getActivePartnerLogos(customKeys?: string[]): PartnerLogo[] {
-  const keys = customKeys && customKeys.length > 0 ? customKeys : DEFAULT_SELECTED_LOGOS;
+  let keys = customKeys && customKeys.length > 0 ? customKeys : DEFAULT_SELECTED_LOGOS;
+  // A logo da Reobote deve SEMPRE aparecer (obrigatoriamente)
+  if (!keys.includes("reobote")) {
+    keys = ["reobote", ...keys];
+  }
   const logoMap = new Map(AVAILABLE_PARTNER_LOGOS.map((l) => [l.key, l]));
   
   const resolved: PartnerLogo[] = [];

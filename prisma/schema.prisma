@@ -802,6 +802,18 @@ model OrganizationUser {
   // organização, não só os que ele mesmo ganhou) — ver lib/processes/access.ts.
   // Default VENDAS preserva o comportamento de todo usuário já existente.
   area                  UserArea  @default(VENDAS)
+  // Se as vendas GANHAS desta pessoa entram na meta mensal da organização e
+  // nos números "de ganho" do dashboard da TV (Vendas do mês/ano, ranking,
+  // última venda, Churrascômetro) — ver lib/goals/suggestion.ts (função
+  // getGoalExcludedOwnerIds) e lib/tv-dashboard.ts, os dois lêem este campo.
+  // Pedido explícito: sócio (Dono) pode fechar negócio da própria Reobote de
+  // vez em quando, mas isso não é meta de consultor nem "ganho" pra aparecer
+  // pro time inteiro na TV — a meta é só dos consultores/supervisores/
+  // gerentes. Default true (todo mundo conta) — só é gravado como false na
+  // CRIAÇÃO de um membro com role OWNER (ver POST /api/org/members); depois
+  // disso é 100% manual (o toggle em Configurações → Usuários), mudar o
+  // papel de alguém depois NUNCA mexe aqui sozinho.
+  countsTowardGoal      Boolean   @default(true)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -3,6 +3,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { brazilStartOfMonth, brazilStartOfYear, getBrazilParts } from "@/lib/timezone";
 import { SERVER_INSTANCE_ID } from "@/lib/server-instance";
+import { getGoalExcludedOwnerIds } from "@/lib/goals/suggestion";
 
 export async function getTvConfig(organizationId: string) {
   try {
@@ -77,10 +78,26 @@ export async function getTvMetrics(organizationId: string) {
       // que já entrou continua sendo receita real da empresa, mesmo que
       // quem vendeu não trabalhe mais aqui (mesma decisão de "Total ganho"
       // em Relatórios: total da organização nunca exclui histórico).
-      const activeMembers = await prisma.organizationUser.findMany({
-        where: { organizationId, active: true },
-        select: { userId: true },
-      });
+      //
+      // goalExcludedOwnerIds é um eixo DIFERENTE (ver countsTowardGoal no
+      // schema) — esse sim tira do TOTAL também (não só do ranking/última
+      // venda): sócio (Dono) vendendo cota da própria Reobote nunca deveria
+      // ter entrado nesses números pra começo de conversa, então já sai lá
+      // na consulta de wonDealsThisMonth/wonDealsThisYear abaixo, não só
+      // depois em memória.
+      const [activeMembers, goalExcludedOwnerIds] = await Promise.all([
+        prisma.organizationUser.findMany({
+          where: { organizationId, active: true },
+          select: { userId: true },
+        }),
+        // Sócio (Dono) que fecha negócio da própria Reobote não é meta de
+        // consultor nem "ganho" pra aparecer pro time inteiro na TV (ver
+        // countsTowardGoal no schema/getGoalExcludedOwnerIds) — aplicado
+        // abaixo em TODO widget de valor/ganho (Vendas do mês/ano,
+        // Ranking, Última venda, Churrascômetro), eixo INDEPENDENTE de
+        // "ativo" (um dono pode estar ativo e ainda assim nunca contar).
+        getGoalExcludedOwnerIds(organizationId),
+      ]);
       const activeOwnerIds = activeMembers.map((m) => m.userId);
       const activeOwnerIdSet = new Set(activeOwnerIds);
 
@@ -90,6 +107,7 @@ export async function getTvMetrics(organizationId: string) {
           organizationId,
           status: "WON",
           closedAt: { gte: monthStart },
+          ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
         },
         select: {
           ownerId: true,
@@ -157,7 +175,10 @@ export async function getTvMetrics(organizationId: string) {
         where: {
           organizationId,
           status: "WON",
-          ownerId: { in: activeOwnerIds },
+          // in + notIn no mesmo campo = AND (precisa das duas: time ATUAL
+          // e que CONTA na meta) — mesmo raciocínio de wonDealsThisMonth
+          // acima, só que aqui como filtro único em vez de dois.
+          ownerId: { in: activeOwnerIds, ...(goalExcludedOwnerIds.length > 0 ? { notIn: goalExcludedOwnerIds } : {}) },
         },
         orderBy: [{ closedAt: "desc" }, { id: "desc" }],
         select: {
@@ -184,6 +205,7 @@ export async function getTvMetrics(organizationId: string) {
           organizationId,
           status: "WON",
           closedAt: { gte: yearStart },
+          ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
         },
         _sum: { value: true },
       });

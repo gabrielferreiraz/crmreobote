@@ -14,8 +14,11 @@ const LOGO_STYLE_MAP: Record<string, string> = {
   servopa: "h-6 w-auto max-w-[100px] object-contain opacity-90",
 };
 
-export function DigitalCardLogos({ selectedLogos }: { selectedLogos?: string[] }) {
-  const logos = getActivePartnerLogos(selectedLogos);
+export function DigitalCardLogos({ selectedLogos, excludeReobote }: { selectedLogos?: string[]; excludeReobote?: boolean }) {
+  let logos = getActivePartnerLogos(selectedLogos);
+  if (excludeReobote) {
+    logos = logos.filter((l) => l.key !== "reobote");
+  }
   if (logos.length === 0) return null;
 
   return (
