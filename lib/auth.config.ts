@@ -32,7 +32,12 @@ const AUTH_ONLY_PATHS = ["/login", "/register"];
 // tem liberação nenhuma) e redirecionava pro /login antes do arquivo
 // estático ser servido, então a logo nunca aparecia pra quem visse o
 // cartão deslogado (todo mundo, exceto o próprio consultor logado).
-const PUBLIC_PATHS = ["/docs", "/t/", "/c/", "/partner-logos/"];
+//
+// "/card-defaults/" — mesmo motivo exato, pro avatar/capa/fundo padrão do
+// Cartão Digital (ver lib/digital-cards/config.ts, DEFAULT_AVATAR_URL
+// etc.) — também fica fora da raiz de public/, então precisa da mesma
+// liberação.
+const PUBLIC_PATHS = ["/docs", "/t/", "/c/", "/partner-logos/", "/card-defaults/"];
 
 export const authConfig = {
   trustHost: true,
