@@ -100,13 +100,15 @@ export async function getOwnCardShortcut(userId: string): Promise<{ slug: string
 }
 
 /**
- * Primeira visita a "Meu Cartão" ainda sem cartão nenhum — cria um NASCENDO
- * INATIVO (nunca fica público sozinho só por existir a linha), com slug
- * sugerido a partir do nome e WhatsApp pré-preenchido a partir da
- * WhatsAppInstance conectada do usuário (ver resolveConnectedInstance,
- * lib/whatsapp/send.ts) — vira um campo PRÓPRIO e editável do cartão a
- * partir daqui, nunca mais sincronizado automaticamente com a instância
- * (ver comentário no schema).
+ * Primeira visita a "Meu Cartão" ainda sem cartão nenhum — cria já ATIVO
+ * (pedido explícito: "o cartão já deve vir ativo" — o consultor não precisa
+ * lembrar de um passo extra pra publicar antes de poder compartilhar o
+ * link), com slug sugerido a partir do nome e WhatsApp pré-preenchido a
+ * partir da WhatsAppInstance conectada do usuário (ver
+ * resolveConnectedInstance, lib/whatsapp/send.ts) — vira um campo PRÓPRIO e
+ * editável do cartão a partir daqui, nunca mais sincronizado automaticamente
+ * com a instância (ver comentário no schema). `active` continua editável
+ * (pode desativar) — só o valor de nascença que mudou.
  */
 export async function getOrCreateOwnCard(organizationId: string, userId: string) {
   const existing = await getOwnCard(userId);
@@ -124,6 +126,7 @@ export async function getOrCreateOwnCard(organizationId: string, userId: string)
         organizationId,
         userId,
         slug,
+        active: true,
         whatsapp: instance?.phoneNumber ?? null,
         address: "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030",
         companyName: "Reobote Consórcios",

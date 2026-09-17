@@ -2300,8 +2300,12 @@ model DigitalCard {
   organizationId String
   userId         String  @unique
   slug           String  @unique
-  // Nasce inativo — "ativar" é um passo explícito da pessoa (Meu Cartão),
-  // nunca fica público sozinho só por existir a linha.
+  // Default da COLUNA é false só como rede de segurança (nunca fica público
+  // sozinho por causa de um insert que esqueceu de passar este campo) — o
+  // fluxo de verdade (getOrCreateOwnCard, lib/digital-cards/queries.ts) já
+  // passa `active: true` explicitamente na criação (pedido explícito: "o
+  // cartão já deve vir ativo" — sem passo extra de ativar antes de poder
+  // compartilhar o link). Continua editável (dá pra desativar depois).
   active         Boolean @default(false)
 
   jobTitle String? // User não tem cargo hoje — só existe aqui.
