@@ -21,6 +21,7 @@ import {
   Trash2,
   Send,
   History,
+  Filter,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge, type BadgeTone } from "@/components/badge";
@@ -155,6 +156,7 @@ export function ContactsTable({
   const [hasWhatsappFilter, setHasWhatsappFilter] = useState<"" | "yes" | "no">("");
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -1078,7 +1080,42 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="px-4 py-2.5"></th>
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Tags className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        Tag
+                      </span>
+                      {availableTags.length > 0 && (
+                        <ColumnFilter
+                          value={tagFilter}
+                          onChange={(v) => { setTagFilter(v); setPage(1); }}
+                          allLabel="Todas as tags"
+                          options={availableTags.map((t) => ({ value: t, label: t }))}
+                        />
+                      )}
+                    </span>
+                  </th>
+                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                    <span className="inline-flex w-full items-center justify-between gap-1.5">
+                      <span className="inline-flex items-center gap-1.5 min-w-0">
+                        <Inbox className="h-3.5 w-3.5 opacity-50 shrink-0" strokeWidth={2} />
+                        <span className="truncate">Cadastrado</span>
+                      </span>
+                      <button
+                        onClick={() => setDateFilterOpen(true)}
+                        className={`icon-btn relative h-9 w-9 border transition-colors ${
+                          registeredFrom || registeredTo
+                            ? "border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
+                            : "border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-600"
+                        }`}
+                        aria-label="Filtrar por data"
+                      >
+                        <Filter className="h-4 w-4" strokeWidth={2} />
+                      </button>
+                    </span>
+                  </th>
+                  <th className="px-6 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1135,7 +1172,23 @@ export function ContactsTable({
                     <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                       {c._count.deals}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
+                      {c.tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {c.tags.map((tag) => (
+                            <Badge key={tag} tone="neutral" dot>
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-neutral-400 dark:text-neutral-500">—</span>
+                      )}
+                    </td>
+                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                      {new Date(c.createdAt).toLocaleDateString("pt-BR")}
+                    </td>
+                    <td className="px-6 py-3 text-right">
                       <EditContactDialog contact={c} sources={sources} jobTitles={jobTitles} members={members} customFields={customFields} />
                     </td>
                   </tr>
@@ -1170,6 +1223,59 @@ export function ContactsTable({
             setConfirmBulkDelete(false);
           }}
         />
+      )}
+
+      {dateFilterOpen && (
+        <Modal onClose={() => setDateFilterOpen(false)} maxWidth="max-w-2xl">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Filtrar por data de cadastro</h2>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="field-label mb-2 block">De</label>
+                <input
+                  type="date"
+                  value={registeredFrom}
+                  onChange={(e) => setRegisteredFrom(e.target.value)}
+                  className="field-input w-full"
+                />
+              </div>
+              <div>
+                <label className="field-label mb-2 block">Até</label>
+                <input
+                  type="date"
+                  value={registeredTo}
+                  onChange={(e) => setRegisteredTo(e.target.value)}
+                  className="field-input w-full"
+                />
+              </div>
+            </div>
+            <div className="rounded-lg bg-neutral-50 p-4 dark:bg-neutral-800/50">
+              <DateRangeField
+                from={registeredFrom}
+                to={registeredTo}
+                onSelect={(r) => { setRegisteredFrom(r.from); setRegisteredTo(r.to); }}
+                quickRanges={QUICK_RANGES}
+                className="w-full"
+              />
+            </div>
+            <div className="flex gap-2 pt-4">
+              <button
+                type="button"
+                onClick={() => { setRegisteredFrom(""); setRegisteredTo(""); setPage(1); setDateFilterOpen(false); }}
+                className="btn-ghost flex-1"
+              >
+                Limpar
+              </button>
+              <button
+                type="button"
+                onClick={() => { setPage(1); setDateFilterOpen(false); }}
+                className="btn-primary flex-1"
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {sendLeadsOpen && (
