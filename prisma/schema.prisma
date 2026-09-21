@@ -1353,6 +1353,11 @@ model Deal {
   // filtro de período (ex.: "Este mês") ainda exigia varrer TODOS os negócios
   // decididos daquele status antes de descartar os fora do intervalo.
   @@index([organizationId, status, closedAt])
+  // "Negócios parados há N dias" do Início — sem filtro de funil, então o
+  // índice (organizationId, pipelineId, status, stageEnteredAt) acima não
+  // serve (pipelineId no meio quebra o prefixo). Era Seq Scan, 283ms
+  // medidos em produção (ver 20260920100000_performance_indexes).
+  @@index([organizationId, status, stageEnteredAt])
   // "O que essa importação criou" (ver ImportBatch) — usado pra revisar/
   // conferir um lote depois do fato.
   @@index([organizationId, importBatchId])
@@ -1931,6 +1936,10 @@ model Activity {
   @@unique([agendorTaskId, userId])
   @@index([organizationId, dealId, createdAt])
   @@index([organizationId, processId, createdAt])
+  // "Atividades recentes" do Início — da organização toda, sem filtro de
+  // negócio/processo, então nenhum dos dois índices acima serve. Era Seq
+  // Scan (ver 20260920100000_performance_indexes).
+  @@index([organizationId, createdAt])
 }
 
 enum ActivityType {

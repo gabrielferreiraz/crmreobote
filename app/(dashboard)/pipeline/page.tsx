@@ -119,7 +119,15 @@ export default async function PipelinePage({
     const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope };
     const kanbanFilterParams = { organizationId, pipelineId: activePipeline.id, scope, status: "OPEN" as const };
 
-    const [openStatsByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums] = await Promise.all([
+    // "Saúde da etapa" (% com tarefa pendente) entra NESTE lote paralelo, não
+    // mais numa consulta sequencial depois dele: antes dependia de saber
+    // quais etapas tinham negócio (pra não consultar etapa vazia), o que só
+    // era conhecido depois de countDealsByStage resolver — um degrau de
+    // cascata inteiro só por isso. Agora countDealsWithTaskByStage é UMA
+    // consulta agregada (ver lib/deals/list-query.ts) que já devolve só as
+    // etapas com resultado, então passar a lista completa de etapas não
+    // custa consulta extra nenhuma e o degrau some.
+    const [openStatsByStage, kanbanDeals, listaDeals, listaTotalCount, listaSums, openWithTaskByStage] = await Promise.all([
       // {count, sumValue} por etapa — sumValue corrige um bug real do
       // cabeçalho da coluna, que antes somava só os negócios já CARREGADOS
       // (uma página), errado em qualquer etapa com mais de uma página.
@@ -130,19 +138,14 @@ export default async function PipelinePage({
         where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
       }),
       aggregateDealValues(listaFilterParams),
+      countDealsWithTaskByStage(kanbanFilterParams, activePipeline.stages.map((s) => s.id)),
     ]);
     const initialKanbanByStage: Record<string, Deal[]> = {};
     for (const deal of kanbanDeals) {
       (initialKanbanByStage[deal.stageId] ??= []).push(deal);
     }
-    // "Saúde da etapa" (ver new-design-for-claude/README.md) — % de negócios
-    // com tarefa pendente. Só pras etapas que de fato têm negócio (etapa
-    // vazia não precisa de consulta, a saúde não tem o que mostrar mesmo).
     const openCountByStage: Record<string, number> = {};
     for (const [stageId, stats] of Object.entries(openStatsByStage)) openCountByStage[stageId] = stats.count;
-    const stagesWithDeals = activePipeline.stages.filter((s) => (openCountByStage[s.id] ?? 0) > 0).map((s) => s.id);
-    const openWithTaskByStage =
-      stagesWithDeals.length > 0 ? await countDealsWithTaskByStage(kanbanFilterParams, stagesWithDeals) : {};
 
     // Uma consulta só, cobrindo ativos e inativos — `active desc` já deixa os
     // ativos primeiro (em createdAt asc entre si), então dá pra derivar

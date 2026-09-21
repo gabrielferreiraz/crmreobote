@@ -14,6 +14,7 @@ import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { ContactInfoPanel } from "./contact-info-panel";
 import { BulkSendConversationsDialog } from "@/components/bulk-send-conversations-dialog";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 
 export type Conversation = {
@@ -338,14 +339,18 @@ export function ConversationsView({
     }
   }
 
-  useEffect(() => {
-    // Rede de segurança, não o mecanismo principal — ver comentário análogo
-    // em components/whatsapp-chat.tsx. Cobre só a conexão SSE cair sem o
-    // navegador perceber.
-    const interval = setInterval(refreshConversations, 45_000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Rede de segurança, não o mecanismo principal — ver comentário análogo
+  // em components/whatsapp-chat.tsx. Cobre só a conexão SSE cair sem o
+  // navegador perceber.
+  //
+  // useVisiblePoll (não setInterval cru): a aba de Conversas é exatamente a
+  // que costuma ficar aberta o dia inteiro em segundo plano, e esta lista é
+  // uma das consultas mais caras do sistema. Parado, deixa de custar; e ao
+  // voltar pra aba recarrega na hora, então a lista fica mais fresca do que
+  // ficava esperando o próximo tique de 45s.
+  useVisiblePoll(() => {
+    refreshConversations();
+  }, 45_000);
 
   // Qualquer evento (de qualquer thread) pode mudar esta lista — uma
   // conversa nova, reordenação por "mensagem mais recente", contador de não

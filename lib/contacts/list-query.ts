@@ -157,7 +157,35 @@ export async function countContacts(params: ContactsFilterParams): Promise<numbe
  * (1 por tag) pra dar pra fazer DISTINCT — mesmo raciocínio de índice/RLS
  * das outras buscas deste arquivo, por isso via searchDb também.
  */
+// Cache em memória do resultado abaixo — a consulta é inerentemente um scan
+// da tabela inteira de contatos (DISTINCT de um array não tem índice que
+// sirva: medido em produção, 141.970 contatos produzindo só 4 tags
+// distintas, ~150ms quente e ~1,1s frio). Como isso alimenta só as OPÇÕES
+// de um filtro (o conjunto de tags muda raramente — só quando alguém
+// etiqueta algo com uma tag nova), pagar esse scan em TODA abertura da
+// página de Clientes era desperdício puro.
+//
+// TTL curto (1 min) de propósito: uma tag nova aparece no filtro em no
+// máximo um minuto, sem precisar de invalidação explícita em todo caminho
+// de escrita (bulk "Etiquetar", importação, API externa, edição de
+// contato) — invalidar em todos eles seria fácil de esquecer num caminho
+// novo e deixaria o filtro mentindo. Por processo/instância: cada réplica
+// paga o scan uma vez por janela, o que é irrelevante perto de uma vez por
+// pageview.
+const TAGS_CACHE_TTL_MS = 60_000;
+const tagsCache = new Map<string, { at: number; tags: string[] }>();
+
 export async function getDistinctContactTags(organizationId: string, responsavelId?: string): Promise<string[]> {
+  const cacheKey = `${organizationId}:${responsavelId ?? ""}`;
+  const hit = tagsCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < TAGS_CACHE_TTL_MS) return hit.tags;
+
+  const tags = await queryDistinctContactTags(organizationId, responsavelId);
+  tagsCache.set(cacheKey, { at: Date.now(), tags });
+  return tags;
+}
+
+async function queryDistinctContactTags(organizationId: string, responsavelId?: string): Promise<string[]> {
   // `responsavelId` (opcional) — MEMBER só pode ver/filtrar pelas tags dos
   // PRÓPRIOS contatos (mesma régua do resto da listagem, ver isMember em
   // app/(dashboard)/clientes/page.tsx e GET /api/contacts) — sem isso, o

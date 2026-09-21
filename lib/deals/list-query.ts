@@ -238,29 +238,53 @@ export async function countDealsByStage(
 
 /**
  * % de negócios de cada etapa com pelo menos uma tarefa pendente ("saúde da
- * etapa", ver new-design-for-claude/README.md) — N chamadas `prisma.deal.count`
- * em paralelo (uma por etapa, ~8 etapas típicas), reaproveitando
- * buildDealsWhere. Não usa SQL cru: o wrapper de RLS (ver lib/prisma.ts) só
- * intercepta operação de MODELO, não `$queryRaw` — SQL cru aqui exigiria
- * `prismaRaw.$transaction`+`setTenantOnTx` e duplicar a cláusula WHERE fora
- * do builder único, o mesmo risco de count/fetch saírem de sincronia que
- * este arquivo evita de propósito em todo o resto. N pequeno (poucas
- * etapas) torna N-queries-em-paralelo a opção mais simples seguindo o
- * padrão já estabelecido aqui.
+ * etapa", ver new-design-for-claude/README.md) — UMA consulta agregada
+ * (groupBy por stageId), reaproveitando buildDealsWhere.
+ *
+ * Era uma chamada `prisma.deal.count` POR ETAPA em paralelo (~8 consultas
+ * típicas). Medido no banco de produção: 19,5ms cada (≈156ms de trabalho de
+ * banco no total) contra 3,9ms desta agregada — e, mais importante que o
+ * tempo de banco, cada operação do Prisma aqui abre a PRÓPRIA transação
+ * curta pra RLS (BEGIN + set_config + consulta + COMMIT, ver withTenantRls
+ * em lib/prisma.ts): medido, isso faz cada consulta custar ~4,7 idas-e-
+ * voltas ao Postgres. 8 consultas = ~38 idas-e-voltas + 8 conexões do pool
+ * ocupadas ao mesmo tempo; esta versão custa ~4,7 e uma conexão só.
+ *
+ * Continua sem SQL cru pelo mesmo motivo de antes (o wrapper de RLS só
+ * intercepta operação de MODELO, e duplicar o WHERE fora de buildDealsWhere
+ * é o risco de count/fetch saírem de sincronia que este arquivo evita) —
+ * `groupBy` é operação de modelo, então passa pelo wrapper normalmente.
  */
 export async function countDealsWithTaskByStage(
   params: DealsFilterParams,
-  stageIds: string[],
+  /** Opcional — quando omitido, agrega TODAS as etapas que casarem com o
+   * filtro. Passar a lista serve só pra garantir chave (com 0) em etapa que
+   * não tem nenhum negócio com tarefa; quem consome usa `?? 0` mesmo
+   * (ver kanban-board.tsx), então omitir é seguro e deixa esta consulta
+   * rodar em PARALELO com countDealsByStage em vez de esperar o resultado
+   * dela só pra saber quais etapas existem. */
+  stageIds?: string[],
 ): Promise<Record<string, number>> {
-  const entries = await Promise.all(
-    stageIds.map(async (stageId) => {
-      const count = await prisma.deal.count({
-        where: { ...buildDealsWhere({ ...params, stageId }), tasks: { some: { completedAt: null } } },
-      });
-      return [stageId, count] as const;
-    }),
-  );
-  return Object.fromEntries(entries);
+  if (stageIds && stageIds.length === 0) return {};
+
+  const groups = await prisma.deal.groupBy({
+    by: ["stageId"],
+    where: {
+      ...buildDealsWhere(params),
+      // DEPOIS do spread de propósito: buildDealsWhere também pode pôr um
+      // `stageId` (quando params traz um) e aqui o filtro é a lista pedida.
+      ...(stageIds ? { stageId: { in: stageIds } } : {}),
+      tasks: { some: { completedAt: null } },
+    },
+    _count: { _all: true },
+  });
+
+  // groupBy não devolve linha pra etapa sem nenhum negócio com tarefa — a
+  // versão anterior (um count por etapa) devolvia 0 pra ela.
+  const byStage: Record<string, number> = {};
+  for (const stageId of stageIds ?? []) byStage[stageId] = 0;
+  for (const g of groups) byStage[g.stageId] = g._count._all;
+  return byStage;
 }
 
 /**

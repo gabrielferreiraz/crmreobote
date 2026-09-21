@@ -5,8 +5,6 @@ import Link from "next/link";
 import { Plus, Calculator } from "lucide-react";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { getCurrentMembership } from "@/lib/current-membership";
-import { runWithTenant } from "@/lib/tenant-context";
-import { getOwnCardShortcut } from "@/lib/digital-cards/queries";
 import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { TopNavLinks } from "./top-nav-links";
 import { AdaptiveHeaderRow } from "./adaptive-header-row";
@@ -43,11 +41,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // (nunca a tela de edição) com o QR já se abrindo sozinho. Só monta o
   // link quando existe um cartão ATIVO (senão a página pública mostra
   // "não encontrado") — sem cartão ainda/inativo, o menu cai pro fluxo de
-  // configurar primeiro (ver user-menu.tsx). getOwnCardShortcut é a versão
-  // mínima da consulta (só slug+active, sem join/URL assinada) porque isto
-  // roda em TODA navegação do CRM.
+  // configurar primeiro (ver user-menu.tsx).
+  //
+  // slug/active vêm JUNTO de getCurrentMembership (mesma consulta, um JOIN
+  // em FK única) — era uma consulta separada, e como isto roda em TODA
+  // navegação do dashboard, era uma ida-e-volta inteira ao Postgres por
+  // página só pra montar um href (cada operação do Prisma custa ~4,7
+  // idas-e-voltas por causa da transação de RLS — medido).
   const hdrs = await headers();
-  const cardShortcut = await runWithTenant(membership.organizationId, () => getOwnCardShortcut(membership.userId));
+  const cardShortcut = membership.cardShortcut;
   const cardShowUrl = cardShortcut?.active ? `${publicCardUrlFromHeaders(cardShortcut.slug, hdrs)}?qr=1` : null;
 
   async function handleSignOut() {

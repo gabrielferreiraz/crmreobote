@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
 import { usePushSubscription } from "@/lib/use-push-subscription";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { LeadRequestContactModal } from "@/components/lead-request-contact-modal";
 
 type NotificationTask = {
@@ -44,25 +45,24 @@ export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
+  // useVisiblePoll (não setInterval cru): o sino está no layout, ou seja,
+  // existe em TODA página — sem checar visibilidade, uma aba esquecida
+  // aberta continuava disparando estas 2 consultas por minuto pra sempre.
+  // Também busca na hora ao voltar pra aba, então o dado fica MAIS fresco
+  // do que era antes (não espera até um minuto inteiro pra atualizar).
+  useVisiblePoll(() => {
+    void (async () => {
       const [tasksRes, leadRequestsRes] = await Promise.all([
         fetch("/api/tasks/notifications"),
         fetch("/api/lead-requests"),
       ]);
-      if (!cancelled && tasksRes.ok) setTasks(await tasksRes.json());
-      if (!cancelled && leadRequestsRes.ok) setLeadRequests(await leadRequestsRes.json());
-    }
-
-    load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+      if (tasksRes.ok) setTasks(await tasksRes.json());
+      if (leadRequestsRes.ok) setLeadRequests(await leadRequestsRes.json());
+    })().catch(() => {
+      // Rede caiu/offline — mantém o que já estava na tela em vez de
+      // quebrar o sino; o próximo tique (ou a volta pra aba) tenta de novo.
+    });
+  }, POLL_INTERVAL_MS);
 
   // Aprovar/recusar direto do sino — sem sair da tela nem abrir mais nada
   // (pedido explícito: "mostra um modal pequeno logo abaixo do sino"; este

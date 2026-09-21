@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { EvaluatedTip, ProductivityTipType } from "@/lib/productivity-tips/types";
 import { saveBulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { saveTasksScheduleDraft } from "@/lib/tasks-schedule-draft";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 
 const REVAL_INTERVAL_MS = 2 * 60 * 1000;
 const NAV_DEBOUNCE_MS = 1200;
@@ -55,11 +56,22 @@ export function useProductivityTips() {
     return () => clearTimeout(t);
   }, [pathname, revaluate]);
 
-  // Polling periódico
-  useEffect(() => {
-    const id = setInterval(() => revaluate(), REVAL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [revaluate]);
+  // Polling periódico — só com a aba visível (ver lib/use-visible-poll.ts).
+  // Este hook vive no layout do dashboard, então roda em TODA página: sem a
+  // checagem de visibilidade, uma aba esquecida aberta ficava reavaliando as
+  // dicas no servidor pra sempre, sem ninguém pra ler o resultado.
+  //
+  // O efeito de montagem/navegação acima (com debounce) continua sendo quem
+  // busca na entrada da tela; aqui `skipFirstRun` evita que a chamada
+  // imediata do useVisiblePoll duplique aquela busca.
+  const skipFirstRun = useRef(true);
+  useVisiblePoll(() => {
+    if (skipFirstRun.current) {
+      skipFirstRun.current = false;
+      return;
+    }
+    void revaluate();
+  }, REVAL_INTERVAL_MS);
 
   // Quando o tip mudar, reseta os flags
   useEffect(() => {

@@ -75,11 +75,6 @@ export default async function HomePage() {
   const staleBefore = new Date(Date.now() - STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
   const startOfMonth = brazilStartOfMonth();
 
-  const pipeline = await prisma.pipeline.findFirst({
-    where: { organizationId, isDefault: true },
-    include: { stages: { orderBy: { order: "asc" } } },
-  });
-
   const staleDealsParams = { organizationId, scope, status: "OPEN" as const, stageEnteredBefore: staleBefore };
   // "% da meta" no KPI "Fechado no mês" (ver getCurrentMonthGoalProgress) só
   // faz sentido pra quem vê o funil inteiro — meta é sempre organização
@@ -89,7 +84,15 @@ export default async function HomePage() {
   const isOwnerForGoal = session!.user.role === "OWNER";
   const alertBefore = new Date(Date.now() - STALE_DEAL_ALERT_DAYS * 24 * 60 * 60 * 1000);
 
+  // TUDO num lote paralelo só. O funil padrão (`pipeline`) era buscado ANTES
+  // deste lote, só porque a agregação por etapa filtrava por pipelineId —
+  // um degrau de cascata inteiro (≈4,7 idas-e-voltas ao Postgres, medido)
+  // antes do trabalho de verdade começar. A agregação agora agrupa por
+  // stageId sem filtrar por funil: `stageData` abaixo só percorre as etapas
+  // do funil padrão, então etapa de outro funil que venha no resultado é
+  // simplesmente ignorada — mesmo número no fim, um degrau a menos.
   const [
+    pipeline,
     openDeals,
     pipelineValue,
     wonThisMonth,
@@ -104,6 +107,10 @@ export default async function HomePage() {
     unreadCount,
     goalProgress,
   ] = await Promise.all([
+    prisma.pipeline.findFirst({
+      where: { organizationId, isDefault: true },
+      include: { stages: { orderBy: { order: "asc" } } },
+    }),
     prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
     prisma.deal.aggregate({
       where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
@@ -121,25 +128,44 @@ export default async function HomePage() {
     prisma.contact.count({ where: { organizationId, ...contactScopeWhere(scope) } }),
     fetchDealsList({ ...staleDealsParams, take: STALE_DEALS_PAGE_SIZE, sortDir: "asc" }),
     countDeals(staleDealsParams),
-    pipeline
-      ? prisma.deal.groupBy({
-          by: ["stageId"],
-          where: { organizationId, pipelineId: pipeline.id, status: "OPEN", ...scopeWhere(scope) },
-          _count: true,
-          _sum: { value: true },
-        })
-      : Promise.resolve([]),
+    prisma.deal.groupBy({
+      by: ["stageId"],
+      where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
+      _count: true,
+      _sum: { value: true },
+    }),
+    // `select` em vez de `include: { deal: true, contact: true }` — a tela
+    // usa só id/nome dos dois, e `true` traz a linha INTEIRA (negócio tem
+    // customFields JSON, motivo de perda, valores...). Bytes reais saindo do
+    // Postgres à toa em toda carga do Início.
     prisma.task.findMany({
       where: { organizationId, ownerId: userId, completedAt: null, dueAt: { gte: new Date() } },
       orderBy: { dueAt: "asc" },
       take: 5,
-      include: { deal: true, contact: true },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        dueAt: true,
+        deal: { select: { id: true, name: true } },
+        contact: { select: { id: true, name: true } },
+      },
     }),
+    // Mesmo motivo — e aqui `user: true` trazia o registro inteiro do autor,
+    // INCLUSIVE o hash de senha (User.password), pra usar só nome e foto.
     prisma.activity.findMany({
       where: { organizationId, ...(scope.type === "owners" ? { userId: { in: scope.ownerIds } } : {}) },
       orderBy: { createdAt: "desc" },
       take: 6,
-      include: { user: true, deal: true, contact: true },
+      select: {
+        id: true,
+        type: true,
+        body: true,
+        createdAt: true,
+        user: { select: { id: true, name: true, image: true } },
+        deal: { select: { id: true, name: true } },
+        contact: { select: { id: true, name: true } },
+      },
     }),
     // Card "Exige ação" (ver action-required-card.tsx) — mesmo builder de
     // filtro do Pipeline (countDeals/buildDealsWhere em lib/deals/list-query.ts),

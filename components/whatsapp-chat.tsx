@@ -42,6 +42,7 @@ import { CurrencyInput } from "@/components/currency-input";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { withViewTransition } from "@/lib/view-transition";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 
@@ -414,16 +415,21 @@ export function ChatWindow({
 
   useEffect(() => {
     load();
-    // Rede de segurança, não o mecanismo principal — o SSE abaixo (useWhatsAppLive)
-    // já acorda o chat na hora que o webhook grava uma mensagem/status/presença
-    // nova. Isso só cobre a conexão SSE cair sem o navegador perceber (ex.:
-    // proxy corporativo que bloqueia text/event-stream) — por isso o intervalo
-    // é bem mais espaçado do que os 4s de antes, quando isso era o único
-    // mecanismo de atualização.
-    const interval = setInterval(load, 45_000);
-    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
+
+  // Rede de segurança, não o mecanismo principal — o SSE (useWhatsAppLive
+  // abaixo) já acorda o chat na hora que o webhook grava uma mensagem/status/
+  // presença nova. Isso só cobre a conexão SSE cair sem o navegador perceber
+  // (ex.: proxy corporativo que bloqueia text/event-stream).
+  //
+  // useVisiblePoll: com a aba em segundo plano não há o que atualizar na
+  // tela, e ao voltar pra aba recarrega na hora — mais fresco que esperar
+  // o próximo tique. Separado do efeito de troca de thread acima de
+  // propósito: aquele PRECISA recarregar na hora que a conversa muda.
+  useVisiblePoll(() => {
+    load();
+  }, 45_000);
 
   // Só recarrega quando o evento é da conversa aberta agora — um evento de
   // OUTRA thread não deveria fazer esta janela específica refazer o fetch.

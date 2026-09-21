@@ -14,6 +14,13 @@ export type CurrentMembership = {
   area: $Enums.UserArea;
   canManageProcesses: boolean;
   photoKey: string | null;
+  /** Atalho "Cartão de visita" do menu do usuário (ver components/user-menu.tsx).
+   * Vem junto nesta consulta (um JOIN em FK única) em vez de uma consulta
+   * própria: isto aqui roda em TODA navegação do dashboard, e cada operação
+   * do Prisma custa ~4,7 idas-e-voltas ao Postgres por causa da transação
+   * de RLS (medido, ver withTenantRls em lib/prisma.ts) — uma consulta
+   * separada só pra montar um href era uma ida-e-volta inteira por página. */
+  cardShortcut: { slug: string; active: boolean } | null;
 };
 
 /**
@@ -42,7 +49,18 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
   const membership = await runWithTenant(organizationId, () =>
     prisma.organizationUser.findUnique({
       where: { organizationId_userId: { organizationId, userId } },
-      select: { active: true, role: true, area: true, canManageProcesses: true, user: { select: { image: true } } },
+      select: {
+        active: true,
+        role: true,
+        area: true,
+        canManageProcesses: true,
+        user: {
+          select: {
+            image: true,
+            digitalCard: { select: { slug: true, active: true } },
+          },
+        },
+      },
     }),
   );
   if (!membership) return null;
@@ -56,5 +74,6 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
     area: membership.area,
     canManageProcesses: membership.canManageProcesses,
     photoKey: membership.user.image,
+    cardShortcut: membership.user.digitalCard,
   };
 });

@@ -60,12 +60,16 @@ export async function GET(req: Request) {
       taskDueBefore,
       noValue: noValue || undefined,
     };
-    const counts = await countDealsByStage(filterParams);
-    // Saúde da etapa (% com tarefa) só faz sentido pras etapas que de fato
-    // têm negócio sob o filtro atual — etapa vazia não precisa de consulta.
-    const stageIdsWithDeals = Object.keys(counts);
-    const withTaskCounts =
-      stageIdsWithDeals.length > 0 ? await countDealsWithTaskByStage(filterParams, stageIdsWithDeals) : {};
+    // Em PARALELO (era sequencial: esperava `counts` só pra saber quais
+    // etapas consultar). countDealsWithTaskByStage virou uma agregada só e
+    // não precisa mais dessa lista — quem consome usa `?? 0` pra etapa sem
+    // chave (ver kanban-board.tsx). Esta rota roda a cada mudança de filtro
+    // no Kanban, então um degrau de cascata a menos aparece direto na
+    // sensação de resposta ao clique.
+    const [counts, withTaskCounts] = await Promise.all([
+      countDealsByStage(filterParams),
+      countDealsWithTaskByStage(filterParams),
+    ]);
     return NextResponse.json({ counts, withTaskCounts });
   });
 }
