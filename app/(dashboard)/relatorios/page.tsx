@@ -7,6 +7,7 @@ import { Avatar } from "@/components/avatar";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { TrendAreaChart, DrillableTrendChart } from "@/components/charts/trend-area-chart";
 import { PersonalHero, findRankingPosition } from "./personal-hero";
+import { WonDealsButton } from "./won-deals-button";
 import { FunnelChart, FunnelSkeleton } from "@/components/charts/funnel-chart";
 import { Leaderboard } from "@/components/leaderboard";
 import { RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
@@ -123,6 +124,8 @@ export default async function RelatoriosPage({
     showTeamActivity,
     activePipeline,
     pipelineFilter,
+    rangeFromIso,
+    rangeToIso,
     openCount,
     wonCount,
     lostCount,
@@ -191,6 +194,31 @@ export default async function RelatoriosPage({
     compareFromParam,
     compareToParam,
   });
+
+  // Rótulo do período no painel "Ver negócios" do card "Negócios fechados" —
+  // mês por extenso quando o período é um mês civil inteiro (mesmo selo do
+  // título), senão as datas, senão "Todo o histórico".
+  const fmtDay = (d: string) => d.split("-").reverse().join("/");
+  const periodLabel =
+    selectedMonthLabel ??
+    (fromParam && toParam ? `${fmtDay(fromParam)} – ${fmtDay(toParam)}` : rangeParam === "all" ? "Todo o histórico" : "Período selecionado");
+  // Cada linha do ranking ganha "Ver negócios" — os limites são os JÁ
+  // resolvidos pelo relatório (rangeFromIso/rangeToIso) e o mesmo funil, pra
+  // lista de cada pessoa somar exatamente o número que está no card.
+  const dealsClosedRankingWithAction = dealsClosedRanking.map((entry) => ({
+    ...entry,
+    action: (
+      <WonDealsButton
+        ownerId={entry.id}
+        ownerName={entry.name}
+        photoUrl={entry.photoUrl ?? null}
+        fromIso={rangeFromIso}
+        toIso={rangeToIso}
+        pipelineId={pipelineFilter.pipelineId ?? null}
+        periodLabel={periodLabel}
+      />
+    ),
+  }));
 
   // Dados necessários pro PersonalHero — extraídos dos rankings já computados.
   const personalRankingPos = isPersonalView
@@ -446,7 +474,7 @@ export default async function RelatoriosPage({
                 dividem altura por serem da mesma fileira) até o tamanho do
                 time. */}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={dealsClosedRanking} emptyLabel="Nenhum negócio ganho ainda" />
+              <Leaderboard entries={dealsClosedRankingWithAction} emptyLabel="Nenhum negócio ganho ainda" />
             </div>
           </div>
           <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">

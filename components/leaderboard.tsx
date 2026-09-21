@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Avatar } from "@/components/avatar";
 
 export type LeaderboardEntry = {
@@ -6,6 +7,8 @@ export type LeaderboardEntry = {
   photoUrl?: string | null;
   primaryValue: string;
   secondaryValue?: string;
+  /** Ação opcional no fim da linha (ex.: "Ver negócios" do card "Negócios fechados") — montada por quem usa o ranking, este componente só dá o lugar. */
+  action?: ReactNode;
 };
 
 const RANK_BADGE: Record<number, string> = {
@@ -72,8 +75,17 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
             </div>
             <div className="pl-9">
               <p className="text-lg leading-tight font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</p>
-              {entry.secondaryValue && (
-                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{entry.secondaryValue}</p>
+              {/* Detalhe e ação lado a lado quando há ação — o detalhe ganha
+                  o espaço que sobrar (min-w-0), a ação nunca é espremida. */}
+              {(entry.secondaryValue || entry.action) && (
+                <div className="mt-0.5 flex items-center justify-between gap-2">
+                  {entry.secondaryValue ? (
+                    <p className="min-w-0 text-[11px] text-neutral-400 dark:text-neutral-500">{entry.secondaryValue}</p>
+                  ) : (
+                    <span />
+                  )}
+                  {entry.action}
+                </div>
               )}
             </div>
           </div>

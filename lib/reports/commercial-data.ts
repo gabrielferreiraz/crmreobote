@@ -480,12 +480,27 @@ export async function getCommercialReportData(params: {
   // duas versões que podem divergir.
   const CREDIT_TYPE_PALETTE = ["#059669", "#64748b", "#d97706", "#7c3aed", "#0ea5e9", "#db2777"];
   const OUTROS_COLOR = "#a3a3a3";
+  const NO_TYPE_KEY = "__SEM_TIPO__";
   const colorByLabel = new Map(orgCreditTypes.map((c, i) => [c.label, CREDIT_TYPE_PALETTE[i % CREDIT_TYPE_PALETTE.length]]));
-  const validCreditTypeLabels = new Set(orgCreditTypes.map((c) => c.label));
+  // Rótulos fora da lista atual (legado) ganham cor própria seguindo a paleta.
+  const extraColors = new Map<string, string>();
+  function colorFor(key: string): string {
+    if (key === NO_TYPE_KEY) return OUTROS_COLOR;
+    const known = colorByLabel.get(key);
+    if (known) return known;
+    if (!extraColors.has(key)) {
+      extraColors.set(key, CREDIT_TYPE_PALETTE[(colorByLabel.size + extraColors.size) % CREDIT_TYPE_PALETTE.length]);
+    }
+    return extraColors.get(key)!;
+  }
   function bucketCreditType(rows: { creditType: string | null; _count: number; _sum: { value: Prisma.Decimal | null } }[]) {
     const totals = new Map<string, { count: number; value: number }>();
     for (const c of rows) {
-      const key = c.creditType && validCreditTypeLabels.has(c.creditType) ? c.creditType : "OUTROS";
+      // Sem "Outros" genérico: valor vazio vira "Sem tipo informado" e um
+      // tipo já renomeado/removido aparece com o próprio texto antigo — cada
+      // um em sua linha, pra o relatório detalhar tudo (pedido explícito).
+      const raw = c.creditType?.trim();
+      const key = raw ? raw : NO_TYPE_KEY;
       const prev = totals.get(key) ?? { count: 0, value: 0 };
       prev.count += c._count;
       prev.value += c._sum.value ? Number(c._sum.value) : 0;
@@ -498,8 +513,8 @@ export async function getCommercialReportData(params: {
   const creditTypeBreakdown = Array.from(creditTypeTotals.entries())
     .map(([key, t]) => ({
       key,
-      label: key === "OUTROS" ? "Outros" : key,
-      color: key === "OUTROS" ? OUTROS_COLOR : (colorByLabel.get(key) ?? OUTROS_COLOR),
+      label: key === NO_TYPE_KEY ? "Sem tipo informado" : key,
+      color: colorFor(key),
       count: t.count,
       value: t.value,
       avgValue: t.count > 0 ? t.value / t.count : 0,
@@ -1840,6 +1855,13 @@ export async function getCommercialReportData(params: {
     showTeamActivity,
     activePipeline,
     pipelineFilter,
+    // Período JÁ resolvido (ISO, ou null em "Tudo") — o painel "Ver
+    // negócios" do ranking (ver relatorios/won-deals-button.tsx) usa estes
+    // limites exatos pra listar os negócios de cada pessoa, em vez de
+    // reinterpretar "Este mês"/"Tudo" por conta própria: assim a lista
+    // sempre soma o mesmo número que o card de ranking mostrou.
+    rangeFromIso: rangeFrom ? rangeFrom.toISOString() : null,
+    rangeToIso: rangeTo ? rangeTo.toISOString() : null,
     openCount,
     wonCount,
     lostCount,

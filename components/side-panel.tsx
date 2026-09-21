@@ -8,10 +8,13 @@ export function SidePanel({
   onClose,
   title,
   children,
+  maxWidth = "max-w-md",
 }: {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** Classe de largura máxima do painel — padrão max-w-md (cadastro rápido); listas com mais colunas de informação pedem mais. */
+  maxWidth?: string;
 }) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -30,7 +33,7 @@ export function SidePanel({
       }}
     >
       <div
-        className="surface-glass-panel animate-sheet-right scrollbar-thin flex h-full w-full max-w-md flex-col overflow-y-auto border-y-0 border-r-0 p-5 pb-8"
+        className={`surface-glass-panel animate-sheet-right scrollbar-thin flex h-full w-full ${maxWidth} flex-col overflow-y-auto border-y-0 border-r-0 p-5 pb-8`}
       >
         <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
