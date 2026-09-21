@@ -41,6 +41,21 @@ model Organization {
    * ativando/desativando a regra, um botão a mais aqui só duplicaria isso.
    */
   emailNotificationSettings Json?
+  /**
+   * Fotos padrão do Cartão Digital ESCOLHIDAS PELO DONO (ver
+   * lib/digital-cards/config.ts pro padrão "de fábrica", hardcoded — este
+   * campo é a camada acima dele, editável em produção sem precisar de
+   * deploy). Pedido explícito: "eu posso adicionar com um botão (apenas o
+   * dono) de 'manter padrão para todos', aí a imagem que eu escolher vira
+   * padrão" — o dono usa uma foto que já subiu no PRÓPRIO cartão (Meu
+   * Cartão) e promove pra virar o padrão de todo mundo que ainda não subiu
+   * uma própria. Formato: `{ photoKey?, coverPhotoKey?, backgroundPhotoKey?
+   * }` — mesmas chaves R2 de DigitalCard.photoKey/coverPhotoKey/
+   * backgroundPhotoKey, resolvidas do mesmo jeito (resolveAvatarUrl, ver
+   * lib/digital-cards/queries.ts). Chave ausente/null = cai pro padrão de
+   * fábrica; nenhuma das duas = gradiente/ícone genérico.
+   */
+  digitalCardDefaults Json?
 
   users                  OrganizationUser[]
   pipelines              Pipeline[]

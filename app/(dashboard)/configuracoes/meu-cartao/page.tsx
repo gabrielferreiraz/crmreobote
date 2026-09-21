@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateOwnCard, getCardStats } from "@/lib/digital-cards/queries";
+import { getOrgCardDefaults } from "@/lib/digital-cards/org-defaults";
 import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { CardEditor } from "./card-editor";
 import { QrCodePanel } from "./qr-code-panel";
@@ -27,12 +28,22 @@ export default async function MeuCartaoPage() {
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
+  const isOwner = session!.user.role === "OWNER";
   const hdrs = await headers();
 
-  const { card, stats, publicUrl } = await runWithTenant(organizationId, async () => {
+  const { card, stats, publicUrl, orgDefaultsSet } = await runWithTenant(organizationId, async () => {
     const card = await getOrCreateOwnCard(organizationId, userId);
     const stats = await getCardStats(card.id);
-    return { card, stats, publicUrl: publicCardUrlFromHeaders(card.slug, hdrs) };
+    // Só busca se a pessoa vai de fato ver o botão "Manter padrão para
+    // todos" (ver card-editor.tsx) — consulta a mais à toa pra quem não é
+    // OWNER, que nunca renderiza esse bloco.
+    const orgDefaults = isOwner ? await getOrgCardDefaults(organizationId) : null;
+    return {
+      card,
+      stats,
+      publicUrl: publicCardUrlFromHeaders(card.slug, hdrs),
+      orgDefaultsSet: { cover: !!orgDefaults?.coverPhotoKey, background: !!orgDefaults?.backgroundPhotoKey },
+    };
   });
 
   return (
@@ -49,7 +60,7 @@ export default async function MeuCartaoPage() {
         </p>
       </div>
 
-      <CardEditor card={card} publicUrl={publicUrl} />
+      <CardEditor card={card} publicUrl={publicUrl} isOwner={isOwner} orgDefaultsSet={orgDefaultsSet} />
 
       {card.active && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

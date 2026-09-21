@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, X, Camera, Trash2, Copy, Check, ExternalLink, Maximize2, ChevronLeft, ChevronRight, GripVertical, Power } from "lucide-react";
+import { Loader2, Plus, X, Camera, Trash2, Copy, Check, ExternalLink, Maximize2, ChevronLeft, ChevronRight, GripVertical, Power, Users } from "lucide-react";
 import { Select } from "@/components/select";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
@@ -84,7 +84,19 @@ type SavedFields = {
   links: { type: string; label: string; url: string }[];
 };
 
-export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publicUrl: string }) {
+export function CardEditor({
+  card,
+  publicUrl,
+  isOwner,
+  orgDefaultsSet,
+}: {
+  card: NonNullable<Card>;
+  publicUrl: string;
+  /** Controla o botão "Manter padrão para todos" (capa/fundo — nunca a foto de perfil, ver lib/digital-cards/config.ts) — OWNER-only, mesmo motivo de qualquer configuração que afeta o cartão de todo mundo de uma vez. */
+  isOwner: boolean;
+  /** Se capa/fundo da ORGANIZAÇÃO já têm um padrão definido agora (ver lib/digital-cards/org-defaults.ts) — decide "Manter padrão" vs. "Remover padrão da equipe". */
+  orgDefaultsSet: { cover: boolean; background: boolean };
+}) {
   const router = useRouter();
   const [active, setActive] = useState(card.active);
   const [activeSaving, setActiveSaving] = useState(false);
@@ -119,6 +131,14 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
   const [uploadingCover, setUploadingCover] = useState(false);
   const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState(card.backgroundPhotoUrl);
   const [uploadingBackground, setUploadingBackground] = useState(false);
+  // "Manter padrão para todos" (só OWNER, só capa/fundo — ver
+  // lib/digital-cards/config.ts pro porquê da foto de perfil ficar de fora)
+  // — mesmo espírito de handleToggleActive acima: ação PRÓPRIA e imediata,
+  // não depende do botão "Salvar alterações" lá embaixo.
+  const [orgDefaultCover, setOrgDefaultCover] = useState(orgDefaultsSet.cover);
+  const [orgDefaultBackground, setOrgDefaultBackground] = useState(orgDefaultsSet.background);
+  const [settingDefaultField, setSettingDefaultField] = useState<"cover" | "background" | null>(null);
+  const [defaultError, setDefaultError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -387,6 +407,35 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
     if (res.ok) setBackgroundPhotoUrl(null);
   }
 
+  /** Promove a foto ATUAL de capa/fundo deste cartão a padrão de quem ainda não subiu uma própria (ver POST em app/api/digital-cards/org-defaults/[field]/route.ts). */
+  async function handleSetOrgDefault(field: "cover" | "background") {
+    setSettingDefaultField(field);
+    setDefaultError(null);
+    const res = await fetch(`/api/digital-cards/org-defaults/${field}`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    setSettingDefaultField(null);
+    if (!res.ok) {
+      setDefaultError(data.error ?? "Não foi possível definir como padrão agora.");
+      return;
+    }
+    if (field === "cover") setOrgDefaultCover(true);
+    else setOrgDefaultBackground(true);
+  }
+
+  /** Deixa de ser o padrão da equipe — não apaga a foto do SEU cartão, só o compartilhamento com quem ainda não subiu uma própria. */
+  async function handleClearOrgDefault(field: "cover" | "background") {
+    setSettingDefaultField(field);
+    setDefaultError(null);
+    const res = await fetch(`/api/digital-cards/org-defaults/${field}`, { method: "DELETE" });
+    setSettingDefaultField(null);
+    if (!res.ok) {
+      setDefaultError("Não foi possível remover o padrão agora.");
+      return;
+    }
+    if (field === "cover") setOrgDefaultCover(false);
+    else setOrgDefaultBackground(false);
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -562,6 +611,16 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
                   </button>
                 )}
               </div>
+              {isOwner && (
+                <OrgDefaultControl
+                  field="cover"
+                  hasOwnPhoto={!!coverPhotoUrl}
+                  isDefault={orgDefaultCover}
+                  busy={settingDefaultField === "cover"}
+                  onSet={() => handleSetOrgDefault("cover")}
+                  onClear={() => handleClearOrgDefault("cover")}
+                />
+              )}
             </div>
           </div>
 
@@ -596,8 +655,20 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
                   </button>
                 )}
               </div>
+              {isOwner && (
+                <OrgDefaultControl
+                  field="background"
+                  hasOwnPhoto={!!backgroundPhotoUrl}
+                  isDefault={orgDefaultBackground}
+                  busy={settingDefaultField === "background"}
+                  onSet={() => handleSetOrgDefault("background")}
+                  onClear={() => handleClearOrgDefault("background")}
+                />
+              )}
             </div>
           </div>
+
+          {isOwner && defaultError && <p className="text-xs text-red-600 dark:text-red-400">{defaultError}</p>}
         </div>
 
         {/* Como você aparece — cargo/empresa/bio. Pedido explícito: "não
@@ -922,5 +993,60 @@ export function CardEditor({ card, publicUrl }: { card: NonNullable<Card>; publi
         onCropComplete={handleCroppedUpload}
       />
     </div>
+  );
+}
+
+/**
+ * "Manter padrão para todos" — só OWNER (ver isOwner em CardEditor), só
+ * capa/fundo (nunca a foto de perfil, ver lib/digital-cards/config.ts).
+ * Duas linhas de texto pra deixar bem claro o que o botão faz antes de
+ * clicar: quem ainda não subiu uma foto própria nesse campo passa a ver
+ * ESTA aqui, no lugar do gradiente abstrato — pedido explícito: "a imagem
+ * que eu escolher vira padrão".
+ */
+function OrgDefaultControl({
+  field,
+  hasOwnPhoto,
+  isDefault,
+  busy,
+  onSet,
+  onClear,
+}: {
+  field: "cover" | "background";
+  hasOwnPhoto: boolean;
+  isDefault: boolean;
+  busy: boolean;
+  onSet: () => void;
+  onClear: () => void;
+}) {
+  if (isDefault) {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+        <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+        <span className="min-w-0 flex-1">É o padrão de quem ainda não subiu {field === "cover" ? "capa" : "fundo"} própria.</span>
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={busy}
+          className="shrink-0 font-medium text-neutral-400 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-500 dark:hover:text-neutral-200"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} /> : "Remover"}
+        </button>
+      </div>
+    );
+  }
+
+  if (!hasOwnPhoto) return null; // nada pra promover ainda — botão volta quando subir uma foto (ver hasOwnPhoto)
+
+  return (
+    <button
+      type="button"
+      onClick={onSet}
+      disabled={busy}
+      className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:text-neutral-100"
+    >
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <Users className="h-3.5 w-3.5" strokeWidth={2} />}
+      Manter padrão para todos
+    </button>
   );
 }
