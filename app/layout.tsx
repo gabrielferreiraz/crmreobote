@@ -4,17 +4,8 @@ import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
 
-const THEME_INIT_SCRIPT = `
-(function () {
-  try {
-    var stored = localStorage.getItem("theme");
-    var theme = stored === "light" || stored === "dark"
-      ? stored
-      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    if (theme === "dark") document.documentElement.classList.add("dark");
-  } catch (e) {}
-})();
-`;
+// Script movido pra public/theme-init.js — Next.js Script com src é mais limpo
+// do que inline, evita o aviso de React sobre script tags renderizadas durante SSR
 
 // Redesign (ver new-design-for-claude/README.md) — DM Sans no lugar da Geist
 // Sans anterior, pesos 400-700 (a marcação do protótipo usa até 700 em
@@ -68,19 +59,11 @@ export default function RootLayout({
       className={`${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {/* SEM <head> escrito à mão — metadata/viewport acima já geram o
-            <head> de verdade sozinhas. Colocar o script AQUI dentro (não
-            dentro de um <head> nosso) é o próprio exemplo oficial da
-            documentação desta versão (node_modules/next/dist/docs/.../
-            scripts.md) — um <head> escrito manualmente põe os filhos num
-            contexto especial do React (onde só link/meta/title/style são
-            tratados como "recurso hoistable"; um script ali é isso que
-            disparava "Encountered a script tag..."). strategy=
-            "beforeInteractive" garante que o Next ainda insere e executa
-            isso no <head> de verdade, cedo o bastante pra nunca haver
-            flash de tema errado — a posição no JSX não muda onde ele
-            realmente cai no HTML final. */}
-        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Inicialização do tema — carrega do arquivo público (public/theme-init.js)
+            pra evitar tentar renderizar inline scripts como JSX. strategy=
+            "beforeInteractive" garante que o Next executa isso no <head> cedo
+            o bastante pra nunca haver flash de tema errado. */}
+        <Script id="theme-init" src="/theme-init.js" strategy="beforeInteractive" />
         <Providers>{children}</Providers>
       </body>
     </html>

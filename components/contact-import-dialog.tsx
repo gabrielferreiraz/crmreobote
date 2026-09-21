@@ -264,8 +264,10 @@ export function ContactImportDialog({
   // simplesmente ausente (deixa a detecção automática decidir).
   function updateOverride(field: ImportField, value: string) {
     const next = { ...overrides, [field]: value === "" ? -1 : Number(value) };
+    console.log("🔄 updateOverride:", field, "→", value === "" ? -1 : Number(value), "overrides agora:", next);
     setOverrides(next);
-    if (file) runPreview(file, next, fieldDefaults);
+    // NÃO dispara runPreview aqui - usuário configura tudo primeiro,
+    // a análise acontece apenas ao clicar em "Importar"
   }
 
   function updateFieldDefault(field: DefaultableField, value: string) {
@@ -274,6 +276,12 @@ export function ContactImportDialog({
     else delete next[field];
     setFieldDefaults(next);
     if (file) runPreview(file, overrides, next);
+  }
+
+  // Não faz nada - apenas mantém os drafts locais.
+  // Os valores são aplicados apenas no momento da importação (confirmImport).
+  function syncTextFieldDefaults() {
+    // Sem ação
   }
 
   // Assumir (dono inativo/sem dono, reatribui na hora) ou solicitar (dono
@@ -350,15 +358,42 @@ export function ContactImportDialog({
     }
   }
 
-  async function confirmImport() {
+  // Atualiza a prévia com os mapeamentos atualizados (botão opcional)
+  async function refreshPreview() {
+    if (!file) return;
+    setError(null);
+    try {
+      const finalFieldDefaults = { ...fieldDefaults };
+      if (jobTitleDraft) finalFieldDefaults.jobTitle = jobTitleDraft;
+      else delete finalFieldDefaults.jobTitle;
+      if (sourceDraft) finalFieldDefaults.source = sourceDraft;
+      else delete finalFieldDefaults.source;
+
+      setStep("analyzing");
+      await runPreview(file, overrides, finalFieldDefaults);
+      setStep("preview");
+    } catch {
+      setError("Falha de conexão. Tente novamente.");
+      setStep("preview");
+    }
+  }
+
+  // Importação real (após revisar a prévia)
+  async function confirmFinalImport() {
     if (!file) return;
     setStep("importing");
     setError(null);
     try {
+      const finalFieldDefaults = { ...fieldDefaults };
+      if (jobTitleDraft) finalFieldDefaults.jobTitle = jobTitleDraft;
+      else delete finalFieldDefaults.jobTitle;
+      if (sourceDraft) finalFieldDefaults.source = sourceDraft;
+      else delete finalFieldDefaults.source;
+
       const formData = new FormData();
       formData.append("file", file);
       if (Object.keys(overrides).length > 0) formData.append("columnOverrides", JSON.stringify(overrides));
-      if (Object.keys(fieldDefaults).length > 0) formData.append("fieldDefaults", JSON.stringify(fieldDefaults));
+      if (Object.keys(finalFieldDefaults).length > 0) formData.append("fieldDefaults", JSON.stringify(finalFieldDefaults));
 
       const res = await fetch("/api/contacts/import", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
@@ -699,13 +734,15 @@ export function ContactImportDialog({
                       <>
                         <input
                           value={field === "jobTitle" ? jobTitleDraft : sourceDraft}
-                          onChange={(e) => (field === "jobTitle" ? setJobTitleDraft : setSourceDraft)(e.target.value)}
-                          onBlur={() => {
+                          onChange={(e) => {
                             if (field === "jobTitle") {
-                              if (jobTitleDraft !== (fieldDefaults.jobTitle ?? "")) updateFieldDefault("jobTitle", jobTitleDraft);
-                            } else if (sourceDraft !== (fieldDefaults.source ?? "")) {
-                              updateFieldDefault("source", sourceDraft);
+                              setJobTitleDraft(e.target.value);
+                            } else {
+                              setSourceDraft(e.target.value);
                             }
+                          }}
+                          onBlur={() => {
+                            syncTextFieldDefaults();
                           }}
                           list={field === "jobTitle" ? "contact-import-job-titles" : "contact-import-sources"}
                           placeholder={field === "jobTitle" ? "Ex.: Produtor rural" : "Ex.: Indicação"}
@@ -756,7 +793,7 @@ export function ContactImportDialog({
                     {col.required && <span className="text-red-500"> *</span>}
                   </span>
                   <Select
-                    value={col.index === -1 ? "" : String(col.index)}
+                    value={overrides[col.field] === -1 ? "" : overrides[col.field] !== undefined ? String(overrides[col.field]) : (col.index === -1 ? "" : String(col.index))}
                     onChange={(v) => updateOverride(col.field, v)}
                     className="w-40 py-1 text-xs"
                     placeholder="Não usar"
@@ -872,24 +909,42 @@ export function ContactImportDialog({
           >
             Trocar arquivo
           </button>
-          <button
-            type="button"
-            disabled={hasBlockingIssue || s.toCreate === 0 || step === "importing"}
-            onClick={confirmImport}
-            className="btn-primary"
-          >
-            {step === "importing" && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {step === "importing" ? (
+          {step === "importing" ? (
+            <button type="button" disabled className="btn-primary">
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
               <span className="inline-flex items-center gap-1">
                 Importando
                 <LoadingDots />
               </span>
-            ) : s.toCreate === 0 ? (
-              "Nada pra importar"
-            ) : (
-              `Importar ${s.toCreate} contato${s.toCreate === 1 ? "" : "s"}`
-            )}
-          </button>
+            </button>
+          ) : Object.keys(overrides).length > 0 ? (
+            <>
+              <button
+                type="button"
+                onClick={refreshPreview}
+                className="btn-secondary"
+              >
+                Atualizar Prévia
+              </button>
+              <button
+                type="button"
+                disabled={hasBlockingIssue || s.toCreate === 0}
+                onClick={confirmFinalImport}
+                className="btn-primary"
+              >
+                {s.toCreate === 0 ? "Nada pra importar" : "Confirmar Importação"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={hasBlockingIssue || s.toCreate === 0}
+              onClick={confirmFinalImport}
+              className="btn-primary"
+            >
+              {s.toCreate === 0 ? "Nada pra importar" : "Confirmar Importação"}
+            </button>
+          )}
         </div>
       </Modal>
     );
