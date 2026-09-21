@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail } from "@/lib/email";
 import { isEmailNotificationEnabled } from "@/lib/notification-settings";
+import { escapeHtml } from "@/lib/security/html-escape";
 
 export const dynamic = "force-dynamic";
 
@@ -53,9 +54,16 @@ export async function POST(
 
     const ownerEmails = owners.map((o) => o.user.email).filter(Boolean);
     if (ownerEmails.length > 0 && (await isEmailNotificationEnabled(access.organizationId, "passwordChanged"))) {
-      const actorName = actor?.name ?? "Um proprietário";
-      const targetName = membership.user.name;
-      const targetEmail = membership.user.email;
+      // User.name/email vêm de campo editável (o próprio User pode ter se
+      // auto-cadastrado com um nome arbitrário em /api/register, sem
+      // sanitização — nome só é validado como "não vazio" lá) — escapa antes
+      // de virar HTML, mesma cautela já aplicada em lib/whatsapp/instance-alerts.ts
+      // e lib/lead-requests/notify.ts. Sem isso, um nome tipo
+      // `<img src=x onerror=...>` virava HTML de verdade neste e-mail
+      // "confiável" que só donos recebem.
+      const actorName = escapeHtml(actor?.name ?? "Um proprietário");
+      const targetName = escapeHtml(membership.user.name);
+      const targetEmail = escapeHtml(membership.user.email);
 
       await sendEmail({
         to: ownerEmails,

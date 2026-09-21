@@ -114,17 +114,17 @@ export function DigitalCardView({
           )}
         </div>
 
-        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-32" : "-mt-26"}`}>
+        <div className={`relative px-4.5 pb-0 ${data.coverPhotoUrl ? "-mt-36" : "-mt-28"}`}>
           {/* Avatar com Anel de Brilho em Gradiente Neon */}
-          <div className="relative mx-auto mb-3.5 h-36 w-36">
-            <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_22px_rgba(0,174,238,0.45)]">
+          <div className="relative mx-auto mb-4 h-44 w-44">
+            <div className="h-full w-full overflow-hidden rounded-full p-[3px] bg-gradient-to-tr from-[#00aeee] via-cyan-400 to-blue-600 shadow-[0_0_24px_rgba(0,174,238,0.5)]">
               <div className="h-full w-full overflow-hidden rounded-full bg-[#090d16]">
                 {data.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={data.photoUrl} alt={data.displayName} className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-white/10">
-                    <UserIcon className="h-10 w-10 text-white/50" strokeWidth={1.5} />
+                    <UserIcon className="h-12 w-12 text-white/50" strokeWidth={1.5} />
                   </div>
                 )}
               </div>
@@ -145,8 +145,8 @@ export function DigitalCardView({
           )}
 
           {/* Logo da Reobote (Fixo logo abaixo da Empresa) */}
-          <div className="mt-4 flex justify-center">
-            <ReoboteLogo className="h-11 sm:h-12 w-auto opacity-95" />
+          <div className="mt-5 flex justify-center px-4">
+            <ReoboteLogo className="h-20 sm:h-24 w-auto opacity-95" />
           </div>
 
           {/* Logos parceiras (Rodobens, Yamaha, Servopa, etc.) */}
