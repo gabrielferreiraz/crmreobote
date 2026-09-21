@@ -14,6 +14,7 @@ import { isValidPhoneInput } from "@/lib/phone-normalize";
 import { isBirthDateInputInvalid, isoToBirthDateMask, parseBirthDateInput } from "@/lib/birth-date";
 
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
+import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 
 type Contact = {
   id: string;
@@ -92,6 +93,12 @@ export function ContactEditForm({
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldFormValues>(contact.customFieldValues ?? {});
   const [loading, setLoading] = useState(false);
   const [errorData, setErrorData] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  // 409 de telefone/WhatsApp já usado por OUTRO contato (ver PUT
+  // /api/contacts/[id]) — antes caía no ErrorDialog genérico "Erro de
+  // servidor" sem nenhuma saída. Agora abre o aviso de conflito, que deixa
+  // solicitar o lead (dono ativo) ou assumir na hora (dono inativo/sem dono/
+  // lead perdido há +3 meses) — ver ContactConflictNotice.
+  const [conflictData, setConflictData] = useState<{ message: string; conflict: ContactConflict } | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   // "Mostrar como ajustar" (erro de permissão por contato de outro
@@ -156,6 +163,10 @@ export function ContactEditForm({
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.conflict) {
+        setConflictData({ message: data.error ?? "Este número já está cadastrado em outro contato.", conflict: data.conflict as ContactConflict });
+        return;
+      }
       setErrorData({
         message: data.error ?? "Não foi possível salvar as alterações do contato.",
         type: data.type || (res.status === 403 ? "PERMISSION" : res.status === 404 ? "NOT_FOUND" : "SERVER"),
@@ -265,6 +276,21 @@ export function ContactEditForm({
           </button>
         </div>
       </form>
+
+      {conflictData && (
+        <Modal onClose={() => setConflictData(null)} maxWidth="max-w-md">
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Número já cadastrado</h2>
+          <p className="mt-1 mb-3 text-sm text-neutral-600 dark:text-neutral-300">
+            {conflictData.message} As alterações deste contato não foram salvas.
+          </p>
+          <ContactConflictNotice conflict={conflictData.conflict} />
+          <div className="mt-4 flex justify-end">
+            <button type="button" onClick={() => setConflictData(null)} className="btn-ghost">
+              Fechar
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {errorData && (
         <ErrorDialog

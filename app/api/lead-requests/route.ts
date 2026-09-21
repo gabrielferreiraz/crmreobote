@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
-import { notifyLeadRequestCreated } from "@/lib/lead-requests/notify";
+import { notifyLeadRequestCreated, notifyLeadReleased } from "@/lib/lead-requests/notify";
+import { evaluateLeadClaim } from "@/lib/lead-claim";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +33,20 @@ export async function GET() {
  * import-resolve.ts) ou direto na ficha de um contato de outro consultor:
  * quem chama quer este lead pra própria carteira.
  *
- * Dois caminhos bem diferentes, decididos aqui pelo estado ATUAL do dono
- * (nunca confia em nada que o cliente mande sobre isso):
- *  - Sem responsável, ou responsável já INATIVO na organização (saiu da
- *    empresa) — reatribui NA HORA, sem pedir nada a ninguém (não existe
- *    quem aprovar). Só grava um LeadRequest já-resolvido quando havia de
- *    fato um dono antigo, como rastro de "de quem foi tomado" — sem dono
- *    nenhum antes, não há nada pra registrar.
- *  - Responsável ATIVO (e diferente de quem está pedindo) — cria um pedido
- *    PENDING e avisa o dono (push); só ele decide (ver PATCH
- *    /api/lead-requests/[id]).
+ * Dois caminhos bem diferentes, decididos aqui pelo estado ATUAL do lead
+ * (nunca confia em nada que o cliente mande sobre isso — regra única em
+ * lib/lead-claim.ts):
+ *  - Sem responsável, responsável já INATIVO na organização (saiu da
+ *    empresa) OU lead PERDIDO há mais de 3 meses (só negócios perdidos,
+ *    nenhum aberto/ganho) — reatribui NA HORA, sem pedir nada a ninguém
+ *    (ou não existe quem aprovar, ou o prazo já liberou o lead). Só grava
+ *    um LeadRequest já-resolvido quando havia de fato um dono antigo, como
+ *    rastro de "de quem foi tomado" — sem dono nenhum antes, não há nada
+ *    pra registrar. No caso "perdido", o dono anterior (ainda ativo) recebe
+ *    um aviso — ele não aprovou nada.
+ *  - Responsável ATIVO (e diferente de quem está pedindo) cuidando de um
+ *    lead que NÃO está liberado — cria um pedido PENDING e avisa o dono
+ *    (push); só ele decide (ver PATCH /api/lead-requests/[id]).
  */
 export async function POST(req: Request) {
   const { contactId, targetUserId } = (await req.json()) as { contactId?: string; targetUserId?: string };
@@ -83,13 +88,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ claimed: true, needsApproval: false, alreadyYours: true });
     }
 
-    const ownerMembership = await prisma.organizationUser.findFirst({
-      where: { organizationId, userId: contact.responsavelId },
-      select: { active: true },
-    });
-    const ownerActive = ownerMembership?.active ?? false;
+    // Regra única (lib/lead-claim.ts) — a MESMA que a tela usou pra decidir
+    // se mostra "Assumir lead" ou "Solicitar lead" (ver
+    // buildConflictPayload). Aqui é a versão de verdade: nunca confia no que
+    // a tela achava, decide pelo estado ATUAL no banco. NO_OWNER já saiu
+    // acima, então os motivos possíveis aqui são responsável inativo ou
+    // lead perdido há mais de 3 meses — nos dois, ninguém precisa aprovar.
+    const claim = await evaluateLeadClaim(organizationId, contact.id, contact.responsavelId);
 
-    if (!ownerActive) {
+    if (claim.claimReason) {
       const previousOwnerId = contact.responsavelId;
       // prismaRaw.$transaction + setTenantOnTx (não prisma.$transaction) —
       // o client `tx` de uma transação interativa é o cru, sem a extensão
@@ -99,9 +106,18 @@ export async function POST(req: Request) {
       // não é atômica de verdade neste setup (Prisma 7 + @prisma/adapter-pg,
       // já confirmado antes em scripts/fix-ghost-consultants.ts: uma falha
       // no meio deixava o 1º write já commitado).
-      await prismaRaw.$transaction(async (tx) => {
+      //
+      // updateMany com o responsável de quando LEMOS no `where` (trava
+      // otimista) — no caso "perdido há +3 meses" o dono ainda está ATIVO e
+      // pode reabrir o lead no mesmo instante; sem isso, quem clicou
+      // "Assumir" pisaria numa mudança que acabou de acontecer.
+      const moved = await prismaRaw.$transaction(async (tx) => {
         await setTenantOnTx(tx, organizationId);
-        await tx.contact.update({ where: { id: contact.id }, data: { responsavelId: target } });
+        const result = await tx.contact.updateMany({
+          where: { id: contact.id, responsavelId: previousOwnerId },
+          data: { responsavelId: target },
+        });
+        if (result.count === 0) return false;
         await tx.leadRequest.create({
           data: {
             organizationId,
@@ -114,8 +130,24 @@ export async function POST(req: Request) {
             resolvedById: userId,
           },
         });
+        return true;
       });
-      return NextResponse.json({ claimed: true, needsApproval: false });
+      if (!moved) {
+        return NextResponse.json(
+          { error: "Este lead acabou de mudar de responsável — atualize e tente de novo." },
+          { status: 409 },
+        );
+      }
+
+      // Dono ATIVO perdendo um lead SEM ter aprovado nada (só o caso "perdido
+      // há +3 meses") merece saber — senão o lead some da carteira dele sem
+      // explicação. Responsável inativo não tem quem avisar.
+      if (claim.claimReason === "LOST_OVER_3_MONTHS") {
+        notifyLeadReleased({ contactName: contact.name, assigneeName: targetName, previousOwnerId }).catch((err) =>
+          console.error("[lead-requests] falha ao avisar dono anterior", err),
+        );
+      }
+      return NextResponse.json({ claimed: true, needsApproval: false, reason: claim.claimReason });
     }
 
     // Dono ativo — evita empilhar pedido repetido enquanto o de antes ainda

@@ -5,7 +5,7 @@ import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
 import { isValidBirthDateIso } from "@/lib/birth-date";
-import { findDuplicateContact } from "@/lib/contact-duplicate";
+import { findDuplicateContact, buildConflictPayload } from "@/lib/contact-duplicate";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -181,44 +181,24 @@ export async function POST(req: Request) {
 
     const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized);
     if (duplicate) {
-      // Responsável ativo cuidando do lead → nunca deixa passar direto,
-      // mesmo com claimContactId — bloqueia sempre e mostra pra quem
-      // procurar (pedido explícito do usuário).
-      if (duplicate.responsavelActive) {
-        return NextResponse.json(
-          {
-            error: duplicate.message,
-            conflict: {
-              contactId: duplicate.contactId,
-              contactName: duplicate.contactName,
-              createdAt: duplicate.createdAt,
-              responsavelName: duplicate.responsavelName,
-              claimable: false,
-            },
-          },
-          { status: 409 },
-        );
+      const conflict = buildConflictPayload(duplicate, userId);
+
+      // Dono ATIVO cuidando do lead (e o lead não está perdido há mais de 3
+      // meses) → nunca deixa passar direto, mesmo com claimContactId —
+      // bloqueia sempre; a tela oferece "Solicitar lead" (conflict.requestable).
+      // Pedido explícito do usuário: nunca passar por cima de consultor ativo.
+      if (!conflict.claimable) {
+        return NextResponse.json({ error: duplicate.message, conflict }, { status: 409 });
       }
 
-      // Sem responsável ativo (nunca teve, ou o antigo responsável foi
-      // desativado) — sem claimContactId ainda é só um aviso (409), com a
-      // opção de reivindicar; com claimContactId apontando pro MESMO
-      // contato, confirma e vira UPDATE (responsável passa a ser quem está
-      // criando agora) em vez de tentar CREATE.
+      // Pode assumir sem aprovação (sem responsável, responsável desativado
+      // ou lead perdido há +3 meses — ver lib/lead-claim.ts) — sem
+      // claimContactId ainda é só um aviso (409), com a opção de assumir;
+      // com claimContactId apontando pro MESMO contato, confirma e vira
+      // UPDATE (responsável passa a ser quem está criando agora) em vez de
+      // tentar CREATE.
       if (!claimContactId || claimContactId !== duplicate.contactId) {
-        return NextResponse.json(
-          {
-            error: duplicate.message,
-            conflict: {
-              contactId: duplicate.contactId,
-              contactName: duplicate.contactName,
-              createdAt: duplicate.createdAt,
-              responsavelName: duplicate.responsavelName,
-              claimable: true,
-            },
-          },
-          { status: 409 },
-        );
+        return NextResponse.json({ error: duplicate.message, conflict }, { status: 409 });
       }
 
       const fieldDefsForClaim = await prisma.customFieldDefinition.findMany({

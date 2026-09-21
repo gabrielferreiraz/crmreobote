@@ -13,6 +13,7 @@ import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
+import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { CurrencyInput } from "@/components/currency-input";
@@ -409,7 +410,7 @@ export function DealDetail({
   async function saveContactField(
     field: "name" | "email" | "phone" | "whatsapp" | "jobTitle" | "source" | "responsavelId",
     value: string,
-  ): Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string }> {
+  ): Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string; conflict?: ContactConflict }> {
     const res = await fetch(`/api/contacts/${deal.contact.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -436,6 +437,11 @@ export function DealDetail({
         error: data.error ?? "Erro ao salvar",
         type: data.type ?? (res.status === 403 ? "PERMISSION" : res.status === 404 ? "NOT_FOUND" : res.status === 400 ? "VALIDATION" : "SERVER"),
         details: data.details,
+        // 409 de telefone/WhatsApp já usado por OUTRO contato — leva o
+        // `conflict` (ver PUT /api/contacts/[id]) pra linha abrir o aviso
+        // com "Solicitar lead"/"Assumir" em vez do modal genérico "Erro de
+        // servidor" sem saída.
+        conflict: res.status === 409 ? (data.conflict as ContactConflict | undefined) : undefined,
       };
     }
     router.refresh();
@@ -2079,7 +2085,7 @@ function EditableRow({
   value: string;
   /** Como mostrar o valor fora do modo edição, se diferente do value bruto (ex.: data formatada). */
   displayValue?: string;
-  onSave: (value: string) => Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string }>;
+  onSave: (value: string) => Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string; conflict?: ContactConflict }>;
   type?: "text" | "email" | "textarea" | "date" | "select";
   /** Só usado quando type="select" — lista de opções fixas (ex.: cargo). */
   options?: { value: string; label: string }[];
@@ -2103,6 +2109,7 @@ function EditableRow({
   // para editar" sem explicar nada), mesmo componente/padrão que
   // components/edit-contact-dialog.tsx já usa.
   const [errorDialog, setErrorDialog] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  const [conflictDialog, setConflictDialog] = useState<{ message: string; conflict: ContactConflict } | null>(null);
   const [highlight, setHighlight] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const lastSignal = useRef(autoEditSignal);
@@ -2165,6 +2172,10 @@ function EditableRow({
     const result = await onSave(draft);
     setSaving(false);
     if (!result.ok) {
+      if (result.conflict) {
+        setConflictDialog({ message: result.error ?? "Este número já está cadastrado em outro contato.", conflict: result.conflict });
+        return;
+      }
       setErrorDialog({ message: result.error ?? "Erro ao salvar", type: result.type, details: result.details });
       return;
     }
@@ -2223,6 +2234,20 @@ function EditableRow({
           <X className="h-3.5 w-3.5" strokeWidth={2} />
         </button>
       </div>
+      {conflictDialog && (
+        <Modal onClose={() => setConflictDialog(null)} maxWidth="max-w-md">
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Número já cadastrado</h2>
+          <p className="mt-1 mb-3 text-sm text-neutral-600 dark:text-neutral-300">
+            {conflictDialog.message} A alteração não foi salva.
+          </p>
+          <ContactConflictNotice conflict={conflictDialog.conflict} />
+          <div className="mt-4 flex justify-end">
+            <button type="button" onClick={() => setConflictDialog(null)} className="btn-ghost">
+              Fechar
+            </button>
+          </div>
+        </Modal>
+      )}
       {errorDialog && (
         <ErrorDialog
           message={errorDialog.message}

@@ -6,7 +6,7 @@ import { requireRole } from "@/lib/require-role";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
 import { isValidBirthDateIso } from "@/lib/birth-date";
-import { findDuplicateContact } from "@/lib/contact-duplicate";
+import { findDuplicateContact, buildConflictPayload } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
@@ -175,7 +175,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (phoneNormalized !== undefined || whatsappNormalized !== undefined) {
       const duplicate = await findDuplicateContact(organizationId, whatsappFallback.phoneNormalized, whatsappFallback.whatsappNormalized, id);
       if (duplicate) {
-        return NextResponse.json({ error: duplicate.message }, { status: 409 });
+        // Antes devolvia só `{ error }` — a tela (edit-contact-dialog.tsx)
+        // mostrava isso num modal genérico "Erro de servidor" sem nenhuma
+        // saída. Agora leva o mesmo `conflict` do POST (ver
+        // buildConflictPayload), então o consultor consegue solicitar o
+        // lead ou, quando a regra permite (dono inativo/sem dono/perdido há
+        // +3 meses), assumir na hora.
+        return NextResponse.json(
+          { error: duplicate.message, conflict: buildConflictPayload(duplicate, userId) },
+          { status: 409 },
+        );
       }
     }
 

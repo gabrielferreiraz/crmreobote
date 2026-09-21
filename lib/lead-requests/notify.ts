@@ -90,3 +90,21 @@ export async function notifyLeadRequestResolved(request: {
     url: request.approved ? `/clientes/${request.contactId}` : "/clientes",
   }).catch((err) => console.error("[lead-requests] falha ao mandar push de resolução", err));
 }
+
+/**
+ * Avisa o dono ANTERIOR (ainda ativo) quando outro consultor assumiu o lead
+ * dele SEM pedido — só acontece no caso "perdido há mais de 3 meses" (ver
+ * lib/lead-claim.ts), onde não existe aprovação. Sem isto o lead sumia da
+ * carteira dele sem nenhuma explicação.
+ */
+export async function notifyLeadReleased(request: {
+  contactName: string;
+  assigneeName: string;
+  previousOwnerId: string;
+}): Promise<void> {
+  await sendPushToUser(request.previousOwnerId, {
+    title: "Lead reatribuído",
+    body: `${request.contactName} estava perdido há mais de 3 meses e agora é de ${request.assigneeName}`,
+    url: "/clientes",
+  }).catch((err) => console.error("[lead-requests] falha ao mandar push de lead reatribuído", err));
+}
