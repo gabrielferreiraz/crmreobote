@@ -54,7 +54,7 @@ const OVERFLOW_ITEMS_ADMINISTRATIVO: NavItem[] = [
 // em todo canto do app, cada seção que tem uma ação de criação óbvia ganha
 // seu próprio atalho; onde não faz sentido (Conversas, Início...), some.
 const FAB_BY_SECTION: { match: (pathname: string) => boolean; href: string; label: string }[] = [
-  { match: (p) => p.startsWith("/pipeline") || p.startsWith("/negocios"), href: "/pipeline?novo=1", label: "Novo negócio" },
+  { match: (p) => p.startsWith("/pipeline"), href: "/pipeline?novo=1", label: "Novo negócio" },
   { match: (p) => p.startsWith("/agenda"), href: "/agenda?novo=1", label: "Nova atividade" },
 ];
 

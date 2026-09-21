@@ -162,13 +162,13 @@ function WonDealsPanel({
 
       {summary && (
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
+          <div className="min-w-0 rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
             <p className="text-[11px] tracking-wide text-neutral-500 uppercase dark:text-neutral-400">Negócios</p>
             <p className="text-lg font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{summary.total}</p>
           </div>
-          <div className="rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
+          <div className="min-w-0 rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
             <p className="text-[11px] tracking-wide text-neutral-500 uppercase dark:text-neutral-400">Total ganho</p>
-            <p className="text-lg font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(summary.sumValue)}</p>
+            <p className="text-base font-bold tabular-nums text-neutral-900 sm:text-lg dark:text-neutral-100">{formatCurrency(summary.sumValue)}</p>
           </div>
         </div>
       )}
@@ -206,7 +206,7 @@ function WonDealsPanel({
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(d.value)}</p>
+                    <p className="text-sm font-semibold whitespace-nowrap tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(d.value)}</p>
                     <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{formatDay(d.closedAt)}</p>
                   </div>
                 </Link>
@@ -232,8 +232,8 @@ function WonDealsPanel({
           href={`/relatorios/ganhos/${ownerId}`}
           className="btn-primary flex w-full items-center justify-center gap-1.5"
         >
-          Ver todos os ganhos de {firstName}
-          <ArrowRight className="h-4 w-4" strokeWidth={2.25} />
+          <span className="truncate">Ver todos os ganhos de {firstName}</span>
+          <ArrowRight className="h-4 w-4 shrink-0" strokeWidth={2.25} />
         </Link>
       </div>
     </SidePanel>

@@ -445,12 +445,17 @@ export default async function RelatoriosPage({
            logo depois da Visão geral, antes de Faturamento por tipo de
            crédito e Funil (só estavam mais acima antes por ordem histórica
            de quando cada seção foi escrita, nunca por prioridade real). ── */}
-      {!isMember && (
+      {/* Consultor também vê a seção — mas o escopo dele (getDealScope) é só
+          ele mesmo, então cada card traz apenas os PRÓPRIOS números (nunca os
+          de colegas): pedido explícito, "cada consultor deve ver quantas
+          tarefas e tudo o que ele fez". */}
       <section className="space-y-6">
         <SectionHeading
-          eyebrow={isSupervisor ? "Minha equipe" : "Time"}
-          title={isSupervisor ? "Ranking da equipe" : "Ranking do time"}
-          description={isSupervisor
+          eyebrow={isMember ? "Meu desempenho" : isSupervisor ? "Minha equipe" : "Time"}
+          title={isMember ? "O que eu fiz no período" : isSupervisor ? "Ranking da equipe" : "Ranking do time"}
+          description={isMember
+            ? "Seus negócios fechados, reuniões e visitas, ligações, propostas e WhatsApp, comparecimento e conversão no período selecionado."
+            : isSupervisor
             ? "Desempenho de cada membro da sua equipe no período."
             : "Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), quem mais movimentou o funil (ligação, proposta, WhatsApp), a taxa de comparecimento desses encontros e quem converte melhor."
           }
@@ -554,7 +559,6 @@ export default async function RelatoriosPage({
           </div>
         )}
       </section>
-      )}
 
       {/* ─── Faturamento por tipo de crédito ───────────────────────────── */}
       {creditTypeBreakdown.length > 0 && (

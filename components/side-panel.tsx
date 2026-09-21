@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /** Painel deslizando da direita — mesmo espírito do Modal, mas ancorado na borda pra fluxos de cadastro rápido sem tirar o usuário do contexto atual. */
@@ -24,7 +25,12 @@ export function SidePanel({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  return (
+  // Portal pro body — como o Modal: um SidePanel aberto de dentro de um card
+  // com blur/transform (ex.: ranking do relatório) teria o `fixed` ancorado
+  // no card em vez da tela, ficando espremido e cortado.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex justify-end bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
       style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
@@ -43,6 +49,7 @@ export function SidePanel({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

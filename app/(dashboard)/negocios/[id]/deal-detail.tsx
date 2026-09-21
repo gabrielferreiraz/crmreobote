@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
+import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
 import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/meeting-outcome-dialog";
 import { Avatar } from "@/components/avatar";
@@ -263,6 +264,13 @@ export function DealDetail({
   // Usado pra UI refletir a mudança imediata sem esperar router.refresh()
   const [localQualification, setLocalQualification] = useState<ContactLeadQualification | null>(null);
   const [localQualificationAt, setLocalQualificationAt] = useState<string | Date | null>(null);
+
+  const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const phoneDigits = normalizePhoneNumber(deal.contact.phone);
+  const whatsappDigits = normalizePhoneNumber(deal.contact.whatsapp) ?? phoneDigits;
+  const directPhoneUrl = phoneDigits ? `tel:+55${phoneDigits}` : null;
+  const directWhatsAppUrl = whatsappDigits ? `https://wa.me/55${whatsappDigits}` : null;
+  const pendingTasksCount = deal.tasks.filter((t) => !t.completedAt).length;
 
   useEffect(() => {
     const taskId = searchParams.get("highlightTask");
@@ -706,15 +714,144 @@ export function DealDetail({
     <div className="flex items-start gap-4">
       {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
       <div className="min-w-0 flex-1 space-y-6">
-      <Link
-        href="/pipeline"
-        className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
-        Pipeline
-      </Link>
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          href="/pipeline"
+          className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
+          Pipeline
+        </Link>
+        {deal.value != null && (
+          <span className="inline-flex items-center rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand dark:bg-brand/20 dark:text-brand-light lg:hidden">
+            {formatCurrency(deal.value)}
+          </span>
+        )}
+      </div>
 
-      <div className="flex flex-col items-start justify-between gap-3 lg:flex-row">
+      {/* Mobile Header (Clean, compacto e com ações rápidas para consultor na rua) */}
+      <div className="space-y-3 lg:hidden">
+        <div className="flex items-start gap-3">
+          <Avatar name={deal.contact.name} size="md" />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base font-semibold leading-snug tracking-tight text-neutral-900 dark:text-neutral-100 line-clamp-2">
+              {deal.name}
+            </h1>
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+              <Link
+                href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+                className="inline-flex items-center gap-1 font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+              >
+                <User className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                {deal.contact.name}
+              </Link>
+              <span>·</span>
+              <span>Resp: {deal.owner.name}</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Status Segmentado Mobile */}
+        <div className="grid grid-cols-3 gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
+          {(
+            [
+              { s: "LOST" as const, label: "Perdido", icon: XCircle, activeClass: "bg-red-600 text-white shadow-sm" },
+              { s: "OPEN" as const, label: "Em andamento", icon: CircleDot, activeClass: "bg-brand text-white shadow-sm" },
+              { s: "WON" as const, label: "Ganho", icon: CheckCircle2, activeClass: "bg-emerald-600 text-white shadow-sm" },
+            ]
+          ).map(({ s, label, icon: Icon, activeClass }) => {
+            const isActive = deal.status === s;
+            return (
+              <button
+                key={s}
+                onClick={() => updateStatus(s)}
+                className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium transition-all ${
+                  isActive
+                    ? activeClass
+                    : "text-neutral-600 hover:bg-neutral-200/60 dark:text-neutral-400 dark:hover:bg-neutral-700/60"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {deal.status !== "OPEN" && deal.closedAt && (
+          <p className="text-center text-[11px] text-neutral-400 dark:text-neutral-500">
+            {deal.status === "WON" ? "Ganho" : "Perdido"} em{" "}
+            {new Date(deal.closedAt).toLocaleString("pt-BR", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        )}
+
+        {/* Barra de Ações Rápidas do Consultor (1 toque) */}
+        <div className="grid grid-cols-4 gap-2">
+          {directPhoneUrl ? (
+            <a
+              href={directPhoneUrl}
+              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-emerald-500/10 py-2.5 text-emerald-700 transition-transform active:scale-95 dark:bg-emerald-500/20 dark:text-emerald-400"
+            >
+              <Phone className="h-4 w-4" strokeWidth={2.3} />
+              <span className="text-[11px] font-semibold">Ligar</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-1 rounded-xl bg-neutral-100 py-2.5 text-neutral-400 opacity-60 dark:bg-neutral-800 dark:text-neutral-500">
+              <Phone className="h-4 w-4" strokeWidth={2} />
+              <span className="text-[11px]">Sem tel</span>
+            </div>
+          )}
+
+          {directWhatsAppUrl ? (
+            <a
+              href={directWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-emerald-500/10 py-2.5 text-emerald-700 transition-transform active:scale-95 dark:bg-emerald-500/20 dark:text-emerald-400"
+            >
+              <MessageSquare className="h-4 w-4" strokeWidth={2.3} />
+              <span className="text-[11px] font-semibold">WhatsApp</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-1 rounded-xl bg-neutral-100 py-2.5 text-neutral-400 opacity-60 dark:bg-neutral-800 dark:text-neutral-500">
+              <MessageSquare className="h-4 w-4" strokeWidth={2} />
+              <span className="text-[11px]">Sem Whats</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setMobileTab("activities");
+              setTimeout(() => {
+                mobileTextareaRef.current?.focus();
+                mobileTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }, 50);
+            }}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl bg-brand/10 py-2.5 text-brand transition-transform active:scale-95 dark:bg-brand/20 dark:text-brand-light"
+          >
+            <Mic className="h-4 w-4" strokeWidth={2.3} />
+            <span className="text-[11px] font-semibold">Ditar Nota</span>
+          </button>
+
+          <Link
+            href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl bg-neutral-100 py-2.5 text-neutral-700 transition-transform active:scale-95 dark:bg-neutral-800 dark:text-neutral-300"
+          >
+            <User className="h-4 w-4" strokeWidth={2.3} />
+            <span className="text-[11px] font-semibold">Ficha</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* Desktop Header */}
+      <div className="hidden items-start justify-between gap-3 lg:flex">
         <div className="flex items-start gap-3">
           <Avatar name={deal.contact.name} size="lg" />
           <div>
@@ -722,10 +859,6 @@ export function DealDetail({
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                // Ícone de pessoa só pra deixar claro, sem precisar passar o
-                // mouse, que dá pra clicar aqui e ver os detalhes do
-                // contato — antes só o hover:underline sinalizava isso,
-                // fácil de passar batido (pedido explícito).
                 className="inline-flex items-center gap-1 align-middle text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
               >
                 <User className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
@@ -760,9 +893,6 @@ export function DealDetail({
               {s === "OPEN" ? "Em andamento" : s === "WON" ? "Ganho" : "Perdido"}
             </button>
           ))}
-          {/* Sem isso, "Ganho"/"Perdido" não diz QUANDO — só pelo status dá pra
-              confundir "ontem à noite" com "hoje", principalmente pouco depois
-              da meia-noite. */}
           {deal.status !== "OPEN" && deal.closedAt && (
             <p className="w-full text-right text-xs text-neutral-400 dark:text-neutral-500">
               {deal.status === "WON" ? "Ganho" : "Perdido"} em{" "}
@@ -1233,45 +1363,59 @@ export function DealDetail({
       {/* Mobile — abas em vez de grade lado a lado; reaproveita os mesmos
           handlers/estado de cima, só reorganiza a apresentação. */}
       <div className="lg:hidden">
-        <div className="relative mb-3 flex w-full max-w-[240px] rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
+        <div className="relative mb-3 flex w-full rounded-lg border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
           <div
-            className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-spring dark:bg-neutral-900"
+            className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-white shadow-sm transition-transform duration-200 ease-spring dark:bg-neutral-900"
             style={{ transform: mobileTab === "details" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
           />
           <button
             onClick={() => setMobileTab("activities")}
-            className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium transition-colors active:scale-[0.97] ${
+            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors active:scale-[0.97] ${
               mobileTab === "activities"
                 ? "text-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 dark:text-neutral-400"
             }`}
           >
-            Atividades
+            <span>Atividades</span>
+            {deal.activities.length > 0 && (
+              <span className="rounded-full bg-neutral-200/80 px-1.5 py-0.2 text-[10px] text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300">
+                {deal.activities.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setMobileTab("details")}
-            className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium transition-colors active:scale-[0.97] ${
+            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors active:scale-[0.97] ${
               mobileTab === "details"
                 ? "text-neutral-900 dark:text-neutral-100"
                 : "text-neutral-500 dark:text-neutral-400"
             }`}
           >
-            Detalhes
+            <span>Detalhes & Tarefas</span>
+            {pendingTasksCount > 0 ? (
+              <span className="rounded-full bg-amber-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                {pendingTasksCount}
+              </span>
+            ) : deal.tasks.length > 0 ? (
+              <span className="rounded-full bg-neutral-200/80 px-1.5 py-0.2 text-[10px] text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300">
+                {deal.tasks.length}
+              </span>
+            ) : null}
           </button>
         </div>
 
         {mobileTab === "activities" ? (
           <div className="animate-bubble-in space-y-4">
-            <div className="card p-4">
-              <div className="mb-3 flex gap-1 overflow-x-auto">
+            <div className="card p-3.5">
+              <div className="scrollbar-none mb-3 flex gap-1.5 overflow-x-auto pb-0.5">
                 {ACTIVITY_TABS.map((tab) => (
                   <button
                     key={tab.type}
                     onClick={() => selectTab(tab.type)}
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
                       activeTab === tab.type
                         ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                        : "bg-neutral-100 text-neutral-500 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
+                        : "bg-neutral-100 text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
                     }`}
                   >
                     <tab.icon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1279,28 +1423,32 @@ export function DealDetail({
                   </button>
                 ))}
               </div>
-              <form onSubmit={submitActivity} className="space-y-2">
+              <form onSubmit={submitActivity} className="space-y-3">
                 <div className="space-y-1.5">
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                      Registro de {ACTIVITY_TABS.find((t) => t.type === activeTab)?.label.toLowerCase()}
+                    </span>
                     <VoiceInputButton onResult={bodyDictation.onResult} onInterimResult={bodyDictation.onInterimResult} />
                   </div>
                   <textarea
+                    ref={mobileTextareaRef}
                     value={bodyDictation.value}
                     onChange={(e) => setBody(e.target.value)}
-                    placeholder="O que foi feito e qual o próximo passo?"
+                    placeholder="O que foi feito e qual o próximo passo? (ou ditar por voz)"
                     rows={3}
-                    className="field-input"
+                    className="field-input text-sm"
                   />
                 </div>
                 {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Resultado:</span>
                     {MEETING_OUTCOME_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => setMeetingOutcome(opt.value)}
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                           meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
                         }`}
                       >
@@ -1309,28 +1457,30 @@ export function DealDetail({
                     ))}
                   </div>
                 )}
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="space-y-1">
-                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Prazo</label>
-                    <DatePicker value={dueDate} onChange={setDueDate} className="px-2 py-1 text-xs" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Horário</label>
-                    <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="px-2 py-1 text-xs" />
+                <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex gap-2">
+                    <div className="space-y-1 flex-1 sm:flex-initial">
+                      <label className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Prazo da próxima ação</label>
+                      <DatePicker value={dueDate} onChange={setDueDate} className="w-full px-2 py-1.5 text-xs" />
+                    </div>
+                    <div className="space-y-1 w-24">
+                      <label className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Horário</label>
+                      <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="w-full px-2 py-1.5 text-xs" />
+                    </div>
                   </div>
                   <button
                     type="submit"
                     disabled={saving || !body.trim() || ((activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
-                    className="btn-primary btn-sm ml-auto shrink-0"
+                    className="btn-primary w-full py-2.5 text-sm font-semibold sm:w-auto sm:py-1.5"
                   >
-                    {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                     {saving ? (
                       <span className="inline-flex items-center gap-1">
                         Salvando
                         <LoadingDots />
                       </span>
                     ) : (
-                      "Registrar"
+                      "Registrar Atividade"
                     )}
                   </button>
                 </div>
