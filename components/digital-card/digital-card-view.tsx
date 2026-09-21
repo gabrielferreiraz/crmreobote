@@ -132,21 +132,21 @@ export function DigitalCardView({
           </div>
 
           {/* Nome e Info Principal */}
-          <h1 className="text-lg font-extrabold tracking-tight text-white">{data.displayName}</h1>
-          
+          <h1 className="text-xl font-extrabold tracking-tight text-white">{data.displayName}</h1>
+
           {data.jobTitle && (
-            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#00aeee]/30 bg-[#00aeee]/15 px-3.5 py-0.5 text-xs font-semibold text-[#00aeee] shadow-[0_2px_10px_rgba(0,174,238,0.15)]">
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#00aeee]/30 bg-[#00aeee]/15 px-3.5 py-0.5 text-sm font-semibold text-[#00aeee] shadow-[0_2px_10px_rgba(0,174,238,0.15)]">
               {data.jobTitle}
             </div>
           )}
-          
+
           {data.companyName && (
-            <p className="mt-1 text-xs font-medium text-white/50">{data.companyName}</p>
+            <p className="mt-1 text-sm font-medium text-white/50">{data.companyName}</p>
           )}
 
-          {/* Logo da Reobote (Fixo logo abaixo da Empresa) */}
+          {/* Logo da Reobote (Fixo logo abaixo da Empresa) — pedido explícito: maior, mais legível/destacada. */}
           <div className="mt-5 flex justify-center px-4">
-            <ReoboteLogo className="h-20 sm:h-24 w-auto opacity-95" />
+            <ReoboteLogo className="h-24 sm:h-28 w-auto opacity-95" />
           </div>
 
           {/* Logos parceiras (Rodobens, Yamaha, Servopa, etc.) */}
@@ -157,8 +157,8 @@ export function DigitalCardView({
           {/* Valor em carteira */}
           {data.showPortfolioValue && data.portfolioValueDisplay && (
             <div className="mt-5 flex flex-col items-center">
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/50">Carteira sob gestão</p>
-              <p className="mt-0.5 bg-gradient-to-r from-[#00aeee] via-cyan-300 to-[#00aeee] bg-clip-text text-lg font-black text-transparent drop-shadow-md">
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/50">Carteira sob gestão</p>
+              <p className="mt-0.5 bg-gradient-to-r from-[#00aeee] via-cyan-300 to-[#00aeee] bg-clip-text text-xl font-black text-transparent drop-shadow-md">
                 {data.portfolioValueDisplay}
               </p>
             </div>
@@ -192,7 +192,7 @@ export function DigitalCardView({
           {/* Bio (Itálico limpo sem bordas/caixa) */}
           {data.bio && (
             <div className="mt-3 px-2 text-center">
-              <p className="text-xs font-medium italic leading-relaxed text-white/85 tracking-wide">
+              <p className="text-sm font-medium italic leading-relaxed text-white/85 tracking-wide">
                 “{data.bio}”
               </p>
             </div>
@@ -208,8 +208,8 @@ export function DigitalCardView({
 
         {/* Rodapé Premium */}
         <div className="mt-5 flex items-center justify-center gap-2 border-t border-white/10 bg-white/[0.02] px-5 py-3">
-          <ReoboteLogo className="h-3 w-auto opacity-75" />
-          <span className="text-[10px] font-medium text-white/40">Cartão Digital</span>
+          <ReoboteLogo className="h-3.5 w-auto opacity-75" />
+          <span className="text-xs font-medium text-white/40">Cartão Digital</span>
         </div>
         </div>
       </div>

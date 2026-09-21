@@ -82,7 +82,7 @@ export function DigitalCardLinks({ links, onTrack }: { links: Link[]; onTrack: (
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10 group-hover:ring-[#00aeee]/40 transition-all">
               <Icon className={`h-4 w-4 drop-shadow-md transition-colors ${colorClass}`} />
             </div>
-            <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold tracking-wide text-white/90 group-hover:text-white transition-colors">{link.label}</span>
+            <span className="min-w-0 flex-1 truncate text-left text-base font-semibold tracking-wide text-white/90 group-hover:text-white transition-colors">{link.label}</span>
             <ExternalLink className="h-4 w-4 shrink-0 text-white/20 transition-colors group-hover:text-[#00aeee]/80" strokeWidth={2} />
           </a>
         );

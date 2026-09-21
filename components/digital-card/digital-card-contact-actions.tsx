@@ -51,11 +51,11 @@ function IconAction({
       className="flex flex-col items-center gap-1.5 group"
     >
       <span
-        className={`flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white/90 shadow-md backdrop-blur-md transition-all duration-200 group-hover:scale-105 ${accentClass}`}
+        className={`flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white/90 shadow-md backdrop-blur-md transition-all duration-200 group-hover:scale-105 ${accentClass}`}
       >
-        <Icon className="h-4 w-4" />
+        <Icon className="h-4.5 w-4.5" />
       </span>
-      <span className="text-[10px] font-medium text-white/60 group-hover:text-white/90 transition-colors">{label}</span>
+      <span className="text-xs font-medium text-white/60 group-hover:text-white/90 transition-colors">{label}</span>
     </a>
   );
 }
@@ -87,14 +87,14 @@ function ProminentPill({
       onClick={onClick}
       className={`flex items-center gap-2.5 rounded-2xl border px-3.5 py-2.5 text-white transition-all hover:scale-[1.01] active:scale-[0.99] overflow-hidden max-w-full ${gradientStyles}`}
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur-md">
-        <Icon className="h-4 w-4 shrink-0" />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur-md">
+        <Icon className="h-4.5 w-4.5 shrink-0" />
       </div>
       <span className="min-w-0 flex-1 overflow-hidden text-left">
-        <span className="block text-[10px] font-bold leading-tight uppercase tracking-wider text-white/80 truncate">{label}</span>
-        <span className="block text-xs font-extrabold text-white truncate">{sub}</span>
+        <span className="block text-[11px] font-bold leading-tight uppercase tracking-wider text-white/80 truncate">{label}</span>
+        <span className="block text-sm font-extrabold text-white truncate">{sub}</span>
       </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-white/70" strokeWidth={2.5} />
+      <ChevronRight className="h-4.5 w-4.5 shrink-0 text-white/70" strokeWidth={2.5} />
     </a>
   );
 }
