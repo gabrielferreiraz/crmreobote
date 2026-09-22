@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/skeleton";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 /**
  * Convenção de arquivo do Next.js (App Router): este arquivo vira o
@@ -19,29 +19,10 @@ import { Skeleton } from "@/components/skeleton";
  * não depende de nenhuma consulta) — a espera de verdade continua a mesma,
  * mas passa a ser visível, o que é a diferença entre "travou" e "carregando".
  *
- * Esqueleto genérico de propósito (título + algumas linhas em card) — não
- * tenta imitar o layout exato de cada tela de destino (uma é tabela, outra
- * é lista, outra é formulário); o objetivo é só dar retorno visual
- * imediato, não uma prévia pixel-perfect do conteúdo final.
+ * Mesmo esqueleto usado no resto do dashboard agora (ver
+ * app/(dashboard)/loading.tsx) — extraído pra components/
+ * page-loading-skeleton.tsx.
  */
 export default function ConfiguracoesLoading() {
-  return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="space-y-2">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-4 w-72" />
-      </div>
-      <div className="card divide-y divide-neutral-100 dark:divide-neutral-800">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 p-4">
-            <Skeleton className="h-9 w-9 shrink-0 rounded-md" />
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-3.5 w-full max-w-72" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <PageLoadingSkeleton />;
 }
