@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Select } from "@/components/select";
+import { sortOptionsAlpha } from "@/lib/sort-alpha";
 import { PIPELINE_FILTER_KEY } from "./filters-storage";
 
 /**
@@ -32,7 +33,7 @@ export function PipelineFilter({ pipelines }: { pipelines: { id: string; name: s
     } catch {}
   }
 
-  const options = [{ value: "", label: "Todos os funis" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))];
+  const options = [{ value: "", label: "Todos os funis" }, ...sortOptionsAlpha(pipelines.map((p) => ({ value: p.id, label: p.name })))];
 
   {/* w-full abaixo de sm — precisa preencher a célula da grade 2 colunas do
       celular (ver relatorios/page.tsx), não a largura fixa de sempre. */}

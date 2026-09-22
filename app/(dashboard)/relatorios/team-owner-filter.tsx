@@ -3,6 +3,7 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Select } from "@/components/select";
 import { sortSelfFirst } from "@/lib/sort-self-first";
+import { sortAlpha } from "@/lib/sort-alpha";
 import { WHO_FILTER_KEY } from "./filters-storage";
 
 /**
@@ -42,10 +43,11 @@ export function TeamOwnerFilter({
     } catch {}
   }
 
-  const orderedMembers = sortSelfFirst(members, currentUserId);
+  // "Eu" sempre logo depois de "Todos"; equipes e pessoas em ordem alfabética.
+  const orderedMembers = sortSelfFirst(sortAlpha(members, (m) => m.name), currentUserId);
   const options = [
     { value: "", label: "Todos" },
-    ...teams.map((t) => ({ value: `team:${t.id}`, label: `Equipe: ${t.name}` })),
+    ...sortAlpha(teams, (t) => t.name).map((t) => ({ value: `team:${t.id}`, label: `Equipe: ${t.name}` })),
     ...orderedMembers.map((m) => ({ value: `owner:${m.id}`, label: m.id === currentUserId ? "Eu" : m.name })),
   ];
 

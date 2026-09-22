@@ -36,6 +36,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { PhoneInput } from "@/components/phone-input";
 import { BirthDateInput } from "@/components/birth-date-input";
+import { sortAlpha } from "@/lib/sort-alpha";
 import { DateRangeField } from "@/components/date-range-calendar";
 import { Pagination } from "@/components/pagination";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
@@ -261,14 +262,14 @@ export function ContactsTable({
   const sourceOptions = useMemo(() => {
     const set = new Set(sources.map((s) => s.label));
     for (const c of contacts) if (c.source) set.add(c.source);
-    return Array.from(set).sort();
+    return sortAlpha(Array.from(set), (s) => s);
   }, [contacts, sources]);
 
   // Mesmo raciocínio do sourceOptions acima.
   const jobTitleOptions = useMemo(() => {
     const set = new Set(jobTitles.map((j) => j.label));
     for (const c of contacts) if (c.jobTitle) set.add(c.jobTitle);
-    return Array.from(set);
+    return sortAlpha(Array.from(set), (j) => j);
   }, [contacts, jobTitles]);
 
   // availableTags já vem do servidor com TODAS as tags da organização (ver
@@ -280,11 +281,14 @@ export function ContactsTable({
   const tagOptions = useMemo(() => {
     const set = new Set(availableTags);
     for (const c of contacts) for (const t of c.tags) set.add(t);
-    return Array.from(set).sort();
+    return sortAlpha(Array.from(set), (t) => t);
   }, [contacts, availableTags]);
 
-  // "Eu" sempre em primeiro no filtro de Responsável.
-  const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
+  // "Eu" sempre em primeiro no filtro de Responsável; o resto em ordem alfabética.
+  const orderedMembers = useMemo(
+    () => sortSelfFirst(sortAlpha(members, (m) => m.name), currentUserId),
+    [members, currentUserId],
+  );
 
   const hasFilters =
     !!sourceFilter ||
@@ -1091,7 +1095,7 @@ export function ContactsTable({
                           value={tagFilter}
                           onChange={(v) => { setTagFilter(v); setPage(1); }}
                           allLabel="Todas as tags"
-                          options={availableTags.map((t) => ({ value: t, label: t }))}
+                          options={tagOptions.map((t) => ({ value: t, label: t }))}
                         />
                       )}
                     </span>

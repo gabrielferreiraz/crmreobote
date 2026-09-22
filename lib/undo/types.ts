@@ -12,7 +12,8 @@ export type UndoActionType =
   | "contact.delete"
   | "deal.update"
   | "deal.delete"
-  | "deal.move";
+  | "deal.move"
+  | "deal.bulkUpdate";
 
 /**
  * Par de descrições que se alterna pra sempre entre undo/redo — gênero e
@@ -51,6 +52,35 @@ export type FieldUpdatePayload = {
 
 export type TaskBulkMovePayload = {
   moves: { taskId: string; previousDueAt: string }[];
+  descriptions: DescriptionPair;
+};
+
+/**
+ * Payload de deal.bulkUpdate — ação em massa do Pipeline (ver POST
+ * /api/deals/bulk): trocar etapa/funil/responsável/origem ou marcar
+ * ganho/perdido de dezenas a MILHARES de negócios de uma vez.
+ *
+ * AGRUPADO por valor anterior, não uma entrada por negócio, de propósito:
+ * revertFieldUpdate (o handler genérico) percorre `entities` em série,
+ * gastando 2 consultas por linha dentro de UMA transação — desfazer 5.000
+ * negócios viraria 10.000 consultas sequenciais segurando a transação
+ * aberta por minutos. Aqui, negócios que vieram do MESMO estado anterior
+ * (ex.: os 800 que estavam na etapa "Prospecção") entram num grupo só e
+ * voltam com um `updateMany`, então reverter 5.000 custa ~1 consulta por
+ * estado anterior distinto — quase sempre um punhado.
+ *
+ * O redo é sempre UM grupo só: a ação em massa levou todo mundo pro MESMO
+ * estado novo, então refazer é aplicar esse estado único de volta em todos.
+ */
+export type BulkUpdateGroup = {
+  model: "deal" | "contact";
+  /** Estado pra onde este grupo volta ao desfazer (o que ele era antes da ação). */
+  previousValues: Record<string, unknown>;
+  entityIds: string[];
+};
+
+export type BulkUpdatePayload = {
+  groups: BulkUpdateGroup[];
   descriptions: DescriptionPair;
 };
 

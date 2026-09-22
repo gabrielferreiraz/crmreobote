@@ -93,7 +93,7 @@ function WonDealsPanel({
   onClose: () => void;
 }) {
   const [items, setItems] = useState<WonDealRow[]>([]);
-  const [summary, setSummary] = useState<Pick<WonDealsResult, "total" | "sumValue"> | null>(null);
+  const [summary, setSummary] = useState<Pick<WonDealsResult, "total" | "sumValue" | "sumGrossValue"> | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +118,7 @@ function WonDealsPanel({
         if (!res.ok) throw new Error(data.error ?? `Erro ${res.status}`);
         if (cancelled) return;
         setItems((data as WonDealsResult).items);
-        setSummary({ total: data.total, sumValue: data.sumValue });
+        setSummary({ total: data.total, sumValue: data.sumValue, sumGrossValue: data.sumGrossValue });
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Não deu pra carregar os negócios.");
@@ -169,6 +169,9 @@ function WonDealsPanel({
           <div className="min-w-0 rounded-lg bg-neutral-50 px-3 py-2.5 dark:bg-neutral-800/60">
             <p className="text-[11px] tracking-wide text-neutral-500 uppercase dark:text-neutral-400">Total ganho</p>
             <p className="text-base font-bold tabular-nums text-neutral-900 sm:text-lg dark:text-neutral-100">{formatCurrency(summary.sumValue)}</p>
+            {summary.sumGrossValue > 0 && summary.sumGrossValue !== summary.sumValue && (
+              <p className="text-[11px] text-neutral-400 tabular-nums dark:text-neutral-500">bruto: {formatCurrency(summary.sumGrossValue)}</p>
+            )}
           </div>
         </div>
       )}
@@ -193,21 +196,33 @@ function WonDealsPanel({
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {items.map((d) => (
               <li key={d.id}>
+                {/* Empilhado, não lado a lado com o valor — o nome do
+                    cliente precisa caber INTEIRO (pedido explícito), e
+                    dividindo a linha com o valor ele sempre truncava. */}
                 <Link
                   href={`/negocios/${d.id}`}
-                  className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                  className="-mx-2 block rounded-lg px-2 py-2.5 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{d.contactName}</p>
-                    <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-                      {d.name !== d.contactName && <>{d.name} · </>}
-                      {d.creditType ? `${d.creditType} · ` : ""}
-                      {d.pipelineName}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold whitespace-nowrap tabular-nums text-neutral-900 dark:text-neutral-100">{formatCurrency(d.value)}</p>
+                  <p className="text-sm font-medium break-words text-neutral-900 dark:text-neutral-100">{d.contactName}</p>
+                  <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                    {d.name !== d.contactName && <>{d.name} · </>}
+                    {d.creditType ? `${d.creditType} · ` : ""}
+                    {d.pipelineName}
+                  </p>
+                  <div className="mt-1.5 flex items-end justify-between gap-3">
                     <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{formatDay(d.closedAt)}</p>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold whitespace-nowrap tabular-nums text-neutral-900 dark:text-neutral-100">
+                        {formatCurrency(d.value)}
+                      </p>
+                      {/* Bruto só quando difere do líquido — mostrar os dois
+                          iguais seria ruído (pedido: bruto visível, mas menor). */}
+                      {d.grossValue !== null && d.grossValue !== d.value && (
+                        <p className="text-[10px] whitespace-nowrap text-neutral-400 tabular-nums dark:text-neutral-500">
+                          bruto: {formatCurrency(d.grossValue)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </Link>
               </li>

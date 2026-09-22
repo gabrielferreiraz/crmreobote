@@ -1,7 +1,15 @@
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import type { Prisma } from "@/app/generated/prisma/client";
-import type { UndoActionType, FieldUpdatePayload, FieldUpdateTarget, TaskBulkMovePayload, DeleteSnapshotPayload } from "./types";
+import type {
+  UndoActionType,
+  FieldUpdatePayload,
+  FieldUpdateTarget,
+  TaskBulkMovePayload,
+  DeleteSnapshotPayload,
+  BulkUpdatePayload,
+  BulkUpdateGroup,
+} from "./types";
 
 export type UndoResult = { type: UndoActionType; description: string; payload: unknown };
 
@@ -176,6 +184,63 @@ async function redeleteRow<T extends Record<string, unknown> & { id: string }>(
   };
 }
 
+function bulkDelegate(tx: Prisma.TransactionClient, model: BulkUpdateGroup["model"]) {
+  return tx[model] as unknown as {
+    findUnique: (args: { where: { id: string } }) => Promise<Record<string, unknown> | null>;
+    updateMany: (args: { where: { id: { in: string[] } }; data: Record<string, unknown> }) => Promise<{ count: number }>;
+  };
+}
+
+/**
+ * Reverte ação em massa do Pipeline (deal.bulkUpdate, ver POST
+ * /api/deals/bulk) — UM `updateMany` por grupo de estado anterior, em vez
+ * do laço linha-a-linha de revertFieldUpdate. Ver BulkUpdatePayload pro
+ * porquê: com 5.000 negócios, o handler genérico viraria 10.000 consultas
+ * sequenciais segurando uma transação aberta por minutos; aqui o custo é
+ * ~2 consultas por estado anterior DISTINTO (quase sempre um punhado —
+ * "de quais etapas esses negócios vieram").
+ *
+ * Amostra em vez de leitura linha a linha: a ação em massa levou TODO o
+ * grupo pro MESMO estado novo, então ler UMA linha basta pra saber pra
+ * onde o "refazer" deve devolvê-las. Se alguém tiver editado uma dessas
+ * linhas individualmente ENTRE a ação e o Ctrl+Z, o refazer aplica o
+ * estado da amostra nela também — imprecisão pequena e limitada ao
+ * refazer-do-desfazer, aceita de propósito pra não trocar uma consulta por
+ * grupo por uma consulta por negócio (que é exatamente o custo que este
+ * handler existe pra evitar).
+ *
+ * Cada grupo guarda os próprios entityIds e vai alternando entre "estado
+ * anterior" e "estado novo" a cada reversão — mesmo par undo/redo infinito
+ * dos outros handlers, sem duplicar lógica.
+ */
+async function revertBulkUpdate(organizationId: string, payload: BulkUpdatePayload): Promise<UndoResult> {
+  const redoGroups = await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    const redos: BulkUpdateGroup[] = [];
+    for (const group of payload.groups) {
+      if (group.entityIds.length === 0) continue;
+      const delegate = bulkDelegate(tx, group.model);
+
+      const sample = await delegate.findUnique({ where: { id: group.entityIds[0] } });
+      const redoValues: Record<string, unknown> = {};
+      for (const key of Object.keys(group.previousValues)) redoValues[key] = sample ? sample[key] : null;
+
+      await delegate.updateMany({ where: { id: { in: group.entityIds } }, data: group.previousValues });
+      redos.push({ model: group.model, entityIds: group.entityIds, previousValues: redoValues });
+    }
+    return redos;
+  });
+
+  return {
+    type: "deal.bulkUpdate",
+    description: payload.descriptions.afterRevert,
+    payload: {
+      groups: redoGroups,
+      descriptions: { afterRevert: payload.descriptions.original, original: payload.descriptions.afterRevert },
+    } satisfies BulkUpdatePayload,
+  };
+}
+
 /**
  * Registry — um handler por `type`. app/api/undo/[id]/route.ts só chama
  * `reverseUndoableAction(action.type, action.payload, organizationId)`;
@@ -201,6 +266,8 @@ export async function reverseUndoableAction(
       return revertFieldUpdate(organizationId, type, payload as FieldUpdatePayload);
     case "task.bulkMove":
       return revertTaskBulkMove(organizationId, payload as TaskBulkMovePayload);
+    case "deal.bulkUpdate":
+      return revertBulkUpdate(organizationId, payload as BulkUpdatePayload);
     case "task.delete":
       return dispatchDelete(organizationId, "task", type, payload as DeleteSnapshotPayload);
     case "contact.delete":

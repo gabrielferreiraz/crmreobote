@@ -15,6 +15,7 @@ import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineTitleSelect } from "./pipeline-title-select";
 import { useDealsLive } from "@/lib/use-deals-live";
+import { trackUse } from "@/lib/feature-usage/track";
 
 type MemberOption = { id: string; name: string };
 type MemberFilterOption = { id: string; name: string; active: boolean };
@@ -320,7 +321,10 @@ export function PipelineView({
             Kanban
           </button>
           <button
-            onClick={() => setView("lista")}
+            onClick={() => {
+              trackUse("pipeline.visao.lista");
+              setView("lista");
+            }}
             className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "lista"
                 ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
                 : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
@@ -399,6 +403,11 @@ export function PipelineView({
           onTotalsChange={setKanbanTotals}
           reloadToken={kanbanReloadToken}
           toolbarRight={toolbar}
+          // Ações em massa do Kanban (ver components/deal-bulk-actions.tsx)
+          // — mesmas listas que a Lista já recebia pro mesmo fim.
+          pipelines={pipelines}
+          lossReasons={lossReasons}
+          canBulkMessage={canBulkMessage}
         />
       ) : (
         <DealsList
@@ -412,6 +421,7 @@ export function PipelineView({
           pipelineId={pipelineId}
           pipelines={pipelines}
           lossReasons={lossReasons}
+          leadSources={leadSources}
           canBulkDelete={canBulkDelete}
           canBulkMessage={canBulkMessage}
           canExport={isOwner}
@@ -433,6 +443,7 @@ export function PipelineView({
         creditTypes={creditTypes}
         currentUserId={currentUserId}
         onCreated={(deal) => {
+          trackUse("pipeline.negocio.novo");
           setNewDeal(deal);
           setListaReloadToken((t) => t + 1);
         }}

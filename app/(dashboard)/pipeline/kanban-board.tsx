@@ -14,8 +14,11 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import Link from "next/link";
-import { Search, AlertTriangle, Loader2, ArrowUpDown } from "lucide-react";
+import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick } from "lucide-react";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
+import { DealBulkActions } from "@/components/deal-bulk-actions";
+import { trackUse } from "@/lib/feature-usage/track";
+import type { LossReasonOption } from "@/components/loss-reason-dialog";
 import { formatCurrency, formatCurrencyCompact, daysSince } from "@/lib/format";
 import { isStale, STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
 import { brazilStartOfDay } from "@/lib/timezone";
@@ -25,9 +28,10 @@ import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
+import { sortAlpha } from "@/lib/sort-alpha";
 import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
-import { PipelineQuickFilterButtons } from "./pipeline-quick-filter-buttons";
+import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
 import { useUndoToast } from "@/components/undo-provider";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
@@ -127,6 +131,9 @@ export function KanbanBoard({
   onTotalsChange,
   reloadToken,
   toolbarRight,
+  pipelines,
+  lossReasons,
+  canBulkMessage,
 }: {
   pipelineId: string;
   stages: Stage[];
@@ -178,6 +185,10 @@ export function KanbanBoard({
    * dentro da MESMA fileira da busca/filtros, não mais numa linha própria
    * acima: pedido explícito ("na mesma div, não em linhas diferentes"). */
   toolbarRight?: ReactNode;
+  /** Ações em massa (ver components/deal-bulk-actions.tsx) — "Trocar de funil" precisa da lista completa; o funil atual é filtrado fora lá dentro. */
+  pipelines: { id: string; name: string; stages: { id: string; name: string }[] }[];
+  lossReasons: LossReasonOption[];
+  canBulkMessage: boolean;
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
@@ -239,6 +250,133 @@ export function KanbanBoard({
   const [stagesLoading, setStagesLoading] = useState(false);
   const [loadingMoreStages, setLoadingMoreStages] = useState<Set<string>>(new Set());
 
+  // ── Seleção em massa ────────────────────────────────────────────────
+  // Desligada por padrão: com as caixas sempre visíveis, o card fica mais
+  // pesado de ler e o clique de "abrir o negócio" (o uso de longe mais
+  // comum) passa a disputar espaço com um controle que quase nunca é usado.
+  // Pedido explícito: um botão liga o modo e aí aparecem as caixinhas.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Âncora do shift POR ETAPA (não global): o intervalo "daqui até ali" só
+  // faz sentido dentro de uma mesma coluna, que é onde existe uma ordem
+  // visível. Guardar uma âncora só, global, faria um shift depois de trocar
+  // de coluna marcar um intervalo que o usuário nunca viu junto.
+  const [shiftAnchorByStage, setShiftAnchorByStage] = useState<Record<string, string>>({});
+  const [selectingAllStage, setSelectingAllStage] = useState<string | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  // Força uma busca completa depois de uma ação em massa (mesma porta de
+  // entrada do `reloadToken` que vem do pai, ver o efeito de busca abaixo).
+  const [bulkReloadToken, setBulkReloadToken] = useState(0);
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setShiftAnchorByStage({});
+    setSelectionNotice(null);
+  }
+
+  function exitSelectionMode() {
+    clearSelection();
+    setSelectionMode(false);
+  }
+
+  /**
+   * Clique numa caixa. Com Shift, marca/desmarca o intervalo inteiro entre
+   * a última caixa clicada NAQUELA coluna e esta — mesma mecânica que a
+   * Lista já tinha, só que por etapa (ver shiftAnchorByStage).
+   */
+  function toggleSelect(stageId: string, dealId: string, shiftKey: boolean) {
+    const columnDeals = dealsByStage[stageId] ?? [];
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const isSelecting = !next.has(dealId);
+      const anchor = shiftAnchorByStage[stageId];
+
+      if (shiftKey && anchor && anchor !== dealId) {
+        const from = columnDeals.findIndex((d) => d.id === anchor);
+        const to = columnDeals.findIndex((d) => d.id === dealId);
+        if (from !== -1 && to !== -1) {
+          for (let i = Math.min(from, to); i <= Math.max(from, to); i++) {
+            if (isSelecting) next.add(columnDeals[i].id);
+            else next.delete(columnDeals[i].id);
+          }
+          return next;
+        }
+      }
+
+      if (isSelecting) next.add(dealId);
+      else next.delete(dealId);
+      return next;
+    });
+    setShiftAnchorByStage((prev) => ({ ...prev, [stageId]: dealId }));
+  }
+
+  /**
+   * "Selecionar todos da etapa" — pega TODOS os negócios daquela coluna no
+   * banco, não só os que já estão carregados na tela (o Kanban carrega uma
+   * página por coluna). Busca só os IDs, numa consulta (ver
+   * GET /api/deals/stage-ids), justamente pra não baixar milhares de
+   * negócios inteiros que ninguém vai desenhar.
+   *
+   * Vai com os MESMOS filtros ativos da tela: "todos da etapa" precisa
+   * significar "todos os que esta coluna está mostrando" — com um filtro de
+   * responsável ligado, arrastar negócio de outra pessoa pra dentro da
+   * seleção seria exatamente a ação em massa surpresa que não pode existir.
+   */
+  async function toggleSelectAllStage(stageId: string) {
+    const columnDeals = dealsByStage[stageId] ?? [];
+    const total = countByStage[stageId] ?? columnDeals.length;
+    const allLoadedSelected = columnDeals.length > 0 && columnDeals.every((d) => selectedIds.has(d.id));
+
+    // Já estava tudo marcado → o clique agora desmarca a coluna inteira.
+    if (allLoadedSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const d of columnDeals) next.delete(d.id);
+        return next;
+      });
+      setSelectionNotice(null);
+      return;
+    }
+
+    // Coluna inteira já está na tela — não precisa ir ao servidor.
+    if (columnDeals.length >= total) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const d of columnDeals) next.add(d.id);
+        return next;
+      });
+      return;
+    }
+
+    trackUse("pipeline.selecao.etapa-inteira");
+    setSelectingAllStage(stageId);
+    setSelectionNotice(null);
+    try {
+      const params = buildFilterParams(filtersRef.current);
+      params.set("stageId", stageId);
+      const res = await fetch(`/api/deals/stage-ids?${params.toString()}`);
+      if (!res.ok) {
+        setSelectionNotice("Não foi possível selecionar a etapa inteira. Tente de novo.");
+        return;
+      }
+      const data = (await res.json()) as { ids: string[]; truncated: boolean; max: number };
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of data.ids) next.add(id);
+        return next;
+      });
+      if (data.truncated) {
+        setSelectionNotice(
+          `Etapa grande demais pra selecionar de uma vez — marcados os primeiros ${data.max.toLocaleString("pt-BR")} negócios.`,
+        );
+      }
+    } catch {
+      setSelectionNotice("Falha de conexão ao selecionar a etapa inteira.");
+    } finally {
+      setSelectingAllStage(null);
+    }
+  }
+
   // Ressincroniza quando o pipeline ativo muda (troca de funil no seletor) —
   // page.tsx já busca de novo com o pipeline certo, isso só reflete no client.
   useEffect(() => {
@@ -280,7 +418,10 @@ export function KanbanBoard({
 
   // "Eu" sempre em primeiro no filtro de Responsável — acha a si mesmo na
   // hora, sem procurar o próprio nome no meio da lista de consultores.
-  const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
+  const orderedMembers = useMemo(
+    () => sortSelfFirst(sortAlpha(members, (m) => m.name), currentUserId),
+    [members, currentUserId],
+  );
 
   // Origem/Cargo: lista canônica (Configurações) unida com o que já apareceu
   // na tela — cobre valor "antigo" fora da lista editável sem precisar de
@@ -290,7 +431,7 @@ export function KanbanBoard({
     for (const deals of Object.values(dealsByStage)) {
       for (const d of deals) if (d.contact.source) set.add(d.contact.source);
     }
-    return Array.from(set).sort();
+    return sortAlpha(Array.from(set), (s) => s);
   }, [dealsByStage, leadSources]);
 
   const jobTitleOptions = useMemo(() => {
@@ -298,7 +439,7 @@ export function KanbanBoard({
     for (const deals of Object.values(dealsByStage)) {
       for (const d of deals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
     }
-    return Array.from(set).sort();
+    return sortAlpha(Array.from(set), (j) => j);
   }, [dealsByStage, jobTitles]);
 
   const hasFilters =
@@ -506,6 +647,7 @@ export function KanbanBoard({
     quickFilter,
     pipelineId,
     reloadToken,
+    bulkReloadToken,
   ]);
 
   // Identidade estável (deps vazias) — lida com filtros/contagem carregada
@@ -585,6 +727,9 @@ export function KanbanBoard({
     const deal = dealsByStage[previousStageId]?.find((d) => d.id === dealId);
     if (!deal || previousStageId === targetStageId) return;
 
+    // Depois das guardas: só conta arraste que de fato TROCA de etapa —
+    // soltar o card na mesma coluna de onde saiu não é uso do recurso.
+    trackUse("pipeline.card.arrastar");
     setMoveError(null);
     setDealsByStage((prev) => ({
       ...prev,
@@ -751,10 +896,66 @@ export function KanbanBoard({
             Sem valor
           </button>
         </FilterPopover>
-        <PipelineQuickFilterButtons quickFilter={quickFilter} onToggle={onToggleQuickFilter} />
+        <PipelineQuickFilterNotice quickFilter={quickFilter} onClear={onToggleQuickFilter} />
+        {/* Liga/desliga o modo seleção — pedido explícito ("um botão de
+            selecionar que o consultor clica e abre a caixa de seleção de
+            cada negócio"). Desligar limpa a seleção junto, pra não deixar
+            negócio marcado de forma invisível, esperando pra ser atingido
+            por uma ação depois. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (selectionMode) {
+              exitSelectionMode();
+              return;
+            }
+            trackUse("pipeline.selecao.abrir");
+            setSelectionMode(true);
+          }}
+          aria-pressed={selectionMode}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+            selectionMode
+              ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
+              : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <MousePointerClick className="h-3.5 w-3.5" strokeWidth={2} />
+          {selectionMode ? "Sair da seleção" : "Selecionar"}
+        </button>
         </div>
         {toolbarRight}
       </div>
+
+      {selectionMode && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {selectedIds.size > 0 ? (
+            <DealBulkActions
+              selectedIds={Array.from(selectedIds)}
+              pipelineId={pipelineId}
+              pipelines={pipelines}
+              stages={stages}
+              members={members}
+              lossReasons={lossReasons}
+              leadSources={sourceOptions.map((label) => ({ label }))}
+              canBulkMessage={canBulkMessage}
+              onClear={clearSelection}
+              onApplied={() => {
+                // Busca completa: uma ação em massa pode ter tirado negócio
+                // da coluna (mudou de etapa/funil) ou do funil inteiro
+                // (ganho/perdido saem do Kanban, que só mostra OPEN) — não
+                // dá pra corrigir isso otimisticamente card a card.
+                setBulkReloadToken((t) => t + 1);
+              }}
+            />
+          ) : (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Marque os negócios pelas caixinhas. Segure <kbd className="rounded border border-neutral-300 px-1 font-sans dark:border-neutral-700">Shift</kbd> pra
+              marcar um intervalo, ou use a caixinha do topo da coluna pra pegar a etapa inteira.
+            </p>
+          )}
+          {selectionNotice && <p className="text-xs text-amber-600 dark:text-amber-400">{selectionNotice}</p>}
+        </div>
+      )}
 
       {moveError && (
         <ErrorDialog
@@ -802,6 +1003,11 @@ export function KanbanBoard({
                 onLoadMore={handleLoadMore}
                 disabled={pending}
                 activeDealId={activeDeal?.id ?? null}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onToggleSelectAll={toggleSelectAllStage}
+                selectingAll={selectingAllStage === stage.id}
               />
             ))
           )}
@@ -855,6 +1061,11 @@ const StageColumn = memo(function StageColumn({
   onLoadMore,
   disabled,
   activeDealId,
+  selectionMode,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  selectingAll,
 }: {
   stage: Stage;
   deals: Deal[];
@@ -867,6 +1078,12 @@ const StageColumn = memo(function StageColumn({
   onLoadMore: (stageId: string) => void;
   disabled: boolean;
   activeDealId: string | null;
+  selectionMode: boolean;
+  /** Set inteiro (não só os desta coluna): comparar `has(id)` é O(1), e passar um Set já pronto evita recortar/alocar uma cópia por coluna a cada render. */
+  selectedIds: Set<string>;
+  onToggleSelect: (stageId: string, dealId: string, shiftKey: boolean) => void;
+  onToggleSelectAll: (stageId: string) => void;
+  selectingAll: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
   const hasMore = deals.length < total;
@@ -980,7 +1197,29 @@ const StageColumn = memo(function StageColumn({
       }`}
     >
       <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
+        {selectionMode ? (
+          // Ocupa o lugar do pontinho colorido da etapa em vez de somar mais
+          // um controle na fileira — o cabeçalho da coluna tem 256px e já
+          // divide espaço entre nome, valor e contagem.
+          <button
+            type="button"
+            onClick={() => onToggleSelectAll(stage.id)}
+            disabled={selectingAll || deals.length === 0}
+            title={`Selecionar todos os ${total} negócios desta etapa`}
+            aria-label={`Selecionar todos os ${total} negócios de ${stage.name}`}
+            className="shrink-0 text-neutral-400 transition-colors hover:text-neutral-900 disabled:opacity-40 dark:text-neutral-500 dark:hover:text-neutral-100"
+          >
+            {selectingAll ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+            ) : deals.length > 0 && deals.every((d) => selectedIds.has(d.id)) ? (
+              <CheckSquare className="h-3.5 w-3.5 text-neutral-900 dark:text-white" strokeWidth={2} />
+            ) : (
+              <Square className="h-3.5 w-3.5" strokeWidth={2} />
+            )}
+          </button>
+        ) : (
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
+        )}
         <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-600 dark:text-neutral-400 uppercase">
           {stage.name}
         </span>
@@ -1036,7 +1275,13 @@ const StageColumn = memo(function StageColumn({
               key={deal.id}
               style={{ position: "absolute", top: (startIndex + i) * ROW_HEIGHT, left: 0, right: 0, paddingBottom: CARD_GAP }}
             >
-              <DealCard deal={deal} stageId={stage.id} />
+              <DealCard
+                deal={deal}
+                stageId={stage.id}
+                selectionMode={selectionMode}
+                selected={selectedIds.has(deal.id)}
+                onToggleSelect={onToggleSelect}
+              />
             </div>
           ))}
         </div>
@@ -1074,7 +1319,21 @@ function formatTaskDue(urgency: TaskUrgency, dueAt: Deal["nextTaskDueAt"]): stri
 // memo: sem isso, o rAF-throttle do scroll (acima) perde metade do valor —
 // StageColumn ainda re-renderiza a cada frame rolado, e todo cartão visível
 // re-renderizaria junto mesmo sem nenhuma prop sua ter mudado de verdade.
-const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal; stageId?: string; overlay?: boolean }) {
+const DealCard = memo(function DealCard({
+  deal,
+  stageId,
+  overlay,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
+}: {
+  deal: Deal;
+  stageId?: string;
+  overlay?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (stageId: string, dealId: string, shiftKey: boolean) => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: deal.id,
     data: { stageId },
@@ -1095,8 +1354,34 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
         stale
           ? "border-neutral-200 border-l-2 border-l-amber-500/70 dark:border-neutral-800 dark:border-l-amber-500/50"
           : "border-neutral-200 dark:border-neutral-800"
-      } ${isDragging ? "opacity-40" : ""}`}
+      } ${isDragging ? "opacity-40" : ""} ${
+        selected ? "ring-2 ring-neutral-900 dark:ring-white" : ""
+      }`}
     >
+      {selectionMode && stageId && onToggleSelect && (
+        // onPointerDown com stopPropagation: os listeners de arraste vivem
+        // no wrapper (ver abaixo), então sem isso o simples apertar do
+        // mouse na caixinha já começava a contar como início de arraste.
+        // preventDefault no clique impede a navegação do <Link> em volta.
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleSelect(stageId, deal.id, e.shiftKey);
+          }}
+          aria-label={selected ? `Desmarcar ${deal.name}` : `Selecionar ${deal.name}`}
+          aria-pressed={selected}
+          className="absolute top-1.5 left-1.5 z-10 rounded bg-white/90 p-0.5 text-neutral-400 backdrop-blur-sm transition-colors hover:text-neutral-900 dark:bg-neutral-900/90 dark:text-neutral-500 dark:hover:text-white"
+        >
+          {selected ? (
+            <CheckSquare className="h-4 w-4 text-neutral-900 dark:text-white" strokeWidth={2} />
+          ) : (
+            <Square className="h-4 w-4" strokeWidth={2} />
+          )}
+        </button>
+      )}
       {deal.hasUnreadWhatsApp && (
         <span className="absolute -top-1.5 -right-1.5 flex h-3 w-3" title="O lead respondeu">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
@@ -1104,7 +1389,10 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
         </span>
       )}
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100" title={deal.name}>
+        <p
+          className={`min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100 ${selectionMode ? "pl-6" : ""}`}
+          title={deal.name}
+        >
           {deal.name}
         </p>
         <Avatar
@@ -1173,6 +1461,33 @@ const DealCard = memo(function DealCard({ deal, stageId, overlay }: { deal: Deal
   );
 
   if (overlay) return content;
+
+  // No modo seleção o cartão INTEIRO vira alvo de marcar/desmarcar, e o
+  // arraste sai de cena. Dois motivos, os dois de segurança: (1) se clicar
+  // no cartão ainda abrisse o negócio, um clique fora da caixinha navegava
+  // pra outra página e jogava fora uma seleção que podia ter centenas de
+  // itens; (2) arrastar com 300 negócios marcados é ambíguo — move só esse
+  // ou o lote todo? Fora do modo seleção nada muda: arrasta e abre igual a
+  // sempre.
+  if (selectionMode && stageId && onToggleSelect) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        onClick={(e) => onToggleSelect(stageId, deal.id, e.shiftKey)}
+        onKeyDown={(e) => {
+          if (e.key === " " || e.key === "Enter") {
+            e.preventDefault();
+            onToggleSelect(stageId, deal.id, e.shiftKey);
+          }
+        }}
+        className="cursor-pointer select-none"
+      >
+        {content}
+      </div>
+    );
+  }
 
   return (
     // touch-manipulation (não touch-none): deixa o navegador rolar

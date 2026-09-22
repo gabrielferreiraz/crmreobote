@@ -3,30 +3,27 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, SearchX, Inbox, GitBranch, Layers, User, Send, Trash2, Loader2, Download, ArrowUp, ArrowDown, ArrowUpDown, CheckCircle2, XCircle } from "lucide-react";
+import { Search, SearchX, Inbox, Trash2, Loader2, Download, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { STALE_DEAL_ALERT_DAYS } from "@/lib/stale";
 import { brazilDateStringToUTC, brazilEndOfDayUTC, brazilStartOfDay } from "@/lib/timezone";
 import type { PipelineQuickFilter } from "./pipeline-filters";
-import { PipelineQuickFilterButtons } from "./pipeline-quick-filter-buttons";
+import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar } from "@/components/avatar";
 import { FilterPopover } from "@/components/filter-popover";
 import { ColumnFilter } from "@/components/column-filter";
 import { Select } from "@/components/select";
 import { DateRangeField } from "@/components/date-range-calendar";
-import { SelectionBar } from "@/components/selection-bar";
-import { BulkActionPopover } from "@/components/bulk-action-popover";
-import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { BulkSendMessageDialog } from "@/components/bulk-send-message-dialog";
-import { ClosedAtDialog } from "@/components/closed-at-dialog";
-import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reason-dialog";
+import { DealBulkActions } from "@/components/deal-bulk-actions";
+import type { LossReasonOption } from "@/components/loss-reason-dialog";
 import { Pagination } from "@/components/pagination";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
+import { sortAlpha } from "@/lib/sort-alpha";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
@@ -91,6 +88,7 @@ export function DealsList({
   pipelineId,
   pipelines,
   lossReasons,
+  leadSources,
   canBulkDelete,
   canBulkMessage,
   canExport,
@@ -115,6 +113,11 @@ export function DealsList({
   pipelineId: string;
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
+  /** Lista canônica de Origens (Configurações → Origens) — pro "Trocar
+   * origem" em massa poder oferecer QUALQUER origem cadastrada, não só as
+   * que por acaso aparecem na página carregada (originOptions abaixo, que
+   * alimenta o filtro, é derivado só dos negócios visíveis). */
+  leadSources: { label: string }[];
   canBulkDelete: boolean;
   canBulkMessage: boolean;
   canExport: boolean;
@@ -211,7 +214,10 @@ export function DealsList({
   }
 
   // "Eu" sempre em primeiro no filtro de Responsável.
-  const orderedMembers = useMemo(() => sortSelfFirst(members, currentUserId), [members, currentUserId]);
+  const orderedMembers = useMemo(
+    () => sortSelfFirst(sortAlpha(members, (m) => m.name), currentUserId),
+    [members, currentUserId],
+  );
   const [cityFilter, setCityFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -426,13 +432,13 @@ export function DealsList({
   const jobTitleOptions = useMemo(() => {
     const set = new Set<string>();
     for (const d of deals) if (d.contact.jobTitle) set.add(d.contact.jobTitle);
-    return Array.from(set).sort();
+    return sortAlpha(Array.from(set), (j) => j);
   }, [deals]);
 
   const originOptions = useMemo(() => {
     const set = new Set<string>();
     for (const d of deals) if (d.contact.source) set.add(d.contact.source);
-    return Array.from(set).sort();
+    return sortAlpha(Array.from(set), (o) => o);
   }, [deals]);
 
   const hasFilters =
@@ -522,11 +528,9 @@ export function DealsList({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [reopenBulkSend, setReopenBulkSend] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const [bulkSendOpen, setBulkSendOpen] = useState(false);
-  const [bulkWonOpen, setBulkWonOpen] = useState(false);
-  const [bulkLossOpen, setBulkLossOpen] = useState(false);
 
   // Restaura filtro/seleção depois de voltar de "+ Criar script" e reabre o
   // diálogo de envio sozinho — o script recém-criado já aparece no picker
@@ -535,11 +539,13 @@ export function DealsList({
   // roda no máximo uma vez por sessão de navegação, não em todo re-render.
   useEffect(() => {
     if (!restoredDraft) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     restoreFilters(restoredDraft.filters);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIds(new Set(restoredDraft.selectedIds));
-    setBulkSendOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Reabre o envio em massa exatamente onde parou — quem tem o estado do
+    // diálogo agora é DealBulkActions (compartilhado com o Kanban), então
+    // isso vira uma flag de montagem em vez de um setState local.
+    setReopenBulkSend(true);
   }, [restoredDraft]);
 
   function handleCreateScript() {
@@ -630,139 +636,6 @@ export function DealsList({
     }
   }
 
-  // Move pra outra pipeline, sempre na primeira etapa dela — trocar de
-  // funil E escolher uma etapa específica na mesma ação ficaria complexo
-  // demais pro popover; dá pra reposicionar a etapa depois normalmente.
-  async function applyBulkPipelineChange(newPipelineId: string) {
-    const pipeline = pipelines.find((p) => p.id === newPipelineId);
-    if (!pipeline || pipeline.stages.length === 0) return;
-    setBulkBusy(true);
-    setBulkError(null);
-    try {
-      const failures = await countBulkFailures(
-        Array.from(selectedIds).map((id) =>
-          fetch(`/api/deals/${id}/move`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pipelineId: newPipelineId, stageId: pipeline.stages[0].id }),
-          }),
-        ),
-      );
-      if (failures > 0) {
-        setBulkError("Alguns negócios não puderam ser movidos de funil.");
-      }
-      clearSelection();
-      await refreshCurrentPage();
-      router.refresh();
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
-  // Etapa dentro da mesma pipeline — pode falhar por negócio (etapa de
-  // destino exige valor/tipo de crédito/previsão que aquele negócio ainda
-  // não tem), por isso reporta como "alguns" em vez de tudo ou nada.
-  async function applyBulkStageChange(newStageId: string) {
-    setBulkBusy(true);
-    setBulkError(null);
-    try {
-      const failures = await countBulkFailures(
-        Array.from(selectedIds).map((id) =>
-          fetch(`/api/deals/${id}/move`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stageId: newStageId }),
-          }),
-        ),
-      );
-      if (failures > 0) {
-        setBulkError("Alguns negócios não puderam mudar de etapa (a etapa de destino pode exigir algum campo que falta preencher).");
-      }
-      clearSelection();
-      await refreshCurrentPage();
-      router.refresh();
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
-  async function applyBulkOwnerChange(newOwnerId: string) {
-    setBulkBusy(true);
-    setBulkError(null);
-    try {
-      const failures = await countBulkFailures(
-        Array.from(selectedIds).map((id) =>
-          fetch(`/api/deals/${id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ownerId: newOwnerId }),
-          }),
-        ),
-      );
-      if (failures > 0) {
-        setBulkError("Alguns negócios não puderam trocar de responsável.");
-      }
-      clearSelection();
-      await refreshCurrentPage();
-      router.refresh();
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
-  // Mesmo endpoint/formato que o negócio único usa pra marcar Ganho/Perdido
-  // (ver confirmWon/confirmLoss em negocios/[id]/deal-detail.tsx) — só troca
-  // o loop de 1 fetch por vários, igual aos outros bulks acima.
-  async function applyBulkWon(closedAt: string) {
-    setBulkBusy(true);
-    setBulkError(null);
-    try {
-      const failures = await countBulkFailures(
-        Array.from(selectedIds).map((id) =>
-          fetch(`/api/deals/${id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "WON", closedAt }),
-          }),
-        ),
-      );
-      if (failures > 0) {
-        setBulkError("Alguns negócios não puderam ser marcados como ganhos.");
-      }
-      setBulkWonOpen(false);
-      clearSelection();
-      await refreshCurrentPage();
-      router.refresh();
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
-  async function applyBulkLoss(lossReasonId: string, note: string, closedAt: string) {
-    setBulkBusy(true);
-    setBulkError(null);
-    try {
-      const failures = await countBulkFailures(
-        Array.from(selectedIds).map((id) =>
-          fetch(`/api/deals/${id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "LOST", lossReasonId, lostReason: note || undefined, closedAt }),
-          }),
-        ),
-      );
-      if (failures > 0) {
-        setBulkError("Alguns negócios não puderam ser marcados como perdidos.");
-      }
-      setBulkLossOpen(false);
-      clearSelection();
-      await refreshCurrentPage();
-      router.refresh();
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
   return (
     // Pipeline é rota "app shell" (ver app-main.tsx/APP_SHELL_ROUTES) — o
     // <main> em volta NUNCA rola (overflow-y-hidden de propósito lá), então
@@ -786,77 +659,39 @@ export function DealsList({
           // aos dois (era isso que ficava ruim — as duas coisas espremidas
           // juntas nessa mesma fileira empurravam toolbarRight pra baixo,
           // numa 3ª linha). Reaparecem sozinhas ao limpar a seleção.
-          <SelectionBar count={selectedIds.size} onClear={clearSelection}>
-            {pipelines.filter((p) => p.id !== pipelineId).length > 0 && (
-              <BulkActionPopover icon={GitBranch} label="Trocar de funil">
-                {(close) => (
-                  <SelectPopoverBody
-                    busy={bulkBusy}
-                    options={pipelines.filter((p) => p.id !== pipelineId).map((p) => ({ value: p.id, label: p.name }))}
-                    onApply={async (v) => { await applyBulkPipelineChange(v); close(); }}
-                  />
-                )}
-              </BulkActionPopover>
-            )}
-            <BulkActionPopover icon={Layers} label="Trocar de etapa">
-              {(close) => (
-                <SelectPopoverBody
-                  busy={bulkBusy}
-                  options={stages.map((s) => ({ value: s.id, label: s.name }))}
-                  onApply={async (v) => { await applyBulkStageChange(v); close(); }}
-                />
-              )}
-            </BulkActionPopover>
-            <BulkActionPopover icon={User} label="Responsável">
-              {(close) => (
-                <SelectPopoverBody
-                  busy={bulkBusy}
-                  options={members.filter((m) => m.active).map((m) => ({ value: m.id, label: m.name }))}
-                  onApply={async (v) => { await applyBulkOwnerChange(v); close(); }}
-                />
-              )}
-            </BulkActionPopover>
-            <button
-              type="button"
-              onClick={() => setBulkWonOpen(true)}
-              disabled={bulkBusy}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
-              Marcar como ganho
-            </button>
-            <button
-              type="button"
-              onClick={() => setBulkLossOpen(true)}
-              disabled={bulkBusy}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-            >
-              <XCircle className="h-3.5 w-3.5" strokeWidth={2} />
-              Marcar como perdido
-            </button>
-            {canBulkMessage && (
-              <button
-                type="button"
-                onClick={() => setBulkSendOpen(true)}
-                disabled={bulkBusy}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              >
-                <Send className="h-3.5 w-3.5" strokeWidth={2} />
-                Enviar mensagem em massa
-              </button>
-            )}
-            {canBulkDelete && (
-              <button
-                type="button"
-                onClick={() => setConfirmBulkDelete(true)}
-                disabled={bulkBusy}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                Apagar
-              </button>
-            )}
-          </SelectionBar>
+          <DealBulkActions
+            selectedIds={Array.from(selectedIds)}
+            pipelineId={pipelineId}
+            pipelines={pipelines}
+            stages={stages}
+            members={members}
+            lossReasons={lossReasons}
+            leadSources={sortAlpha(
+              Array.from(new Set([...leadSources.map((s) => s.label), ...originOptions])),
+              (o) => o,
+            ).map((label) => ({ label }))}
+            canBulkMessage={canBulkMessage}
+            onClear={clearSelection}
+            onCreateScript={handleCreateScript}
+            autoOpenSend={reopenBulkSend}
+            onApplied={async () => {
+              await refreshCurrentPage();
+              router.refresh();
+            }}
+            extraActions={
+              canBulkDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmBulkDelete(true)}
+                  disabled={bulkBusy}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  Apagar
+                </button>
+              ) : null
+            }
+          />
         ) : (
         <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -1011,7 +846,7 @@ export function DealsList({
                 className="w-full py-1.5 text-sm"
                 options={[
                   { value: "", label: "Todos os motivos" },
-                  ...lossReasons.map((r) => ({ value: r.id, label: r.label })),
+                  ...sortAlpha(lossReasons, (r) => r.label).map((r) => ({ value: r.id, label: r.label })),
                 ]}
               />
             </div>
@@ -1082,7 +917,7 @@ export function DealsList({
             />
           </div>
         </FilterPopover>
-        <PipelineQuickFilterButtons quickFilter={quickFilter} onToggle={onToggleQuickFilter} />
+        <PipelineQuickFilterNotice quickFilter={quickFilter} onClear={onToggleQuickFilter} />
         {canExport && (
           <a href={`/api/deals/export?${buildFilterParams().toString()}`} className="btn-secondary btn-sm" title="Exporta só os negócios que batem com a busca e os filtros atuais">
             <Download className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1437,39 +1272,6 @@ export function DealsList({
         />
       )}
 
-      {bulkSendOpen && (
-        <BulkSendMessageDialog
-          dealIds={Array.from(selectedIds)}
-          lossReasons={lossReasons}
-          onClose={() => setBulkSendOpen(false)}
-          onSent={() => {
-            clearSelection();
-            router.refresh();
-          }}
-          onCreateScript={handleCreateScript}
-        />
-      )}
-
-      {bulkWonOpen && (
-        <ClosedAtDialog
-          title={`Quando ${selectedIds.size === 1 ? "esse negócio foi ganho" : "esses negócios foram ganhos"}?`}
-          confirmLabel="Marcar como ganho"
-          confirmClassName="btn-primary bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-500"
-          onClose={() => setBulkWonOpen(false)}
-          onConfirm={applyBulkWon}
-        />
-      )}
-
-      {bulkLossOpen && (
-        <LossReasonDialog
-          title={`Por que ${selectedIds.size === 1 ? "esse negócio foi perdido" : "esses negócios foram perdidos"}?`}
-          lossReasons={lossReasons}
-          initialReasonId={null}
-          initialNote={null}
-          onClose={() => setBulkLossOpen(false)}
-          onConfirm={applyBulkLoss}
-        />
-      )}
     </div>
   );
 }

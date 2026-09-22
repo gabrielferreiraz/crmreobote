@@ -236,6 +236,13 @@ export default async function ConfiguracoesPage() {
                 keywords: ["log", "histórico", "segurança", "quem fez", "auditoria"],
               },
               {
+                href: "/configuracoes/uso",
+                icon: "BarChart3",
+                title: "Uso do CRM",
+                description: "Quais recursos a equipe mais usa (e quais ninguém abre) — pra saber onde vale investir.",
+                keywords: ["uso", "cliques", "recursos", "adoção", "telemetria", "mais usado", "métricas"],
+              },
+              {
                 href: "/configuracoes/saude-do-sistema",
                 icon: "HeartPulse",
                 title: "Saúde do sistema",

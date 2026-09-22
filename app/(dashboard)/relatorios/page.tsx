@@ -229,7 +229,7 @@ export default async function RelatoriosPage({
     : null;
 
   return (
-    <div className="space-y-16 pb-8">
+    <div className="space-y-10 pb-8 sm:space-y-16">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
         {/* flex-col + xl:flex-row/flex-nowrap (não flex-wrap+justify-between
@@ -258,16 +258,17 @@ export default async function RelatoriosPage({
                   selo já não cabem lado a lado) o selo desce pra própria
                   linha em vez de espremer o título. */}
               <div className="mt-1 flex flex-wrap items-center gap-2.5">
-                <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+                <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-3xl dark:text-neutral-100">
                   {isManager ? "Panorama da operação" : "Panorama comercial"}
                 </h1>
                 {selectedMonthLabel && (
-                  <span className="inline-flex shrink-0 items-center rounded-full bg-brand/10 px-3 py-1 text-sm font-semibold text-brand dark:bg-brand/20">
+                  <span className="inline-flex shrink-0 items-center rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand sm:px-3 sm:py-1 sm:text-sm dark:bg-brand/20">
                     {selectedMonthLabel}
                   </span>
                 )}
               </div>
-              <p className="mt-2 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
+              {/* Some no celular: o título + filtros já dizem o que é a tela, e o parágrafo empurrava o conteúdo pra fora da primeira tela. */}
+              <p className="mt-2 hidden max-w-lg text-sm text-neutral-500 sm:block dark:text-neutral-400">
                 Como o funil, o time e as conversas de WhatsApp estão performando no período selecionado.
               </p>
             </div>
@@ -528,10 +529,8 @@ export default async function RelatoriosPage({
               )}
             </div>
             {attendanceRateOverall !== null && (
-              <p className="mb-2 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                {attendanceSummary.attended} compareceu{attendanceSummary.attended === 1 ? "" : "ram"} de{" "}
-                {attendanceSummary.attended + attendanceSummary.noShow} marcado
-                {attendanceSummary.attended + attendanceSummary.noShow === 1 ? "" : "s"} ({attendanceSummary.noShow} no-show)
+              <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                {attendanceSummary.attended} de {attendanceSummary.attended + attendanceSummary.noShow} encontros realizados{attendanceSummary.noShow > 0 ? ` · ${attendanceSummary.noShow} no-show` : ""}
               </p>
             )}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">

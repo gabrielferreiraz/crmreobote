@@ -69,18 +69,18 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
               {/* Nome menor, valor maior de propósito — quem abre este card
                   quer bater o olho no NÚMERO (quanto vendeu, qual taxa),
                   não em quem é; o nome é só contexto pra identificar a linha. */}
-              <span className="min-w-0 flex-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              <span className="min-w-0 flex-1 text-sm font-semibold text-neutral-800 dark:text-neutral-200">
                 {entry.name}
               </span>
             </div>
             <div className="pl-9">
-              <p className="text-lg leading-tight font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</p>
+              <p className="text-base leading-snug font-bold tabular-nums text-neutral-900 dark:text-neutral-100">{entry.primaryValue}</p>
               {/* Detalhe e ação lado a lado quando há ação — o detalhe ganha
                   o espaço que sobrar (min-w-0), a ação nunca é espremida. */}
               {(entry.secondaryValue || entry.action) && (
-                <div className="mt-0.5 flex items-center justify-between gap-2">
+                <div className="mt-1 flex items-center justify-between gap-2">
                   {entry.secondaryValue ? (
-                    <p className="min-w-0 text-[11px] text-neutral-400 dark:text-neutral-500">{entry.secondaryValue}</p>
+                    <p className="min-w-0 text-xs text-neutral-500 dark:text-neutral-400">{entry.secondaryValue}</p>
                   ) : (
                     <span />
                   )}

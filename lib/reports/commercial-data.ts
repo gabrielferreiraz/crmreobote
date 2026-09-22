@@ -762,13 +762,29 @@ export async function getCommercialReportData(params: {
   const meetingsRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => activeMemberIds.has(o.id) && o.attendedCount > 0)
     .sort((a, b) => b.attendedCount - a.attendedCount)
-    .map((o) => ({
-      id: o.id,
-      name: o.name,
-      photoUrl: o.photoUrl,
-      primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
-      secondaryValue: `${o.meetingAttendedCount} ${o.meetingAttendedCount === 1 ? "reunião" : "reuniões"} · ${o.visitAttendedCount} visita${o.visitAttendedCount === 1 ? "" : "s"} · ${o.meetingsAndVisitsCount} agendada${o.meetingsAndVisitsCount === 1 ? "" : "s"} · ${o.noShowCount} no-show · ${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`,
-    }));
+    .map((o) => {
+      const typeParts: string[] = [];
+      if (o.visitAttendedCount > 0) typeParts.push(`${o.visitAttendedCount} visita${o.visitAttendedCount === 1 ? "" : "s"}`);
+      if (o.meetingAttendedCount > 0) typeParts.push(`${o.meetingAttendedCount} reuni${o.meetingAttendedCount === 1 ? "ão" : "ões"}`);
+      const typeText = typeParts.join(" · ") || `${o.attendedCount} realizadas`;
+
+      const extraParts: string[] = [];
+      if (o.meetingsAndVisitsCount > o.attendedCount) {
+        extraParts.push(`${o.meetingsAndVisitsCount} agendadas`);
+      }
+      if (o.noShowCount > 0) extraParts.push(`${o.noShowCount} no-show`);
+      if (o.rescheduledCount > 0) extraParts.push(`${o.rescheduledCount} remarcada${o.rescheduledCount === 1 ? "" : "s"}`);
+
+      const extraText = extraParts.length > 0 ? ` (${extraParts.join(", ")})` : "";
+
+      return {
+        id: o.id,
+        name: o.name,
+        photoUrl: o.photoUrl,
+        primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
+        secondaryValue: `${typeText}${extraText}`,
+      };
+    });
 
   // "Quem movimentou mais o funil" (pedido explícito) — soma ligação +
   // proposta + WhatsApp registrados (ver funnelActivityByUser acima). Sem
@@ -778,13 +794,19 @@ export async function getCommercialReportData(params: {
   const funnelActivityRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => activeMemberIds.has(o.id) && o.funnelActivityCount > 0)
     .sort((a, b) => b.funnelActivityCount - a.funnelActivityCount)
-    .map((o) => ({
-      id: o.id,
-      name: o.name,
-      photoUrl: o.photoUrl,
-      primaryValue: `${o.funnelActivityCount} ${o.funnelActivityCount === 1 ? "ação" : "ações"}`,
-      secondaryValue: `${o.callCount} ligaç${o.callCount === 1 ? "ão" : "ões"} · ${o.proposalCount} proposta${o.proposalCount === 1 ? "" : "s"} · ${o.whatsappCount} WhatsApp`,
-    }));
+    .map((o) => {
+      const parts: string[] = [];
+      if (o.callCount > 0) parts.push(`${o.callCount} ligaç${o.callCount === 1 ? "ão" : "ões"}`);
+      if (o.proposalCount > 0) parts.push(`${o.proposalCount} proposta${o.proposalCount === 1 ? "" : "s"}`);
+      if (o.whatsappCount > 0) parts.push(`${o.whatsappCount} WhatsApp`);
+      return {
+        id: o.id,
+        name: o.name,
+        photoUrl: o.photoUrl,
+        primaryValue: `${o.funnelActivityCount} ${o.funnelActivityCount === 1 ? "ação" : "ações"}`,
+        secondaryValue: parts.join(" · ") || `${o.funnelActivityCount} ações`,
+      };
+    });
 
   // Taxa de comparecimento por consultor — de quem marcou reunião/visita
   // (attendedCount + noShowCount > 0, ver ownerStats acima), quantos % de
@@ -796,16 +818,17 @@ export async function getCommercialReportData(params: {
   const attendanceRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => activeMemberIds.has(o.id) && o.attendedCount + o.noShowCount > 0)
     .sort((a, b) => b.attendedCount + b.noShowCount - (a.attendedCount + a.noShowCount))
-    .map((o) => ({
-      id: o.id,
-      name: o.name,
-      photoUrl: o.photoUrl,
-      // Só "%" (sem repetir "de comparecimento") — o título do card já diz
-      // isso; texto comprido demais no valor é o que espremia o nome ao
-      // lado dele em cards de 4 colunas (ver comentário no Leaderboard).
-      primaryValue: `${o.attendanceRate}%`,
-      secondaryValue: `${o.attendedCount} compareceu${o.attendedCount === 1 ? "" : "ram"} · ${o.noShowCount} no-show`,
-    }));
+    .map((o) => {
+      const totalEncontros = o.attendedCount + o.noShowCount;
+      const noShowText = o.noShowCount > 0 ? ` (${o.noShowCount} no-show)` : "";
+      return {
+        id: o.id,
+        name: o.name,
+        photoUrl: o.photoUrl,
+        primaryValue: `${o.attendanceRate}%`,
+        secondaryValue: `${o.attendedCount} de ${totalEncontros} encontros${noShowText}`,
+      };
+    });
 
   // Mesmo total, sem quebrar por pessoa — alimenta o resumo no topo do card
   // (ver page.tsx), pra bater o olho na taxa geral do time antes de abrir o

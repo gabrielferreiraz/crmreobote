@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { drainFeatureUsage, restoreFeatureUsage, hasPendingFeatureUsage } from "@/lib/feature-usage/track";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -36,7 +37,24 @@ export function PresenceHeartbeat() {
     function ping() {
       if (document.visibilityState !== "visible") return;
       if (lastInteractionRef.current === null || Date.now() - lastInteractionRef.current > IDLE_THRESHOLD_MS) return;
-      fetch("/api/presence/heartbeat", { method: "POST" }).catch(() => {});
+      // Leva de carona o que se acumulou de uso de funcionalidade desde o
+      // último ping (ver lib/feature-usage/track.ts) — nenhuma requisição
+      // nova, só um corpo a mais neste POST que já ia acontecer. Devolve
+      // pro buffer se falhar, pra uma queda de rede não apagar a contagem.
+      const features = drainFeatureUsage();
+      const hasFeatures = Object.keys(features).length > 0;
+      fetch("/api/presence/heartbeat", {
+        method: "POST",
+        ...(hasFeatures
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ features }) }
+          : {}),
+      })
+        .then((res) => {
+          if (!res.ok && hasFeatures) restoreFeatureUsage(features);
+        })
+        .catch(() => {
+          if (hasFeatures) restoreFeatureUsage(features);
+        });
     }
 
     function markActive() {
@@ -62,7 +80,19 @@ export function PresenceHeartbeat() {
       if (document.visibilityState === "visible") {
         lastInteractionRef.current = Date.now();
         ping();
+        return;
       }
+      // Saindo (trocou de aba, minimizou, fechou) — descarrega o buffer de
+      // uso de funcionalidade com sendBeacon, o único envio que o navegador
+      // garante entregar numa aba que está sumindo (um fetch comum é
+      // cancelado junto com a página). Não manda heartbeat de presença aqui
+      // de propósito: a pessoa está justamente DEIXANDO a tela, contar isso
+      // como tempo ativo seria errado.
+      if (!hasPendingFeatureUsage()) return;
+      const features = drainFeatureUsage();
+      const body = new Blob([JSON.stringify({ features })], { type: "application/json" });
+      const sent = navigator.sendBeacon?.("/api/presence/heartbeat", body);
+      if (!sent) restoreFeatureUsage(features);
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
 

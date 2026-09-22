@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckSquare, Search, SearchX } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { FilterPopover } from "@/components/filter-popover";
+import { sortAlpha } from "@/lib/sort-alpha";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import type { GoogleCalendarState } from "@/lib/use-google-calendar-events";
@@ -234,7 +235,7 @@ export function TasksListMobile({
             <div className="space-y-1">
               <label className="field-label">Categoria</label>
               <div className="flex flex-wrap gap-1">
-                {Object.entries(TASK_TYPE_LABELS).map(([value, label]) => {
+                {sortAlpha(Object.entries(TASK_TYPE_LABELS), ([, label]) => label).map(([value, label]) => {
                   const color = TASK_TYPE_COLOR[value];
                   const active = typeFilters.has(value);
                   return (
@@ -264,7 +265,7 @@ export function TasksListMobile({
                   className="w-full py-1.5 text-sm"
                   options={[
                     { value: "", label: "Todos" },
-                    ...members.map((m) => ({ value: m.id, label: m.name })),
+                    ...sortAlpha(members, (m) => m.name).map((m) => ({ value: m.id, label: m.name })),
                   ]}
                 />
               </div>

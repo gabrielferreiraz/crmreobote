@@ -7,8 +7,13 @@ import { CountUpValue } from "@/components/count-up-value";
 
 // Tempo total na tela / quanto antes do fim começa a desvanecer — dá pra
 // perceber o card e o valor subindo com folga sem travar a TV numa
-// comemoração longa demais.
-const VISIBLE_MS = 7000;
+// comemoração longa demais. Era 7000 — relatado que o pessoal "quase não
+// está vendo" a comemoração (a TV roda sem interação nenhuma, então ela só
+// tem esse tempo pra ser notada por quem está de relance na sala); subido
+// pra dar bem mais folga sem virar a coisa mais importante da tela por
+// tempo demais (a cada ~30s de poll ainda dá espaço de sobra pra próxima
+// venda, ver comentário de tv-view.tsx sobre o intervalo).
+const VISIBLE_MS = 12000;
 const EXIT_MS = 500;
 
 // Voo da foto até o card "Última venda" — em vez da foto só desaparecer
@@ -35,16 +40,19 @@ const FLIGHT_START_MS = VISIBLE_MS - 1500;
 // funciona bem numa tela comum) — sem canvas, sem cálculo de física por
 // frame, ordens de grandeza mais leve pro hardware.
 //
-// Mais partículas (70) e delay espalhado por até 4,5s (não só os ~0,15s do
-// confete "rápido" de components/confetti-burst.tsx) — aqui o confete
-// precisa preencher boa parte dos 7s da comemoração inteira, não só um
-// instante; sem isso ia cair tudo de uma vez nos 2 primeiros segundos e
-// sobrar 5s de tela vazia. Cores douradas/âmbar de propósito — mesma
-// linguagem visual do resto da comemoração (borda/halo/texto âmbar do
-// card), não confete multicolorido genérico.
+// Mais partículas (70) e delay espalhado (não só os ~0,15s do confete
+// "rápido" de components/confetti-burst.tsx) — aqui o confete precisa
+// preencher boa parte da comemoração inteira (ver VISIBLE_MS acima), não só
+// um instante; sem isso ia cair tudo de uma vez no começo e sobrar tela
+// vazia no resto. Delay máximo escalado junto com VISIBLE_MS (era 4,5s pros
+// 7s antigos, mesma proporção ~64% aqui) — sempre um pouco antes do fim pra
+// nenhuma partícula nascer bem na hora que o fade (`leaving`) já começou.
+// Cores douradas/âmbar de propósito — mesma linguagem visual do resto da
+// comemoração (borda/halo/texto âmbar do card), não confete multicolorido
+// genérico.
 const CONFETTI_COUNT = 70;
 const CONFETTI_COLORS = ["#fbbf24", "#f59e0b", "#fde047", "#fff7cc", "#eab308", "#ffffff"];
-const CONFETTI_MAX_DELAY_S = 4.5;
+const CONFETTI_MAX_DELAY_S = 7.5;
 
 type ConfettiParticle = {
   id: number;

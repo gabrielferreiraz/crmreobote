@@ -79,6 +79,7 @@ model Organization {
   jobTitles              JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
   userDailyActivities    UserDailyActivity[]
+  featureUsageDaily      FeatureUsageDaily[]
   monthlyGoals           MonthlyGoal[]
   metaAdsConnection      MetaAdsConnection?
   processCategories      ProcessCategory[]
@@ -140,6 +141,7 @@ model User {
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
   contactsLeadQualified       Contact[]                 @relation("ContactLeadQualifiedBy")
   dailyActivities             UserDailyActivity[]
+  featureUsageDaily           FeatureUsageDaily[]
   monthlyGoalsUpdated         MonthlyGoal[]
   metaAdsConnectionsCreated   MetaAdsConnection[]
   processesOwned              Process[]                 @relation("ProcessOwner")
@@ -2013,6 +2015,43 @@ model UserDailyActivity {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId, date])
+  @@index([organizationId, date])
+}
+
+/**
+ * Quantas vezes cada funcionalidade nomeada foi usada, por pessoa, por dia.
+ * Alimenta "onde os consultores mais clicam" (ver lib/feature-usage/) —
+ * pedido explícito: "ter um norte de onde melhorar e do que ter mais
+ * atenção".
+ *
+ * SOMATÓRIO diário, não log de evento, pelo mesmo motivo já documentado em
+ * UserDailyActivity acima: um consultor clica centenas de vezes por dia, e
+ * uma linha por clique seria um volume de escrita enorme pra responder uma
+ * pergunta que só precisa de totais. Com (usuário, dia, funcionalidade)
+ * único, o navegador pode acumular em memória e mandar de 30 em 30s (de
+ * carona no heartbeat que já existe, ver components/presence-heartbeat.tsx —
+ * nenhuma requisição nova), e cada envio vira um punhado de incrementos em
+ * vez de uma inserção por clique.
+ *
+ * `feature` é uma chave de uma lista FECHADA (ver FEATURE_LABELS em
+ * lib/feature-usage/features.ts) — o servidor descarta o que não estiver
+ * nela, pra um cliente adulterado não conseguir inflar a tabela com chaves
+ * inventadas.
+ */
+model FeatureUsageDaily {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  date           String // "YYYY-MM-DD" em Brasília — mesma convenção de brazilDateKey (lib/timezone.ts)
+  feature        String
+  count          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, date, feature])
   @@index([organizationId, date])
 }
 

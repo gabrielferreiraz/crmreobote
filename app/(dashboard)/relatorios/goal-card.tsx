@@ -105,16 +105,16 @@ export function GoalCard({
   const paceStatus: PaceStatus = paceDeltaPoints >= 5 ? "ahead" : paceDeltaPoints <= -5 ? "behind" : "onTrack";
 
   return (
-    <div className="card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5">
+    <div className="card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
             <Target className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Meta de {monthLabel}</p>
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Vale pro time inteiro — não muda com os filtros acima
+              Time inteiro<span className="hidden sm:inline"> — não muda com os filtros acima</span>
             </p>
           </div>
         </div>
@@ -132,7 +132,7 @@ export function GoalCard({
             title={hasGoal ? "Editar meta" : "Definir meta"}
           >
             <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-            {hasGoal ? "Editar" : "Definir meta"}
+            <span className={hasGoal ? "hidden sm:inline" : ""}>{hasGoal ? "Editar" : "Definir meta"}</span>
           </button>
         )}
       </div>
@@ -198,16 +198,17 @@ export function GoalCard({
               </button>
             </div>
           )}
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <span className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+          {/* Celular: valor + "de meta" em cima (o "de" desce pra linha de baixo em vez de espremer), ritmo à esquerda e % à direita numa linha só. */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between">
+            <div className="min-w-0">
+              <span className="block text-2xl font-semibold tabular-nums text-neutral-900 sm:inline dark:text-neutral-100">
                 {formatCurrency(achievedValue)}
               </span>
-              <span className="ml-2 text-xs font-medium text-neutral-400 dark:text-neutral-500">
+              <span className="block text-xs font-medium text-neutral-400 sm:ml-2 sm:inline dark:text-neutral-500">
                 de {formatCurrency(goalValue)}
               </span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
               {!exceeded && (
                 <Badge tone={PACE_TONE[paceStatus]} dot title={`Meta batida: ${pct}% · Mês decorrido: ${pacePct}%`}>
                   {PACE_LABEL[paceStatus]}

@@ -6,6 +6,7 @@ import { Plus, CheckSquare, Loader2, List, CalendarDays, Search, SearchX } from 
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { FilterPopover } from "@/components/filter-popover";
+import { sortAlpha } from "@/lib/sort-alpha";
 import { NewTaskDialog } from "@/components/new-task-dialog";
 import { BulkScheduleTasksDialog, type BulkScheduleTask } from "@/components/bulk-schedule-tasks-dialog";
 import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
@@ -301,7 +302,7 @@ export function TasksList({
             <div className="space-y-1">
               <label className="field-label">Categoria</label>
               <div className="flex flex-wrap gap-1">
-                {Object.entries(TASK_TYPE_LABELS).map(([value, label]) => {
+                {sortAlpha(Object.entries(TASK_TYPE_LABELS), ([, label]) => label).map(([value, label]) => {
                   const color = TASK_TYPE_COLOR[value];
                   const active = typeFilters.has(value);
                   return (
@@ -331,7 +332,7 @@ export function TasksList({
                   className="w-full py-1.5 text-sm"
                   options={[
                     { value: "", label: "Todos" },
-                    ...members.map((m) => ({ value: m.id, label: m.name })),
+                    ...sortAlpha(members, (m) => m.name).map((m) => ({ value: m.id, label: m.name })),
                   ]}
                 />
               </div>

@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Users, Kanban, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
+import { trackUse } from "@/lib/feature-usage/track";
 
 const QUICK_LINKS = [
   { href: "/", label: "Início" },
@@ -70,16 +71,23 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Uma função só pros dois caminhos de abertura (atalho Cmd+K e botão de
+  // busca) — medir só um dos dois daria metade do uso real.
+  const openPalette = useCallback(() => {
+    trackUse("busca.abrir");
+    setOpen(true);
+  }, []);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen(true);
+        openPalette();
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [openPalette]);
 
   useEffect(() => {
     if (open) {
@@ -130,7 +138,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const hasResults = filteredLinks.length > 0 || results.contacts.length > 0 || results.deals.length > 0;
 
   return (
-    <CommandPaletteContext.Provider value={() => setOpen(true)}>
+    <CommandPaletteContext.Provider value={openPalette}>
       {children}
 
       {open && (

@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Select } from "@/components/select";
+import { sortOptionsAlpha } from "@/lib/sort-alpha";
 import { PROCESS_PIPELINE_FILTER_KEY } from "./filters-storage";
 
 type CategoryOption = { id: string; name: string; pipelines: { id: string; name: string }[] };
@@ -36,7 +37,7 @@ export function ProcessPipelineFilter({ categories }: { categories: CategoryOpti
 
   const options = [
     { value: "", label: "Todas as categorias" },
-    ...categories.flatMap((c) => c.pipelines.map((p) => ({ value: p.id, label: `${c.name} · ${p.name}` }))),
+    ...sortOptionsAlpha(categories.flatMap((c) => c.pipelines.map((p) => ({ value: p.id, label: `${c.name} · ${p.name}` })))),
   ];
 
   return <Select value={current} onChange={apply} options={options} className="w-56" />;

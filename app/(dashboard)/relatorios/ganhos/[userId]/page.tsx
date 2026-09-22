@@ -152,7 +152,15 @@ export default async function GanhosPage({
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Kpi label="Total ganho" value={formatCurrency(result.sumValue)} />
+          <Kpi
+            label="Total ganho"
+            value={formatCurrency(result.sumValue)}
+            subValue={
+              result.sumGrossValue > 0 && result.sumGrossValue !== result.sumValue
+                ? `bruto: ${formatCurrency(result.sumGrossValue)}`
+                : null
+            }
+          />
           <Kpi label="Negócios fechados" value={String(result.total)} />
           <Kpi label="Ticket médio" value={result.total > 0 ? formatCurrency(avg) : "—"} />
           <Kpi
@@ -220,8 +228,16 @@ export default async function GanhosPage({
                       <td className="px-4 py-2.5 text-neutral-600 dark:text-neutral-300">{d.creditType ?? "—"}</td>
                       <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{d.pipelineName}</td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-neutral-500 tabular-nums dark:text-neutral-400">{formatDay(d.closedAt)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold whitespace-nowrap tabular-nums text-neutral-900 dark:text-neutral-100">
-                        {formatCurrency(d.value)}
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                          {formatCurrency(d.value)}
+                        </span>
+                        {/* Bruto só quando difere do líquido — os dois iguais seria ruído. */}
+                        {d.grossValue !== null && d.grossValue !== d.value && (
+                          <span className="block text-[11px] tabular-nums text-neutral-400 dark:text-neutral-500">
+                            bruto: {formatCurrency(d.grossValue)}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -257,11 +273,12 @@ export default async function GanhosPage({
   });
 }
 
-function Kpi({ label, value, small }: { label: string; value: string; small?: boolean }) {
+function Kpi({ label, value, small, subValue }: { label: string; value: string; small?: boolean; subValue?: string | null }) {
   return (
     <div className="card p-4">
       <p className="text-[11px] tracking-wide text-neutral-500 uppercase dark:text-neutral-400">{label}</p>
       <p className={`mt-1 font-bold tabular-nums text-neutral-900 dark:text-neutral-100 ${small ? "text-sm leading-6" : "text-xl"}`}>{value}</p>
+      {subValue && <p className="text-[11px] text-neutral-400 tabular-nums dark:text-neutral-500">{subValue}</p>}
     </div>
   );
 }
