@@ -1671,6 +1671,9 @@ export function DealDetail({
                   key={activity.id}
                   activity={activity}
                   highlighted={highlightedActivityId === activity.id}
+                  canEdit={canEditActivity(activity)}
+                  onConfirmDelete={confirmDeleteActivity}
+                  onSave={saveActivityEdit}
                 />
               ))}
             </div>

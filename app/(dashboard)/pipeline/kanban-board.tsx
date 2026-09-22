@@ -191,7 +191,9 @@ export function KanbanBoard({
   pipelines: { id: string; name: string; stages: { id: string; name: string }[] }[];
   lossReasons: LossReasonOption[];
   canBulkMessage: boolean;
-  creditTypes: LabelOption[];
+  /** {id, label} (não LabelOption) — repassado direto pro Select de
+   * CompleteRequiredFieldsDialog abaixo, que precisa do id. */
+  creditTypes: { id: string; label: string }[];
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);

@@ -41,8 +41,8 @@ async function hasPermission(args: {
   }
 
   if (activity.dealId) {
-    const deal = await prisma.deal.findUnique({
-      where: { id_organizationId: { id: activity.dealId, organizationId } },
+    const deal = await prisma.deal.findFirst({
+      where: { id: activity.dealId, organizationId },
       select: { ownerId: true },
     });
     if (deal && deal.ownerId === userId) {
