@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Wallet, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
@@ -185,13 +185,24 @@ function ActivityItem({
     setEditing(false);
   }
 
+  const activityTypeColors: Record<string, string> = {
+    WHATSAPP: "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 ring-1 ring-emerald-500/30",
+    CALL: "bg-sky-500/15 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400 ring-1 ring-sky-500/30",
+    MEETING: "bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400 ring-1 ring-violet-500/30",
+    VISIT: "bg-rose-500/15 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 ring-1 ring-rose-500/30",
+    PROPOSAL: "bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 ring-1 ring-indigo-500/30",
+    EMAIL: "bg-cyan-500/15 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-400 ring-1 ring-cyan-500/30",
+    NOTE: "bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 ring-1 ring-amber-500/30",
+  };
+  const iconColorClass = activityTypeColors[activity.type] ?? "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400";
+
   return (
     <div
       id={`activity-${activity.id}`}
-      className={`card flex gap-3 p-3 text-sm ${highlighted ? "animate-highlight-once" : ""}`}
+      className={`card flex gap-3.5 p-3.5 text-sm transition-colors hover:border-neutral-700/70 ${highlighted ? "animate-highlight-once" : ""}`}
     >
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
-        <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${iconColorClass}`}>
+        <Icon className="h-4 w-4" strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
         {editing ? (
@@ -909,10 +920,12 @@ export function DealDetail({
             <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                className="inline-flex items-center gap-1 font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+                className="group inline-flex items-center gap-1.5 font-semibold text-neutral-800 dark:text-neutral-200 hover:text-brand dark:hover:text-brand-light transition-colors bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-md border border-neutral-200 dark:border-neutral-700/60"
+                title="Ver ficha do cliente"
               >
-                <User className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                {deal.contact.name}
+                <User className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
+                <span>{deal.contact.name}</span>
+                <ExternalLink className="h-3 w-3 text-neutral-400 group-hover:text-brand transition-colors" strokeWidth={2} />
               </Link>
               <span>·</span>
               <span>Resp: {deal.owner.name}</span>
@@ -1020,50 +1033,66 @@ export function DealDetail({
       </div>
 
       {/* Desktop Header */}
-      <div className="hidden items-start justify-between gap-3 lg:flex">
-        <div className="flex items-start gap-3">
-          <Avatar name={deal.contact.name} size="lg" />
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">{deal.name}</h1>
-            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+      <div className="hidden card p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <Avatar name={deal.contact.name} size="lg" className="ring-2 ring-brand/40 shadow-sm shrink-0" />
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">
+                {deal.name}
+              </h1>
+              {deal.value != null && (
+                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                  {formatCurrency(deal.value)}
+                </span>
+              )}
+            </div>
+            <p className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                className="inline-flex items-center gap-1 align-middle text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline"
+                className="group inline-flex items-center gap-1.5 font-semibold text-neutral-800 dark:text-neutral-200 hover:text-brand dark:hover:text-brand-light transition-all bg-neutral-100/90 dark:bg-neutral-800/80 hover:bg-neutral-200/80 dark:hover:bg-neutral-800 px-2.5 py-1 rounded-md border border-neutral-200/90 dark:border-neutral-700/80 shadow-2xs"
+                title="Ver ficha do cliente"
               >
-                <User className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                {deal.contact.name}
+                <User className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
+                <span>{deal.contact.name}</span>
+                <ExternalLink className="h-3 w-3 text-neutral-400 group-hover:text-brand transition-colors ml-0.5" strokeWidth={2} />
               </Link>
-              {" · "}Responsável: {deal.owner.name}
+              <span className="text-neutral-400 dark:text-neutral-600">·</span>
+              <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
+                <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="2xs" />
+                <span>Resp: <strong className="font-semibold text-neutral-800 dark:text-neutral-200">{deal.owner.name}</strong></span>
+              </span>
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              { s: "LOST" as const, icon: XCircle },
-              { s: "OPEN" as const, icon: CircleDot },
-              { s: "WON" as const, icon: CheckCircle2 },
-            ]
-          ).map(({ s, icon: Icon }) => (
-            <button
-              key={s}
-              onClick={() => updateStatus(s)}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                deal.status === s
-                  ? s === "WON"
-                    ? "bg-emerald-600 text-white"
-                    : s === "LOST"
-                      ? "bg-red-600 text-white"
-                      : "bg-[var(--brand)] text-white"
-                  : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-              {s === "OPEN" ? "Em andamento" : s === "WON" ? "Ganho" : "Perdido"}
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex items-center gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-950/80 p-1 border border-neutral-200 dark:border-neutral-800/80">
+            {(
+              [
+                { s: "LOST" as const, label: "Perdido", icon: XCircle, activeClass: "bg-red-600 text-white shadow-sm shadow-red-900/50" },
+                { s: "OPEN" as const, label: "Em andamento", icon: CircleDot, activeClass: "bg-brand text-white shadow-sm shadow-brand/40" },
+                { s: "WON" as const, label: "Ganho", icon: CheckCircle2, activeClass: "bg-emerald-600 text-white shadow-sm shadow-emerald-900/50" },
+              ]
+            ).map(({ s, label, icon: Icon, activeClass }) => {
+              const isActive = deal.status === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => updateStatus(s)}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                    isActive
+                      ? activeClass
+                      : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  <Icon className={`h-3.5 w-3.5 ${isActive ? "text-white" : ""}`} strokeWidth={2.2} />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
           {deal.status !== "OPEN" && deal.closedAt && (
-            <p className="w-full text-right text-xs text-neutral-400 dark:text-neutral-500">
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
               {deal.status === "WON" ? "Ganho" : "Perdido"} em{" "}
               {new Date(deal.closedAt).toLocaleString("pt-BR", {
                 day: "2-digit",
@@ -1077,34 +1106,48 @@ export function DealDetail({
         </div>
       </div>
 
-      <div className="card scrollbar-thin flex items-center gap-1 overflow-x-auto p-2">
-        {deal.pipeline.stages.map((stage) => {
+      {/* Stepper Visual de Etapas */}
+      <div className="card scrollbar-thin flex items-center gap-1.5 overflow-x-auto p-2 bg-white dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-800 shadow-sm">
+        {deal.pipeline.stages.map((stage, idx) => {
           const isCurrent = stage.id === deal.stageId;
+          const stageIndex = deal.pipeline.stages.findIndex((s) => s.id === deal.stageId);
+          const isPast = idx < stageIndex;
+
           return (
-            <button
-              key={stage.id}
-              disabled={movingStage !== null}
-              onClick={() => moveToStage(stage.id)}
-              className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs whitespace-nowrap transition-colors ${
-                isCurrent
-                  ? "text-white"
-                  : "text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-800 dark:hover:text-neutral-200"
-              }`}
-              style={isCurrent ? { background: "var(--brand-gradient)" } : undefined}
-            >
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: stage.color ?? "#999" }} />
-              {stage.name}
-              {isCurrent && (
+            <div key={stage.id} className="flex items-center gap-1.5 shrink-0">
+              <button
+                disabled={movingStage !== null}
+                onClick={() => moveToStage(stage.id)}
+                className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap transition-all duration-200 ${
+                  isCurrent
+                    ? "bg-gradient-to-r from-brand to-brand-dark text-white shadow-md shadow-brand/25 ring-1 ring-brand/50 font-semibold"
+                    : isPast
+                    ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800/80 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white"
+                    : "bg-neutral-50 text-neutral-500 hover:bg-neutral-100 dark:bg-neutral-900/50 dark:text-neutral-500 dark:hover:bg-neutral-850 dark:hover:text-neutral-300"
+                }`}
+              >
                 <span
-                  className={`inline-flex items-center gap-1 ${
-                    isStale(deal.stageEnteredAt) ? "font-medium text-amber-200" : "text-white/70"
+                  className={`h-2.5 w-2.5 rounded-full transition-transform group-hover:scale-125 ${
+                    isCurrent ? "ring-2 ring-white/50 animate-pulse" : ""
                   }`}
-                >
-                  <Clock className="h-3 w-3" strokeWidth={2} />
-                  {daysSince(deal.stageEnteredAt)}d
-                </span>
+                  style={{ backgroundColor: stage.color ?? "#999" }}
+                />
+                <span>{stage.name}</span>
+                {isCurrent && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] ${
+                      isStale(deal.stageEnteredAt) ? "bg-amber-500/20 text-amber-300 font-semibold" : "bg-white/20 text-white"
+                    }`}
+                  >
+                    <Clock className="h-3 w-3" strokeWidth={2.2} />
+                    {daysSince(deal.stageEnteredAt)}d
+                  </span>
+                )}
+              </button>
+              {idx < deal.pipeline.stages.length - 1 && (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-600 dark:text-neutral-700" strokeWidth={2} />
               )}
-            </button>
+            </div>
           );
         })}
       </div>
@@ -1230,8 +1273,18 @@ export function DealDetail({
             <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
           )}
 
-          <div className="card space-y-2 p-4 text-sm">
-            <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>
+          <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
+            <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <CalendarCheck className="h-4 w-4 text-brand" strokeWidth={2} />
+                <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Tarefas</h3>
+              </div>
+              {deal.tasks.length > 0 && (
+                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand dark:bg-brand/20 dark:text-brand-light">
+                  {deal.tasks.filter((t) => !t.completedAt).length} pendente(s)
+                </span>
+              )}
+            </div>
             <div className="space-y-1.5">
               {deal.tasks.length === 0 && (
                 <p className="text-xs text-neutral-400 dark:text-neutral-500">
@@ -1257,7 +1310,7 @@ export function DealDetail({
                       {task.title}
                       {task.dueAt && (
                         <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                          · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          · Prazo: {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         </span>
                       )}
                     </span>
@@ -1277,8 +1330,11 @@ export function DealDetail({
             </div>
           </div>
 
-          <div className="card space-y-2 p-4 text-sm">
-            <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do negócio</h3>
+          <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
+            <div className="flex items-center gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
+              <Briefcase className="h-4 w-4 text-brand" strokeWidth={2} />
+              <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Dados do negócio</h3>
+            </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
               <span className="flex items-center gap-1.5">
@@ -1459,8 +1515,55 @@ export function DealDetail({
             )}
           </div>
 
-          <div className="card space-y-2 p-4 text-sm">
-            <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Dados do contato</h3>
+          <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
+            <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-brand" strokeWidth={2} />
+                <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Dados do contato</h3>
+              </div>
+              <Link
+                href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                Ver ficha →
+              </Link>
+            </div>
+            
+            {/* Barra de ações rápidas no card do contato */}
+            <div className="grid grid-cols-3 gap-1.5 pt-0.5 pb-1 border-b border-neutral-100 dark:border-neutral-800/60">
+              {deal.contact.phone || deal.contact.whatsapp ? (
+                <a
+                  href={`tel:${normalizePhoneNumber(deal.contact.phone || deal.contact.whatsapp || "")}`}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                  title="Ligar para contato"
+                >
+                  <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+                  <span>Ligar</span>
+                </a>
+              ) : null}
+              {deal.contact.whatsapp || deal.contact.phone ? (
+                <a
+                  href={`https://wa.me/${normalizePhoneNumber(deal.contact.whatsapp || deal.contact.phone || "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                  title="Abrir WhatsApp"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+                  <span>Whats</span>
+                </a>
+              ) : null}
+              {deal.contact.email ? (
+                <a
+                  href={`mailto:${deal.contact.email}`}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-sky-500/10 py-1.5 text-xs font-medium text-sky-600 hover:bg-sky-500/20 dark:text-sky-400 transition-colors"
+                  title="Enviar e-mail"
+                >
+                  <Mail className="h-3.5 w-3.5" strokeWidth={2} />
+                  <span>E-mail</span>
+                </a>
+              ) : null}
+            </div>
             <EditableRow
               label="Nome"
               value={deal.contact.name}
@@ -1714,7 +1817,7 @@ export function DealDetail({
                         {task.title}
                         {task.dueAt && (
                           <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                            · {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                            · Prazo: {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                           </span>
                         )}
                       </span>
@@ -2192,27 +2295,17 @@ function DealValueCard({
   const [error, setError] = useState<string | null>(null);
 
   if (!editing) {
-    // Não editável (sem permissão) — card só de leitura, sem nada clicável.
     if (!editable) {
       return (
-        <div className="card p-4 text-sm">
-          <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
-          <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(value)}</p>
+        <div className="card p-4 text-sm bg-white dark:bg-gradient-to-br dark:from-neutral-900 dark:to-neutral-900/90 border border-neutral-200 dark:border-neutral-800 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</p>
+            <Wallet className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+          </div>
+          <p className="mt-2 text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{formatCurrency(value)}</p>
         </div>
       );
     }
-    // O card INTEIRO é o botão — clicar em qualquer lugar dele (não só no
-    // lapisinho, que era pequeno demais e ficava invisível até passar o
-    // mouse) já entra no modo de edição. Mesmo padrão que EditableRow já
-    // usa mais abaixo neste arquivo (valor + lápis dentro do MESMO botão),
-    // só que aqui o botão é o card todo, não só a linha do valor.
-    //
-    // Selo "Editar" SEMPRE visível (não só no hover) — pedido explícito de
-    // deixar a edição mais chamativa/vívida. Só 2 cards destes na tela
-    // (Líquido/Bruto), então um selo colorido permanente não pesa — bem
-    // diferente de EditableRow (13 linhas empilhadas mais abaixo), onde o
-    // mesmo selo repetido 13x viraria poluição visual; lá o tratamento
-    // continua mais discreto (lápis colorido, sem texto).
     return (
       <button
         type="button"
@@ -2221,17 +2314,22 @@ function DealValueCard({
           setError(null);
           setEditing(true);
         }}
-        className="card group w-full p-4 text-left text-sm transition-colors hover:border-brand/40 hover:bg-brand-light/40 dark:hover:bg-brand-light/15"
+        className="card group w-full p-4 text-left text-sm transition-all duration-200 hover:border-brand/40 hover:bg-neutral-50 dark:hover:bg-neutral-900/95 border border-neutral-200 dark:border-neutral-800 shadow-sm"
         aria-label={`Editar ${label.toLowerCase()}`}
       >
         <div className="flex items-center justify-between gap-2">
-          <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-semibold text-brand transition-transform group-hover:scale-105 dark:bg-brand-light">
+          <div className="flex items-center gap-1.5">
+            <Wallet className="h-4 w-4 text-brand" strokeWidth={2} />
+            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</p>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-[11px] font-semibold text-brand transition-transform group-hover:scale-105 dark:bg-brand/20 dark:text-brand-light">
             <Pencil className="h-2.5 w-2.5" strokeWidth={2.5} />
             Editar
           </span>
         </div>
-        <p className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(value)}</p>
+        <p className={`mt-2 text-2xl font-bold tracking-tight ${value ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-400 dark:text-neutral-500"}`}>
+          {formatCurrency(value)}
+        </p>
       </button>
     );
   }

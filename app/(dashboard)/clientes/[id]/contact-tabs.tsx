@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Inbox, Trash2, AlertCircle } from "lucide-react";
+import { Inbox, Trash2, AlertCircle, Briefcase, UserCheck, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -142,37 +142,40 @@ export function ContactTabs({
 
   return (
     <div>
-      <div className="relative mb-4 flex w-full max-w-[320px] rounded-md border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
+      <div className="relative mb-5 flex w-full max-w-[340px] rounded-xl border border-neutral-800 bg-neutral-950/80 p-1">
         <div
-          className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded bg-white shadow-sm transition-transform duration-200 ease-spring dark:bg-neutral-900"
+          className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-lg bg-gradient-to-r from-brand to-brand-dark shadow-md shadow-brand/20 transition-transform duration-200 ease-spring"
           style={{ transform: tab === "info" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
         />
         <button
           type="button"
           onClick={() => setTab("deals")}
-          className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors active:scale-[0.97] ${
-            tab === "deals" ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"
+          className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
+            tab === "deals" ? "text-white" : "text-neutral-400 hover:text-neutral-200"
           }`}
         >
-          Negócios{deals.length > 0 && <span className="ml-1 tabular-nums opacity-60">({deals.length})</span>}
+          <Briefcase className="h-3.5 w-3.5" strokeWidth={2} />
+          <span>Negócios</span>
+          {deals.length > 0 && <span className="ml-0.5 rounded-full bg-white/20 px-1.5 py-0.2 text-[10px] tabular-nums text-white">({deals.length})</span>}
         </button>
         <button
           type="button"
           onClick={() => setTab("info")}
-          className={`relative z-10 flex-1 rounded px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors active:scale-[0.97] ${
-            tab === "info" ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"
+          className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
+            tab === "info" ? "text-white" : "text-neutral-400 hover:text-neutral-200"
           }`}
         >
-          Dados de contato
+          <UserCheck className="h-3.5 w-3.5" strokeWidth={2} />
+          <span>Dados de contato</span>
         </button>
       </div>
 
       {tab === "deals" ? (
-        <div className="animate-bubble-in space-y-2">
+        <div className="animate-bubble-in space-y-2.5">
           {deleteError && <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>}
 
           {deals.length === 0 ? (
-            <div className="card">
+            <div className="card border border-neutral-800">
               <EmptyState
                 icon={Inbox}
                 title="Nenhum negócio vinculado"
@@ -189,25 +192,12 @@ export function ContactTabs({
             </div>
           ) : (
             <>
-              {/* Resumo (só com mais de 1 negócio — com um só, ele só
-                  repetiria o que o card logo abaixo já mostra) e o botão de
-                  criar UM NOVO negócio dividem a mesma linha. O botão
-                  aparece mesmo já tendo negócio(s) vinculado(s) — pedido
-                  explícito: a pessoa pode querer abrir outro negócio pra
-                  esse mesmo contato (outra cota, outro produto), não só
-                  ver/apagar os que já existem. `justify-between` com um
-                  `<span />` vazio no lugar do resumo (quando só há 1
-                  negócio) mantém o botão sempre encostado à direita. Soma
-                  do resumo é só dos negócios EM ABERTO (é o número que
-                  importa pra "quanto ainda dá pra fechar com esse
-                  cliente"; ganho/perdido já tem seu próprio total no
-                  relatório, não faz sentido misturar aqui). */}
               <div className="flex items-center justify-between gap-2 px-1">
                 {deals.length > 1 ? (
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
                     {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
                     {deals.some((d) => d.status === "OPEN") && (
-                      <> · {formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))} em aberto</>
+                      <> · <span className="text-emerald-400 font-semibold">{formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))}</span> em aberto</>
                     )}
                   </p>
                 ) : (
@@ -221,54 +211,61 @@ export function ContactTabs({
                   onCreated={(deal: CreatedDeal) => setDeals((prev) => [deal, ...prev])}
                 />
               </div>
-              {deals.map((deal) => (
-                <div
-                  key={deal.id}
-                  className="card group relative transition-all duration-150 hover:shadow-md hover:-translate-y-px dark:hover:shadow-none"
-                >
-                  <Link
-                    href={`/negocios/${deal.id}`}
-                    className="block p-3 text-sm hover:border-neutral-300 dark:hover:border-neutral-700"
+              {deals.map((deal) => {
+                const statusBadgeStyle = {
+                  OPEN: "bg-brand/20 text-brand-light border border-brand/30",
+                  WON: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+                  LOST: "bg-red-500/20 text-red-400 border border-red-500/30",
+                }[deal.status];
+
+                return (
+                  <div
+                    key={deal.id}
+                    className="card group relative border border-neutral-800/80 transition-all duration-200 hover:border-brand/40 hover:bg-neutral-900/90 shadow-sm"
                   >
-                    <div className="flex items-center justify-between gap-2 pr-7">
-                      <span className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{deal.name}</span>
-                      <Badge tone={STATUS_LABEL[deal.status].tone} className="shrink-0">
-                        {STATUS_LABEL[deal.status].label}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                      <span className="flex min-w-0 items-center gap-1.5 truncate">
-                        <span
-                          className="h-1.5 w-1.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: deal.stageColor ?? "#a1a1aa" }}
-                        />
-                        <span className="truncate">{deal.stageName}</span>
-                      </span>
-                      <span className="shrink-0 whitespace-nowrap tabular-nums">{formatCurrency(deal.value)}</span>
-                    </div>
-                  </Link>
-                  {/* Apagar direto daqui, sem precisar abrir o negócio — só
-                      Dono/Gerente (ver canDeleteDeals), só ícone, só no
-                      hover (mesmo padrão de ação secundária usado em
-                      agenda/task-row.tsx). preventDefault+stopPropagation
-                      pra não disparar a navegação do <Link> em volta. */}
-                  {canDeleteDeals && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDeleteTarget(deal);
-                      }}
-                      className="icon-btn absolute top-2 right-2 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600 focus-visible:opacity-100 coarse:opacity-100 dark:text-neutral-500 dark:hover:text-red-400"
-                      title="Apagar negócio"
-                      aria-label="Apagar negócio"
+                    <Link
+                      href={`/negocios/${deal.id}`}
+                      className="block p-4 text-sm"
                     >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    </button>
-                  )}
-                </div>
-              ))}
+                      <div className="flex items-center justify-between gap-2 pr-8">
+                        <span className="min-w-0 truncate font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-brand transition-colors">
+                          {deal.name}
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusBadgeStyle}`}>
+                          {STATUS_LABEL[deal.status].label}
+                        </span>
+                      </div>
+                      <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                        <span className="flex min-w-0 items-center gap-2 truncate">
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: deal.stageColor ?? "#a1a1aa" }}
+                          />
+                          <span className="truncate font-medium text-neutral-300">{deal.stageName}</span>
+                        </span>
+                        <span className="shrink-0 font-bold text-emerald-400 tabular-nums text-sm">
+                          {formatCurrency(deal.value)}
+                        </span>
+                      </div>
+                    </Link>
+                    {canDeleteDeals && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDeleteTarget(deal);
+                        }}
+                        className="icon-btn absolute top-3.5 right-3 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600 focus-visible:opacity-100 coarse:opacity-100 dark:text-neutral-500 dark:hover:text-red-400"
+                        title="Apagar negócio"
+                        aria-label="Apagar negócio"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </>
           )}
         </div>

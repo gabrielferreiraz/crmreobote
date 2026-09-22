@@ -20,6 +20,8 @@ import { PipelineFilter } from "./pipeline-filter";
 import { FiltersUrlRestore } from "./filters-url-restore";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
+import { getCurrentMembership } from "@/lib/current-membership";
+import { resolveAvatarUrl } from "@/lib/r2";
 import { AdminReportsView } from "./admin-reports-view";
 import { MetaAdsReportView } from "./meta-ads-view";
 import { ReportTabs } from "./report-tabs";
@@ -72,6 +74,8 @@ export default async function RelatoriosPage({
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
+  const membership = await getCurrentMembership();
+  const currentUserPhotoUrl = await resolveAvatarUrl(membership?.photoKey ?? session!.user.image);
 
   // Só o Dono ganha a aba "Processos" — consultor/gerente/supervisor nunca
   // tiveram acesso ao módulo de Processos pra começo de conversa (ver
@@ -304,7 +308,7 @@ export default async function RelatoriosPage({
         {isPersonalView && (
           <PersonalHero
             name={currentUserName}
-            photoUrl={session!.user.image}
+            photoUrl={currentUserPhotoUrl}
             role={isMember ? "MEMBER" : "SUPERVISOR"}
             wonCount={wonCount}
             wonTotalValue={wonTotalValue}

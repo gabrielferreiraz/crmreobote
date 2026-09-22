@@ -975,42 +975,29 @@ export function ContactsTable({
           </div>
 
           {/* Desktop: table */}
-          <div className="card hidden overflow-x-auto lg:block">
+          <div className="card hidden overflow-x-auto border border-neutral-800/80 shadow-md lg:block">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-neutral-200 bg-neutral-50/50 text-left text-xs font-medium text-neutral-400 dark:border-neutral-800 dark:bg-neutral-800/20 dark:text-neutral-500">
-                  <th className="border-r border-neutral-100 px-3 py-2.5 dark:border-neutral-800">
+                <tr className="border-b border-neutral-800 bg-neutral-900/90 text-left text-[11px] font-semibold text-neutral-300 uppercase tracking-wider whitespace-nowrap">
+                  <th className="border-r border-neutral-800/60 px-3 py-3 whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleSelectAll}
-                      className="accent-neutral-900 dark:accent-white"
+                      className="accent-brand"
                       aria-label="Selecionar todos"
                     />
                   </th>
-                  <th className="border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex items-center gap-1.5">
-                      <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                      <User className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
                       Nome
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <Mail className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
-                        E-mail
-                      </span>
-                      <ColumnFilter
-                        value={hasEmailFilter}
-                        onChange={(v) => { setHasEmailFilter(v as "" | "yes" | "no"); setPage(1); }}
-                        options={[{ value: "yes", label: "Com e-mail" }, { value: "no", label: "Sem e-mail" }]}
-                      />
-                    </span>
-                  </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-                    <span className="inline-flex w-full items-center justify-between gap-1.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Phone className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        <Phone className="h-3.5 w-3.5 text-emerald-400" strokeWidth={2} />
                         WhatsApp
                       </span>
                       <ColumnFilter
@@ -1020,10 +1007,10 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <IdCard className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        <IdCard className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                         Cargo
                       </span>
                       <ColumnFilter
@@ -1037,10 +1024,10 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <Tag className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        <Tag className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                         Origem
                       </span>
                       {sourceOptions.length > 0 && (
@@ -1053,10 +1040,10 @@ export function ContactsTable({
                       )}
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <User className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        <User className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                         Responsável
                       </span>
                       <ColumnFilter
@@ -1070,10 +1057,10 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <Briefcase className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        <Briefcase className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
                         Negócios
                       </span>
                       <ColumnFilter
@@ -1084,10 +1071,10 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <Tags className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />
+                        <Tags className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                         Tag
                       </span>
                       {availableTags.length > 0 && (
@@ -1100,85 +1087,96 @@ export function ContactsTable({
                       )}
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5 min-w-0">
-                        <Inbox className="h-3.5 w-3.5 opacity-50 shrink-0" strokeWidth={2} />
+                        <Inbox className="h-3.5 w-3.5 opacity-60 shrink-0" strokeWidth={2} />
                         <span className="truncate">Cadastrado</span>
                       </span>
                       <button
                         onClick={() => setDateFilterOpen(true)}
-                        className={`icon-btn relative h-9 w-9 border transition-colors ${
+                        className={`icon-btn relative h-7 w-7 border transition-colors ${
                           registeredFrom || registeredTo
-                            ? "border-neutral-900 text-neutral-900 dark:border-white dark:text-white"
-                            : "border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-600"
+                            ? "border-brand text-brand bg-brand/10"
+                            : "border-neutral-700 hover:border-neutral-600"
                         }`}
                         aria-label="Filtrar por data"
                       >
-                        <Filter className="h-4 w-4" strokeWidth={2} />
+                        <Filter className="h-3.5 w-3.5" strokeWidth={2} />
                       </button>
                     </span>
                   </th>
-                  <th className="px-6 py-2.5"></th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">Ações</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-neutral-800/60">
                 {contacts.map((c) => (
-                  <tr key={c.id} className="group border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40">
-                    <td className="border-r border-neutral-100 px-3 py-3 dark:border-neutral-800">
+                  <tr key={c.id} className="group transition-colors hover:bg-neutral-900/80">
+                    <td className="border-r border-neutral-800/60 px-3 py-3 whitespace-nowrap">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(c.id)}
                         onClick={(e) => toggleSelect(c.id, e.shiftKey)}
                         onChange={() => {}}
-                        className={`accent-neutral-900 dark:accent-white ${
+                        className={`accent-brand ${
                           selectedIds.has(c.id) ? "" : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
                         }`}
                       />
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
+                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       <Link
                         href={`/clientes/${c.id}`}
-                        className="flex items-center gap-2 font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                        className="flex items-center gap-2.5 font-semibold text-neutral-100 hover:text-brand transition-colors whitespace-nowrap"
                       >
-                        <Avatar name={c.name} size="xs" />
-                        <span>{c.name}</span>
+                        <Avatar name={c.name} size="xs" className="ring-1 ring-neutral-700 shrink-0" />
+                        <span className="whitespace-nowrap">{c.name}</span>
                       </Link>
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                      {c.email ?? "—"}
+                    <td className="border-r border-neutral-800/60 px-4 py-3 font-mono text-xs text-neutral-300 whitespace-nowrap">
+                      {c.whatsapp || c.phone ? (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          {c.whatsapp ?? c.phone}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-600">—</span>
+                      )}
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                      {c.whatsapp ?? c.phone ?? "—"}
+                    <td className="border-r border-neutral-800/60 px-4 py-3 text-neutral-300 whitespace-nowrap">
+                      {c.jobTitle ?? <span className="text-neutral-600">—</span>}
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                      {c.jobTitle ?? "—"}
-                    </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
+                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       {c.source ? (
                         <Badge tone={SOURCE_TONE[c.source] ?? "neutral"} dot>
                           {c.source}
                         </Badge>
                       ) : (
-                        <span className="text-neutral-400 dark:text-neutral-500">—</span>
+                        <span className="text-neutral-600">—</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <td className="border-r border-neutral-800/60 px-4 py-3 text-neutral-300 whitespace-nowrap">
                       {c.responsavel ? (
-                        <span className="flex items-center gap-1.5">
-                          <Avatar name={c.responsavel.name} size="xs" />
-                          {c.responsavel.name}
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <Avatar name={c.responsavel.name} size="2xs" className="shrink-0" />
+                          <span className="whitespace-nowrap">{c.responsavel.name}</span>
                         </span>
                       ) : (
-                        "—"
+                        <span className="text-neutral-600 italic whitespace-nowrap">Sem responsável</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
-                      {c._count.deals}
+                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                      {c._count.deals > 0 ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-bold text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
+                          <Briefcase className="h-3 w-3 shrink-0" strokeWidth={2} />
+                          {c._count.deals} {c._count.deals === 1 ? "negócio" : "negócios"}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-600 font-mono text-xs">0</span>
+                      )}
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 dark:border-neutral-800">
+                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       {c.tags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex items-center gap-1 whitespace-nowrap">
                           {c.tags.map((tag) => (
                             <Badge key={tag} tone="neutral" dot>
                               {tag}
@@ -1186,13 +1184,13 @@ export function ContactsTable({
                           ))}
                         </div>
                       ) : (
-                        <span className="text-neutral-400 dark:text-neutral-500">—</span>
+                        <span className="text-neutral-600">—</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-100 px-4 py-3 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <td className="border-r border-neutral-800/60 px-4 py-3 text-xs font-mono text-neutral-400 whitespace-nowrap">
                       {new Date(c.createdAt).toLocaleDateString("pt-BR")}
                     </td>
-                    <td className="px-6 py-3 text-right">
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
                       <EditContactDialog contact={c} sources={sources} jobTitles={jobTitles} members={members} customFields={customFields} />
                     </td>
                   </tr>

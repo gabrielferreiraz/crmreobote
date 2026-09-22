@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Mail, MessageSquare, Phone } from "lucide-react";
+import { ArrowLeft, Mail, MessageSquare, Phone, Building2 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
@@ -142,83 +142,94 @@ export default async function ContactPage({
           deixando o lápis de editar solto, longe do cartão. Agora os dois
           formam uma coluna só, centralizada. */}
       <div className="mx-auto max-w-xl space-y-6">
-        <div className="flex items-center gap-3">
-          <Avatar name={contact.name} size="lg" />
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{contact.name}</h1>
-            <p className="mt-0.5 truncate text-sm text-neutral-500 dark:text-neutral-400">{contact.source ?? "Origem não informada"}</p>
+        {/* Card Hero de Destaque do Cliente */}
+        <div className="card p-5 bg-gradient-to-r from-neutral-900/95 via-neutral-900 to-neutral-950 border border-neutral-800/80 shadow-md space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3.5 min-w-0">
+              <Avatar name={contact.name} size="lg" className="ring-2 ring-brand/40 shadow-sm shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <h1 className="truncate text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">
+                  {contact.name}
+                </h1>
+                <p className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="inline-flex items-center gap-1 font-medium text-neutral-600 dark:text-neutral-300">
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
+                    {contact.company || contact.source || "Origem não informada"}
+                  </span>
+                  {contact.responsavel && (
+                    <>
+                      <span className="text-neutral-400 dark:text-neutral-600">·</span>
+                      <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
+                        <span>Resp: <strong className="font-semibold text-neutral-700 dark:text-neutral-200">{contact.responsavel.name}</strong></span>
+                      </span>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <EditContactDialog
+              contact={{
+                id: contact.id,
+                name: contact.name,
+                email: contact.email,
+                phone: contact.phone,
+                whatsapp: contact.whatsapp,
+                source: contact.source,
+                company: contact.company,
+                jobTitle: contact.jobTitle,
+                birthDate: contact.birthDate,
+                address: contact.address,
+                addressNumber: contact.addressNumber,
+                addressComplement: contact.addressComplement,
+                neighborhood: contact.neighborhood,
+                city: contact.city,
+                state: contact.state,
+                zipCode: contact.zipCode,
+                tags: contact.tags,
+                responsavelId: contact.responsavelId,
+                customFieldValues,
+              }}
+              sources={sources}
+              jobTitles={jobTitles}
+              members={members}
+              customFields={customFields}
+              triggerClassName="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-800/80 px-3.5 text-xs font-semibold text-neutral-200 shadow-sm transition-all hover:bg-neutral-700 hover:text-white active:scale-95"
+            />
           </div>
-          <EditContactDialog
-            contact={{
-              id: contact.id,
-              name: contact.name,
-              email: contact.email,
-              phone: contact.phone,
-              whatsapp: contact.whatsapp,
-              source: contact.source,
-              company: contact.company,
-              jobTitle: contact.jobTitle,
-              birthDate: contact.birthDate,
-              address: contact.address,
-              addressNumber: contact.addressNumber,
-              addressComplement: contact.addressComplement,
-              neighborhood: contact.neighborhood,
-              city: contact.city,
-              state: contact.state,
-              zipCode: contact.zipCode,
-              tags: contact.tags,
-              responsavelId: contact.responsavelId,
-              customFieldValues,
-            }}
-            sources={sources}
-            jobTitles={jobTitles}
-            members={members}
-            customFields={customFields}
-            // Mais chamativo que o .icon-btn-labeled discreto padrão — pedido
-            // explícito pra esse botão ficar mais visível aqui no topo do
-            // Cliente-detalhe (é a única forma de editar nesta tela), e por
-            // isso o texto "Editar" também vem escrito (não só o ícone) —
-            // mesmo raciocínio aplicado em todo o resto do app.
-            triggerClassName="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3.5 text-sm font-medium text-neutral-600 shadow-sm transition-all duration-200 ease-spring hover:border-neutral-300 hover:text-neutral-900 hover:shadow-md active:scale-95 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
-          />
-        </div>
 
-        {/* Atalhos de contato — mesmo idioma visual (pill colorida, ícone +
-            rótulo) já usado nos botões de ação rápida do modal de tarefa
-            (ver agenda/task-detail-modal.tsx: Ligar/E-mail/Chat), não um
-            estilo novo. Só aparece o que o contato de fato tem preenchido —
-            um contato sem e-mail não ganha um botão de e-mail desabilitado. */}
-        {(contact.phone || contact.whatsapp || contact.email) && (
-          <div className="flex flex-wrap gap-2">
-            {contact.phone && (
-              <a
-                href={`tel:${contact.phone}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-500/10 dark:text-blue-400 dark:hover:bg-blue-500/20"
-              >
-                <Phone className="h-3.5 w-3.5" strokeWidth={2} />
-                Ligar
-              </a>
-            )}
-            {contact.whatsapp && (
-              <Link
-                href={`/whatsapp/conversas?contactId=${contact.id}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-              >
-                <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
-                WhatsApp
-              </Link>
-            )}
-            {contact.email && (
-              <a
-                href={`mailto:${contact.email}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-500/10 dark:text-purple-400 dark:hover:bg-purple-500/20"
-              >
-                <Mail className="h-3.5 w-3.5" strokeWidth={2} />
-                E-mail
-              </a>
-            )}
-          </div>
-        )}
+          {/* Atalhos de ação rápida do contato */}
+          {(contact.phone || contact.whatsapp || contact.email) && (
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-800/80">
+              {contact.phone && (
+                <a
+                  href={`tel:${contact.phone}`}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                >
+                  <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  <span>Ligar</span>
+                </a>
+              )}
+              {contact.whatsapp && (
+                <Link
+                  href={`/whatsapp/conversas?contactId=${contact.id}`}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  <span>WhatsApp</span>
+                </Link>
+              )}
+              {contact.email && (
+                <a
+                  href={`mailto:${contact.email}`}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-purple-500/10 py-2 text-xs font-semibold text-purple-600 hover:bg-purple-500/20 dark:text-purple-400 transition-colors"
+                >
+                  <Mail className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  <span>E-mail</span>
+                </a>
+              )}
+            </div>
+          )}
+        </div>
 
         <ContactTabs
           contactId={contact.id}
