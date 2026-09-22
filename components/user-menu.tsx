@@ -40,11 +40,21 @@ export function UserMenu({
   // num computador compartilhado, a inscrição continua ativa (a nível de SO)
   // mesmo deslogado, e a próxima pessoa a usar o aparelho (ou só alguém por
   // perto, já que notificação push aparece mesmo com o site fechado) via
-  // notificação com nome de lead/negócio de quem saiu. Nunca bloqueia o
-  // logout em si (unsubscribe() já engole os próprios erros).
+  // notificação com nome de lead/negócio de quem saiu.
+  //
+  // "Nunca bloqueia o logout em si" era só a intenção — um `await
+  // unsubscribe()` puro não garante isso: unsubscribe() já engole os
+  // próprios ERROS (rejeição), mas uma Promise que nunca resolve NEM rejeita
+  // (relatado: Safari/macOS em versão sem PushManager — navigator.
+  // serviceWorker.ready fica pendurado pra sempre porque nenhum Service
+  // Worker chegou a ser registrado, ver lib/use-push-subscription.ts)
+  // passava direto pelo catch e travava o logout inteiro; clicar de novo
+  // recriava a mesma Promise pendurada. Promise.race com um teto curto é o
+  // que faz a intenção do comentário original valer de verdade: espera um
+  // pouco pelo unsubscribe, mas o logout SEMPRE acontece.
   async function handleSignOut(e: React.FormEvent) {
     e.preventDefault();
-    await unsubscribe();
+    await Promise.race([unsubscribe(), new Promise((resolve) => setTimeout(resolve, 1500))]);
     await signOutAction();
   }
 

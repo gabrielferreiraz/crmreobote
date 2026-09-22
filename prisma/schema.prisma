@@ -831,6 +831,15 @@ model OrganizationUser {
   // disso é 100% manual (o toggle em Configurações → Usuários), mudar o
   // papel de alguém depois NUNCA mexe aqui sozinho.
   countsTowardGoal      Boolean   @default(true)
+  // Só vale pra quem é OWNER — se este dono recebe os e-mails de alerta de
+  // cron/infraestrutura (lib/system-alerts.ts). Continua sujeito ao
+  // interruptor geral "cronAlerts" em Organization.emailNotificationSettings
+  // (ver lib/notification-settings.ts): geral desligado = ninguém recebe,
+  // independente deste campo; geral ligado = cada dono decide pra si (pedido
+  // explícito: alerta técnico não interessa a todo sócio, só a quem cuida do
+  // sistema). Default true — ninguém que já recebia fica sem avisar do nada
+  // só por este campo ter sido criado.
+  receiveCronAlerts     Boolean   @default(true)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)

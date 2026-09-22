@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick } from "lucide-react";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
+import { CompleteRequiredFieldsDialog, type RequirableFieldValues } from "@/components/complete-required-fields-dialog";
 import { DealBulkActions } from "@/components/deal-bulk-actions";
 import { trackUse } from "@/lib/feature-usage/track";
 import type { LossReasonOption } from "@/components/loss-reason-dialog";
@@ -134,6 +135,7 @@ export function KanbanBoard({
   pipelines,
   lossReasons,
   canBulkMessage,
+  creditTypes,
 }: {
   pipelineId: string;
   stages: Stage[];
@@ -189,6 +191,7 @@ export function KanbanBoard({
   pipelines: { id: string; name: string; stages: { id: string; name: string }[] }[];
   lossReasons: LossReasonOption[];
   canBulkMessage: boolean;
+  creditTypes: LabelOption[];
 }) {
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const [pending, setPending] = useState(false);
@@ -197,6 +200,11 @@ export function KanbanBoard({
   // popup") — mesmo padrão de components/error-dialog.tsx já usado em
   // contato/negócio.
   const [moveError, setMoveError] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
+  const [requiredFieldsPrompt, setRequiredFieldsPrompt] = useState<{
+    dealIds: string[];
+    targetStageId: string;
+    missingFields: any[]; // RequirableDealField
+  } | null>(null);
   const pushUndoToast = useUndoToast();
   // false só durante a janela entre montar e a 1ª busca pós-restauração do
   // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
@@ -709,10 +717,141 @@ export function KanbanBoard({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
+  /**
+   * Traduz uma resposta de erro do mover pra algo que a pessoa entenda.
+   *
+   * O caso que motivou isto: logo depois de um deploy, o EasyPanel manda
+   * tráfego pro container novo antes dele terminar de subir, e a resposta é
+   * um "Not Found" CRU — 404 sem corpo JSON nenhum (comportamento conhecido,
+   * ver o comentário do HEALTHCHECK no Dockerfile). Como toda rota nossa que
+   * devolve 404 manda `{ error }` junto, corpo SEM `error` é sinal de que a
+   * resposta nem veio da nossa API. Dizer "Não encontrado" nesse caso é
+   * enganoso: parece que o negócio sumiu do banco, quando o que faltou foi o
+   * servidor estar pronto — e a pessoa vai procurar um problema que não
+   * existe no lugar de só tentar de novo.
+   */
+  function describeMoveFailure(
+    res: Response,
+    data: { error?: string; type?: ErrorType; details?: string },
+    fallback: string,
+  ): { message: string; type: ErrorType; details?: string } {
+    if (!data.error) {
+      return {
+        message:
+          "O servidor não respondeu como esperado — normalmente é o sistema terminando de subir depois de uma atualização. Espere alguns segundos e tente de novo.",
+        type: "SERVER",
+        details: `HTTP ${res.status}`,
+      };
+    }
+    return {
+      message: data.error ?? fallback,
+      type: data.type ?? (res.status === 404 ? "NOT_FOUND" : res.status === 400 ? "VALIDATION" : "SERVER"),
+      details: data.details,
+    };
+  }
+
   function handleDragStart(event: DragStartEvent) {
     const stageId = (event.active.data.current as { stageId?: string } | undefined)?.stageId;
     const deal = stageId ? dealsByStage[stageId]?.find((d) => d.id === event.active.id) : undefined;
     setActiveDeal(deal ?? null);
+  }
+
+  /**
+   * Arrastar com vários marcados: move TODA a seleção pra etapa onde soltou,
+   * venham os negócios de quantas colunas vierem.
+   *
+   * Passa pela rota em lote (uma requisição, ver POST /api/deals/bulk), não
+   * por um PATCH por negócio como o arraste de um card só — a seleção pode
+   * ter milhares de itens quando veio de "selecionar todos da etapa".
+   *
+   * A atualização otimista cobre só os negócios CARREGADOS na tela: a
+   * seleção pode incluir ids que nem chegaram a ser renderizados (de novo,
+   * "selecionar todos da etapa" traz ids do banco inteiro, ver
+   * toggleSelectAllStage). Por isso a requisição manda `selectedIds` cheio,
+   * a tela se antecipa com o que ela conhece, e no fim SEMPRE refaz a busca
+   * — é o refetch que acerta contagem, soma e os cards que a tela nem tinha.
+   */
+  async function moveSelectionToStage(targetStageId: string) {
+    const targetStage = stages.find((s) => s.id === targetStageId);
+    if (!targetStage) return;
+
+    const movingByStage: Record<string, Deal[]> = {};
+    const movingDeals: Deal[] = [];
+    for (const [stageId, stageDeals] of Object.entries(dealsByStage)) {
+      if (stageId === targetStageId) continue;
+      for (const d of stageDeals) {
+        if (!selectedIds.has(d.id)) continue;
+        (movingByStage[stageId] ??= []).push(d);
+        movingDeals.push(d);
+      }
+    }
+
+    trackUse("pipeline.massa.etapa");
+    setMoveError(null);
+    setSelectionNotice(null);
+    setPending(true);
+
+    // Otimista: tira das colunas de origem e joga no destino, pra o arraste
+    // responder na hora em vez de esperar o servidor.
+    if (movingDeals.length > 0) {
+      const now = new Date();
+      setDealsByStage((prev) => {
+        const next = { ...prev };
+        for (const [stageId, moved] of Object.entries(movingByStage)) {
+          const movedIds = new Set(moved.map((d) => d.id));
+          next[stageId] = (prev[stageId] ?? []).filter((d) => !movedIds.has(d.id));
+        }
+        next[targetStageId] = [
+          ...movingDeals.map((d) => ({ ...d, stageId: targetStageId, stageEnteredAt: now })),
+          ...(prev[targetStageId] ?? []),
+        ];
+        return next;
+      });
+    }
+
+    try {
+      const payload = { dealIds: Array.from(selectedIds), action: "move", stageId: targetStageId };
+      const res = await fetch("/api/deals/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMoveError(describeMoveFailure(res, data, "Não foi possível mover os negócios"));
+        return;
+      }
+
+      if (data.missingFields && data.missingFields.length > 0) {
+        setRequiredFieldsPrompt({
+          dealIds: Array.from(selectedIds),
+          targetStageId,
+          missingFields: data.missingFields,
+        });
+        return; // não limpa a seleção ainda, espera o usuário preencher
+      }
+
+      if (data.undo) pushUndoToast(data.undo);
+      if (data.skipped > 0 && data.skippedReason) {
+        // Não é erro: a etapa de destino pode exigir valor/tipo de crédito
+        // que alguns negócios ainda não têm, e a pessoa precisa saber
+        // quantos ficaram para trás em vez de achar que moveu tudo.
+        setSelectionNotice(
+          `${data.updated} movido${data.updated === 1 ? "" : "s"} · ${data.skipped} não: ${data.skippedReason}`,
+        );
+      } else {
+        clearSelection();
+      }
+    } catch {
+      setMoveError({ message: "Falha de conexão ao mover os negócios", type: "SERVER" });
+    } finally {
+      setPending(false);
+      // Sempre — tanto no sucesso (acerta contagem/soma e o que não estava
+      // carregado) quanto na falha (desfaz o otimista voltando à verdade do
+      // banco, sem precisar reverter coluna por coluna na mão).
+      setBulkReloadToken((t) => t + 1);
+    }
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -725,7 +864,19 @@ export function KanbanBoard({
     const previousStageId = (active.data.current as { stageId?: string } | undefined)?.stageId;
     if (!previousStageId) return;
     const deal = dealsByStage[previousStageId]?.find((d) => d.id === dealId);
-    if (!deal || previousStageId === targetStageId) return;
+    if (!deal) return;
+
+    // Arrastar um card MARCADO leva a seleção inteira junto — inclusive os
+    // que estão em OUTRAS colunas (pedido explícito: "mesmo que os negócios
+    // selecionados não sejam da mesma etapa"). Por isso a guarda de "soltou
+    // na mesma etapa de onde saiu" não vale aqui: o card arrastado pode já
+    // estar no destino enquanto o resto da seleção não está.
+    if (selectionMode && selectedIds.has(dealId) && selectedIds.size > 1) {
+      await moveSelectionToStage(targetStageId);
+      return;
+    }
+
+    if (previousStageId === targetStageId) return;
 
     // Depois das guardas: só conta arraste que de fato TROCA de etapa —
     // soltar o card na mesma coluna de onde saiu não é uso do recurso.
@@ -763,11 +914,16 @@ export function KanbanBoard({
         [targetStageId]: Math.max(0, (prev[targetStageId] ?? 1) - 1),
         [previousStageId]: (prev[previousStageId] ?? 0) + 1,
       }));
-      setMoveError({
-        message: data.error ?? "Não foi possível mover o negócio",
-        type: data.type ?? (res.status === 404 ? "NOT_FOUND" : res.status === 400 ? "VALIDATION" : "SERVER"),
-        details: data.details,
-      });
+
+      if (data.type === "VALIDATION" && data.missingFields?.length > 0) {
+        setRequiredFieldsPrompt({
+          dealIds: [dealId],
+          targetStageId,
+          missingFields: data.missingFields,
+        });
+      } else {
+        setMoveError(describeMoveFailure(res, data, "Não foi possível mover o negócio"));
+      }
     } else {
       // Ctrl+Z (ver components/undo-provider.tsx) — o refresh que o undo
       // dispara é pego pelo useEffect logo acima (initialDealsByStage →
@@ -950,7 +1106,8 @@ export function KanbanBoard({
           ) : (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Marque os negócios pelas caixinhas. Segure <kbd className="rounded border border-neutral-300 px-1 font-sans dark:border-neutral-700">Shift</kbd> pra
-              marcar um intervalo, ou use a caixinha do topo da coluna pra pegar a etapa inteira.
+              marcar um intervalo, ou use a caixinha do topo da coluna pra pegar a etapa inteira. Depois, arraste
+              qualquer marcado pra mover todos de uma vez — mesmo vindo de etapas diferentes.
             </p>
           )}
           {selectionNotice && <p className="text-xs text-amber-600 dark:text-amber-400">{selectionNotice}</p>}
@@ -963,6 +1120,73 @@ export function KanbanBoard({
           type={moveError.type}
           details={moveError.details}
           onClose={() => setMoveError(null)}
+        />
+      )}
+
+      {requiredFieldsPrompt && (
+        <CompleteRequiredFieldsDialog
+          isOpen={true}
+          onClose={() => setRequiredFieldsPrompt(null)}
+          missingFields={requiredFieldsPrompt.missingFields}
+          stageName={stages.find((s) => s.id === requiredFieldsPrompt.targetStageId)?.name ?? "Destino"}
+          leadSources={leadSources}
+          jobTitles={jobTitles}
+          creditTypes={creditTypes}
+          deals={requiredFieldsPrompt.dealIds.map((id) => {
+            for (const stageDeals of Object.values(dealsByStage)) {
+              const deal = stageDeals.find((d) => d.id === id);
+              if (deal) return { id: deal.id, name: deal.name, contactName: deal.contact.name, contactInitials: deal.contact.name.charAt(0) };
+            }
+            return { id, name: "Negócio", contactName: "Contato", contactInitials: "" };
+          })}
+          onSubmit={async (values) => {
+            const { dealIds, targetStageId } = requiredFieldsPrompt;
+            setRequiredFieldsPrompt({ ...requiredFieldsPrompt, submitting: true } as any);
+            
+            try {
+              if (dealIds.length === 1) {
+                const dealId = dealIds[0];
+                const previousStageId = Object.entries(dealsByStage).find(([_, list]) => list.some((d) => d.id === dealId))?.[0];
+                
+                const res = await fetch(`/api/deals/${dealId}/move`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ stageId: targetStageId, ...values }),
+                });
+                const data = await res.json().catch(() => ({}));
+                
+                if (res.ok) {
+                  setBulkReloadToken((t) => t + 1);
+                  if (data.undo) pushUndoToast(data.undo);
+                  setRequiredFieldsPrompt(null);
+                } else {
+                  setRequiredFieldsPrompt(null);
+                  setMoveError(describeMoveFailure(res, data, "Não foi possível mover o negócio"));
+                }
+              } else {
+                const res = await fetch("/api/deals/bulk", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ dealIds, action: "move", stageId: targetStageId, ...values }),
+                });
+                const data = await res.json().catch(() => ({}));
+                
+                if (res.ok) {
+                  setBulkReloadToken((t) => t + 1);
+                  clearSelection();
+                  if (data.undo) pushUndoToast(data.undo);
+                  setRequiredFieldsPrompt(null);
+                } else {
+                  setRequiredFieldsPrompt(null);
+                  setMoveError(describeMoveFailure(res, data, "Não foi possível mover os negócios"));
+                }
+              }
+            } catch {
+              setRequiredFieldsPrompt(null);
+              setMoveError({ message: "Falha de conexão", type: "SERVER" });
+            }
+          }}
+          submitting={(requiredFieldsPrompt as any).submitting}
         />
       )}
 
@@ -1012,7 +1236,21 @@ export function KanbanBoard({
             ))
           )}
         </div>
-        <DragOverlay>{activeDeal ? <DealCard deal={activeDeal} overlay /> : null}</DragOverlay>
+        <DragOverlay>
+          {activeDeal ? (
+            <div className="relative">
+              <DealCard deal={activeDeal} overlay />
+              {/* Arrastando um cartão marcado: diz QUANTOS vão junto. Sem
+                  isso, arrastar 19 negócios parece arrastar 1 — e a pessoa
+                  só descobre o que aconteceu depois de soltar. */}
+              {selectionMode && selectedIds.has(activeDeal.id) && selectedIds.size > 1 && (
+                <span className="absolute -top-2 -right-2 rounded-full bg-neutral-900 px-2 py-0.5 text-xs font-semibold text-white shadow-lg dark:bg-white dark:text-neutral-900">
+                  {selectedIds.size} negócios
+                </span>
+              )}
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );
@@ -1462,16 +1700,25 @@ const DealCard = memo(function DealCard({
 
   if (overlay) return content;
 
-  // No modo seleção o cartão INTEIRO vira alvo de marcar/desmarcar, e o
-  // arraste sai de cena. Dois motivos, os dois de segurança: (1) se clicar
-  // no cartão ainda abrisse o negócio, um clique fora da caixinha navegava
-  // pra outra página e jogava fora uma seleção que podia ter centenas de
-  // itens; (2) arrastar com 300 negócios marcados é ambíguo — move só esse
-  // ou o lote todo? Fora do modo seleção nada muda: arrasta e abre igual a
-  // sempre.
+  // No modo seleção o cartão INTEIRO vira alvo de marcar/desmarcar — se
+  // clicar nele ainda abrisse o negócio, um clique fora da caixinha
+  // navegaria pra outra página e jogaria fora uma seleção que pode ter
+  // centenas de itens.
+  //
+  // O arraste CONTINUA ligado aqui (ver listeners/setNodeRef abaixo):
+  // arrastar um cartão marcado leva a seleção inteira pra etapa onde soltar,
+  // mesmo com os negócios vindo de colunas diferentes (ver
+  // moveSelectionToStage). Clique e arraste convivem porque o MouseSensor só
+  // vira arraste depois de 4px de movimento (ver `sensors` lá em cima) —
+  // clique parado continua sendo clique, e a caixinha em si trava o arraste
+  // no próprio onPointerDown.
   if (selectionMode && stageId && onToggleSelect) {
     return (
       <div
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
         role="button"
         tabIndex={0}
         aria-pressed={selected}
@@ -1482,7 +1729,7 @@ const DealCard = memo(function DealCard({
             onToggleSelect(stageId, deal.id, e.shiftKey);
           }
         }}
-        className="cursor-pointer select-none"
+        className="touch-manipulation cursor-grab select-none active:cursor-grabbing"
       >
         {content}
       </div>

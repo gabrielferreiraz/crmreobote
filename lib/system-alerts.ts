@@ -1,15 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail } from "@/lib/email";
+import { isEmailNotificationEnabled } from "@/lib/notification-settings";
 
 /**
- * Alerta de infraestrutura (cron quebrou, backup falhou) — vai pra TODO
- * Dono ATIVO de TODA organização, não só uma: um cron compartilhado
- * quebrado (automations/campaigns/db-backup/webhooks/whatsapp-health) afeta
- * todo mundo que usa este mesmo deploy igual, não é um problema de uma
- * organização específica. Nunca lança exceção — quem chama (lib/cron-run.ts)
- * já está dentro do tratamento de uma falha, uma falha AQUI não pode
- * mascarar a original.
+ * Alerta de infraestrutura (cron quebrou, backup falhou) — vai pra Dono
+ * ATIVO de toda organização que não tenha desligado o interruptor
+ * "cronAlerts" (ver lib/notification-settings.ts), e dentro dela só quem não
+ * tiver excluído a si mesmo (OrganizationUser.receiveCronAlerts) — pedido
+ * explícito depois de dono não-técnico reclamar de receber e-mail de "cron
+ * parou de rodar". Nunca lança exceção — quem chama (lib/cron-run.ts) já
+ * está dentro do tratamento de uma falha, uma falha AQUI não pode mascarar a
+ * original.
  */
 export async function sendSystemAlert(subject: string, html: string): Promise<void> {
   try {
@@ -22,12 +24,13 @@ export async function sendSystemAlert(subject: string, html: string): Promise<vo
 
     const ownerLists = await Promise.all(
       organizations.map((org) =>
-        runWithTenant(org.id, () =>
-          prisma.organizationUser.findMany({
-            where: { role: "OWNER", active: true },
+        runWithTenant(org.id, async () => {
+          if (!(await isEmailNotificationEnabled(org.id, "cronAlerts"))) return [];
+          return prisma.organizationUser.findMany({
+            where: { role: "OWNER", active: true, receiveCronAlerts: true },
             select: { user: { select: { email: true } } },
-          }),
-        ),
+          });
+        }),
       ),
     );
 

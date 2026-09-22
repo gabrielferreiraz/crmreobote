@@ -99,6 +99,7 @@ export function DealsList({
   onTotalCountChange,
   initialFilterOverride,
   applyWonFilterToken,
+  creditTypes,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
@@ -149,6 +150,7 @@ export function DealsList({
    * de initialFilterOverride (só a 1ª carga), isto reage a QUALQUER
    * momento, com a Lista já montada ou não. */
   applyWonFilterToken?: number;
+  creditTypes: { id: string; label: string }[];
 }) {
   const router = useRouter();
 

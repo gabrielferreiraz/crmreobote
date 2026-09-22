@@ -46,9 +46,11 @@ export function TimePicker({
 
   useEffect(() => {
     if (!open) return;
-    const el = listRef.current?.querySelector('[data-selected="true"]');
+    const el = listRef.current?.querySelector(
+      value ? '[data-selected="true"]' : '[data-time="07:00"]'
+    );
     el?.scrollIntoView({ block: "center" });
-  }, [open]);
+  }, [open, value]);
 
   function selectTime(t: string) {
     onChange(t);
@@ -103,6 +105,7 @@ export function TimePicker({
                   key={t}
                   type="button"
                   data-selected={t === value}
+                  data-time={t}
                   onClick={() => selectTime(t)}
                   className={`w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
                     t === value

@@ -13,7 +13,9 @@ export type UndoActionType =
   | "deal.update"
   | "deal.delete"
   | "deal.move"
-  | "deal.bulkUpdate";
+  | "deal.bulkUpdate"
+  | "activity.update"
+  | "activity.delete";
 
 /**
  * Par de descrições que se alterna pra sempre entre undo/redo — gênero e
@@ -40,7 +42,7 @@ export type DescriptionPair = { afterRevert: string; original: string };
  * maioria dos casos), é só um array com 1 item.
  */
 export type FieldUpdateTarget = {
-  model: "task" | "contact" | "deal";
+  model: "task" | "contact" | "deal" | "activity";
   entityId: string;
   previousValues: Record<string, unknown>;
 };

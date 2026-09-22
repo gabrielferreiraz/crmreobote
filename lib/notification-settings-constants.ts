@@ -6,7 +6,7 @@
  * lib/contacts/list-query.ts).
  */
 
-export type EmailNotificationKey = "whatsappConnected" | "whatsappDisconnected" | "passwordChanged";
+export type EmailNotificationKey = "whatsappConnected" | "whatsappDisconnected" | "passwordChanged" | "cronAlerts";
 
 export const EMAIL_NOTIFICATION_OPTIONS: { key: EmailNotificationKey; label: string; description: string }[] = [
   {
@@ -23,5 +23,11 @@ export const EMAIL_NOTIFICATION_OPTIONS: { key: EmailNotificationKey; label: str
     key: "passwordChanged",
     label: "Senha alterada",
     description: "Quando a senha de algum usuário do time é alterada por um dono da conta.",
+  },
+  {
+    key: "cronAlerts",
+    label: "Alertas de cron (infraestrutura)",
+    description:
+      "Quando uma rotina automática do sistema (envio de campanhas, automações, webhooks) para de rodar. Alerta técnico — desligado aqui, ninguém recebe; ligado, dá pra escolher abaixo quais donos recebem.",
   },
 ];

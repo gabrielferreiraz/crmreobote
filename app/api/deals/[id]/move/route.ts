@@ -15,11 +15,15 @@ export const dynamic = "force-dynamic";
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const { stageId, value, grossValue, pipelineId } = body as {
+  const { stageId, value, grossValue, pipelineId, contactSource, contactJobTitle, creditType, expectedCloseAt } = body as {
     stageId?: string;
     value?: number | null;
     grossValue?: number | null;
     pipelineId?: string;
+    contactSource?: string | null;
+    contactJobTitle?: string | null;
+    creditType?: string | null;
+    expectedCloseAt?: string | null;
   };
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -65,10 +69,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const missing = findMissingRequiredFields(stage.requiredFields, {
       value: value !== undefined ? value : existing.value,
       grossValue: grossValue !== undefined ? grossValue : existing.grossValue,
-      creditType: existing.creditType,
-      expectedCloseAt: existing.expectedCloseAt,
-      contactSource: existing.contact.source,
-      contactJobTitle: existing.contact.jobTitle,
+      creditType: creditType !== undefined ? creditType : existing.creditType,
+      expectedCloseAt: expectedCloseAt !== undefined ? expectedCloseAt : existing.expectedCloseAt,
+      contactSource: contactSource !== undefined ? contactSource : existing.contact.source,
+      contactJobTitle: contactJobTitle !== undefined ? contactJobTitle : existing.contact.jobTitle,
     });
     if (missing.length > 0) {
       // type+details (mesmo padrão de components/error-dialog.tsx já usado
@@ -80,9 +84,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           error: "Preencha os campos obrigatórios desta etapa antes de avançar.",
           details: missing.map(labelForRequiredField).join(", "),
           type: "VALIDATION",
+          missingFields: missing,
         },
         { status: 400 },
       );
+    }
+
+    const updateContact = contactSource !== undefined || contactJobTitle !== undefined;
+
+    if (updateContact) {
+      await prisma.contact.update({
+        where: { id: existing.contactId },
+        data: {
+          ...(contactSource !== undefined ? { source: contactSource } : {}),
+          ...(contactJobTitle !== undefined ? { jobTitle: contactJobTitle } : {}),
+        },
+      });
     }
 
     const deal = await prisma.deal.update({
@@ -93,6 +110,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         stageEnteredAt: new Date(),
         ...(value !== undefined ? { value } : {}),
         ...(grossValue !== undefined ? { grossValue } : {}),
+        ...(creditType !== undefined ? { creditType } : {}),
+        ...(expectedCloseAt !== undefined ? { expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : null } : {}),
       },
       include: { contact: true, owner: true, stage: true },
     });

@@ -8,9 +8,17 @@
  * e-mail (lib/whatsapp/instance-alerts.ts, app/api/org/members/[userId]/
  * reset-password/route.ts) chamam essa função antes de enviar.
  *
- * Fora daqui de propósito (ver comentário completo no schema):
- * - lib/system-alerts.ts (falha de cron/backup) — infraestrutura, atinge
- *   todas as organizações de uma vez, não é opt-out por organização.
+ * A chave "cronAlerts" TAMBÉM controla lib/system-alerts.ts (falha de
+ * cron/backup) — apesar de ser um alerta de infraestrutura que varre TODAS
+ * as organizações do deploy, cada organização decide, pro PRÓPRIO conjunto
+ * de donos, se recebe ou não (pedido explícito depois de um dono não-técnico
+ * reclamar de receber e-mail de "cron parou de rodar"). Desligado aqui =
+ * nenhum dono desta organização recebe, mesmo que OrganizationUser.
+ * receiveCronAlerts esteja true neles. Ligado = cada dono decide pra si via
+ * esse campo (ver app/(dashboard)/configuracoes/notificacoes-email/
+ * cron-alert-recipients-form.tsx).
+ *
+ * Fora daqui de propósito:
  * - Ação "Enviar e-mail" de automação (lib/automations/engine.ts) — já se
  *   controla ativando/desativando a própria regra.
  *
@@ -32,6 +40,7 @@ const DEFAULT_ENABLED: Record<EmailNotificationKey, true> = {
   whatsappConnected: true,
   whatsappDisconnected: true,
   passwordChanged: true,
+  cronAlerts: true,
 };
 
 type StoredSettings = Partial<Record<EmailNotificationKey, boolean>>;

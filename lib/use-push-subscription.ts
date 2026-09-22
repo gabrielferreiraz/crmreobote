@@ -85,6 +85,18 @@ export function usePushSubscription() {
   }
 
   async function unsubscribe() {
+    // Sem suporte (ex.: Safari/macOS em versão sem PushManager) — nenhum
+    // Service Worker nunca chegou a ser registrado (ver efeito acima, que só
+    // registra quando isSupported), então `navigator.serviceWorker.ready`
+    // NUNCA resolveria (não é um erro pro catch pegar, é uma Promise que
+    // fica pendurada pra sempre). Relatado direto: usuário de MacBook clicava
+    // em "Sair" e nada acontecia — o logout (ver handleSignOut em
+    // components/user-menu.tsx) espera unsubscribe() terminar antes de
+    // deslogar de verdade.
+    if (!isSupported) {
+      setStatus("unsupported");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

@@ -129,7 +129,23 @@ export function QuickAddDealPanel({
     const contactRes = await fetch("/api/contacts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, whatsapp: phoneFormatted, jobTitle, ...(claimContactId ? { claimContactId } : {}) }),
+      // responsavelId: ownerId — mesmo dono já usado pro Deal logo abaixo
+      // (dono da instância de WhatsApp da conversa, ver ownerId em
+      // lib/whatsapp/conversations.ts). Sem isso o Contact nascia SEM
+      // responsável (POST /api/contacts grava null quando a chave não vem),
+      // mesmo o Deal vinculado tendo o dono certo — daí o relato "responsável
+      // não vem automático": o negócio aparecia certo no Pipeline, mas o
+      // cliente sumia da lista de Clientes do consultor (contactScopeWhere
+      // só mostra pra Membro os contatos onde ele é responsavelId). Ignorado
+      // no branch de claimContactId (server sempre força pra quem está
+      // reivindicando, ver comentário em app/api/contacts/route.ts) — inofensivo mandar mesmo assim.
+      body: JSON.stringify({
+        name,
+        whatsapp: phoneFormatted,
+        jobTitle,
+        responsavelId: ownerId,
+        ...(claimContactId ? { claimContactId } : {}),
+      }),
     });
     const contact = await contactRes.json().catch(() => ({}));
     if (!contactRes.ok) {

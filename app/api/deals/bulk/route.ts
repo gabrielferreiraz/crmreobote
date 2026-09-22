@@ -64,6 +64,12 @@ type Body = {
   /** action "move" */
   stageId?: string;
   pipelineId?: string;
+  contactSource?: string | null;
+  contactJobTitle?: string | null;
+  creditType?: string | null;
+  value?: number | null;
+  grossValue?: number | null;
+  expectedCloseAt?: string | null;
   /** action "status" */
   status?: "WON" | "LOST" | "OPEN";
   closedAt?: string;
@@ -152,7 +158,7 @@ type Ctx = {
 
 /** Trocar de etapa (mesmo funil) ou de funil (vai pra 1ª etapa do destino, igual à Lista já fazia). */
 async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
-  const { stageId, pipelineId } = body;
+  const { stageId, pipelineId, contactSource, contactJobTitle, creditType, value, grossValue, expectedCloseAt } = body;
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });
 
   const stage = await prisma.pipelineStage.findFirst({
@@ -172,6 +178,7 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
       grossValue: true,
       creditType: true,
       expectedCloseAt: true,
+      contactId: true,
       contact: { select: { source: true, jobTitle: true } },
     },
   });
@@ -184,17 +191,23 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
   // pode de quem não pode e reporta a contagem.
   const movable: typeof deals = [];
   const blockedFields = new Set<string>();
+  const blockedFieldKeys = new Set<string>();
   for (const deal of deals) {
     const missing = findMissingRequiredFields(stage.requiredFields, {
-      value: deal.value,
-      grossValue: deal.grossValue,
-      creditType: deal.creditType,
-      expectedCloseAt: deal.expectedCloseAt,
-      contactSource: deal.contact.source,
-      contactJobTitle: deal.contact.jobTitle,
+      value: value !== undefined ? value : deal.value,
+      grossValue: grossValue !== undefined ? grossValue : deal.grossValue,
+      creditType: creditType !== undefined ? creditType : deal.creditType,
+      expectedCloseAt: expectedCloseAt !== undefined ? expectedCloseAt : deal.expectedCloseAt,
+      contactSource: contactSource !== undefined ? contactSource : deal.contact.source,
+      contactJobTitle: contactJobTitle !== undefined ? contactJobTitle : deal.contact.jobTitle,
     });
     if (missing.length === 0) movable.push(deal);
-    else for (const field of missing) blockedFields.add(labelForRequiredField(field));
+    else {
+      for (const field of missing) {
+        blockedFields.add(labelForRequiredField(field));
+        blockedFieldKeys.add(field);
+      }
+    }
   }
 
   // Já está exatamente onde a ação quer colocar — nada a fazer, e não pode
@@ -207,6 +220,7 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
       updated: 0,
       skipped,
       skippedReason: blockedFields.size > 0 ? `Faltam campos obrigatórios da etapa: ${Array.from(blockedFields).join(", ")}` : null,
+      missingFields: Array.from(blockedFieldKeys),
     });
   }
 
@@ -214,8 +228,28 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
   const now = new Date();
   await prisma.deal.updateMany({
     where: { id: { in: changedIds } },
-    data: { pipelineId: stage.pipelineId, stageId: stage.id, stageEnteredAt: now },
+    data: {
+      pipelineId: stage.pipelineId,
+      stageId: stage.id,
+      stageEnteredAt: now,
+      ...(value !== undefined ? { value } : {}),
+      ...(grossValue !== undefined ? { grossValue } : {}),
+      ...(creditType !== undefined ? { creditType } : {}),
+      ...(expectedCloseAt !== undefined ? { expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : null } : {}),
+    },
   });
+
+  const updateContact = contactSource !== undefined || contactJobTitle !== undefined;
+  if (updateContact) {
+    const contactIds = Array.from(new Set(changed.map((d) => d.contactId)));
+    await prisma.contact.updateMany({
+      where: { id: { in: contactIds } },
+      data: {
+        ...(contactSource !== undefined ? { source: contactSource } : {}),
+        ...(contactJobTitle !== undefined ? { jobTitle: contactJobTitle } : {}),
+      },
+    });
+  }
 
   // Timeline: uma atividade por negócio, mas num createMany só. Nome da
   // etapa de origem resolvido com UMA consulta pras etapas distintas —
@@ -256,6 +290,7 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
     updated: changed.length,
     skipped,
     skippedReason: blockedFields.size > 0 ? `Faltam campos obrigatórios da etapa: ${Array.from(blockedFields).join(", ")}` : null,
+    missingFields: Array.from(blockedFieldKeys),
     undo,
   });
 }

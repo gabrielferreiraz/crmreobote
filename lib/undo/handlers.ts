@@ -121,7 +121,7 @@ async function revertTaskBulkMove(organizationId: string, payload: TaskBulkMoveP
  */
 async function revertDelete<T extends Record<string, unknown> & { id: string }>(
   organizationId: string,
-  model: "task" | "contact" | "deal",
+  model: "task" | "contact" | "deal" | "activity",
   type: UndoActionType,
   payload: DeleteSnapshotPayload<T>,
 ): Promise<UndoResult> {
@@ -157,7 +157,7 @@ async function revertDelete<T extends Record<string, unknown> & { id: string }>(
  * original, mesmo id), então não precisa reler nada antes de apagar. */
 async function redeleteRow<T extends Record<string, unknown> & { id: string }>(
   organizationId: string,
-  model: "task" | "contact" | "deal",
+  model: "task" | "contact" | "deal" | "activity",
   type: UndoActionType,
   payload: DeleteSnapshotPayload<T>,
 ): Promise<UndoResult> {
@@ -263,6 +263,7 @@ export async function reverseUndoableAction(
     case "contact.update":
     case "deal.update":
     case "deal.move":
+    case "activity.update":
       return revertFieldUpdate(organizationId, type, payload as FieldUpdatePayload);
     case "task.bulkMove":
       return revertTaskBulkMove(organizationId, payload as TaskBulkMovePayload);
@@ -274,6 +275,8 @@ export async function reverseUndoableAction(
       return dispatchDelete(organizationId, "contact", type, payload as DeleteSnapshotPayload);
     case "deal.delete":
       return dispatchDelete(organizationId, "deal", type, payload as DeleteSnapshotPayload);
+    case "activity.delete":
+      return dispatchDelete(organizationId, "activity", type, payload as DeleteSnapshotPayload);
     default: {
       const _exhaustive: never = type;
       throw new Error(`Tipo de ação desfazível desconhecido: ${_exhaustive}`);
@@ -288,7 +291,7 @@ export async function reverseUndoableAction(
  * transação real. */
 async function dispatchDelete(
   organizationId: string,
-  model: "task" | "contact" | "deal",
+  model: "task" | "contact" | "deal" | "activity",
   type: UndoActionType,
   payload: DeleteSnapshotPayload,
 ): Promise<UndoResult> {

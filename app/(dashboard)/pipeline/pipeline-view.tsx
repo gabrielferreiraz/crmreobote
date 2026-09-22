@@ -408,6 +408,7 @@ export function PipelineView({
           pipelines={pipelines}
           lossReasons={lossReasons}
           canBulkMessage={canBulkMessage}
+          creditTypes={creditTypes}
         />
       ) : (
         <DealsList
@@ -432,6 +433,7 @@ export function PipelineView({
           onTotalCountChange={setListaTotalCountLive}
           initialFilterOverride={initialListaFilter}
           applyWonFilterToken={wonFilterToken}
+          creditTypes={creditTypes}
         />
       )}
 

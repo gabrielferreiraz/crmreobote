@@ -54,6 +54,7 @@ type Activity = {
   type: string;
   body: string | null;
   createdAt: string | Date;
+  userId: string;
   meetingOutcome: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | null;
   user: { name: string; photoUrl: string | null };
 };
@@ -119,7 +120,28 @@ type MemberOption = { id: string; name: string };
  * minúscula sem cartão nem avatar, pra não competir visualmente com as
  * atividades manuais (nota, ligação etc.), que são o conteúdo principal.
  */
-function ActivityItem({ activity, highlighted }: { activity: Activity; highlighted: boolean }) {
+function ActivityItem({
+  activity,
+  highlighted,
+  canEdit,
+  onConfirmDelete,
+  onSave,
+}: {
+  activity: Activity;
+  highlighted: boolean;
+  canEdit: boolean;
+  onConfirmDelete: (activity: Activity) => void;
+  onSave: (
+    activityId: string,
+    fields: { activityBody: string; meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | null },
+  ) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState("");
+  const [meetingOutcome, setMeetingOutcome] = useState<"ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   if (activity.type === "SYSTEM") {
     return (
       <p
@@ -132,7 +154,37 @@ function ActivityItem({ activity, highlighted }: { activity: Activity; highlight
     );
   }
 
+  const isMeetingOrVisit = activity.type === "MEETING" || activity.type === "VISIT";
   const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
+
+  function startEdit() {
+    setBody(activity.body ?? "");
+    setMeetingOutcome(activity.meetingOutcome);
+    setEditing(true);
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setError(null);
+  }
+
+  async function saveEdit(e?: React.FormEvent) {
+    e?.preventDefault();
+    setSaving(true);
+    setError(null);
+    const result = await onSave(activity.id, {
+      activityBody: body,
+      meetingOutcome: isMeetingOrVisit ? meetingOutcome : undefined,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error ?? "Erro ao salvar");
+      return;
+    }
+    setEditing(false);
+  }
+
   return (
     <div
       id={`activity-${activity.id}`}
@@ -142,34 +194,116 @@ function ActivityItem({ activity, highlighted }: { activity: Activity; highlight
         <Icon className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          {activity.body && <p className="text-neutral-700 dark:text-neutral-300">{activity.body}</p>}
-          {/* PENDING = aguardando a Task ligada concluir (ver
-              ActivityMeetingOutcome no schema) — rótulo próprio, não vem de
-              MEETING_OUTCOME_OPTIONS (esse só tem os 3 resultados finais). */}
-          {activity.meetingOutcome === "PENDING" ? (
-            <span className="shrink-0 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-              Aguardando
-            </span>
-          ) : (
-            activity.meetingOutcome &&
-            activity.meetingOutcome !== "ATTENDED" && (
-              <span
-                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                  activity.meetingOutcome === "NO_SHOW"
-                    ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
-                    : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-                }`}
-              >
-                {MEETING_OUTCOME_OPTIONS.find((o) => o.value === activity.meetingOutcome)?.label}
-              </span>
-            )
-          )}
-        </div>
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-          <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
-          {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
-        </p>
+        {editing ? (
+          <form onSubmit={saveEdit} className="space-y-2">
+            <textarea
+              autoFocus
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={4}
+              className="field-input"
+              placeholder="O que foi feito e qual o próximo passo?"
+            />
+            {isMeetingOrVisit && (
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { value: "PENDING", label: "Aguardando" },
+                  ...MEETING_OUTCOME_OPTIONS,
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setMeetingOutcome(opt.value)}
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                      meetingOutcome === opt.value
+                        ? (opt as { activeClass?: string }).activeClass ??
+                          "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                        : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <button type="button" onClick={cancelEdit} className="btn-ghost !py-1 !text-xs">
+                Cancelar
+              </button>
+              <button type="submit" disabled={saving} className="btn-primary !py-1 !text-xs">
+                {saving && <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />}
+                {saving ? (
+                  <span className="inline-flex items-center gap-1">
+                    Salvando
+                    <LoadingDots />
+                  </span>
+                ) : (
+                  <>
+                    <Check className="h-3 w-3" strokeWidth={2.5} /> Salvar
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {activity.body && <p className="text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap break-words">{activity.body}</p>}
+              </div>
+              <div className="flex shrink-0 items-start gap-1">
+                {/* PENDING = aguardando a Task ligada concluir (ver
+                    ActivityMeetingOutcome no schema) — rótulo próprio, não vem de
+                    MEETING_OUTCOME_OPTIONS (esse só tem os 3 resultados finais). */}
+                {activity.meetingOutcome === "PENDING" ? (
+                  <span className="shrink-0 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                    Aguardando
+                  </span>
+                ) : (
+                  activity.meetingOutcome &&
+                  activity.meetingOutcome !== "ATTENDED" && (
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                        activity.meetingOutcome === "NO_SHOW"
+                          ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
+                          : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                      }`}
+                    >
+                      {MEETING_OUTCOME_OPTIONS.find((o) => o.value === activity.meetingOutcome)?.label}
+                    </span>
+                  )
+                )}
+                {canEdit && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={startEdit}
+                      className="icon-btn h-5 w-5 shrink-0"
+                      aria-label="Editar atividade"
+                      title="Editar"
+                    >
+                      <Pencil className="h-3 w-3" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onConfirmDelete(activity)}
+                      className="icon-btn h-5 w-5 shrink-0 hover:text-red-600 dark:hover:text-red-400"
+                      aria-label="Excluir atividade"
+                      title="Excluir"
+                    >
+                      <Trash2 className="h-3 w-3" strokeWidth={2} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+              <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
+              {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -189,6 +323,7 @@ export function DealDetail({
   sendAsAlternate,
   canEditDetails,
   currentUserRole,
+  currentUserId,
 }: {
   deal: Deal;
   members: MemberOption[];
@@ -210,6 +345,7 @@ export function DealDetail({
   canEditDetails: boolean;
   /** Excluir tarefa (Reunião/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
   currentUserRole?: string;
+  currentUserId: string;
 }) {
   const router = useRouter();
   const pushUndoToast = useUndoToast();
@@ -613,6 +749,39 @@ export function DealDetail({
     } catch {
       setLeadQualStatus({ saving: false, error: "Falha de conexão." });
     }
+  }
+
+  function canEditActivity(activity: Activity): boolean {
+    if (activity.type === "SYSTEM") return false;
+    if (currentUserRole === "OWNER") return true;
+    if (deal.owner.id === currentUserId) return true;
+    if (activity.userId === currentUserId) return true;
+    return false;
+  }
+
+  async function confirmDeleteActivity(activity: Activity) {
+    const res = await fetch(`/api/activities/${activity.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    router.refresh();
+    pushUndoToast(data.undo);
+  }
+
+  async function saveActivityEdit(
+    activityId: string,
+    fields: { activityBody: string; meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | null },
+  ): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/activities/${activityId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data.error ?? "Erro ao salvar" };
+    }
+    router.refresh();
+    pushUndoToast(data.undo);
+    return { ok: true };
   }
 
   function selectTab(type: string) {
@@ -1045,6 +1214,9 @@ export function DealDetail({
                 key={activity.id}
                 activity={activity}
                 highlighted={highlightedActivityId === activity.id}
+                canEdit={canEditActivity(activity)}
+                onConfirmDelete={confirmDeleteActivity}
+                onSave={saveActivityEdit}
               />
             ))}
           </div>
