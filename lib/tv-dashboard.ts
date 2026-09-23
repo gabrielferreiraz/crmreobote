@@ -139,9 +139,15 @@ export async function getTvMetrics(organizationId: string) {
         salesByUser.set(deal.ownerId, existing);
       }
 
+      // Time inteiro, não só o pódio: a tela de Ranking da TV (ver
+      // tv-ranking-scroll.tsx) mostra os 10 primeiros parados e rola pra
+      // revelar quem vem depois. O pódio dos cards continua pegando só os 3
+      // primeiros sozinho (podiumOrder em tv-view.tsx). O teto de 50 é só pra
+      // não mandar uma lista gigante pro navegador da TV numa organização
+      // grande — ninguém rola além disso nos 25s de descida.
       const rankingRaw = Array.from(salesByUser.values())
         .sort((a, b) => b.total - a.total)
-        .slice(0, 3);
+        .slice(0, 50);
 
       const totalVendasMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.value || 0), 0);
       // Bruto do MÊS (não do ano) — mesmo filtro `closedAt >= monthStart` de
