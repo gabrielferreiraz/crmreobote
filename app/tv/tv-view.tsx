@@ -977,9 +977,22 @@ export function TvView({
                   nunca "auto". */}
               <div className="relative shrink-0" style={{ height: "var(--tv-logo-h)", width: `calc(var(--tv-logo-h) * ${LOGO_ASPECT_RATIO})` }}>
                 <img
-                  src="/logo-reobote.png"
+                  src="/images/logo-reobote.png"
                   alt="Reobote"
+                  width={140}
+                  height="auto"
+                  draggable={false}
                   className="absolute inset-0 h-full w-full object-contain"
+                  onError={(event) => {
+                    console.error(
+                      "❌ Erro ao carregar logo Reobote:",
+                      event.currentTarget.src,
+                      "Status: falha de carregamento"
+                    );
+                    console.error(
+                      "📍 Caminho esperado: /images/logo-reobote.png"
+                    );
+                  }}
                 />
                 {/* SVG desligado — relatado quebrado na TV real de novo,
                     mesmo depois de 2 correções (proporção intrínseca, depois
