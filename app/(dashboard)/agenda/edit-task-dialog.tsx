@@ -123,7 +123,7 @@ export function EditTaskDialog({
           />
         </div>
         <div className="space-y-1">
-          <label className="field-label">Contato (opcional)</label>
+          <label className="field-label"> Nome Contato (opcional)</label>
           <ContactSearchInput value={contactId} selectedLabel={task.contact?.name} onChange={(id) => setContactId(id)} />
         </div>
         <div className="space-y-1">

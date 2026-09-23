@@ -104,9 +104,29 @@ export async function POST(req: Request) {
     // bulk-send-message pra negócio). Faltava aqui: sem isso, um MEMBER
     // conseguia mandar `contactId` de qualquer contato da organização (não
     // só os dele) e a rota disparava a campanha mesmo assim.
+    //
+    // O `OR` com "já é dono de uma conversa de WhatsApp com este contato"
+    // (além do `contactScopeWhere` de sempre, baseado em responsavelId) é
+    // pedido explícito depois de um bug real: "Selecionar todas" na aba
+    // WhatsApp CRM (ver conversations-view.tsx) elege pelo dono da
+    // CONVERSA (quem tem o número conectado — o único "responsável" que
+    // faz sentido pra um lead ainda sem negócio, ver o comentário em
+    // lib/whatsapp/conversations.ts), não pelo Contact.responsavelId. Os
+    // dois campos divergem sempre que um lead foi reatribuído no CRM
+    // depois da conversa já existir (medido em produção: 78% das conversas
+    // vinculadas) — sem este OR, selecionar "todas as minhas" e enviar
+    // esbarrava direto em "Nenhum contato válido nessa seleção", mesmo a
+    // pessoa estando, de fato, conversando com todos eles pelo próprio
+    // WhatsApp. Continua seguro: só aceita quando EXISTE de verdade uma
+    // WhatsAppThread com esse contactId E ownerUserId = quem está
+    // chamando — não dá pra forjar mandando o id de um contato qualquer.
     const scope = await getDealScope(organizationId, userId, role);
     const contacts = await prisma.contact.findMany({
-      where: { id: { in: contactIds }, organizationId, ...contactScopeWhere(scope) },
+      where: {
+        id: { in: contactIds },
+        organizationId,
+        OR: [contactScopeWhere(scope), { whatsappThreads: { some: { ownerUserId: userId } } }],
+      },
       select: { id: true, whatsapp: true, phone: true },
     });
     if (contacts.length === 0) {

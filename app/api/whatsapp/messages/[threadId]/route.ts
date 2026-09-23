@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { sendPresence } from "@/lib/evolution";
+import { ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
 import { resolveChatMediaUrl, resolveAvatarUrlMap } from "@/lib/r2";
 import { getDealScope } from "@/lib/team-scope";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
@@ -128,7 +129,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     const needsResubscribe =
       !thread.presenceSubscribedAt || Date.now() - thread.presenceSubscribedAt.getTime() > PRESENCE_RESUBSCRIBE_MS;
     if (thread.instance && thread.instance.status === "CONNECTED" && needsResubscribe) {
-      const fullNumber = `55${thread.phoneNormalized}`;
+      // Mesma correção de lib/whatsapp/send.ts (ver ensureBrazilianMobileNinthDigit).
+      const fullNumber = `55${ensureBrazilianMobileNinthDigit(thread.phoneNormalized)}`;
       sendPresence(thread.instance.instanceName, fullNumber)
         .then(() => prisma.whatsAppThread.update({ where: { id: thread.id }, data: { presenceSubscribedAt: new Date() } }))
         .catch((err) => console.error("[wa:presence] falha ao renovar inscrição de presença", err));

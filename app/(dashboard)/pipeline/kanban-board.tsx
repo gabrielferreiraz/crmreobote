@@ -29,7 +29,7 @@ import { FilterPopover } from "@/components/filter-popover";
 import { Select } from "@/components/select";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
-import { sortAlpha } from "@/lib/sort-alpha";
+import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
 import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
 import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
@@ -428,8 +428,10 @@ export function KanbanBoard({
 
   // "Eu" sempre em primeiro no filtro de Responsável — acha a si mesmo na
   // hora, sem procurar o próprio nome no meio da lista de consultores.
+  // Ativos primeiro, depois inativos, cada grupo em ordem alfabética própria
+  // (pedido explícito) — mesmo raciocínio de deals-list.tsx.
   const orderedMembers = useMemo(
-    () => sortSelfFirst(sortAlpha(members, (m) => m.name), currentUserId),
+    () => sortSelfFirst(sortActiveThenAlpha(members, (m) => m.name), currentUserId),
     [members, currentUserId],
   );
 

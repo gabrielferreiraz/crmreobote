@@ -1,5 +1,5 @@
 import { Phone, Mail, MapPin, ChevronRight } from "lucide-react";
-import { normalizePhoneNumber, formatBrazilianPhone } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, formatBrazilianPhone, ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
 
 type Props = {
   phone?: string | null;
@@ -101,7 +101,10 @@ function ProminentPill({
 
 /** Telefone / WhatsApp / e-mail / mapa / instagram com estilo visual de alta fidelidade. */
 export function DigitalCardContactActions({ phone, whatsapp, email, address, instagram, onTrack }: Props) {
-  const whatsappDigits = whatsapp ? normalizePhoneNumber(whatsapp) : null;
+  // ensureBrazilianMobileNinthDigit: mesma rede de segurança de
+  // lib/whatsapp/send.ts — sem isso, o botão do cartão digital abria
+  // conversa com o número ERRADO pra quem salvou o próprio WhatsApp sem o 9.
+  const whatsappDigits = whatsapp ? ensureBrazilianMobileNinthDigit(normalizePhoneNumber(whatsapp)) : null;
   const phoneDigits = phone ? normalizePhoneNumber(phone) : null;
   const instagramHref = instagram ? (instagram.startsWith("http") ? instagram : `https://instagram.com/${instagram.replace(/^@/, "")}`) : null;
   const hasAny = phoneDigits || whatsappDigits || email || address || instagramHref;

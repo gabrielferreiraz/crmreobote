@@ -142,7 +142,7 @@ export function ContactTabs({
 
   return (
     <div>
-      <div className="relative mb-5 flex w-full max-w-[340px] rounded-xl border border-neutral-800 bg-neutral-950/80 p-1">
+      <div className="relative mb-5 flex w-full max-w-[340px] rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-950/80 p-1">
         <div
           className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-lg bg-gradient-to-r from-brand to-brand-dark shadow-md shadow-brand/20 transition-transform duration-200 ease-spring"
           style={{ transform: tab === "info" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
@@ -151,18 +151,26 @@ export function ContactTabs({
           type="button"
           onClick={() => setTab("deals")}
           className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-            tab === "deals" ? "text-white" : "text-neutral-400 hover:text-neutral-200"
+            tab === "deals" ? "text-white" : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
           }`}
         >
           <Briefcase className="h-3.5 w-3.5" strokeWidth={2} />
           <span>Negócios</span>
-          {deals.length > 0 && <span className="ml-0.5 rounded-full bg-white/20 px-1.5 py-0.2 text-[10px] tabular-nums text-white">({deals.length})</span>}
+          {deals.length > 0 && (
+            <span
+              className={`ml-0.5 rounded-full px-1.5 py-0.2 text-[10px] tabular-nums ${
+                tab === "deals" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+              }`}
+            >
+              ({deals.length})
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={() => setTab("info")}
           className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-            tab === "info" ? "text-white" : "text-neutral-400 hover:text-neutral-200"
+            tab === "info" ? "text-white" : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
           }`}
         >
           <UserCheck className="h-3.5 w-3.5" strokeWidth={2} />
@@ -175,7 +183,7 @@ export function ContactTabs({
           {deleteError && <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>}
 
           {deals.length === 0 ? (
-            <div className="card border border-neutral-800">
+            <div className="card border border-neutral-200 dark:border-neutral-800">
               <EmptyState
                 icon={Inbox}
                 title="Nenhum negócio vinculado"
@@ -197,7 +205,7 @@ export function ContactTabs({
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
                     {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
                     {deals.some((d) => d.status === "OPEN") && (
-                      <> · <span className="text-emerald-400 font-semibold">{formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))}</span> em aberto</>
+                      <> · <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))}</span> em aberto</>
                     )}
                   </p>
                 ) : (
@@ -213,15 +221,15 @@ export function ContactTabs({
               </div>
               {deals.map((deal) => {
                 const statusBadgeStyle = {
-                  OPEN: "bg-brand/20 text-brand-light border border-brand/30",
-                  WON: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
-                  LOST: "bg-red-500/20 text-red-400 border border-red-500/30",
+                  OPEN: "bg-brand/15 text-brand dark:bg-brand/20 dark:text-brand-light border border-brand/30",
+                  WON: "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/30",
+                  LOST: "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-400 border border-red-500/30",
                 }[deal.status];
 
                 return (
                   <div
                     key={deal.id}
-                    className="card group relative border border-neutral-800/80 transition-all duration-200 hover:border-brand/40 hover:bg-neutral-900/90 shadow-sm"
+                    className="card group relative border border-neutral-200 dark:border-neutral-800/80 transition-all duration-200 hover:border-brand/40 hover:bg-neutral-50 dark:hover:bg-neutral-900/90 shadow-sm"
                   >
                     <Link
                       href={`/negocios/${deal.id}`}
@@ -241,9 +249,9 @@ export function ContactTabs({
                             className="h-2 w-2 shrink-0 rounded-full"
                             style={{ backgroundColor: deal.stageColor ?? "#a1a1aa" }}
                           />
-                          <span className="truncate font-medium text-neutral-300">{deal.stageName}</span>
+                          <span className="truncate font-medium text-neutral-600 dark:text-neutral-300">{deal.stageName}</span>
                         </span>
-                        <span className="shrink-0 font-bold text-emerald-400 tabular-nums text-sm">
+                        <span className="shrink-0 font-bold text-emerald-600 dark:text-emerald-400 tabular-nums text-sm">
                           {formatCurrency(deal.value)}
                         </span>
                       </div>

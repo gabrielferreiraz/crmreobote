@@ -21,3 +21,17 @@ export function sortAlpha<T>(items: T[], getLabel: (item: T) => string, keepFirs
 export function sortOptionsAlpha<T extends { label: string }>(options: T[], keepFirst?: (o: T) => boolean): T[] {
   return sortAlpha(options, (o) => o.label, keepFirst);
 }
+
+/**
+ * Pra filtro de RESPONSÁVEL que mistura ativo e inativo (ex.: "Status do
+ * consultor" do Pipeline, ver kanban-board.tsx/deals-list.tsx) — pedido
+ * explícito: ativos primeiro, depois inativos, cada grupo em ordem
+ * alfabética própria (nunca intercalados). Filtro que só lista ativos (a
+ * maioria — Clientes, Relatórios, Agenda) não precisa disto, sortAlpha
+ * sozinho já basta.
+ */
+export function sortActiveThenAlpha<T extends { active: boolean }>(items: T[], getLabel: (item: T) => string): T[] {
+  const active = sortAlpha(items.filter((i) => i.active), getLabel);
+  const inactive = sortAlpha(items.filter((i) => !i.active), getLabel);
+  return [...active, ...inactive];
+}

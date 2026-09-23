@@ -270,6 +270,13 @@ export function QuickRegisterDealForm({
         state: state || undefined,
         zipCode: zipCode || undefined,
         source: "Cadastro rápido",
+        // Mesmo dono já escolhido pro negócio logo abaixo (ownerId, default
+        // é quem está preenchendo o formulário) — sem isso o contato nascia
+        // sem responsável nenhum, mesmo o negócio criado junto já tendo um
+        // (relatado: "fica sem responsável, esse responsável deveria ser
+        // quem criou o contato"). Mesmo padrão já usado em
+        // components/quick-add-deal-panel.tsx.
+        responsavelId: ownerId || undefined,
         ...(claimContactId ? { claimContactId } : {}),
       }),
     });

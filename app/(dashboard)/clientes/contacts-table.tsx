@@ -975,11 +975,11 @@ export function ContactsTable({
           </div>
 
           {/* Desktop: table */}
-          <div className="card hidden overflow-x-auto border border-neutral-800/80 shadow-md lg:block">
+          <div className="card hidden overflow-x-auto border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:block">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-neutral-800 bg-neutral-900/90 text-left text-[11px] font-semibold text-neutral-300 uppercase tracking-wider whitespace-nowrap">
-                  <th className="border-r border-neutral-800/60 px-3 py-3 whitespace-nowrap">
+                <tr className="border-b border-neutral-200 bg-neutral-100/90 dark:border-neutral-800 dark:bg-neutral-900/90 text-left text-[11px] font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider whitespace-nowrap">
+                  <th className="border-r border-neutral-200 dark:border-neutral-800/60 px-3 py-3 whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={allSelected}
@@ -988,16 +988,16 @@ export function ContactsTable({
                       aria-label="Selecionar todos"
                     />
                   </th>
-                  <th className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex items-center gap-1.5">
                       <User className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
                       Nome
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
-                        <Phone className="h-3.5 w-3.5 text-emerald-400" strokeWidth={2} />
+                        <Phone className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" strokeWidth={2} />
                         WhatsApp
                       </span>
                       <ColumnFilter
@@ -1007,7 +1007,7 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <IdCard className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
@@ -1024,7 +1024,7 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <Tag className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
@@ -1040,7 +1040,7 @@ export function ContactsTable({
                       )}
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <User className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
@@ -1057,7 +1057,7 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <Briefcase className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
@@ -1071,7 +1071,7 @@ export function ContactsTable({
                       />
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <Tags className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
@@ -1087,7 +1087,7 @@ export function ContactsTable({
                       )}
                     </span>
                   </th>
-                  <th className="group/th border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                  <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex w-full items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5 min-w-0">
                         <Inbox className="h-3.5 w-3.5 opacity-60 shrink-0" strokeWidth={2} />
@@ -1098,7 +1098,7 @@ export function ContactsTable({
                         className={`icon-btn relative h-7 w-7 border transition-colors ${
                           registeredFrom || registeredTo
                             ? "border-brand text-brand bg-brand/10"
-                            : "border-neutral-700 hover:border-neutral-600"
+                            : "border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600"
                         }`}
                         aria-label="Filtrar por data"
                       >
@@ -1109,10 +1109,10 @@ export function ContactsTable({
                   <th className="px-4 py-3 text-right whitespace-nowrap">Ações</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-800/60">
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800/60">
                 {contacts.map((c) => (
-                  <tr key={c.id} className="group transition-colors hover:bg-neutral-900/80">
-                    <td className="border-r border-neutral-800/60 px-3 py-3 whitespace-nowrap">
+                  <tr key={c.id} className="group transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/80">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-3 py-3 whitespace-nowrap">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(c.id)}
@@ -1123,58 +1123,58 @@ export function ContactsTable({
                         }`}
                       />
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       <Link
                         href={`/clientes/${c.id}`}
-                        className="flex items-center gap-2.5 font-semibold text-neutral-100 hover:text-brand transition-colors whitespace-nowrap"
+                        className="flex items-center gap-2.5 font-semibold text-neutral-900 dark:text-neutral-100 hover:text-brand transition-colors whitespace-nowrap"
                       >
-                        <Avatar name={c.name} size="xs" className="ring-1 ring-neutral-700 shrink-0" />
+                        <Avatar name={c.name} size="xs" className="ring-1 ring-neutral-200 dark:ring-neutral-700 shrink-0" />
                         <span className="whitespace-nowrap">{c.name}</span>
                       </Link>
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 font-mono text-xs text-neutral-300 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 font-mono text-xs text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
                       {c.whatsapp || c.phone ? (
                         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 shrink-0" />
                           {c.whatsapp ?? c.phone}
                         </span>
                       ) : (
-                        <span className="text-neutral-600">—</span>
+                        <span className="text-neutral-400 dark:text-neutral-600">—</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 text-neutral-300 whitespace-nowrap">
-                      {c.jobTitle ?? <span className="text-neutral-600">—</span>}
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
+                      {c.jobTitle ?? <span className="text-neutral-400 dark:text-neutral-600">—</span>}
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       {c.source ? (
                         <Badge tone={SOURCE_TONE[c.source] ?? "neutral"} dot>
                           {c.source}
                         </Badge>
                       ) : (
-                        <span className="text-neutral-600">—</span>
+                        <span className="text-neutral-400 dark:text-neutral-600">—</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 text-neutral-300 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
                       {c.responsavel ? (
                         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                           <Avatar name={c.responsavel.name} size="2xs" className="shrink-0" />
                           <span className="whitespace-nowrap">{c.responsavel.name}</span>
                         </span>
                       ) : (
-                        <span className="text-neutral-600 italic whitespace-nowrap">Sem responsável</span>
+                        <span className="text-neutral-400 dark:text-neutral-600 italic whitespace-nowrap">Sem responsável</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       {c._count.deals > 0 ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-bold text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
                           <Briefcase className="h-3 w-3 shrink-0" strokeWidth={2} />
                           {c._count.deals} {c._count.deals === 1 ? "negócio" : "negócios"}
                         </span>
                       ) : (
-                        <span className="text-neutral-600 font-mono text-xs">0</span>
+                        <span className="text-neutral-400 dark:text-neutral-600 font-mono text-xs">0</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
                       {c.tags.length > 0 ? (
                         <div className="flex items-center gap-1 whitespace-nowrap">
                           {c.tags.map((tag) => (
@@ -1184,10 +1184,10 @@ export function ContactsTable({
                           ))}
                         </div>
                       ) : (
-                        <span className="text-neutral-600">—</span>
+                        <span className="text-neutral-400 dark:text-neutral-600">—</span>
                       )}
                     </td>
-                    <td className="border-r border-neutral-800/60 px-4 py-3 text-xs font-mono text-neutral-400 whitespace-nowrap">
+                    <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 text-xs font-mono text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
                       {new Date(c.createdAt).toLocaleDateString("pt-BR")}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">

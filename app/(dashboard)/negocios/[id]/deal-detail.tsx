@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Wallet, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
-import { normalizePhoneNumber } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
 import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/meeting-outcome-dialog";
 import { Avatar } from "@/components/avatar";
@@ -146,10 +146,10 @@ function ActivityItem({
     return (
       <p
         id={`activity-${activity.id}`}
-        className={`px-1 py-0.5 text-[11px] text-neutral-400 dark:text-neutral-500 ${highlighted ? "animate-highlight-once" : ""}`}
+        className={`px-1 py-0.5 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 ${highlighted ? "animate-highlight-once" : ""}`}
       >
         {activity.user.name} {activity.body}
-        <span className="text-neutral-300 dark:text-neutral-600"> · {new Date(activity.createdAt).toLocaleString("pt-BR")}</span>
+        <span className="font-normal text-neutral-500 dark:text-neutral-500"> · {new Date(activity.createdAt).toLocaleString("pt-BR")}</span>
       </p>
     );
   }
@@ -414,7 +414,10 @@ export function DealDetail({
 
   const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
   const phoneDigits = normalizePhoneNumber(deal.contact.phone);
-  const whatsappDigits = normalizePhoneNumber(deal.contact.whatsapp) ?? phoneDigits;
+  // ensureBrazilianMobileNinthDigit: corrige na hora de montar o link,
+  // mesma rede de segurança de lib/whatsapp/send.ts — sem isso, o botão
+  // abria conversa com o número ERRADO pra todo contato salvo sem o 9.
+  const whatsappDigits = ensureBrazilianMobileNinthDigit(normalizePhoneNumber(deal.contact.whatsapp) ?? phoneDigits);
   const directPhoneUrl = phoneDigits ? `tel:+55${phoneDigits}` : null;
   const directWhatsAppUrl = whatsappDigits ? `https://wa.me/55${whatsappDigits}` : null;
   const pendingTasksCount = deal.tasks.filter((t) => !t.completedAt).length;
@@ -851,6 +854,17 @@ export function DealDetail({
           dueAt: `${dueDate}T${dueTime || "00:00"}`,
           dealId: deal.id,
           contactId: deal.contact.id,
+          // Sempre o RESPONSÁVEL do negócio, nunca omitido — sem isso, POST
+          // /api/tasks (ver app/api/tasks/route.ts) cai no default
+          // `ownerId ?? userId`, ou seja, dono de QUEM ESTÁ LOGADO agora, não
+          // do negócio. Pra quem já é o próprio responsável não muda nada
+          // (os dois ids são iguais), mas Dono/Gerente/Supervisor abrindo o
+          // negócio de outro consultor pra registrar uma ligação/WhatsApp
+          // criava a tarefa em NOME PRÓPRIO — ela nunca aparecia na Agenda do
+          // consultor de verdade (relatado: "não fica em tarefas, fica sem
+          // nada"), e por não ser dele, os campos de prazo (dia/hora) do
+          // card na timeline do negócio também não ficavam editáveis depois.
+          ownerId: deal.owner.id,
           activityId,
         }),
       });
@@ -1122,8 +1136,8 @@ export function DealDetail({
                   isCurrent
                     ? "bg-gradient-to-r from-brand to-brand-dark text-white shadow-md shadow-brand/25 ring-1 ring-brand/50 font-semibold"
                     : isPast
-                    ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800/80 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white"
-                    : "bg-neutral-50 text-neutral-500 hover:bg-neutral-100 dark:bg-neutral-900/50 dark:text-neutral-500 dark:hover:bg-neutral-850 dark:hover:text-neutral-300"
+                    ? "bg-neutral-100 text-neutral-800 font-semibold hover:bg-neutral-200 hover:text-neutral-950 dark:bg-neutral-800/80 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-white"
+                    : "bg-neutral-100/70 text-neutral-700 font-medium hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-900/60 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                 }`}
               >
                 <span
@@ -1166,10 +1180,10 @@ export function DealDetail({
                     tabRefs.current[tab.type] = el;
                   }}
                   onClick={() => selectTab(tab.type)}
-                  className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+                  className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
                     activeTab === tab.type
-                      ? "text-neutral-900 dark:text-neutral-100"
-                      : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
+                      ? "font-semibold text-neutral-900 dark:text-neutral-100"
+                      : "font-medium text-neutral-700 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
                   }`}
                 >
                   <tab.icon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1218,11 +1232,11 @@ export function DealDetail({
               <div className="flex items-end justify-between gap-3">
                 <div className="flex gap-2">
                   <div className="space-y-1">
-                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Prazo</label>
+                    <label className="text-xs font-medium text-neutral-700 dark:text-neutral-400">Prazo</label>
                     <DatePicker value={dueDate} onChange={setDueDate} className="px-2 py-1 text-xs" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs text-neutral-500 dark:text-neutral-400">Horário</label>
+                    <label className="text-xs font-medium text-neutral-700 dark:text-neutral-400">Horário</label>
                     <TimePicker value={dueTime} onChange={setDueTime} disabled={!dueDate} className="px-2 py-1 text-xs" />
                   </div>
                 </div>
@@ -2469,8 +2483,8 @@ function CustomFieldsCard({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
-      <span className="text-right text-neutral-800 dark:text-neutral-200">{value}</span>
+      <span className="font-medium text-neutral-600 dark:text-neutral-400">{label}</span>
+      <span className="text-right font-semibold text-neutral-900 dark:text-neutral-200">{value}</span>
     </div>
   );
 }
@@ -2562,7 +2576,7 @@ function EditableRow({
         ref={rowRef}
         className={`group -mx-2 flex items-center justify-between gap-2 rounded-lg px-2 py-0.5 transition-colors duration-700 ${highlightClass}`}
       >
-        <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
+        <span className="font-medium text-neutral-600 dark:text-neutral-400">{label}</span>
         <button
           type="button"
           onClick={() => {
@@ -2571,14 +2585,7 @@ function EditableRow({
           }}
           className="group/field flex min-w-0 items-center gap-1 rounded text-right"
         >
-          {/* 13 linhas destas empilhadas na tela — um selo "Editar" em cada
-              uma viraria poluição visual (diferente de DealValueCard/
-              CustomFieldsCard, só 1-2 por tela). Aqui o "mais chamativo"
-              pedido vira: lápis SEMPRE em cor de marca (não cinza) e
-              parcialmente visível mesmo sem hover (opacity-40, não mais
-              opacity-0) — dá pra notar que a linha é editável batendo o
-              olho na tela toda, sem precisar caçar campo por campo. */}
-          <span className="truncate text-neutral-800 transition-colors group-hover/field:text-brand dark:text-neutral-200">
+          <span className="truncate font-semibold text-neutral-900 transition-colors group-hover/field:text-brand dark:text-neutral-200">
             {displayValue ?? (value || "—")}
           </span>
           <Pencil

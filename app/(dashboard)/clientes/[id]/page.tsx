@@ -143,7 +143,7 @@ export default async function ContactPage({
           formam uma coluna só, centralizada. */}
       <div className="mx-auto max-w-xl space-y-6">
         {/* Card Hero de Destaque do Cliente */}
-        <div className="card p-5 bg-gradient-to-r from-neutral-900/95 via-neutral-900 to-neutral-950 border border-neutral-800/80 shadow-md space-y-4">
+        <div className="card p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800/80 shadow-sm space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3.5 min-w-0">
               <Avatar name={contact.name} size="lg" className="ring-2 ring-brand/40 shadow-sm shrink-0" />
@@ -152,7 +152,7 @@ export default async function ContactPage({
                   {contact.name}
                 </h1>
                 <p className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span className="inline-flex items-center gap-1 font-medium text-neutral-600 dark:text-neutral-300">
+                  <span className="inline-flex items-center gap-1 font-medium text-neutral-700 dark:text-neutral-300">
                     <Building2 className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
                     {contact.company || contact.source || "Origem não informada"}
                   </span>
@@ -160,7 +160,7 @@ export default async function ContactPage({
                     <>
                       <span className="text-neutral-400 dark:text-neutral-600">·</span>
                       <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
-                        <span>Resp: <strong className="font-semibold text-neutral-700 dark:text-neutral-200">{contact.responsavel.name}</strong></span>
+                        <span>Resp: <strong className="font-semibold text-neutral-800 dark:text-neutral-200">{contact.responsavel.name}</strong></span>
                       </span>
                     </>
                   )}
@@ -193,17 +193,17 @@ export default async function ContactPage({
               jobTitles={jobTitles}
               members={members}
               customFields={customFields}
-              triggerClassName="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-800/80 px-3.5 text-xs font-semibold text-neutral-200 shadow-sm transition-all hover:bg-neutral-700 hover:text-white active:scale-95"
+              triggerClassName="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800/80 px-3.5 text-xs font-semibold text-neutral-800 dark:text-neutral-200 shadow-2xs transition-all hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white active:scale-95"
             />
           </div>
 
           {/* Atalhos de ação rápida do contato */}
           {(contact.phone || contact.whatsapp || contact.email) && (
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-800/80">
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-800/80">
               {contact.phone && (
                 <a
                   href={`tel:${contact.phone}`}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
                 >
                   <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
                   <span>Ligar</span>
@@ -212,7 +212,7 @@ export default async function ContactPage({
               {contact.whatsapp && (
                 <Link
                   href={`/whatsapp/conversas?contactId=${contact.id}`}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
                 >
                   <MessageSquare className="h-3.5 w-3.5" strokeWidth={2.2} />
                   <span>WhatsApp</span>
@@ -221,7 +221,7 @@ export default async function ContactPage({
               {contact.email && (
                 <a
                   href={`mailto:${contact.email}`}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-purple-500/10 py-2 text-xs font-semibold text-purple-600 hover:bg-purple-500/20 dark:text-purple-400 transition-colors"
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-purple-500/10 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-500/20 dark:text-purple-400 transition-colors"
                 >
                   <Mail className="h-3.5 w-3.5" strokeWidth={2.2} />
                   <span>E-mail</span>

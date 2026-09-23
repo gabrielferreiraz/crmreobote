@@ -30,6 +30,7 @@ import * as metaWhatsApp from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
 import { getOrCreateThreadForContact, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { signMediaKey } from "@/lib/whatsapp/media-token";
+import { ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
 
 export class WhatsAppSendError extends Error {}
 
@@ -172,7 +173,17 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     }
   }
 
-  const fullNumber = `55${thread.phoneNormalized}`;
+  // Rede de segurança contra o 9º dígito faltante (ver
+  // ensureBrazilianMobileNinthDigit em lib/phone-normalize.ts) — corrige
+  // mesmo aqui, na hora de discar, porque thread.phoneNormalized pode ter
+  // sido gravado ANTES desta correção existir (ou vindo de um JID de
+  // mensagem recebida, que o WhatsApp às vezes entrega sem o 9). Sem isso,
+  // um envio em massa falhava com "número errado" pra todo contato cujo
+  // WhatsApp foi salvo/recebido sem o 9 — mesmo já corrigindo a gravação
+  // (fallbackWhatsappToPhone), dado antigo continuaria quebrado até alguém
+  // reeditar o contato. Aqui garante que TODO envio funciona, independente
+  // de quando/como aquele número entrou no banco.
+  const fullNumber = `55${ensureBrazilianMobileNinthDigit(thread.phoneNormalized)}`;
 
   // Só EVOLUTION (sessão WhatsApp Web/Baileys) — a Cloud API oficial da Meta
   // não tem conceito de "presença"/digitando pra mensagem iniciada por nós.

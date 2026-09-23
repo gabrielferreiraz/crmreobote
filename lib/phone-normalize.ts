@@ -99,12 +99,34 @@ export function fallbackWhatsappToPhone(
   whatsappNormalized: string | null,
 ): { phone: string | null; phoneNormalized: string | null; whatsapp: string | null; whatsappNormalized: string | null } {
   if (whatsappNormalized) {
-    return { phone: phone ?? null, phoneNormalized, whatsapp: whatsapp ?? null, whatsappNormalized };
+    return withNinthDigitFix(phone ?? null, phoneNormalized, whatsapp ?? null, whatsappNormalized);
   }
   if (phoneNormalized) {
-    return { phone: null, phoneNormalized: null, whatsapp: phone ?? null, whatsappNormalized: phoneNormalized };
+    return withNinthDigitFix(null, null, phone ?? null, phoneNormalized);
   }
   return { phone: phone ?? null, phoneNormalized: phoneNormalized ?? null, whatsapp: whatsapp ?? null, whatsappNormalized: whatsappNormalized ?? null };
+}
+
+/**
+ * Aplica ensureBrazilianMobileNinthDigit no valor que vai virar
+ * whatsappNormalized e, quando ele de fato muda (9 estava faltando),
+ * reconstrói TAMBÉM o campo de exibição (`whatsapp`) a partir do valor já
+ * corrigido — pedido explícito: o número tem que estar certo "antes mesmo
+ * de aparecer na interface pro usuário", não só no campo interno usado pra
+ * discar/comparar. Chamado nos dois ramos de fallbackWhatsappToPhone
+ * acima (whatsapp já preenchido, ou celular que acabou de virar whatsapp).
+ */
+function withNinthDigitFix(
+  phone: string | null,
+  phoneNormalized: string | null,
+  whatsapp: string | null,
+  whatsappNormalized: string,
+): { phone: string | null; phoneNormalized: string | null; whatsapp: string | null; whatsappNormalized: string | null } {
+  const corrected = ensureBrazilianMobileNinthDigit(whatsappNormalized);
+  if (corrected === whatsappNormalized) {
+    return { phone, phoneNormalized, whatsapp, whatsappNormalized };
+  }
+  return { phone, phoneNormalized, whatsapp: formatPhoneMask(corrected!), whatsappNormalized: corrected };
 }
 
 /**
@@ -186,6 +208,36 @@ export function brazilianMobileVariants(normalized: string): string[] {
     variants.add(normalized.slice(0, 2) + "9" + normalized.slice(2));
   }
   return Array.from(variants);
+}
+
+/**
+ * Corrige um número JÁ normalizado (só dígitos, sem DDI) que veio sem o 9º
+ * dígito do celular — mesmo fenômeno documentado em brazilianMobileVariants
+ * acima (o WhatsApp às vezes entrega o JID de uma mensagem com 10 dígitos
+ * em vez de 11), só que aqui é pra CORRIGIR o valor guardado, não pra gerar
+ * uma variante de busca.
+ *
+ * Só chamar em contexto de WHATSAPP (nunca em `phone` genérico): um número
+ * de telefone comum de 10 dígitos pode legitimamente ser fixo (2-5 no
+ * início, 8 dígitos depois do DDD) — adicionar um 9 nesse caso inventaria
+ * um celular que não existe. WhatsApp não roda em linha fixa (a integração
+ * Evolution/Baileys é sempre um número de celular de verdade), então um
+ * whatsappNormalized de 10 dígitos num DDD brasileiro válido É, com certeza
+ * prática, um celular sem o 9 — nunca um fixo — seguro de corrigir sempre.
+ *
+ * Pedido explícito: número de WhatsApp tem que ter DDI+DDD+9 antes mesmo de
+ * aparecer pro usuário — usado tanto na gravação (fallbackWhatsappToPhone
+ * abaixo) quanto, como rede de segurança, no exato momento de discar (ver
+ * lib/whatsapp/send.ts) — corrige mesmo um `WhatsAppThread.phoneNormalized`
+ * antigo, gravado antes desta correção existir, sem precisar de backfill
+ * pra o envio funcionar.
+ */
+export function ensureBrazilianMobileNinthDigit(normalized: string | null): string | null {
+  if (!normalized) return normalized;
+  if (normalized.length !== 10) return normalized;
+  const ddd = normalized.slice(0, 2);
+  if (!VALID_BRAZILIAN_DDDS.has(ddd)) return normalized;
+  return ddd + "9" + normalized.slice(2);
 }
 
 /**

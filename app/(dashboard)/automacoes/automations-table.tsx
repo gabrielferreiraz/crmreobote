@@ -399,9 +399,8 @@ export function AutomationsTable({
                     </span>
                     {rule.runCount > 0 && (
                       <ChevronDown
-                        className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${
-                          isExpanded ? "rotate-180" : ""
-                        }`}
+                        className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${isExpanded ? "rotate-180" : ""
+                          }`}
                         strokeWidth={2}
                       />
                     )}
@@ -740,25 +739,25 @@ function AutomationDialog({
                 ? { minutesBefore: Number(minutesBefore) || 15 }
                 : trigger === "SCHEDULED"
                   ? {
-                      frequency,
-                      time: scheduleTime,
-                      dayOfWeek: frequency === "weekly" ? Number(dayOfWeek) : undefined,
-                      dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
-                      assigneeId,
-                    }
+                    frequency,
+                    time: scheduleTime,
+                    dayOfWeek: frequency === "weekly" ? Number(dayOfWeek) : undefined,
+                    dayOfMonth: frequency === "monthly" ? Number(dayOfMonth) : undefined,
+                    assigneeId,
+                  }
                   : trigger === "MESSAGE_RECEIVED"
                     ? {
-                        messageMatchType,
-                        messageKeywords: messageKeywordsText
-                          .split(",")
-                          .map((k) => k.trim())
-                          .filter(Boolean),
-                        messageInstanceUserIds,
-                        businessHoursMode,
-                        contactContext,
-                        stopOnMatch,
-                        ignoreIfHumanActive,
-                      }
+                      messageMatchType,
+                      messageKeywords: messageKeywordsText
+                        .split(",")
+                        .map((k) => k.trim())
+                        .filter(Boolean),
+                      messageInstanceUserIds,
+                      businessHoursMode,
+                      contactContext,
+                      stopOnMatch,
+                      ignoreIfHumanActive,
+                    }
                     : {};
 
     const triggerConfig = conditionEntityType && customFieldConditions.length > 0
@@ -852,7 +851,7 @@ function AutomationDialog({
               options={(Object.entries(TARGET_TYPE_LABELS) as [TargetType, string][]).map(([value, label]) => ({ value, label }))}
             />
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              O gatilho continua olhando a organização inteira — isso só filtra pelo <strong>responsável</strong> (dono do negócio do contato,{" "}
+              O gatilho continua olhando a organização inteira isso só filtra pelo <strong>responsável</strong> (dono do negócio do contato,{" "}
               {trigger === "MESSAGE_RECEIVED"
                 ? "não quem tem o WhatsApp conectado — uma mensagem recebida num número central só conta pra \"Só eu\"/\"Usuários\" se o contato tiver negócio seu"
                 : "não necessariamente quem criou/mexeu por último"}

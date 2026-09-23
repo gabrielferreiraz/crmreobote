@@ -23,7 +23,7 @@ import { buildListQuickRanges } from "@/lib/date-ranges";
 import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
-import { sortAlpha } from "@/lib/sort-alpha";
+import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
@@ -216,8 +216,12 @@ export function DealsList({
   }
 
   // "Eu" sempre em primeiro no filtro de Responsável.
+  // Ativos primeiro, depois inativos, cada grupo em ordem alfabética própria
+  // (pedido explícito) — sortSelfFirst por cima ainda bota "Eu" em 1º: o
+  // usuário logado é sempre um membro ATIVO, então nunca briga com o
+  // agrupamento (self já cai dentro do próprio grupo de ativos).
   const orderedMembers = useMemo(
-    () => sortSelfFirst(sortAlpha(members, (m) => m.name), currentUserId),
+    () => sortSelfFirst(sortActiveThenAlpha(members, (m) => m.name), currentUserId),
     [members, currentUserId],
   );
   const [cityFilter, setCityFilter] = useState("");
