@@ -39,6 +39,14 @@ export function ClosedAtDialog({
   // Fallback local enquanto a server action não respondeu — evita campo vazio
   // piscando, mas não permite confirmar com esse valor (ready=false).
   const [closedAt, setClosedAt] = useState(brazilDateKey());
+  // Teto do calendário: nunca depois de HOJE (servidor) — sem isso, um
+  // clique errado no dia seguinte no calendário grava um closedAt no futuro,
+  // que nunca deixa de ser "o mais recente" pra TV/Relatórios (ORDER BY
+  // closedAt DESC) até o calendário de verdade alcançar aquela data. Bug
+  // real encontrado em produção (venda travada 5 dias "no futuro"). Mesma
+  // fonte (servidor, não relógio do dispositivo) que já evita o problema
+  // irmão (closedAt no passado por relógio atrasado, ver comentário acima).
+  const [maxDate, setMaxDate] = useState(brazilDateKey());
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -46,6 +54,7 @@ export function ClosedAtDialog({
     getServerTodayKey()
       .then((serverDate) => {
         setClosedAt(serverDate);
+        setMaxDate(serverDate);
         setReady(true);
       })
       .catch(() => {
@@ -67,7 +76,7 @@ export function ClosedAtDialog({
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1">
           <label className="field-label">Data</label>
-          <DatePicker value={closedAt} onChange={setClosedAt} />
+          <DatePicker value={closedAt} onChange={setClosedAt} max={maxDate} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

@@ -35,12 +35,18 @@ export function DatePicker({
   className = "",
   placeholder = "dd/mm/aaaa",
   disabled = false,
+  max,
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  /** Dia mais recente selecionável, formato ISO "aaaa-mm-dd" (inclusive) —
+   * opcional, só quem passa fica restrito (ex.: ClosedAtDialog, "data de
+   * fechamento não pode ser no futuro"). Sem isso, todo outro uso do
+   * calendário — prazo de tarefa, previsão de fechamento — continua livre. */
+  max?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selected = parseISODate(value);
@@ -75,6 +81,7 @@ export function DatePicker({
   }, [viewDate]);
 
   const today = new Date();
+  const maxDate = max ? parseISODate(max) : null;
 
   function selectDay(d: Date) {
     onChange(toISODate(d));
@@ -160,17 +167,21 @@ export function DatePicker({
                     const inMonth = day.getMonth() === viewDate.getMonth();
                     const isSelected = !!selected && isSameDay(day, selected);
                     const isToday = isSameDay(day, today);
+                    const isDisabled = !!maxDate && day.getTime() > maxDate.getTime();
                     return (
                       <button
                         key={`${wi}-${di}`}
                         type="button"
+                        disabled={isDisabled}
                         onClick={() => selectDay(day)}
                         className={`flex h-7 w-7 items-center justify-center rounded-md text-xs transition-colors ${
-                          isSelected
-                            ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                            : inMonth
-                              ? "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                              : "text-neutral-300 hover:bg-neutral-50 dark:text-neutral-700 dark:hover:bg-neutral-800/50"
+                          isDisabled
+                            ? "cursor-not-allowed text-neutral-300 dark:text-neutral-700"
+                            : isSelected
+                              ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                              : inMonth
+                                ? "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                : "text-neutral-300 hover:bg-neutral-50 dark:text-neutral-700 dark:hover:bg-neutral-800/50"
                         } ${
                           isToday && !isSelected
                             ? "font-semibold text-neutral-900 ring-1 ring-inset ring-neutral-900 dark:text-neutral-100 dark:ring-white"

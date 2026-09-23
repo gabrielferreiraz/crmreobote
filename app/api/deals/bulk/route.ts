@@ -5,7 +5,7 @@ import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
-import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
+import { brazilDateStringWithNowTimeToUTC, brazilDateKey } from "@/lib/timezone";
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { BulkUpdateGroup, BulkUpdatePayload } from "@/lib/undo/types";
@@ -317,6 +317,12 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
   if (status !== "OPEN") {
     if (closedAtInput) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(closedAtInput)) return NextResponse.json({ error: "Data inválida" }, { status: 400 });
+      // Mesma trava do PUT individual (ver app/api/deals/[id]/route.ts) —
+      // closedAt no futuro trava a TV/Relatórios em "última venda" errada até
+      // o calendário alcançar a data.
+      if (closedAtInput > brazilDateKey()) {
+        return NextResponse.json({ error: "Data de fechamento não pode ser no futuro" }, { status: 400 });
+      }
       closedAt = brazilDateStringWithNowTimeToUTC(closedAtInput);
       if (isNaN(closedAt.getTime())) return NextResponse.json({ error: "Data inválida" }, { status: 400 });
     } else {

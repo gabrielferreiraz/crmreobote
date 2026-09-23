@@ -95,7 +95,9 @@ export function LossReasonDialog({
         </div>
         <div className="space-y-1">
           <label className="field-label">Quando foi perdido?</label>
-          <DatePicker value={closedAt} onChange={setClosedAt} />
+          {/* max: nunca no futuro — mesma trava de closed-at-dialog.tsx (o
+              servidor já rejeita, isso só evita a viagem de ida e volta). */}
+          <DatePicker value={closedAt} onChange={setClosedAt} max={brazilDateKey()} />
         </div>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

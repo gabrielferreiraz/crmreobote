@@ -11,7 +11,7 @@ import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enq
 import { notifyMetaConversionWon } from "@/lib/meta-ads/conversions";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
-import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
+import { brazilDateStringWithNowTimeToUTC, brazilDateKey } from "@/lib/timezone";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload, FieldUpdateTarget } from "@/lib/undo/types";
 
@@ -154,6 +154,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (closedAtInput) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(closedAtInput)) {
           return NextResponse.json({ error: "Data inválida" }, { status: 400 });
+        }
+        // Nunca no futuro (dia civil de Brasília) — sem isso, um clique errado
+        // no seletor de data (ex.: dia 26 em vez de 21) grava um closedAt à
+        // frente de "agora" que nunca deixa de ser o mais recente pra
+        // `ORDER BY closedAt DESC`: a TV (Última venda, ver lib/tv-dashboard.ts)
+        // e Relatórios ficam travados mostrando ESSE negócio até o
+        // calendário de verdade alcançar a data errada — bug real encontrado
+        // em produção (venda gravada com closedAt 5 dias no futuro).
+        if (closedAtInput > brazilDateKey()) {
+          return NextResponse.json({ error: "Data de fechamento não pode ser no futuro" }, { status: 400 });
         }
         closedAt = brazilDateStringWithNowTimeToUTC(closedAtInput);
         if (isNaN(closedAt.getTime())) {
