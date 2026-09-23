@@ -10,6 +10,7 @@ import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
 import { TvClock } from "./tv-clock";
 import { CountUpValue } from "@/components/count-up-value";
+import { TvRankingScroll } from "./tv-ranking-scroll";
 
 type Metrics = Awaited<ReturnType<typeof fetchTvMetrics>>;
 type WinSale = { id: string; name: string; image: string | null; value: number };
@@ -46,6 +47,14 @@ const DAILY_RELOAD_HOUR = 4;
 // acontece quando uma venda de verdade acontece).
 const RANKING_SPIN_INTERVAL_MS = 5 * 60 * 1000;
 const RANKING_SPIN_VISIBLE_MS = 6000;
+// O painel de métricas alterna entre os cards de sempre e uma tela dedicada
+// com o Ranking do mês inteiro (top 10, ver tv-ranking-scroll.tsx): 2min nos
+// cards, 1min20s no ranking, ciclo total de 3min20s. Os 80s do ranking são a
+// soma exata das 3 fases de lá (30s parado no topo + 25s descendo até o
+// último + 25s voltando ao primeiro) — mexer num dos dois lados sem o outro
+// deixa a tela trocando no meio da animação.
+const CARDS_DURATION_MS = 2 * 60 * 1000;
+const RANKING_SCROLL_DURATION_MS = 80 * 1000;
 // Carrossel de SÓ 2 cards do painel (Última venda e Ranking — ver
 // renderLastSaleContent/renderRankingContent no componente abaixo, cada um
 // com seu próprio slide independente) — alterna entre o conteúdo normal de
@@ -156,6 +165,9 @@ export function TvView({
   const LOGO_ASPECT_RATIO = 3144 / 1784;
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [celebration, setCelebration] = useState<WinSale | null>(null);
+  // Alterna entre cards normais e ranking com scroll animado a cada 2min nos
+  // cards e 1min 20seg no ranking (ciclo total de 3min 20seg).
+  const [showRankingScroll, setShowRankingScroll] = useState(false);
   // Aviso discreto de "os números na tela podem estar desatualizados" — ver
   // STALE_AFTER_MS. `lastFetchOkAt` não é state de propósito (não precisa
   // re-renderizar a cada busca bem-sucedida, só quando `stale` muda de
@@ -213,6 +225,13 @@ export function TvView({
     const timer = setTimeout(() => setOutgoingSlide(null), SLIDE_TRANSITION_MS);
     return () => clearTimeout(timer);
   }, [rankingSlide]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setShowRankingScroll((prev) => !prev);
+    }, showRankingScroll ? RANKING_SCROLL_DURATION_MS : CARDS_DURATION_MS);
+    return () => clearInterval(timer);
+  }, [showRankingScroll]);
 
   // Data (timestamp) da venda mais recente já vista — começa com a data que
   // já veio pronta do servidor, então o 1º carregamento da página (ou um F5)
@@ -945,28 +964,37 @@ export function TvView({
             disso ele pode encolher de verdade pra dividir a altura com o
             painel de propaganda. */}
         <div className="scrollbar-thin flex min-h-0 w-full flex-col overflow-y-auto min-[900px]:w-[var(--tv-panel-w)] min-[900px]:shrink-0 min-[900px]:overflow-hidden">
-          {/* Sem container-type próprio aqui — desde a migração pro
-              contêiner único (ver components/tv-shell.tsx e o comentário
-              logo acima do `return`), logo+cards leem os MESMOS tokens
-              `--tv-*` cq* de app/globals.css que o resto da página inteira
-              usa, um único contêiner de referência pra tudo. A logo
-              continua no MESMO wrapper que os cards de propósito: ela e os
-              cards precisam manter a MESMA relação de tamanho entre si
-              sempre. */}
-          {/* justify-start (não justify-evenly — testado e revertido, pedido
-              explícito: logo+cards não podem se separar verticalmente uns
-              dos outros; e não justify-center — testado e revertido de
-              novo, relato ao vivo na TV real: "a logo está abaixo demais")
-              — se o conteúdo natural (logo + cards, já no tamanho cqh que
-              a altura real disponível define) couber com sobra, essa
-              sobra vira margem só embaixo do grupo (depois do Ranking),
-              nunca em cima empurrando a logo pra baixo. O grupo continua
-              compacto entre si de qualquer forma (mesmo `--tv-gap` fixo
-              entre cada card, nunca um vão crescendo entre eles) — a única
-              coisa que muda entre start/center/evenly é ONDE a sobra de
-              espaço vai parar, nunca se os cards se separam uns dos
-              outros. */}
-          <div className="flex min-h-0 flex-1 flex-col justify-start" style={{ gap: "var(--tv-gap)" }}>
+          {showRankingScroll && showRanking ? (
+            /* Tela dedicada do Ranking (top 10 com barra proporcional e
+               rolagem lenta) — ocupa o painel inteiro no lugar de logo+cards
+               por RANKING_SCROLL_DURATION_MS. Só entra se o widget de Ranking
+               estiver habilitado: com ele desligado nas configurações da TV,
+               o painel fica nos cards o tempo todo, como antes. */
+            <TvRankingScroll ranking={metrics.ranking} />
+          ) : (
+            <>
+              {/* Sem container-type próprio aqui — desde a migração pro
+                  contêiner único (ver components/tv-shell.tsx e o comentário
+                  logo acima do `return`), logo+cards leem os MESMOS tokens
+                  `--tv-*` cq* de app/globals.css que o resto da página inteira
+                  usa, um único contêiner de referência pra tudo. A logo
+                  continua no MESMO wrapper que os cards de propósito: ela e os
+                  cards precisam manter a MESMA relação de tamanho entre si
+                  sempre. */}
+              {/* justify-start (não justify-evenly — testado e revertido, pedido
+                  explícito: logo+cards não podem se separar verticalmente uns
+                  dos outros; e não justify-center — testado e revertido de
+                  novo, relato ao vivo na TV real: "a logo está abaixo demais")
+                  — se o conteúdo natural (logo + cards, já no tamanho cqh que
+                  a altura real disponível define) couber com sobra, essa
+                  sobra vira margem só embaixo do grupo (depois do Ranking),
+                  nunca em cima empurrando a logo pra baixo. O grupo continua
+                  compacto entre si de qualquer forma (mesmo `--tv-gap` fixo
+                  entre cada card, nunca um vão crescendo entre eles) — a única
+                  coisa que muda entre start/center/evenly é ONDE a sobra de
+                  espaço vai parar, nunca se os cards se separam uns dos
+                  outros. */}
+              <div className="flex min-h-0 flex-1 flex-col justify-start" style={{ gap: "var(--tv-gap)" }}>
             <div className="flex shrink-0 justify-center">
               {/* A logo NUNCA participa do carrossel abaixo (ver
                   rankingSlide) — fica fora do bloco que troca de
@@ -1211,6 +1239,8 @@ export function TvView({
               <p className="text-center text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum widget habilitado.</p>
             )}
           </div>
+            </>
+          )}
         </div>
       </div>
 
