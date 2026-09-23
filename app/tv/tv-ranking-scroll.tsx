@@ -261,3 +261,10 @@ export function TvRankingScroll({ ranking }: { ranking: RankingUser[] }) {
     </div>
   );
 }
+
+
+/*
+[GABRIEL - 23-09-2026 14:00] O problema é que a lista não desce e não volta (não sobe), ela só fica parada no topo. A lógica que o Caiki implementou faz a lista descer (descendo) até o final e voltar (subindo) para o topo, mas o que eu queria era algo diferente. Eu queria que os usuários ficassem parados por 5 segundos, depois descendo devagar até o final, e ao chegar lá, eles voltassem para o topo e ficassem parados por mais 5 segundos, reiniciando o ciclo.
+
+Acredito que o problema seja no código que calcula a distância e o progresso.
+*/
