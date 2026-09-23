@@ -1539,7 +1539,7 @@ function RankingPodiumSlot({
         className={`mt-1 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
         title={user.name}
       >
-        {user.name.toLowerCase()}
+        {user.name}
       </div>
       <div
         className="font-bold"
