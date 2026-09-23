@@ -1,7 +1,8 @@
 "use client";
 
-import { Loader2, Bell, BellOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { usePushSubscription } from "@/lib/use-push-subscription";
+import { Toggle } from "./toggle";
 
 export function PushNotificationsToggle() {
   const { status, loading, error, subscribe, unsubscribe } = usePushSubscription();
@@ -20,28 +21,25 @@ export function PushNotificationsToggle() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Notificações push</p>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Receba avisos de automações e tarefas mesmo com o CRM fechado.
-          </p>
+      {loading ? (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Notificações push</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Receba avisos de automações e tarefas mesmo com o CRM fechado.
+            </p>
+          </div>
+          <Loader2 className="h-5 w-5 animate-spin text-neutral-400" strokeWidth={2.5} />
         </div>
-        <button
-          onClick={status === "subscribed" ? unsubscribe : subscribe}
+      ) : (
+        <Toggle
+          checked={status === "subscribed"}
+          onChange={(checked) => (checked ? subscribe() : unsubscribe())}
           disabled={loading}
-          className={status === "subscribed" ? "btn-secondary" : "btn-primary"}
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
-          ) : status === "subscribed" ? (
-            <BellOff className="h-4 w-4" strokeWidth={2} />
-          ) : (
-            <Bell className="h-4 w-4" strokeWidth={2} />
-          )}
-          {status === "subscribed" ? "Desativar" : "Ativar"}
-        </button>
-      </div>
+          label="Notificações push"
+          description="Receba avisos de automações e tarefas mesmo com o CRM fechado."
+        />
+      )}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );

@@ -264,7 +264,6 @@ export function ContactImportDialog({
   // simplesmente ausente (deixa a detecção automática decidir).
   function updateOverride(field: ImportField, value: string) {
     const next = { ...overrides, [field]: value === "" ? -1 : Number(value) };
-    console.log("🔄 updateOverride:", field, "→", value === "" ? -1 : Number(value), "overrides agora:", next);
     setOverrides(next);
     // NÃO dispara runPreview aqui - usuário configura tudo primeiro,
     // a análise acontece apenas ao clicar em "Importar"
