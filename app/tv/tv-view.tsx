@@ -860,9 +860,8 @@ export function TvView({
               metrics.adsUrls.map((url, i) => (
                 <div
                   key={url}
-                  className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
-                    i === safeAdIndex ? "opacity-100" : "opacity-0"
-                  }`}
+                  className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${i === safeAdIndex ? "opacity-100" : "opacity-0"
+                    }`}
                 >
                   {/* Cópia da mesma imagem, ampliada e borrada, preenchendo a
                       moldura inteira atrás — resolve imagem de proporção
@@ -977,7 +976,7 @@ export function TvView({
                   nunca "auto". */}
               <div className="relative shrink-0" style={{ height: "var(--tv-logo-h)", width: `calc(var(--tv-logo-h) * ${LOGO_ASPECT_RATIO})` }}>
                 <img
-                  src="/images/logo-reobote.png"
+                  src="/images/LOGO-BRANCA.png"
                   alt="Reobote"
                   width={140}
                   height="auto"
@@ -1102,9 +1101,8 @@ export function TvView({
                   <div className="relative" style={{ minHeight: "var(--tv-avatar-md)" }}>
                     {hasBirthdayToday && outgoingSlide !== null && (
                       <div
-                        className={`absolute inset-0 flex items-center justify-center ${
-                          outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
-                        }`}
+                        className={`absolute inset-0 flex items-center justify-center ${outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
+                          }`}
                       >
                         {renderLastSaleContent(outgoingSlide)}
                       </div>
@@ -1194,9 +1192,8 @@ export function TvView({
                 <Glow color="#eab308" />
                 {outgoingSlide !== null && (
                   <div
-                    className={`absolute inset-0 flex flex-col items-center justify-center ${
-                      outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
-                    }`}
+                    className={`absolute inset-0 flex flex-col items-center justify-center ${outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
+                      }`}
                   >
                     {renderRankingContent(outgoingSlide)}
                   </div>
@@ -1313,9 +1310,8 @@ export function TvView({
           resto. */}
       {churrascoBannerPhase !== "hidden" && (
         <div
-          className={`pointer-events-none fixed inset-0 z-[150] flex items-center justify-center overflow-hidden bg-black/90 transition-opacity duration-[600ms] ${
-            churrascoBannerPhase === "visible" ? "opacity-100" : "opacity-0"
-          }`}
+          className={`pointer-events-none fixed inset-0 z-[150] flex items-center justify-center overflow-hidden bg-black/90 transition-opacity duration-[600ms] ${churrascoBannerPhase === "visible" ? "opacity-100" : "opacity-0"
+            }`}
         >
           <div
             className="absolute h-[42cqw] w-[42cqw] rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.35),transparent_70%)] blur-3xl"
