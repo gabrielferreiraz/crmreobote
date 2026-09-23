@@ -37,7 +37,18 @@ const AUTH_ONLY_PATHS = ["/login", "/register"];
 // Cartão Digital (ver lib/digital-cards/config.ts, DEFAULT_AVATAR_URL
 // etc.) — também fica fora da raiz de public/, então precisa da mesma
 // liberação.
-const PUBLIC_PATHS = ["/docs", "/t/", "/c/", "/partner-logos/", "/card-defaults/"];
+//
+// "/images/" — 3º caso do mesmo bug: a logo da Reobote na TV (ver
+// app/tv/tv-view.tsx, `<img src="/images/LOGO-BRANCA.png">`) nunca é vista
+// por quem abre o link público (/t/[código], já liberado acima) porque É
+// UMA REQUISIÇÃO HTTP À PARTE — sem sessão nenhuma (a TV física NUNCA loga,
+// é um aparelho pendurado na parede), o proxy barrava essa 2ª requisição e
+// devolvia a página de /login (HTML) no lugar do PNG, então a logo nunca
+// carregava — mas só nessa TV real, nunca no PC de quem estava testando já
+// logado no CRM no mesmo navegador (a sessão passava escondida pra essa
+// requisição também). Relatado como "a logo não aparece só na TV" antes de
+// se descobrir a causa.
+const PUBLIC_PATHS = ["/docs", "/t/", "/c/", "/partner-logos/", "/card-defaults/", "/images/"];
 
 export const authConfig = {
   trustHost: true,
