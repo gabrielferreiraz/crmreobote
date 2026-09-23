@@ -11,7 +11,7 @@ type RankingUser = { id: string; name: string; image: string | null; total: numb
 
 /** Tempo parado no topo, com os 10 primeiros à vista, antes de começar a
  * descer. Pedido explícito: 30s. */
-const STATIC_MS = 30_000;
+const STATIC_MS = 15_000;
 /** Descida até o último e volta até o primeiro — 25s cada, fechando o ciclo
  * total em 80s (1min20s) junto com STATIC_MS acima. Precisa bater com
  * RANKING_SCROLL_DURATION_MS em tv-view.tsx, que é quem tira esta tela do ar. */
