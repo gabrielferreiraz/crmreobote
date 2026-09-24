@@ -100,6 +100,7 @@ model Organization {
   processTemplates       ProcessTemplate[]
   processTemplateUsages  ProcessTemplateUsage[]
   leadRequests           LeadRequest[]
+  userCompanies          UserCompany[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -164,6 +165,7 @@ model User {
   leadRequestsReceived        LeadRequest[]             @relation("LeadRequestOwner")
   leadRequestsAssigned        LeadRequest[]             @relation("LeadRequestAssignee")
   leadRequestsResolved        LeadRequest[]             @relation("LeadRequestResolvedBy")
+  company                     UserCompany?
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -2608,4 +2610,35 @@ model ProductivityTipDismissal {
 
   @@unique([tipType, scope, dismissedBy, dismissDate, forever])
   @@index([organizationId, dismissedBy, tipType, scope])
+}
+
+// Empresa (PJ) do consultor — consórcio é vendido por gente que fatura como
+// MEI/LTDA, e a TV da parede precisa mostrar o nome da EMPRESA no Ranking do
+// mês em vez do nome pessoal (pedido explícito). Tabela à parte, não colunas
+// no User, porque User é global (vale pra todas as organizações que a pessoa
+// participa) e a PJ aqui é um dado da organização — o mesmo consultor pode
+// aparecer numa org com a PJ dele e em outra sem nenhuma.
+//
+// `name` guarda só o nome JÁ RESOLVIDO na hora de salvar (nome fantasia,
+// caindo pra razão social quando a Receita devolve fantasia vazia — comum em
+// MEI). A resolução mora em lib/cnpj.ts, não aqui: quem lê (ver rankingRaw em
+// lib/tv-dashboard.ts) só precisa de uma string pronta pra estampar na tela.
+model UserCompany {
+  id             String @id @default(cuid())
+  organizationId String
+  // @unique: uma PJ por consultor. Trocar de CNPJ é sobrescrever esta linha,
+  // não empilhar outra.
+  userId         String @unique
+  // Só dígitos, sem pontuação (ver normalizeCnpj em lib/cnpj.ts) — mesma
+  // convenção de phoneNormalized no Contact.
+  cnpj           String
+  name           String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
