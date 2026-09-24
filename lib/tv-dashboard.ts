@@ -117,7 +117,10 @@ export async function getTvMetrics(organizationId: string) {
           // abaixo), nunca pro Ranking/Última venda/hero, que continuam
           // 100% líquido (`value`) de propósito.
           grossValue: true,
-          owner: { select: { name: true, image: true } },
+          // company: PJ do consultor (ver UserCompany no schema) — quando
+          // existe, é o nome dela que vai pro Ranking, não o nome pessoal
+          // (ver salesByUser logo abaixo).
+          owner: { select: { name: true, image: true, company: { select: { name: true } } } },
         },
       });
 
@@ -131,7 +134,11 @@ export async function getTvMetrics(organizationId: string) {
         if (!activeOwnerIdSet.has(deal.ownerId)) continue;
         const existing = salesByUser.get(deal.ownerId) || {
           id: deal.ownerId,
-          name: deal.owner.name,
+          // Nome da PJ quando o consultor cadastrou uma, nome pessoal quando
+          // não (pedido explícito: na TV aparece a empresa). Quem cadastra é
+          // components/cnpj-prompt.tsx via PUT /api/cnpj, que já grava o nome
+          // fantasia resolvido — aqui é só escolher entre os dois.
+          name: deal.owner.company?.name ?? deal.owner.name,
           image: deal.owner.image,
           total: 0,
         };
