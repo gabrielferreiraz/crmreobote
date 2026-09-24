@@ -56,6 +56,15 @@ model Organization {
    * fábrica; nenhuma das duas = gradiente/ícone genérico.
    */
   digitalCardDefaults Json?
+  /**
+   * Texto padrão que preenche `Proposal.description` na criação de UMA
+   * proposta nova — editável só pelo Dono (Configurações → Proposta), nunca
+   * reescreve proposta já criada (mesmo espírito de
+   * OrganizationUser.meetingInviteTemplate: template até a 1ª edição, dali
+   * pra frente é conteúdo próprio daquele registro). Null = nenhum texto
+   * padrão configurado ainda, descrição nasce vazia.
+   */
+  defaultProposalDescription String?
 
   users                  OrganizationUser[]
   pipelines              Pipeline[]
@@ -100,6 +109,7 @@ model Organization {
   processTemplates       ProcessTemplate[]
   processTemplateUsages  ProcessTemplateUsage[]
   leadRequests           LeadRequest[]
+  proposals              Proposal[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -164,6 +174,8 @@ model User {
   leadRequestsReceived        LeadRequest[]             @relation("LeadRequestOwner")
   leadRequestsAssigned        LeadRequest[]             @relation("LeadRequestAssignee")
   leadRequestsResolved        LeadRequest[]             @relation("LeadRequestResolvedBy")
+  proposalsCreated            Proposal[]                @relation("ProposalCreatedBy")
+  proposalsSent               Proposal[]                @relation("ProposalSentBy")
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -1353,6 +1365,7 @@ model Deal {
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
+  proposals          Proposal[]
   // Negócio ganho vira um Processo de pós-venda automaticamente (ver
   // lib/processes/create.ts, chamado em PUT /api/deals/[id] na transição pra
   // WON) — nunca mais de um por negócio.
@@ -1393,6 +1406,101 @@ enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+// ─── Propostas comerciais ───────────────────────────────────────────
+//
+// Substitui a antiga "Proposta" de Activity/Task (nota livre, sem campo
+// estruturado nenhum — ver ActivityType/TaskType.PROPOSAL, que continuam
+// existindo só pelo histórico antigo, nunca mais criados pela UI a partir
+// daqui). Um negócio pode ter VÁRIAS propostas ao longo do tempo — cada
+// "Refazer" (cliente pediu condição diferente) gera uma revisão NOVA em vez
+// de sobrescrever a anterior, então o relatório de "quem manda/converte
+// mais proposta" conta cada tentativa de verdade, não só a mais recente.
+
+model Proposal {
+  id             String @id @default(cuid())
+  organizationId String
+  dealId         String
+
+  // Sequencial global do banco (Postgres SERIAL via autoincrement) — vira o
+  // "Nº 000142" impresso no documento. Global, não por organização: hoje só
+  // existe uma organização, então é invisível; se este produto um dia virar
+  // multi-tenant de verdade, cada organização nova não começaria do 1 —
+  // aceitável agora, documentado pra não ser esquecido depois.
+  number Int @default(autoincrement()) @unique
+  // 1, 2, 3... dentro do MESMO negócio — cada "Refazer" incrementa. Combinado
+  // com parentId abaixo, reconstrói a árvore de revisões de uma proposta.
+  revision Int
+  // Proposta que esta substitui (preenchido só quando nasceu de um
+  // "Refazer") — nunca aponta pra uma proposta em DRAFT (só se refaz o que
+  // já foi de fato enviado), então nunca precisa cascatear exclusão.
+  parentId String?
+
+  // Quem criou o rascunho vs. quem de fato marcou como enviada — podem ser
+  // pessoas diferentes (ex.: negócio reatribuído entre a criação e o envio),
+  // e o relatório de "quem está enviando mais proposta" precisa do segundo,
+  // não do primeiro. Nenhum dos dois é `deal.ownerId`: se o negócio for
+  // reatribuído DEPOIS, o histórico de quem fez o quê não pode mudar
+  // retroativamente.
+  createdById String
+  sentById    String?
+
+  // Sempre o valor TOTAL (nunca "por cota") — o formulário deixa o
+  // consultor digitar de qualquer um dos dois jeitos, mas o que é salvo é
+  // sempre o total; "por cota" é `credit / quotaCount`, calculado na hora de
+  // mostrar, nunca guardado separado (evitaria os dois números um dia
+  // ficarem inconsistentes entre si).
+  credit      Decimal @db.Decimal(12, 2)
+  termMonths  Int
+  installment Decimal @db.Decimal(12, 2)
+  quotaCount  Int
+  // Nasce com Organization.defaultProposalDescription (se configurado),
+  // editável livremente até a proposta ser gerada (ver status abaixo).
+  description String
+
+  status ProposalStatus @default(DRAFT)
+  // GENERATED = documento (PDF) existe — NUNCA implica que foi enviado de
+  // verdade (decisão revisada: a 1ª versão desta funcionalidade marcava
+  // "enviado" já na geração do PDF, o que é errado — gerar/imprimir não
+  // prova que o arquivo saiu da mão do consultor).
+  generatedAt DateTime?
+  // SENT = enviado, aguardando resposta — sozinho já significa "pendente"
+  // no relatório (nunca precisou de um status PENDING à parte: enquanto
+  // resolvedAt for null e status for SENT, está pendente).
+  sentAt DateTime?
+  // Quando chegou num desfecho terminal (ACCEPTED/DECLINED/SUPERSEDED/
+  // CANCELLED) — um campo só, não um por desfecho possível (`status` já diz
+  // QUAL; isto só diz QUANDO). Mesma ideia de Deal.closedAt, que também é
+  // um campo só pra WON e LOST.
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("ProposalCreatedBy", fields: [createdById], references: [id])
+  sentBy       User?        @relation("ProposalSentBy", fields: [sentById], references: [id])
+  parent       Proposal?    @relation("ProposalRevisions", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Proposal[]   @relation("ProposalRevisions")
+
+  @@unique([dealId, revision])
+  @@index([organizationId])
+  @@index([dealId])
+  // Relatório de "quem enviou quanto no período" (ver lib/reports/
+  // commercial-data.ts) — filtra por sentById + intervalo de sentAt.
+  @@index([sentById, sentAt])
+}
+
+enum ProposalStatus {
+  DRAFT
+  GENERATED
+  SENT
+  ACCEPTED
+  DECLINED
+  SUPERSEDED
+  CANCELLED
 }
 
 // ─── Importação de planilha (negócios/contatos em lote) ────────────────

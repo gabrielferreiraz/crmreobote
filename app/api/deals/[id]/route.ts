@@ -344,6 +344,29 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+    // Proposta gerada/enviada/respondida faz parte do histórico comercial e
+    // alimenta o relatório de "quem envia/converte mais" — Proposal cascateia
+    // com o negócio, então apagar o negócio apagaria a proposta junto e
+    // permitiria maquiar taxa de conversão sumindo com negócio ruim (o mesmo
+    // motivo de proposta enviada nunca ser apagada, ver
+    // lib/proposals/service.ts#deleteProposal). Rascunho nunca-gerado não
+    // conta (nunca saiu da mão do consultor). O Dono da organização é
+    // exceção: é quem lê esse relatório, e precisa poder limpar negócio de
+    // teste/lixo — a barreira aqui é contra o consultor apagar o próprio
+    // resultado ruim, não contra a administração da conta.
+    if (access.role !== "OWNER") {
+      const keptProposals = await prisma.proposal.count({ where: { dealId: id, status: { not: "DRAFT" } } });
+      if (keptProposals > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Este negócio tem propostas geradas ou enviadas, que ficam no histórico comercial — não dá pra apagá-lo. Se ele não vai adiante, marque como Perdido.",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     // Ctrl+Z (ver lib/undo/) — Deal→Process é cascade (um negócio Ganho
     // pode ter virado processo de pós-venda), e Process tem cascata da
     // PRÓPRIA (histórico de etapa, pendências, uso de modelo) — restaurar

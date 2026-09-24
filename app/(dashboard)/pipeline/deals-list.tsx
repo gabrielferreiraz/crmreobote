@@ -629,7 +629,10 @@ export function DealsList({
         Array.from(selectedIds).map((id) => fetch(`/api/deals/${id}`, { method: "DELETE" })),
       );
       if (failures > 0) {
-        setBulkError("Alguns negócios não puderam ser apagados.");
+        // Um motivo conhecido: negócio com proposta gerada/enviada não pode
+        // ser apagado (ver DELETE /api/deals/[id]) — sem dizer isso a pessoa
+        // não teria como saber por que "alguns" ficaram.
+        setBulkError("Alguns negócios não puderam ser apagados (negócios com propostas geradas ou enviadas ficam no histórico — marque como Perdido).");
       }
       clearSelection();
       // router.refresh() sozinho não atualiza a tabela (ver comentário em

@@ -192,6 +192,20 @@ export default async function ConfiguracoesPage() {
                 description: "Configure o painel que é exibido nas televisões.",
                 keywords: ["tv", "televisão", "painel", "dashboard", "monitor"],
               },
+              // Só o Dono edita (PUT /api/organization/proposal-template é
+              // OWNER-only): é texto institucional que sai impresso com o nome
+              // da empresa, não configuração operacional de gerente.
+              ...(isOwner
+                ? [
+                    {
+                      href: "/configuracoes/proposta",
+                      icon: "FileText",
+                      title: "Modelo de proposta",
+                      description: "Texto padrão da descrição que já vem preenchido em toda proposta nova.",
+                      keywords: ["proposta", "descrição", "modelo", "texto padrão", "pdf", "cliente", "condições", "observações"],
+                    },
+                  ]
+                : []),
             ]
           : []),
       ],

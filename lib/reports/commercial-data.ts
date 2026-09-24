@@ -288,6 +288,7 @@ export async function getCommercialReportData(params: {
     compareWonByCreditType,
     compareLostByReason,
     orgCreditTypes,
+    proposalsBySenderStatus,
   ] = await Promise.all([
     prisma.deal.count({
       where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...pipelineFilter },
@@ -428,6 +429,25 @@ export async function getCommercialReportData(params: {
     // "Imóvel" (minúsculo) e "Automóvel" (não "Veículo"), então nenhum negócio
     // batia a comparação exata e tudo caía em "Outros" por engano.
     prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+    // Propostas comerciais (módulo Proposal, ver lib/proposals) — "enviada"
+    // é sentAt no período (nunca apagado, nem se a proposta for cancelada
+    // depois: cancelar não pode virar jeito de maquiar a conta), agrupado
+    // por QUEM enviou (sentById — não deal.ownerId: negócio reatribuído
+    // depois não pode reescrever quem enviou o quê) e pelo estado ATUAL, que
+    // é o desfecho daquela coorte (aceita/recusada/refeita/cancelada, ou
+    // ainda SENT = pendente). Coorte por data de envio, não por data de
+    // resposta: aceitas nunca passam de enviadas, então a taxa fecha em ≤100%.
+    // Sem pipelineFilter, mesmo motivo de meetingsAndVisitsByOwner: é métrica
+    // de pessoa, não de funil específico.
+    prisma.proposal.groupBy({
+      by: ["sentById", "status"],
+      where: {
+        organizationId,
+        sentAt: { not: null, ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) },
+        ...(effectiveScope.type === "owners" ? { sentById: { in: effectiveScope.ownerIds } } : {}),
+      },
+      _count: true,
+    }),
   ]);
 
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
@@ -856,6 +876,103 @@ export async function getCommercialReportData(params: {
       primaryValue: `${o.conversionRate}%`,
       secondaryValue: `${o.wonCount} venda${o.wonCount === 1 ? "" : "s"} de ${o.dealsHandled} negócio${o.dealsHandled === 1 ? "" : "s"}`,
     }));
+
+  // ─── Propostas (módulo Proposal) ───────────────────────────────────────
+  // Uma linha por (quem enviou × estado atual) vira contadores por pessoa.
+  // "pending" = ainda SENT (enviada, cliente não respondeu) — nunca precisou
+  // de um estado PENDING próprio (ver Proposal.sentAt no schema). GENERATED/
+  // DRAFT nunca aparecem aqui: só existe sentAt a partir de SENT.
+  type ProposalStats = { sent: number; accepted: number; declined: number; superseded: number; cancelled: number; pending: number };
+  const emptyProposalStats = (): ProposalStats => ({ sent: 0, accepted: 0, declined: 0, superseded: 0, cancelled: 0, pending: 0 });
+  const proposalStatsByUser = new Map<string, ProposalStats>();
+  for (const row of proposalsBySenderStatus) {
+    if (!row.sentById) continue;
+    const prev = proposalStatsByUser.get(row.sentById) ?? emptyProposalStats();
+    prev.sent += row._count;
+    if (row.status === "ACCEPTED") prev.accepted += row._count;
+    else if (row.status === "DECLINED") prev.declined += row._count;
+    else if (row.status === "SUPERSEDED") prev.superseded += row._count;
+    else if (row.status === "CANCELLED") prev.cancelled += row._count;
+    else if (row.status === "SENT") prev.pending += row._count;
+    proposalStatsByUser.set(row.sentById, prev);
+  }
+
+  // Só time ATUAL (activeMemberIds) nos rankings de pessoa — mesmo critério
+  // de todos os outros rankings deste relatório (ver o comentário longo acima
+  // de activeMemberIds). O resumo geral usa o mesmo recorte pra bater com a
+  // soma das linhas.
+  const proposalRows = Array.from(proposalStatsByUser.entries())
+    .filter(([id]) => activeMemberIds.has(id))
+    .map(([id, stats]) => ({
+      id,
+      name: personName(id),
+      photoUrl: personPhoto(id),
+      ...stats,
+      rate: stats.sent > 0 ? Math.round((stats.accepted / stats.sent) * 100) : 0,
+    }));
+
+  // Detalhe = TODOS os desfechos (não só "aceitas"), sem esconder o que não
+  // deu certo nem o que ainda está esperando — a porcentagem sozinha engana
+  // (1 aceita de 1 enviada = 100% "ganha" de 21 de 30 = 70%), e "pendente"
+  // parada pra sempre em SENT é o jeito mais fácil de inflar a taxa
+  // marcando só as que deram certo.
+  const proposalDetail = (s: ProposalStats) => {
+    const parts: string[] = [];
+    if (s.accepted > 0) parts.push(`${s.accepted} aceita${s.accepted === 1 ? "" : "s"}`);
+    if (s.declined > 0) parts.push(`${s.declined} recusada${s.declined === 1 ? "" : "s"}`);
+    if (s.superseded > 0) parts.push(`${s.superseded} refeita${s.superseded === 1 ? "" : "s"}`);
+    if (s.cancelled > 0) parts.push(`${s.cancelled} cancelada${s.cancelled === 1 ? "" : "s"}`);
+    if (s.pending > 0) parts.push(`${s.pending} pendente${s.pending === 1 ? "" : "s"}`);
+    return parts.join(" · ");
+  };
+
+  // Ordenado por VOLUME enviado, não por taxa — mesmo raciocínio de
+  // attendanceRanking acima.
+  const proposalsSentRanking: LeaderboardEntry[] = proposalRows
+    .filter((r) => r.sent > 0)
+    .sort((a, b) => b.sent - a.sent || b.accepted - a.accepted)
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      photoUrl: r.photoUrl,
+      primaryValue: `${r.sent} ${r.sent === 1 ? "enviada" : "enviadas"}`,
+      secondaryValue: proposalDetail(r) || undefined,
+    }));
+
+  // Conversão: aceitas ÷ enviadas (definição escolhida pelo dono — cada
+  // PROPOSTA conta, então refazer 3 vezes até acertar pesa contra, e é isso
+  // mesmo que a métrica mede). Amostra pequena não pode liderar o ranking:
+  // 1 aceita de 1 enviada = 100% ficaria acima de 21 de 30 (70%), que é
+  // muito mais informação. Quem tem menos de MIN_PROPOSALS_FOR_RATE enviadas
+  // ainda aparece, mas DEPOIS de quem tem amostra suficiente, com o aviso.
+  const MIN_PROPOSALS_FOR_RATE = 3;
+  const proposalsConversionRanking: LeaderboardEntry[] = proposalRows
+    .filter((r) => r.sent > 0)
+    .sort((a, b) => {
+      const aEnough = a.sent >= MIN_PROPOSALS_FOR_RATE ? 1 : 0;
+      const bEnough = b.sent >= MIN_PROPOSALS_FOR_RATE ? 1 : 0;
+      return bEnough - aEnough || b.rate - a.rate || b.sent - a.sent;
+    })
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      photoUrl: r.photoUrl,
+      primaryValue: `${r.rate}%`,
+      secondaryValue: `${r.accepted} de ${r.sent} enviada${r.sent === 1 ? "" : "s"}${r.pending > 0 ? ` · ${r.pending} pendente${r.pending === 1 ? "" : "s"}` : ""}${
+        r.sent < MIN_PROPOSALS_FOR_RATE ? " · amostra pequena" : ""
+      }`,
+    }));
+
+  const proposalsSummary = proposalRows.reduce((acc, r) => {
+    acc.sent += r.sent;
+    acc.accepted += r.accepted;
+    acc.declined += r.declined;
+    acc.superseded += r.superseded;
+    acc.cancelled += r.cancelled;
+    acc.pending += r.pending;
+    return acc;
+  }, emptyProposalStats());
+  const proposalsConversionRate = proposalsSummary.sent > 0 ? Math.round((proposalsSummary.accepted / proposalsSummary.sent) * 100) : null;
 
   const crmTimeRanking: LeaderboardEntry[] = ownerStats
     .filter((o) => activeMemberIds.has(o.id) && o.activeSeconds > 0)
@@ -1905,6 +2022,10 @@ export async function getCommercialReportData(params: {
     attendanceSummary,
     attendanceRateOverall,
     conversionRanking,
+    proposalsSentRanking,
+    proposalsConversionRanking,
+    proposalsSummary,
+    proposalsConversionRate,
     crmTimeRanking,
     crmChangesRanking,
     teamActivityList,

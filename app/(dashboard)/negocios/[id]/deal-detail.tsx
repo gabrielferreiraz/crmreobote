@@ -30,6 +30,8 @@ import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-f
 import { ClosedAtDialog } from "@/components/closed-at-dialog";
 import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reason-dialog";
 import { useUndoToast } from "@/components/undo-provider";
+import { ProposalsCard } from "@/components/proposals/proposals-card";
+import type { ProposalDTO } from "@/lib/proposals/types";
 
 // Só carregam depois que a pessoa de fato abre o painel/confete/convite/
 // ditado por voz — cada um puxa dependências pesadas (chat com QR/mídia/
@@ -335,6 +337,8 @@ export function DealDetail({
   canEditDetails,
   currentUserRole,
   currentUserId,
+  proposals,
+  defaultProposalDescription,
 }: {
   deal: Deal;
   members: MemberOption[];
@@ -357,6 +361,10 @@ export function DealDetail({
   /** Excluir tarefa (Reunião/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
   currentUserRole?: string;
   currentUserId: string;
+  /** Propostas comerciais deste negócio (mais nova primeiro) — ver components/proposals/proposals-card.tsx. */
+  proposals: ProposalDTO[];
+  /** Texto padrão da organização pra descrição de proposta NOVA (Configurações → Proposta). */
+  defaultProposalDescription: string;
 }) {
   const router = useRouter();
   const pushUndoToast = useUndoToast();
@@ -1287,6 +1295,8 @@ export function DealDetail({
             <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
           )}
 
+          <ProposalsCard dealId={deal.id} proposals={proposals} defaultDescription={defaultProposalDescription} />
+
           <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
             <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
               <div className="flex items-center gap-2">
@@ -1803,6 +1813,8 @@ export function DealDetail({
             {!chatOpen && whatsappThreadId && (
               <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
             )}
+
+            <ProposalsCard dealId={deal.id} proposals={proposals} defaultDescription={defaultProposalDescription} />
 
             <div className="card space-y-2 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>

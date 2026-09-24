@@ -39,7 +39,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   const { organizationId, userId } = access;
 
-  const validTypes = ["NOTE", "EMAIL", "CALL", "WHATSAPP", "PROPOSAL", "MEETING", "VISIT"];
+  // PROPOSAL fora da lista de propósito — proposta agora é o módulo
+  // estruturado (POST /api/deals/[id]/proposals); aceitar a nota livre aqui
+  // reabriria o segundo lugar de registrar a mesma coisa (ver
+  // lib/activity-icons.tsx). Linhas antigas de tipo PROPOSAL seguem lidas
+  // normalmente, só não se cria mais nenhuma.
+  if (type === "PROPOSAL") {
+    return NextResponse.json({ error: "Propostas agora são criadas no cartão “Propostas” do negócio" }, { status: 400 });
+  }
+  const validTypes = ["NOTE", "EMAIL", "CALL", "WHATSAPP", "MEETING", "VISIT"];
   if (!type || !validTypes.includes(type)) {
     return NextResponse.json({ error: "type inválido" }, { status: 400 });
   }

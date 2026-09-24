@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet, PhoneCall } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet, PhoneCall, FileText, FileCheck2 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
@@ -150,6 +150,10 @@ export default async function RelatoriosPage({
     attendanceSummary,
     attendanceRateOverall,
     conversionRanking,
+    proposalsSentRanking,
+    proposalsConversionRanking,
+    proposalsSummary,
+    proposalsConversionRate,
     crmTimeRanking,
     crmChangesRanking,
     teamActivityList,
@@ -548,6 +552,64 @@ export default async function RelatoriosPage({
             </div>
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
+            </div>
+          </div>
+          {/* Propostas comerciais (módulo Proposal, ver lib/proposals). Dois
+              cards com o MESMO resumo no topo — volume enviado e conversão
+              contam a mesma coorte (propostas com data de envio no período),
+              só ordenam diferente: quem manda mais × quem aceita mais. O
+              resumo mostra TODOS os desfechos (recusada, refeita, cancelada,
+              pendente), não só aceitas: porcentagem sozinha engana e
+              "pendente" é o que denuncia proposta que ninguém acompanhou. */}
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Propostas enviadas</h3>
+              </div>
+              {proposalsSummary.sent > 0 && (
+                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
+                  {proposalsSummary.sent}
+                </span>
+              )}
+            </div>
+            {proposalsSummary.sent > 0 && (
+              <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                {[
+                  `${proposalsSummary.accepted} aceita${proposalsSummary.accepted === 1 ? "" : "s"}`,
+                  proposalsSummary.declined > 0 && `${proposalsSummary.declined} recusada${proposalsSummary.declined === 1 ? "" : "s"}`,
+                  proposalsSummary.superseded > 0 && `${proposalsSummary.superseded} refeita${proposalsSummary.superseded === 1 ? "" : "s"}`,
+                  proposalsSummary.cancelled > 0 && `${proposalsSummary.cancelled} cancelada${proposalsSummary.cancelled === 1 ? "" : "s"}`,
+                  proposalsSummary.pending > 0 && `${proposalsSummary.pending} pendente${proposalsSummary.pending === 1 ? "" : "s"}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={proposalsSentRanking} emptyLabel="Nenhuma proposta enviada no período" />
+            </div>
+          </div>
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FileCheck2 className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Conversão de propostas</h3>
+              </div>
+              {proposalsConversionRate !== null && (
+                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
+                  {proposalsConversionRate}%
+                </span>
+              )}
+            </div>
+            {proposalsConversionRate !== null && (
+              <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                {proposalsSummary.accepted} de {proposalsSummary.sent} enviadas foram aceitas
+                {proposalsSummary.pending > 0 ? ` · ${proposalsSummary.pending} ainda sem resposta` : ""}
+              </p>
+            )}
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={proposalsConversionRanking} emptyLabel="Nenhuma proposta enviada no período" />
             </div>
           </div>
         </div>

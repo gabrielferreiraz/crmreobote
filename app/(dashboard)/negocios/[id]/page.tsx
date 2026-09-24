@@ -6,6 +6,7 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
+import { listProposalsForDeal } from "@/lib/proposals/queries";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
@@ -80,7 +81,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // WhatsApp (resolveConnectedInstance/getOrCreateThreadForContact), logo
     // abaixo, continua de fora de propósito — depende de dealRaw.ownerId e
     // tem efeito colateral (pode criar/atualizar WhatsAppThread).
-    const [membersRaw, lossReasons, customFields, creditTypes, jobTitles, sources, unreadCount] = await Promise.all([
+    const [membersRaw, lossReasons, customFields, creditTypes, jobTitles, sources, unreadCount, proposals, orgProposalSettings] = await Promise.all([
       prisma.organizationUser.findMany({
         where: { organizationId, active: true },
         orderBy: { createdAt: "asc" },
@@ -121,6 +122,12 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       prisma.whatsAppMessage.count({
         where: { organizationId, thread: { contactId: deal.contactId }, direction: "INBOUND", read: false },
       }),
+      // Propostas do negócio (o negócio já foi confirmado no escopo de quem
+      // pede acima — proposta herda essa visibilidade, ver
+      // lib/proposals/queries.ts) + o texto padrão da descrição que
+      // pré-preenche uma proposta nova. Mesmo lote paralelo, sem degrau extra.
+      listProposalsForDeal(organizationId, deal.id),
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { defaultProposalDescription: true } }),
     ]);
 
     const members = membersRaw.map((m) => m.user);
@@ -195,6 +202,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           canEditDetails={canEditDetails}
           currentUserRole={session!.user.role}
           currentUserId={userId}
+          proposals={proposals}
+          defaultProposalDescription={orgProposalSettings?.defaultProposalDescription ?? ""}
         />
       </Suspense>
     );
