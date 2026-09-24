@@ -555,9 +555,14 @@ export type SendNowResult =
 /** Só a parte de onda de RMKT — extraído pra ser reaproveitado tanto pelo
  * fallback de sendCampaignRecipientNow (3º na ordem de prioridade) quanto
  * pelo botão dedicado sendNextRmktWaveNow (pula direto pra cá, ignorando
- * pendente inicial e reenvio único). null = nada a fazer aqui (sem RMKT
- * configurado, ou ninguém com onda vencida agora) — quem chama decide o
- * que isso significa (fallback pro próximo passo, ou "no-pending" de vez). */
+ * pendente inicial e reenvio único). Usado só pelos dois (nunca pelo cron
+ * automático em runCampaigns, que tem a própria lógica de onda mais abaixo)
+ * — por isso não checa dailyCapReached: os dois chamadores são a ação
+ * manual "Enviar agora", que ignora toda régua automática de propósito (ver
+ * comentário completo em sendCampaignRecipientNow). null = nada a fazer
+ * aqui (sem RMKT configurado, ou ninguém com onda vencida agora) — quem
+ * chama decide o que isso significa (fallback pro próximo passo, ou
+ * "no-pending" de vez). */
 async function trySendWave(organizationId: string, campaign: CampaignRow): Promise<SendNowResult | null> {
   // noReplyDays != null (não mais "source === LEAD_CAPTURE") — só é
   // preenchido quando a campanha de fato configurou RMKT, então já
@@ -566,37 +571,35 @@ async function trySendWave(organizationId: string, campaign: CampaignRow): Promi
   if (campaign.noReplyDays == null) return null;
   const waveCandidate = await findNextWaveCandidate(campaign);
   if (!waveCandidate) return null;
-  if (await dailyCapReached(campaign, waveCandidate.recipient.instanceId ?? campaign.instanceId)) {
-    return { ok: false, reason: "daily-cap-reached" };
-  }
   const outcome = await sendToRecipient(organizationId, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
   return { ok: true, outcome, kind: "wave" };
 }
 
 /**
- * Ação manual do botão "Enviar agora" na página da campanha — pula só o
- * throttle de delay-desde-o-último-envio (shouldSendNow), que é o único
- * limite que o pedido do usuário mencionou explicitamente. Janela de
- * horário e teto diário continuam valendo, senão um clique fora do horário
- * configurado furaria a régua que o próprio usuário definiu pra campanha.
+ * Ação manual do botão "Enviar agora" na página da campanha — ignora TODA
+ * régua automática (throttle de delay, janela de dias/horário, teto
+ * diário/aquecimento do número), pedido explícito do usuário depois de
+ * clicar e cair em "Fora da janela de dias/horário configurada — nada foi
+ * enviado" (ver REASON_MESSAGES em app/api/campaigns/[id]/send-now/route.ts).
+ * Ciente do risco assumido: teto diário/aquecimento existe pra proteger o
+ * número contra bloqueio/restrição do WhatsApp — um clique manual e
+ * ocasional é aceitável, um hábito de usar isso pra furar o aquecimento
+ * routineiramente não é (decisão do usuário, registrada aqui pra quem for
+ * mexer de novo). Só "not-running" continua de pé — não existe "pendente"
+ * coerente numa campanha PAUSADA/rascunho, e o botão nem aparece nesse caso
+ * (ver campaign-actions.tsx).
  */
 export async function sendCampaignRecipientNow(organizationId: string, campaignId: string): Promise<SendNowResult> {
   return runWithTenant(organizationId, async () => {
     const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, organizationId } });
     if (!campaign || campaign.status !== "RUNNING") return { ok: false, reason: "not-running" };
-    if (!isWithinSchedule(campaign)) return { ok: false, reason: "outside-schedule" };
 
-    // Teto diário é checado só depois de achar QUEM seria enviado — precisa
-    // saber a instância de verdade desse destinatário específico (ver
-    // comentário de dailyCapReached acima), e só faz sentido reportar
-    // "daily-cap-reached" quando de fato havia alguém pra mandar.
     const recipient = await prisma.campaignRecipient.findFirst({
       where: { campaignId: campaign.id, status: "PENDING" },
       orderBy: { createdAt: "asc" },
       include: RECIPIENT_INCLUDE,
     });
     if (recipient) {
-      if (await dailyCapReached(campaign, recipient.instanceId ?? campaign.instanceId)) return { ok: false, reason: "daily-cap-reached" };
       const outcome = await sendToRecipient(organizationId, campaign, recipient, "initial");
       return { ok: true, outcome, kind: "initial" };
     }
@@ -604,9 +607,6 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
     if (campaign.followUpEnabled) {
       const followUpCandidate = await findFollowUpCandidate(campaign);
       if (followUpCandidate) {
-        if (await dailyCapReached(campaign, followUpCandidate.instanceId ?? campaign.instanceId)) {
-          return { ok: false, reason: "daily-cap-reached" };
-        }
         const outcome = await sendToRecipient(organizationId, campaign, followUpCandidate, "followUp");
         return { ok: true, outcome, kind: "followUp" };
       }
@@ -621,18 +621,14 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
 
 /**
  * Botão dedicado "Enviar onda de RMKT agora" — mesma ideia de
- * sendCampaignRecipientNow, mas vai DIRETO pra onda, pulando pendente
- * inicial e reenvio único (que o botão genérico prioriza antes de chegar
- * na onda) — pedido explícito: forçar especificamente o RMKT, sem depender
- * de não ter mais ninguém pendente nos outros dois estágios primeiro.
- * Continua respeitando janela de horário/dias e teto diário, mesma régua
- * de sendCampaignRecipientNow — só pula o throttle de delay.
+ * sendCampaignRecipientNow (pula pendente inicial e reenvio único, vai
+ * DIRETO pra onda) e mesmo bypass total de régua automática, mesmo motivo
+ * (ver comentário completo lá em cima).
  */
 export async function sendNextRmktWaveNow(organizationId: string, campaignId: string): Promise<SendNowResult> {
   return runWithTenant(organizationId, async () => {
     const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, organizationId } });
     if (!campaign || campaign.status !== "RUNNING") return { ok: false, reason: "not-running" };
-    if (!isWithinSchedule(campaign)) return { ok: false, reason: "outside-schedule" };
 
     const waveResult = await trySendWave(organizationId, campaign);
     return waveResult ?? { ok: false, reason: "no-pending" };

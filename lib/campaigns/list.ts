@@ -3,6 +3,7 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
 import { brazilDateKey } from "@/lib/timezone";
 import { estimateCampaignCompletion, nextAllowedSendWindow, type CompletionEstimate } from "@/lib/campaigns/estimate";
+import { campaignScopeWhere, type DealScope } from "@/lib/team-scope";
 
 export type CampaignSummary = {
   id: string;
@@ -24,10 +25,18 @@ export type CampaignSummary = {
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
 };
 
-/** Reaproveitado pela página (SSR) e por GET /api/campaigns, pra não duplicar o merge de contagens. */
-export async function listCampaigns(organizationId: string): Promise<CampaignSummary[]> {
+/**
+ * Reaproveitado pela página (SSR) e por GET /api/campaigns, pra não duplicar
+ * o merge de contagens. `scope` (ver lib/team-scope.ts) é OBRIGATÓRIO —
+ * Dono/Gerente/Supervisor sem equipe enxergam tudo/a própria equipe,
+ * Consultor só as campanhas que ele mesmo criou. Achado em produção sem
+ * NENHUM escopo aqui (só organizationId): qualquer Consultor via a campanha
+ * de qualquer outro, recipientes (nome/telefone) incluídos.
+ */
+export async function listCampaigns(organizationId: string, scope: DealScope): Promise<CampaignSummary[]> {
+  const scopeFilter = campaignScopeWhere(scope);
   const campaigns = await prisma.campaign.findMany({
-    where: { organizationId },
+    where: { organizationId, ...scopeFilter },
     orderBy: { createdAt: "desc" },
     include: {
       instance: { include: { user: { select: { name: true } } } },
@@ -37,11 +46,11 @@ export async function listCampaigns(organizationId: string): Promise<CampaignSum
 
   const statusCounts = await prisma.campaignRecipient.groupBy({
     by: ["campaignId", "status"],
-    where: { campaign: { organizationId } },
+    where: { campaign: { organizationId, ...scopeFilter } },
     _count: true,
   });
   const repliedRows = await prisma.campaignRecipient.findMany({
-    where: { campaign: { organizationId }, repliedAt: { not: null } },
+    where: { campaign: { organizationId, ...scopeFilter }, repliedAt: { not: null } },
     select: { campaignId: true },
   });
 
@@ -90,6 +99,10 @@ export type CampaignRecipientRow = {
   contactPhone: string | null;
   contactJobTitle: string | null;
   status: $Enums.CampaignRecipientStatus;
+  /** Setado quando enviado (ver CampaignRecipient.threadId no schema) — link
+   * direto pra conversa em /whatsapp/conversas?threadId=... (ver
+   * recipients-table.tsx), sem precisar buscar o contato de novo lá. */
+  threadId: string | null;
   sentAt: Date | null;
   repliedAt: Date | null;
   followUpSentAt: Date | null;
@@ -153,13 +166,20 @@ export type CampaignDetail = CampaignSummary & {
   hasRmktWaves: boolean;
 };
 
-/** Usado pela tela de destinatários — uma linha por contato, com status individual, mais a série diária pro painel de métricas. */
+/**
+ * Usado pela tela de destinatários — uma linha por contato (nome/telefone
+ * incluídos), com status individual, mais a série diária pro painel de
+ * métricas. `scope` obrigatório pelo mesmo motivo de listCampaigns acima —
+ * sem ele, Consultor abrindo a URL de uma campanha alheia (nem precisava
+ * adivinhar o id: aparecia na própria lista) via a lista de leads de outro.
+ */
 export async function getCampaignDetail(
   organizationId: string,
   campaignId: string,
+  scope: DealScope,
 ): Promise<CampaignDetail | null> {
   const campaign = await prisma.campaign.findFirst({
-    where: { id: campaignId, organizationId },
+    where: { id: campaignId, organizationId, ...campaignScopeWhere(scope) },
     include: {
       instance: { include: { user: { select: { name: true } } } },
       createdBy: { select: { name: true } },
@@ -301,6 +321,7 @@ export async function getCampaignDetail(
       contactPhone: r.contact.whatsapp || r.contact.phone,
       contactJobTitle: r.contact.jobTitle,
       status: r.status,
+      threadId: r.threadId,
       sentAt: r.sentAt,
       repliedAt: r.repliedAt,
       followUpSentAt: r.followUpSentAt,

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { listCampaigns } from "@/lib/campaigns/list";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
+import { getDealScope } from "@/lib/team-scope";
 import { CampaignsTable } from "./campaigns-table";
 
 export default async function CampanhasPage() {
@@ -13,8 +14,12 @@ export default async function CampanhasPage() {
   const isOwner = session!.user.role === "OWNER";
 
   return runWithTenant(organizationId, async () => {
+    // Escopo por papel (ver lib/team-scope.ts) — mesma correção do GET
+    // /api/campaigns: Consultor só vê as próprias campanhas, não a
+    // organização inteira.
+    const scope = await getDealScope(organizationId, userId, session!.user.role);
     const [campaigns, instancesRaw, scriptsRaw] = await Promise.all([
-      listCampaigns(organizationId),
+      listCampaigns(organizationId, scope),
       prisma.whatsAppInstance.findMany({
         where: { organizationId, status: "CONNECTED" },
         include: { user: { select: { id: true, name: true } } },

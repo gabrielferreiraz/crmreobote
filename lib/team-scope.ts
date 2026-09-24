@@ -95,3 +95,19 @@ export function whatsappThreadScopeWhere(scope: DealScope) {
 export function contactScopeWhere(scope: DealScope) {
   return scope.type === "owners" ? { responsavelId: { in: scope.ownerIds } } : {};
 }
+
+/**
+ * Mesma ideia de scopeWhere, mas pra Campaign (campo é createdById, não
+ * ownerId — uma campanha "pertence" a quem criou, não tem um dono
+ * separado). Achado em produção: TODA rota de campanha (lista, detalhe,
+ * editar, pausar/retomar, apagar, duplicar, enviar agora) filtrava só por
+ * organizationId, nunca por quem criou — qualquer Consultor via/mexia na
+ * campanha de qualquer outro (relatado: "todos os usuários estavam vendo a
+ * campanha um dos outros"), incluindo a lista de destinatários com
+ * nome/telefone de cada lead. Mesmo BOLA intra-tenant já achado e corrigido
+ * em Deal/Task (ver [[security_posture_2026_07]]), só que este nunca tinha
+ * sido migrado pro mesmo padrão.
+ */
+export function campaignScopeWhere(scope: DealScope) {
+  return scope.type === "owners" ? { createdById: { in: scope.ownerIds } } : {};
+}

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { parseAudienceFilter, audienceFilterIsEmpty, buildAudienceWhere } from "@/lib/campaigns/audience";
+import { getDealScope, campaignScopeWhere } from "@/lib/team-scope";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +35,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const original = await prisma.campaign.findFirst({ where: { id, organizationId: access.organizationId } });
+    // Escopo por papel (ver lib/team-scope.ts) — sem isso, Consultor
+    // duplicava a campanha (e a lista de destinatários) de qualquer outro.
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const original = await prisma.campaign.findFirst({
+      where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+    });
     if (!original) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
     let recipientRows: { contactId: string; dealId: string | null; instanceId: string | null }[];

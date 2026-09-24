@@ -88,7 +88,7 @@ export function CampaignActions({
           disabled={sendingNow !== null}
           onClick={() => sendNow()}
           className="btn-secondary"
-          title="Envia o próximo pendente agora (inicial, reenvio ou onda de RMKT que já venceu — nessa ordem), sem esperar o delay entre contatos. Só envia quem já está no prazo; não adianta quem ainda não venceu."
+          title="Envia o próximo pendente AGORA (inicial, reenvio ou onda de RMKT que já venceu — nessa ordem), ignorando toda regra automática: delay entre contatos, janela de dias/horário e teto diário/aquecimento do número. Use com cuidado — mandar rápido demais fora do aquecimento é o tipo de coisa que o WhatsApp pode restringir/banir o número por fazer."
         >
           {sendingNow === "initial" ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
           Enviar agora
@@ -100,7 +100,7 @@ export function CampaignActions({
           disabled={sendingNow !== null}
           onClick={() => sendNow("wave")}
           className="btn-secondary"
-          title="Pula direto pra próxima onda de RMKT vencida, sem esperar a vez do pendente inicial ou do reenvio único. Só envia quem já está no prazo dessa onda."
+          title="Pula direto pra próxima onda de RMKT vencida, sem esperar a vez do pendente inicial ou do reenvio único, e ignora toda regra automática (janela de dias/horário, teto diário/aquecimento). Use com cuidado — risco de restrição/banimento do número."
         >
           {sendingNow === "wave" ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Waves className="h-4 w-4" strokeWidth={2} />}
           Enviar onda de RMKT agora

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveCampaignInput, type CampaignInput } from "@/lib/campaigns/build";
+import { getDealScope, campaignScopeWhere } from "@/lib/team-scope";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const campaign = await prisma.campaign.findFirst({ where: { id, organizationId: access.organizationId } });
+    // Escopo por papel (ver lib/team-scope.ts) — sem isso, Consultor lia a
+    // config completa da campanha de qualquer outro só sabendo o id (e nem
+    // precisava adivinhar, a lista sem escopo já mostrava o id de todo mundo).
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+    });
     if (!campaign) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
     return NextResponse.json(campaign);
   });
@@ -31,7 +38,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const existing = await prisma.campaign.findFirst({ where: { id, organizationId: access.organizationId } });
+    // Mesmo escopo do GET acima — sem isso, Consultor pausava/editava/
+    // apagava a campanha de qualquer outro só sabendo o id.
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const existing = await prisma.campaign.findFirst({
+      where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+    });
     if (!existing) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
     const bodyKeys = Object.keys(body);
@@ -98,7 +110,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const existing = await prisma.campaign.findFirst({ where: { id, organizationId: access.organizationId } });
+    // Mesmo escopo do GET/PATCH acima.
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const existing = await prisma.campaign.findFirst({
+      where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+    });
     if (!existing) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
     await prisma.campaign.delete({ where: { id } });

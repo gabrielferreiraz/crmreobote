@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { MessageCircle } from "lucide-react";
 
 type RecipientStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
 
@@ -10,6 +12,9 @@ type Recipient = {
   contactPhone: string | null;
   contactJobTitle: string | null;
   status: RecipientStatus;
+  /** Setado quando enviado (ver CampaignRecipient.threadId no schema) — liga
+   * pra conversa em /whatsapp/conversas?threadId=... (ver ReplyLink abaixo). */
+  threadId: string | null;
   sentAt: string | null;
   repliedAt: string | null;
   followUpSentAt: string | null;
@@ -43,6 +48,29 @@ const STATUS_TONE: Record<RecipientStatus, string> = {
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** Data de resposta + link "Ver conversa" logo abaixo — pedido explícito:
+ * "colocar um link indo direto para a conversa do WhatsApp de quem
+ * respondeu". Só aparece quando há de fato uma conversa pra abrir
+ * (threadId, gravado no envio — ver CampaignRecipient.threadId no schema);
+ * sem resposta ainda, mostra só a data (ou "—"), sem link nenhum. */
+function RepliedAtCell({ repliedAt, threadId }: { repliedAt: string | null; threadId: string | null }) {
+  if (!repliedAt) return <>—</>;
+  return (
+    <>
+      {formatDateTime(repliedAt)}
+      {threadId && (
+        <Link
+          href={`/whatsapp/conversas?threadId=${threadId}`}
+          className="mt-0.5 flex items-center gap-1 text-xs font-medium text-brand hover:underline"
+        >
+          <MessageCircle className="h-3 w-3" strokeWidth={2} />
+          Ver conversa
+        </Link>
+      )}
+    </>
+  );
 }
 
 /** "Reenvio" da linha. Três fatos possíveis, do mais concreto pro mais incerto:
@@ -163,7 +191,9 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                     )}
                   </p>
                   <p>Enviada em: {formatDateTime(r.sentAt)}</p>
-                  <p>Respondeu em: {formatDateTime(r.repliedAt)}</p>
+                  <p>
+                    Respondeu em: <RepliedAtCell repliedAt={r.repliedAt} threadId={r.threadId} />
+                  </p>
                   <p>
                     Reenvio:{" "}
                     <FollowUpCell
@@ -212,7 +242,9 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                       {r.error && <p className="mt-0.5 text-xs text-red-500">{r.error}</p>}
                     </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.repliedAt)}</td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
+                      <RepliedAtCell repliedAt={r.repliedAt} threadId={r.threadId} />
+                    </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
                       <FollowUpCell
                         sentAt={r.followUpSentAt}

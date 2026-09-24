@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { listCampaigns } from "@/lib/campaigns/list";
 import { resolveCampaignInput, type CampaignInput } from "@/lib/campaigns/build";
+import { getDealScope } from "@/lib/team-scope";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,11 @@ export async function GET() {
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const campaigns = await listCampaigns(access.organizationId);
+    // Escopo por papel (ver lib/team-scope.ts) — Consultor só vê as próprias
+    // campanhas, Supervisor a da equipe, igual Deal/Task já fazem. Achado em
+    // produção sem isso: qualquer um via a campanha de qualquer outro.
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const campaigns = await listCampaigns(access.organizationId, scope);
     return NextResponse.json(campaigns);
   });
 }

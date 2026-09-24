@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCampaignDetail } from "@/lib/campaigns/list";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
+import { getDealScope } from "@/lib/team-scope";
 import { RecipientsTable } from "./recipients-table";
 import { CampaignMetricsChart } from "./metrics-chart";
 import { CampaignActions } from "./campaign-actions";
@@ -29,7 +30,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const organizationId = session!.user.organizationId!;
 
   return runWithTenant(organizationId, async () => {
-    const campaign = await getCampaignDetail(organizationId, id);
+    // Mesmo escopo da lista (ver lib/team-scope.ts) — sem isso, Consultor
+    // abrindo a URL de uma campanha alheia via a lista de leads (nome/
+    // telefone) de outro consultor. Fora do escopo cai no mesmo 404 de "id
+    // não existe" — nunca revela que a campanha existe pra quem não pode vê-la.
+    const scope = await getDealScope(organizationId, session!.user.id, session!.user.role);
+    const campaign = await getCampaignDetail(organizationId, id, scope);
     if (!campaign) notFound();
 
     const total = campaign.counts.pending + campaign.counts.sent + campaign.counts.failed + campaign.counts.skipped;
