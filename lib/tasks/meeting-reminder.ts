@@ -93,6 +93,8 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
             contactId: task.contact.id,
             ownerId: task.ownerId,
             text: message,
+            type: step.type === "IMAGE" ? "IMAGE" : "TEXT",
+            mediaUrl: step.mediaUrl,
           });
 
           const isLastStep = stepIndex + 1 >= steps.length;

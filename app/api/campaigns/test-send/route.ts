@@ -44,7 +44,7 @@ export async function POST(req: Request) {
 
   if (!instanceId) return NextResponse.json({ error: "Selecione de qual WhatsApp enviar" }, { status: 400 });
 
-  const validated = validateSteps(rawSteps);
+  const validated = validateSteps(rawSteps, access.organizationId);
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
   if (validated.steps.length > MAX_TEST_STEPS) {
     return NextResponse.json({ error: `Um teste aceita no máximo ${MAX_TEST_STEPS} mensagens na sequência` }, { status: 400 });
@@ -67,7 +67,13 @@ export async function POST(req: Request) {
         phoneNormalized,
       });
       for (let i = 0; i < steps.length; i++) {
-        await sendWhatsAppMessage({ organizationId: access.organizationId, threadId: thread.id, text: steps[i].text });
+        await sendWhatsAppMessage({
+          organizationId: access.organizationId,
+          threadId: thread.id,
+          text: steps[i].text,
+          type: steps[i].type === "IMAGE" ? "IMAGE" : "TEXT",
+          mediaUrl: steps[i].mediaUrl,
+        });
         if (i < steps.length - 1 && steps[i].delayAfterSec > 0) {
           await sleep(steps[i].delayAfterSec * 1000);
         }

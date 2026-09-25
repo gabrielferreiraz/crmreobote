@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckCheck, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { CheckCheck, CheckCircle2, Loader2, RefreshCw, Image as ImageIcon } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { DualRangeSlider } from "@/components/dual-range-slider";
@@ -12,7 +12,7 @@ import { useRmktWaves } from "@/lib/use-rmkt-waves";
 import { MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
 import { renderTemplate } from "@/lib/campaigns/spintax";
 
-type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
+type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string }[] };
 
 type SendResult = {
   campaignId: string | null;
@@ -469,6 +469,11 @@ export function BulkSendMessageDialog({
                   </p>
                 )}
                 <div className="ml-auto max-w-[88%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-snug whitespace-pre-wrap text-neutral-800 shadow-sm dark:bg-[#005c4b] dark:text-neutral-100">
+                  {step.type === "IMAGE" && (
+                    <span className="mb-1.5 flex h-20 items-center justify-center rounded-md bg-black/10 text-[11px] text-neutral-600 dark:bg-white/10 dark:text-neutral-200">
+                      <ImageIcon className="mr-1.5 h-3.5 w-3.5" strokeWidth={2} /> Imagem
+                    </span>
+                  )}
                   <p>{preview.messages[index]}</p>
                   <span className="mt-1 flex items-center justify-end gap-1 text-[10px] text-neutral-500 dark:text-neutral-300">
                     agora <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-300" strokeWidth={2} />

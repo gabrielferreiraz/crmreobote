@@ -33,7 +33,7 @@ export default async function ScriptsPage() {
           initialScripts={scriptsRaw.map((s) => ({
             id: s.id,
             name: s.name,
-            steps: s.steps as { text: string; delayAfterSec: number }[],
+            steps: s.steps as { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string }[],
             tags: s.tags,
             visibility: s.visibility,
             createdById: s.createdById,

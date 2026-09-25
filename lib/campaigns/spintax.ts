@@ -50,11 +50,23 @@ export function renderTemplate(template: string, vars: CampaignVariables, greeti
 }
 
 /** Uma "mensagem" da sequência de um script — delayAfterSec é a espera até a PRÓXIMA (ignorado na última). */
-export type ScriptStep = { text: string; delayAfterSec: number };
+/**
+ * Cada etapa pode ser uma mensagem normal ou uma imagem com legenda. A imagem
+ * aponta sempre para uma chave privada do R2, nunca para um link arbitrário.
+ */
+export type ScriptStep = {
+  text: string;
+  delayAfterSec: number;
+  type?: "TEXT" | "IMAGE";
+  mediaUrl?: string;
+};
 
 /** Aplica renderTemplate em cada mensagem da sequência, preservando o delay configurado. */
 export function renderSteps(steps: ScriptStep[], vars: CampaignVariables, greeting: string): ScriptStep[] {
-  return steps.map((step) => ({ text: renderTemplate(step.text, vars, greeting), delayAfterSec: step.delayAfterSec }));
+  return steps.map((step) => ({
+    ...step,
+    text: renderTemplate(step.text, vars, greeting),
+  }));
 }
 
 /**

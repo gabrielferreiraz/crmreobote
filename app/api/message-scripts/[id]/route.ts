@@ -50,7 +50,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
-  const validated = validateSteps(steps);
+  const validated = validateSteps(steps, access.organizationId);
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
   if (versionMode !== undefined && versionMode !== "FIX" && versionMode !== "NEW_VERSION") {
     return NextResponse.json({ error: "versionMode inválido" }, { status: 400 });

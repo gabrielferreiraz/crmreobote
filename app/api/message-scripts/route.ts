@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
-  const validated = validateSteps(steps);
+  const validated = validateSteps(steps, access.organizationId);
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
   // Público por padrão (preserva o comportamento de hoje) — só vira Restrita
   // se pedido explicitamente.

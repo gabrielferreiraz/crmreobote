@@ -474,6 +474,8 @@ async function sendToRecipient(
       organizationId,
       threadId: thread.id,
       text: steps[0].text,
+      type: steps[0].type === "IMAGE" ? "IMAGE" : "TEXT",
+      mediaUrl: steps[0].mediaUrl,
       campaignId: campaign.id,
       simulateTypingFirst: true,
     });
@@ -502,6 +504,8 @@ async function sendToRecipient(
           organizationId,
           threadId: thread.id,
           text: steps[i + 1].text,
+          type: steps[i + 1].type === "IMAGE" ? "IMAGE" : "TEXT",
+          mediaUrl: steps[i + 1].mediaUrl,
           campaignId: campaign.id,
           simulateTypingFirst: true,
         });

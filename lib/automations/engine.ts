@@ -423,7 +423,14 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
         // lib/campaigns/engine.ts): uma regra que dispara pra várias
         // entidades no mesmo tick não deve ficar presa atrás de um único
         // script de várias mensagens.
-        await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[0].text, automationRuleId: rule.id });
+        await sendWhatsAppMessage({
+          organizationId: entity.organizationId,
+          threadId: thread.id,
+          text: steps[0].text,
+          type: steps[0].type === "IMAGE" ? "IMAGE" : "TEXT",
+          mediaUrl: steps[0].mediaUrl,
+          automationRuleId: rule.id,
+        });
         sent += 1;
 
         if (steps.length > 1) {
@@ -431,7 +438,14 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
             for (let i = 0; i < steps.length - 1; i++) {
               if (steps[i].delayAfterSec > 0) await sleep(steps[i].delayAfterSec * 1000);
               try {
-                await sendWhatsAppMessage({ organizationId: entity.organizationId, threadId: thread.id, text: steps[i + 1].text, automationRuleId: rule.id });
+                await sendWhatsAppMessage({
+                  organizationId: entity.organizationId,
+                  threadId: thread.id,
+                  text: steps[i + 1].text,
+                  type: steps[i + 1].type === "IMAGE" ? "IMAGE" : "TEXT",
+                  mediaUrl: steps[i + 1].mediaUrl,
+                  automationRuleId: rule.id,
+                });
               } catch (err) {
                 console.error(
                   `[automations] falha ao enviar passo ${i + 2}/${steps.length} do script (regra "${rule.name}")`,

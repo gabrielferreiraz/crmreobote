@@ -12,8 +12,13 @@ export function normalizeSteps(steps: unknown): string {
   if (!Array.isArray(steps)) return "[]";
   return JSON.stringify(
     steps.map((s) => {
-      const r = (s ?? {}) as { text?: unknown; delayAfterSec?: unknown };
-      return { text: typeof r.text === "string" ? r.text.trim() : "", delayAfterSec: Number(r.delayAfterSec) || 0 };
+      const r = (s ?? {}) as { text?: unknown; delayAfterSec?: unknown; type?: unknown; mediaUrl?: unknown };
+      return {
+        text: typeof r.text === "string" ? r.text.trim() : "",
+        delayAfterSec: Number(r.delayAfterSec) || 0,
+        type: r.type === "IMAGE" ? "IMAGE" : "TEXT",
+        mediaUrl: r.type === "IMAGE" && typeof r.mediaUrl === "string" ? r.mediaUrl : "",
+      };
     }),
   );
 }

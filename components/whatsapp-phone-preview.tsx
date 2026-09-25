@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Video, Phone as PhoneIcon, MoreVertical, CheckCheck } from "lucide-react";
 
-type PreviewStep = { text: string };
+type PreviewStep = { text: string; type?: "TEXT" | "IMAGE"; imagePreviewUrl?: string };
 
 const GAP_MS = 650;
 const LOOP_PAUSE_MS = 2600;
@@ -32,7 +32,7 @@ export function WhatsAppPhonePreview({
   const [sentCount, setSentCount] = useState(0);
 
   const filledSteps = steps.filter((s) => s.text.trim().length > 0);
-  const contentKey = filledSteps.map((s) => s.text).join(" ");
+  const contentKey = filledSteps.map((s) => `${s.type ?? "TEXT"}:${s.imagePreviewUrl ?? ""}:${s.text}`).join(" ");
 
   useEffect(() => {
     setSentCount(0);
@@ -86,7 +86,7 @@ export function WhatsAppPhonePreview({
                 Escreva a mensagem pra ver a prévia aqui
               </p>
             ) : (
-              filledSteps.map((step, i) => (i > sentCount - 1 ? null : <SentBubble key={i} text={step.text} />))
+              filledSteps.map((step, i) => (i > sentCount - 1 ? null : <SentBubble key={i} step={step} />))
             )}
           </div>
         </div>
@@ -95,10 +95,16 @@ export function WhatsAppPhonePreview({
   );
 }
 
-function SentBubble({ text }: { text: string }) {
+function SentBubble({ step }: { step: PreviewStep }) {
   return (
     <div className="animate-bubble-in ml-auto max-w-[82%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-2.5 py-1.5 shadow-sm dark:bg-[#005c4b]">
-      <p className="text-[13px] whitespace-pre-wrap text-neutral-800 dark:text-neutral-100">{text}</p>
+      {step.type === "IMAGE" &&
+        (step.imagePreviewUrl ? (
+          <img src={step.imagePreviewUrl} alt="Prévia da imagem" className="mb-1.5 max-h-44 w-full rounded-md object-cover" />
+        ) : (
+          <div className="mb-1.5 flex h-28 items-center justify-center rounded-md bg-black/10 text-[11px] text-neutral-600 dark:bg-white/10 dark:text-neutral-200">Imagem</div>
+        ))}
+      <p className="text-[13px] whitespace-pre-wrap text-neutral-800 dark:text-neutral-100">{step.text}</p>
       <div className="mt-0.5 flex items-center justify-end gap-1">
         <span className="text-[10px] text-neutral-500 dark:text-neutral-400">agora</span>
         <CheckCheck className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-400" strokeWidth={2} />

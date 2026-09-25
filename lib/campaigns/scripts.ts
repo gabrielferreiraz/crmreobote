@@ -28,7 +28,10 @@ export function canAccessScript(
   return script.visibility === "PUBLIC" || script.createdById === access.userId || access.role === "OWNER";
 }
 
-export function validateSteps(input: unknown): { ok: true; steps: ScriptStep[] } | { ok: false; error: string } {
+export function validateSteps(
+  input: unknown,
+  organizationId?: string,
+): { ok: true; steps: ScriptStep[] } | { ok: false; error: string } {
   if (!Array.isArray(input) || input.length === 0) {
     return { ok: false, error: "Adicione ao menos uma mensagem ao script" };
   }
@@ -36,10 +39,18 @@ export function validateSteps(input: unknown): { ok: true; steps: ScriptStep[] }
   for (const raw of input) {
     const record = raw as Record<string, unknown>;
     const text = typeof record?.text === "string" ? record.text.trim() : "";
-    if (!text) return { ok: false, error: "Toda mensagem da sequência precisa ter texto" };
+    if (!text) return { ok: false, error: "Toda etapa precisa ter uma mensagem ou legenda" };
     const delayRaw = Number(record?.delayAfterSec);
     const delayAfterSec = Number.isFinite(delayRaw) ? Math.min(MAX_DELAY_SEC, Math.max(0, Math.round(delayRaw))) : 0;
-    steps.push({ text, delayAfterSec });
+    const type = record?.type === "IMAGE" ? "IMAGE" : "TEXT";
+    const mediaUrl = typeof record?.mediaUrl === "string" ? record.mediaUrl : undefined;
+    if (type === "IMAGE") {
+      if (!mediaUrl) return { ok: false, error: "Escolha uma imagem para esta etapa" };
+      if (!organizationId || !mediaUrl.startsWith(`whatsapp-media/${organizationId}/`)) {
+        return { ok: false, error: "A imagem precisa ter sido enviada por esta organização" };
+      }
+    }
+    steps.push({ text, delayAfterSec, ...(type === "IMAGE" ? { type, mediaUrl } : {}) });
   }
   return { ok: true, steps };
 }

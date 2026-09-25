@@ -59,7 +59,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     if (!script) return NextResponse.json({ error: "Script não encontrado" }, { status: 404 });
 
     const steps = renderSteps(
-      script.steps as { text: string; delayAfterSec: number }[],
+      script.steps as import("@/lib/campaigns/spintax").ScriptStep[],
       buildVariables(thread.contact),
       brazilGreeting(),
     );
@@ -74,7 +74,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     void (async () => {
       for (let i = 0; i < steps.length; i++) {
         try {
-          await sendWhatsAppMessage({ organizationId, threadId, text: steps[i].text, type: "TEXT", sentByUserId: userId });
+          await sendWhatsAppMessage({
+            organizationId,
+            threadId,
+            text: steps[i].text,
+            type: steps[i].type === "IMAGE" ? "IMAGE" : "TEXT",
+            mediaUrl: steps[i].mediaUrl,
+            sentByUserId: userId,
+          });
         } catch (err) {
           console.error(`[send-script] falha ao enviar etapa ${i + 1}/${steps.length} do script ${scriptId} na conversa ${threadId}`, err);
         }

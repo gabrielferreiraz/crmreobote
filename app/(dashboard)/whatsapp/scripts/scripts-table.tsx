@@ -3,11 +3,11 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare, Globe2, Lock } from "lucide-react";
+import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare, Globe2, Lock, Image as ImageIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 
-type ScriptStep = { text: string; delayAfterSec: number };
+type ScriptStep = { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string };
 type ScriptUsage = { campaignId: string; campaignName: string; status: "DRAFT" | "RUNNING" | "PAUSED" | "DONE" };
 
 type Script = {
@@ -202,6 +202,12 @@ export function ScriptsTable({ initialScripts, currentUserId }: { initialScripts
                   {s.steps[0] ? withFakeVariables(s.steps[0].text) : ""}
                 </p>
                 <div className="flex items-center gap-3 text-xs text-neutral-400 dark:text-neutral-500">
+                  {s.steps.some((step) => step.type === "IMAGE") && (
+                    <span className="inline-flex items-center gap-1" title="Este script envia imagem com legenda">
+                      <ImageIcon className="h-3 w-3" strokeWidth={2} />
+                      Imagem
+                    </span>
+                  )}
                   {s.steps.length > 1 && (
                     <span className="inline-flex items-center gap-1">
                       <MessagesSquare className="h-3 w-3" strokeWidth={2} />
