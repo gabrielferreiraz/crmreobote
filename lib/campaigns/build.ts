@@ -8,6 +8,8 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, audienceFilterIsEmpty, buildAudienceWhere, type AudienceFilter } from "@/lib/campaigns/audience";
+import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
+import type { DealScope } from "@/lib/team-scope";
 
 export type ScriptRef = { scriptId: string; weight: number };
 
@@ -19,6 +21,9 @@ export type CampaignInput = {
   followUpEnabled?: boolean;
   followUpDelayHours?: number;
   followUpScripts?: ScriptRef[];
+  rmktEnabled?: boolean;
+  rmktWaves?: RmktWaveInput[];
+  noReplyDays?: number;
   delayMinSec?: number;
   delayMaxSec?: number;
   dailyCap?: number | null;
@@ -35,6 +40,8 @@ export type ResolvedCampaign = {
   followUpTemplates: Prisma.InputJsonValue | typeof Prisma.DbNull;
   followUpEnabled: boolean;
   followUpDelayHours: number;
+  rmktWaves: Prisma.InputJsonValue | typeof Prisma.DbNull;
+  noReplyDays: number | null;
   delayMinSec: number;
   delayMaxSec: number;
   dailyCap: number | null;
@@ -48,47 +55,10 @@ export type ResolvedCampaign = {
 // delayMinSec: 0, windowStartHour: 99) desliga na prática a proteção
 // anti-ban do motor de campanhas (lib/campaigns/engine.ts), que confia
 // nesses números pra espaçar os envios.
-const MIN_DELAY_SEC = 10;
-const MAX_DELAY_SEC = 3600;
-const MAX_DAILY_CAP = 10_000;
 const MAX_FOLLOW_UP_DELAY_HOURS = 720; // 30 dias
 
-function validateScheduleAndThrottle(input: CampaignInput): string | null {
-  const delayMinSec = input.delayMinSec ?? 30;
-  const delayMaxSec = input.delayMaxSec ?? 90;
-  if (!Number.isInteger(delayMinSec) || delayMinSec < MIN_DELAY_SEC || delayMinSec > MAX_DELAY_SEC) {
-    return `Delay mínimo precisa estar entre ${MIN_DELAY_SEC} e ${MAX_DELAY_SEC} segundos`;
-  }
-  if (!Number.isInteger(delayMaxSec) || delayMaxSec < delayMinSec || delayMaxSec > MAX_DELAY_SEC) {
-    return "Delay máximo precisa ser maior ou igual ao mínimo (e no máximo 1h)";
-  }
-
-  if (input.dailyCap != null && (!Number.isInteger(input.dailyCap) || input.dailyCap < 1 || input.dailyCap > MAX_DAILY_CAP)) {
-    return `Teto diário precisa ser um número entre 1 e ${MAX_DAILY_CAP} (ou vazio, sem limite)`;
-  }
-
-  const allowedWeekdays = input.allowedWeekdays ?? [1, 2, 3, 4, 5];
-  if (
-    !Array.isArray(allowedWeekdays) ||
-    allowedWeekdays.length === 0 ||
-    allowedWeekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)
-  ) {
-    return "Selecione ao menos um dia da semana válido (0 a 6)";
-  }
-
-  const windowStartHour = input.windowStartHour ?? 9;
-  const windowEndHour = input.windowEndHour ?? 18;
-  if (!Number.isInteger(windowStartHour) || windowStartHour < 0 || windowStartHour > 23) {
-    return "Horário inicial precisa estar entre 0 e 23";
-  }
-  if (!Number.isInteger(windowEndHour) || windowEndHour < 0 || windowEndHour > 23) {
-    return "Horário final precisa estar entre 0 e 23";
-  }
-  if (windowEndHour <= windowStartHour) {
-    return "Horário final precisa ser depois do horário inicial";
-  }
-
-  if (input.followUpEnabled) {
+function validateLegacyFollowUp(input: CampaignInput): string | null {
+  if (input.rmktEnabled === undefined && input.followUpEnabled) {
     const followUpDelayHours = input.followUpDelayHours ?? 24;
     if (!Number.isInteger(followUpDelayHours) || followUpDelayHours < 1 || followUpDelayHours > MAX_FOLLOW_UP_DELAY_HOURS) {
       return `Prazo do reenvio precisa ser entre 1 e ${MAX_FOLLOW_UP_DELAY_HOURS} horas`;
@@ -101,11 +71,26 @@ function validateScheduleAndThrottle(input: CampaignInput): string | null {
 export async function resolveCampaignInput(
   organizationId: string,
   input: CampaignInput,
+  scope?: DealScope,
 ): Promise<{ ok: true; value: ResolvedCampaign } | { ok: false; error: string }> {
   if (!input.name?.trim()) return { ok: false, error: "Nome é obrigatório" };
 
-  const scheduleError = validateScheduleAndThrottle(input);
-  if (scheduleError) return { ok: false, error: scheduleError };
+  const schedule = validateRmktAndDelay({
+    rmktEnabled: input.rmktEnabled,
+    rmktWaves: input.rmktWaves,
+    noReplyDays: input.noReplyDays,
+    delayMinSec: input.delayMinSec,
+    delayMaxSec: input.delayMaxSec,
+    dailyCap: input.dailyCap,
+    allowedWeekdays: input.allowedWeekdays,
+    windowStartHour: input.windowStartHour,
+    windowEndHour: input.windowEndHour,
+    defaultDelayMinSec: 120,
+    defaultDelayMaxSec: 1200,
+  });
+  if (!schedule.ok) return { ok: false, error: schedule.error };
+  const legacyFollowUpError = validateLegacyFollowUp(input);
+  if (legacyFollowUpError) return { ok: false, error: legacyFollowUpError };
 
   const audienceFilter = parseAudienceFilter(input.audienceFilter);
   if (audienceFilterIsEmpty(audienceFilter)) {
@@ -121,7 +106,11 @@ export async function resolveCampaignInput(
   // O texto (steps) do script é copiado (snapshot) pra dentro da campanha —
   // editar/apagar o script depois nunca muda uma campanha que já existia.
   // scriptId vai junto só como referência pra "onde esse script é usado".
-  const allScriptIds = [...input.scripts.map((s) => s.scriptId), ...(input.followUpScripts ?? []).map((s) => s.scriptId)];
+  const allScriptIds = [
+    ...input.scripts.map((s) => s.scriptId),
+    ...(input.followUpScripts ?? []).map((s) => s.scriptId),
+    ...schedule.waves.map((wave) => wave.scriptId),
+  ];
   const scriptRows = await prisma.messageScript.findMany({
     where: { id: { in: allScriptIds }, organizationId },
     select: { id: true, steps: true, version: true },
@@ -142,8 +131,17 @@ export async function resolveCampaignInput(
         .map((s) => ({ steps: stepsById.get(s.scriptId), weight: s.weight, scriptId: s.scriptId, scriptVersion: versionById.get(s.scriptId) }))
     : null;
 
+  if (schedule.waves.some((wave) => !stepsById.has(wave.scriptId))) {
+    return { ok: false, error: "Script de uma das ondas de remarketing é inválido" };
+  }
+  const rmktWaves = schedule.waves.map((wave) => ({
+    dayOffset: wave.dayOffset,
+    templates: [{ steps: stepsById.get(wave.scriptId), weight: 1, scriptId: wave.scriptId, scriptVersion: versionById.get(wave.scriptId) }],
+  }));
+  const usesLegacyFollowUp = input.rmktEnabled === undefined && !!input.followUpEnabled;
+
   const contacts = await prisma.contact.findMany({
-    where: buildAudienceWhere(organizationId, audienceFilter),
+    where: buildAudienceWhere(organizationId, audienceFilter, scope),
     select: { id: true },
   });
   if (contacts.length === 0) return { ok: false, error: "Nenhum contato encontrado com esse público" };
@@ -155,17 +153,19 @@ export async function resolveCampaignInput(
       audienceFilter,
       instanceId: input.instanceId,
       messageTemplates: messageTemplates as unknown as Prisma.InputJsonValue,
-      followUpTemplates: followUpTemplatesList
+      followUpTemplates: usesLegacyFollowUp && followUpTemplatesList
         ? (followUpTemplatesList as unknown as Prisma.InputJsonValue)
         : Prisma.DbNull,
-      followUpEnabled: input.followUpEnabled ?? false,
-      followUpDelayHours: input.followUpDelayHours ?? 24,
-      delayMinSec: input.delayMinSec ?? 30,
-      delayMaxSec: input.delayMaxSec ?? 90,
-      dailyCap: input.dailyCap ?? null,
-      allowedWeekdays: input.allowedWeekdays ?? [1, 2, 3, 4, 5],
-      windowStartHour: input.windowStartHour ?? 9,
-      windowEndHour: input.windowEndHour ?? 18,
+      followUpEnabled: usesLegacyFollowUp,
+      followUpDelayHours: usesLegacyFollowUp ? (input.followUpDelayHours ?? 24) : 24,
+      rmktWaves: rmktWaves.length ? (rmktWaves as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+      noReplyDays: rmktWaves.length ? schedule.resolvedNoReplyDays : null,
+      delayMinSec: schedule.resolvedDelayMinSec,
+      delayMaxSec: schedule.resolvedDelayMaxSec,
+      dailyCap: schedule.resolvedDailyCap,
+      allowedWeekdays: schedule.resolvedAllowedWeekdays,
+      windowStartHour: schedule.resolvedWindowStartHour,
+      windowEndHour: schedule.resolvedWindowEndHour,
       contactIds: contacts.map((c) => c.id),
     },
   };

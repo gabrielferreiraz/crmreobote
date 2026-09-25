@@ -871,6 +871,17 @@ model OrganizationUser {
   // disso é 100% manual (o toggle em Configurações → Usuários), mudar o
   // papel de alguém depois NUNCA mexe aqui sozinho.
   countsTowardGoal      Boolean   @default(true)
+  // Onde esta pessoa APARECE nos rankings da TV — eixo separado de
+  // countsTowardGoal (que decide se as vendas SOMAM na meta/totais). Pedido
+  // da diretoria (09/2026): supervisor soma na meta mas não aparece no pódio
+  // (top 3) da TV principal, que fica à vista de cliente; no Ranking do mês
+  // completo (TV interna, app/r/[code]) aparece. Defaults na criação (POST
+  // /api/org/members): pódio = não pra Dono/Supervisor; ranking completo =
+  // não pra Dono. Depois é manual (Configurações → Usuários → "Meta e
+  // ranking"), mudar o papel não mexe sozinho — mesma regra de
+  // countsTowardGoal.
+  showInPodium          Boolean   @default(true)
+  showInMonthRanking    Boolean   @default(true)
   // Só vale pra quem é OWNER — se este dono recebe os e-mails de alerta de
   // cron/infraestrutura (lib/system-alerts.ts). Continua sujeito ao
   // interruptor geral "cronAlerts" em Organization.emailNotificationSettings

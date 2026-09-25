@@ -44,7 +44,7 @@ export function RmktWavesFields({
           onChange={(e) => rmkt.setRmktEnabled(e.target.checked)}
           className="accent-neutral-900 dark:accent-white"
         />
-        Remarketing / Follow-up
+        Enviar remarketing
       </label>
 
       {rmkt.rmktEnabled && (

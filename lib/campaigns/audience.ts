@@ -9,6 +9,7 @@
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/app/generated/prisma/client";
+import { contactScopeWhere, type DealScope } from "@/lib/team-scope";
 
 export type AudienceFilter = { jobTitles: string[]; tags: string[]; cities: string[] };
 
@@ -32,7 +33,7 @@ export function audienceFilterIsEmpty(filter: AudienceFilter): boolean {
   return filter.jobTitles.length === 0 && filter.tags.length === 0 && filter.cities.length === 0;
 }
 
-export function buildAudienceWhere(organizationId: string, filter: AudienceFilter): Prisma.ContactWhereInput {
+export function buildAudienceWhere(organizationId: string, filter: AudienceFilter, scope?: DealScope): Prisma.ContactWhereInput {
   const and: Prisma.ContactWhereInput[] = [];
   if (filter.jobTitles.length) {
     and.push({ OR: filter.jobTitles.map((jobTitle) => ({ jobTitle: { equals: jobTitle, mode: "insensitive" } })) });
@@ -43,12 +44,13 @@ export function buildAudienceWhere(organizationId: string, filter: AudienceFilte
   if (filter.cities.length) {
     and.push({ OR: filter.cities.map((city) => ({ city: { equals: city, mode: "insensitive" } })) });
   }
-  return and.length ? { organizationId, AND: and } : { organizationId };
+  const base = { organizationId, ...(scope ? contactScopeWhere(scope) : {}) };
+  return and.length ? { ...base, AND: and } : base;
 }
 
-export async function countAudience(organizationId: string, filter: AudienceFilter): Promise<number> {
+export async function countAudience(organizationId: string, filter: AudienceFilter, scope?: DealScope): Promise<number> {
   if (audienceFilterIsEmpty(filter)) return 0;
-  return prisma.contact.count({ where: buildAudienceWhere(organizationId, filter) });
+  return prisma.contact.count({ where: buildAudienceWhere(organizationId, filter, scope) });
 }
 
 /** Resumo legível pra exibição (lista/detalhe da campanha) — ex.: "Cargo: Advogado, Médico · Cidade: Campo Grande". */

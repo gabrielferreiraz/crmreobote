@@ -13,6 +13,7 @@ export const AVAILABLE_WIDGETS = [
   { id: "churrascometro", label: "Churrascômetro" },
   { id: "last_sale", label: "Última Venda" },
   { id: "funnels", label: "Leads no Funil" },
+  { id: "ranking", label: "Ranking de Empresas (Top 3)" },
 ];
 
 export function TvConfigForm({

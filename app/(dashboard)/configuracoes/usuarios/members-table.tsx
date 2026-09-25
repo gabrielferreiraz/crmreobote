@@ -22,6 +22,10 @@ type Member = {
    * e nos números da TV (ver comentário completo em prisma/schema.prisma,
    * campo OrganizationUser.countsTowardGoal). */
   countsTowardGoal: boolean;
+  /** Aparece no pódio (top 3) da TV principal / no Ranking do mês completo da
+   * TV interna — ver OrganizationUser.showInPodium/showInMonthRanking. */
+  showInPodium: boolean;
+  showInMonthRanking: boolean;
   user: { id: string; name: string; email: string; birthDate: Date | string | null };
   team: { id: string; name: string } | null;
   photoUrl: string | null;
@@ -54,7 +58,11 @@ const ROLE_LABELS: Record<Member["role"], string> = {
 // select, badge, checkbox ou nada (célula vazia) sempre caem exatamente sob
 // a coluna certa, em vez de empurrar o resto da linha quando um campo não
 // se aplica (ex.: Dono não tem Papel/Área pra escolher).
-const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_100px_120px_140px_100px_110px_140px]";
+// A última coluna (ações) precisa caber os 5 botões INTEIROS — antes tinha 140px pra
+// um botão "Editar" com texto + 4 ícones (~260px), o conteúdo estourava pra
+// esquerda e cobria a coluna vizinha. Hoje o "Editar" é só ícone no desktop
+// (ver a linha abaixo) e a coluna tem 160px.
+const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_90px_110px_130px_90px_150px_160px]";
 
 // Espelha ONLINE_THRESHOLD_MS de lib/user-activity.ts — não importa direto
 // de lá porque esse módulo puxa o client do Prisma, que não pode entrar no
@@ -109,6 +117,10 @@ export function MembersTable({
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccessName, setResetSuccessName] = useState<string | null>(null);
   const [memberToRename, setMemberToRename] = useState<Member | null>(null);
+  // "Meta e ranking" — as 3 opções (conta na meta, pódio, ranking do mês)
+  // ficam numa janela só em vez de 3 colunas na tabela (pedido explícito: a
+  // página já estava cheia de perguntas).
+  const [memberGoalRanking, setMemberGoalRanking] = useState<Member | null>(null);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   // "de nascimento" — mesmo diálogo de editar nome, ver renameMember abaixo
@@ -221,13 +233,20 @@ export function MembersTable({
     if (res.ok) router.refresh();
   }
 
-  async function setCountsTowardGoal(userId: string, countsTowardGoal: boolean) {
-    const res = await fetch(`/api/org/members/${userId}`, {
+  async function setGoalRankingFlag(
+    member: Member,
+    field: "countsTowardGoal" | "showInPodium" | "showInMonthRanking",
+    value: boolean,
+  ) {
+    // Otimista: a janela reflete na hora; o refresh traz o valor real.
+    setMemberGoalRanking({ ...member, [field]: value });
+    const res = await fetch(`/api/org/members/${member.user.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ countsTowardGoal }),
+      body: JSON.stringify({ [field]: value }),
     });
-    if (res.ok) router.refresh();
+    if (!res.ok) setMemberGoalRanking(member);
+    router.refresh();
   }
 
   function triggerPhotoUpload(userId: string) {
@@ -372,7 +391,7 @@ export function MembersTable({
             <span>WhatsApp</span>
             <span>Área</span>
             <span>Processos</span>
-            <span>Conta na meta</span>
+            <span>Meta e ranking</span>
             <span />
           </div>
           {visibleMembers.map((m) => {
@@ -533,20 +552,16 @@ export function MembersTable({
 
               <div className="min-w-0">
                 {isOwner ? (
-                  <label
-                    className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
-                    title="Se as vendas ganhas desta pessoa entram na meta mensal da organização e nos números de ganho do dashboard da TV (vendas do mês/ano, ranking, última venda, Churrascômetro). Consultor/Supervisor/Gerente contam por padrão; Dono não, porque sócio vendendo cota da própria Reobote não é meta de consultor."
+                  <button
+                    type="button"
+                    onClick={() => setMemberGoalRanking(m)}
+                    className="block w-full min-w-0 rounded-md p-0.5 text-left transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                    title="Editar meta e ranking"
                   >
-                    <input
-                      type="checkbox"
-                      checked={m.countsTowardGoal}
-                      onChange={(e) => setCountsTowardGoal(m.user.id, e.target.checked)}
-                      className="h-3.5 w-3.5 shrink-0 rounded border-neutral-300 dark:border-neutral-700"
-                    />
-                    {m.countsTowardGoal ? "Sim" : "Não"}
-                  </label>
+                    <GoalRankingSummary member={m} />
+                  </button>
                 ) : (
-                  <span className="text-xs text-neutral-400 dark:text-neutral-500">{m.countsTowardGoal ? "Sim" : "Não"}</span>
+                  <GoalRankingSummary member={m} />
                 )}
               </div>
 
@@ -559,12 +574,12 @@ export function MembersTable({
                       setNewEmail(m.user.email);
                       setNewBirthDate(toDateInputValue(m.user.birthDate));
                     }}
-                    className="icon-btn-labeled"
+                    className="icon-btn-labeled lg:!px-1.5"
                     title="Editar perfil"
                     aria-label={`Editar perfil de ${m.user.name}`}
                   >
                     <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-                    Editar
+                    <span className="lg:hidden">Editar</span>
                   </button>
                   <Link
                     href={`/configuracoes/usuarios/${m.user.id}/whatsapp-backup`}
@@ -627,6 +642,41 @@ export function MembersTable({
             );
           })}
         </div>
+      )}
+
+      {memberGoalRanking && (
+        <Modal onClose={() => setMemberGoalRanking(null)} maxWidth="max-w-md">
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Meta e ranking</h2>
+          <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">{memberGoalRanking.user.name}</p>
+          <div className="space-y-3">
+            <GoalRankingToggle
+              label="Conta na meta"
+              description="As vendas ganhas somam na meta mensal e nos totais da TV (vendas do mês/ano, Churrascômetro)."
+              checked={memberGoalRanking.countsTowardGoal}
+              onChange={(v) => setGoalRankingFlag(memberGoalRanking, "countsTowardGoal", v)}
+            />
+            <GoalRankingToggle
+              label="Aparece no pódio da TV principal"
+              description="Top 3 do mês na TV que fica à vista de cliente. Supervisor e Dono ficam fora por padrão."
+              checked={memberGoalRanking.showInPodium}
+              onChange={(v) => setGoalRankingFlag(memberGoalRanking, "showInPodium", v)}
+            />
+            <GoalRankingToggle
+              label="Aparece no Ranking do mês"
+              description="Lista completa de quem vendeu, na TV interna do ranking. Só o Dono fica fora por padrão."
+              checked={memberGoalRanking.showInMonthRanking}
+              onChange={(v) => setGoalRankingFlag(memberGoalRanking, "showInMonthRanking", v)}
+            />
+          </div>
+          <p className="mt-4 text-xs text-neutral-400 dark:text-neutral-500">
+            Mudar o papel da pessoa depois não altera essas opções sozinho.
+          </p>
+          <div className="mt-4 flex justify-end">
+            <button onClick={() => setMemberGoalRanking(null)} className="btn-primary">
+              Fechar
+            </button>
+          </div>
+        </Modal>
       )}
 
       {open && (
@@ -879,5 +929,59 @@ export function MembersTable({
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Resumo de uma linha da coluna "Meta e ranking": as 3 opções como pílulas,
+ * acesas quando ligadas — dá pra bater o olho sem abrir a janela. */
+function GoalRankingSummary({ member }: { member: Member }) {
+  const items: [string, boolean, string][] = [
+    ["Meta", member.countsTowardGoal, "Conta na meta"],
+    ["Pódio", member.showInPodium, "Aparece no pódio (top 3) da TV principal"],
+    ["Ranking", member.showInMonthRanking, "Aparece no Ranking do mês (TV interna)"],
+  ];
+  return (
+    <span className="flex min-w-0 flex-wrap gap-1">
+      {items.map(([label, on, title]) => (
+        <span
+          key={label}
+          title={`${title}: ${on ? "sim" : "não"}`}
+          className={`rounded px-1 py-0.5 text-[10px] leading-none font-medium ${
+            on
+              ? "bg-brand-light text-brand"
+              : "bg-neutral-100 text-neutral-400 line-through dark:bg-neutral-800 dark:text-neutral-500"
+          }`}
+        >
+          {label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function GoalRankingToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300 dark:border-neutral-700"
+      />
+      <span>
+        <span className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</span>
+        <span className="block text-xs text-neutral-500 dark:text-neutral-400">{description}</span>
+      </span>
+    </label>
   );
 }

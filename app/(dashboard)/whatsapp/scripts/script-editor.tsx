@@ -22,6 +22,12 @@ const MAX_DELAY_SEC = 120;
 /** Acima disso (fração do texto que mudou) o diálogo de salvar sugere "nova versão" em vez de "correção". */
 const NEW_VERSION_SUGGESTION_RATIO = 0.35;
 
+function imagePreviewUrl(step: Step): string | undefined {
+  if (step.previewUrl) return step.previewUrl;
+  if (step.type === "IMAGE" && step.mediaUrl) return `/api/whatsapp/media-preview/${step.mediaUrl}`;
+  return undefined;
+}
+
 const TOKEN_LABEL = new Map<string, string>([
   ["nome", "Nome"],
   ["primeiro_nome", "1º nome"],
@@ -633,7 +639,7 @@ export function ScriptEditor({
         text: s.text.trim() ? renderTemplate(s.text, SAMPLE_VARS, "Boa tarde") : "",
         delayAfterSec: s.delayAfterSec,
         type: s.type,
-        imagePreviewUrl: s.previewUrl,
+        imagePreviewUrl: imagePreviewUrl(s),
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rawStepsKey, variationSeed],
@@ -888,8 +894,8 @@ export function ScriptEditor({
                       </div>
                       {step.type === "IMAGE" ? (
                         <div className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 dark:border-neutral-800 dark:bg-neutral-900/60">
-                          {step.previewUrl ? (
-                            <img src={step.previewUrl} alt="Imagem do script" className="h-14 w-14 rounded-md object-cover" />
+                          {imagePreviewUrl(step) ? (
+                            <img src={imagePreviewUrl(step)} alt="Imagem do script" className="h-14 w-14 rounded-md object-cover" />
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-md bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
                               <ImageIcon className="h-5 w-5" strokeWidth={2} />

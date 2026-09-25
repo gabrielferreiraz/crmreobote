@@ -6,29 +6,24 @@ import { CheckCheck, Loader2, CheckCircle2, RefreshCw, TriangleAlert, Image as I
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
-import { DualRangeSlider } from "@/components/dual-range-slider";
+import { BulkCampaignScheduleFields, type BulkCampaignSchedule } from "@/components/bulk-campaign-schedule-fields";
+import { BulkScriptPicker, type BulkScriptOption } from "@/components/bulk-script-picker";
 import { RmktWavesFields } from "@/components/rmkt-waves-fields";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useRmktWaves } from "@/lib/use-rmkt-waves";
 import { useMyWhatsappProvider, MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
 import { renderTemplate } from "@/lib/campaigns/spintax";
 
-type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string }[] };
+type ScriptOption = BulkScriptOption;
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string; order: number }[] };
 
 type SendResult = { campaignId: string | null; queued: number; skippedNoPhone: number };
 type PreviewPosition = { top: number; left: number; maxHeight: number };
 type ScriptPreview = { script: ScriptOption; messages: string[] } & PreviewPosition;
 
-const DEFAULT_DELAY_MIN = 80;
-const DEFAULT_DELAY_MAX = 1220;
-const SLIDER_MIN_MINUTES = 1;
-const SLIDER_MAX_MINUTES = 33;
+const DEFAULT_DELAY_MIN = 120;
+const DEFAULT_DELAY_MAX = 1200;
 const PREVIEW_VARIABLES = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Campo Grande" };
-
-function toMinutesLabel(sec: number): string {
-  return `${Math.round(sec / 60)} min`;
-}
 
 function delayLabel(sec: number): string {
   if (sec < 60) return `${sec}s depois`;
@@ -86,9 +81,14 @@ export function SendLeadsDialog({
   const [pipelineId, setPipelineId] = useState("");
   const [stageId, setStageId] = useState("");
   const rmkt = useRmktWaves({ automaticNoReplyDays: true });
-  const [useCustomDelay, setUseCustomDelay] = useState(false);
-  const [delayMinSec, setDelayMinSec] = useState(DEFAULT_DELAY_MIN);
-  const [delayMaxSec, setDelayMaxSec] = useState(DEFAULT_DELAY_MAX);
+  const [schedule, setSchedule] = useState<BulkCampaignSchedule>({
+    delayMinSec: DEFAULT_DELAY_MIN,
+    delayMaxSec: DEFAULT_DELAY_MAX,
+    dailyCap: "",
+    allowedWeekdays: [1, 2, 3, 4, 5],
+    windowStartHour: "9",
+    windowEndHour: "18",
+  });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
@@ -229,7 +229,12 @@ export function SendLeadsDialog({
         targetPipelineId: pipelineId,
         targetStageId: stageId,
         ...rmkt.serialize(),
-        ...(useCustomDelay ? { delayMinSec, delayMaxSec } : {}),
+        delayMinSec: schedule.delayMinSec,
+        delayMaxSec: schedule.delayMaxSec,
+        dailyCap: schedule.dailyCap === "" ? null : Number(schedule.dailyCap),
+        allowedWeekdays: schedule.allowedWeekdays,
+        windowStartHour: schedule.windowStartHour === "" ? Number.NaN : Number(schedule.windowStartHour),
+        windowEndHour: schedule.windowEndHour === "" ? Number.NaN : Number(schedule.windowEndHour),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -306,40 +311,14 @@ export function SendLeadsDialog({
           </p>
         ) : (
           <div className="space-y-6">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Seu script</h3>
-                <button type="button" onClick={onCreateScript} className="text-sm font-semibold text-brand hover:text-brand-hover">
-                  + Criar script
-                </button>
-              </div>
-              {scripts.length === 0 ? (
-                <div className="border border-dashed border-neutral-300 px-4 py-5 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-                  Nenhum script criado.
-                </div>
-              ) : (
-                <div className="scrollbar-thin max-h-48 space-y-1.5 overflow-y-auto border border-neutral-200 p-2 dark:border-neutral-800">
-                  {scripts.map((s) => (
-                    <label
-                      key={s.id}
-                      onMouseEnter={(e) => showPreview(s, e.currentTarget)}
-                      onMouseLeave={hidePreviewSoon}
-                      className="block cursor-pointer rounded-md px-3 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-                    >
-                      <span className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={scriptIds.includes(s.id)}
-                          onChange={() => toggleScript(s.id)}
-                          className="accent-neutral-900 dark:accent-white"
-                        />
-                        <span className="min-w-0 truncate text-base font-medium text-neutral-900 dark:text-neutral-100">{s.name}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
+            <BulkScriptPicker
+              scripts={scripts}
+              selectedIds={scriptIds}
+              onToggle={toggleScript}
+              onCreateScript={onCreateScript}
+              onPreview={showPreview}
+              onPreviewEnd={hidePreviewSoon}
+            />
 
             <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
               QR Code: disparos em massa podem BLOQUEAR o WhatsApp. A API oficial da Meta é mais segura.
@@ -373,63 +352,7 @@ export function SendLeadsDialog({
 
             <RmktWavesFields rmkt={rmkt} scripts={scripts} showNoReplyDays={false} />
 
-            <div className="space-y-3 border-t border-neutral-100 pt-5 dark:border-neutral-800">
-              <label className="flex items-center gap-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                <input
-                  type="checkbox"
-                  checked={useCustomDelay}
-                  onChange={(e) => setUseCustomDelay(e.target.checked)}
-                  className="accent-neutral-900 dark:accent-white"
-                />
-                Tempo de envio entre contatos
-              </label>
-
-              {useCustomDelay ? (
-                <div className="pl-6">
-                  <DualRangeSlider
-                    min={SLIDER_MIN_MINUTES}
-                    max={SLIDER_MAX_MINUTES}
-                    value={[Math.min(Math.round(delayMinSec / 60), SLIDER_MAX_MINUTES), Math.min(Math.round(delayMaxSec / 60), SLIDER_MAX_MINUTES)]}
-                    onChange={([newMinMinutes, newMaxMinutes]) => {
-                      setDelayMinSec(newMinMinutes * 60);
-                      setDelayMaxSec(newMaxMinutes * 60);
-                    }}
-                  />
-                  <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
-                    <span className="shrink-0">De</span>
-                    <input
-                      type="number"
-                      min={SLIDER_MIN_MINUTES}
-                      max={SLIDER_MAX_MINUTES}
-                      value={Math.round(delayMinSec / 60)}
-                      onInput={(e) => {
-                        e.currentTarget.value = e.currentTarget.value.replace(/^0+(?=\d)/, "");
-                      }}
-                      onChange={(e) => setDelayMinSec(Number(e.target.value) * 60)}
-                      className="field-input w-20 shrink-0 px-2 py-1 text-center"
-                    />
-                    <span className="shrink-0">a</span>
-                    <input
-                      type="number"
-                      min={SLIDER_MIN_MINUTES}
-                      max={SLIDER_MAX_MINUTES}
-                      value={Math.round(delayMaxSec / 60)}
-                      onInput={(e) => {
-                        e.currentTarget.value = e.currentTarget.value.replace(/^0+(?=\d)/, "");
-                      }}
-                      onChange={(e) => setDelayMaxSec(Number(e.target.value) * 60)}
-                      className="field-input w-20 shrink-0 px-2 py-1 text-center"
-                    />
-                    <span className="shrink-0">minutos</span>
-                  </div>
-                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-                    {toMinutesLabel(delayMinSec)} a {toMinutesLabel(delayMaxSec)}
-                  </p>
-                </div>
-              ) : (
-                <p className="pl-6 text-sm text-neutral-400 dark:text-neutral-500">Padrão: {toMinutesLabel(DEFAULT_DELAY_MIN)} a {toMinutesLabel(DEFAULT_DELAY_MAX)}</p>
-              )}
-            </div>
+            <BulkCampaignScheduleFields value={schedule} onChange={setSchedule} />
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
@@ -437,7 +360,7 @@ export function SendLeadsDialog({
               <button type="button" onClick={onClose} className="btn-ghost">
                 Cancelar
               </button>
-              <button type="button" onClick={handleSend} disabled={sending || !canSend} className="btn-primary">
+              <button type="button" onClick={handleSend} disabled={sending || !canSend || schedule.delayMaxSec < schedule.delayMinSec || schedule.allowedWeekdays.length === 0} className="btn-primary">
                 {sending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                 {sending ? (
                   <span className="inline-flex items-center gap-1">

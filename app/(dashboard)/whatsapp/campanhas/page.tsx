@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { listCampaigns } from "@/lib/campaigns/list";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
-import { getDealScope } from "@/lib/team-scope";
+import { contactScopeWhere, getDealScope } from "@/lib/team-scope";
 import { CampaignsTable } from "./campaigns-table";
 
 export default async function CampanhasPage() {
@@ -18,7 +18,7 @@ export default async function CampanhasPage() {
     // /api/campaigns: Consultor só vê as próprias campanhas, não a
     // organização inteira.
     const scope = await getDealScope(organizationId, userId, session!.user.role);
-    const [campaigns, instancesRaw, scriptsRaw] = await Promise.all([
+    const [campaigns, instancesRaw, scriptsRaw, audienceContacts] = await Promise.all([
       listCampaigns(organizationId, scope),
       prisma.whatsAppInstance.findMany({
         where: { organizationId, status: "CONNECTED" },
@@ -30,7 +30,26 @@ export default async function CampanhasPage() {
         where: { organizationId, ...(isOwner ? {} : { OR: [{ visibility: "PUBLIC" }, { createdById: userId }] }) },
         orderBy: { name: "asc" },
       }),
+      // Sugestões do público seguem a carteira que a pessoa pode atender:
+      // Dono vê tudo; os demais só os contatos sob sua responsabilidade/equipe.
+      // Traz somente os três campos necessários, sem dados pessoais extras.
+      prisma.contact.findMany({
+        where: { organizationId, ...contactScopeWhere(scope) },
+        select: { jobTitle: true, city: true, tags: true },
+      }),
     ]);
+
+    const audienceOptions = {
+      jobTitles: Array.from(new Set(audienceContacts.map((contact) => contact.jobTitle?.trim()).filter(Boolean) as string[])).sort((a, b) =>
+        a.localeCompare(b, "pt-BR"),
+      ),
+      tags: Array.from(new Set(audienceContacts.flatMap((contact) => contact.tags.map((tag) => tag.trim()).filter(Boolean)))).sort((a, b) =>
+        a.localeCompare(b, "pt-BR"),
+      ),
+      cities: Array.from(new Set(audienceContacts.map((contact) => contact.city?.trim()).filter(Boolean) as string[])).sort((a, b) =>
+        a.localeCompare(b, "pt-BR"),
+      ),
+    };
 
     // Só checa quando existe alguma campanha rodando de verdade — sem isso a
     // consulta ao CronRun (barata, mas desnecessária) rodaria em toda visita
@@ -66,6 +85,7 @@ export default async function CampanhasPage() {
             name: s.name,
             steps: s.steps as { text: string; delayAfterSec: number }[],
           }))}
+          audienceOptions={audienceOptions}
         />
       </div>
     );

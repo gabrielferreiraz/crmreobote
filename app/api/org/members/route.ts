@@ -86,6 +86,12 @@ export async function POST(req: Request) {
         // countsTowardGoal). Só a CRIAÇÃO decide isso sozinha — depois é
         // 100% manual (toggle em Configurações → Usuários).
         countsTowardGoal: role !== "OWNER",
+        // Rankings da TV (ver showInPodium/showInMonthRanking no schema) —
+        // pedido da diretoria: supervisor soma na meta mas fica fora do pódio
+        // da TV principal; no Ranking do mês completo aparece. Dono fica fora
+        // dos dois. Mesma regra de "só a criação decide sozinha".
+        showInPodium: role !== "OWNER" && role !== "SUPERVISOR",
+        showInMonthRanking: role !== "OWNER",
       },
       include: { user: { select: { id: true, name: true, email: true } } },
     });

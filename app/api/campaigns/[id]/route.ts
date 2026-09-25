@@ -82,7 +82,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       );
     }
 
-    const resolved = await resolveCampaignInput(access.organizationId, body as CampaignInput);
+    const resolved = await resolveCampaignInput(access.organizationId, body as CampaignInput, scope);
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
     const v = resolved.value;
 
@@ -102,6 +102,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         followUpEnabled: v.followUpEnabled,
         followUpDelayHours: v.followUpDelayHours,
         followUpTemplates: v.followUpTemplates,
+        rmktWaves: v.rmktWaves,
+        noReplyDays: v.noReplyDays,
       },
     });
 

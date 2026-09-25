@@ -63,7 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         );
       }
       const contacts = await prisma.contact.findMany({
-        where: buildAudienceWhere(access.organizationId, audienceFilter),
+        where: buildAudienceWhere(access.organizationId, audienceFilter, scope),
         select: { id: true },
       });
       if (contacts.length === 0) {

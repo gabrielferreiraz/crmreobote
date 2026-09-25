@@ -13,6 +13,7 @@
 // desliga na prática a proteção anti-ban da engine de campanhas.
 const MIN_DELAY_SEC = 10;
 const MAX_DELAY_SEC = 3600;
+const MAX_DAILY_CAP = 10_000;
 const MIN_NO_REPLY_DAYS = 1;
 const MAX_NO_REPLY_DAYS = 90;
 const MAX_RMKT_WAVES = 10;
@@ -25,6 +26,10 @@ export type ValidateRmktAndDelayInput = {
   noReplyDays?: number;
   delayMinSec?: number;
   delayMaxSec?: number;
+  dailyCap?: number | null;
+  allowedWeekdays?: number[];
+  windowStartHour?: number;
+  windowEndHour?: number;
   /** Cada chamador tem seu próprio padrão (bulk-send-leads: 80–1220s, mais
    * espaçado, pensado pra prospecção fria; bulk-send-message: 50–120s,
    * pensado pra quem já é negócio ativo) — só entra em jogo quando nem
@@ -40,6 +45,10 @@ export type ValidateRmktAndDelayResult =
       waves: RmktWaveInput[];
       resolvedDelayMinSec: number;
       resolvedDelayMaxSec: number;
+      resolvedDailyCap: number | null;
+      resolvedAllowedWeekdays: number[];
+      resolvedWindowStartHour: number;
+      resolvedWindowEndHour: number;
     }
   | { ok: false; error: string };
 
@@ -105,5 +114,44 @@ export function validateRmktAndDelay(input: ValidateRmktAndDelayInput): Validate
     }
   }
 
-  return { ok: true, resolvedNoReplyDays, waves, resolvedDelayMinSec, resolvedDelayMaxSec };
+  const resolvedDailyCap = input.dailyCap ?? null;
+  if (!Number.isInteger(resolvedDailyCap) && resolvedDailyCap !== null) {
+    return { ok: false, error: "Teto diário precisa ser um número inteiro" };
+  }
+  if (resolvedDailyCap !== null && (resolvedDailyCap < 1 || resolvedDailyCap > MAX_DAILY_CAP)) {
+    return { ok: false, error: `Teto diário precisa estar entre 1 e ${MAX_DAILY_CAP}` };
+  }
+
+  const resolvedAllowedWeekdays = input.allowedWeekdays ?? [1, 2, 3, 4, 5];
+  if (
+    !Array.isArray(resolvedAllowedWeekdays) ||
+    resolvedAllowedWeekdays.length === 0 ||
+    resolvedAllowedWeekdays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
+  ) {
+    return { ok: false, error: "Selecione ao menos um dia válido para enviar" };
+  }
+
+  const resolvedWindowStartHour = input.windowStartHour ?? 9;
+  const resolvedWindowEndHour = input.windowEndHour ?? 18;
+  if (!Number.isInteger(resolvedWindowStartHour) || resolvedWindowStartHour < 0 || resolvedWindowStartHour > 23) {
+    return { ok: false, error: "Horário inicial precisa estar entre 0 e 23" };
+  }
+  if (!Number.isInteger(resolvedWindowEndHour) || resolvedWindowEndHour < 0 || resolvedWindowEndHour > 23) {
+    return { ok: false, error: "Horário final precisa estar entre 0 e 23" };
+  }
+  if (resolvedWindowEndHour <= resolvedWindowStartHour) {
+    return { ok: false, error: "Horário final precisa ser depois do inicial" };
+  }
+
+  return {
+    ok: true,
+    resolvedNoReplyDays,
+    waves,
+    resolvedDelayMinSec,
+    resolvedDelayMaxSec,
+    resolvedDailyCap,
+    resolvedAllowedWeekdays,
+    resolvedWindowStartHour,
+    resolvedWindowEndHour,
+  };
 }

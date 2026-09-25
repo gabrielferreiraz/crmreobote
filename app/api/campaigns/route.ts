@@ -30,7 +30,8 @@ export async function POST(req: Request) {
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    const resolved = await resolveCampaignInput(access.organizationId, body);
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const resolved = await resolveCampaignInput(access.organizationId, body, scope);
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
     const v = resolved.value;
 
@@ -50,6 +51,8 @@ export async function POST(req: Request) {
         followUpEnabled: v.followUpEnabled,
         followUpDelayHours: v.followUpDelayHours,
         followUpTemplates: v.followUpTemplates,
+        rmktWaves: v.rmktWaves,
+        noReplyDays: v.noReplyDays,
         createdById: access.userId,
       },
     });

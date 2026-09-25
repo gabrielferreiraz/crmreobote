@@ -1,8 +1,9 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   Megaphone,
@@ -13,13 +14,15 @@ import {
   Pause,
   StopCircle,
   Send,
+  CheckCheck,
+  RefreshCw,
+  Image as ImageIcon,
   Pencil,
   X,
   Users,
   Smartphone,
   MessageSquare,
   Clock,
-  Repeat,
   Search,
   Radio,
   Hourglass,
@@ -34,11 +37,16 @@ import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
-import { renderSteps, pickWeighted, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
+import { BulkCampaignScheduleFields, type BulkCampaignSchedule } from "@/components/bulk-campaign-schedule-fields";
+import { BulkScriptPicker, type BulkScriptOption } from "@/components/bulk-script-picker";
+import { RmktWavesFields } from "@/components/rmkt-waves-fields";
+import { useRmktWaves, type WaveRow } from "@/lib/use-rmkt-waves";
+import { renderSteps, pickWeighted, renderTemplate, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
 import { DuplicateCampaignButton } from "./duplicate-campaign-button";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
 type AudienceFilter = { jobTitles: string[]; tags: string[]; cities: string[] };
+type AudienceOptions = AudienceFilter;
 
 type Campaign = {
   id: string;
@@ -70,6 +78,8 @@ type RawCampaign = {
   followUpTemplates: { steps: ScriptStep[]; weight: number; scriptId?: string }[] | null;
   followUpEnabled: boolean;
   followUpDelayHours: number;
+  rmktWaves: { dayOffset: number; templates: { scriptId?: string }[] }[] | null;
+  noReplyDays: number | null;
   delayMinSec: number;
   delayMaxSec: number;
   dailyCap: number | null;
@@ -80,8 +90,8 @@ type RawCampaign = {
 
 type InstanceOption = { id: string; label: string };
 type ScriptOption = { id: string; name: string; steps: ScriptStep[] };
-
-const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+type PreviewPosition = { top: number; left: number; maxHeight: number };
+type ScriptPreview = { script: BulkScriptOption; messages: string[] } & PreviewPosition;
 
 /** Ordem da lista: o que está acontecendo AGORA no topo (ver sortAndFilter
  * abaixo). Antes a ordem era só por data de criação, então uma campanha
@@ -100,6 +110,18 @@ const STATUS_META: Record<CampaignStatus, { label: string; tone: BadgeTone; icon
 };
 
 const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
+const PREVIEW_VARIABLES = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Campo Grande" };
+
+function delayLabel(seconds: number): string {
+  return seconds < 60 ? `${seconds}s depois` : `${Math.round(seconds / 60)} min depois`;
+}
+
+function createPreviewMessages(script: BulkScriptOption): string[] {
+  return script.steps.map((step) => {
+    if (!step.text.trim()) return "(mensagem vazia)";
+    return renderTemplate(step.text, PREVIEW_VARIABLES, "Boa tarde").replace(/\{[^{}]*\}/g, "Maria").replace(/[{}]/g, "");
+  });
+}
 
 const NUMBER_FORMAT = new Intl.NumberFormat("pt-BR");
 /** 21082 → "21.082". Números de campanha passam de dezenas de milhares e sem
@@ -245,10 +267,12 @@ export function CampaignsTable({
   initialCampaigns,
   instances,
   scripts,
+  audienceOptions,
 }: {
   initialCampaigns: Campaign[];
   instances: InstanceOption[];
   scripts: ScriptOption[];
+  audienceOptions: AudienceOptions;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -793,6 +817,7 @@ export function CampaignsTable({
         <CampaignDialog
           instances={instances}
           scripts={scripts}
+          audienceOptions={audienceOptions}
           editCampaign={editCampaign}
           onClose={() => setOpen(false)}
           onSaved={() => {
@@ -839,13 +864,16 @@ function ChipInput({
   values,
   onChange,
   placeholder,
+  options,
 }: {
   label: string;
   values: string[];
   onChange: (values: string[]) => void;
   placeholder: string;
+  options: string[];
 }) {
   const [input, setInput] = useState("");
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 
   function add(raw: string) {
     const clean = raw.trim();
@@ -853,8 +881,22 @@ function ChipInput({
     setInput("");
   }
 
+  const availableOptions = options.filter(
+    (option) =>
+      !values.some((value) => value.localeCompare(option, undefined, { sensitivity: "accent" }) === 0) &&
+      option.toLocaleLowerCase("pt-BR").includes(input.trim().toLocaleLowerCase("pt-BR")),
+  );
+
   return (
-    <div className="space-y-1">
+    <div
+      className="relative space-y-1"
+      onFocusCapture={() => setSuggestionsOpen(true)}
+      onBlurCapture={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        if (input) add(input);
+        setSuggestionsOpen(false);
+      }}
+    >
       <label className="field-label">{label}</label>
       <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-neutral-300 p-1.5 dark:border-neutral-700">
         {values.map((v) => (
@@ -876,6 +918,7 @@ function ChipInput({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onClick={() => setSuggestionsOpen(true)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
@@ -887,6 +930,24 @@ function ChipInput({
           className="min-w-[100px] flex-1 border-0 bg-transparent p-0.5 text-sm outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
         />
       </div>
+      {suggestionsOpen && availableOptions.length > 0 && (
+        <div className="scrollbar-thin absolute top-full z-30 mt-1 flex max-h-32 w-full flex-wrap gap-1 overflow-y-auto rounded-md border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+          {availableOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                add(option);
+                setSuggestionsOpen(false);
+              }}
+              className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-xs text-neutral-600 transition-colors hover:border-brand/40 hover:bg-brand/5 hover:text-brand dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-brand/50 dark:hover:bg-brand/10"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -920,66 +981,6 @@ function DialogSection({
   );
 }
 
-function ScriptPicker({
-  scripts,
-  selectedIds,
-  weightById,
-  onToggle,
-  onWeightChange,
-}: {
-  scripts: ScriptOption[];
-  selectedIds: string[];
-  weightById: Record<string, string>;
-  onToggle: (scriptId: string) => void;
-  onWeightChange: (scriptId: string, value: string) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      {scripts.map((s) => {
-        const checked = selectedIds.includes(s.id);
-        return (
-          <div
-            key={s.id}
-            className={`flex items-start gap-2 rounded-md border p-2.5 text-sm transition-colors ${
-              checked
-                ? "border-[var(--brand)] bg-[var(--brand-light)] dark:bg-[var(--brand-subtle)]"
-                : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={() => onToggle(s.id)}
-              className="mt-0.5 accent-neutral-900 dark:accent-white"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-neutral-900 dark:text-neutral-100">
-                {s.name}
-                {s.steps.length > 1 && (
-                  <span className="ml-1.5 text-xs font-normal text-neutral-400 dark:text-neutral-500">
-                    · {s.steps.length} mensagens
-                  </span>
-                )}
-              </p>
-              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{s.steps[0]?.text}</p>
-            </div>
-            {checked && (
-              <input
-                type="number"
-                min={1}
-                value={weightById[s.id] ?? "1"}
-                onChange={(e) => onWeightChange(s.id, e.target.value)}
-                title="Peso (frequência relativa deste script)"
-                className="field-input w-14 shrink-0 px-2"
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function scriptRefsFromTemplates(
   templates: { steps: ScriptStep[]; weight: number; scriptId?: string }[] | null | undefined,
   availableScripts: ScriptOption[],
@@ -994,19 +995,30 @@ function scriptRefsFromTemplates(
   return { ids, weights };
 }
 
+function rmktRowsFromCampaign(raw: RawCampaign["rmktWaves"]): WaveRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((wave) => {
+    const scriptId = wave.templates[0]?.scriptId;
+    return scriptId ? [{ dayOffset: String(wave.dayOffset), scriptId }] : [];
+  });
+}
+
 function CampaignDialog({
   instances,
   scripts,
+  audienceOptions,
   editCampaign,
   onClose,
   onSaved,
 }: {
   instances: InstanceOption[];
   scripts: ScriptOption[];
+  audienceOptions: AudienceOptions;
   editCampaign: RawCampaign | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const router = useRouter();
   const isEdit = !!editCampaign;
   const initialScriptRefs = useMemo(
     () => scriptRefsFromTemplates(editCampaign?.messageTemplates, scripts),
@@ -1023,22 +1035,33 @@ function CampaignDialog({
   const [cities, setCities] = useState<string[]>(editCampaign?.audienceFilter.cities ?? []);
   const [instanceId, setInstanceId] = useState(editCampaign?.instanceId ?? instances[0]?.id ?? "");
   const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>(initialScriptRefs.ids);
-  const [weightByScript, setWeightByScript] = useState<Record<string, string>>(initialScriptRefs.weights);
-  const [delayMinSec, setDelayMinSec] = useState(String(editCampaign?.delayMinSec ?? 30));
-  const [delayMaxSec, setDelayMaxSec] = useState(String(editCampaign?.delayMaxSec ?? 90));
-  const [dailyCap, setDailyCap] = useState(editCampaign?.dailyCap ? String(editCampaign.dailyCap) : "");
-  const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>(editCampaign?.allowedWeekdays ?? [1, 2, 3, 4, 5]);
-  const [windowStartHour, setWindowStartHour] = useState(String(editCampaign?.windowStartHour ?? 9));
-  const [windowEndHour, setWindowEndHour] = useState(String(editCampaign?.windowEndHour ?? 18));
-
-  const [followUpEnabled, setFollowUpEnabled] = useState(editCampaign?.followUpEnabled ?? false);
-  const [followUpDelayHours, setFollowUpDelayHours] = useState(String(editCampaign?.followUpDelayHours ?? 24));
-  const [followUpScriptIds, setFollowUpScriptIds] = useState<string[]>(initialFollowUpRefs.ids);
-  const [followUpWeightByScript, setFollowUpWeightByScript] = useState<Record<string, string>>(initialFollowUpRefs.weights);
+  const [schedule, setSchedule] = useState<BulkCampaignSchedule>({
+    delayMinSec: editCampaign?.delayMinSec ?? 120,
+    delayMaxSec: editCampaign?.delayMaxSec ?? 1200,
+    dailyCap: editCampaign?.dailyCap ? String(editCampaign.dailyCap) : "",
+    allowedWeekdays: editCampaign?.allowedWeekdays ?? [1, 2, 3, 4, 5],
+    windowStartHour: String(editCampaign?.windowStartHour ?? 9),
+    windowEndHour: String(editCampaign?.windowEndHour ?? 18),
+  });
+  const initialRmktWaves = useMemo(() => {
+    const configuredWaves = rmktRowsFromCampaign(editCampaign?.rmktWaves ?? null);
+    if (configuredWaves.length > 0) return configuredWaves;
+    if (!editCampaign?.followUpEnabled) return [];
+    return [{ dayOffset: String(Math.max(1, Math.ceil(editCampaign.followUpDelayHours / 24))), scriptId: initialFollowUpRefs.ids[0] ?? initialScriptRefs.ids[0] ?? "" }];
+  }, [editCampaign, initialFollowUpRefs.ids, initialScriptRefs.ids]);
+  const rmkt = useRmktWaves({
+    automaticNoReplyDays: true,
+    initialEnabled: initialRmktWaves.length > 0,
+    initialWaves: initialRmktWaves,
+  });
 
   const [testPhone, setTestPhone] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [scriptPreview, setScriptPreview] = useState<ScriptPreview | null>(null);
+  const previewOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewAnchorRef = useRef<HTMLElement | null>(null);
 
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
   const [audienceLoading, setAudienceLoading] = useState(false);
@@ -1070,23 +1093,72 @@ function CampaignDialog({
     return () => clearTimeout(timeout);
   }, [jobTitles, tags, cities, hasAudienceFilter]);
 
-  function toggleWeekday(day: number) {
-    setAllowedWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()));
-  }
-
   function toggleScript(scriptId: string) {
     setSelectedScriptIds((prev) =>
       prev.includes(scriptId) ? prev.filter((id) => id !== scriptId) : [...prev, scriptId],
     );
-    setWeightByScript((prev) => (prev[scriptId] ? prev : { ...prev, [scriptId]: "1" }));
   }
 
-  function toggleFollowUpScript(scriptId: string) {
-    setFollowUpScriptIds((prev) =>
-      prev.includes(scriptId) ? prev.filter((id) => id !== scriptId) : [...prev, scriptId],
-    );
-    setFollowUpWeightByScript((prev) => (prev[scriptId] ? prev : { ...prev, [scriptId]: "1" }));
+  function getPreviewPosition(anchor: HTMLElement): PreviewPosition {
+    const gutter = 12;
+    const preferredWidth = 360;
+    const preferredHeight = 420;
+    const rect = anchor.getBoundingClientRect();
+    const width = Math.min(preferredWidth, Math.max(0, window.innerWidth - gutter * 2));
+    const maxLeft = Math.max(gutter, window.innerWidth - gutter - width);
+    const left = rect.right + gutter + width <= window.innerWidth - gutter
+      ? rect.right + gutter
+      : Math.min(maxLeft, Math.max(gutter, rect.left - gutter - width));
+    const maxHeight = Math.min(preferredHeight, Math.max(0, window.innerHeight - gutter * 2));
+    const top = rect.top + maxHeight <= window.innerHeight - gutter
+      ? Math.max(gutter, rect.top)
+      : rect.bottom - maxHeight >= gutter
+        ? rect.bottom - maxHeight
+        : gutter;
+    return { top, left, maxHeight };
   }
+
+  function showScriptPreview(script: BulkScriptOption, anchor: HTMLElement) {
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+    if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+    if (previewAnchorRef.current !== anchor) setScriptPreview(null);
+    previewAnchorRef.current = anchor;
+    previewOpenTimer.current = setTimeout(() => {
+      if (previewAnchorRef.current === anchor) {
+        setScriptPreview({ script, messages: createPreviewMessages(script), ...getPreviewPosition(anchor) });
+      }
+    }, 250);
+  }
+
+  function hideScriptPreviewSoon() {
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+    if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+    previewCloseTimer.current = setTimeout(() => setScriptPreview(null), 120);
+  }
+
+  function refreshScriptPreview() {
+    setScriptPreview((current) => current ? { ...current, messages: createPreviewMessages(current.script) } : null);
+  }
+
+  useEffect(() => {
+    if (!scriptPreview) return;
+    const reposition = () => {
+      const anchor = previewAnchorRef.current;
+      if (!anchor || !document.documentElement.contains(anchor)) return setScriptPreview(null);
+      setScriptPreview((current) => current ? { ...current, ...getPreviewPosition(anchor) } : null);
+    };
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [scriptPreview]);
+
+  useEffect(() => () => {
+    if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+  }, []);
 
   // Prévia: sorteia um dos scripts marcados e resolve spintax + variáveis com
   // um contato de exemplo, pra ver exatamente o que vai chegar pro lead antes
@@ -1095,7 +1167,7 @@ function CampaignDialog({
     const candidates: WeightedScript[] = selectedScriptIds
       .map((id) => scripts.find((s) => s.id === id))
       .filter((s): s is ScriptOption => !!s)
-      .map((s) => ({ steps: s.steps, weight: Number(weightByScript[s.id]) || 1 }));
+      .map((s) => ({ steps: s.steps, weight: 1 }));
     if (candidates.length === 0) return [];
     const chosen = pickWeighted(candidates);
     return renderSteps(
@@ -1103,7 +1175,7 @@ function CampaignDialog({
       { nome: SAMPLE_VARS.nome, cargo: jobTitles[0] || SAMPLE_VARS.cargo, empresa: SAMPLE_VARS.empresa, cidade: cities[0] || SAMPLE_VARS.cidade },
       "Boa tarde",
     );
-  }, [selectedScriptIds, weightByScript, scripts, jobTitles, cities]);
+  }, [selectedScriptIds, scripts, jobTitles, cities]);
 
   async function sendTest() {
     if (previewSteps.length === 0 || !instanceId || !testPhone.trim()) return;
@@ -1132,18 +1204,14 @@ function CampaignDialog({
       name,
       audienceFilter: { jobTitles, tags, cities },
       instanceId,
-      scripts: selectedScriptIds.map((id) => ({ scriptId: id, weight: Number(weightByScript[id]) || 1 })),
-      delayMinSec: Number(delayMinSec) || 30,
-      delayMaxSec: Number(delayMaxSec) || 90,
-      dailyCap: dailyCap ? Number(dailyCap) : null,
-      allowedWeekdays,
-      windowStartHour: Number(windowStartHour),
-      windowEndHour: Number(windowEndHour),
-      followUpEnabled,
-      followUpDelayHours: Number(followUpDelayHours) || 24,
-      followUpScripts: followUpEnabled
-        ? followUpScriptIds.map((id) => ({ scriptId: id, weight: Number(followUpWeightByScript[id]) || 1 }))
-        : undefined,
+      scripts: selectedScriptIds.map((id) => ({ scriptId: id, weight: 1 })),
+      ...rmkt.serialize(),
+      delayMinSec: schedule.delayMinSec,
+      delayMaxSec: schedule.delayMaxSec,
+      dailyCap: schedule.dailyCap ? Number(schedule.dailyCap) : null,
+      allowedWeekdays: schedule.allowedWeekdays,
+      windowStartHour: Number(schedule.windowStartHour),
+      windowEndHour: Number(schedule.windowEndHour),
     };
 
     const res = await fetch(isEdit ? `/api/campaigns/${editCampaign!.id}` : "/api/campaigns", {
@@ -1164,7 +1232,13 @@ function CampaignDialog({
   }
 
   const canSubmit =
-    !!name.trim() && hasAudienceFilter && !!instanceId && selectedScriptIds.length > 0 && allowedWeekdays.length > 0;
+    !!name.trim() &&
+    hasAudienceFilter &&
+    !!instanceId &&
+    selectedScriptIds.length > 0 &&
+    rmkt.valid &&
+    schedule.delayMaxSec >= schedule.delayMinSec &&
+    schedule.allowedWeekdays.length > 0;
 
   const audienceBadge = hasAudienceFilter ? (
     <span
@@ -1183,6 +1257,7 @@ function CampaignDialog({
   ) : undefined;
 
   return (
+    <>
     <Modal onClose={onClose} maxWidth="max-w-xl">
       <div className="mb-5 flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-light)] text-[var(--brand)] dark:bg-[var(--brand-subtle)]">
@@ -1220,9 +1295,9 @@ function CampaignDialog({
         </div>
 
         <DialogSection icon={Users} title="Público" right={audienceBadge}>
-          <ChipInput label="Cargo (um ou mais)" values={jobTitles} onChange={setJobTitles} placeholder="Ex.: Advogado — Enter pra adicionar" />
-          <ChipInput label="Tags do contato" values={tags} onChange={setTags} placeholder="Ex.: lead-quente" />
-          <ChipInput label="Cidade" values={cities} onChange={setCities} placeholder="Ex.: Campo Grande" />
+          <ChipInput label="Cargo (um ou mais)" values={jobTitles} onChange={setJobTitles} placeholder="Ex.: Advogado — Enter pra adicionar" options={audienceOptions.jobTitles} />
+          <ChipInput label="Tags do contato" values={tags} onChange={setTags} placeholder="Ex.: lead-quente" options={audienceOptions.tags} />
+          <ChipInput label="Cidade" values={cities} onChange={setCities} placeholder="Ex.: Campo Grande" options={audienceOptions.cities} />
           {!hasAudienceFilter && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Defina ao menos um critério pra ver quantos contatos batem.</p>
           )}
@@ -1231,183 +1306,49 @@ function CampaignDialog({
           )}
         </DialogSection>
 
-        <DialogSection icon={MessageSquare} title="Mensagens">
-          {scripts.length === 0 ? (
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Nenhum script cadastrado ainda —{" "}
-              <Link href="/whatsapp/scripts" className="underline">
-                crie um na aba Scripts
-              </Link>{" "}
-              antes de montar a campanha.
-            </p>
-          ) : (
-            <ScriptPicker
-              scripts={scripts}
-              selectedIds={selectedScriptIds}
-              weightById={weightByScript}
-              onToggle={toggleScript}
-              onWeightChange={(id, value) => setWeightByScript((prev) => ({ ...prev, [id]: value }))}
-            />
-          )}
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">Cada envio sorteia um dos scripts marcados, proporcional ao peso.</p>
+        <BulkScriptPicker
+          scripts={scripts}
+          selectedIds={selectedScriptIds}
+          onToggle={toggleScript}
+          onCreateScript={() => router.push("/whatsapp/scripts")}
+          onPreview={showScriptPreview}
+          onPreviewEnd={hideScriptPreviewSoon}
+        />
 
-          {previewSteps.length > 0 && (
-            <div className="space-y-1.5 rounded-md border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900">
-              <p className="field-label">Prévia (com dados de exemplo)</p>
-              <div className="space-y-1">
-                {previewSteps.map((s, i) => (
-                  <div key={i} className="max-w-[85%] rounded-lg bg-emerald-50 px-2.5 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200">
-                    {s.text}
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <input
-                  value={testPhone}
-                  onChange={(e) => setTestPhone(e.target.value)}
-                  placeholder="Seu número p/ testar (com DDD)"
-                  className="field-input w-56"
-                />
-                <button
-                  type="button"
-                  disabled={testSending || !testPhone.trim() || !instanceId}
-                  onClick={sendTest}
-                  className="btn-ghost"
-                >
-                  {testSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Send className="h-3.5 w-3.5" strokeWidth={2} />}
-                  Enviar teste
-                </button>
-                {testResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{testResult}</span>}
-              </div>
-            </div>
-          )}
-        </DialogSection>
-
-        <DialogSection icon={Clock} title="Ritmo de envio">
-          <div className="space-y-1">
-            <label className="field-label">Intervalo entre envios</label>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">de</span>
-              <input
-                type="number"
-                min={1}
-                value={delayMinSec}
-                onChange={(e) => setDelayMinSec(e.target.value)}
-                className="field-input w-20 text-center"
-              />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">a</span>
-              <input
-                type="number"
-                min={1}
-                value={delayMaxSec}
-                onChange={(e) => setDelayMaxSec(e.target.value)}
-                className="field-input w-20 text-center"
-              />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">segundos</span>
-            </div>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Aleatório dentro da faixa — ajuda a não parecer automatizado.</p>
-          </div>
-
-          <div className="space-y-1">
-            <label className="field-label">Horário de envio</label>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">das</span>
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={windowStartHour}
-                onChange={(e) => setWindowStartHour(e.target.value)}
-                className="field-input w-16 text-center"
-              />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">às</span>
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={windowEndHour}
-                onChange={(e) => setWindowEndHour(e.target.value)}
-                className="field-input w-16 text-center"
-              />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">h</span>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="field-label">Dias permitidos</label>
-            <div className="flex flex-wrap gap-1.5">
-              {WEEKDAY_LABELS.map((label, day) => (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => toggleWeekday(day)}
-                  className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-                    allowedWeekdays.includes(day)
-                      ? "border-[var(--brand)] bg-[var(--brand)] text-white"
-                      : "border-neutral-300 bg-white text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                  }`}
-                >
-                  {label}
-                </button>
+        {previewSteps.length > 0 && (
+          <div className="space-y-1.5 rounded-md border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900">
+            <p className="field-label">Teste de envio</p>
+            <div className="space-y-1">
+              {previewSteps.map((s, i) => (
+                <div key={i} className="max-w-[85%] rounded-lg bg-emerald-50 px-2.5 py-1.5 text-sm whitespace-pre-wrap text-neutral-800 dark:bg-emerald-500/10 dark:text-neutral-200">
+                  {s.text}
+                </div>
               ))}
             </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="field-label">Teto diário (opcional)</label>
-            <input
-              type="number"
-              min={1}
-              value={dailyCap}
-              onChange={(e) => setDailyCap(e.target.value)}
-              placeholder="Sem limite"
-              className="field-input w-32"
-            />
-          </div>
-        </DialogSection>
-
-        <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-800/30">
-          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            <input
-              type="checkbox"
-              checked={followUpEnabled}
-              onChange={(e) => setFollowUpEnabled(e.target.checked)}
-              className="accent-neutral-900 dark:accent-white"
-            />
-            <Repeat className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-            Reenvio automático pra quem não responder (remarketing)
-          </label>
-
-          {followUpEnabled && (
-            <div className="space-y-2 pt-1">
-              <div className="space-y-1">
-                <label className="field-label">Esperar quantas horas sem resposta</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={followUpDelayHours}
-                  onChange={(e) => setFollowUpDelayHours(e.target.value)}
-                  className="field-input w-32"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="field-label">Scripts do reenvio (opcional)</label>
-                {scripts.length > 0 && (
-                  <ScriptPicker
-                    scripts={scripts}
-                    selectedIds={followUpScriptIds}
-                    weightById={followUpWeightByScript}
-                    onToggle={toggleFollowUpScript}
-                    onWeightChange={(id, value) => setFollowUpWeightByScript((prev) => ({ ...prev, [id]: value }))}
-                  />
-                )}
-                <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                  Se nenhum for marcado, o reenvio usa os mesmos scripts do envio inicial.
-                </p>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <input
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                placeholder="Seu número p/ testar (com DDD)"
+                className="field-input w-56"
+              />
+              <button
+                type="button"
+                disabled={testSending || !testPhone.trim() || !instanceId}
+                onClick={sendTest}
+                className="btn-ghost"
+              >
+                {testSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Send className="h-3.5 w-3.5" strokeWidth={2} />}
+                Enviar teste
+              </button>
+              {testResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{testResult}</span>}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        <RmktWavesFields rmkt={rmkt} scripts={scripts} showNoReplyDays={false} />
+
+        <BulkCampaignScheduleFields value={schedule} onChange={setSchedule} />
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
@@ -1431,5 +1372,61 @@ function CampaignDialog({
         </div>
       </form>
     </Modal>
+    {scriptPreview &&
+      typeof document !== "undefined" &&
+      createPortal(
+        <div
+          onMouseEnter={() => {
+            if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+            if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+          }}
+          onMouseLeave={hideScriptPreviewSoon}
+          className="animate-pop-in scrollbar-thin fixed z-[70] max-h-[420px] w-[360px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-lg border border-neutral-200 bg-[#efeae2] shadow-xl motion-reduce:animate-none dark:border-neutral-700 dark:bg-[#0b141a]"
+          style={{ top: scriptPreview.top, left: scriptPreview.left, maxHeight: scriptPreview.maxHeight }}
+        >
+          <div className="flex items-center justify-between gap-3 bg-[#075e54] px-3 py-2.5 text-white dark:bg-[#202c33]">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">M</div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">Maria Silva</p>
+                <p className="text-[11px] text-white/70">Prévia de envio</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={refreshScriptPreview}
+              title="Gerar outra prévia"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[11px] font-semibold transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            >
+              <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+              Mudar prévia
+            </button>
+          </div>
+          <div className="space-y-2.5 p-3">
+            {scriptPreview.script.steps.map((step, index) => (
+              <div key={index}>
+                {index > 0 && (
+                  <p className="mb-2 text-center text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                    {delayLabel(scriptPreview.script.steps[index - 1].delayAfterSec)}
+                  </p>
+                )}
+                <div className="ml-auto max-w-[88%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-snug whitespace-pre-wrap text-neutral-800 shadow-sm dark:bg-[#005c4b] dark:text-neutral-100">
+                  {step.type === "IMAGE" && (
+                    <span className="mb-1.5 flex h-20 items-center justify-center rounded-md bg-black/10 text-[11px] text-neutral-600 dark:bg-white/10 dark:text-neutral-200">
+                      <ImageIcon className="mr-1.5 h-3.5 w-3.5" strokeWidth={2} /> Imagem
+                    </span>
+                  )}
+                  <p>{scriptPreview.messages[index]}</p>
+                  <span className="mt-1 flex items-center justify-end gap-1 text-[10px] text-neutral-500 dark:text-neutral-300">
+                    agora <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-300" strokeWidth={2} />
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

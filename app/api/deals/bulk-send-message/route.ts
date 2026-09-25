@@ -25,7 +25,7 @@ const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"] as const;
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, markLostOnNoReply, delayMinSec, delayMaxSec } =
+  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, markLostOnNoReply, delayMinSec, delayMaxSec, dailyCap, allowedWeekdays, windowStartHour, windowEndHour } =
     body as {
       dealIds?: string[];
       scriptIds?: string[];
@@ -38,6 +38,10 @@ export async function POST(req: Request) {
       markLostOnNoReply?: boolean;
       delayMinSec?: number;
       delayMaxSec?: number;
+      dailyCap?: number | null;
+      allowedWeekdays?: number[];
+      windowStartHour?: number;
+      windowEndHour?: number;
     };
 
   const access = await requireRole([...ALLOWED_ROLES]);
@@ -62,11 +66,24 @@ export async function POST(req: Request) {
     noReplyDays,
     delayMinSec,
     delayMaxSec,
+    dailyCap,
+    allowedWeekdays,
+    windowStartHour,
+    windowEndHour,
     defaultDelayMinSec: DEFAULT_DELAY_MIN_SEC,
     defaultDelayMaxSec: DEFAULT_DELAY_MAX_SEC,
   });
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
-  const { resolvedNoReplyDays, waves, resolvedDelayMinSec, resolvedDelayMaxSec } = validated;
+  const {
+    resolvedNoReplyDays,
+    waves,
+    resolvedDelayMinSec,
+    resolvedDelayMaxSec,
+    resolvedDailyCap,
+    resolvedAllowedWeekdays,
+    resolvedWindowStartHour,
+    resolvedWindowEndHour,
+  } = validated;
 
   return runWithTenant(organizationId, async () => {
     // Privado por consultor: um script só pode ser usado por quem o criou —
@@ -204,6 +221,10 @@ export async function POST(req: Request) {
         instanceId: recipientsData[0].instanceId,
         delayMinSec: resolvedDelayMinSec,
         delayMaxSec: resolvedDelayMaxSec,
+        dailyCap: resolvedDailyCap,
+        allowedWeekdays: resolvedAllowedWeekdays,
+        windowStartHour: resolvedWindowStartHour,
+        windowEndHour: resolvedWindowEndHour,
         // RMKT — pedido explícito de paridade com quem ainda não tem
         // negócio (ver lib/campaigns/engine.ts, que agora processa onda de
         // RMKT pra qualquer campanha com noReplyDays preenchido, não só

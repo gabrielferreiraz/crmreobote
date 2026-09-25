@@ -17,14 +17,26 @@ import type { RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 
 export type WaveRow = { dayOffset: string; scriptId: string };
 
-export function useRmktWaves({ automaticNoReplyDays = false }: { automaticNoReplyDays?: boolean } = {}) {
-  const [rmktEnabled, setRmktEnabled] = useState(false);
-  const [waves, setWaves] = useState<WaveRow[]>([{ dayOffset: "3", scriptId: "" }]);
-  const [noReplyDays, setNoReplyDays] = useState("3");
+export function useRmktWaves({
+  automaticNoReplyDays = false,
+  initialEnabled = false,
+  initialWaves,
+  initialNoReplyDays = "3",
+  initialMarkLostOnNoReply = false,
+}: {
+  automaticNoReplyDays?: boolean;
+  initialEnabled?: boolean;
+  initialWaves?: WaveRow[];
+  initialNoReplyDays?: string;
+  initialMarkLostOnNoReply?: boolean;
+} = {}) {
+  const [rmktEnabled, setRmktEnabled] = useState(initialEnabled);
+  const [waves, setWaves] = useState<WaveRow[]>(initialWaves?.length ? initialWaves : [{ dayOffset: "3", scriptId: "" }]);
+  const [noReplyDays, setNoReplyDays] = useState(initialNoReplyDays);
   // Só usado no contexto de negócio já existente (Pipeline → disparo em
   // massa) — ver dealsContext em rmkt-waves-fields.tsx. Default false:
   // pedido explícito era ter a OPÇÃO de ligar/desligar, não ligar sozinho.
-  const [markLostOnNoReply, setMarkLostOnNoReply] = useState(false);
+  const [markLostOnNoReply, setMarkLostOnNoReply] = useState(initialMarkLostOnNoReply);
 
   function addWave() {
     setWaves((prev) => [...prev, { dayOffset: "", scriptId: "" }]);

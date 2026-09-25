@@ -15,7 +15,7 @@ export async function PATCH(
 ) {
   const { userId } = await params;
   const body = await req.json();
-  const { role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal } = body as {
+  const { role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal, showInPodium, showInMonthRanking } = body as {
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
@@ -27,6 +27,9 @@ export async function PATCH(
     email?: string;
     /** "Conta na meta" (ver OrganizationUser.countsTowardGoal no schema). */
     countsTowardGoal?: boolean;
+    /** Aparece no pódio (top 3) da TV principal / no Ranking do mês completo (ver schema). */
+    showInPodium?: boolean;
+    showInMonthRanking?: boolean;
   };
 
   const access = await requireRole(["OWNER"]);
@@ -34,6 +37,12 @@ export async function PATCH(
 
   if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
+  }
+
+  for (const flag of [countsTowardGoal, showInPodium, showInMonthRanking]) {
+    if (flag !== undefined && typeof flag !== "boolean") {
+      return NextResponse.json({ error: "Valor inválido pra meta/ranking" }, { status: 400 });
+    }
   }
 
   if (
@@ -45,10 +54,12 @@ export async function PATCH(
     area === undefined &&
     birthDate === undefined &&
     email === undefined &&
-    countsTowardGoal === undefined
+    countsTowardGoal === undefined &&
+    showInPodium === undefined &&
+    showInMonthRanking === undefined
   ) {
     return NextResponse.json(
-      { error: "role, teamId, active, name, canManageProcesses, area, birthDate, email ou countsTowardGoal é obrigatório" },
+      { error: "role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal, showInPodium ou showInMonthRanking é obrigatório" },
       { status: 400 },
     );
   }
@@ -141,7 +152,7 @@ export async function PATCH(
 
       const updatedMembership = await tx.organizationUser.update({
         where: { organizationId_userId: { organizationId: access.organizationId, userId } },
-        data: { role, teamId, active, canManageProcesses, area, countsTowardGoal },
+        data: { role, teamId, active, canManageProcesses, area, countsTowardGoal, showInPodium, showInMonthRanking },
         include: { user: { select: { id: true, name: true, email: true, image: true } } },
       });
 

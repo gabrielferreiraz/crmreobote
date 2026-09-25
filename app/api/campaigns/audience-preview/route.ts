@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { parseAudienceFilter, audienceFilterIsEmpty, countAudience } from "@/lib/campaigns/audience";
+import { getDealScope } from "@/lib/team-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,8 @@ export async function POST(req: Request) {
   if (audienceFilterIsEmpty(filter)) return NextResponse.json({ count: 0 });
 
   return runWithTenant(access.organizationId, async () => {
-    const count = await countAudience(access.organizationId, filter);
+    const scope = await getDealScope(access.organizationId, access.userId, access.role);
+    const count = await countAudience(access.organizationId, filter, scope);
     return NextResponse.json({ count });
   });
 }
