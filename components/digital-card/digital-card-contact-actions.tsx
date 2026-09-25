@@ -1,4 +1,4 @@
-import { Phone, Mail, MapPin, ChevronRight } from "lucide-react";
+import { Mail, MapPin, ChevronRight } from "lucide-react";
 import { normalizePhoneNumber, formatBrazilianPhone, ensureBrazilianMobileNinthDigit, toDialNumber } from "@/lib/phone-normalize";
 
 type Props = {
@@ -55,10 +55,10 @@ function IconAction({
       className="flex flex-col items-center gap-1.5 group"
     >
       <span
-        className={`flex h-11 w-11 items-center justify-center rounded-2xl border shadow-md backdrop-blur-md transition-all duration-200 group-hover:scale-105 ${
+        className={`flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-200 group-hover:-translate-y-0.5 ${
           light
-            ? "border-sky-300/40 bg-white/70 text-slate-800 shadow-sky-950/5 group-hover:bg-white"
-            : "border-white/10 bg-white/[0.07] text-white/90"
+            ? "border-white bg-white/75 text-slate-800 shadow-[0_5px_10px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.8)] group-hover:bg-white"
+            : "border-white/[0.09] bg-[#202733] text-white/90 shadow-[0_5px_10px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)]"
         } ${accentClass}`}
       >
         <Icon className="h-4.5 w-4.5" />
@@ -90,16 +90,16 @@ function ProminentPill({
   onClick: () => void;
   variant?: "cyan" | "emerald";
 }) {
-  const gradientStyles =
+  const surfaceStyles =
     variant === "emerald"
-      ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 shadow-[0_4px_16px_rgba(16,185,129,0.3)] border-emerald-400/30"
-      : "bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-blue-500 shadow-[0_4px_16px_rgba(0,174,238,0.3)] border-cyan-400/30";
+      ? "border-emerald-400/30 bg-emerald-600 shadow-[0_7px_14px_rgba(5,150,105,0.28),inset_0_1px_0_rgba(255,255,255,0.16)] hover:bg-emerald-500"
+      : "border-sky-300/30 bg-[#2384ef] shadow-[0_7px_14px_rgba(8,86,180,0.28),inset_0_1px_0_rgba(255,255,255,0.16)] hover:bg-[#1677df]";
 
   return (
     <a
       href={href}
       onClick={onClick}
-      className={`flex items-center gap-2.5 rounded-2xl border px-3.5 py-2.5 text-white transition-all hover:scale-[1.01] active:scale-[0.99] overflow-hidden max-w-full ${gradientStyles}`}
+      className={`flex max-w-full items-center gap-2.5 overflow-hidden rounded-lg border px-3.5 py-2.5 text-white transition-colors active:translate-y-px ${surfaceStyles}`}
     >
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur-md">
         <Icon className="h-4.5 w-4.5 shrink-0" />
@@ -126,7 +126,6 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
 
   // toDialNumber: 55 só em número brasileiro (número de outro país já leva o próprio DDI).
   const whatsappHref = whatsappDigits ? `https://wa.me/${toDialNumber(whatsappDigits)}` : null;
-  const phoneHref = phoneDigits ? `tel:+${toDialNumber(phoneDigits)}` : null;
   const emailHref = email ? `mailto:${email}` : null;
   const mapHref = address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : null;
 
@@ -208,5 +207,3 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
     </div>
   );
 }
-
-

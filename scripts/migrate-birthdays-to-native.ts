@@ -1,4 +1,10 @@
 /**
+ * EXECUTADO em produção em 2026-09-25 (FASE 1: 14.667 copiados; FASE 2: campo
+ * "Aniversário" apagado, 14.670 chaves removidas — backups em .scratch/). Fica
+ * no repositório como registro do que foi feito e pelo --rollback, que devolve
+ * os valores e recria a definição (mesmo id) a partir do backup. Rodar de novo
+ * é inofensivo: sem o campo, diz "não existe" e sai.
+ *
  * Unifica o aniversário do cliente: copia o campo personalizado "Aniversário"
  * (CustomFieldDefinition CONTACT/DATE, valor "YYYY-MM-DD" em
  * Contact.customFieldValues[defId], gravado pela importação do Agendor) pra

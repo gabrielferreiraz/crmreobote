@@ -30,7 +30,6 @@ export function buildVCard(input: VCardInput): string {
   const lines = ["BEGIN:VCARD", "VERSION:3.0", `FN:${escapeVCardValue(input.name)}`, `N:${escapeVCardValue(input.name)};;;;`];
 
   if (input.jobTitle) lines.push(`TITLE:${escapeVCardValue(input.jobTitle)}`);
-  if (input.companyName) lines.push(`ORG:${escapeVCardValue(input.companyName)}`);
   if (input.phone) lines.push(`TEL;TYPE=WORK,VOICE:${escapeVCardValue(input.phone)}`);
   // WhatsApp não tem um TYPE padrão em vCard — CELL é o mais próximo (a
   // maioria dos apps de Contatos do celular reconhece como "celular", que é

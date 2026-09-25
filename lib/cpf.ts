@@ -48,3 +48,28 @@ export function isValidCpf(raw: string): boolean {
   if (/^(\d)\1{10}$/.test(d)) return false;
   return checkDigit(d, 9) === Number(d[9]) && checkDigit(d, 10) === Number(d[10]);
 }
+
+/**
+ * Devolve o CPF (11 dígitos) com os ZEROS À ESQUERDA restaurados, ou null se o
+ * valor não dá pra recuperar com segurança. Existe porque planilha (Excel/CSV)
+ * guarda CPF numérico e come o zero da frente: "03395004171" vira
+ * "3395004171" (foi assim que ~230 clientes vindos da importação do Agendor
+ * ficaram com CPF curto, ver scripts/agendor/xlsx-utils.ts → cellText).
+ *
+ * Regra: de 7 a 10 dígitos (até 4 zeros perdidos) E o número completado tem que
+ * passar nos DOIS dígitos verificadores. A base empírica (medida em produção,
+ * 09/2026): dos CPFs de 10 dígitos, 181/181 fecham os dígitos ao completar; de 9,
+ * 39/41; de 8 e 7, 6/6 — um número inventado só passaria em ~1% dos casos. Já os
+ * de 5 dígitos, 13/561 (2%): é acaso, não zero perdido (seriam 6 zeros, o que
+ * acontece em ~1 a cada milhão de CPFs) — por isso ficam de fora.
+ *
+ * NÃO usar no formulário/API interativos: lá o CPF digitado é o que a pessoa
+ * quis dizer, e completar em silêncio esconderia um erro de digitação. É pra
+ * conserto de dado importado e pra importadores de planilha.
+ */
+export function restoreCpfLeadingZeros(raw: string): string | null {
+  const digits = normalizeCpf(raw);
+  if (digits.length < 7 || digits.length > 10) return null;
+  const padded = digits.padStart(11, "0");
+  return isValidCpf(padded) ? padded : null;
+}

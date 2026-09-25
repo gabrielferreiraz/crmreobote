@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe, Link2, ExternalLink } from "lucide-react";
+import { Link2, ExternalLink } from "lucide-react";
 
 type Link = { id: string; type: string; label: string; url: string };
 
@@ -81,17 +81,17 @@ export function DigitalCardLinks({ links, onTrack, light = false }: { links: Lin
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => onTrack(TRACKED_EVENT_BY_TYPE[link.type] ?? "LINK_CLICK")}
-            className={`group flex items-center gap-3.5 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur-md transition-all hover:scale-[1.02] active:scale-[0.98] ${
+            className={`group flex items-center gap-3.5 rounded-lg border px-4 py-3 transition-colors active:translate-y-px ${
               light
-                ? "border-sky-300/40 bg-white/70 shadow-sky-950/5 hover:border-[#00aeee]/50 hover:bg-white"
-                : "border-white/5 bg-gradient-to-r from-white/[0.05] to-transparent hover:border-[#00aeee]/30 hover:from-[#00aeee]/10 hover:to-transparent"
+                ? "border-white bg-white/75 text-slate-800 shadow-[0_5px_10px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.8)] hover:bg-white"
+                : "border-white/[0.09] bg-[#202733] shadow-[0_5px_10px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-[#27303d]"
             }`}
           >
             <div
-              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors ${
                 light
-                  ? "bg-sky-100/70 shadow-inner ring-1 ring-sky-300/40 group-hover:ring-[#00aeee]/60"
-                  : "bg-black/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10 group-hover:ring-[#00aeee]/40"
+                  ? "bg-slate-100 text-slate-700"
+                  : "bg-black/20 text-white/80"
               }`}
             >
               <Icon className={`h-4 w-4 drop-shadow-md transition-colors ${colorClass}`} />
@@ -115,4 +115,3 @@ export function DigitalCardLinks({ links, onTrack, light = false }: { links: Lin
     </div>
   );
 }
-

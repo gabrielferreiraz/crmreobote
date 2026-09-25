@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, X, Camera, Trash2, Copy, Check, ExternalLink, Maximize2, ChevronLeft, ChevronRight, GripVertical, Power, Users } from "lucide-react";
+import { Loader2, Plus, X, Camera, Trash2, Copy, Check, ExternalLink, Maximize2, ChevronLeft, ChevronRight, GripVertical, Power, Users, Save } from "lucide-react";
 import { Select } from "@/components/select";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
@@ -75,6 +75,7 @@ type SavedFields = {
   jobTitle: string | null;
   bio: string | null;
   companyName: string | null;
+  displayNameOverride: string | null;
   emailOverride: string | null;
   phone: string | null;
   whatsapp: string | null;
@@ -105,7 +106,8 @@ export function CardEditor({
   const [activeError, setActiveError] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState(card.jobTitle ?? DEFAULT_JOB_TITLE);
   const [bio, setBio] = useState(card.bio ?? DEFAULT_BIO);
-  const [companyName, setCompanyName] = useState(card.companyName ?? DEFAULT_COMPANY);
+  const companyName = card.companyName ?? DEFAULT_COMPANY;
+  const [displayNameOverride, setDisplayNameOverride] = useState(card.displayNameOverride ?? "");
   // Vazio por padrão (não pré-preenchido com card.user.email) de propósito:
   // salvar com o campo assim intocado NÃO deve gravar um override — e-mail
   // é o único campo aqui com fonte de verdade externa (User.email, ver
@@ -114,7 +116,7 @@ export function CardEditor({
   // algo diferente aqui de propósito. O e-mail real aparece só como
   // placeholder (ver input abaixo), nunca como valor pré-preenchido.
   const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? "");
-  const [phone, setPhone] = useState(card.phone ?? "");
+  const phone = card.phone ?? "";
   const [whatsapp, setWhatsapp] = useState(card.whatsapp ?? "");
   const [address, setAddress] = useState(card.address ?? DEFAULT_ADDRESS);
   const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
@@ -127,11 +129,13 @@ export function CardEditor({
     card.selectedLogos.length > 0 ? card.selectedLogos : DEFAULT_SELECTED_LOGOS,
   );
   const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
-  const [photoUrl, setPhotoUrl] = useState(card.photoUrl);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(card.photoUrl);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [coverPhotoUrl, setCoverPhotoUrl] = useState(card.coverPhotoUrl);
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState<string | null>(card.coverPhotoUrl);
+  const [coverPhotoUrls, setCoverPhotoUrls] = useState<string[]>(card.coverPhotoUrls ?? (card.coverPhotoUrl ? [card.coverPhotoUrl] : []));
+  const [isAppendingCover, setIsAppendingCover] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState(card.backgroundPhotoUrl);
+  const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState<string | null>(card.backgroundPhotoUrl);
   const [uploadingBackground, setUploadingBackground] = useState(false);
   // Tema do cartão: card.theme é o valor PRÓPRIO salvo no banco (null = segue
   // a empresa/fábrica); effectiveTheme é o que de fato renderiza agora.
@@ -155,6 +159,7 @@ export function CardEditor({
       jobTitle: jobTitle.trim() || null,
       bio: bio.trim() || null,
       companyName: companyName.trim() || null,
+      displayNameOverride: displayNameOverride.trim() || null,
       emailOverride: emailOverride.trim() || null,
       phone: phone.trim() || null,
       whatsapp: whatsapp.trim() || null,
@@ -360,11 +365,16 @@ export function CardEditor({
     } else if (type === "cover") {
       setUploadingCover(true);
       setError(null);
-      const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "POST", body: formData });
+      const appendQuery = isAppendingCover ? "?append=true" : "";
+      const res = await fetch(`/api/digital-cards/${card.id}/cover${appendQuery}`, { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
       setUploadingCover(false);
+      setIsAppendingCover(false);
       if (!res.ok) setError(data.error ?? "Erro ao enviar foto de capa");
-      else setCoverPhotoUrl(data.coverPhotoUrl);
+      else {
+        setCoverPhotoUrl(data.coverPhotoUrl ?? null);
+        setCoverPhotoUrls(data.coverPhotoUrls ?? []);
+      }
     } else if (type === "background") {
       setUploadingBackground(true);
       setError(null);
@@ -388,8 +398,21 @@ export function CardEditor({
     if (res.ok) setPhotoUrl(null);
   }
 
-  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>, append = false) {
+    setIsAppendingCover(append);
     handleFileSelect(e, "cover");
+  }
+
+  async function handleRemoveCoverIndex(index: number) {
+    setUploadingCover(true);
+    setError(null);
+    const res = await fetch(`/api/digital-cards/${card.id}/cover?index=${index}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    setUploadingCover(false);
+    if (res.ok) {
+      setCoverPhotoUrl(data.coverPhotoUrl ?? null);
+      setCoverPhotoUrls(data.coverPhotoUrls ?? []);
+    }
   }
 
   async function handleRemoveCover() {
@@ -397,7 +420,10 @@ export function CardEditor({
     setError(null);
     const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "DELETE" });
     setUploadingCover(false);
-    if (res.ok) setCoverPhotoUrl(null);
+    if (res.ok) {
+      setCoverPhotoUrl(null);
+      setCoverPhotoUrls([]);
+    }
   }
 
   function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -509,12 +535,13 @@ export function CardEditor({
 
   const previewData: DigitalCardData = {
     slug: card.slug,
-    displayName: card.displayName,
+    displayName: displayNameOverride.trim() || card.displayName,
     jobTitle: jobTitle.trim() || null,
     companyName: null,
     bio: bio.trim() || null,
     photoUrl,
     coverPhotoUrl,
+    coverPhotoUrls,
     backgroundPhotoUrl,
     phone: displayPhone(phone.trim() || null),
     whatsapp: displayPhone(whatsapp.trim() || null),
@@ -594,15 +621,26 @@ export function CardEditor({
 
           <div className="flex items-center gap-3">
             <div className="relative shrink-0">
-              <Avatar name={card.displayName} src={photoUrl} size="lg" />
+              <Avatar name={displayNameOverride.trim() || card.displayName} src={photoUrl} size="lg" />
               {uploadingPhoto && (
                 <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
                   <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
                 </span>
               )}
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 space-y-2">
               <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Sua foto</p>
+              <div className="space-y-1">
+                <label htmlFor="digital-card-display-name" className="field-label">Nome no cartão</label>
+                <input
+                  id="digital-card-display-name"
+                  value={displayNameOverride}
+                  onChange={(e) => setDisplayNameOverride(e.target.value)}
+                  placeholder={card.user.name}
+                  maxLength={120}
+                  className="field-input"
+                />
+              </div>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <label className="btn-secondary btn-sm cursor-pointer">
                   <Camera className="h-3.5 w-3.5" strokeWidth={2} />
@@ -621,46 +659,89 @@ export function CardEditor({
 
           <div className="border-t border-neutral-100 dark:border-neutral-800" />
 
-          <div className="flex items-center gap-3">
-            <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
-              {coverPhotoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={coverPhotoUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full items-center justify-center text-[10px] text-neutral-400 dark:text-neutral-500">Sem capa</div>
-              )}
-              {uploadingCover && (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
-                </span>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Capa</p>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                <label className="btn-secondary btn-sm cursor-pointer">
-                  <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                  {coverPhotoUrl ? "Trocar" : "Adicionar"}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingCover} onChange={handleCoverChange} />
-                </label>
-                {coverPhotoUrl && (
-                  <button type="button" onClick={handleRemoveCover} disabled={uploadingCover} className="btn-ghost btn-sm">
+          <div className="space-y-3">
+            <div className="flex items-[#10151d] flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+                  Capa {coverPhotoUrls.length > 1 ? `— Carrossel (${coverPhotoUrls.length}/4 fotos)` : ""}
+                </p>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                  Adicione até 4 fotos (1.6:1). Se houver mais de uma, elas alternam em carrossel dinâmico.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {coverPhotoUrls.length < 4 && (
+                  <label className="btn-secondary btn-sm cursor-pointer shrink-0">
+                    <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                    {coverPhotoUrls.length > 0 ? "Adicionar foto" : "Nova capa"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      disabled={uploadingCover}
+                      onChange={(e) => handleCoverChange(e, coverPhotoUrls.length > 0)}
+                    />
+                  </label>
+                )}
+                {coverPhotoUrls.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveCover}
+                    disabled={uploadingCover}
+                    className="btn-ghost btn-sm shrink-0"
+                    title="Remover todas as fotos de capa"
+                  >
                     <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    Remover
+                    Limpar
                   </button>
                 )}
               </div>
-              {isOwner && (
-                <OrgDefaultControl
-                  field="cover"
-                  hasOwnPhoto={!!coverPhotoUrl}
-                  isDefault={orgDefaultCover}
-                  busy={settingDefaultField === "cover"}
-                  onSet={() => handleSetOrgDefault("cover")}
-                  onClear={() => handleClearOrgDefault("cover")}
-                />
-              )}
             </div>
+
+            {/* Lista de miniaturas da capa */}
+            {coverPhotoUrls.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                {coverPhotoUrls.map((url, idx) => (
+                  <div key={url} className="group relative h-16 w-24 overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="" className="h-full w-full object-cover" />
+                    <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[9px] font-bold text-white backdrop-blur-sm">
+                      #{idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCoverIndex(idx)}
+                      disabled={uploadingCover}
+                      title="Remover esta foto"
+                      className="absolute top-1 right-1 rounded bg-black/70 p-1 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {uploadingCover && (
+                  <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/40">
+                    <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-neutral-200 bg-neutral-50/50 p-2.5 text-xs text-neutral-400 dark:border-neutral-800 dark:bg-neutral-900/40">
+                <Camera className="h-4 w-4 shrink-0 opacity-50" />
+                <span>Nenhuma foto de capa enviada — o cartão usa o fundo/gradiente padrão.</span>
+              </div>
+            )}
+
+            {isOwner && (
+              <OrgDefaultControl
+                field="cover"
+                hasOwnPhoto={coverPhotoUrls.length > 0}
+                isDefault={orgDefaultCover}
+                busy={settingDefaultField === "cover"}
+                onSet={() => handleSetOrgDefault("cover")}
+                onClear={() => handleClearOrgDefault("cover")}
+              />
+            )}
           </div>
 
           <div className="border-t border-neutral-100 dark:border-neutral-800" />
@@ -707,125 +788,118 @@ export function CardEditor({
             </div>
           </div>
 
-          {isOwner && defaultError && <p className="text-xs text-red-600 dark:text-red-400">{defaultError}</p>}
-        </div>
-
-        {/* Tema do cartão — pedido explícito: ação pro usuário escolher se
-            quer tema claro, tema escuro ou colocar a foto no fundo. Se o Dono
-            deixar como padrão, vai para todos os consultores que ainda não
-            escolheram um próprio. */}
-        <div className="card space-y-3 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="field-label text-sm font-semibold">Tema do cartão</p>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Escolha o estilo visual do seu cartão de visita.
-              </p>
+          {/* Tema e foto de fundo formam uma única escolha visual do cartão. */}
+          <div className="border-t border-neutral-100 pt-4 dark:border-neutral-800">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="field-label text-sm font-semibold">Tema do cartão</p>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">Escolha como o fundo aparece.</p>
+              </div>
+              {themeChoice !== null && (
+                <button
+                  type="button"
+                  onClick={() => setThemeChoice(null)}
+                  className="text-[11px] font-medium text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                >
+                  Seguir padrão da empresa
+                </button>
+              )}
             </div>
-            {themeChoice !== null && (
-              <button
-                type="button"
-                onClick={() => setThemeChoice(null)}
-                className="text-[11px] font-medium text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
-              >
-                Seguir padrão da empresa
-              </button>
+
+            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+              {CARD_THEMES.map((themeKey) => {
+                const isSelected = previewTheme === themeKey;
+                const isExplicitChoice = themeChoice === themeKey;
+                return (
+                  <button
+                    key={themeKey}
+                    type="button"
+                    onClick={() => setThemeChoice(themeKey)}
+                    className={`group relative flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
+                      isSelected
+                        ? "border-[#00aeee] bg-[#00aeee]/5 shadow-sm ring-1 ring-[#00aeee]"
+                        : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                    }`}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+                        {CARD_THEME_LABELS[themeKey]}
+                      </span>
+                      <span
+                        className={`h-3 w-3 rounded-full border ${
+                          isSelected
+                            ? "border-[#00aeee] bg-[#00aeee]"
+                            : "border-neutral-300 bg-transparent dark:border-neutral-600"
+                        }`}
+                      />
+                    </div>
+
+                    <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {themeKey === "DARK" && "Fundo escuro premium Reobote"}
+                      {themeKey === "LIGHT" && "Azul claro translúcido"}
+                      {themeKey === "PHOTO" && "Foto cobrindo o corpo inteiro"}
+                    </p>
+
+                    {isSelected && (
+                      <span className="mt-2 inline-flex items-center text-[10px] font-medium text-[#00aeee]">
+                        {isExplicitChoice
+                          ? "Sua escolha"
+                          : orgDefaultTheme
+                          ? "Padrão da empresa"
+                          : "Padrão de fábrica"}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {themeChoice === "PHOTO" && !backgroundPhotoUrl && (
+              <p className="mt-3 rounded-lg border border-amber-200/60 bg-amber-50/70 p-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+                Adicione uma foto de fundo para usar este tema.
+              </p>
             )}
-          </div>
 
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-            {CARD_THEMES.map((themeKey) => {
-              const isSelected = previewTheme === themeKey;
-              const isExplicitChoice = themeChoice === themeKey;
-              return (
-                <button
-                  key={themeKey}
-                  type="button"
-                  onClick={() => setThemeChoice(themeKey)}
-                  className={`group relative flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
-                    isSelected
-                      ? "border-[#00aeee] bg-[#00aeee]/5 shadow-sm ring-1 ring-[#00aeee]"
-                      : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
-                  }`}
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                      {CARD_THEME_LABELS[themeKey]}
-                    </span>
-                    <span
-                      className={`h-3 w-3 rounded-full border ${
-                        isSelected
-                          ? "border-[#00aeee] bg-[#00aeee]"
-                          : "border-neutral-300 bg-transparent dark:border-neutral-600"
-                      }`}
-                    />
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                    {themeKey === "DARK" && "Fundo escuro premium Reobote"}
-                    {themeKey === "LIGHT" && "Azul claro translúcido"}
-                    {themeKey === "PHOTO" && "Foto cobrindo o corpo inteiro"}
-                  </p>
-
-                  {/* Indicador de origem da escolha */}
-                  {isSelected && (
-                    <span className="mt-2 inline-flex items-center text-[10px] font-medium text-[#00aeee]">
-                      {isExplicitChoice
-                        ? "Sua escolha"
-                        : orgDefaultTheme
-                        ? "Padrão da empresa"
-                        : "Padrão de fábrica"}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {themeChoice === "PHOTO" && !backgroundPhotoUrl && (
-            <p className="rounded-lg border border-amber-200/60 bg-amber-50/70 p-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
-              💡 Para a <strong>Foto no fundo</strong> aparecer, lembre-se de adicionar uma foto no campo <strong>Fundo</strong> acima.
-            </p>
-          )}
-
-          {/* Controle OWNER — "Manter este tema padrão para todos" */}
-          {isOwner && (
-            <div className="pt-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={settingDefaultField === "theme"}
-                  onClick={() => handleSetOrgDefaultTheme(previewTheme)}
-                  className="btn-ghost btn-sm text-xs font-semibold text-[#00aeee] hover:text-[#0095cc]"
-                >
-                  {settingDefaultField === "theme" ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Users className="h-3 w-3" />
-                  )}
-                  {orgDefaultTheme === previewTheme
-                    ? "Tema já é o padrão da equipe"
-                    : `Tornar "${CARD_THEME_LABELS[previewTheme]}" padrão para todos`}
-                </button>
-
-                {orgDefaultTheme && (
+            {isOwner && (
+              <div className="pt-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     disabled={settingDefaultField === "theme"}
-                    onClick={handleClearOrgDefaultTheme}
-                    className="btn-ghost btn-sm text-xs text-neutral-400 hover:text-red-500 dark:text-neutral-500"
+                    onClick={() => handleSetOrgDefaultTheme(previewTheme)}
+                    className="btn-ghost btn-sm text-xs font-semibold text-[#00aeee] hover:text-[#0095cc]"
                   >
-                    Remover padrão da equipe
+                    {settingDefaultField === "theme" ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Users className="h-3 w-3" />
+                    )}
+                    {orgDefaultTheme === previewTheme
+                      ? "Tema já é o padrão da equipe"
+                      : `Tornar "${CARD_THEME_LABELS[previewTheme]}" padrão para todos`}
                   </button>
-                )}
+
+                  {orgDefaultTheme && (
+                    <button
+                      type="button"
+                      disabled={settingDefaultField === "theme"}
+                      onClick={handleClearOrgDefaultTheme}
+                      className="btn-ghost btn-sm text-xs text-neutral-400 hover:text-red-500 dark:text-neutral-500"
+                    >
+                      Remover padrão da equipe
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                  {orgDefaultTheme
+                    ? `Atualmente o padrão da equipe é "${CARD_THEME_LABELS[orgDefaultTheme]}".`
+                    : "Consultores sem escolha usam o tema Escuro."}
+                </p>
               </div>
-              <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                {orgDefaultTheme
-                  ? `Atualmente o padrão da equipe é "${CARD_THEME_LABELS[orgDefaultTheme]}" (vale para quem ainda não escolheu um tema próprio).`
-                  : "Nenhum tema padrão definido para a equipe — consultores sem escolha usam o tema Escuro."}
-              </p>
-            </div>
-          )}
+            )}
+          </div>
+
+          {isOwner && defaultError && <p className="text-xs text-red-600 dark:text-red-400">{defaultError}</p>}
         </div>
 
         {/* Como você aparece — cargo/empresa/bio. Pedido explícito: "não
@@ -1064,17 +1138,43 @@ export function CardEditor({
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={handleSave} disabled={saving || (!hasUnsavedChanges && !saved)} className="btn-primary">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-            {saved ? "Salvo!" : saving ? "Salvando..." : hasUnsavedChanges ? "Salvar alterações" : "Tudo salvo"}
-          </button>
-          {hasUnsavedChanges && !saving && (
-            <span className="text-xs text-amber-600 dark:text-amber-400">Você tem alterações não salvas nesta seção.</span>
-          )}
-        </div>
+        {/* Barra fixa/sticky para o botão de salvar aparecer apenas quando
+            houver alterações que precisam de salvamento (ou enquanto estiver salvando/recém-salvo). */}
+        {(hasUnsavedChanges || saving || saved) && (
+          <div className="sticky bottom-3 z-30 rounded-2xl border border-neutral-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+                  {saved ? "Alterações salvas com sucesso!" : "Você tem alterações pendentes"}
+                </p>
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                  {saved
+                    ? "Seu cartão de visita público foi atualizado."
+                    : "Clique para salvar o que você alterou nesta seção."}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="btn-primary shadow-md transition-all ring-2 ring-[#00aeee]/40"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                ) : saved ? (
+                  <Check className="h-4 w-4 text-emerald-300" strokeWidth={2.5} />
+                ) : (
+                  <Save className="h-4 w-4" strokeWidth={2.2} />
+                )}
+                <span>{saved ? "Salvo!" : saving ? "Salvando..." : "Salvar alterações"}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          As fotos (acima) e o botão "Ativar cartão" (no topo) já salvam sozinhos, na hora — este botão é só pro resto: cargo, contato, logos, carteira e links.
+          As fotos (acima) e o botão &quot;Ativar cartão&quot; (no topo) já salvam sozinhos, na hora — o botão Salvar é pro restante: tema, cargo, contato, logos, carteira e links.
         </p>
       </div>
 

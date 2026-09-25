@@ -54,6 +54,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       jobTitle,
       bio,
       companyName,
+      displayNameOverride,
       emailOverride,
       phone,
       whatsapp,
@@ -69,6 +70,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       jobTitle?: string | null;
       bio?: string | null;
       companyName?: string | null;
+      displayNameOverride?: string | null;
       emailOverride?: string | null;
       phone?: string | null;
       whatsapp?: string | null;
@@ -95,6 +97,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // e-mail sem @/ponto).
     if (emailOverride && !isValidEmail(emailOverride)) {
       return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+    }
+    if (displayNameOverride !== undefined && displayNameOverride !== null && (
+      typeof displayNameOverride !== "string" || displayNameOverride.trim().length > 120
+    )) {
+      return NextResponse.json({ error: "Nome do cartão inválido" }, { status: 400 });
     }
     if (phone && !isValidPhoneInput(phone)) {
       return NextResponse.json({ error: "Telefone inválido" }, { status: 400 });
@@ -140,6 +147,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           ...(jobTitle !== undefined ? { jobTitle } : {}),
           ...(bio !== undefined ? { bio } : {}),
           ...(companyName !== undefined ? { companyName } : {}),
+          ...(displayNameOverride !== undefined ? { displayNameOverride: displayNameOverride?.trim() || null } : {}),
           ...(emailOverride !== undefined ? { emailOverride } : {}),
           ...(phone !== undefined ? { phone } : {}),
           ...(whatsapp !== undefined ? { whatsapp } : {}),

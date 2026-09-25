@@ -39,10 +39,12 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
   useLockBodyScroll(showQrModal);
 
   useEffect(() => {
-    if (autoOpenQr) {
+    if (!autoOpenQr) return;
+    const timeout = window.setTimeout(() => {
       onTrack("QR_CODE_OPEN");
       setShowQrModal(true);
-    }
+    }, 0);
+    return () => window.clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -90,7 +92,7 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
         <button
           type="button"
           onClick={handleSaveContact}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#00aeee] via-cyan-500 to-blue-600 py-3.5 px-4 text-base font-extrabold text-white shadow-[0_4px_20px_rgba(0,174,238,0.4)] transition-all hover:brightness-110 active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-sky-300/30 bg-[#2384ef] px-4 py-3.5 text-base font-bold text-white shadow-[0_8px_16px_rgba(8,86,180,0.35),inset_0_1px_0_rgba(255,255,255,0.2)] transition-colors hover:bg-[#1677df] active:translate-y-px"
         >
           <Download className="h-5 w-5 shrink-0" strokeWidth={2.5} />
           <span>Salvar Contato</span>
@@ -108,10 +110,10 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
               onTrack("QR_CODE_OPEN");
               setShowQrModal(true);
             }}
-            className={`flex items-center justify-center gap-1.5 rounded-xl border py-2 px-3 text-sm font-semibold backdrop-blur-md transition-all active:scale-[0.98] ${
+            className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors active:translate-y-px ${
               light
-                ? "border-sky-300/40 bg-white/70 text-slate-800 shadow-sm hover:bg-white hover:border-sky-400/60"
-                : "border-white/15 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
+                ? "border-white bg-white/75 text-slate-800 shadow-[0_5px_10px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.8)] hover:bg-white"
+                : "border-white/[0.09] bg-[#202733] text-white/90 shadow-[0_5px_10px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-[#27303d] hover:text-white"
             }`}
           >
             <QrCode className={`h-4 w-4 shrink-0 ${light ? "text-[#00aeee]" : "text-cyan-400"}`} strokeWidth={2.2} />
@@ -122,10 +124,10 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
           <button
             type="button"
             onClick={handleShare}
-            className={`flex items-center justify-center gap-1.5 rounded-xl border py-2 px-3 text-sm font-semibold backdrop-blur-md transition-all active:scale-[0.98] ${
+            className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors active:translate-y-px ${
               light
-                ? "border-sky-300/40 bg-white/70 text-slate-800 shadow-sm hover:bg-white hover:border-sky-400/60"
-                : "border-white/15 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
+                ? "border-white bg-white/75 text-slate-800 shadow-[0_5px_10px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.8)] hover:bg-white"
+                : "border-white/[0.09] bg-[#202733] text-white/90 shadow-[0_5px_10px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-[#27303d] hover:text-white"
             }`}
           >
             {copied ? (
@@ -172,8 +174,6 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
     </>
   );
 }
-
-
 
 
 

@@ -14,10 +14,11 @@ export { displayPhone } from "@/lib/phone-normalize";
 
 /**
  * Card "enriquecido" pra exibição — resolve nome/e-mail/foto do User
- * (fonte de verdade), aplicando override do cartão só quando ele existir.
+ * (fonte de verdade), aplicando overrides de apresentação do cartão quando
+ * eles existirem.
  * Usado tanto pela página pública quanto pelo preview em "Meu Cartão" (ver
- * decisão no plano: nome/e-mail/foto NUNCA são copiados pro cartão, sempre
- * lidos do User em tempo de render).
+ * decisão no plano: nome/e-mail/foto nunca são copiados pro cartão; nome e
+ * e-mail podem ter apenas um override opcional de apresentação).
  */
 export type DigitalCardWithUser = Awaited<ReturnType<typeof getCardDetails>>;
 
@@ -32,17 +33,22 @@ async function enrichCard<
     photoKey: string | null;
     coverPhotoKey: string | null;
     backgroundPhotoKey: string | null;
+    displayNameOverride: string | null;
     emailOverride: string | null;
     theme: CardTheme | null;
     user: { name: string; email: string; image: string | null };
   },
 >(card: T) {
-  const [ownPhotoUrl, ownCoverUrl, ownBackgroundUrl, orgDefaults] = await Promise.all([
+  const coverPhotoKeys = card.coverPhotoKey ? card.coverPhotoKey.split(",").filter(Boolean) : [];
+  const [ownPhotoUrl, ownCoverUrls, ownBackgroundUrl, orgDefaults] = await Promise.all([
     resolveAvatarUrl(card.photoKey ?? card.user.image),
-    resolveAvatarUrl(card.coverPhotoKey),
+    Promise.all(coverPhotoKeys.map((k) => resolveAvatarUrl(k))),
     resolveAvatarUrl(card.backgroundPhotoKey),
     getOrgCardDefaults(card.organizationId),
   ]);
+  const validOwnCoverUrls = ownCoverUrls.filter((u): u is string => !!u);
+  const ownCoverUrl = validOwnCoverUrls[0] ?? null;
+
   const [orgPhotoUrl, orgCoverUrl, orgBackgroundUrl] = await Promise.all([
     resolveAvatarUrl(orgDefaults.photoKey ?? null),
     resolveAvatarUrl(orgDefaults.coverPhotoKey ?? null),
@@ -58,15 +64,19 @@ async function enrichCard<
   // SEMPRE cai num dos padrões, nunca pula direto pro fallback final.
   const photoUrl = ownPhotoUrl ?? orgPhotoUrl ?? DEFAULT_AVATAR_URL;
   const coverPhotoUrl = ownCoverUrl ?? orgCoverUrl ?? DEFAULT_COVER_PHOTO_URL;
+  const coverPhotoUrls = validOwnCoverUrls.length > 0
+    ? validOwnCoverUrls
+    : (coverPhotoUrl ? [coverPhotoUrl] : []);
   const backgroundPhotoUrl = ownBackgroundUrl ?? orgBackgroundUrl ?? DEFAULT_BACKGROUND_PHOTO_URL;
   const orgDefaultTheme = normalizeOrgCardTheme(orgDefaults);
   const effectiveTheme = resolveCardTheme(card.theme, orgDefaultTheme);
   return {
     ...card,
-    displayName: card.user.name,
+    displayName: card.displayNameOverride || card.user.name,
     displayEmail: card.emailOverride || card.user.email,
     photoUrl,
     coverPhotoUrl,
+    coverPhotoUrls,
     backgroundPhotoUrl,
     effectiveTheme,
     orgDefaultTheme,
@@ -144,7 +154,7 @@ export async function getOrCreateOwnCard(organizationId: string, userId: string)
         active: true,
         whatsapp: instance?.phoneNumber ?? null,
         address: "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030",
-        companyName: "Reobote Consórcios",
+        companyName: null,
         jobTitle: "Consultor de Vendas",
         bio: "Inteligência em Consórcios",
       },
@@ -201,4 +211,3 @@ export async function getCardStats(cardId: string): Promise<CardStats> {
     lastAccessAt: lastView?.createdAt ?? null,
   };
 }
-

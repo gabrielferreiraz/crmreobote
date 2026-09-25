@@ -3,24 +3,26 @@
  * leitura de "Aniversário"/"Ano de nascimento" existir em import-pessoas.ts
  * (create-only — rodar a importação de novo não preenche quem já existe).
  *
+ * Grava em Contact.birthDate ("Data de nascimento") — o campo personalizado
+ * "Aniversário" que este script preenchia foi unificado nele em 09/2026 (ver
+ * scripts/migrate-birthdays-to-native.ts) e NÃO deve ser recriado.
+ *
  * Mesmo espírito conservador do backfill-pessoa-address.ts: só preenche
- * quem AINDA NÃO tem valor nesse campo personalizado (nunca sobrescreve),
- * e faz merge no JSON de customFieldValues (nunca apaga CPF ou qualquer
- * outro campo personalizado que já esteja lá).
+ * quem AINDA NÃO tem data de nascimento (nunca sobrescreve) e só data que
+ * passa na validação do formulário (dia existente, 1900..hoje).
  *
  * Uso: npx tsx --env-file=.env scripts/agendor/backfill-pessoa-birthday.ts --pessoas=<path> [--dry-run]
  */
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/app/generated/prisma/client";
 import { runWithTenant } from "@/lib/tenant-context";
 import { ORGANIZATION_ID } from "@/scripts/agendor/users";
+import { parseBirthDateInput } from "@/lib/birth-date";
 import { buildCanonicalPersonMap, resolveCanonicalPersonId } from "@/scripts/agendor/phone-dedup";
 import { loadSheet, getHeaders, colIndex, cellText, cellNumber } from "@/scripts/agendor/xlsx-utils";
 import { runConcurrent } from "@/scripts/agendor/concurrency";
 import { findAllPaged } from "@/scripts/agendor/pagination";
 
 const CONCURRENCY = 16;
-const BIRTHDAY_FIELD_LABEL = "Aniversário";
 
 function parseArgs(): { pessoas: string; dryRun: boolean } {
   const args = process.argv.slice(2);
@@ -39,7 +41,7 @@ function buildBirthdayIso(diaMes: string | null, ano: number | null): string | n
   const match = diaMes.match(/^(\d{2})\/(\d{2})$/);
   if (!match) return null;
   const [, dd, mm] = match;
-  return `${ano}-${mm}-${dd}`;
+  return parseBirthDateInput(`${dd}/${mm}/${ano}`);
 }
 
 async function main() {
@@ -47,20 +49,6 @@ async function main() {
   console.log(dryRun ? "🔎 MODO DRY-RUN — nada será gravado no banco.\n" : "⚠️  MODO REAL — gravando no banco.\n");
 
   await runWithTenant(ORGANIZATION_ID, async () => {
-    // Mesmo campo que import-pessoas.ts cria (ensureCustomFieldDefinition) —
-    // cria aqui também se ainda não existir, pra este script não depender
-    // de rodar a importação de novo só pra isso.
-    let fieldDef = await prisma.customFieldDefinition.findFirst({
-      where: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label: BIRTHDAY_FIELD_LABEL },
-    });
-    if (!fieldDef && !dryRun) {
-      fieldDef = await prisma.customFieldDefinition.create({
-        data: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label: BIRTHDAY_FIELD_LABEL, type: "DATE" },
-      });
-      console.log(`Campo personalizado "${BIRTHDAY_FIELD_LABEL}" criado (${fieldDef.id})`);
-    }
-    const fieldId = fieldDef?.id ?? "dry-run:aniversario-field";
-
     const canonicalMap = await buildCanonicalPersonMap(pessoas);
     const sheet = await loadSheet(pessoas);
     const headers = getHeaders(sheet);
@@ -71,7 +59,7 @@ async function main() {
     const existing = await findAllPaged((skip, take) =>
       prisma.contact.findMany({
         where: { organizationId: ORGANIZATION_ID, agendorContactId: { not: null } },
-        select: { id: true, agendorContactId: true, customFieldValues: true },
+        select: { id: true, agendorContactId: true, birthDate: true },
         orderBy: { id: "asc" },
         skip,
         take,
@@ -112,8 +100,7 @@ async function main() {
         return;
       }
 
-      const currentValues = (contact.customFieldValues as Record<string, unknown> | null) ?? {};
-      if (currentValues[fieldId] != null && currentValues[fieldId] !== "") {
+      if (contact.birthDate) {
         skippedAlreadyFilled++;
         return;
       }
@@ -125,7 +112,8 @@ async function main() {
 
       await prisma.contact.update({
         where: { id: contact.id },
-        data: { customFieldValues: { ...currentValues, [fieldId]: birthdayIso } as Prisma.InputJsonValue },
+        // @db.Date = meia-noite UTC (ver lib/birthdays.ts: lê com getUTC*).
+        data: { birthDate: new Date(`${birthdayIso}T00:00:00.000Z`) },
       });
       updated++;
     });
@@ -134,7 +122,7 @@ async function main() {
     console.log(`Sem Contact correspondente (não importado): ${skippedNoContact}`);
     console.log(`Linha não-canônica (duplicata de telefone): ${skippedNonCanonical}`);
     console.log(`Sem dia/mês+ano de nascimento na linha: ${skippedNoBirthdayInRow}`);
-    console.log(`Já tinha aniversário preenchido: ${skippedAlreadyFilled}`);
+    console.log(`Já tinha data de nascimento preenchida: ${skippedAlreadyFilled}`);
     console.log(dryRun ? "\n(dry-run — nada foi gravado)" : "\n✅ Concluído.");
   });
 }

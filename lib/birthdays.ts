@@ -11,16 +11,14 @@ import { sendPushToUser } from "@/lib/push";
  * getContactBirthdays) — quem decide isso é quem chama, ver page.tsx do
  * Início.
  *
- * Duas fontes, porque o dado vive em dois lugares (medido em produção
- * 09/2026: 8 clientes no campo novo, 14.670 no antigo):
- * 1. Contact.birthDate — campo nativo (ver components/birth-date-input.tsx).
- * 2. Campo personalizado "Aniversário" (tipo DATE, "YYYY-MM-DD") — onde a
- *    importação do Agendor gravou (ver scripts/agendor/import-pessoas.ts).
- *    Lendo só a fonte 1 o card apareceria vazio pra quase todo mundo.
- * Se o mesmo cliente tem as duas, vale a nativa.
+ * Fonte ÚNICA: Contact.birthDate ("Data de nascimento", ver
+ * components/birth-date-input.tsx). Até 09/2026 o dado vivia em dois lugares —
+ * a coluna nativa (8 clientes) e um campo personalizado "Aniversário" (14.670,
+ * gravado pela importação do Agendor) — e este arquivo lia os dois. Foram
+ * unificados em Contact.birthDate (scripts/migrate-birthdays-to-native.ts) e o
+ * campo antigo foi apagado; quem for importar aniversário grava direto em
+ * birthDate (ver scripts/agendor/import-pessoas.ts).
  */
-
-export const BIRTHDAY_FIELD_LABEL = "Aniversário";
 
 export type ContactBirthday = {
   contactId: string;
@@ -66,8 +64,6 @@ function plausibleAge(birthYear: number, onYear: number): number | null {
   return age > 0 && age < 120 ? age : null;
 }
 
-type BirthdayRow = { id: string; name: string; responsavel: { name: string } | null };
-
 /**
  * Aniversariantes dos clientes de `responsavelId` nos próximos `days` dias
  * (1 = só hoje), do mais próximo pro mais distante. `responsavelId: null` =
@@ -80,13 +76,25 @@ export async function getContactBirthdays(
   days: number,
 ): Promise<ContactBirthday[]> {
   const window = buildWindow(days);
-  const found = new Map<string, ContactBirthday>();
+  const found: ContactBirthday[] = [];
   const ownerFilter = responsavelId ? { responsavelId } : {};
 
-  const push = (c: BirthdayRow, birthYear: number, birthMonth: number, birthDay: number) => {
-    const hit = window.get(`${pad2(birthMonth)}-${pad2(birthDay)}`);
-    if (!hit) return;
-    found.set(c.id, {
+  // Só quem TEM data preenchida (e, fora da visão do Dono, só da carteira desta
+  // pessoa). São ~15 mil datas no total: trazer só id/nome/data e filtrar dia/mês
+  // aqui em JS é barato — o Prisma não filtra por parte de uma coluna DATE.
+  const rows = await prisma.contact.findMany({
+    where: { organizationId, ...ownerFilter, birthDate: { not: null } },
+    select: { id: true, name: true, birthDate: true, responsavel: { select: { name: true } } },
+  });
+
+  for (const c of rows) {
+    if (!c.birthDate) continue;
+    // getUTC*: @db.Date volta como meia-noite UTC, os getters locais podiam
+    // ler o dia anterior (mesma armadilha do carrossel da TV, lib/tv-dashboard.ts).
+    const birthYear = c.birthDate.getUTCFullYear();
+    const hit = window.get(`${pad2(c.birthDate.getUTCMonth() + 1)}-${pad2(c.birthDate.getUTCDate())}`);
+    if (!hit) continue;
+    found.push({
       contactId: c.id,
       name: c.name,
       daysUntil: hit.daysUntil,
@@ -95,60 +103,9 @@ export async function getContactBirthdays(
       turningAge: plausibleAge(birthYear, hit.year),
       responsavelName: c.responsavel?.name ?? null,
     });
-  };
-
-  const [nativeRows, def] = await Promise.all([
-    // Só quem TEM data preenchida (e, fora da visão do Dono, só da carteira
-    // desta pessoa) — a quantidade cresce só com cadastro manual, então
-    // filtrar dia/mês aqui em JS (o Prisma não filtra por parte de uma
-    // coluna DATE) é barato.
-    prisma.contact.findMany({
-      where: { organizationId, ...ownerFilter, birthDate: { not: null } },
-      select: { id: true, name: true, birthDate: true, responsavel: { select: { name: true } } },
-    }),
-    prisma.customFieldDefinition.findFirst({
-      where: {
-        organizationId,
-        entityType: "CONTACT",
-        type: "DATE",
-        label: { equals: BIRTHDAY_FIELD_LABEL, mode: "insensitive" },
-      },
-      select: { id: true },
-    }),
-  ]);
-
-  // Fonte 1 primeiro: se o cliente tem as duas datas, a nativa vence (a
-  // fonte 2 abaixo pula quem já está em `found`).
-  for (const c of nativeRows) {
-    if (!c.birthDate) continue;
-    // getUTC*: @db.Date volta como meia-noite UTC, os getters locais podiam
-    // ler o dia anterior (mesma armadilha do carrossel da TV, lib/tv-dashboard.ts).
-    push(c, c.birthDate.getUTCFullYear(), c.birthDate.getUTCMonth() + 1, c.birthDate.getUTCDate());
   }
 
-  if (def) {
-    // Filtra no banco pelos "-MM-DD" da janela (valor é "YYYY-MM-DD") em vez
-    // de trazer os milhares de clientes da carteira só pra olhar uma data.
-    const rows = await prisma.contact.findMany({
-      where: {
-        organizationId,
-        ...ownerFilter,
-        OR: Array.from(window.keys()).map((key) => ({
-          customFieldValues: { path: [def.id], string_contains: `-${key}` },
-        })),
-      },
-      select: { id: true, name: true, customFieldValues: true, responsavel: { select: { name: true } } },
-    });
-    for (const c of rows) {
-      if (found.has(c.id)) continue;
-      const raw = (c.customFieldValues as Record<string, unknown> | null)?.[def.id];
-      const m = typeof raw === "string" ? raw.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
-      if (!m) continue;
-      push(c, Number(m[1]), Number(m[2]), Number(m[3]));
-    }
-  }
-
-  return Array.from(found.values()).sort((a, b) => a.daysUntil - b.daysUntil || a.name.localeCompare(b.name, "pt-BR"));
+  return found.sort((a, b) => a.daysUntil - b.daysUntil || a.name.localeCompare(b.name, "pt-BR"));
 }
 
 // ─── Push do primeiro acesso do dia ──────────────────────────────────

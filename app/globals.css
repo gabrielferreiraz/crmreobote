@@ -1294,9 +1294,6 @@ input[type="radio"] {
     --tv-icon-sm: clamp(0.8rem, 3cqw, 2rem);
     --tv-icon-md: clamp(1rem, 4cqw, 3rem);
     --tv-avatar-md: clamp(2rem, 9cqw, 6.2rem);
-    --tv-logo-h: clamp(2.25rem, 10cqw, 7rem);
-    --tv-clock-time: clamp(1rem, 5cqw, 4.25rem);
-    --tv-clock-date: clamp(0.55rem, 2.1cqw, 1.6rem);
   }
 
   /* A lista ocupa a largura toda: as margens laterais de 11% que existem na
@@ -1307,45 +1304,63 @@ input[type="radio"] {
 }
 
 /* Cabeçalho do Ranking do mês (relógio + logo + título) — NADA em posição
-   absoluta, então os três nunca se sobrepõem, em qualquer tamanho ou rotação
-   (ver app/tv/ranking-view.tsx, que gira a tela em 90° e faz esta caixa medir a
-   tela já girada). Padrão = empilhado: relógio em cima, logo e título abaixo,
-   tudo centralizado — serve pra tela em pé e pra qualquer coisa estreita. */
+   absoluta, então nunca se sobrepõem em nenhum tamanho ou rotação (ver
+   app/tv/ranking-view.tsx, que gira a tela em 90° e faz esta caixa medir a
+   tela já girada). Relógio PEQUENO no canto, logo GRANDE no centro (pedido
+   explícito) — o tamanho da logo e do relógio é definido aqui, no cabeçalho,
+   e não nos tokens gerais da TV (esses valem pro dashboard principal). */
 .tv-ranking-header {
+  --tv-logo-h: clamp(3.5rem, 13cqh, 11rem);
+  --tv-clock-time: clamp(0.9rem, 1.9cqh, 2.6rem);
+  --tv-clock-date: clamp(0.5rem, 0.85cqh, 1.05rem);
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: calc(var(--tv-gap) * 0.5);
+  align-items: center;
 }
 
 /* O TvClock nasce `absolute` (canto da TV principal); aqui entra no fluxo. */
 .tv-ranking-header .tv-clock {
   position: static;
   width: fit-content;
+  align-self: flex-start;
 }
 
-/* Deitado E largo o bastante: relógio à esquerda, logo+título no centro de
-   verdade da tela, coluna da direita vazia (mesma largura da esquerda, pra o
-   centro não deslocar). Abaixo desse tamanho o empilhado acima é o que vale. */
-@container tv-canvas (min-aspect-ratio: 5 / 4) and (min-width: 860px) {
+/* Largo o bastante (deitado OU em pé): relógio no canto esquerdo, logo+título no
+   centro de verdade da tela. A coluna do relógio nunca encolhe abaixo do
+   próprio relógio (max-content), então ele não invade o centro nem numa tela
+   apertada — só perde a simetria. Abaixo de 560px vale o empilhado acima
+   (relógio no topo à esquerda, logo e título centralizados embaixo). */
+@container tv-canvas (min-width: 560px) {
   .tv-ranking-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
     align-items: center;
   }
   .tv-ranking-header .tv-clock {
     justify-self: start;
+    align-self: center;
   }
   .tv-ranking-header .tv-ranking-header__center {
     grid-column: 2;
   }
 }
 
-/* Tela muito baixa (deitada e pequena): a logo é o primeiro a ceder pra a lista
+/* Tela em pé: a largura é o eixo escasso, então logo e relógio acompanham a
+   largura (cqw) em vez da altura. */
+@container tv-canvas (max-aspect-ratio: 1 / 1) {
+  .tv-ranking-header {
+    --tv-logo-h: clamp(3rem, 15cqw, 10rem);
+    --tv-clock-time: clamp(0.85rem, 3.2cqw, 2.4rem);
+    --tv-clock-date: clamp(0.5rem, 1.4cqw, 1rem);
+  }
+}
+
+/* Tela muito baixa (deitada e pequena): a logo é a primeira a ceder pra a lista
    nunca ficar sem altura. */
 @container tv-canvas (max-height: 480px) {
-  .tv-portrait-scale {
-    --tv-logo-h: 1.75rem;
+  .tv-ranking-header {
+    --tv-logo-h: 2.5rem;
   }
 }
 

@@ -37,6 +37,12 @@ function placeColor(index: number) {
   return PLACE_COLOR[index] ?? PLACE_COLOR_REST;
 }
 
+/** Cor do 1º lugar (dourado) — a mesma que quem bate GOLD_TOTAL ganha. */
+const GOLD = "#eab308";
+/** Quem alcança R$ 1 milhão no mês ganha a cor do 1º colocado (pedido explícito),
+ * mesmo não sendo o 1º. Só a COR: a coroa continua exclusiva de quem está em 1º. */
+const GOLD_TOTAL = 1_000_000;
+
 /** Mostra o ranking de vendas do mês INTEIRO (não só o top 10): os 10
  * primeiros cabem na altura da tela e ficam parados por STATIC_MS; a
  * rolagem depois é justamente o que revela quem está do 11º pra baixo. Quem
@@ -164,8 +170,10 @@ export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: Rank
           style={{ gap: "calc(var(--tv-gap) * 0.45)", willChange: "transform" }}
         >
           {ranking.map((user, index) => {
-            const ring = placeColor(index);
             const isFirst = index === 0;
+            // Dourado = 1º lugar OU quem já passou de GOLD_TOTAL (ver acima).
+            const isGold = isFirst || user.total >= GOLD_TOTAL;
+            const ring = isGold ? GOLD : placeColor(index);
             const barPct = maxTotal > 0 ? (user.total / maxTotal) * 100 : 0;
             return (
               <div
@@ -182,7 +190,7 @@ export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: Rank
                   style={{
                     width: "calc(var(--row-avatar) * 0.8)",
                     fontSize: "var(--tv-text-value-sm)",
-                    color: isFirst ? "#eab308" : "rgba(255,255,255,0.55)",
+                    color: isGold ? GOLD : "rgba(255,255,255,0.55)",
                   }}
                 >
                   {index + 1}
@@ -227,14 +235,14 @@ export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: Rank
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between" style={{ gap: "calc(var(--tv-gap) * 0.6)" }}>
                     <p
-                      className={`min-w-0 leading-tight break-words text-[length:var(--tv-text-body)] ${isFirst ? "font-bold text-white" : "font-medium text-neutral-300"}`}
+                      className={`min-w-0 leading-tight break-words text-[length:var(--tv-text-body)] ${isGold ? "font-bold text-white" : "font-medium text-neutral-300"}`}
                       title={user.name}
                     >
                       {user.name}
                     </p>
                     <div
                       className="shrink-0 text-right font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
-                      style={{ color: isFirst ? "#eab308" : "var(--brand)" }}
+                      style={{ color: isGold ? GOLD : "var(--brand)" }}
                     >
                       {formatCurrencyCompact(user.total)}
                     </div>
@@ -247,7 +255,7 @@ export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: Rank
                       className="h-full rounded-full transition-[width] duration-1000"
                       style={{
                         width: `${barPct}%`,
-                        background: isFirst
+                        background: isGold
                           ? "linear-gradient(90deg, #eab308, #fde047)"
                           : `linear-gradient(90deg, var(--brand), color-mix(in srgb, var(--brand) 45%, white))`,
                       }}

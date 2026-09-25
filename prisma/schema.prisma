@@ -2611,6 +2611,9 @@ model DigitalCard {
   // mecanismo de override+padrão da organização+voltar ao padrão do
   // coverPhotoKey (ver lib/digital-cards/config.ts).
   backgroundPhotoKey String?
+  // Nome exibido publicamente no cartão — null = mantém o nome do usuário no
+  // CRM. É um override de apresentação, nunca altera User.name.
+  displayNameOverride String?
   // Override do e-mail — null = usa User.email.
   emailOverride String?
   // Telefone/WhatsApp públicos do cartão — User não tem telefone hoje.

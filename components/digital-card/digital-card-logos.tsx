@@ -30,23 +30,24 @@ export function DigitalCardLogos({
   if (logos.length === 0) return null;
 
   return (
-    <div
-      className={`flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5 py-1.5 px-3.5 transition-colors ${
-        light
-          ? "rounded-2xl border border-sky-300/40 bg-slate-900/85 shadow-sm backdrop-blur-md"
-          : ""
-      }`}
-    >
+    <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 py-1 px-2">
       {logos.map((logo) => {
         if (logo.src === "reobote") {
-          return <ReoboteLogo key={logo.key} className="h-9 sm:h-10 w-auto opacity-95" aria-label={logo.label} />;
+          return <ReoboteLogo key={logo.key} isLight={light} className="h-9 sm:h-10 w-auto opacity-95" aria-label={logo.label} />;
         }
 
         if (logo.src) {
           const styleClass = LOGO_STYLE_MAP[logo.key] ?? "h-5 w-auto max-w-[90px] object-contain opacity-90";
           return (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={logo.key} src={logo.src} alt={logo.label} className={`${styleClass} transition-opacity hover:opacity-100`} />
+            <img
+              key={logo.key}
+              src={logo.src}
+              alt={logo.label}
+              className={`${styleClass} transition-all hover:opacity-100 ${
+                light ? "brightness-0 opacity-80" : ""
+              }`}
+            />
           );
         }
 

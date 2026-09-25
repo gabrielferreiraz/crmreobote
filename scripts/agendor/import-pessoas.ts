@@ -9,6 +9,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { normalizeCpf, restoreCpfLeadingZeros } from "@/lib/cpf";
+import { parseBirthDateInput } from "@/lib/birth-date";
 import { Prisma } from "@/app/generated/prisma/client";
 import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
 import { ORGANIZATION_ID, resolveUserId } from "@/scripts/agendor/users";
@@ -26,7 +28,6 @@ const CPF_FIELD_LABEL = "CPF";
 // nascimento" (número solto). Só vira valor quando as DUAS existem (~3 em
 // 74 mil linhas têm dia/mês sem ano — não dá pra inventar um ano, então
 // essas ficam de fora em vez de gravar uma data fictícia).
-const BIRTHDAY_FIELD_LABEL = "Aniversário";
 const NO_CONTACT_TAG = "sem-contato-agendor";
 
 export type PessoasImportResult = {
@@ -44,7 +45,7 @@ export type PessoasImportResult = {
   skippedPhoneAlreadyExists: number;
 };
 
-async function ensureCustomFieldDefinition(label: string, type: "TEXT" | "DATE", dryRun: boolean): Promise<string> {
+async function ensureCustomFieldDefinition(label: string, type: "TEXT" | "DATE" | "CPF", dryRun: boolean): Promise<string> {
   const existing = await prisma.customFieldDefinition.findFirst({
     where: { organizationId: ORGANIZATION_ID, entityType: "CONTACT", label },
   });
@@ -57,13 +58,20 @@ async function ensureCustomFieldDefinition(label: string, type: "TEXT" | "DATE",
   return created.id;
 }
 
-/** "DD/MM" + ano solto → "YYYY-MM-DD" (o formato que coerceCustomFieldValue/stringifyCustomFieldValue de um campo DATE espera, ver lib/custom-fields.ts). null se faltar qualquer uma das duas partes ou o formato não bater. */
+/**
+ * "DD/MM" + ano solto → "YYYY-MM-DD" pra Contact.birthDate ("Data de nascimento").
+ * Passa pela MESMA validação do formulário (parseBirthDateInput, lib/birth-date.ts):
+ * dia existente, ano entre 1900 e hoje, não futuro — copiar data implausível
+ * travaria a edição do cliente. null se faltar parte, o formato não bater ou a
+ * data não passar. (Antes gravava no campo personalizado "Aniversário", que foi
+ * unificado em Contact.birthDate em 09/2026 — ver scripts/migrate-birthdays-to-native.ts.)
+ */
 function buildBirthdayIso(diaMes: string | null, ano: number | null): string | null {
   if (!diaMes || !ano) return null;
   const match = diaMes.match(/^(\d{2})\/(\d{2})$/);
   if (!match) return null;
   const [, dd, mm] = match;
-  return `${ano}-${mm}-${dd}`;
+  return parseBirthDateInput(`${dd}/${mm}/${ano}`);
 }
 
 export async function importPessoas(
@@ -72,8 +80,7 @@ export async function importPessoas(
   wonDealPersonIds: Set<string>,
   dryRun: boolean,
 ): Promise<PessoasImportResult> {
-  const cpfFieldId = await ensureCustomFieldDefinition(CPF_FIELD_LABEL, "TEXT", dryRun);
-  const birthdayFieldId = await ensureCustomFieldDefinition(BIRTHDAY_FIELD_LABEL, "DATE", dryRun);
+  const cpfFieldId = await ensureCustomFieldDefinition(CPF_FIELD_LABEL, "CPF", dryRun);
   const sheet = await loadSheet(pessoasPath);
   const headers = getHeaders(sheet);
 
@@ -175,7 +182,13 @@ export async function importPessoas(
     const whatsappRaw = cellText(row, idxWhatsapp);
     const celularRaw = cellText(row, idxCelular);
     const categoria = cellText(row, idxCategoria);
-    const cpf = cellText(row, idxCpf);
+    // CPF numérico na planilha perde o zero da frente ("03395004171" vira 3395004171 — foi
+    // assim que ~230 clientes ficaram com CPF curto). Restaura quando dá (lib/cpf.ts) e guarda
+    // só dígitos, a convenção do tipo CPF. Valor que não fecha fica como veio (o servidor tolera
+    // legado inalterado, ver validateCustomFieldValues).
+    const cpfRaw = cellText(row, idxCpf);
+    const cpfDigits = cpfRaw ? normalizeCpf(cpfRaw) : "";
+    const cpf = cpfDigits ? (restoreCpfLeadingZeros(cpfRaw as string) ?? cpfDigits) : null;
     const responsavel = cellText(row, idxResponsavel);
     const birthdayIso = buildBirthdayIso(cellText(row, idxAniversario), cellNumber(row, idxAnoNascimento));
 
@@ -238,13 +251,9 @@ export async function importPessoas(
           responsavelId: ownerId,
           agendorContactId: codigo,
           createdAt: cellDate(row, idxCadastro) ?? undefined,
-          customFieldValues:
-            cpf || birthdayIso
-              ? ({
-                  ...(cpf ? { [cpfFieldId]: cpf } : {}),
-                  ...(birthdayIso ? { [birthdayFieldId]: birthdayIso } : {}),
-                } as Prisma.InputJsonValue)
-              : undefined,
+          // Data de nascimento nativa (Contact.birthDate, @db.Date = meia-noite UTC).
+          birthDate: birthdayIso ? new Date(`${birthdayIso}T00:00:00.000Z`) : undefined,
+          customFieldValues: cpf ? ({ [cpfFieldId]: cpf } as Prisma.InputJsonValue) : undefined,
         },
       });
       result.created++;

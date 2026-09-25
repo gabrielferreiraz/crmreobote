@@ -23,6 +23,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const url = new URL(req.url);
+  const isAppend = url.searchParams.get("append") === "true";
+
   const formData = await req.formData();
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -49,22 +52,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
+    const existingKeys = card.coverPhotoKey ? card.coverPhotoKey.split(",").filter(Boolean) : [];
+    if (isAppend && existingKeys.length >= 4) {
+      return NextResponse.json({ error: "Você pode enviar no máximo 4 fotos de capa." }, { status: 400 });
+    }
+
     const resized = await resizeCoverPhoto(buffer, file.type);
     const key = buildCardCoverPhotoKey(id, file.type);
     await uploadAvatar(key, resized, file.type);
 
-    const previousKey = card.coverPhotoKey;
-    await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: key } });
-    if (previousKey) await deleteAvatar(previousKey).catch(() => {});
+    let updatedKeys: string[];
+    if (isAppend) {
+      updatedKeys = [...existingKeys, key];
+    } else {
+      updatedKeys = [key];
+      // Apaga as chaves antigas do R2
+      for (const oldKey of existingKeys) {
+        await deleteAvatar(oldKey).catch(() => {});
+      }
+    }
 
-    const coverPhotoUrl = await resolveAvatarUrl(key);
-    return NextResponse.json({ coverPhotoUrl });
+    const newKeyStr = updatedKeys.join(",");
+    await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: newKeyStr } });
+
+    const coverPhotoUrls = await Promise.all(updatedKeys.map((k) => resolveAvatarUrl(k)));
+    const validUrls = coverPhotoUrls.filter((u): u is string => !!u);
+    return NextResponse.json({ coverPhotoUrl: validUrls[0] ?? null, coverPhotoUrls: validUrls });
   });
 }
 
-/** Remove a foto de capa própria — volta a cair pro padrão da organização/gradiente (ver lib/digital-cards/config.ts). */
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+/** Remove foto de capa — se passar ?index=N apaga só aquela foto; senão apaga todas. */
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const url = new URL(req.url);
+  const indexParam = url.searchParams.get("index");
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -79,9 +100,30 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
-    await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: null } });
-    if (card.coverPhotoKey) await deleteAvatar(card.coverPhotoKey).catch(() => {});
+    const existingKeys = card.coverPhotoKey ? card.coverPhotoKey.split(",").filter(Boolean) : [];
 
-    return NextResponse.json({ ok: true });
+    if (indexParam !== null) {
+      const idx = parseInt(indexParam, 10);
+      if (isNaN(idx) || idx < 0 || idx >= existingKeys.length) {
+        return NextResponse.json({ error: "Índice de foto inválido" }, { status: 400 });
+      }
+      const keyToRemove = existingKeys[idx];
+      const remainingKeys = existingKeys.filter((_, i) => i !== idx);
+      const newKeyStr = remainingKeys.length > 0 ? remainingKeys.join(",") : null;
+
+      await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: newKeyStr } });
+      await deleteAvatar(keyToRemove).catch(() => {});
+
+      const coverPhotoUrls = await Promise.all(remainingKeys.map((k) => resolveAvatarUrl(k)));
+      const validUrls = coverPhotoUrls.filter((u): u is string => !!u);
+      return NextResponse.json({ ok: true, coverPhotoUrl: validUrls[0] ?? null, coverPhotoUrls: validUrls });
+    }
+
+    await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: null } });
+    for (const key of existingKeys) {
+      await deleteAvatar(key).catch(() => {});
+    }
+
+    return NextResponse.json({ ok: true, coverPhotoUrl: null, coverPhotoUrls: [] });
   });
 }
