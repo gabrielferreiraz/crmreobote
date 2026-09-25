@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
@@ -32,10 +33,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
       include: {
         contact: true,
-        owner: true,
+        owner: { select: USER_PUBLIC_SELECT },
         stage: true,
         pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
-        activities: { orderBy: { createdAt: "desc" }, include: { user: true } },
+        activities: { orderBy: { createdAt: "desc" }, include: { user: { select: USER_PUBLIC_SELECT } } },
         tasks: { orderBy: { dueAt: "asc" } },
         lossReason: true,
       },
@@ -183,7 +184,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         where: { organizationId, entityType: "DEAL" },
       });
       try {
-        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues, existing.customFieldValues as Record<string, unknown> | null);
       } catch (err) {
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }
@@ -207,7 +208,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const deal = await prisma.deal.update({
       where: { id },
       data: updateData,
-      include: { contact: true, owner: true, stage: true, lossReason: true },
+      include: { contact: true, owner: { select: USER_PUBLIC_SELECT }, stage: true, lossReason: true },
     });
 
     // Reatribuir o negócio também move o "responsável" do CONTATO junto —

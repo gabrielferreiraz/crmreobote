@@ -6,12 +6,14 @@ import { Pencil, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { Field } from "@/components/form-field";
+import { FieldError, focusField } from "@/components/field-error";
 import { PhoneInput } from "@/components/phone-input";
 import { BirthDateInput } from "@/components/birth-date-input";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { validatePhoneField } from "@/lib/phone-normalize";
-import { isBirthDateInputInvalid, isoToBirthDateMask, parseBirthDateInput } from "@/lib/birth-date";
+import { birthDateInputError, isoToBirthDateMask, parseBirthDateInput } from "@/lib/birth-date";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
@@ -101,6 +103,9 @@ export function ContactEditForm({
   // lead perdido há +3 meses) — ver ContactConflictNotice.
   const [conflictData, setConflictData] = useState<{ message: string; conflict: ContactConflict } | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  // Obrigatórios validados ao enviar (botão Salvar não fica mais desabilitado em silêncio — achado M3 do QA).
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [jobTitleError, setJobTitleError] = useState<string | null>(null);
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const cepAutofillFields = useMemo(
     () => ({
@@ -142,10 +147,16 @@ export function ContactEditForm({
     // ou responsável por causa disso; o servidor faz a mesma exceção.
     const phoneErr = phone !== (contact.phone ?? "") ? validatePhoneField(phone, "phone") : null;
     const waErr = whatsapp !== (contact.whatsapp ?? "") ? validatePhoneField(whatsapp, "whatsapp") : null;
-    const birthDateErr = isBirthDateInputInvalid(birthDate) ? "Data inválida. Use o formato DD/MM/AAAA." : null;
+    const birthDateErr = birthDateInputError(birthDate);
     setPhoneError(phoneErr);
     setWhatsappError(waErr);
     setBirthDateError(birthDateErr);
+    const nameErr = name.trim() ? null : "Informe o nome do contato.";
+    const jobTitleErr = jobTitle ? null : "Selecione o cargo — é essencial pra achar o lead certo depois.";
+    setNameError(nameErr);
+    setJobTitleError(jobTitleErr);
+    if (nameErr) return focusField("edit-contact-name");
+    if (jobTitleErr) return focusField("edit-contact-job-title");
     if (phoneErr || waErr || birthDateErr) return;
 
     setLoading(true);
@@ -206,7 +217,17 @@ export function ContactEditForm({
           bem menos linhas, então o formulário cresce pros lados em vez de
           rolar tanto pra baixo. */}
       <form onSubmit={handleSubmit} className="space-y-3">
-        <Field label="Nome" value={name} onChange={setName} required autoFocus />
+        <Field
+          id="edit-contact-name"
+          label="Nome *"
+          value={name}
+          onChange={(v) => {
+            setName(v);
+            setNameError(null);
+          }}
+          error={nameError}
+          autoFocus
+        />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="E-mail" value={email} onChange={setEmail} type="email" />
           <PhoneInput
@@ -227,11 +248,18 @@ export function ContactEditForm({
           <div className="space-y-1">
             <label className="field-label">Cargo *</label>
             <Select
+              id="edit-contact-job-title"
               value={jobTitle}
-              onChange={setJobTitle}
+              onChange={(v) => {
+                setJobTitle(v);
+                setJobTitleError(null);
+              }}
+              invalid={!!jobTitleError}
+              describedBy="edit-contact-job-title-error"
               placeholder="Selecione o cargo"
               options={optionsWithLegacyValue(jobTitles, contact.jobTitle)}
             />
+            {jobTitleError && <FieldError id="edit-contact-job-title-error">{jobTitleError}</FieldError>}
           </div>
           <div className="space-y-1">
             <label className="field-label">Origem</label>
@@ -295,7 +323,7 @@ export function ContactEditForm({
           <button type="button" onClick={onCancel} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={loading || !name.trim() || !jobTitle} className="btn-primary">
+          <button type="submit" disabled={loading} className="btn-primary">
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">
@@ -397,32 +425,3 @@ export function EditContactDialog({
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  required,
-  autoFocus,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  required?: boolean;
-  autoFocus?: boolean;
-}) {
-  return (
-    <div className="space-y-1">
-      <label className="field-label">{label}</label>
-      <input
-        type={type}
-        required={required}
-        autoFocus={autoFocus}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="field-input"
-      />
-    </div>
-  );
-}

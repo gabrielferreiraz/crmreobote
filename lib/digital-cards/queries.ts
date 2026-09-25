@@ -4,7 +4,8 @@ import { resolveAvatarUrl } from "@/lib/r2";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
 import { DEFAULT_COVER_PHOTO_URL, DEFAULT_BACKGROUND_PHOTO_URL, DEFAULT_AVATAR_URL } from "@/lib/digital-cards/config";
-import { getOrgCardDefaults } from "@/lib/digital-cards/org-defaults";
+import { getOrgCardDefaults, normalizeOrgCardTheme } from "@/lib/digital-cards/org-defaults";
+import { resolveCardTheme, type CardTheme } from "@/lib/digital-cards/themes";
 // Reexportado por compatibilidade com quem já importava daqui — mas
 // componente "use client" deve importar de @/lib/phone-normalize
 // diretamente (ver comentário lá: importar deste arquivo no cliente arrasta
@@ -32,6 +33,7 @@ async function enrichCard<
     coverPhotoKey: string | null;
     backgroundPhotoKey: string | null;
     emailOverride: string | null;
+    theme: CardTheme | null;
     user: { name: string; email: string; image: string | null };
   },
 >(card: T) {
@@ -57,6 +59,8 @@ async function enrichCard<
   const photoUrl = ownPhotoUrl ?? orgPhotoUrl ?? DEFAULT_AVATAR_URL;
   const coverPhotoUrl = ownCoverUrl ?? orgCoverUrl ?? DEFAULT_COVER_PHOTO_URL;
   const backgroundPhotoUrl = ownBackgroundUrl ?? orgBackgroundUrl ?? DEFAULT_BACKGROUND_PHOTO_URL;
+  const orgDefaultTheme = normalizeOrgCardTheme(orgDefaults);
+  const effectiveTheme = resolveCardTheme(card.theme, orgDefaultTheme);
   return {
     ...card,
     displayName: card.user.name,
@@ -64,6 +68,8 @@ async function enrichCard<
     photoUrl,
     coverPhotoUrl,
     backgroundPhotoUrl,
+    effectiveTheme,
+    orgDefaultTheme,
   };
 }
 

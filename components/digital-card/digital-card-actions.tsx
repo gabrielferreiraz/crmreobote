@@ -24,6 +24,8 @@ type Props = {
    * toque extra no botão "QR Code". A transição em si já é suave
    * (animate-in fade-in, ver o modal abaixo), só o GATILHO que muda. */
   autoOpenQr?: boolean;
+  /** Adapta a paleta dos botões secundários para o tema claro */
+  light?: boolean;
 };
 
 /**
@@ -31,7 +33,7 @@ type Props = {
  * 1. Botão Principal (Full Width): "Salvar Contato" — Destaque total e máximo espaço visual.
  * 2. Grid Secundário (2 Colunas): "QR Code" | "Enviar Cartão" — Organizados lado a lado abaixo.
  */
-export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, presentationId, onTrack, autoOpenQr = false }: Props) {
+export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, source, presentationId, onTrack, autoOpenQr = false, light = false }: Props) {
   const [copied, setCopied] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   useLockBodyScroll(showQrModal);
@@ -106,9 +108,13 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
               onTrack("QR_CODE_OPEN");
               setShowQrModal(true);
             }}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/10 py-2 px-3 text-sm font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
+            className={`flex items-center justify-center gap-1.5 rounded-xl border py-2 px-3 text-sm font-semibold backdrop-blur-md transition-all active:scale-[0.98] ${
+              light
+                ? "border-sky-300/40 bg-white/70 text-slate-800 shadow-sm hover:bg-white hover:border-sky-400/60"
+                : "border-white/15 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
+            }`}
           >
-            <QrCode className="h-4 w-4 shrink-0 text-cyan-400" strokeWidth={2.2} />
+            <QrCode className={`h-4 w-4 shrink-0 ${light ? "text-[#00aeee]" : "text-cyan-400"}`} strokeWidth={2.2} />
             <span>QR Code</span>
           </button>
 
@@ -116,12 +122,16 @@ export function DigitalCardActions({ slug, displayName, publicUrl, sessionId, so
           <button
             type="button"
             onClick={handleShare}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/10 py-2 px-3 text-sm font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/20 hover:text-white active:scale-[0.98]"
+            className={`flex items-center justify-center gap-1.5 rounded-xl border py-2 px-3 text-sm font-semibold backdrop-blur-md transition-all active:scale-[0.98] ${
+              light
+                ? "border-sky-300/40 bg-white/70 text-slate-800 shadow-sm hover:bg-white hover:border-sky-400/60"
+                : "border-white/15 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
+            }`}
           >
             {copied ? (
-              <Check className="h-4 w-4 shrink-0 text-emerald-400" strokeWidth={2.5} />
+              <Check className="h-4 w-4 shrink-0 text-emerald-500" strokeWidth={2.5} />
             ) : (
-              <Share2 className="h-4 w-4 shrink-0 text-white/80" strokeWidth={2.2} />
+              <Share2 className={`h-4 w-4 shrink-0 ${light ? "text-slate-600" : "text-white/80"}`} strokeWidth={2.2} />
             )}
             <span>{copied ? "Copiado!" : "Enviar Cartão"}</span>
           </button>

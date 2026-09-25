@@ -1,6 +1,26 @@
 import { prisma } from "@/lib/prisma";
 import { brazilianMobileVariants } from "@/lib/phone-normalize";
 import { evaluateLeadClaim, type LeadClaimReason } from "@/lib/lead-claim";
+import { rateLimit } from "@/lib/rate-limit";
+
+/**
+ * Freio contra usar o cadastro de contato como ORÁCULO de "esse telefone já está na
+ * base, e de quem é?" — o 409 de duplicidade devolve o nome do contato existente e do
+ * responsável (é o que permite "Solicitar/Assumir lead", recurso de propósito), então
+ * quem cadastra número atrás de número consegue mapear a carteira dos outros
+ * (achado do relatório de QA). Não remove o recurso; limita a frequência: 40
+ * duplicidades por hora por usuário é bem mais do que qualquer uso real, e bem menos
+ * do que uma varredura. Em memória por processo (mesma limitação de lib/rate-limit.ts).
+ */
+const CONFLICT_LOOKUPS_PER_HOUR = 40;
+
+export const CONFLICT_THROTTLED_MESSAGE =
+  "Muitas tentativas de cadastrar contatos que já existem. Aguarde um pouco antes de tentar de novo.";
+
+/** true = este usuário já estourou o limite de duplicidades na última hora (a rota responde 429 em vez do 409 com dados do dono). */
+export function isConflictLookupThrottled(userId: string): boolean {
+  return !rateLimit(`contact-conflict:${userId}`, CONFLICT_LOOKUPS_PER_HOUR, 60 * 60 * 1000).allowed;
+}
 
 /**
  * Busca por VARIANTE (com/sem o 9º dígito do celular), não pela chave

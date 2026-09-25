@@ -3,7 +3,13 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
 import { brazilDateKey } from "@/lib/timezone";
 import { estimateCampaignCompletion, nextAllowedSendWindow, type CompletionEstimate } from "@/lib/campaigns/estimate";
-import { campaignScopeWhere, scopeWhere, type DealScope } from "@/lib/team-scope";
+import {
+  campaignVisibilityWhere,
+  campaignRecipientVisibilityWhere,
+  canManageCampaign,
+  scopeWhere,
+  type DealScope,
+} from "@/lib/team-scope";
 import { listCampaignScriptEntries, normalizeSteps, ACTIVE_CAMPAIGN_STATUSES } from "@/lib/campaigns/script-sync";
 
 export type CampaignSummary = {
@@ -24,6 +30,13 @@ export type CampaignSummary = {
   followUpDelayHours: number;
   createdAt: Date;
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
+  /**
+   * Pode pausar/editar/apagar/duplicar (criou a campanha, ou é dono do WhatsApp
+   * que ela usa — ver campaignScopeWhere em lib/team-scope.ts). false = só
+   * enxerga: envio em massa do Pipeline em que só alguns destinatários saíram
+   * do WhatsApp dela; a tela esconde os botões e as rotas recusam.
+   */
+  canManage: boolean;
 };
 
 /**
@@ -35,7 +48,10 @@ export type CampaignSummary = {
  * de qualquer outro, recipientes (nome/telefone) incluídos.
  */
 export async function listCampaigns(organizationId: string, scope: DealScope): Promise<CampaignSummary[]> {
-  const scopeFilter = campaignScopeWhere(scope);
+  // VISIBILIDADE (quem enxerga a campanha, incluindo a de outra pessoa que sai
+  // do WhatsApp dela) — não confundir com o escopo de EDIÇÃO (canManage abaixo).
+  const scopeFilter = campaignVisibilityWhere(scope);
+  const recipientVisibility = campaignRecipientVisibilityWhere(scope);
   // `select` em vez de trazer a linha inteira: Campaign tem `messageTemplates`,
   // `audienceFilter`, `followUpTemplates` e `rmktWaves` (JSONs de vários KB em
   // campanha de várias variantes de script) — nada disso é usado na lista, e
@@ -58,14 +74,17 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       followUpEnabled: true,
       followUpDelayHours: true,
       createdAt: true,
-      instance: { select: { user: { select: { name: true } } } },
+      createdById: true,
+      source: true,
+      instance: { select: { userId: true, user: { select: { name: true } } } },
       createdBy: { select: { name: true } },
     },
   });
 
+  const campaignIds = campaigns.map((c) => c.id);
   const statusCounts = await prisma.campaignRecipient.groupBy({
     by: ["campaignId", "status"],
-    where: { campaign: { organizationId, ...scopeFilter } },
+    where: { campaignId: { in: campaignIds }, ...recipientVisibility },
     _count: true,
   });
   // Contagem de respondidos, não a lista deles: antes isto era um findMany que
@@ -74,7 +93,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
   // O banco já devolve o número pronto.
   const repliedCounts = await prisma.campaignRecipient.groupBy({
     by: ["campaignId"],
-    where: { campaign: { organizationId, ...scopeFilter }, repliedAt: { not: null } },
+    where: { campaignId: { in: campaignIds }, repliedAt: { not: null }, ...recipientVisibility },
     _count: true,
   });
 
@@ -113,6 +132,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       followUpDelayHours: c.followUpDelayHours,
       createdAt: c.createdAt,
       counts: countsByCampaign.get(c.id) ?? { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 },
+      canManage: canManageCampaign(scope, { createdById: c.createdById, source: c.source, instanceUserId: c.instance.userId }),
     };
   });
 }
@@ -246,17 +266,25 @@ export async function getCampaignDetail(
   dealScope: DealScope,
 ): Promise<CampaignDetail | null> {
   const campaign = await prisma.campaign.findFirst({
-    where: { id: campaignId, organizationId, ...campaignScopeWhere(scope) },
+    where: { id: campaignId, organizationId, ...campaignVisibilityWhere(scope) },
     include: {
       instance: { include: { user: { select: { name: true } } } },
       createdBy: { select: { name: true } },
       recipients: {
+        // Quem só enxerga um envio em massa (por ter o WhatsApp usado) vê só os
+        // destinatários que saíram do WhatsApp dele — ver campaignRecipientVisibilityWhere.
+        where: campaignRecipientVisibilityWhere(scope),
         orderBy: { createdAt: "asc" },
         include: { contact: { select: { name: true, whatsapp: true, phone: true, jobTitle: true } } },
       },
     },
   });
   if (!campaign) return null;
+  const canManage = canManageCampaign(scope, {
+    createdById: campaign.createdById,
+    source: campaign.source,
+    instanceUserId: campaign.instance.userId,
+  });
 
   const templateEntries = listCampaignScriptEntries(campaign);
   const scriptIds = Array.from(
@@ -455,8 +483,11 @@ export async function getCampaignDetail(
     followUpDelayHours: campaign.followUpDelayHours,
     createdAt: campaign.createdAt,
     counts,
+    canManage,
     scripts: scriptRows,
-    scriptsEditable: ACTIVE_CAMPAIGN_STATUSES.includes(campaign.status),
+    // Trocar o script mexe na campanha — só quem pode gerenciá-la (as rotas de
+    // edição/sync usam o escopo de criador e recusariam).
+    scriptsEditable: canManage && ACTIVE_CAMPAIGN_STATUSES.includes(campaign.status),
     recipients: campaign.recipients.map((r) => ({
       id: r.id,
       contactName: r.contact.name,

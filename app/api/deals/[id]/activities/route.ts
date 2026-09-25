@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
@@ -23,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const activities = await prisma.activity.findMany({
       where: { dealId: id },
       orderBy: { createdAt: "desc" },
-      include: { user: true },
+      include: { user: { select: USER_PUBLIC_SELECT } },
     });
 
     return NextResponse.json(activities);
@@ -98,7 +99,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         body: activityBody,
         meetingOutcome: meetingOutcome as "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | undefined,
       },
-      include: { user: true },
+      include: { user: { select: USER_PUBLIC_SELECT } },
     });
 
     return NextResponse.json(activity, { status: 201 });

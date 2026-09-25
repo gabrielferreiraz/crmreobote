@@ -29,24 +29,28 @@ export function formatBirthDateMask(raw: string): string {
  * (fevereiro não tem 31 dias), ano fora de uma faixa plausível, ou qualquer
  * data no futuro (ninguém nasce amanhã).
  */
-function isValidCalendarDate(day: number, month: number, year: number): boolean {
-  if (month < 1 || month > 12) return false;
+function calendarDateProblem(day: number, month: number, year: number): "nonexistent" | "year" | "future" | null {
+  if (month < 1 || month > 12) return "nonexistent";
   const currentYear = new Date().getFullYear();
   // Faixa generosa (não um "maior de 18" ou algo assim, essa tela não tem
   // essa regra de negócio) — só descarta erro de digitação óbvio como
   // "02/02/0002" ou um ano ainda não chegado.
-  if (year < 1900 || year > currentYear) return false;
+  if (year < 1900 || year > currentYear) return "year";
   // new Date(year, month, 0) = dia 0 do mês seguinte = último dia do mês
   // pedido, truque padrão pra descobrir quantos dias um mês/ano tem
   // (cobre ano bissexto sozinho, sem tabela hardcoded de dias por mês).
   const daysInMonth = new Date(year, month, 0).getDate();
-  if (day < 1 || day > daysInMonth) return false;
+  if (day < 1 || day > daysInMonth) return "nonexistent";
   // Comparação em UTC (não local) pra nunca depender do fuso de quem está
   // com o navegador aberto — mesma cautela de lib/timezone.ts.
   const candidateUTC = Date.UTC(year, month - 1, day);
   const today = new Date();
   const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  return candidateUTC <= todayUTC;
+  return candidateUTC <= todayUTC ? null : "future";
+}
+
+function isValidCalendarDate(day: number, month: number, year: number): boolean {
+  return calendarDateProblem(day, month, year) === null;
 }
 
 /**
@@ -63,9 +67,23 @@ export function parseBirthDateInput(masked: string): string | null {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** true só quando tem ALGO digitado mas não é uma data DD/MM/AAAA válida — pra mostrar erro só depois que a pessoa já tentou preencher, nunca num campo ainda vazio. */
-export function isBirthDateInputInvalid(masked: string): boolean {
-  return masked.trim().length > 0 && parseBirthDateInput(masked) === null;
+/**
+ * Mensagem certa pro que está errado no "DD/MM/AAAA" digitado, ou null se está
+ * vazio (opcional) ou válido. Antes TODO caso virava "Data inválida. Use o
+ * formato DD/MM/AAAA." — inclusive "31/02/2020", que TEM o formato certo e o
+ * problema é a data não existir (achado B5 do relatório de QA). Distingue:
+ * incompleto (formato), inexistente (dia/mês), ano fora da faixa e futuro.
+ */
+export function birthDateInputError(masked: string): string | null {
+  const text = masked.trim();
+  if (!text) return null;
+  const m = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return "Data incompleta. Use o formato DD/MM/AAAA.";
+  const problem = calendarDateProblem(Number(m[1]), Number(m[2]), Number(m[3]));
+  if (problem === "nonexistent") return "Data inexistente — confira o dia e o mês.";
+  if (problem === "year") return `Ano inválido — use um ano entre 1900 e ${new Date().getFullYear()}.`;
+  if (problem === "future") return "A data de nascimento não pode estar no futuro.";
+  return null;
 }
 
 /** "YYYY-MM-DD" (prefixo de qualquer ISO, cobre o que vem de JSON.stringify(Date) também) ou Date → "DD/MM/AAAA" pra pré-preencher o campo mascarado na edição. */

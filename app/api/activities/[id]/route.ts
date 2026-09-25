@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
@@ -108,7 +109,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const updated = await prisma.activity.update({
       where: { id },
       data: updateData,
-      include: { user: true },
+      include: { user: { select: USER_PUBLIC_SELECT } },
     });
 
     recordUserChange(access.organizationId, access.userId).catch((err) =>

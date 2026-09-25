@@ -316,8 +316,11 @@ const TV_PODIUM_SIZE = 3;
  *   OrganizationUser.showInPodium, "month" lê showInMonthRanking (ver schema).
  *   Eixo separado de countsTowardGoal: supervisor soma na meta e fica fora do
  *   pódio da TV principal (pedido da diretoria, 09/2026);
- * - nome da PJ do consultor quando ele cadastrou uma (UserCompany), nome
- *   pessoal quando não — pedido explícito, o ranking mostra a EMPRESA.
+ * - NOME exibido depende do ranking (pedido explícito): o pódio da TV principal
+ *   ("podium") mostra o nome do USUÁRIO; o Ranking do mês completo ("month")
+ *   mostra o nome fantasia da EMPRESA do consultor (UserCompany, cadastrada
+ *   pelo CNPJ — fantasia, ou razão social quando a Receita não tem fantasia,
+ *   ver lib/cnpj.ts), caindo pro nome pessoal quando ele não cadastrou uma.
  */
 async function computeMonthRanking(organizationId: string, monthStart: Date, where: "podium" | "month") {
   const eligible = await prisma.organizationUser.findMany({
@@ -354,7 +357,7 @@ async function computeMonthRanking(organizationId: string, monthStart: Date, whe
       return [
         {
           id: user.id,
-          name: user.company?.name ?? user.name,
+          name: where === "month" ? (user.company?.name ?? user.name) : user.name,
           image: user.image,
           total: Number(g._sum.value ?? 0),
         },
@@ -377,8 +380,9 @@ async function computeMonthRanking(organizationId: string, monthStart: Date, whe
  *   sair — o total da empresa em getTvMetrics continua contando a venda dele);
  * - só quem está marcado "Ranking do mês" (showInMonthRanking — Dono fica
  *   fora por padrão, supervisor ENTRA, ao contrário do pódio);
- * - nome da PJ do consultor quando ele cadastrou uma (UserCompany), nome
- *   pessoal quando não — pedido explícito, o ranking mostra a EMPRESA.
+ * - nome fantasia da EMPRESA do consultor (UserCompany) quando cadastrada,
+ *   nome pessoal quando não — só aqui; o pódio da TV principal mostra o nome
+ *   do usuário (ver computeMonthRanking).
  *
  * Sem o teto de 50 que o painel da TV principal usava: aqui o pedido é
  * "mostra todos que venderam naquele mês". O teto de 200 é só uma rede de

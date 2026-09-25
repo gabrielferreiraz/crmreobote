@@ -6,7 +6,8 @@ import { requireRole } from "@/lib/require-role";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { resolveContactPhones } from "@/lib/phone-normalize";
 import { isValidBirthDateIso } from "@/lib/birth-date";
-import { findDuplicateContact, buildConflictPayload } from "@/lib/contact-duplicate";
+import { findDuplicateContact, buildConflictPayload, isConflictLookupThrottled, CONFLICT_THROTTLED_MESSAGE } from "@/lib/contact-duplicate";
+import { isValidEmail } from "@/lib/email-format";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
@@ -99,6 +100,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if ("jobTitle" in body && !jobTitle) {
     return NextResponse.json({ error: "Cargo é obrigatório" }, { status: 400 });
   }
+  // Mesma ideia pro nome: campo presente e vazio não pode gravar contato sem nome (o POST já exige).
+  if ("name" in body && !name?.trim()) {
+    return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
+  }
+  // Formato de e-mail no SERVIDOR (o type="email" do navegador se contorna chamando a API direto).
+  if (email && !isValidEmail(email)) {
+    return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+  }
 
   return runWithTenant(organizationId, async () => {
     // MEMBER só pode editar contato do qual é responsável (ou sem
@@ -189,6 +198,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (touchesPhones) {
       const duplicate = await findDuplicateContact(organizationId, phones.phoneNormalized, phones.whatsappNormalized, id);
       if (duplicate) {
+        // Freio contra varredura de telefones (ver lib/contact-duplicate.ts) — antes de expor dono/nome.
+        if (isConflictLookupThrottled(userId)) {
+          return NextResponse.json({ error: CONFLICT_THROTTLED_MESSAGE }, { status: 429 });
+        }
         // Antes devolvia só `{ error }` — a tela (edit-contact-dialog.tsx)
         // mostrava isso num modal genérico "Erro de servidor" sem nenhuma
         // saída. Agora leva o mesmo `conflict` do POST (ver
@@ -208,7 +221,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         where: { organizationId, entityType: "CONTACT" },
       });
       try {
-        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);
+        // existing.customFieldValues: CPF legado inválido que NÃO mudou não pode travar a edição (ver validateCustomFieldValues).
+        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues, existing.customFieldValues as Record<string, unknown> | null);
       } catch (err) {
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }

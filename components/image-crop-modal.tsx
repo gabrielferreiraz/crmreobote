@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import { ZoomIn, ZoomOut, RotateCcw, Check, X, Crop as CropIcon } from "lucide-react";
 
@@ -69,7 +69,7 @@ export function ImageCropModal({
   isOpen,
   imageSrc,
   title = "Ajustar e Cortar Imagem",
-  aspectRatio = 2.5,
+  aspectRatio = 1.6,
   onClose,
   onCropComplete,
 }: ImageCropModalProps) {
@@ -78,6 +78,10 @@ export function ImageCropModal({
   const [currentAspect, setCurrentAspect] = useState(aspectRatio);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    setCurrentAspect(aspectRatio);
+  }, [aspectRatio, isOpen]);
 
   const handleCropComplete = useCallback(
     (_croppedArea: Area, croppedPixels: Area) => {
@@ -181,16 +185,16 @@ export function ImageCropModal({
               <span className="text-neutral-400 font-medium">Formato do enquadramento:</span>
               <div className="flex items-center gap-1.5">
                 {[
-                  { label: "Capa Padrão (2.5:1)", value: 2.5 },
+                  { label: "Capa Cartão (1.6:1)", value: 1.6 },
                   { label: "Widescreen (16:9)", value: 16 / 9 },
-                  { label: "Panorâmico (3:1)", value: 3 },
+                  { label: "Capa Padrão (2.5:1)", value: 2.5 },
                 ].map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
                     onClick={() => setCurrentAspect(opt.value)}
                     className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                      currentAspect === opt.value
+                      Math.abs(currentAspect - opt.value) < 0.05
                         ? "bg-[#00aeee]/20 text-[#00aeee] border border-[#00aeee]/50"
                         : "bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white"
                     }`}

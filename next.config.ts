@@ -1,11 +1,71 @@
 import type { NextConfig } from "next";
 
-// Headers de baixo risco (não dependem de saber todo domínio externo/script
-// inline que o app usa, então não derrubam nada) — de propósito NÃO inclui
-// Content-Security-Policy aqui: uma CSP errada quebra a aplicação inteira em
-// produção (imagens do R2, upload, gravação de áudio do composer de
-// WhatsApp) e isso não dá pra validar sem um ambiente rodando. Ver memória
-// do projeto antes de adicionar CSP.
+// Headers de segurança. A CSP (Content-Security-Policy) entra em DUAS camadas,
+// de propósito (relatório de QA, achado M2 — mas com o cuidado que o comentário
+// anterior desta config já pedia: uma CSP errada derruba a aplicação inteira em
+// produção — imagens do R2, gravação de áudio do WhatsApp, SDK do Facebook — e
+// isso não dá pra validar sem o app rodando):
+//
+// 1. APLICADA (`Content-Security-Policy`): só as 3 diretivas que este app não
+//    usa de jeito nenhum, então não têm como quebrar nada — `object-src 'none'`
+//    (não há <object>/<embed>/plugins), `base-uri 'self'` (nenhuma <base>;
+//    fecha a injeção de <base href> que sequestra links relativos) e
+//    `frame-ancestors 'self'` (o equivalente moderno do X-Frame-Options
+//    SAMEORIGIN abaixo, que já existia).
+// 2. SÓ RELATA (`Content-Security-Policy-Report-Only`): a política completa,
+//    que NÃO bloqueia nada — o navegador apenas manda cada violação pra
+//    /api/csp-report, que registra uma linha por violação distinta no log do
+//    servidor (ver app/api/csp-report/route.ts). Depois de um período de uso
+//    real sem violação inesperada, é só trocar o nome do header pra
+//    `Content-Security-Policy` (ou promover diretiva por diretiva).
+//
+// Limite conhecido: `script-src` tem 'unsafe-inline' porque o Next injeta
+// scripts inline (payload RSC/hidratação). Isso ainda barra <script src=
+// externo> e fetch/XHR pra domínio de fora (exfiltração), mas NÃO barra script
+// inline injetado. Fechar isso exige CSP com nonce via proxy.ts + renderização
+// dinâmica de TODAS as páginas (ver node_modules/next/dist/docs/01-app/02-guides/
+// content-security-policy.md) — projeto à parte, não vale arriscar sem ambiente
+// de teste.
+const isDev = process.env.NODE_ENV === "development";
+
+const CSP_ENFORCED = ["object-src 'none'", "base-uri 'self'", "frame-ancestors 'self'"].join("; ");
+
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  // connect.facebook.net = SDK do Facebook (login do WhatsApp Cloud, ver
+  // components/whatsapp-connect.tsx). 'unsafe-eval' só no dev (React).
+  `script-src 'self' 'unsafe-inline' https://connect.facebook.net${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  // https: amplo em imagem/mídia de propósito: URLs assinadas do R2 e foto de
+  // perfil do WhatsApp vêm de hosts que variam por conta/CDN. Imagem não
+  // executa código — o que importa fechar é script/connect/frame/object.
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "font-src 'self' data:",
+  // Upload de arquivo passa pela API do próprio app (não vai direto pro R2 do
+  // navegador), então o navegador só fala com a própria origem + Facebook.
+  "connect-src 'self' https://*.facebook.com https://connect.facebook.net",
+  "frame-src 'self' https://*.facebook.com",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "form-action 'self'",
+  "report-uri /api/csp-report",
+].join("; ");
+
+// Permissions-Policy: desliga APIs de navegador que o app não usa. Microfone
+// fica liberado só pra própria origem (gravação de áudio do composer do
+// WhatsApp e ditado por voz). Câmera, localização, pagamento, USB e captura de
+// tela nunca são usados — se um script injetado tentar, o navegador nega.
+const PERMISSIONS_POLICY = [
+  "camera=()",
+  "microphone=(self)",
+  "geolocation=()",
+  "payment=()",
+  "usb=()",
+  "display-capture=()",
+  "browsing-topics=()",
+].join(", ");
+
 async function headers() {
   return [
     {
@@ -15,6 +75,9 @@ async function headers() {
         { key: "X-Frame-Options", value: "SAMEORIGIN" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+        { key: "Permissions-Policy", value: PERMISSIONS_POLICY },
+        { key: "Content-Security-Policy", value: CSP_ENFORCED },
+        { key: "Content-Security-Policy-Report-Only", value: CSP_REPORT_ONLY },
       ],
     },
   ];
@@ -22,6 +85,8 @@ async function headers() {
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Some o `x-powered-by: Next.js` (relatório de QA, B6) — divulgação de tecnologia sem nenhum uso.
+  poweredByHeader: false,
   headers,
   // "exceljs" fora do bundle do Turbopack, de propósito — ele SEMPRE embute
   // a dependência direto nos próprios chunks internos (confirmado num build

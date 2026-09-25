@@ -3,7 +3,7 @@
 import { DualRangeSlider } from "@/components/dual-range-slider";
 
 const MIN_INTERVAL_MINUTES = 1;
-const MAX_INTERVAL_MINUTES = 33;
+const MAX_INTERVAL_MINUTES = 60;
 const WEEKDAYS = [
   { value: 0, label: "Dom" },
   { value: 1, label: "Seg" },

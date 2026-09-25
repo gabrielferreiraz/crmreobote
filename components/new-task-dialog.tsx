@@ -19,6 +19,8 @@ import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-b
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { FieldError, focusField } from "@/components/field-error";
+import { parseBrazilDateTime } from "@/lib/timezone";
 import { TASK_TYPE_LABELS } from "@/lib/task-icons";
 import type { Option } from "@/app/(dashboard)/agenda/tasks-list";
 
@@ -61,6 +63,11 @@ export function NewTaskDialog({
   const [dealId, setDealId] = useState(initialDealId ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Título vazio é validado ao enviar (o botão Criar não fica mais desabilitado em silêncio — achado M3 do QA).
+  const [titleError, setTitleError] = useState<string | null>(null);
+  // Prazo digitado já passou — só AVISA (atividade retroativa é legítima; o risco é erro de digitação
+  // no ano — achado B4 do QA). Calculado no onChange (não no render: Date.now() é impuro).
+  const [dueInPast, setDueInPast] = useState(false);
   // Setado só quando a tarefa recém-criada é uma Reunião com data e cliente
   // vinculado — troca o formulário pelo MeetingInviteDialog em vez de fechar
   // na hora (ver render abaixo).
@@ -71,6 +78,11 @@ export function NewTaskDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!title.trim()) {
+      setTitleError("Informe um título para a atividade.");
+      focusField("new-task-title");
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -148,16 +160,24 @@ export function NewTaskDialog({
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <label className="field-label">Título</label>
+            <label className="field-label" htmlFor="new-task-title">
+              Título *
+            </label>
             <VoiceInputButton onResult={titleDictation.onResult} onInterimResult={titleDictation.onInterimResult} />
           </div>
           <input
+            id="new-task-title"
             autoFocus
-            required
             value={titleDictation.value}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setTitleError(null);
+            }}
+            aria-invalid={titleError ? true : undefined}
+            aria-describedby={titleError ? "new-task-title-error" : undefined}
             className="field-input"
           />
+          {titleError && <FieldError id="new-task-title-error">{titleError}</FieldError>}
         </div>
         <div className="space-y-1">
           <label className="field-label">Tipo</label>
@@ -172,9 +192,16 @@ export function NewTaskDialog({
           <input
             type="datetime-local"
             value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setDueAt(value);
+              setDueInPast(!!value && parseBrazilDateTime(value).getTime() < Date.now());
+            }}
             className="field-input"
           />
+          {dueInPast && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">Este prazo já passou — confira a data e o ano.</p>
+          )}
         </div>
         <div className="space-y-1">
           <label className="field-label">Negócio (opcional)</label>
@@ -214,7 +241,7 @@ export function NewTaskDialog({
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={loading || !title.trim()} className="btn-primary">
+          <button type="submit" disabled={loading} className="btn-primary">
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">

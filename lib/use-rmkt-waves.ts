@@ -75,15 +75,17 @@ export function useRmktWaves({
   function serialize(): {
     rmktEnabled: boolean;
     rmktWaves?: RmktWaveInput[];
-    noReplyDays: number;
+    noReplyDays?: number;
     markLostOnNoReply: boolean;
   } {
     return {
       rmktEnabled,
-      rmktWaves: rmktEnabled
-        ? waves.map((w) => ({ dayOffset: Number(w.dayOffset), scriptId: w.scriptId }))
-        : undefined,
-      noReplyDays: resolvedNoReplyDays,
+      ...(rmktEnabled
+        ? {
+            rmktWaves: waves.map((w) => ({ dayOffset: Number(w.dayOffset), scriptId: w.scriptId })),
+            noReplyDays: resolvedNoReplyDays,
+          }
+        : {}),
       markLostOnNoReply,
     };
   }

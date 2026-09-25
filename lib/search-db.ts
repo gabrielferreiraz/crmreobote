@@ -1,4 +1,5 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
+import { GLOBAL_OMIT } from "@/lib/prisma-omit";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
@@ -73,10 +74,10 @@ function createSearchClient() {
     onConnectionError: (err) => console.error("[search pg connection error]", err),
   });
 
-  return new PrismaClient({ adapter });
+  return new PrismaClient({ adapter, omit: GLOBAL_OMIT });
 }
 
-type GlobalSearchDb = { searchDb?: PrismaClient };
+type GlobalSearchDb = { searchDb?: ReturnType<typeof createSearchClient> };
 const globalForSearchDb = globalThis as unknown as GlobalSearchDb;
 
 export const searchDb = globalForSearchDb.searchDb ?? createSearchClient();

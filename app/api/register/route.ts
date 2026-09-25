@@ -7,10 +7,10 @@ import { DEFAULT_LOSS_REASONS } from "@/lib/default-loss-reasons";
 import { DEFAULT_PROCESS_PIPELINE_NAME, DEFAULT_PROCESS_STAGES } from "@/lib/default-process-pipeline";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { setTenantOnTx } from "@/lib/tenant-context";
+import { isValidEmail } from "@/lib/email-format";
 
 export const dynamic = "force-dynamic";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Campos obrigatórios faltando" }, { status: 400 });
   }
 
-  if (!EMAIL_REGEX.test(email)) {
+  if (!isValidEmail(email)) {
     return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
   }
 

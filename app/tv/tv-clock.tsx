@@ -35,7 +35,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
  * falha silenciosa de rede/sessão deixava a TV mostrando dados cada vez
  * mais velhos pra sempre, sem ninguém perceber.
  */
-export function TvClock({ stale = false }: { stale?: boolean }) {
+export function TvClock({ stale = false, className = "" }: { stale?: boolean; className?: string }) {
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export function TvClock({ stale = false }: { stale?: boolean }) {
 
   return (
     <div
-      className="surface-glass-panel pointer-events-none absolute flex items-start gap-2 rounded-[var(--tv-radius)] text-white"
+      className={`surface-glass-panel pointer-events-none absolute flex items-start gap-2 rounded-[var(--tv-radius)] text-white ${className}`}
       style={{ top: "var(--tv-gap)", left: "var(--tv-gap)", padding: "calc(var(--tv-card-py) * 0.55) calc(var(--tv-card-px) * 0.7)" }}
     >
       <div>

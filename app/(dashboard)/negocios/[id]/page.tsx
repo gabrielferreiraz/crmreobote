@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
 import { scopeWhere } from "@/lib/team-scope";
@@ -33,7 +34,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             responsavel: { select: { name: true } },
           },
         },
-        owner: true,
+        owner: { select: USER_PUBLIC_SELECT },
         stage: true,
         pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
         // 200 mais recentes — um negócio de relacionamento longo (anos,
@@ -41,7 +42,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         // atividades (inclusive automáticas, tipo SYSTEM a cada mudança de
         // etapa); a timeline da página não precisa do histórico inteiro de
         // uma vez.
-        activities: { orderBy: { createdAt: "desc" }, include: { user: true }, take: 200 },
+        activities: { orderBy: { createdAt: "desc" }, include: { user: { select: USER_PUBLIC_SELECT } }, take: 200 },
         tasks: { orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }] },
         lossReason: true,
       },

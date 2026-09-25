@@ -802,6 +802,18 @@ input[type="radio"] {
     @apply w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition-all duration-200 ease-smooth placeholder:text-neutral-400 hover:border-neutral-400 focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:hover:border-neutral-600 dark:focus:border-brand dark:focus:ring-brand/20;
   }
 
+  /* Campo com erro de validação — marcado por `aria-invalid="true"` (que também é o que
+     o leitor de tela anuncia), não por classe: um só lugar decide o visual e a
+     acessibilidade nunca fica pra trás. Vem DEPOIS de .field-input pra vencer o
+     hover/focus dele na mesma especificidade. Mensagem vai em .field-error. */
+  .field-input[aria-invalid="true"] {
+    @apply border-red-500 hover:border-red-500 focus:border-red-500 focus:ring-red-500/20 dark:border-red-500 dark:hover:border-red-500 dark:focus:border-red-500 dark:focus:ring-red-500/20;
+  }
+
+  .field-error {
+    @apply text-left text-xs text-red-600 dark:text-red-400;
+  }
+
   .field-select {
     @apply appearance-none bg-[right_0.6rem_center] bg-no-repeat pr-8;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -1257,6 +1269,90 @@ input[type="radio"] {
   --tv-truncate-lg: clamp(12rem, 22.22cqh, 30rem);
   --tv-truncate-md: clamp(6.5rem, 12.04cqh, 16.25rem);
   --tv-truncate-sm: clamp(6rem, 11.11cqh, 15rem);
+}
+
+/* ── TV EM PÉ (retrato) — só a tela do Ranking do mês usa (ver
+   app/tv/ranking-view.tsx, classe .tv-portrait-scale) ──────────────────────
+   Todos os tokens acima medem a ALTURA do canvas (cqh), calibrados pra tela
+   deitada 16:9. Numa TV em pé a altura é o dobro da largura: os mesmos cqh
+   viram fontes/avatares gigantes numa faixa estreita — o valor "R$ 809 mil"
+   engolia o nome, e a logo/relógio brigavam pelo mesmo canto. Aqui os
+   tamanhos passam a acompanhar a LARGURA (cqw), que é o eixo escasso de uma
+   tela vertical. Só vale quando o canvas é mais alto que largo
+   (max-aspect-ratio: 1/1) — em tela deitada nada muda. Referência: TV
+   1080×1920 (1cqw = 10.8px). */
+@container tv-canvas (max-aspect-ratio: 1 / 1) {
+  .tv-portrait-scale {
+    --tv-gap: clamp(0.5rem, 2.2cqw, 2rem);
+    --tv-card-px: clamp(0.75rem, 3.2cqw, 3.6rem);
+    --tv-card-py: clamp(0.5rem, 2.2cqw, 2rem);
+    --tv-radius: clamp(0.75rem, 2.6cqw, 2.5rem);
+    --tv-text-label: clamp(0.6rem, 2.1cqw, 1.8rem);
+    --tv-text-body: clamp(0.75rem, 3.3cqw, 2.4rem);
+    --tv-text-name: clamp(0.9rem, 4.2cqw, 3.2rem);
+    --tv-text-value-sm: clamp(0.95rem, 4.4cqw, 3.5rem);
+    --tv-icon-sm: clamp(0.8rem, 3cqw, 2rem);
+    --tv-icon-md: clamp(1rem, 4cqw, 3rem);
+    --tv-avatar-md: clamp(2rem, 9cqw, 6.2rem);
+    --tv-logo-h: clamp(2.25rem, 10cqw, 7rem);
+    --tv-clock-time: clamp(1rem, 5cqw, 4.25rem);
+    --tv-clock-date: clamp(0.55rem, 2.1cqw, 1.6rem);
+  }
+
+  /* A lista ocupa a largura toda: as margens laterais de 11% que existem na
+     tela deitada (ver .tv-ranking-list) desperdiçariam a faixa estreita. */
+  .tv-portrait-scale .tv-ranking-list {
+    max-width: none;
+  }
+}
+
+/* Cabeçalho do Ranking do mês (relógio + logo + título) — NADA em posição
+   absoluta, então os três nunca se sobrepõem, em qualquer tamanho ou rotação
+   (ver app/tv/ranking-view.tsx, que gira a tela em 90° e faz esta caixa medir a
+   tela já girada). Padrão = empilhado: relógio em cima, logo e título abaixo,
+   tudo centralizado — serve pra tela em pé e pra qualquer coisa estreita. */
+.tv-ranking-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--tv-gap) * 0.5);
+}
+
+/* O TvClock nasce `absolute` (canto da TV principal); aqui entra no fluxo. */
+.tv-ranking-header .tv-clock {
+  position: static;
+  width: fit-content;
+}
+
+/* Deitado E largo o bastante: relógio à esquerda, logo+título no centro de
+   verdade da tela, coluna da direita vazia (mesma largura da esquerda, pra o
+   centro não deslocar). Abaixo desse tamanho o empilhado acima é o que vale. */
+@container tv-canvas (min-aspect-ratio: 5 / 4) and (min-width: 860px) {
+  .tv-ranking-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+  }
+  .tv-ranking-header .tv-clock {
+    justify-self: start;
+  }
+  .tv-ranking-header .tv-ranking-header__center {
+    grid-column: 2;
+  }
+}
+
+/* Tela muito baixa (deitada e pequena): a logo é o primeiro a ceder pra a lista
+   nunca ficar sem altura. */
+@container tv-canvas (max-height: 480px) {
+  .tv-portrait-scale {
+    --tv-logo-h: 1.75rem;
+  }
+}
+
+/* Lista do Ranking do mês — na tela deitada uma barra de 100% da largura por
+   linha fica gigante e difícil de acompanhar de longe, então limita e centraliza. */
+.tv-ranking-list {
+  max-width: clamp(40rem, 78cqw, 100rem);
 }
 
 /* Linha de lista com "profundidade" — eleva e ganha sombra ao passar o

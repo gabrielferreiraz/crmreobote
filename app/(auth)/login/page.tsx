@@ -38,7 +38,14 @@ function LoginForm() {
     setLoading(false);
 
     if (res?.error) {
-      setError("E-mail ou senha inválidos");
+      // "rate_limited" = bloqueado por excesso de tentativas (ver LoginRateLimited em
+      // lib/auth.ts). Distinguir evita o usuário achar que a senha "some" ou que o
+      // sistema travou depois da 5ª tentativa.
+      setError(
+        res.code === "rate_limited"
+          ? "Muitas tentativas de login. Aguarde alguns minutos e tente novamente."
+          : "E-mail ou senha inválidos",
+      );
       return;
     }
 

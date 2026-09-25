@@ -43,6 +43,19 @@ export function resetRateLimit(key: string) {
 }
 
 /**
+ * Só CONSULTA (não conta uma tentativa) — pra limite que deve contar apenas
+ * FALHAS: checa com isto antes de tentar e registra com rateLimit() só quando
+ * falhar. Usado no login por IP (lib/auth.ts): um escritório inteiro entra no
+ * mesmo IP público às 8h, e login BEM-sucedido não pode gastar o orçamento.
+ */
+export function peekRateLimit(key: string, limit: number): { blocked: boolean; retryAfterMs: number } {
+  const entry = store.get(key);
+  const now = Date.now();
+  if (!entry || entry.resetAt <= now) return { blocked: false, retryAfterMs: 0 };
+  return { blocked: entry.count >= limit, retryAfterMs: Math.max(0, entry.resetAt - now) };
+}
+
+/**
  * Mesma checagem de rateLimit, mas já devolve a resposta 429 pronta (ou
  * null se liberado) — evita repetir o boilerplate de status/Retry-After em
  * cada rota que precisa disso.

@@ -5,7 +5,9 @@
  * campo?" em mais de um lugar.
  */
 
-export type CustomFieldType = "TEXT" | "NUMBER" | "DATE" | "BOOLEAN" | "SELECT";
+import { formatCpf, isValidCpf, normalizeCpf } from "@/lib/cpf";
+
+export type CustomFieldType = "TEXT" | "NUMBER" | "DATE" | "BOOLEAN" | "SELECT" | "CPF";
 export type CustomFieldEntity = "CONTACT" | "DEAL";
 
 export type CustomFieldDefinitionLike = {
@@ -43,6 +45,13 @@ export function coerceCustomFieldValue(def: CustomFieldDefinitionLike, raw: unkn
       if (!def.options.includes(value)) throw new Error(`"${def.label}" tem um valor fora das opções permitidas`);
       return value;
     }
+    case "CPF": {
+      // Aceita com ou sem pontuação, guarda só os dígitos (ver lib/cpf.ts). Roda no
+      // servidor pra contatos, negócios e API v1 — validação só no navegador se burla.
+      const digits = normalizeCpf(String(raw));
+      if (!isValidCpf(digits)) throw new Error(`"${def.label}" não é um CPF válido — confira os números digitados`);
+      return digits;
+    }
   }
 }
 
@@ -50,16 +59,35 @@ export function coerceCustomFieldValue(def: CustomFieldDefinitionLike, raw: unkn
  * Valida um conjunto de valores contra as definições de campo de uma
  * entidade — obrigatórios presentes, cada valor batendo com o tipo/opções.
  * Retorna os valores já coeridos (prontos pra gravar) ou lança no primeiro erro.
+ *
+ * `previousValues` (só na EDIÇÃO): o que já estava gravado. Serve pra um caso
+ * específico — CPF legado inválido (ex.: "3395004171", que perdeu o zero à
+ * esquerda numa planilha; ~800 clientes vindos da importação do Agendor). A
+ * tela reenvia TODOS os campos a cada salvamento, então recusar o valor antigo
+ * impediria editar QUALQUER coisa desse cliente. Regra: valor inválido IGUAL
+ * ao que já estava gravado passa como veio; valor inválido NOVO (a pessoa
+ * digitou) continua recusado.
  */
 export function validateCustomFieldValues(
   definitions: CustomFieldDefinitionLike[],
   rawValues: Record<string, unknown> | null | undefined,
+  previousValues?: Record<string, unknown> | null,
 ): CustomFieldValues {
   const input = rawValues ?? {};
   const result: CustomFieldValues = {};
 
   for (const def of definitions) {
-    const coerced = coerceCustomFieldValue(def, input[def.id]);
+    let coerced: CustomFieldValue;
+    try {
+      coerced = coerceCustomFieldValue(def, input[def.id]);
+    } catch (err) {
+      const before = previousValues?.[def.id];
+      if (def.type === "CPF" && typeof before === "string" && normalizeCpf(before) === normalizeCpf(String(input[def.id] ?? ""))) {
+        coerced = before;
+      } else {
+        throw err;
+      }
+    }
     if (def.required && (coerced === null || coerced === "")) {
       throw new Error(`"${def.label}" é obrigatório`);
     }
@@ -74,6 +102,7 @@ export function stringifyCustomFieldValue(def: CustomFieldDefinitionLike, raw: C
   if (raw === null || raw === undefined || raw === "") return "";
   if (def.type === "BOOLEAN") return raw ? "Sim" : "Não";
   if (def.type === "DATE") return new Date(String(raw)).toLocaleDateString("pt-BR");
+  if (def.type === "CPF") return formatCpf(String(raw));
   return String(raw);
 }
 
@@ -83,6 +112,7 @@ export const CUSTOM_FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
   DATE: "Data",
   BOOLEAN: "Sim ou não",
   SELECT: "Lista de opções",
+  CPF: "CPF",
 };
 
 export const CUSTOM_FIELD_ENTITY_LABELS: Record<CustomFieldEntity, string> = {

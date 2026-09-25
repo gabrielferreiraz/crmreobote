@@ -6,6 +6,7 @@ import { exchangeGoogleCode, fetchGoogleUserEmail } from "@/lib/google-calendar-
 import { encryptSecret } from "@/lib/security/secret-crypto";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
+import { resolveInternalRedirect, safeInternalPath } from "@/lib/safe-redirect";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,16 @@ export async function GET(req: NextRequest) {
   const cookieState = req.cookies.get("google_oauth_state")?.value;
   // Setado só quando o fluxo começou em algum lugar além de Configurações →
   // Perfil (ver ?redirect= em authorize/route.ts) — volta pra lá por padrão.
-  const redirectPath = req.cookies.get("google_oauth_redirect")?.value || DEFAULT_REDIRECT_PATH;
+  // Revalida o valor do cookie (allowlist, ver lib/safe-redirect.ts) mesmo ele tendo sido
+  // gravado por authorize/route.ts — defesa em profundidade contra open redirect.
+  const redirectPath = safeInternalPath(req.cookies.get("google_oauth_redirect")?.value) ?? DEFAULT_REDIRECT_PATH;
+
+  /** Destino final (?google=<status>) — sempre na própria origem, nunca fora do app. */
+  function destination(status: string): URL {
+    const url = resolveInternalRedirect(redirectPath, req.url, DEFAULT_REDIRECT_PATH);
+    url.searchParams.set("google", status);
+    return url;
+  }
 
   function redirectWithCleanup(url: URL) {
     const res = NextResponse.redirect(url);
@@ -34,11 +44,11 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.log(`[google-calendar] usuário negou consentimento: ${error}`);
-    return redirectWithCleanup(new URL(`${redirectPath}?google=denied`, req.url));
+    return redirectWithCleanup(destination("denied"));
   }
   if (!code || !state || !cookieState || state !== cookieState) {
     console.warn("[google-calendar] callback com state ausente/divergente — possível CSRF ou cookie expirado");
-    return redirectWithCleanup(new URL(`${redirectPath}?google=error`, req.url));
+    return redirectWithCleanup(destination("error"));
   }
 
   try {
@@ -47,7 +57,7 @@ export async function GET(req: NextRequest) {
       // Só vem na 1ª autorização (ou com prompt=consent, que já forçamos em
       // buildGoogleAuthUrl) — sem ele não dá pra renovar o acesso depois.
       console.error("[google-calendar] resposta sem refresh_token — reconexão necessária");
-      return redirectWithCleanup(new URL(`${redirectPath}?google=error`, req.url));
+      return redirectWithCleanup(destination("error"));
     }
 
     const email = await fetchGoogleUserEmail(tokens.access_token);
@@ -86,9 +96,9 @@ export async function GET(req: NextRequest) {
       ip: getClientIp(req),
     });
 
-    return redirectWithCleanup(new URL(`${redirectPath}?google=connected`, req.url));
+    return redirectWithCleanup(destination("connected"));
   } catch (err) {
     console.error("[google-calendar] falha ao trocar código por token", err);
-    return redirectWithCleanup(new URL(`${redirectPath}?google=error`, req.url));
+    return redirectWithCleanup(destination("error"));
   }
 }

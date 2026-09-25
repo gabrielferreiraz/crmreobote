@@ -1,11 +1,11 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/lib/auth.config";
-import { rateLimit, resetRateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimit, resetRateLimit, peekRateLimit, getClientIp } from "@/lib/rate-limit";
 import { runWithTenant, runWithTenantUser } from "@/lib/tenant-context";
 import { logAudit } from "@/lib/audit-log";
 
@@ -27,6 +27,32 @@ async function resolveOrgForAuditLog(userId: string): Promise<string | null> {
   return membership?.organizationId ?? null;
 }
 
+/**
+ * Login barrado por excesso de tentativas. Subclasse de CredentialsSignin só pra
+ * levar um `code` até a tela (o next-auth v5 devolve `res.code` no signIn do
+ * cliente) — assim quem foi bloqueado vê "muitas tentativas" em vez de "e-mail
+ * ou senha inválidos" (que fazia o bloqueio parecer que nada acontecia). Não
+ * revela nada sobre a conta: o limite vale pra QUALQUER e-mail digitado, exista
+ * ou não, e é checado antes de consultar o banco.
+ */
+class LoginRateLimited extends CredentialsSignin {
+  code = "rate_limited";
+}
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+// Por e-mail: 5 tentativas / 15 min (conta TODA tentativa, zera no sucesso).
+const LOGIN_EMAIL_LIMIT = 5;
+// Por IP: 30 FALHAS / 15 min — pega quem testa uma senha comum em muitos
+// e-mails (password spraying), que o limite por e-mail sozinho não vê. Só
+// falha conta (ver peekRateLimit): o escritório todo sai pelo mesmo IP.
+const LOGIN_IP_FAILURE_LIMIT = 30;
+
+// Hash bcrypt de um valor aleatório, calculado uma vez: gasta o MESMO tempo de
+// CPU quando o e-mail não existe. Sem isto, e-mail inexistente respondia em
+// ~1ms e e-mail real em ~100ms (bcrypt) — o tempo de resposta denunciava quais
+// contas existem, mesmo com a mensagem de erro genérica.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(`dummy-${Math.random().toString(36)}-${Date.now()}`, 10);
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma),
@@ -47,23 +73,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!email || !password) return null;
 
         const ip = getClientIp(request);
+        // Sem cabeçalho de proxy o IP vem "unknown" (dev/conexão direta) — todos
+        // dividiriam a mesma chave e um bloquearia todos, então não limita por IP.
+        const ipKey = ip !== "unknown" ? `login-ip:${ip}` : null;
+        const recordIpFailure = () => {
+          if (ipKey) rateLimit(ipKey, LOGIN_IP_FAILURE_LIMIT, LOGIN_WINDOW_MS);
+        };
 
-        const key = `login:${email.toLowerCase()}`;
-        const { allowed, retryAfterMs } = rateLimit(key, 5, 15 * 60 * 1000);
-        if (!allowed) {
-          console.warn(`[auth] login bloqueado por rate limit: ${email} (tenta de novo em ${Math.ceil(retryAfterMs / 1000)}s)`);
-          return null;
+        if (ipKey) {
+          const ipState = peekRateLimit(ipKey, LOGIN_IP_FAILURE_LIMIT);
+          if (ipState.blocked) {
+            console.warn(`[auth] login bloqueado por excesso de falhas do IP ${ip} (tenta de novo em ${Math.ceil(ipState.retryAfterMs / 1000)}s)`);
+            throw new LoginRateLimited();
+          }
         }
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        const key = `login:${email.toLowerCase()}`;
+        const { allowed, retryAfterMs } = rateLimit(key, LOGIN_EMAIL_LIMIT, LOGIN_WINDOW_MS);
+        if (!allowed) {
+          console.warn(`[auth] login bloqueado por rate limit: ${email} (tenta de novo em ${Math.ceil(retryAfterMs / 1000)}s)`);
+          throw new LoginRateLimited();
+        }
+
+        // Único ponto que precisa do hash — `omit: { password: false }` desfaz o omit
+        // global de lib/prisma-omit.ts, de propósito e só aqui.
+        const user = await prisma.user.findUnique({ where: { email }, omit: { password: false } });
         if (!user?.password) {
           console.warn(`[auth] login falhou: ${email} não encontrado ou sem senha cadastrada`);
+          // Mesmo custo de CPU do caminho "e-mail existe" (ver DUMMY_PASSWORD_HASH).
+          await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+          recordIpFailure();
           return null;
         }
 
         const valid = await bcrypt.compare(password, user.password);
         if (!valid) {
           console.warn(`[auth] login falhou: senha incorreta para ${email}`);
+          recordIpFailure();
           const orgId = await resolveOrgForAuditLog(user.id);
           if (orgId) {
             await logAudit({
@@ -86,6 +132,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         );
         if (!hasActiveMembership) {
           console.warn(`[auth] login falhou: ${email} não tem nenhuma organização ativa`);
+          recordIpFailure();
           const orgId = await resolveOrgForAuditLog(user.id);
           if (orgId) {
             await logAudit({

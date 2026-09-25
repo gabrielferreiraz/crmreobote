@@ -54,6 +54,12 @@ model Organization {
    * backgroundPhotoKey, resolvidas do mesmo jeito (resolveAvatarUrl, ver
    * lib/digital-cards/queries.ts). Chave ausente/null = cai pro padrão de
    * fábrica; nenhuma das duas = gradiente/ícone genérico.
+   *
+   * Também guarda o tema padrão do cartão com a MESMA lógica, sob a chave
+   * `theme` (`"DARK" | "LIGHT" | "PHOTO"`, ver enum DigitalCardTheme):
+   * dono escolhe o tema no próprio cartão e promove a "padrão para todos"
+   * — vale pra todo cartão cujo DigitalCard.theme está null (nunca escolheu),
+   * nunca sobrescreve a escolha própria de quem já tem tema definido.
    */
   digitalCardDefaults Json?
   /**
@@ -1342,6 +1348,10 @@ enum CustomFieldType {
   DATE
   BOOLEAN
   SELECT
+  // CPF com máscara e validação de dígito verificador (ver lib/cpf.ts). Guarda só
+  // os dígitos, mesma convenção do CNPJ. Antes o CPF era um campo TEXT comum e
+  // aceitava "11111111111" (achado M1 do relatório de QA).
+  CPF
 }
 
 // ─── Negócio (Deal) ──────────────────────────────────────────────────
@@ -2551,6 +2561,20 @@ model TvDisplayLink {
 // global neste projeto). Se outra organização um dia usar o mesmo sistema,
 // dois slugs iguais colidiriam — aceito conscientemente, é o formato de URL
 // pedido.
+
+// Tema visual do cartão — pedido explícito: "escolher se ele quer tema
+// claro, tema escuro ou colocar a foto no fundo". DARK é o comportamento de
+// sempre (e o fallback final); LIGHT é um azul bem claro e quase
+// transparente; PHOTO deixa a foto de fundo cobrindo o cartão inteiro com um
+// scrim escuro leve por cima (texto branco). Guardado como coluna OPCIONAL
+// em DigitalCard.theme (null = segue o padrão da organização, ver
+// Organization.digitalCardDefaults.theme, senão DARK de fábrica).
+enum DigitalCardTheme {
+  DARK
+  LIGHT
+  PHOTO
+}
+
 model DigitalCard {
   id             String  @id @default(cuid())
   organizationId String
@@ -2615,6 +2639,15 @@ model DigitalCard {
   // cai pro DEFAULT_SELECTED_LOGOS (todas, ordem padrão) — nunca um cartão
   // sem logo nenhuma só porque a coluna começou vazia antes desta migration.
   selectedLogos String[] @default([])
+
+  // Tema visual escolhido pelo DONO DO CARTÃO (ver enum DigitalCardTheme e
+  // a seção "Tema do cartão" em card-editor.tsx) — null = NUNCA escolheu,
+  // então segue o padrão da organização (chave `theme` de
+  // Organization.digitalCardDefaults, "Manter este tema padrão para todos"
+  // OWNER-only) e, se a org também não definiu, o tema de fábrica DARK.
+  // Nunca sobrescrito pelo padrão da org depois que a pessoa escolhe um
+  // tema próprio.
+  theme DigitalCardTheme?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

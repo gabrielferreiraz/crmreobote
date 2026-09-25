@@ -42,7 +42,11 @@ export default async function MeuCartaoPage() {
       card,
       stats,
       publicUrl: publicCardUrlFromHeaders(card.slug, hdrs),
-      orgDefaultsSet: { cover: !!orgDefaults?.coverPhotoKey, background: !!orgDefaults?.backgroundPhotoKey },
+      orgDefaultsSet: {
+        cover: !!orgDefaults?.coverPhotoKey,
+        background: !!orgDefaults?.backgroundPhotoKey,
+        theme: orgDefaults?.theme ?? null,
+      },
     };
   });
 

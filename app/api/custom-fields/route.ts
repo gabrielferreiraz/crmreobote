@@ -8,7 +8,7 @@ import type { CustomFieldEntity, CustomFieldType } from "@/app/generated/prisma/
 export const dynamic = "force-dynamic";
 
 const VALID_ENTITY_TYPES: CustomFieldEntity[] = ["CONTACT", "DEAL"];
-const VALID_TYPES: CustomFieldType[] = ["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT"];
+const VALID_TYPES: CustomFieldType[] = ["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT", "CPF"];
 
 export async function GET() {
   const { organizationId } = await requireSession();

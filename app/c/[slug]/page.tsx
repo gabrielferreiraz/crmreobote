@@ -129,10 +129,17 @@ export default async function DigitalCardPublicPage({
     selectedLogos: card.selectedLogos,
     links: card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })),
     publicUrl: publicCardUrlFromHeaders(slug, hdrs),
+    theme: card.effectiveTheme,
   };
 
+  const isLight = card.effectiveTheme === "LIGHT";
+
   return (
-    <div className="min-h-dvh bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8 flex justify-center">
+    <div
+      className={`min-h-dvh flex justify-center transition-colors ${
+        isLight ? "bg-[#d8ecf8] sm:bg-[#cde4f4] sm:px-4 sm:py-8" : "bg-[#090d16] sm:bg-[#0a0b10] sm:px-4 sm:py-8"
+      }`}
+    >
       <div className="w-full max-w-md min-h-dvh sm:min-h-0">
         <DigitalCardView data={data} source={src ?? null} autoOpenQr={qr === "1"} presentationId={pid ?? null} />
       </div>

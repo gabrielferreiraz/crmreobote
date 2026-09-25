@@ -5,7 +5,8 @@ import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { resolveContactPhones } from "@/lib/phone-normalize";
 import { isValidBirthDateIso } from "@/lib/birth-date";
-import { findDuplicateContact, buildConflictPayload } from "@/lib/contact-duplicate";
+import { findDuplicateContact, buildConflictPayload, isConflictLookupThrottled, CONFLICT_THROTTLED_MESSAGE } from "@/lib/contact-duplicate";
+import { isValidEmail } from "@/lib/email-format";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -160,6 +161,10 @@ export async function POST(req: Request) {
   if (birthDate && !isValidBirthDateIso(birthDate)) {
     return NextResponse.json({ error: "Data de nascimento inválida" }, { status: 400 });
   }
+  // Formato de e-mail no SERVIDOR (o type="email" do navegador se contorna chamando a API direto).
+  if (email && !isValidEmail(email)) {
+    return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+  }
 
   return runWithTenant(organizationId, async () => {
     // Limpa, valida e formata Celular/WhatsApp num lugar só (ver
@@ -181,6 +186,10 @@ export async function POST(req: Request) {
 
     const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized);
     if (duplicate) {
+      // Antes de devolver nome/responsável do contato existente — freio contra varredura de telefones.
+      if (isConflictLookupThrottled(userId)) {
+        return NextResponse.json({ error: CONFLICT_THROTTLED_MESSAGE }, { status: 429 });
+      }
       const conflict = buildConflictPayload(duplicate, userId);
 
       // Dono ATIVO cuidando do lead (e o lead não está perdido há mais de 3

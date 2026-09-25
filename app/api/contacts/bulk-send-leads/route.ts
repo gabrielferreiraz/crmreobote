@@ -195,7 +195,9 @@ export async function POST(req: Request) {
                 templates: [{ steps: stepsByScriptId.get(w.scriptId), weight: 1, scriptId: w.scriptId, scriptVersion: versionByScriptId.get(w.scriptId) }],
               })) as unknown as Prisma.InputJsonValue)
             : undefined,
-        noReplyDays: resolvedNoReplyDays,
+        // Sem RMKT, não existe prazo de expiração: o motor só deve enviar a
+        // primeira mensagem e encerrar a campanha normalmente.
+        noReplyDays: waves.length > 0 ? resolvedNoReplyDays : undefined,
         targetPipelineId,
         targetStageId,
         createdById: userId,

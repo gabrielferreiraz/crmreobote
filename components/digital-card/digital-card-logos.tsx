@@ -14,7 +14,15 @@ const LOGO_STYLE_MAP: Record<string, string> = {
   servopa: "h-6 w-auto max-w-[100px] object-contain opacity-90",
 };
 
-export function DigitalCardLogos({ selectedLogos, excludeReobote }: { selectedLogos?: string[]; excludeReobote?: boolean }) {
+export function DigitalCardLogos({
+  selectedLogos,
+  excludeReobote,
+  light = false,
+}: {
+  selectedLogos?: string[];
+  excludeReobote?: boolean;
+  light?: boolean;
+}) {
   let logos = getActivePartnerLogos(selectedLogos);
   if (excludeReobote) {
     logos = logos.filter((l) => l.key !== "reobote");
@@ -22,7 +30,13 @@ export function DigitalCardLogos({ selectedLogos, excludeReobote }: { selectedLo
   if (logos.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5 py-1 px-3">
+    <div
+      className={`flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5 py-1.5 px-3.5 transition-colors ${
+        light
+          ? "rounded-2xl border border-sky-300/40 bg-slate-900/85 shadow-sm backdrop-blur-md"
+          : ""
+      }`}
+    >
       {logos.map((logo) => {
         if (logo.src === "reobote") {
           return <ReoboteLogo key={logo.key} className="h-9 sm:h-10 w-auto opacity-95" aria-label={logo.label} />;

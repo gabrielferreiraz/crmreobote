@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
@@ -113,7 +114,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         ...(creditType !== undefined ? { creditType } : {}),
         ...(expectedCloseAt !== undefined ? { expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : null } : {}),
       },
-      include: { contact: true, owner: true, stage: true },
+      include: { contact: true, owner: { select: USER_PUBLIC_SELECT }, stage: true },
     });
 
     if (existing.stageId !== stageId) {

@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { ContactSearchInput } from "@/components/contact-search-input";
 import { Select } from "@/components/select";
+import { FieldError, focusField } from "@/components/field-error";
 import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -58,9 +59,19 @@ export function EditTaskDialog({
   const [dealId, setDealId] = useState(task.deal?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Título vazio é validado ao enviar (o botão Salvar não fica mais desabilitado em silêncio — achado M3 do QA).
+  const [titleError, setTitleError] = useState<string | null>(null);
+  // Só avisa de prazo passado quando a pessoa MUDOU o prazo — abrir uma atividade já atrasada não deve
+  // gritar (achado B4 do QA). Calculado no onChange (não no render: Date.now() é impuro).
+  const [dueChangedToPast, setDueChangedToPast] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!title.trim()) {
+      setTitleError("Informe um título para a atividade.");
+      focusField("edit-task-title");
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -94,25 +105,40 @@ export function EditTaskDialog({
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <label className="field-label">Título</label>
+            <label className="field-label" htmlFor="edit-task-title">
+              Título *
+            </label>
             <VoiceInputButton onResult={titleDictation.onResult} onInterimResult={titleDictation.onInterimResult} />
           </div>
           <input
+            id="edit-task-title"
             autoFocus
-            required
             value={titleDictation.value}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setTitleError(null);
+            }}
+            aria-invalid={titleError ? true : undefined}
+            aria-describedby={titleError ? "edit-task-title-error" : undefined}
             className="field-input"
           />
+          {titleError && <FieldError id="edit-task-title-error">{titleError}</FieldError>}
         </div>
         <div className="space-y-1">
           <label className="field-label">Prazo</label>
           <input
             type="datetime-local"
             value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setDueAt(value);
+              setDueChangedToPast(!!value && value !== toDateTimeLocalValue(task.dueAt) && new Date(value).getTime() < Date.now());
+            }}
             className="field-input"
           />
+          {dueChangedToPast && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">Este prazo já passou — confira a data e o ano.</p>
+          )}
         </div>
         <div className="space-y-1">
           <label className="field-label">Negócio (opcional)</label>
@@ -145,7 +171,7 @@ export function EditTaskDialog({
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={loading || !title.trim()} className="btn-primary">
+          <button type="submit" disabled={loading} className="btn-primary">
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">

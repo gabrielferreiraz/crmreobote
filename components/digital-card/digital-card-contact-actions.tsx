@@ -8,6 +8,8 @@ type Props = {
   address: string | null;
   instagram?: string | null;
   onTrack: (eventType: string) => void;
+  /** Adapta a paleta dos ícones para o tema claro */
+  light?: boolean;
 };
 
 /** Ícone oficial do WhatsApp */
@@ -35,12 +37,14 @@ function IconAction({
   href,
   onClick,
   accentClass,
+  light = false,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   href: string;
   onClick: () => void;
   accentClass: string;
+  light?: boolean;
 }) {
   return (
     <a
@@ -51,11 +55,21 @@ function IconAction({
       className="flex flex-col items-center gap-1.5 group"
     >
       <span
-        className={`flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-white/90 shadow-md backdrop-blur-md transition-all duration-200 group-hover:scale-105 ${accentClass}`}
+        className={`flex h-11 w-11 items-center justify-center rounded-2xl border shadow-md backdrop-blur-md transition-all duration-200 group-hover:scale-105 ${
+          light
+            ? "border-sky-300/40 bg-white/70 text-slate-800 shadow-sky-950/5 group-hover:bg-white"
+            : "border-white/10 bg-white/[0.07] text-white/90"
+        } ${accentClass}`}
       >
         <Icon className="h-4.5 w-4.5" />
       </span>
-      <span className="text-xs font-medium text-white/60 group-hover:text-white/90 transition-colors">{label}</span>
+      <span
+        className={`text-xs font-medium transition-colors ${
+          light ? "text-slate-600 group-hover:text-slate-900" : "text-white/60 group-hover:text-white/90"
+        }`}
+      >
+        {label}
+      </span>
     </a>
   );
 }
@@ -100,7 +114,7 @@ function ProminentPill({
 }
 
 /** Telefone / WhatsApp / e-mail / mapa / instagram com estilo visual de alta fidelidade. */
-export function DigitalCardContactActions({ phone, whatsapp, email, address, instagram, onTrack }: Props) {
+export function DigitalCardContactActions({ phone, whatsapp, email, address, instagram, onTrack, light = false }: Props) {
   // ensureBrazilianMobileNinthDigit: mesma rede de segurança de
   // lib/whatsapp/send.ts — sem isso, o botão do cartão digital abria
   // conversa com o número ERRADO pra quem salvou o próprio WhatsApp sem o 9.
@@ -126,7 +140,12 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
             label="WhatsApp"
             href={whatsappHref}
             onClick={() => onTrack("WHATSAPP_CLICK")}
-            accentClass="group-hover:border-emerald-500/40 group-hover:bg-emerald-500/20 group-hover:text-emerald-400 group-hover:shadow-[0_0_15px_rgba(16,185,129,0.35)]"
+            accentClass={
+              light
+                ? "group-hover:border-emerald-500/60 group-hover:bg-emerald-50 group-hover:text-emerald-600"
+                : "group-hover:border-emerald-500/40 group-hover:bg-emerald-500/20 group-hover:text-emerald-400 group-hover:shadow-[0_0_15px_rgba(16,185,129,0.35)]"
+            }
+            light={light}
           />
         )}
         {emailHref && (
@@ -135,7 +154,12 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
             label="E-mail"
             href={emailHref}
             onClick={() => onTrack("EMAIL_CLICK")}
-            accentClass="group-hover:border-purple-500/40 group-hover:bg-purple-500/20 group-hover:text-purple-400 group-hover:shadow-[0_0_15px_rgba(168,85,247,0.35)]"
+            accentClass={
+              light
+                ? "group-hover:border-purple-500/60 group-hover:bg-purple-50 group-hover:text-purple-600"
+                : "group-hover:border-purple-500/40 group-hover:bg-purple-500/20 group-hover:text-purple-400 group-hover:shadow-[0_0_15px_rgba(168,85,247,0.35)]"
+            }
+            light={light}
           />
         )}
         {mapHref && (
@@ -144,7 +168,12 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
             label="Mapa"
             href={mapHref}
             onClick={() => onTrack("MAP_CLICK")}
-            accentClass="group-hover:border-rose-500/40 group-hover:bg-rose-500/20 group-hover:text-rose-400 group-hover:shadow-[0_0_15px_rgba(244,63,94,0.35)]"
+            accentClass={
+              light
+                ? "group-hover:border-rose-500/60 group-hover:bg-rose-50 group-hover:text-rose-600"
+                : "group-hover:border-rose-500/40 group-hover:bg-rose-500/20 group-hover:text-rose-400 group-hover:shadow-[0_0_15px_rgba(244,63,94,0.35)]"
+            }
+            light={light}
           />
         )}
         {instagramHref && (
@@ -153,7 +182,12 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
             label="Instagram"
             href={instagramHref}
             onClick={() => onTrack("INSTAGRAM_CLICK")}
-            accentClass="group-hover:border-pink-500/40 group-hover:bg-pink-500/20 group-hover:text-pink-400 group-hover:shadow-[0_0_15px_rgba(236,72,153,0.35)]"
+            accentClass={
+              light
+                ? "group-hover:border-pink-500/60 group-hover:bg-pink-50 group-hover:text-pink-600"
+                : "group-hover:border-pink-500/40 group-hover:bg-pink-500/20 group-hover:text-pink-400 group-hover:shadow-[0_0_15px_rgba(236,72,153,0.35)]"
+            }
+            light={light}
           />
         )}
       </div>

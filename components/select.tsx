@@ -40,6 +40,9 @@ export function Select({
   className = "",
   disabled = false,
   autoFocus = false,
+  id,
+  invalid = false,
+  describedBy,
   /** Força mostrar (true) ou esconder (false) o campo de busca — sem
    * passar nada, decide sozinho pelo tamanho da lista (ver SEARCH_THRESHOLD). */
   searchable,
@@ -51,6 +54,12 @@ export function Select({
   className?: string;
   disabled?: boolean;
   autoFocus?: boolean;
+  /** id do botão — pra `focusField` levar o foco até aqui quando o campo estiver inválido. */
+  id?: string;
+  /** Marca o campo como inválido (aria-invalid + borda vermelha via .field-input[aria-invalid]). */
+  invalid?: boolean;
+  /** id da mensagem de erro (ver FieldError) — o leitor de tela lê junto com o campo. */
+  describedBy?: string;
   searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -205,10 +214,13 @@ export function Select({
     <>
       <button
         ref={triggerRef}
+        id={id}
         type="button"
         role="combobox"
         disabled={disabled}
         autoFocus={autoFocus}
+        aria-invalid={invalid ? true : undefined}
+        aria-describedby={invalid ? describedBy : undefined}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={handleTriggerKeyDown}
         aria-haspopup="listbox"

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getSharedScope } from "@/lib/share-groups";
@@ -216,7 +217,7 @@ export async function POST(req: Request) {
         expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
         customFieldValues: cleanCustomFieldValues,
       },
-      include: { contact: true, owner: true, stage: true },
+      include: { contact: true, owner: { select: USER_PUBLIC_SELECT }, stage: true },
     });
 
     recordUserChange(organizationId, userId).catch((err) =>

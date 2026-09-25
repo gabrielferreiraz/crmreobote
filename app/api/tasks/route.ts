@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
@@ -46,7 +47,7 @@ export async function GET(req: Request) {
         ...(status === "done" ? { completedAt: { not: null } } : {}),
       },
       orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
-      include: { deal: true, contact: true, owner: true },
+      include: { deal: true, contact: true, owner: { select: USER_PUBLIC_SELECT } },
     });
 
     return NextResponse.json(tasks);
@@ -145,7 +146,7 @@ export async function POST(req: Request) {
         ownerId: ownerId ?? userId,
         activityId: linkedActivityId,
       },
-      include: { deal: true, contact: true, owner: true },
+      include: { deal: true, contact: true, owner: { select: USER_PUBLIC_SELECT } },
     });
 
     recordUserChange(organizationId, userId).catch((err) =>

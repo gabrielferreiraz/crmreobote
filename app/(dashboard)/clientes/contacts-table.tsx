@@ -34,6 +34,8 @@ import { FilterPopover } from "@/components/filter-popover";
 import { ColumnFilter } from "@/components/column-filter";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { FieldError, focusField } from "@/components/field-error";
+import { Field } from "@/components/form-field";
 import { PhoneInput } from "@/components/phone-input";
 import { BirthDateInput } from "@/components/birth-date-input";
 import { sortAlpha } from "@/lib/sort-alpha";
@@ -53,7 +55,7 @@ import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
 import { validatePhoneField } from "@/lib/phone-normalize";
-import { isBirthDateInputInvalid, parseBirthDateInput } from "@/lib/birth-date";
+import { birthDateInputError, parseBirthDateInput } from "@/lib/birth-date";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 
 const QUICK_RANGES = buildListQuickRanges();
@@ -155,6 +157,12 @@ export function ContactsTable({
   const [jobTitle, setJobTitle] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [birthDateError, setBirthDateError] = useState<string | null>(null);
+  // Erros de campo obrigatório do "Novo contato" (ver handleSubmit) — o botão Criar não fica
+  // mais desabilitado em silêncio quando falta algo (achado M3 do relatório de QA).
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [jobTitleError, setJobTitleError] = useState<string | null>(null);
+  // Mensagem do servidor/conflito costuma cair abaixo da dobra do modal longo — rola até ela.
+  const feedbackRef = useRef<HTMLDivElement>(null);
   const [zipCode, setZipCode] = useState("");
   const [address, setAddress] = useState("");
   const [addressNumber, setAddressNumber] = useState("");
@@ -170,6 +178,9 @@ export function ContactsTable({
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
+  useEffect(() => {
+    if (conflict || error) feedbackRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [conflict, error]);
   const [claiming, setClaiming] = useState(false);
   const cepAutofillFields = useMemo(
     () => ({
@@ -637,10 +648,17 @@ export function ContactsTable({
     // Valida formato dos campos de telefone/data de nascimento no cliente antes de bater na API
     const phoneErr = validatePhoneField(phone, "phone");
     const waErr = validatePhoneField(whatsapp, "whatsapp");
-    const birthDateErr = isBirthDateInputInvalid(birthDate) ? "Data inválida. Use o formato DD/MM/AAAA." : null;
+    const birthDateErr = birthDateInputError(birthDate);
     setPhoneError(phoneErr);
     setWhatsappError(waErr);
     setBirthDateError(birthDateErr);
+    // Obrigatórios: valida AQUI (não desabilita o botão) pra dizer o que falta e levar o foco lá.
+    const nameErr = name.trim() ? null : "Informe o nome do contato.";
+    const jobTitleErr = jobTitle ? null : "Selecione o cargo — é essencial pra achar o lead certo depois.";
+    setNameError(nameErr);
+    setJobTitleError(jobTitleErr);
+    if (nameErr) return focusField("new-contact-name");
+    if (jobTitleErr) return focusField("new-contact-job-title");
     if (phoneErr || waErr || birthDateErr) return;
 
     setCreating(true);
@@ -679,6 +697,8 @@ export function ContactsTable({
     setJobTitle("");
     setBirthDate("");
     setBirthDateError(null);
+    setNameError(null);
+    setJobTitleError(null);
     setZipCode("");
     setAddress("");
     setAddressNumber("");
@@ -707,6 +727,8 @@ export function ContactsTable({
           onClick={() => {
             setError(null);
             setConflict(null);
+            setNameError(null);
+            setJobTitleError(null);
             setOpen(true);
           }}
           className="btn-primary"
@@ -1368,7 +1390,17 @@ export function ContactsTable({
         <Modal onClose={() => setOpen(false)} maxWidth="max-w-xl">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo contato</h2>
           <form onSubmit={handleSubmit} className="space-y-3">
-            <Field label="Nome" value={name} onChange={setName} required autoFocus />
+            <Field
+              id="new-contact-name"
+              label="Nome *"
+              value={name}
+              onChange={(v) => {
+                setName(v);
+                setNameError(null);
+              }}
+              error={nameError}
+              autoFocus
+            />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="E-mail" value={email} onChange={setEmail} type="email" />
               <Field label="Empresa" value={company} onChange={setCompany} />
@@ -1391,14 +1423,22 @@ export function ContactsTable({
               <div className="space-y-1">
                 <label className="field-label">Cargo *</label>
                 <Select
+                  id="new-contact-job-title"
                   value={jobTitle}
-                  onChange={setJobTitle}
+                  onChange={(v) => {
+                    setJobTitle(v);
+                    setJobTitleError(null);
+                  }}
+                  invalid={!!jobTitleError}
+                  describedBy="new-contact-job-title-error"
                   placeholder="Selecione o cargo"
                   options={jobTitles.map((j) => ({ value: j.label, label: j.label }))}
                 />
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  Essencial pra achar o lead certo depois.
-                </p>
+                {jobTitleError ? (
+                  <FieldError id="new-contact-job-title-error">{jobTitleError}</FieldError>
+                ) : (
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Essencial pra achar o lead certo depois.</p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="field-label">Responsável</label>
@@ -1453,14 +1493,20 @@ export function ContactsTable({
             </div>
             <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
-            {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            <div ref={feedbackRef} className="space-y-3">
+              {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
+              {error && (
+                <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </p>
+              )}
+            </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
                 Cancelar
               </button>
-              <button type="submit" disabled={creating || !name.trim() || !jobTitle} className="btn-primary">
+              <button type="submit" disabled={creating} className="btn-primary">
                 {creating && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                 {creating ? (
                   <span className="inline-flex items-center gap-1">
@@ -1488,36 +1534,6 @@ export function ContactsTable({
       )}
 
       {importHistoryOpen && <ImportHistoryDialog kind="contacts" onClose={() => setImportHistoryOpen(false)} />}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  required,
-  autoFocus,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  required?: boolean;
-  autoFocus?: boolean;
-}) {
-  return (
-    <div className="space-y-1">
-      <label className="field-label">{label}</label>
-      <input
-        type={type}
-        required={required}
-        autoFocus={autoFocus}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="field-input"
-      />
     </div>
   );
 }

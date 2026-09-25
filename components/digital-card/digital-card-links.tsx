@@ -60,7 +60,7 @@ const TRACKED_EVENT_BY_TYPE: Record<string, string> = {
   LINKEDIN: "LINKEDIN_CLICK",
 };
 
-export function DigitalCardLinks({ links, onTrack }: { links: Link[]; onTrack: (eventType: string) => void }) {
+export function DigitalCardLinks({ links, onTrack, light = false }: { links: Link[]; onTrack: (eventType: string) => void; light?: boolean }) {
   if (links.length === 0) return null;
 
   return (
@@ -68,7 +68,11 @@ export function DigitalCardLinks({ links, onTrack }: { links: Link[]; onTrack: (
       {links.map((link) => {
         const brand = BRAND_CONFIG[link.type];
         const Icon = brand ? brand.icon : Link2;
-        const colorClass = brand ? brand.colorClass : "text-white/60 group-hover:text-white";
+        const colorClass = brand
+          ? brand.colorClass
+          : light
+          ? "text-slate-600 group-hover:text-slate-900"
+          : "text-white/60 group-hover:text-white";
 
         return (
           <a
@@ -77,13 +81,34 @@ export function DigitalCardLinks({ links, onTrack }: { links: Link[]; onTrack: (
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => onTrack(TRACKED_EVENT_BY_TYPE[link.type] ?? "LINK_CLICK")}
-            className="group flex items-center gap-3.5 rounded-2xl border border-white/5 bg-gradient-to-r from-white/[0.05] to-transparent px-4 py-3 shadow-lg backdrop-blur-md transition-all hover:border-[#00aeee]/30 hover:from-[#00aeee]/10 hover:to-transparent hover:scale-[1.02] active:scale-[0.98]"
+            className={`group flex items-center gap-3.5 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur-md transition-all hover:scale-[1.02] active:scale-[0.98] ${
+              light
+                ? "border-sky-300/40 bg-white/70 shadow-sky-950/5 hover:border-[#00aeee]/50 hover:bg-white"
+                : "border-white/5 bg-gradient-to-r from-white/[0.05] to-transparent hover:border-[#00aeee]/30 hover:from-[#00aeee]/10 hover:to-transparent"
+            }`}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10 group-hover:ring-[#00aeee]/40 transition-all">
+            <div
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
+                light
+                  ? "bg-sky-100/70 shadow-inner ring-1 ring-sky-300/40 group-hover:ring-[#00aeee]/60"
+                  : "bg-black/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10 group-hover:ring-[#00aeee]/40"
+              }`}
+            >
               <Icon className={`h-4 w-4 drop-shadow-md transition-colors ${colorClass}`} />
             </div>
-            <span className="min-w-0 flex-1 truncate text-left text-base font-semibold tracking-wide text-white/90 group-hover:text-white transition-colors">{link.label}</span>
-            <ExternalLink className="h-4 w-4 shrink-0 text-white/20 transition-colors group-hover:text-[#00aeee]/80" strokeWidth={2} />
+            <span
+              className={`min-w-0 flex-1 truncate text-left text-base font-semibold tracking-wide transition-colors ${
+                light ? "text-slate-800 group-hover:text-slate-950" : "text-white/90 group-hover:text-white"
+              }`}
+            >
+              {link.label}
+            </span>
+            <ExternalLink
+              className={`h-4 w-4 shrink-0 transition-colors ${
+                light ? "text-slate-400 group-hover:text-[#00aeee]" : "text-white/20 group-hover:text-[#00aeee]/80"
+              }`}
+              strokeWidth={2}
+            />
           </a>
         );
       })}

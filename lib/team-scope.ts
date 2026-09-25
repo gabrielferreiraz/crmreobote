@@ -98,8 +98,8 @@ export function contactScopeWhere(scope: DealScope) {
 
 /**
  * Mesma ideia de scopeWhere, mas pra Campaign (campo é createdById, não
- * ownerId — uma campanha "pertence" a quem criou, não tem um dono
- * separado). Achado em produção: TODA rota de campanha (lista, detalhe,
+ * ownerId — uma campanha "pertence" a quem criou OU a quem está com o
+ * WhatsApp conectado que ela usa, ver o segundo ramo abaixo). Achado em produção: TODA rota de campanha (lista, detalhe,
  * editar, pausar/retomar, apagar, duplicar, enviar agora) filtrava só por
  * organizationId, nunca por quem criou — qualquer Consultor via/mexia na
  * campanha de qualquer outro (relatado: "todos os usuários estavam vendo a
@@ -109,5 +109,70 @@ export function contactScopeWhere(scope: DealScope) {
  * sido migrado pro mesmo padrão.
  */
 export function campaignScopeWhere(scope: DealScope) {
-  return scope.type === "owners" ? { createdById: { in: scope.ownerIds } } : {};
+  if (scope.type !== "owners") return {};
+  const ids = { in: scope.ownerIds };
+  return {
+    OR: [
+      { createdById: ids },
+      // Quem está com o WhatsApp conectado da campanha manda nela como se a
+      // tivesse criado (pedido do Dono: só ele monta campanha pra outra
+      // pessoa, e essa pessoa precisa poder pausar/parar/apagar). Só vale
+      // quando a campanha tem UM WhatsApp (MANUAL/LEAD_CAPTURE): no envio em
+      // massa do Pipeline a campanha junta o celular de vários consultores e
+      // um deles não pode apagar/pausar o envio dos outros.
+      { source: { not: "PIPELINE_BULK" as const }, instance: { userId: ids } },
+    ],
+  };
+}
+
+/**
+ * Quem pode VER uma campanha — superset de campaignScopeWhere (quem gerencia,
+ * vê): soma o envio em massa (PIPELINE_BULK) em que algum destinatário saiu
+ * do WhatsApp de alguém do escopo. Aí a pessoa só ENXERGA (e só os próprios
+ * destinatários, ver campaignRecipientVisibilityWhere), não gerencia.
+ * Relatado: consultores não viam campanhas que saíam do celular deles porque
+ * a visibilidade era só por quem criou. Mesma leitura "dono = dono do
+ * WhatsApp que envia" que os relatórios já usam.
+ */
+export function campaignVisibilityWhere(scope: DealScope) {
+  if (scope.type !== "owners") return {};
+  const ids = { in: scope.ownerIds };
+  return {
+    OR: [
+      ...campaignScopeWhere(scope).OR!,
+      { source: "PIPELINE_BULK" as const, recipients: { some: { instance: { userId: ids } } } },
+    ],
+  };
+}
+
+/**
+ * Complemento de campaignVisibilityWhere pros DESTINATÁRIOS (nome/telefone de
+ * lead): quem só enxerga um envio em massa por ter o WhatsApp usado nele vê
+ * apenas os destinatários que saíram do PRÓPRIO WhatsApp (ou do escopo) — os
+ * negócios dos outros consultores, misturados na mesma campanha, não são
+ * dele (mesmo BOLA intra-tenant de Deal/Task). Quem gerencia a campanha vê a
+ * lista inteira, como sempre.
+ */
+export function campaignRecipientVisibilityWhere(scope: DealScope) {
+  if (scope.type !== "owners") return {};
+  const ids = { in: scope.ownerIds };
+  return {
+    OR: [
+      { campaign: { createdById: ids } },
+      { campaign: { source: { not: "PIPELINE_BULK" as const } } },
+      { instance: { userId: ids } },
+    ],
+  };
+}
+
+/** Pode gerenciar — mesma regra de campaignScopeWhere, em forma de checagem sobre uma campanha já carregada. */
+export function canManageCampaign(
+  scope: DealScope,
+  campaign: { createdById: string; source: string; instanceUserId: string },
+): boolean {
+  if (scope.type === "all") return true;
+  return (
+    scope.ownerIds.includes(campaign.createdById) ||
+    (campaign.source !== "PIPELINE_BULK" && scope.ownerIds.includes(campaign.instanceUserId))
+  );
 }

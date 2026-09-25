@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
 import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
@@ -190,7 +191,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const task = await prisma.task.update({
       where: { id },
       data: updateData,
-      include: { deal: true, contact: true, owner: true },
+      include: { deal: true, contact: true, owner: { select: USER_PUBLIC_SELECT } },
     });
 
     recordUserChange(organizationId, accessUserId).catch((err) =>

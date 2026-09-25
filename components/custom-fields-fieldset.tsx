@@ -1,12 +1,15 @@
 "use client";
 
+import { useId, useState } from "react";
 import { Select } from "@/components/select";
 import { DatePicker } from "@/components/date-picker";
+import { isValidCpf, maskCpf, normalizeCpf } from "@/lib/cpf";
+import type { CustomFieldType } from "@/lib/custom-fields";
 
 export type CustomFieldDefinitionInput = {
   id: string;
   label: string;
-  type: "TEXT" | "NUMBER" | "DATE" | "BOOLEAN" | "SELECT";
+  type: CustomFieldType;
   options: string[];
   required: boolean;
 };
@@ -84,9 +87,51 @@ export function CustomFieldsFieldset({
                 options={def.options.map((o) => ({ value: o, label: o }))}
               />
             )}
+            {def.type === "CPF" && (
+              <CpfInput value={(values[def.id] as string) ?? ""} onChange={(v) => setValue(def.id, v || null)} required={def.required} />
+            )}
           </div>
         );
       })}
+    </>
+  );
+}
+
+/**
+ * Campo de CPF: máscara enquanto digita (000.000.000-00), guarda só os dígitos
+ * no valor do formulário e avisa NA HORA quando o número não fecha — sem
+ * esperar o servidor recusar (que continua sendo a fonte de verdade, ver
+ * coerceCustomFieldValue em lib/custom-fields.ts). Só acusa "incompleto" depois
+ * que a pessoa sai do campo, pra não gritar erro no meio da digitação.
+ */
+function CpfInput({ value, onChange, required }: { value: string; onChange: (digits: string) => void; required: boolean }) {
+  const [touched, setTouched] = useState(false);
+  const errorId = useId();
+  const digits = normalizeCpf(value);
+
+  let error: string | null = null;
+  if (digits.length === 11 && !isValidCpf(digits)) error = "CPF inválido — confira os números digitados";
+  else if (digits.length > 0 && digits.length < 11 && touched) error = "CPF incompleto — são 11 números";
+
+  return (
+    <>
+      <input
+        inputMode="numeric"
+        autoComplete="off"
+        placeholder="000.000.000-00"
+        value={maskCpf(value)}
+        onChange={(e) => onChange(normalizeCpf(e.target.value).slice(0, 11))}
+        onBlur={() => setTouched(true)}
+        required={required}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        className="field-input"
+      />
+      {error && (
+        <p id={errorId} role="alert" className="field-error">
+          {error}
+        </p>
+      )}
     </>
   );
 }

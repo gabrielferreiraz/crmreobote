@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
+import { safeInternalPath } from "@/lib/safe-redirect";
 import { ScriptEditor } from "../script-editor";
 
 export default async function NovoScriptPage({
@@ -9,7 +10,10 @@ export default async function NovoScriptPage({
 }: {
   searchParams: Promise<{ duplicate?: string; returnTo?: string }>;
 }) {
-  const { duplicate, returnTo } = await searchParams;
+  const { duplicate, returnTo: rawReturnTo } = await searchParams;
+  // returnTo vira router.push()/<Link href> no editor — só caminho interno (ver lib/safe-redirect.ts);
+  // `?returnTo=https://evil.com` levava a pessoa pra fora do app ao salvar/cancelar.
+  const returnTo = safeInternalPath(rawReturnTo);
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;

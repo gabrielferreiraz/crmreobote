@@ -327,7 +327,7 @@ export function ContactTabs({
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {deals.length > 0
                       ? "Apague os negócios vinculados primeiro — não dá pra apagar o contato enquanto algum negócio ainda apontar pra ele."
-                      : "Remove o contato e seus dados de vez. Essa ação não pode ser desfeita."}
+                      : "Remove o contato e seus dados. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."}
                   </p>
                 </div>
                 <button

@@ -5,8 +5,10 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
 import { getCardDetails } from "@/lib/digital-cards/queries";
 import { AVAILABLE_PARTNER_LOGOS } from "@/lib/digital-cards/logos";
+import { isCardTheme } from "@/lib/digital-cards/themes";
 import { isValidPhoneInput } from "@/lib/phone-normalize";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { isValidEmail } from "@/lib/email-format";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,6 @@ const MAX_LINKS = 12;
 // erro de digitação óbvio (sem @ ou sem ponto), nunca uma validação de
 // e-mail "de verdade" (RFC 5322 é bem mais permissivo do que qualquer
 // regex razoável cobre).
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_LOGO_KEYS = new Set(AVAILABLE_PARTNER_LOGOS.map((l) => l.key));
 
 type LinkInput = { type: string; label: string; url: string; order?: number; active?: boolean };
@@ -61,6 +62,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       portfolioValueDisplay,
       selectedLogos,
       links,
+      theme,
     } = body as {
       slug?: string;
       active?: boolean;
@@ -75,6 +77,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       portfolioValueDisplay?: string | null;
       selectedLogos?: string[];
       links?: LinkInput[];
+      // null explícito = "voltar a seguir o padrão da empresa" (quando houver)
+      // ou o de fábrica — distinto de `undefined` (não mexer neste campo).
+      theme?: string | null;
     };
 
     let resolvedSlug: string | undefined;
@@ -88,7 +93,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // de contato do CRM (ver lib/phone-normalize.ts). Campo vazio/null
     // continua ok (opcional); só barra lixo óbvio (letras num telefone,
     // e-mail sem @/ponto).
-    if (emailOverride && !EMAIL_REGEX.test(emailOverride)) {
+    if (emailOverride && !isValidEmail(emailOverride)) {
       return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
     }
     if (phone && !isValidPhoneInput(phone)) {
@@ -101,6 +106,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!Array.isArray(selectedLogos) || selectedLogos.some((k) => typeof k !== "string" || !VALID_LOGO_KEYS.has(k))) {
         return NextResponse.json({ error: "Seleção de logos inválida" }, { status: 400 });
       }
+    }
+    // Tema do cartão (ver lib/digital-cards/themes.ts) — null = seguir o
+    // padrão da organização/fábrica; qualquer outro valor precisa ser um
+    // dos 3 temas válidos.
+    if (theme !== undefined && theme !== null && !isCardTheme(theme)) {
+      return NextResponse.json({ error: "Tema inválido" }, { status: 400 });
     }
 
     if (Array.isArray(links)) {
@@ -136,6 +147,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           ...(showPortfolioValue !== undefined ? { showPortfolioValue } : {}),
           ...(portfolioValueDisplay !== undefined ? { portfolioValueDisplay } : {}),
           ...(selectedLogos !== undefined ? { selectedLogos } : {}),
+          // `theme: null` zera de verdade (volta a seguir o padrão da org/fábrica)
+          ...(theme !== undefined ? { theme: theme === null ? null : (theme as $Enums.DigitalCardTheme) } : {}),
         },
       });
 

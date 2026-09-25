@@ -219,14 +219,26 @@ export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: Rank
                   )}
                 </div>
 
-                {/* Nome + barra proporcional ao 1º lugar */}
+                {/* Nome + valor na MESMA linha, barra proporcional ao 1º lugar por
+                    baixo. O valor ficava numa coluna própria à direita, ao lado de
+                    tudo — numa TV em pé (faixa estreita) ele engolia o espaço do
+                    nome ("Jeferson Pomovi…"). Assim o nome usa a linha inteira
+                    menos o valor, e a barra ganha a largura toda da linha. */}
                 <div className="min-w-0 flex-1">
-                  <p
-                    className={`truncate text-[length:var(--tv-text-body)] ${isFirst ? "font-bold text-white" : "font-medium text-neutral-300"}`}
-                    title={user.name}
-                  >
-                    {user.name}
-                  </p>
+                  <div className="flex items-baseline justify-between" style={{ gap: "calc(var(--tv-gap) * 0.6)" }}>
+                    <p
+                      className={`min-w-0 leading-tight break-words text-[length:var(--tv-text-body)] ${isFirst ? "font-bold text-white" : "font-medium text-neutral-300"}`}
+                      title={user.name}
+                    >
+                      {user.name}
+                    </p>
+                    <div
+                      className="shrink-0 text-right font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
+                      style={{ color: isFirst ? "#eab308" : "var(--brand)" }}
+                    >
+                      {formatCurrencyCompact(user.total)}
+                    </div>
+                  </div>
                   <div
                     className="mt-1 w-full overflow-hidden rounded-full bg-white/10"
                     style={{ height: "clamp(0.4rem, 0.7cqw, 0.75rem)" }}
@@ -241,14 +253,6 @@ export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: Rank
                       }}
                     />
                   </div>
-                </div>
-
-                {/* Valor vendido */}
-                <div
-                  className="shrink-0 text-right font-extrabold tabular-nums text-[length:var(--tv-text-value-sm)]"
-                  style={{ color: isFirst ? "#eab308" : "var(--brand)" }}
-                >
-                  {formatCurrencyCompact(user.total)}
                 </div>
               </div>
             );

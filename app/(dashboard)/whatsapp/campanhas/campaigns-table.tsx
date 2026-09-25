@@ -66,6 +66,8 @@ type Campaign = {
   followUpDelayHours: number;
   createdAt: string;
   counts: { pending: number; sent: number; failed: number; skipped: number; replied: number };
+  /** false = só enxerga (envio em massa do Pipeline em que só parte dos destinatários saiu do WhatsApp dela) — sem botões de gerenciar. */
+  canManage: boolean;
 };
 
 /** Vem cru de GET /api/campaigns/[id] — usado só pra pré-preencher o modal em modo edição. */
@@ -710,7 +712,7 @@ export function CampaignsTable({
                           um spinner no botão recém-criado indicaria a ação
                           errada. O "salvando…" no fim da linha é o sinal de
                           que a confirmação do servidor ainda está a caminho. */}
-                      {(c.status === "DRAFT" || c.status === "PAUSED") && (
+                      {c.canManage && (c.status === "DRAFT" || c.status === "PAUSED") && (
                         <button
                           type="button"
                           disabled={busyId === c.id}
@@ -722,7 +724,7 @@ export function CampaignsTable({
                           {c.status === "PAUSED" ? "Retomar" : "Iniciar"}
                         </button>
                       )}
-                      {c.status === "RUNNING" && (
+                      {c.canManage && c.status === "RUNNING" && (
                         <button
                           type="button"
                           disabled={busyId === c.id}
@@ -744,7 +746,7 @@ export function CampaignsTable({
                         Ver detalhes
                       </Link>
 
-                      {c.status === "DRAFT" && (
+                      {c.canManage && c.status === "DRAFT" && (
                         <button
                           type="button"
                           disabled={loadingEditId === c.id}
@@ -761,17 +763,19 @@ export function CampaignsTable({
                         </button>
                       )}
 
-                      <DuplicateCampaignButton
-                        campaignId={c.id}
-                        hasAudienceFilter={
-                          c.audienceFilter.jobTitles.length > 0 ||
-                          c.audienceFilter.tags.length > 0 ||
-                          c.audienceFilter.cities.length > 0
-                        }
-                        labeled
-                        size="sm"
-                        onDuplicated={() => router.refresh()}
-                      />
+                      {c.canManage && (
+                        <DuplicateCampaignButton
+                          campaignId={c.id}
+                          hasAudienceFilter={
+                            c.audienceFilter.jobTitles.length > 0 ||
+                            c.audienceFilter.tags.length > 0 ||
+                            c.audienceFilter.cities.length > 0
+                          }
+                          labeled
+                          size="sm"
+                          onDuplicated={() => router.refresh()}
+                        />
+                      )}
 
                       <span className="ml-auto" />
 
@@ -782,7 +786,7 @@ export function CampaignsTable({
                         </span>
                       )}
 
-                      {(c.status === "RUNNING" || c.status === "PAUSED") && (
+                      {c.canManage && (c.status === "RUNNING" || c.status === "PAUSED") && (
                         <button
                           type="button"
                           disabled={busyId === c.id}
@@ -794,16 +798,18 @@ export function CampaignsTable({
                           Parar
                         </button>
                       )}
-                      <button
-                        type="button"
-                        disabled={busyId === c.id}
-                        onClick={() => setCampaignToDelete(c)}
-                        className="icon-btn text-red-500 hover:bg-red-50 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
-                        aria-label="Excluir campanha"
-                        title="Excluir campanha"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                      </button>
+                      {c.canManage && (
+                        <button
+                          type="button"
+                          disabled={busyId === c.id}
+                          onClick={() => setCampaignToDelete(c)}
+                          className="icon-btn text-red-500 hover:bg-red-50 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                          aria-label="Excluir campanha"
+                          title="Excluir campanha"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1076,21 +1082,32 @@ function CampaignDialog({
   // nunca direto no corpo do efeito. Sem critério nenhum, a mensagem exibida
   // já cobre esse caso olhando pra hasAudienceFilter, sem precisar de fetch.
   useEffect(() => {
+    if (!hasAudienceFilter) return;
+
+    const controller = new AbortController();
     const timeout = setTimeout(async () => {
-      if (!hasAudienceFilter) return;
       setAudienceLoading(true);
-      const res = await fetch("/api/campaigns/audience-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audienceFilter: { jobTitles, tags, cities } }),
-      });
-      setAudienceLoading(false);
-      if (res.ok) {
+      setAudienceCount(null);
+      try {
+        const res = await fetch("/api/campaigns/audience-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audienceFilter: { jobTitles, tags, cities } }),
+          signal: controller.signal,
+        });
+        if (!res.ok || controller.signal.aborted) return;
         const data = await res.json();
-        setAudienceCount(data.count);
+        if (!controller.signal.aborted) setAudienceCount(data.count);
+      } catch (err) {
+        if (!controller.signal.aborted) console.error("[campaigns] falha ao calcular público", err);
+      } finally {
+        if (!controller.signal.aborted) setAudienceLoading(false);
       }
     }, 400);
-    return () => clearTimeout(timeout);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, [jobTitles, tags, cities, hasAudienceFilter]);
 
   function toggleScript(scriptId: string) {

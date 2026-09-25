@@ -42,6 +42,16 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# O standalone do Next carrega só dependências rastreadas pela aplicação, e
+# portanto não inclui a CLI nem as migrations do Prisma. Elas precisam estar
+# na imagem para aplicar mudanças de banco antes de o servidor novo atender
+# tráfego no EasyPanel.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder --chown=nextjs:nodejs /app/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # lib/ inteira (fonte .ts, ~1.6MB — irrelevante perto do node_modules) —
 # necessária em runtime, fora do bundle do Next: lib/parse-spreadsheet.ts
 # spawna lib/parse-spreadsheet-worker.ts como worker_thread via
@@ -76,4 +86,5 @@ EXPOSE 3000
 # pior do que o problema original ("Not Found" logo após o deploy, até o
 # próximo request achar tudo pronto). Se for reintroduzir isso no futuro,
 # testar com bastante cautela e acompanhar de perto os logs de runtime.
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "server.js"]

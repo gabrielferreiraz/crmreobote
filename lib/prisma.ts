@@ -1,5 +1,6 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { GLOBAL_OMIT } from "@/lib/prisma-omit";
 import {
   getCurrentOrganizationId,
   getCurrentUserId,
@@ -9,6 +10,10 @@ import {
   getCurrentTvLinkTokenHash,
   getCurrentCardSlug,
 } from "@/lib/tenant-context";
+
+// Tipo derivado do cliente de fato criado — carrega a config de `omit` global
+// (lib/prisma-omit.ts); `PrismaClient` puro não a conhece e daria erro de tipo.
+type BaseClient = ReturnType<typeof createBaseClient>;
 
 function createBaseClient() {
   const adapter = new PrismaPg(
@@ -23,7 +28,8 @@ function createBaseClient() {
     },
   );
 
-  return new PrismaClient({ adapter });
+  // omit global: hash de senha nunca sai numa query por acaso (ver lib/prisma-omit.ts).
+  return new PrismaClient({ adapter, omit: GLOBAL_OMIT });
 }
 
 /**
@@ -71,7 +77,7 @@ function createBaseClient() {
  * bootstraps, slug não é secreto (é feito pra ser compartilhado) — não há
  * hash aqui, só o valor puro.
  */
-function withTenantRls(client: PrismaClient) {
+function withTenantRls(client: BaseClient) {
   return client.$extends({
     name: "tenant-rls",
     query: {
@@ -131,7 +137,7 @@ function withTenantRls(client: PrismaClient) {
 }
 
 type GlobalPrisma = {
-  prismaRaw?: PrismaClient;
+  prismaRaw?: BaseClient;
   prisma?: ReturnType<typeof withTenantRls>;
 };
 

@@ -9,6 +9,7 @@ import { DigitalCardView, type DigitalCardData } from "@/components/digital-card
 import { PhonePreviewFrame } from "@/components/digital-card/phone-preview-frame";
 import { displayPhone } from "@/lib/phone-normalize";
 import { AVAILABLE_PARTNER_LOGOS, DEFAULT_SELECTED_LOGOS } from "@/lib/digital-cards/logos";
+import { CARD_THEMES, CARD_THEME_LABELS, type CardTheme } from "@/lib/digital-cards/themes";
 import { ImageCropModal } from "@/components/image-crop-modal";
 import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
@@ -82,6 +83,7 @@ type SavedFields = {
   portfolioValueDisplay: string | null;
   selectedLogos: string[];
   links: { type: string; label: string; url: string }[];
+  theme: CardTheme | null;
 };
 
 export function CardEditor({
@@ -94,8 +96,8 @@ export function CardEditor({
   publicUrl: string;
   /** Controla o botão "Manter padrão para todos" (capa/fundo — nunca a foto de perfil, ver lib/digital-cards/config.ts) — OWNER-only, mesmo motivo de qualquer configuração que afeta o cartão de todo mundo de uma vez. */
   isOwner: boolean;
-  /** Se capa/fundo da ORGANIZAÇÃO já têm um padrão definido agora (ver lib/digital-cards/org-defaults.ts) — decide "Manter padrão" vs. "Remover padrão da equipe". */
-  orgDefaultsSet: { cover: boolean; background: boolean };
+  /** Se capa/fundo/tema da ORGANIZAÇÃO já têm um padrão definido agora (ver lib/digital-cards/org-defaults.ts) — decide "Manter padrão" vs. "Remover padrão da equipe". */
+  orgDefaultsSet: { cover: boolean; background: boolean; theme?: CardTheme | null };
 }) {
   const router = useRouter();
   const [active, setActive] = useState(card.active);
@@ -131,13 +133,15 @@ export function CardEditor({
   const [uploadingCover, setUploadingCover] = useState(false);
   const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState(card.backgroundPhotoUrl);
   const [uploadingBackground, setUploadingBackground] = useState(false);
-  // "Manter padrão para todos" (só OWNER, só capa/fundo — ver
-  // lib/digital-cards/config.ts pro porquê da foto de perfil ficar de fora)
-  // — mesmo espírito de handleToggleActive acima: ação PRÓPRIA e imediata,
-  // não depende do botão "Salvar alterações" lá embaixo.
+  // Tema do cartão: card.theme é o valor PRÓPRIO salvo no banco (null = segue
+  // a empresa/fábrica); effectiveTheme é o que de fato renderiza agora.
+  const [themeChoice, setThemeChoice] = useState<CardTheme | null>(card.theme ?? null);
+  // "Manter padrão para todos" (só OWNER: capa/fundo/tema) — ação PRÓPRIA
+  // e imediata, não depende do botão "Salvar alterações" lá embaixo.
   const [orgDefaultCover, setOrgDefaultCover] = useState(orgDefaultsSet.cover);
   const [orgDefaultBackground, setOrgDefaultBackground] = useState(orgDefaultsSet.background);
-  const [settingDefaultField, setSettingDefaultField] = useState<"cover" | "background" | null>(null);
+  const [orgDefaultTheme, setOrgDefaultTheme] = useState<CardTheme | null>(orgDefaultsSet.theme ?? null);
+  const [settingDefaultField, setSettingDefaultField] = useState<"cover" | "background" | "theme" | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,6 +163,7 @@ export function CardEditor({
       portfolioValueDisplay: portfolioValueDisplay.trim() || null,
       selectedLogos,
       links: links.filter((l) => l.label.trim() && l.url.trim()).map((l) => ({ type: l.type, label: l.label.trim(), url: l.url.trim() })),
+      theme: themeChoice,
     };
   }
 
@@ -322,7 +327,7 @@ export function CardEditor({
           open: true,
           type,
           imageSrc: reader.result,
-          aspectRatio: type === "photo" ? 1 : type === "cover" ? 2.5 : 9 / 16,
+          aspectRatio: type === "photo" ? 1 : type === "cover" ? 1.6 : 9 / 16,
           title:
             type === "photo"
               ? "Corte Profissional — Foto de Perfil"
@@ -422,6 +427,37 @@ export function CardEditor({
     else setOrgDefaultBackground(true);
   }
 
+  /** Promove o TEMA escolhido no preview/editor como padrão para toda a equipe que ainda não escolheu um tema próprio. */
+  async function handleSetOrgDefaultTheme(themeToSet: CardTheme) {
+    setSettingDefaultField("theme");
+    setDefaultError(null);
+    const res = await fetch("/api/digital-cards/org-defaults/theme", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: themeToSet }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSettingDefaultField(null);
+    if (!res.ok) {
+      setDefaultError(data.error ?? "Não foi possível definir o tema padrão agora.");
+      return;
+    }
+    setOrgDefaultTheme(themeToSet);
+  }
+
+  /** Remove o tema padrão da equipe — volta ao tema escuro de fábrica para quem não escolheu um próprio. */
+  async function handleClearOrgDefaultTheme() {
+    setSettingDefaultField("theme");
+    setDefaultError(null);
+    const res = await fetch("/api/digital-cards/org-defaults/theme", { method: "DELETE" });
+    setSettingDefaultField(null);
+    if (!res.ok) {
+      setDefaultError("Não foi possível remover o padrão agora.");
+      return;
+    }
+    setOrgDefaultTheme(null);
+  }
+
   /** Deixa de ser o padrão da equipe — não apaga a foto do SEU cartão, só o compartilhamento com quem ainda não subiu uma própria. */
   async function handleClearOrgDefault(field: "cover" | "background") {
     setSettingDefaultField(field);
@@ -469,11 +505,13 @@ export function CardEditor({
     }
   }
 
+  const previewTheme = themeChoice ?? orgDefaultTheme ?? "DARK";
+
   const previewData: DigitalCardData = {
     slug: card.slug,
     displayName: card.displayName,
     jobTitle: jobTitle.trim() || null,
-    companyName: companyName.trim() || null,
+    companyName: null,
     bio: bio.trim() || null,
     photoUrl,
     coverPhotoUrl,
@@ -487,6 +525,7 @@ export function CardEditor({
     selectedLogos,
     links: links.filter((l) => l.label.trim() && l.url.trim()),
     publicUrl,
+    theme: previewTheme,
   };
 
   return (
@@ -671,36 +710,148 @@ export function CardEditor({
           {isOwner && defaultError && <p className="text-xs text-red-600 dark:text-red-400">{defaultError}</p>}
         </div>
 
+        {/* Tema do cartão — pedido explícito: ação pro usuário escolher se
+            quer tema claro, tema escuro ou colocar a foto no fundo. Se o Dono
+            deixar como padrão, vai para todos os consultores que ainda não
+            escolheram um próprio. */}
+        <div className="card space-y-3 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="field-label text-sm font-semibold">Tema do cartão</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                Escolha o estilo visual do seu cartão de visita.
+              </p>
+            </div>
+            {themeChoice !== null && (
+              <button
+                type="button"
+                onClick={() => setThemeChoice(null)}
+                className="text-[11px] font-medium text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+              >
+                Seguir padrão da empresa
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            {CARD_THEMES.map((themeKey) => {
+              const isSelected = previewTheme === themeKey;
+              const isExplicitChoice = themeChoice === themeKey;
+              return (
+                <button
+                  key={themeKey}
+                  type="button"
+                  onClick={() => setThemeChoice(themeKey)}
+                  className={`group relative flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
+                    isSelected
+                      ? "border-[#00aeee] bg-[#00aeee]/5 shadow-sm ring-1 ring-[#00aeee]"
+                      : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                  }`}
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+                      {CARD_THEME_LABELS[themeKey]}
+                    </span>
+                    <span
+                      className={`h-3 w-3 rounded-full border ${
+                        isSelected
+                          ? "border-[#00aeee] bg-[#00aeee]"
+                          : "border-neutral-300 bg-transparent dark:border-neutral-600"
+                      }`}
+                    />
+                  </div>
+
+                  <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                    {themeKey === "DARK" && "Fundo escuro premium Reobote"}
+                    {themeKey === "LIGHT" && "Azul claro translúcido"}
+                    {themeKey === "PHOTO" && "Foto cobrindo o corpo inteiro"}
+                  </p>
+
+                  {/* Indicador de origem da escolha */}
+                  {isSelected && (
+                    <span className="mt-2 inline-flex items-center text-[10px] font-medium text-[#00aeee]">
+                      {isExplicitChoice
+                        ? "Sua escolha"
+                        : orgDefaultTheme
+                        ? "Padrão da empresa"
+                        : "Padrão de fábrica"}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {themeChoice === "PHOTO" && !backgroundPhotoUrl && (
+            <p className="rounded-lg border border-amber-200/60 bg-amber-50/70 p-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+              💡 Para a <strong>Foto no fundo</strong> aparecer, lembre-se de adicionar uma foto no campo <strong>Fundo</strong> acima.
+            </p>
+          )}
+
+          {/* Controle OWNER — "Manter este tema padrão para todos" */}
+          {isOwner && (
+            <div className="pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={settingDefaultField === "theme"}
+                  onClick={() => handleSetOrgDefaultTheme(previewTheme)}
+                  className="btn-ghost btn-sm text-xs font-semibold text-[#00aeee] hover:text-[#0095cc]"
+                >
+                  {settingDefaultField === "theme" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Users className="h-3 w-3" />
+                  )}
+                  {orgDefaultTheme === previewTheme
+                    ? "Tema já é o padrão da equipe"
+                    : `Tornar "${CARD_THEME_LABELS[previewTheme]}" padrão para todos`}
+                </button>
+
+                {orgDefaultTheme && (
+                  <button
+                    type="button"
+                    disabled={settingDefaultField === "theme"}
+                    onClick={handleClearOrgDefaultTheme}
+                    className="btn-ghost btn-sm text-xs text-neutral-400 hover:text-red-500 dark:text-neutral-500"
+                  >
+                    Remover padrão da equipe
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                {orgDefaultTheme
+                  ? `Atualmente o padrão da equipe é "${CARD_THEME_LABELS[orgDefaultTheme]}" (vale para quem ainda não escolheu um tema próprio).`
+                  : "Nenhum tema padrão definido para a equipe — consultores sem escolha usam o tema Escuro."}
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Como você aparece — cargo/empresa/bio. Pedido explícito: "não
             precisa de tantas descrições para os campos, só o nome dos
             campos mesmo" — a pré-visualização ao vivo ao lado já mostra
             onde cada campo aparece, sem precisar de legenda explicando. */}
         <div className="card space-y-4 p-4">
           <p className="field-label text-sm font-semibold">Como você aparece</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="field-label">Seu cargo</label>
-              <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {JOB_TITLE_OPTIONS.map((title) => (
-                  <button
-                    key={title}
-                    type="button"
-                    onClick={() => setJobTitle(title)}
-                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
-                      jobTitle === title
-                        ? "bg-[#00aeee]/15 border-[#00aeee] text-[#00aeee]"
-                        : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                    }`}
-                  >
-                    {title}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="field-label">Empresa</label>
-              <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="field-input" />
+          <div className="space-y-1.5">
+            <label className="field-label">Seu cargo</label>
+            <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {JOB_TITLE_OPTIONS.map((title) => (
+                <button
+                  key={title}
+                  type="button"
+                  onClick={() => setJobTitle(title)}
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
+                    jobTitle === title
+                      ? "bg-[#00aeee]/15 border-[#00aeee] text-[#00aeee]"
+                      : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                  }`}
+                >
+                  {title}
+                </button>
+              ))}
             </div>
           </div>
 
