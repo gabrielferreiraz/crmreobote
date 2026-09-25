@@ -53,35 +53,75 @@ export function isValidPhoneInput(raw: string | null | undefined): boolean {
 }
 
 /**
- * Máscara "ao vivo" de telefone/WhatsApp brasileiro — `(DD) NNNNN-NNNN`
- * (celular, 11 dígitos) ou `(DD) NNNN-NNNN` (fixo, 10 dígitos) enquanto a
- * pessoa digita. Só dá pra saber se o número é celular ou fixo depois que o
- * 11º dígito é digitado (os dois começam iguais) — o traço "pula" de
- * posição nesse instante, comportamento normal de qualquer máscara de
- * telefone brasileira.
+ * Máscara "ao vivo" de telefone/WhatsApp enquanto a pessoa digita. Número
+ * BRASILEIRO sempre aparece com o DDI: `+55 (DD) NNNNN-NNNN` (celular, 11
+ * dígitos) ou `+55 (DD) NNNN-NNNN` (fixo, 10 dígitos). Só dá pra saber se o
+ * número é celular ou fixo depois que o 11º dígito é digitado (os dois
+ * começam iguais) — o traço "pula" de posição nesse instante, comportamento
+ * normal de qualquer máscara de telefone brasileira.
  *
- * Nunca força esse formato pra número que claramente não é brasileiro —
- * "+" no início ou mais de 11 dígitos (a empresa atende cliente de fora,
- * ver comentário de VALID_BRAZILIAN_DDDS acima) faz a máscara desistir de
- * agrupar e devolver só os dígitos (com o "+" na frente, se foi digitado):
- * nunca reordena nem descarta o que a pessoa digitou, só decide se desenha
- * parênteses/traço ou não.
+ * Brasileiro = o que foi digitado só com DDD+número (o "+55 " é acrescentado
+ * sozinho, assim que o primeiro dígito entra), com "+55" na frente, ou com o
+ * 55 colado (12/13 dígitos, ex.: número copiado de outro lugar).
+ *
+ * Número de OUTRO país — "+" seguido de um DDI que não é 55, ou mais de 11
+ * dígitos sem "+55" (a empresa atende cliente de fora, ver comentário de
+ * VALID_BRAZILIAN_DDDS acima) — a máscara desiste de agrupar e devolve só os
+ * dígitos (com o "+" na frente, se foi digitado): nunca reordena nem descarta
+ * o que a pessoa digitou, só decide se desenha parênteses/traço ou não. Pra
+ * digitar um número de fora, comece com "+".
  */
 export function formatPhoneMask(raw: string): string {
   const hasPlus = raw.trimStart().startsWith("+");
   const digits = raw.replace(/\D/g, "");
 
-  if (hasPlus || digits.length > 11) {
-    return hasPlus ? `+${digits}` : digits;
+  // "+" com DDI que não é 55 (ou ainda só "+" / "+5", sem dar pra saber):
+  // sem agrupar, exatamente o que foi digitado.
+  if (hasPlus && !digits.startsWith("55")) return `+${digits}`;
+
+  let national: string;
+  if (hasPlus) {
+    national = digits.slice(2);
+  } else if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    national = digits.slice(2);
+  } else if (digits.length <= 11) {
+    national = digits;
+  } else {
+    return digits; // 12+ dígitos que não são "55 + número": não é brasileiro reconhecível
   }
 
-  const len = digits.length;
-  if (len === 0) return "";
-  if (len <= 2) return `(${digits}`;
-  const ddd = digits.slice(0, 2);
-  if (len <= 6) return `(${ddd}) ${digits.slice(2)}`;
+  if (national.length > 11) return `+${digits}`; // sobrou dígito: não agrupa (o servidor recusa)
+  if (national.length === 0) return hasPlus ? "+55" : "";
+
+  const len = national.length;
+  if (len <= 2) return `+55 (${national}`;
+  const ddd = national.slice(0, 2);
+  if (len <= 6) return `+55 (${ddd}) ${national.slice(2)}`;
   const splitAt = len === 11 ? 7 : 6;
-  return `(${ddd}) ${digits.slice(2, splitAt)}-${digits.slice(splitAt)}`;
+  return `+55 (${ddd}) ${national.slice(2, splitAt)}-${national.slice(splitAt)}`;
+}
+
+/**
+ * Aplica formatPhoneMask e devolve também onde o cursor deve ficar. Conta os
+ * dígitos DEPOIS do cursor (não antes): a máscara acrescenta o "+55 " na
+ * frente quando a pessoa digita só o número nacional, então contar dígitos
+ * antes do cursor erraria a posição por causa desses dígitos extras — depois
+ * do cursor a contagem não muda nunca, e editar no MEIO do número continua
+ * funcionando (o cursor não foge pro fim a cada tecla).
+ */
+export function applyPhoneMask(raw: string, caret: number): { value: string; caret: number } {
+  const value = formatPhoneMask(raw);
+  const digitsAfterCaret = raw.slice(Math.max(0, Math.min(caret, raw.length))).replace(/\D/g, "").length;
+  if (digitsAfterCaret === 0) return { value, caret: value.length };
+
+  let seen = 0;
+  for (let i = value.length - 1; i >= 0; i--) {
+    if (value[i] >= "0" && value[i] <= "9") {
+      seen++;
+      if (seen === digitsAfterCaret) return { value, caret: i };
+    }
+  }
+  return { value, caret: 0 };
 }
 
 
@@ -101,7 +141,8 @@ export function fallbackWhatsappToPhone(
   if (whatsappNormalized) {
     return withNinthDigitFix(phone ?? null, phoneNormalized, whatsapp ?? null, whatsappNormalized);
   }
-  if (phoneNormalized) {
+  // Fixo NÃO vira WhatsApp (linha fixa não recebe mensagem) — fica no Celular.
+  if (phoneNormalized && !isBrazilianLandline(phoneNormalized)) {
     return withNinthDigitFix(null, null, phone ?? null, phoneNormalized);
   }
   return { phone: phone ?? null, phoneNormalized: phoneNormalized ?? null, whatsapp: whatsapp ?? null, whatsappNormalized: whatsappNormalized ?? null };
@@ -237,7 +278,51 @@ export function ensureBrazilianMobileNinthDigit(normalized: string | null): stri
   if (normalized.length !== 10) return normalized;
   const ddd = normalized.slice(0, 2);
   if (!VALID_BRAZILIAN_DDDS.has(ddd)) return normalized;
+  // Só o celular ANTIGO (8 dígitos, começando com 6-9) ganhou um 9 na frente.
+  // Fixo começa com 2-5 depois do DDD (plano de numeração da Anatel) e NUNCA
+  // recebe o 9 — versão anterior desta função somava o 9 em qualquer número
+  // de 10 dígitos e transformou telefone fixo de empresa ("(67) 3321-8101")
+  // num celular que não existe ("(67) 93321-8101"), medido em produção.
+  if (normalized[2] < "6" || normalized[2] > "9") return normalized;
   return ddd + "9" + normalized.slice(2);
+}
+
+/**
+ * Número já normalizado (só dígitos, sem DDI) que TEM cara de brasileiro de
+ * verdade — DDD existente e formato de celular (11 dígitos, 9 depois do DDD)
+ * ou de fixo/celular antigo (10 dígitos, 2-9 depois do DDD). É o critério que
+ * separa "isso é do Brasil, disca com 55 na frente" de "isso já vem com o DDI
+ * de outro país" (ver toDialNumber).
+ */
+export function isBrazilianShaped(normalized: string): boolean {
+  if (!/^\d{10,11}$/.test(normalized)) return false;
+  if (!VALID_BRAZILIAN_DDDS.has(normalized.slice(0, 2))) return false;
+  if (normalized.length === 11) return normalized[2] === "9";
+  return normalized[2] >= "2" && normalized[2] <= "9";
+}
+
+/** 10 dígitos, DDD válido, começando com 2-5 depois do DDD = telefone fixo. */
+export function isBrazilianLandline(normalized: string | null | undefined): boolean {
+  if (!normalized || !/^\d{10}$/.test(normalized)) return false;
+  if (!VALID_BRAZILIAN_DDDS.has(normalized.slice(0, 2))) return false;
+  return normalized[2] >= "2" && normalized[2] <= "5";
+}
+
+/**
+ * Número COMPLETO (DDI + tudo, só dígitos) pra entregar ao WhatsApp — o
+ * Evolution API e a API oficial da Meta esperam E.164 sem o "+". Número
+ * brasileiro (formato de DDD + celular/fixo) ganha o 55; número de outro país
+ * já vem com o próprio DDI dentro do valor normalizado (é a convenção de
+ * `whatsappNormalized`: só o Brasil fica sem DDI) e segue como está.
+ *
+ * Antes cada ponto de envio fazia `55${...}` direto — todo número de fora
+ * (Portugal, EUA, Espanha…) virava um número inexistente ("55351968203610").
+ * Já aplica a correção do 9º dígito (rede de segurança, ver acima).
+ */
+export function toDialNumber(normalized: string | null | undefined): string | null {
+  if (!normalized) return null;
+  const fixed = ensureBrazilianMobileNinthDigit(normalized) ?? normalized;
+  return isBrazilianShaped(fixed) ? `55${fixed}` : fixed;
 }
 
 /**
@@ -250,12 +335,19 @@ export function ensureBrazilianMobileNinthDigit(normalized: string | null): stri
  */
 export function formatBrazilianPhone(normalized: string | null | undefined): string | null {
   if (!normalized) return null;
-  const ddd = normalized.slice(0, 2);
-  if (!VALID_BRAZILIAN_DDDS.has(ddd)) return `+${normalized}`;
-  const rest = normalized.slice(2);
-  if (rest.length === 9) return `+55 (${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
-  if (rest.length === 8) return `+55 (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
-  return `+55 ${normalized}`;
+  // Mostra o 9º dígito que faltava: o WhatsApp entrega o JID de uma mensagem
+  // recebida às vezes sem o 9 (e há contatos antigos salvos assim) — o número
+  // MOSTRADO é o mesmo que será DISCADO (ver toDialNumber), nunca um 10º
+  // dígito a menos que a pessoa não reconhece. Fixo (2-5 depois do DDD) nunca
+  // ganha o 9.
+  const withNinth = ensureBrazilianMobileNinthDigit(normalized) ?? normalized;
+  // Só rotula "+55" o que tem formato de brasileiro DE VERDADE (DDD + celular
+  // de 9 dígitos começando com 9, ou fixo de 8) — checar só o DDD errava
+  // número de fora cujos 2 primeiros dígitos coincidem com um DDD ("351…" de
+  // Portugal virava "DDD 35"), e lixo de 11 dígitos sem 9 virava
+  // "+55 (DD) 1xxxx-xxxx" como se fosse um celular.
+  if (!isBrazilianShaped(withNinth)) return `+${normalized}`;
+  return formatBrazilianDisplay(withNinth);
 }
 
 /**
@@ -270,5 +362,428 @@ export function formatBrazilianPhone(normalized: string | null | undefined): str
  */
 export function displayPhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  return formatBrazilianPhone(raw.replace(/\D/g, "")) ?? raw;
+  // Número reconhecível (Brasil ou "+DDI" de fora): a mesma forma canônica
+  // que é gravada no contato — "+55 (67) 99999-9999" / "+351 968 203 610",
+  // já com o 9º dígito.
+  const parsed = parsePhone(raw, "phone");
+  if (parsed.ok && parsed.phone && parsed.phone.kind !== "OTHER") return parsed.phone.display;
+  // Não reconhecível (só dígitos de outro país sem "+", texto legado...):
+  // normalizePhoneNumber (não só "tirar não-dígito") tira o 55 e o zero de
+  // tronco antes de formatar — "+5567999999999" virava lixo ("+55 5567…")
+  // porque o 55 ficava junto do DDD.
+  const normalized = normalizePhoneNumber(raw);
+  return (normalized ? formatBrazilianPhone(normalized) : null) ?? raw;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// FONTE ÚNICA: limpeza + validação + máscara de telefone
+// ═════════════════════════════════════════════════════════════════════
+//
+// TODO ponto que GRAVA telefone/WhatsApp de contato (cadastro, edição,
+// importação de contatos e de negócios, API externa, anúncios da Meta) passa
+// por resolveContactPhones abaixo — nenhum valor cru chega ao banco. É o que
+// garante, num lugar só, que um número gravado:
+//   - nunca tem apóstrofo/aspas/caractere invisível (bug real de produção:
+//     "'+5567999999999" — o sanitizeCell de lib/csv-sanitize.ts prefixava um
+//     "'" em tudo que começa com "+", e todo número com DDI começa assim);
+//   - fica no formato com máscara: "(67) 99999-9999" (Brasil) ou
+//     "+351 968 203 610" (outro país);
+//   - foi validado (DDD existente, celular com 9, DDI conhecido, tamanho).
+//
+// Convenção de `*Normalized` (NÃO mudou): Brasil só com DDD+número (10/11
+// dígitos, sem o 55); número de outro país guarda o DDI junto ("351968203610").
+
+/** Aspas/apóstrofos de qualquer tipo — nunca fazem parte de um telefone. */
+const QUOTE_LIKE = /['\u2018\u2019\u201A\u201B\u2032\u00B4\u0060"\u201C\u201D\u201E\u201F\u2033]/g;
+/** Caracteres invisíveis que vêm de copiar/colar (WhatsApp, PDF, Word) + acentos soltos. */
+const INVISIBLE = /[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u0300-\u036F]/g;
+const SCIENTIFIC_NOTATION = /^\d+(?:[.,]\d+)?[eE][+-]?\d+$/;
+/** Depois da limpeza só resta: dígitos, espaço, parênteses, hífen e um "+" no início. */
+const PHONE_CHARSET = /^\+?[0-9 ()-]+$/;
+
+/**
+ * Códigos de país (DDI) do plano ITU-T E.164 — usado pra reconhecer o DDI de
+ * um número internacional ("+351…") e separá-lo do resto. A lista é livre de
+ * prefixo por construção (nenhum código é o começo de outro), então dado um
+ * número o DDI é único. Só validação/separação: número cujo país não esteja
+ * aqui é recusado com uma mensagem clara (o Celular, mais flexível, aceita).
+ */
+const COUNTRY_CODES = new Set(
+  (
+    "1 7 20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 " +
+    "81 82 84 86 90 91 92 93 94 95 98 " +
+    "211 212 213 216 218 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239 240 " +
+    "241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 260 261 262 263 264 265 266 267 " +
+    "268 269 290 291 297 298 299 350 351 352 353 354 355 356 357 358 359 370 371 372 373 374 375 376 377 378 " +
+    "379 380 381 382 383 385 386 387 389 420 421 423 500 501 502 503 504 505 506 507 508 509 590 591 592 593 " +
+    "594 595 596 597 598 599 670 672 673 674 675 676 677 678 679 680 681 682 683 685 686 687 688 689 690 691 " +
+    "692 850 852 853 855 856 880 886 960 961 962 963 964 965 966 967 968 970 971 972 973 974 975 976 977 992 " +
+    "993 994 995 996 998"
+  ).split(" "),
+);
+
+function findCountryCode(digits: string): string | null {
+  for (let len = 1; len <= 3; len++) {
+    const prefix = digits.slice(0, len);
+    if (prefix.length === len && COUNTRY_CODES.has(prefix)) return prefix;
+  }
+  return null;
+}
+
+/**
+ * Tira de um texto de telefone tudo que não é telefone, ANTES de qualquer
+ * validação: apóstrofos/aspas (o "'" que o Excel/planilha põe pra "forçar
+ * texto" e o que o sanitizeCell punha), caracteres invisíveis, o "=" do
+ * `="5567…"` que alguns exportadores usam, prefixos "tel:"/"whatsapp:", link
+ * wa.me, dígitos de largura total e o ".0" que uma planilha acrescenta a
+ * número inteiro ("5567999999999.0"). Devolve só o que sobrou, já com espaços
+ * colapsados — pode devolver "" (campo vazio).
+ */
+export function cleanPhoneText(raw: string | null | undefined): string {
+  if (raw === null || raw === undefined) return "";
+  let s = String(raw).replace(QUOTE_LIKE, "").normalize("NFKC").replace(INVISIBLE, "").trim();
+  s = s.replace(/^=\s*/, "");
+  s = s.replace(/^(?:tel|callto|sms|whatsapp)\s*:\s*/i, "");
+  const waLink = s.match(/^(?:https?:\/\/)?(?:wa\.me\/|api\.whatsapp\.com\/send\/?\?phone=)(\d+)/i);
+  if (waLink) s = `+${waLink[1]}`;
+  s = s.replace(/^(\d+)[.,]0+$/, "$1");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+export type PhoneContext = "whatsapp" | "phone";
+
+export type PhoneErrorCode =
+  | "INVALID_CHARS"
+  | "SCIENTIFIC_NOTATION"
+  | "TOO_SHORT"
+  | "TOO_LONG"
+  | "INVALID_DDD"
+  | "INVALID_BR_MOBILE"
+  | "INVALID_BR_NUMBER"
+  | "UNKNOWN_DDI"
+  | "INVALID_INTL_LENGTH"
+  | "LANDLINE_NOT_WHATSAPP";
+
+export type PhoneKind = "BR_MOBILE" | "BR_LANDLINE" | "INTERNATIONAL" | "OTHER";
+
+export type ParsedPhone = {
+  kind: PhoneKind;
+  /** "55", "351"… — null só em kind "OTHER" (Celular sem DDD que a gente não sabe interpretar). */
+  ddi: string | null;
+  /** Valor pra Contact.phoneNormalized / whatsappNormalized (convenção acima). */
+  normalized: string;
+  /** Valor pra Contact.phone / whatsapp — COM máscara. */
+  display: string;
+  /** Número completo com DDI, só dígitos (o que o WhatsApp recebe) — null em kind "OTHER". */
+  e164: string | null;
+  /** true quando faltava o 9º dígito e ele foi acrescentado (só contexto "whatsapp"). */
+  ninthDigitAdded: boolean;
+};
+
+export type PhoneParseResult =
+  | { ok: true; phone: ParsedPhone | null } // phone null = campo vazio (não é erro)
+  | { ok: false; code: PhoneErrorCode; message: string };
+
+export type PhoneShape =
+  | { ok: true; kind: "BR_MOBILE" | "BR_MOBILE_NO9" | "BR_LANDLINE"; ddi: "55"; national: string }
+  | { ok: true; kind: "INTERNATIONAL"; ddi: string; national: string }
+  | { ok: false; code: PhoneErrorCode; ddd?: string; ddi?: string };
+
+function classifyBrazilian(national: string): PhoneShape {
+  if (national.length < 10) return { ok: false, code: "TOO_SHORT" };
+  if (national.length > 11) return { ok: false, code: "TOO_LONG" };
+  const ddd = national.slice(0, 2);
+  if (!VALID_BRAZILIAN_DDDS.has(ddd)) return { ok: false, code: "INVALID_DDD", ddd };
+  const third = national[2];
+  if (national.length === 11) {
+    return third === "9" ? { ok: true, kind: "BR_MOBILE", ddi: "55", national } : { ok: false, code: "INVALID_BR_MOBILE" };
+  }
+  if (third >= "2" && third <= "5") return { ok: true, kind: "BR_LANDLINE", ddi: "55", national };
+  if (third >= "6" && third <= "9") return { ok: true, kind: "BR_MOBILE_NO9", ddi: "55", national };
+  return { ok: false, code: "INVALID_BR_NUMBER" };
+}
+
+function classifyInternational(ddi: string, national: string): PhoneShape {
+  const total = ddi.length + national.length;
+  if (national.length < 4 || total < 7 || total > 15) return { ok: false, code: "INVALID_INTL_LENGTH", ddi };
+  // EUA/Canadá (+1): sempre 10 dígitos, código de área começando com 2-9.
+  if (ddi === "1" && !/^[2-9]\d{9}$/.test(national)) return { ok: false, code: "INVALID_INTL_LENGTH", ddi };
+  return { ok: true, kind: "INTERNATIONAL", ddi, national };
+}
+
+/**
+ * Interpretação ESTRUTURAL do número (sem regra de contexto): que tipo é, qual
+ * o DDI, quais os dígitos nacionais. Recebe texto JÁ limpo (cleanPhoneText).
+ *
+ * Sem "+" (nem "00"), só existe Brasil: 10/11 dígitos (com o 55 e/ou o zero
+ * de tronco opcionais). Número de OUTRO país precisa vir com "+" e o DDI —
+ * um número solto de 12+ dígitos não dá pra distinguir de lixo, e aceitar
+ * "qualquer coisa comprida" como internacional foi exatamente o que deixou
+ * entrar telefone inválido no banco.
+ */
+export function parsePhoneShape(cleaned: string): PhoneShape {
+  if (SCIENTIFIC_NOTATION.test(cleaned)) return { ok: false, code: "SCIENTIFIC_NOTATION" };
+  if (!PHONE_CHARSET.test(cleaned)) return { ok: false, code: "INVALID_CHARS" };
+  let digits = cleaned.replace(/\D/g, "");
+  if (!digits) return { ok: false, code: "INVALID_CHARS" };
+  // 6+ zeros no final de uma sequência de dígitos PUROS (sem máscara nenhuma)
+  // = quase certamente um número que o Excel arredondou: 5.5679E+12 vira
+  // 5567900000000 quando o leitor de CSV converte a célula pra número — tem
+  // cara de telefone válido mas os dígitos reais se perderam. Só vale pra
+  // dígitos colados: número digitado com máscara "(11) 90000-0000" (linha
+  // "bonita" de empresa) nunca é barrado por isso.
+  if (/^\+?\d+$/.test(cleaned) && /0{6,}$/.test(digits)) return { ok: false, code: "SCIENTIFIC_NOTATION" };
+
+  let international = cleaned.startsWith("+");
+  if (!international && digits.startsWith("00")) {
+    international = true;
+    digits = digits.slice(2);
+  }
+
+  if (international) {
+    const ddi = findCountryCode(digits);
+    if (!ddi) return { ok: false, code: "UNKNOWN_DDI" };
+    let national = digits.slice(ddi.length);
+    if (ddi === "55") {
+      if (national.length > 11 && national.startsWith("0")) national = national.slice(1);
+      return classifyBrazilian(national);
+    }
+    return classifyInternational(ddi, national);
+  }
+
+  // Zero de tronco ("067 99999-9999", "0 67 3333-4444") — o "0" nunca é DDD.
+  if (
+    (digits.length === 11 || digits.length === 12) &&
+    digits.startsWith("0") &&
+    VALID_BRAZILIAN_DDDS.has(digits.slice(1, 3))
+  ) {
+    digits = digits.slice(1);
+  }
+  // 55 na frente (12/13 dígitos) — só o Brasil usa 55, sem ambiguidade.
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    return classifyBrazilian(digits.slice(2));
+  }
+  if (digits.length === 10 || digits.length === 11) return classifyBrazilian(digits);
+  return { ok: false, code: digits.length < 10 ? "TOO_SHORT" : "TOO_LONG" };
+}
+
+const FOREIGN_HINT = "Se o número for de outro país, comece com + e o código do país (ex.: +351 968 203 610).";
+
+function phoneErrorMessage(shape: Extract<PhoneShape, { ok: false }>): string {
+  switch (shape.code) {
+    case "INVALID_CHARS":
+      return "Formato inválido. Use apenas dígitos, espaços, traços ou parênteses (e + no início, para outro país).";
+    case "SCIENTIFIC_NOTATION":
+      return "O número parece ter sido arredondado pela planilha (notação científica, ex.: 5,5E+12) e os dígitos se perderam — formate a coluna como Texto e exporte de novo.";
+    case "TOO_SHORT":
+      return "Número incompleto — faltou o DDD. Use o formato +55 (67) 99999-9999.";
+    case "TOO_LONG":
+      return `Número com dígitos demais. ${FOREIGN_HINT}`;
+    case "INVALID_DDD":
+      return `DDD ${shape.ddd ?? "informado"} não existe no Brasil. ${FOREIGN_HINT}`;
+    case "INVALID_BR_MOBILE":
+      return "Celular brasileiro precisa ter 9 dígitos e começar com 9 depois do DDD.";
+    case "INVALID_BR_NUMBER":
+      return "Número brasileiro inválido — confira os dígitos depois do DDD.";
+    case "UNKNOWN_DDI":
+      return "Código de país (DDI) não reconhecido. Confira o número depois do +.";
+    case "INVALID_INTL_LENGTH":
+      return `Número internacional com quantidade de dígitos inválida${shape.ddi ? ` para o código +${shape.ddi}` : ""}.`;
+    case "LANDLINE_NOT_WHATSAPP":
+      return "Esse número é de telefone fixo — o WhatsApp precisa ser um celular. Coloque-o no campo Celular.";
+  }
+}
+
+/** (DD) NNNNN-NNNN (celular, 11 dígitos) ou (DD) NNNN-NNNN (10 dígitos) — só o número nacional, sem o DDI. */
+export function formatBrazilianMask(national: string): string {
+  const ddd = national.slice(0, 2);
+  if (national.length === 11) return `(${ddd}) ${national.slice(2, 7)}-${national.slice(7)}`;
+  return `(${ddd}) ${national.slice(2, 6)}-${national.slice(6)}`;
+}
+
+/**
+ * Forma como o número brasileiro é GRAVADO e MOSTRADO: com o DDI —
+ * "+55 (67) 99999-9999" (celular, com o 9) ou "+55 (67) 3321-8101" (fixo).
+ * Pedido explícito: número do Brasil aparece sempre com o DDI e o 9.
+ */
+export function formatBrazilianDisplay(national: string): string {
+  return `+55 ${formatBrazilianMask(national)}`;
+}
+
+/** "+351 968 203 610" / "+1 (917) 555-1234" — agrupamento simples, sem regra por país. */
+export function formatInternationalDisplay(ddi: string, national: string): string {
+  if (ddi === "1" && national.length === 10) {
+    return `+1 (${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+  }
+  let grouped: string;
+  if (national.length <= 4) grouped = national;
+  else if (national.length === 8) grouped = `${national.slice(0, 4)} ${national.slice(4)}`;
+  else if (national.length <= 6) grouped = `${national.slice(0, 3)} ${national.slice(3)}`;
+  else grouped = `${national.slice(0, 3)} ${national.slice(3, 6)} ${national.slice(6)}`;
+  return `+${ddi} ${grouped}`;
+}
+
+/**
+ * Valida e formata UM telefone. `ctx`:
+ *  - "whatsapp": rigoroso — precisa ser um número que recebe WhatsApp:
+ *    celular brasileiro, ou número internacional com "+DDI". Fixo e número
+ *    sem DDD são recusados.
+ *  - "phone" (Celular): mais tranquilo — mesmas máscaras quando o número é
+ *    reconhecível (inclusive fixo), mas aceita o que não dá pra interpretar
+ *    (ex.: sem DDD) desde que sejam 7 a 15 dígitos; só recusa o que claramente
+ *    não é telefone (letras, símbolos, notação científica).
+ * Nos dois: número do Brasil sai com o DDI ("+55 (67) 99999-9999") e o
+ * celular antigo sem o 9º dígito ganha o 9.
+ */
+export function parsePhone(raw: string | null | undefined, ctx: PhoneContext): PhoneParseResult {
+  const cleaned = cleanPhoneText(raw);
+  if (!cleaned) return { ok: true, phone: null };
+
+  const shape = parsePhoneShape(cleaned);
+
+  if (shape.ok && shape.kind === "INTERNATIONAL") {
+    const normalized = shape.ddi + shape.national;
+    return {
+      ok: true,
+      phone: {
+        kind: "INTERNATIONAL",
+        ddi: shape.ddi,
+        normalized,
+        display: formatInternationalDisplay(shape.ddi, shape.national),
+        e164: normalized,
+        ninthDigitAdded: false,
+      },
+    };
+  }
+
+  if (shape.ok) {
+    let national = shape.national;
+    let ninthDigitAdded = false;
+    if (ctx === "whatsapp" && shape.kind === "BR_LANDLINE") {
+      return { ok: false, code: "LANDLINE_NOT_WHATSAPP", message: phoneErrorMessage({ ok: false, code: "LANDLINE_NOT_WHATSAPP" }) };
+    }
+    // Celular antigo sem o 9 (10 dígitos, 6-9 depois do DDD) ganha o 9 nos
+    // DOIS campos — a regra do plano de numeração é inequívoca (fixo começa
+    // com 2-5, então nada de 6-9 é fixo), e o número exibido/gravado tem que
+    // ser o mesmo que o WhatsApp entrega.
+    if (shape.kind === "BR_MOBILE_NO9") {
+      national = national.slice(0, 2) + "9" + national.slice(2);
+      ninthDigitAdded = true;
+    }
+    return {
+      ok: true,
+      phone: {
+        kind: shape.kind === "BR_LANDLINE" ? "BR_LANDLINE" : "BR_MOBILE",
+        ddi: "55",
+        normalized: national,
+        display: formatBrazilianDisplay(national),
+        e164: `55${national}`,
+        ninthDigitAdded,
+      },
+    };
+  }
+
+  // Não deu pra interpretar.
+  if (ctx === "whatsapp" || shape.code === "INVALID_CHARS" || shape.code === "SCIENTIFIC_NOTATION") {
+    return { ok: false, code: shape.code, message: phoneErrorMessage(shape) };
+  }
+  // Celular: aceita o que não é reconhecível se tiver tamanho de telefone.
+  const digits = cleaned.replace(/\D/g, "");
+  if (digits.length < 7) return { ok: false, code: "TOO_SHORT", message: "Número muito curto (mínimo 7 dígitos)." };
+  if (digits.length > 15) return { ok: false, code: "TOO_LONG", message: "Número com dígitos demais (máximo 15)." };
+  return {
+    ok: true,
+    phone: { kind: "OTHER", ddi: null, normalized: normalizePhoneNumber(cleaned) ?? digits, display: cleaned, e164: null, ninthDigitAdded: false },
+  };
+}
+
+/** Mensagem de erro pra mostrar no campo, ou null se o valor é aceito (vazio é aceito). */
+export function validatePhoneField(raw: string | null | undefined, ctx: PhoneContext): string | null {
+  const result = parsePhone(raw, ctx);
+  return result.ok ? null : result.message;
+}
+
+export type ContactPhoneFields = {
+  phone: string | null;
+  phoneNormalized: string | null;
+  whatsapp: string | null;
+  whatsappNormalized: string | null;
+};
+
+export type PhoneFieldIssue = { field: "phone" | "whatsapp"; code: PhoneErrorCode; message: string; raw: string };
+
+/**
+ * O ÚNICO caminho de gravação de telefone de contato. Recebe o que veio da
+ * tela/planilha/API e devolve os 4 campos prontos pro banco (display com
+ * máscara + normalizado) e a lista de problemas encontrados.
+ *
+ * `input.phone` / `input.whatsapp`:
+ *  - `undefined` = "não veio nesta chamada" → mantém o valor de `opts.existing`
+ *    (edição parcial: mexer só no nome nunca reescreve nem revalida o telefone
+ *    que a pessoa nem tocou);
+ *  - `null`/"" = apagar o campo;
+ *  - texto = limpa, valida e formata (contexto "phone" pro Celular, "whatsapp"
+ *    pro WhatsApp — ver parsePhone). Texto inválido NÃO entra: o campo fica
+ *    vazio e o problema vai em `issues` (quem chama decide: rejeitar o
+ *    cadastro, pular a linha da planilha ou só avisar).
+ *
+ * `moveMobileToWhatsapp` (padrão true): praticamente todo celular no Brasil
+ * também é WhatsApp — contato que fica com Celular preenchido e WhatsApp vazio
+ * MUDA o número pro WhatsApp (não copia: o Celular esvazia). Telefone FIXO
+ * nunca muda de campo (fixo não recebe WhatsApp). Cadastro manual, edição,
+ * importação de contatos e API externa usam o padrão; a importação de
+ * NEGÓCIOS desliga (lá o Celular é de propósito o "número 2/backup", só o
+ * WhatsApp identifica o contato — ver lib/deals/import-resolve.ts).
+ */
+export function resolveContactPhones(
+  input: { phone?: string | null; whatsapp?: string | null },
+  opts: { existing?: ContactPhoneFields | null; moveMobileToWhatsapp?: boolean } = {},
+): ContactPhoneFields & { issues: PhoneFieldIssue[]; moved: boolean } {
+  const { existing, moveMobileToWhatsapp = true } = opts;
+  const issues: PhoneFieldIssue[] = [];
+
+  let phone: string | null = null;
+  let phoneNormalized: string | null = null;
+  let whatsapp: string | null = null;
+  let whatsappNormalized: string | null = null;
+
+  if (input.phone === undefined) {
+    phone = existing?.phone ?? null;
+    phoneNormalized = existing?.phoneNormalized ?? null;
+  } else {
+    const r = parsePhone(input.phone, "phone");
+    if (!r.ok) issues.push({ field: "phone", code: r.code, message: r.message, raw: String(input.phone) });
+    else if (r.phone) {
+      phone = r.phone.display;
+      phoneNormalized = r.phone.normalized;
+    }
+  }
+
+  if (input.whatsapp === undefined) {
+    whatsapp = existing?.whatsapp ?? null;
+    whatsappNormalized = existing?.whatsappNormalized ?? null;
+  } else {
+    const r = parsePhone(input.whatsapp, "whatsapp");
+    if (!r.ok) issues.push({ field: "whatsapp", code: r.code, message: r.message, raw: String(input.whatsapp) });
+    else if (r.phone) {
+      whatsapp = r.phone.display;
+      whatsappNormalized = r.phone.normalized;
+    }
+  }
+
+  let moved = false;
+  if (moveMobileToWhatsapp && !whatsappNormalized && phone) {
+    // Reavalia o Celular como WhatsApp: celular (ou internacional) vira
+    // WhatsApp já com máscara e 9º dígito; fixo/irreconhecível fica onde está.
+    const r = parsePhone(phone, "whatsapp");
+    if (r.ok && r.phone) {
+      whatsapp = r.phone.display;
+      whatsappNormalized = r.phone.normalized;
+      phone = null;
+      phoneNormalized = null;
+      moved = true;
+    }
+  }
+
+  return { phone, phoneNormalized, whatsapp, whatsappNormalized, issues, moved };
 }

@@ -1,11 +1,12 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { formatPhoneMask } from "@/lib/phone-normalize";
+import { applyPhoneMask } from "@/lib/phone-normalize";
 
 /**
  * Campo de telefone/WhatsApp com máscara "ao vivo" (ver formatPhoneMask em
- * lib/phone-normalize.ts) — extraído pra um componente só porque os
+ * lib/phone-normalize.ts) — o número brasileiro aparece sempre com o DDI:
+ * "+55 (67) 99999-9999". Extraído pra um componente só porque os
  * formulários de Clientes (criar e editar) precisavam do mesmo campo
  * duas vezes cada (Celular e WhatsApp), e duplicar a lógica de cursor
  * abaixo em 4 lugares é exatamente o tipo de coisa que sai de sincronia
@@ -15,10 +16,9 @@ import { formatPhoneMask } from "@/lib/phone-normalize";
  * reescrito por fora (aqui, a máscara reformatando a cada tecla) joga o
  * cursor pro FIM sozinho a cada re-render — sem esse ajuste, dava pra
  * digitar um número novo mas não corrigir um dígito no MEIO dele (o cursor
- * fugia pro final assim que a máscara mexia no texto). A técnica: conta
- * quantos DÍGITOS existem antes do cursor no valor cru digitado (não a
- * posição em caracteres, que muda conforme parênteses/traço entram e
- * saem), reformata, e acha onde esse mesmo dígito parou no texto novo.
+ * fugia pro final assim que a máscara mexia no texto). A conta do cursor
+ * (dígitos DEPOIS dele, não antes — a máscara acrescenta o "+55 " na frente)
+ * vive em applyPhoneMask, função pura e testada.
  */
 export function PhoneInput({
   label,
@@ -47,23 +47,7 @@ export function PhoneInput({
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     const caret = e.target.selectionStart ?? raw.length;
-    const digitsBeforeCaret = raw.slice(0, caret).replace(/\D/g, "").length;
-
-    const masked = formatPhoneMask(raw);
-
-    let caretInMasked = masked.length;
-    if (digitsBeforeCaret === 0) {
-      caretInMasked = 0;
-    } else {
-      let seen = 0;
-      for (let i = 0; i < masked.length; i++) {
-        if (/\d/.test(masked[i])) seen++;
-        if (seen === digitsBeforeCaret) {
-          caretInMasked = i + 1;
-          break;
-        }
-      }
-    }
+    const { value: masked, caret: caretInMasked } = applyPhoneMask(raw, caret);
 
     nextCaretRef.current = caretInMasked;
     onChange(masked);
@@ -82,6 +66,7 @@ export function PhoneInput({
         autoFocus={autoFocus}
         value={value}
         onChange={handleChange}
+        placeholder="+55 (00) 00000-0000"
         className="field-input"
       />
       {error && <p className="text-xs text-red-500">{error}</p>}

@@ -124,19 +124,22 @@ export async function resolveCampaignInput(
   const allScriptIds = [...input.scripts.map((s) => s.scriptId), ...(input.followUpScripts ?? []).map((s) => s.scriptId)];
   const scriptRows = await prisma.messageScript.findMany({
     where: { id: { in: allScriptIds }, organizationId },
-    select: { id: true, steps: true },
+    select: { id: true, steps: true, version: true },
   });
   const stepsById = new Map(scriptRows.map((s) => [s.id, s.steps]));
+  // Versão do script NO MOMENTO da cópia — vai junto no snapshot pra cada
+  // envio saber de qual versão é (ver lib/campaigns/script-sync.ts).
+  const versionById = new Map(scriptRows.map((s) => [s.id, s.version]));
 
   const messageTemplates = input.scripts
     .filter((s) => stepsById.has(s.scriptId))
-    .map((s) => ({ steps: stepsById.get(s.scriptId), weight: s.weight, scriptId: s.scriptId }));
+    .map((s) => ({ steps: stepsById.get(s.scriptId), weight: s.weight, scriptId: s.scriptId, scriptVersion: versionById.get(s.scriptId) }));
   if (messageTemplates.length === 0) return { ok: false, error: "Nenhum script válido selecionado" };
 
   const followUpTemplatesList = input.followUpScripts?.length
     ? input.followUpScripts
         .filter((s) => stepsById.has(s.scriptId))
-        .map((s) => ({ steps: stepsById.get(s.scriptId), weight: s.weight, scriptId: s.scriptId }))
+        .map((s) => ({ steps: stepsById.get(s.scriptId), weight: s.weight, scriptId: s.scriptId, scriptVersion: versionById.get(s.scriptId) }))
     : null;
 
   const contacts = await prisma.contact.findMany({

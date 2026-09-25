@@ -5,15 +5,57 @@ import { sendPushToUser } from "@/lib/push";
 import { publishDealsEvent } from "@/lib/deals/live-events";
 
 /**
+ * Dono do negócio criado por resposta de campanha quando NÃO existe um dono
+ * "de verdade" já definido (campanha MANUAL, ou PIPELINE_BULK cujo negócio
+ * original sumiu). Antes isso ia direto pro rodízio (pickOwnerId — o membro
+ * ativo com MENOS negócios abertos), o que mandava o lead pra alguém sem
+ * nenhuma relação com a campanha nem com o contato: medido em produção, 28
+ * de 30 negócios de campanha MANUAL caíram num terceiro assim — inclusive
+ * quando o contato tinha responsável (ativo ou não).
+ *
+ * Regra, na ordem:
+ *  1. Responsável do contato, se ainda ATIVO — o lead já é dele; sortear
+ *     outro dono "roubaria" a relação (mesmo raciocínio do PIPELINE_BULK
+ *     abaixo e do fluxo de pedido de lead, que existe justamente pra tirar
+ *     lead de outro consultor com aprovação).
+ *  2. Quem criou a campanha, se ainda ativo — é o WhatsApp DELE que
+ *     conversou com o lead. Cobre contato sem responsável e contato cujo
+ *     responsável saiu da empresa (inativo): mesma regra de POST
+ *     /api/lead-requests, que reatribui na hora pra quem pediu quando o dono
+ *     antigo está inativo.
+ *  3. Rodízio só como ÚLTIMO recurso (nenhum dos dois está ativo) — o único
+ *     caso em que sortear ainda faz sentido, porque não sobrou ninguém
+ *     ligado ao lead.
+ */
+async function resolveReplyOwnerId(
+  organizationId: string,
+  contactResponsavelId: string | null,
+  campaignCreatorId: string,
+): Promise<string> {
+  const candidates = [contactResponsavelId, campaignCreatorId].filter((id): id is string => !!id);
+  const activeMembers = await prisma.organizationUser.findMany({
+    where: { organizationId, userId: { in: candidates }, active: true },
+    select: { userId: true },
+  });
+  const activeIds = new Set(activeMembers.map((m) => m.userId));
+  for (const id of candidates) {
+    if (activeIds.has(id)) return id;
+  }
+  return pickOwnerId(organizationId, campaignCreatorId);
+}
+
+/**
  * Quando uma mensagem chega numa thread que tem um envio de campanha
  * pendente de resposta, marca a resposta e — se o contato ainda não tem
  * negócio aberto — cria um automaticamente, pra já cair pronto pra alguém
  * assumir. Chamado a partir de handleIncomingMessage (lib/whatsapp/events.ts)
  * pra toda mensagem INBOUND.
  *
- * MANUAL (comportamento de sempre): cai no pipeline padrão/1ª etapa, dono
- * escolhido por rodízio (pickOwnerId) — a campanha não pertence a um
- * vendedor específico. LEAD_CAPTURE (contatos escolhidos por um consultor
+ * MANUAL: cai no pipeline padrão/1ª etapa; dono decidido por
+ * resolveReplyOwnerId acima (responsável ativo do contato → quem criou a
+ * campanha → rodízio só se ninguém ligado ao lead estiver ativo) — antes era
+ * rodízio puro, que mandava lead de campanha pra quem não tinha nada a ver
+ * com ela. LEAD_CAPTURE (contatos escolhidos por um consultor
  * na página de Clientes, ver lib/campaigns/lead-capture.ts): cai no
  * pipeline/etapa que o próprio consultor escolheu ao montar o disparo
  * (Campaign.targetPipelineId/targetStageId), e o dono é sempre quem criou a
@@ -48,7 +90,7 @@ export async function handleCampaignReply(
   if (existingOpenDeal) return;
 
   const [contact, campaign] = await Promise.all([
-    prisma.contact.findUnique({ where: { id: contactId }, select: { name: true } }),
+    prisma.contact.findUnique({ where: { id: contactId }, select: { name: true, responsavelId: true } }),
     prisma.campaign.findUnique({
       where: { id: recipient.campaignId },
       select: { name: true, source: true, createdById: true, targetPipelineId: true, targetStageId: true },
@@ -89,7 +131,9 @@ export async function handleCampaignReply(
     if (!pipeline || !firstStage) return;
     pipelineId = pipeline.id;
     stageId = firstStage.id;
-    ownerId = originalDeal ? originalDeal.ownerId : await pickOwnerId(organizationId, campaign.createdById);
+    ownerId = originalDeal
+      ? originalDeal.ownerId
+      : await resolveReplyOwnerId(organizationId, contact.responsavelId, campaign.createdById);
   }
 
   const deal = await prisma.deal.create({

@@ -574,17 +574,12 @@ export default async function RelatoriosPage({
               )}
             </div>
             {proposalsSummary.sent > 0 && (
-              <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                {[
-                  `${proposalsSummary.accepted} aceita${proposalsSummary.accepted === 1 ? "" : "s"}`,
-                  proposalsSummary.declined > 0 && `${proposalsSummary.declined} recusada${proposalsSummary.declined === 1 ? "" : "s"}`,
-                  proposalsSummary.superseded > 0 && `${proposalsSummary.superseded} refeita${proposalsSummary.superseded === 1 ? "" : "s"}`,
-                  proposalsSummary.cancelled > 0 && `${proposalsSummary.cancelled} cancelada${proposalsSummary.cancelled === 1 ? "" : "s"}`,
-                  proposalsSummary.pending > 0 && `${proposalsSummary.pending} pendente${proposalsSummary.pending === 1 ? "" : "s"}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
+              <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+                <ProposalMetric label="Aceitas" value={proposalsSummary.accepted} tone="success" />
+                <ProposalMetric label="Pendentes" value={proposalsSummary.pending} tone={proposalsSummary.pending > 0 ? "warn" : "neutral"} />
+                <ProposalMetric label="Recusadas" value={proposalsSummary.declined} tone="danger" />
+                <ProposalMetric label="Refeitas" value={proposalsSummary.superseded} tone="info" />
+              </div>
             )}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={proposalsSentRanking} emptyLabel="Nenhuma proposta enviada no período" />
@@ -603,10 +598,19 @@ export default async function RelatoriosPage({
               )}
             </div>
             {proposalsConversionRate !== null && (
-              <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                {proposalsSummary.accepted} de {proposalsSummary.sent} enviadas foram aceitas
-                {proposalsSummary.pending > 0 ? ` · ${proposalsSummary.pending} ainda sem resposta` : ""}
-              </p>
+              <div className="mb-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                  {proposalsSummary.accepted} de {proposalsSummary.sent} enviadas foram aceitas
+                </p>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, proposalsConversionRate)}%` }} />
+                </div>
+                <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+                  {proposalsSummary.pending > 0
+                    ? `${proposalsSummary.pending} ainda sem resposta. Pendências não contam como aceita nem como recusa.`
+                    : "Sem pendências no período."}
+                </p>
+              </div>
             )}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={proposalsConversionRanking} emptyLabel="Nenhuma proposta enviada no período" />
@@ -1229,7 +1233,7 @@ export default async function RelatoriosPage({
                   <tbody>
                     {scriptBreakdown.map((s) => (
                       <tr key={s.id} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
-                        <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{s.name}</td>
+                        <td className="py-2.5 font-medium text-neutral-900 dark:text-neutral-100" title={s.preview ?? undefined}>{s.name}</td>
                         <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{s.sent}</td>
                         <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{s.replied}</td>
                         <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">{s.replyRate}%</td>
@@ -1265,19 +1269,12 @@ export default async function RelatoriosPage({
           )}
 
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Conversão em venda = % dos contatos organicamente contatados (qualquer categoria) que fecharam negócio
-            (ganho) dentro do período do filtro — nunca é "essa mensagem virou venda", é o resultado final do contato.
-            Geral = conversa fora de negócio. Prospecção fria = disparo em massa via Campanhas — dentro dela,
-            “possível negociação” é o lead que já respondeu mais de {COLD_POSSIBLE_DEAL_MIN_REPLIES} mensagens
-            desde o disparo (não é contagem do período, é a conversa toda) e AINDA não virou negócio — quem já é
-            negócio (aberto, ganho ou perdido) sai da lista de "possível" e passa a aparecer em "conversas de
-            negócio". Prospecção manual = a
-            1ª mensagem de uma thread nova foi sua (não do lead) e ela hoje tem negócio — abordagem fria feita na mão.
-            Conversas de negócio = toda a troca (inclusive a de abertura, se for o caso) de contato já vinculado a um
-            negócio. Geral, prospecção fria e prospecção manual nunca compartilham mensagem entre si; conversas de
-            negócio é a única exceção — repete a troca inteira, incluindo a mensagem de abertura já contada em
-            prospecção manual quando for o caso, porque precisa da conversa completa pra calcular tempo de resposta e
-            duração. Resposta = % que o lead respondeu; 1ª resposta e duração são médias de tempo.
+            Conversão em venda = percentual dos contatos organicamente contatados que fecharam negócio dentro do período
+            do filtro. Não significa que uma mensagem específica virou venda; é o resultado final do contato. Geral =
+            conversa fora de negócio. Prospecção fria = disparo em massa via Campanhas; possível negociação é o lead que
+            já respondeu mais de {COLD_POSSIBLE_DEAL_MIN_REPLIES} mensagens desde o disparo e ainda não virou negócio.
+            Prospecção manual = a primeira mensagem de uma thread nova foi sua e hoje ela tem negócio. Conversas de
+            negócio = toda troca de contato já vinculado a um negócio. Alguns tempos dependem da conversa completa.
           </p>
         </section>
       )}
@@ -1350,6 +1347,34 @@ function ConversionBadge({ rate }: { rate: number }) {
       <Percent className="h-3 w-3" strokeWidth={2.5} />
       {rate}% conversão
     </span>
+  );
+}
+
+function ProposalMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "success" | "warn" | "danger" | "info" | "neutral";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400"
+      : tone === "warn"
+        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400"
+        : tone === "danger"
+          ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400"
+          : tone === "info"
+            ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-400"
+            : "border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400";
+
+  return (
+    <div className={`rounded-md border px-2.5 py-2 ${toneClass}`}>
+      <p className="text-[11px] font-medium opacity-80">{label}</p>
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
+    </div>
   );
 }
 

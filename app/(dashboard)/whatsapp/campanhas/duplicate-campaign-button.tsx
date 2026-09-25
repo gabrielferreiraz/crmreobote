@@ -20,14 +20,20 @@ export function DuplicateCampaignButton({
   campaignId,
   hasAudienceFilter,
   labeled = false,
+  size = "md",
   onDuplicated,
 }: {
   campaignId: string;
   hasAudienceFilter: boolean;
-  /** Ícone só (tabela) vs ícone+texto (barra de ações da página de detalhe). */
+  /** Ícone só (lista, card) vs ícone+texto (barra de ações / linha da lista). */
   labeled?: boolean;
+  /** "sm" = mesmo botão com rótulo, no tamanho dos outros botões da linha da
+   * lista de campanhas (ver campaigns-table.tsx); a página de detalhe usa o
+   * tamanho cheio, que continua o padrão. */
+  size?: "sm" | "md";
   onDuplicated: () => void;
 }) {
+  const iconSize = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
   const [choosing, setChoosing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,8 +70,14 @@ export function DuplicateCampaignButton({
   return (
     <>
       {labeled ? (
-        <button type="button" disabled={loading} onClick={handleClick} className="btn-secondary">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2} />}
+        <button
+          type="button"
+          disabled={loading}
+          onClick={handleClick}
+          className={`btn-secondary ${size === "sm" ? "btn-sm" : ""}`}
+          title="Cria uma cópia desta campanha"
+        >
+          {loading ? <Loader2 className={`${iconSize} animate-spin`} strokeWidth={2.5} /> : <Copy className={iconSize} strokeWidth={2} />}
           Duplicar
         </button>
       ) : (

@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { getTvMetrics } from "@/lib/tv-dashboard";
+import { getTvMetrics, getTvRanking } from "@/lib/tv-dashboard";
 import { requireSession } from "@/lib/require-session";
 import { requireTvLink } from "@/lib/require-tv-link";
 
@@ -38,4 +38,25 @@ export async function fetchTvMetrics(publicCode?: string) {
   const { organizationId } = await requireSession();
   if (!organizationId) throw new Error("Não autenticado");
   return await getTvMetrics(organizationId);
+}
+
+/**
+ * Busca do Ranking do mês pra tela app/r/[code] (ver app/tv/ranking-view.tsx).
+ * SEM login, de propósito (pedido explícito: a TV do ranking nunca faz login) —
+ * a única credencial é o código do link, validado aqui como tipo RANKING: um
+ * código da TV principal (DASHBOARD) NÃO serve pra buscar o ranking, e
+ * vice-versa (ver requireTvLink em lib/require-tv-link.ts). É essa checagem,
+ * feita no servidor, que mantém o ranking fora do alcance de quem só tem
+ * acesso à TV que cliente enxerga — esconder na tela não bastaria, uma Server
+ * Action é chamável por qualquer requisição.
+ *
+ * Por isso `publicCode` é OBRIGATÓRIO e não existe caminho por sessão logada
+ * (como fetchTvMetrics tem): uma sessão qualquer, inclusive a de um aparelho
+ * logado na TV principal, não consegue buscar o ranking.
+ */
+export async function fetchTvRanking(publicCode: string) {
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const { ok, organizationId } = await requireTvLink(publicCode, ip, "RANKING");
+  if (!ok || !organizationId) throw new Error("Código inválido ou revogado");
+  return await getTvRanking(organizationId);
 }

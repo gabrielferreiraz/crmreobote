@@ -12,9 +12,11 @@ const PAGE_SIZE = 20;
 
 function formatDay(iso: string | null): string {
   if (!iso) return "—";
-  // Dia civil de Brasília explícito — sem timeZone, o navegador de quem
-  // estiver fora do fuso mostraria o fechamento das 23h como "dia seguinte".
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Sao_Paulo" });
+  // Dia civil de Mato Grosso do Sul explícito (America/Campo_Grande, o mesmo
+  // do filtro de período — ver lib/timezone.ts) — sem timeZone, o navegador de
+  // quem estiver fora do fuso mostraria o fechamento das 23h como "dia seguinte";
+  // com America/Sao_Paulo (1h adiantado) o fechamento das 23h30 também.
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Campo_Grande" });
 }
 
 /**

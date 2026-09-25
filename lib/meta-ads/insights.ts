@@ -55,12 +55,6 @@ export function buildPeriodDefs(now: Date = new Date()): AdSpendPeriodDef[] {
   ];
 }
 
-/** Só key+label dos 4 períodos fixos — pro seletor da UI (ver meta-ads-view.tsx), sem expor since/until (detalhe de implementação). */
-export const AD_SPEND_PERIODS: { key: AdSpendPeriodKey; label: string }[] = buildPeriodDefs().map((p) => ({
-  key: p.key,
-  label: p.label,
-}));
-
 export async function getAdSpendSummary(organizationId: string): Promise<AdSpendSummary> {
   const connection = await prisma.metaAdsConnection.findUnique({ where: { organizationId } });
   if (!connection) return { ok: false, reason: "not_connected" };

@@ -4,7 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
 import { fetchProfilePictureUrl } from "@/lib/evolution";
-import { ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
+import { toDialNumber } from "@/lib/phone-normalize";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +44,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       return NextResponse.json({ url: thread.profilePicUrl });
     }
 
-    // Mesma convenção de lib/whatsapp/send.ts: phoneNormalized nunca inclui o
-    // DDI do Brasil, precisa acrescentar na hora de falar com o Evolution —
-    // e a mesma correção do 9º dígito faltante (ensureBrazilianMobileNinthDigit).
-    const fullNumber = `55${ensureBrazilianMobileNinthDigit(thread.phoneNormalized)}`;
+    // Mesma regra de lib/whatsapp/send.ts: phoneNormalized de número brasileiro
+    // nunca inclui o DDI (55) — precisa acrescentar na hora de falar com o
+    // Evolution; número de outro país já carrega o próprio DDI. Ver
+    // toDialNumber (também aplica a correção do 9º dígito faltante).
+    const fullNumber = toDialNumber(thread.phoneNormalized) ?? thread.phoneNormalized;
     const url = await fetchProfilePictureUrl(thread.instance.instanceName, fullNumber);
 
     await prisma.whatsAppThread.update({

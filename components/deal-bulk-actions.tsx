@@ -249,7 +249,6 @@ export function DealBulkActions({
       {sendOpen && (
         <BulkSendMessageDialog
           dealIds={selectedIds}
-          lossReasons={lossReasons}
           onClose={() => setSendOpen(false)}
           onSent={async () => {
             trackUse("pipeline.massa.mensagem");

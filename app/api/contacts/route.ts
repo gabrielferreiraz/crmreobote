@@ -3,7 +3,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
-import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
+import { resolveContactPhones } from "@/lib/phone-normalize";
 import { isValidBirthDateIso } from "@/lib/birth-date";
 import { findDuplicateContact, buildConflictPayload } from "@/lib/contact-duplicate";
 import { fetchContactsList, countContacts } from "@/lib/contacts/list-query";
@@ -162,19 +162,19 @@ export async function POST(req: Request) {
   }
 
   return runWithTenant(organizationId, async () => {
-    // Rejeita números com formato inválido (vírgulas, pontos, letras, etc.)
-    // antes de qualquer normalização — melhor devolver um erro claro do que
-    // silenciosamente gravar ", 6799 615." no banco e quebrar o matching.
-    if (phone && !isValidPhoneInput(phone)) {
-      return NextResponse.json({ error: "Celular com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
+    // Limpa, valida e formata Celular/WhatsApp num lugar só (ver
+    // resolveContactPhones em lib/phone-normalize.ts): tira apóstrofo/aspas,
+    // exige DDD/DDI válidos no WhatsApp, aplica a máscara e o 9º dígito, e
+    // move celular pro WhatsApp vazio. Número inválido é recusado aqui com
+    // uma mensagem clara — melhor que gravar ", 6799 615." e quebrar o
+    // matching depois.
+    const phones = resolveContactPhones({ phone: phone ?? null, whatsapp: whatsapp ?? null });
+    if (phones.issues.length > 0) {
+      const issue = phones.issues[0];
+      return NextResponse.json({ error: `${issue.field === "phone" ? "Celular" : "WhatsApp"}: ${issue.message}` }, { status: 400 });
     }
-    if (whatsapp && !isValidPhoneInput(whatsapp)) {
-      return NextResponse.json({ error: "WhatsApp com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
-    }
-
-    const whatsappFallback = fallbackWhatsappToPhone(phone, normalizePhoneNumber(phone), whatsapp, normalizePhoneNumber(whatsapp));
-    const phoneNormalized = whatsappFallback.phoneNormalized;
-    const whatsappNormalized = whatsappFallback.whatsappNormalized;
+    const phoneNormalized = phones.phoneNormalized;
+    const whatsappNormalized = phones.whatsappNormalized;
     const cleanTags = Array.isArray(tags)
       ? tags.map((t) => sanitizeCell(t.trim())).filter(Boolean)
       : [];
@@ -223,8 +223,8 @@ export async function POST(req: Request) {
         data: {
           name: sanitizeCell(name),
           email: sanitizeCell(email),
-          phone: sanitizeCell(whatsappFallback.phone),
-          whatsapp: sanitizeCell(whatsappFallback.whatsapp),
+          phone: phones.phone,
+          whatsapp: phones.whatsapp,
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),
@@ -281,8 +281,8 @@ export async function POST(req: Request) {
           organizationId,
           name: sanitizeCell(name),
           email: sanitizeCell(email),
-          phone: sanitizeCell(whatsappFallback.phone),
-          whatsapp: sanitizeCell(whatsappFallback.whatsapp),
+          phone: phones.phone,
+          whatsapp: phones.whatsapp,
           source: sanitizeCell(source),
           company: sanitizeCell(company),
           jobTitle: sanitizeCell(jobTitle),

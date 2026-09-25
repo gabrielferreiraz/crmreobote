@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { CurrencyInput } from "@/components/currency-input";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
@@ -11,6 +11,7 @@ import { ESTADOS_BR } from "@/lib/contacts/constants";
 import { parseLeadText, normalizeLabel, type ParsedLeadFields } from "@/lib/quick-register/parse-lead-text";
 import { appendDictatedLeadText } from "@/lib/quick-register/format-dictated-lead-text";
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
+import { useCepAutofill } from "@/lib/use-cep-autofill";
 import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
@@ -73,11 +74,30 @@ export function QuickRegisterDealForm({
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
 
+  // Campos que o parser preencheu sozinho e que o consultor ainda nÃ£o olhou
+  // â€” sÃ³ pra dar um destaque visual de "revise isso" no formulÃ¡rio. Some do
+  // campo assim que ele Ã© editado (deixou de ser "nÃ£o revisado").
+  const [autoFilled, setAutoFilled] = useState<Set<string>>(new Set());
+
+  const cepAutofillFields = useMemo(() => ({
+    setZipCode,
+    address,
+    setAddress,
+    neighborhood,
+    setNeighborhood,
+    city,
+    setCity,
+    state,
+    setState,
+    onAutofilled: (fields: Array<"zipCode" | "address" | "neighborhood" | "city" | "state">) => {
+      setAutoFilled((prev) => new Set([...prev, ...fields]));
+    },
+  }), [address, neighborhood, city, state]);
+  const cepAutofill = useCepAutofill(zipCode, cepAutofillFields);
+
   // Campos que o parser preencheu sozinho e que o consultor ainda não olhou
   // — só pra dar um destaque visual de "revise isso" no formulário. Some do
   // campo assim que ele é editado (deixou de ser "não revisado").
-  const [autoFilled, setAutoFilled] = useState<Set<string>>(new Set());
-
   function reviewed(key: string) {
     setAutoFilled((prev) => {
       if (!prev.has(key)) return prev;
@@ -611,7 +631,15 @@ export function QuickRegisterDealForm({
           </div>
 
           <div className="space-y-1">
-            <label className="field-label">CEP</label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="field-label">CEP</label>
+              {cepAutofill.loading && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                  Buscando
+                </span>
+              )}
+            </div>
             <input
               value={zipCode}
               onChange={(e) => {
@@ -620,6 +648,7 @@ export function QuickRegisterDealForm({
               }}
               className={`field-input max-w-40 ${fieldHighlight("zipCode")}`}
             />
+            {cepAutofill.error && <p className="text-xs text-amber-600 dark:text-amber-400">{cepAutofill.error}</p>}
           </div>
 
           <div className="space-y-1">

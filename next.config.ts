@@ -23,6 +23,19 @@ async function headers() {
 const nextConfig: NextConfig = {
   output: "standalone",
   headers,
+  // "exceljs" fora do bundle do Turbopack, de propósito — ele SEMPRE embute
+  // a dependência direto nos próprios chunks internos (confirmado num build
+  // de verificação: nenhuma cópia separada sobra em .next/standalone/
+  // node_modules mesmo com um `import` estático de verdade em cima). Isso é
+  // exatamente o problema pro isolamento de segurança da importação de
+  // planilha (ver lib/parse-spreadsheet.ts) — lib/parse-spreadsheet-worker.ts
+  // roda como worker_thread carregado pelo Node PURO (fora do runtime do
+  // Turbopack, precisamente pra isolar um V8 Isolate próprio das duas CVEs
+  // do ExcelJS 4.4.0), e o Node só acha "exceljs" via node_modules de
+  // verdade no disco. serverExternalPackages força o rastreador do Next
+  // (.next/standalone) a copiar o pacote real (e o que ele depende) em vez
+  // de embuti-lo, exatamente o que o worker precisa.
+  serverExternalPackages: ["exceljs"],
   // Sem isso, o Next (a partir da v15) trata toda página dinâmica como
   // "stale" em 0 segundos — ou seja, voltar pra uma tela que você acabou de
   // visitar refaz a busca no servidor do zero e reexibe o esqueleto de

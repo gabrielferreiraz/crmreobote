@@ -33,6 +33,7 @@ type ImportPlanSummary = {
   existingContactsMatched: number;
   duplicateDeals: number;
   skippedNoContact: number;
+  skippedInvalidPhone: number;
   stageFallbacks: number;
   ownerFallbacks: number;
   valueParseFailures: number;
@@ -65,6 +66,8 @@ const ISSUE_LABEL: Record<string, string> = {
   OWNER_NOT_FOUND: "Resp. não achado",
   VALUE_UNREADABLE: "Valor líquido ilegível",
   GROSS_VALUE_UNREADABLE: "Valor bruto ilegível",
+  INVALID_WHATSAPP: "WhatsApp inválido",
+  INVALID_PHONE: "Celular inválido",
 };
 
 /**
@@ -572,12 +575,13 @@ export function DealImportDialog({
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-4 gap-2 md:grid-cols-7">
+            <div className="grid grid-cols-4 gap-2 md:grid-cols-8">
               <StatChip label="Vão criar negócio" value={s.toCreate} />
               <StatChip label="Contatos novos" value={s.newContacts} />
               <StatChip label="Contatos já existiam" value={s.existingContactsMatched} />
               <StatChip label="Duplicados evitados" value={s.duplicateDeals} tone={s.duplicateDeals > 0 ? "warn" : undefined} />
               <StatChip label="Sem nome (ignoradas)" value={s.skippedNoContact} tone={s.skippedNoContact > 0 ? "warn" : undefined} />
+              <StatChip label="Número inválido (ignoradas)" value={s.skippedInvalidPhone} tone={s.skippedInvalidPhone > 0 ? "warn" : undefined} />
               <StatChip label="Etapa não achada" value={s.stageFallbacks} tone={s.stageFallbacks > 0 ? "warn" : undefined} />
               <StatChip label="Valor líquido ilegível" value={s.valueParseFailures} tone={s.valueParseFailures > 0 ? "warn" : undefined} />
               <StatChip label="Valor bruto ilegível" value={s.grossValueParseFailures} tone={s.grossValueParseFailures > 0 ? "warn" : undefined} />

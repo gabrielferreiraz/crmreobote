@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Wallet, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Wallet, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
-import { normalizePhoneNumber, ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, toDialNumber } from "@/lib/phone-normalize";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
 import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/meeting-outcome-dialog";
 import { Avatar } from "@/components/avatar";
@@ -32,6 +32,8 @@ import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reaso
 import { useUndoToast } from "@/components/undo-provider";
 import { ProposalsCard } from "@/components/proposals/proposals-card";
 import type { ProposalDTO } from "@/lib/proposals/types";
+
+const COMPOSER_TABS = [...ACTIVITY_TABS, { type: "PROPOSAL", label: "Proposta", icon: FileText }];
 
 // Só carregam depois que a pessoa de fato abre o painel/confete/convite/
 // ditado por voz — cada um puxa dependências pesadas (chat com QR/mídia/
@@ -145,14 +147,18 @@ function ActivityItem({
   const [error, setError] = useState<string | null>(null);
 
   if (activity.type === "SYSTEM") {
+    const isProposalEvent = activity.body?.toLocaleLowerCase("pt-BR").includes("proposta");
     return (
-      <p
+      <div
         id={`activity-${activity.id}`}
-        className={`px-1 py-0.5 text-[11px] font-medium text-neutral-600 dark:text-neutral-400 ${highlighted ? "animate-highlight-once" : ""}`}
+        className={`flex items-center gap-1.5 px-1 py-0.5 text-[11px] font-medium ${
+          isProposalEvent ? "text-brand dark:text-brand-light" : "text-neutral-600 dark:text-neutral-400"
+        } ${highlighted ? "animate-highlight-once" : ""}`}
       >
+        {isProposalEvent && <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />}
         {activity.user.name} {activity.body}
         <span className="font-normal text-neutral-500 dark:text-neutral-500"> · {new Date(activity.createdAt).toLocaleString("pt-BR")}</span>
-      </p>
+      </div>
     );
   }
 
@@ -371,6 +377,7 @@ export function DealDetail({
   const searchParams = useSearchParams();
   const canDeleteTask = currentUserRole === "OWNER";
   const [activeTab, setActiveTab] = useState("NOTE");
+  const [sidebarTab, setSidebarTab] = useState<"general" | "contact">("general");
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
   // Ditado por voz mostra o texto ao vivo enquanto a pessoa fala (ver
@@ -422,12 +429,13 @@ export function DealDetail({
 
   const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
   const phoneDigits = normalizePhoneNumber(deal.contact.phone);
-  // ensureBrazilianMobileNinthDigit: corrige na hora de montar o link,
-  // mesma rede de segurança de lib/whatsapp/send.ts — sem isso, o botão
-  // abria conversa com o número ERRADO pra todo contato salvo sem o 9.
-  const whatsappDigits = ensureBrazilianMobileNinthDigit(normalizePhoneNumber(deal.contact.whatsapp) ?? phoneDigits);
-  const directPhoneUrl = phoneDigits ? `tel:+55${phoneDigits}` : null;
-  const directWhatsAppUrl = whatsappDigits ? `https://wa.me/55${whatsappDigits}` : null;
+  // toDialNumber: mesma regra de lib/whatsapp/send.ts na hora de montar o
+  // link — corrige o 9º dígito faltante (sem isso o botão abria conversa com
+  // o número ERRADO pra todo contato salvo sem o 9) e só põe o 55 em número
+  // brasileiro (número de outro país já carrega o próprio DDI).
+  const whatsappDigits = normalizePhoneNumber(deal.contact.whatsapp) ?? phoneDigits;
+  const directPhoneUrl = phoneDigits ? `tel:+${toDialNumber(phoneDigits)}` : null;
+  const directWhatsAppUrl = whatsappDigits ? `https://wa.me/${toDialNumber(whatsappDigits)}` : null;
   const pendingTasksCount = deal.tasks.filter((t) => !t.completedAt).length;
 
   useEffect(() => {
@@ -931,84 +939,87 @@ export function DealDetail({
         )}
       </div>
 
-      {/* Mobile Header (Clean, compacto e com ações rápidas para consultor na rua) */}
+      {/* Mobile Header Ultra Clean */}
       <div className="space-y-3 lg:hidden">
-        <div className="flex items-start gap-3">
-          <Avatar name={deal.contact.name} size="md" />
-          <div className="min-w-0 flex-1">
-            <h1 className="text-base font-semibold leading-snug tracking-tight text-neutral-900 dark:text-neutral-100 line-clamp-2">
+        {/* Nome do Negócio & Valor */}
+        <div className="space-y-1">
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="text-lg font-bold tracking-tight text-neutral-900 dark:text-neutral-100 leading-snug">
               {deal.name}
             </h1>
-            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-              <Link
-                href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                className="group inline-flex items-center gap-1.5 font-semibold text-neutral-800 dark:text-neutral-200 hover:text-brand dark:hover:text-brand-light transition-colors bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-md border border-neutral-200 dark:border-neutral-700/60"
-                title="Ver ficha do cliente"
-              >
-                <User className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
-                <span>{deal.contact.name}</span>
-                <ExternalLink className="h-3 w-3 text-neutral-400 group-hover:text-brand transition-colors" strokeWidth={2} />
-              </Link>
-              <span>·</span>
-              <span>Resp: {deal.owner.name}</span>
-            </p>
+            {deal.value != null && (
+              <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">
+                {formatCurrency(deal.value)}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <Link
+              href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+              className="font-semibold text-neutral-800 dark:text-neutral-200 hover:text-brand dark:hover:text-brand-light transition-colors"
+            >
+              👤 {deal.contact.name}
+            </Link>
+            <span>·</span>
+            <span>Resp: {deal.owner.name}</span>
           </div>
         </div>
 
-        {/* Status Segmentado Mobile */}
-        <div className="grid grid-cols-3 gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
-          {(
-            [
-              { s: "LOST" as const, label: "Perdido", icon: XCircle, activeClass: "bg-red-600 text-white shadow-sm" },
-              { s: "OPEN" as const, label: "Em andamento", icon: CircleDot, activeClass: "bg-brand text-white shadow-sm" },
-              { s: "WON" as const, label: "Ganho", icon: CheckCircle2, activeClass: "bg-emerald-600 text-white shadow-sm" },
-            ]
-          ).map(({ s, label, icon: Icon, activeClass }) => {
-            const isActive = deal.status === s;
-            return (
-              <button
-                key={s}
-                onClick={() => updateStatus(s)}
-                className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium transition-all ${
-                  isActive
-                    ? activeClass
-                    : "text-neutral-600 hover:bg-neutral-200/60 dark:text-neutral-400 dark:hover:bg-neutral-700/60"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
-                <span className="truncate">{label}</span>
-              </button>
-            );
-          })}
+        {/* Linha Única de Chips (Etapa & Status) */}
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-0.5">
+          {/* Status Chip */}
+          <button
+            onClick={() => {
+              const nextStatus = deal.status === "OPEN" ? "WON" : deal.status === "WON" ? "LOST" : "OPEN";
+              updateStatus(nextStatus);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold shadow-2xs transition-colors ${
+              deal.status === "OPEN"
+                ? "bg-brand/10 text-brand border border-brand/30 dark:bg-brand/20 dark:text-brand-light"
+                : deal.status === "WON"
+                ? "bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 dark:bg-emerald-500/20 dark:text-emerald-400"
+                : "bg-red-500/15 text-red-700 border border-red-500/30 dark:bg-red-500/20 dark:text-red-400"
+            }`}
+          >
+            <CircleDot className="h-3 w-3" />
+            <span>{deal.status === "OPEN" ? "Em andamento" : deal.status === "WON" ? "Ganho" : "Perdido"}</span>
+          </button>
+
+          {/* Etapa Chip com Select nativo por cima */}
+          <div className="relative inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: deal.stage.color ?? "#999" }} />
+            <span className="truncate max-w-[140px]">{deal.stage.name}</span>
+            <ChevronRight className="h-3 w-3 rotate-90 text-neutral-400" />
+            <select
+              value={deal.stageId}
+              onChange={(e) => moveToStage(e.target.value)}
+              disabled={movingStage !== null}
+              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+            >
+              {deal.pipeline.stages.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {deal.status !== "OPEN" && deal.closedAt && (
-          <p className="text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-            {deal.status === "WON" ? "Ganho" : "Perdido"} em{" "}
-            {new Date(deal.closedAt).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        )}
-
-        {/* Barra de Ações Rápidas do Consultor (1 toque) */}
-        <div className="grid grid-cols-4 gap-2">
+        {/* Barra de 4 Ações Minimalista */}
+        <div className="grid grid-cols-4 gap-2 pt-1">
           {directPhoneUrl ? (
             <a
               href={directPhoneUrl}
-              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-emerald-500/10 py-2.5 text-emerald-700 transition-transform active:scale-95 dark:bg-emerald-500/20 dark:text-emerald-400"
+              className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500/10 py-2 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 text-xs font-semibold active:scale-95 transition-transform"
             >
-              <Phone className="h-4 w-4" strokeWidth={2.3} />
-              <span className="text-[11px] font-semibold">Ligar</span>
+              <Phone className="h-3.5 w-3.5" strokeWidth={2.3} />
+              <span>Ligar</span>
             </a>
           ) : (
-            <div className="flex flex-col items-center justify-center gap-1 rounded-xl bg-neutral-100 py-2.5 text-neutral-400 opacity-60 dark:bg-neutral-800 dark:text-neutral-500">
-              <Phone className="h-4 w-4" strokeWidth={2} />
-              <span className="text-[11px]">Sem tel</span>
+            <div className="flex items-center justify-center gap-1.5 rounded-xl bg-neutral-100 py-2 text-neutral-400 opacity-60 dark:bg-neutral-800 dark:text-neutral-500 text-xs font-medium">
+              <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+              <span>Sem tel</span>
             </div>
           )}
 
@@ -1017,15 +1028,15 @@ export function DealDetail({
               href={directWhatsAppUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-emerald-500/10 py-2.5 text-emerald-700 transition-transform active:scale-95 dark:bg-emerald-500/20 dark:text-emerald-400"
+              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-emerald-500/10 py-2.5 text-emerald-700 transition-transform active:scale-95 dark:bg-emerald-500/20 dark:text-emerald-400 text-xs font-semibold"
             >
-              <MessageSquare className="h-4 w-4" strokeWidth={2.3} />
-              <span className="text-[11px] font-semibold">WhatsApp</span>
+              <MessageSquare className="h-3.5 w-3.5" strokeWidth={2.3} />
+              <span>Whats</span>
             </a>
           ) : (
-            <div className="flex flex-col items-center justify-center gap-1 rounded-xl bg-neutral-100 py-2.5 text-neutral-400 opacity-60 dark:bg-neutral-800 dark:text-neutral-500">
-              <MessageSquare className="h-4 w-4" strokeWidth={2} />
-              <span className="text-[11px]">Sem Whats</span>
+            <div className="flex items-center justify-center gap-1.5 rounded-xl bg-neutral-100 py-2 text-neutral-400 opacity-60 dark:bg-neutral-800 dark:text-neutral-500 text-xs font-medium">
+              <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+              <span>Whats</span>
             </div>
           )}
 
@@ -1038,38 +1049,38 @@ export function DealDetail({
                 mobileTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
               }, 50);
             }}
-            className="flex flex-col items-center justify-center gap-1 rounded-xl bg-brand/10 py-2.5 text-brand transition-transform active:scale-95 dark:bg-brand/20 dark:text-brand-light"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-brand/10 py-2 text-brand dark:bg-brand/20 dark:text-brand-light text-xs font-semibold active:scale-95 transition-transform"
           >
-            <Mic className="h-4 w-4" strokeWidth={2.3} />
-            <span className="text-[11px] font-semibold">Ditar Nota</span>
+            <Mic className="h-3.5 w-3.5" strokeWidth={2.3} />
+            <span>Ditar</span>
           </button>
 
           <Link
             href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-            className="flex flex-col items-center justify-center gap-1 rounded-xl bg-neutral-100 py-2.5 text-neutral-700 transition-transform active:scale-95 dark:bg-neutral-800 dark:text-neutral-300"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-neutral-100 py-2 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 text-xs font-semibold active:scale-95 transition-transform"
           >
-            <User className="h-4 w-4" strokeWidth={2.3} />
-            <span className="text-[11px] font-semibold">Ficha</span>
+            <User className="h-3.5 w-3.5" strokeWidth={2.3} />
+            <span>Ficha</span>
           </Link>
         </div>
       </div>
 
       {/* Desktop Header */}
-      <div className="hidden card p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3.5">
+      <div className="hidden card p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
           <Avatar name={deal.contact.name} size="lg" className="ring-2 ring-brand/40 shadow-sm shrink-0" />
-          <div className="space-y-1">
+          <div className="space-y-1.5 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl">
+              <h1 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl truncate">
                 {deal.name}
               </h1>
               {deal.value != null && (
-                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
                   {formatCurrency(deal.value)}
                 </span>
               )}
             </div>
-            <p className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
                 className="group inline-flex items-center gap-1.5 font-semibold text-neutral-800 dark:text-neutral-200 hover:text-brand dark:hover:text-brand-light transition-all bg-neutral-100/90 dark:bg-neutral-800/80 hover:bg-neutral-200/80 dark:hover:bg-neutral-800 px-2.5 py-1 rounded-md border border-neutral-200/90 dark:border-neutral-700/80 shadow-2xs"
@@ -1084,10 +1095,47 @@ export function DealDetail({
                 <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="2xs" />
                 <span>Resp: <strong className="font-semibold text-neutral-800 dark:text-neutral-200">{deal.owner.name}</strong></span>
               </span>
-            </p>
+
+              {/* Botões de Ação Rápida do Contato */}
+              <div className="flex items-center gap-1 ml-1 border-l border-neutral-200 dark:border-neutral-700/80 pl-2.5">
+                {(deal.contact.phone || deal.contact.whatsapp) && (
+                  <a
+                    href={`tel:+${toDialNumber(normalizePhoneNumber(deal.contact.phone || deal.contact.whatsapp || "")) ?? ""}`}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                    title="Ligar para contato"
+                  >
+                    <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span>Ligar</span>
+                  </a>
+                )}
+                {(deal.contact.whatsapp || deal.contact.phone) && (
+                  <a
+                    href={`https://wa.me/${toDialNumber(normalizePhoneNumber(deal.contact.whatsapp || deal.contact.phone || "")) ?? ""}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                    title="Abrir WhatsApp"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span>Whats</span>
+                  </a>
+                )}
+                {deal.contact.email && (
+                  <a
+                    href={`mailto:${deal.contact.email}`}
+                    className="inline-flex items-center gap-1 rounded-md bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 hover:bg-sky-500/20 dark:text-sky-400 transition-colors"
+                    title="Enviar e-mail"
+                  >
+                    <Mail className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span>E-mail</span>
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2 shrink-0">
+
+        <div className="flex flex-col items-end gap-2.5 shrink-0">
           <div className="flex items-center gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-950/80 p-1 border border-neutral-200 dark:border-neutral-800/80">
             {(
               [
@@ -1113,23 +1161,68 @@ export function DealDetail({
               );
             })}
           </div>
-          {deal.status !== "OPEN" && deal.closedAt && (
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              {deal.status === "WON" ? "Ganho" : "Perdido"} em{" "}
-              {new Date(deal.closedAt).toLocaleString("pt-BR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
-          )}
+
+          {/* Qualificação de Lead no Cabeçalho */}
+          <div className="flex items-center gap-2">
+            {(() => {
+              const qual = localQualification ?? deal.contact.leadQualification;
+              return (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Qualificação:</span>
+                  {qual ? (
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      qual === "QUALIFIED"
+                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20"
+                        : "bg-neutral-100 text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700"
+                    }`}>
+                      {qual === "QUALIFIED" ? <ThumbsUp className="h-3 w-3" strokeWidth={2.5} /> : <ThumbsDown className="h-3 w-3" strokeWidth={2.5} />}
+                      {qual === "QUALIFIED" ? "Qualificado" : "Desqualificado"}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] italic text-neutral-400">Pendente</span>
+                  )}
+                  {canEditDetails && (
+                    <div className="flex items-center gap-1 ml-1">
+                      <button
+                        type="button"
+                        disabled={leadQualStatus.saving}
+                        onClick={() => setLeadQualification(qual === "QUALIFIED" ? null : "QUALIFIED")}
+                        title={qual === "QUALIFIED" ? "Remover qualificação" : "Marcar como Qualificado"}
+                        className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                          qual === "QUALIFIED"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-neutral-100 text-neutral-600 hover:bg-emerald-50 hover:text-emerald-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+                        }`}
+                      >
+                        <ThumbsUp className="h-3 w-3" strokeWidth={2} />
+                        {qual === "QUALIFIED" ? "Remover" : "Qualificado"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={leadQualStatus.saving}
+                        onClick={() => setLeadQualification(qual === "UNQUALIFIED" ? null : "UNQUALIFIED")}
+                        title={qual === "UNQUALIFIED" ? "Remover qualificação" : "Marcar como Desqualificado"}
+                        className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                          qual === "UNQUALIFIED"
+                            ? "bg-neutral-700 text-white dark:bg-neutral-600"
+                            : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                        }`}
+                      >
+                        <ThumbsDown className="h-3 w-3" strokeWidth={2} />
+                        {qual === "UNQUALIFIED" ? "Remover" : "Desqualificado"}
+                      </button>
+                      {leadQualStatus.saving && <Loader2 className="h-3 w-3 animate-spin text-neutral-500" strokeWidth={2.5} />}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       </div>
 
-      {/* Stepper Visual de Etapas */}
-      <div className="card scrollbar-thin flex items-center gap-1.5 overflow-x-auto p-2 bg-white dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-800 shadow-sm">
+      {/* Stepper Visual de Etapas (Apenas Desktop — no mobile usava seletor embutido) */}
+      <div className="hidden lg:flex card scrollbar-thin items-center gap-1.5 overflow-x-auto p-2 bg-white dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-800 shadow-sm">
         {deal.pipeline.stages.map((stage, idx) => {
           const isCurrent = stage.id === deal.stageId;
           const stageIndex = deal.pipeline.stages.findIndex((s) => s.id === deal.stageId);
@@ -1181,7 +1274,7 @@ export function DealDetail({
         <div className="col-span-2 space-y-4">
           <div className="card p-4">
             <div className="relative mb-3 flex gap-1 overflow-x-auto border-b border-neutral-200 dark:border-neutral-800">
-              {ACTIVITY_TABS.map((tab) => (
+              {COMPOSER_TABS.map((tab) => (
                 <button
                   key={tab.type}
                   ref={(el) => {
@@ -1190,8 +1283,12 @@ export function DealDetail({
                   onClick={() => selectTab(tab.type)}
                   className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
                     activeTab === tab.type
-                      ? "font-semibold text-neutral-900 dark:text-neutral-100"
-                      : "font-medium text-neutral-700 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
+                      ? tab.type === "PROPOSAL"
+                        ? "font-semibold text-neutral-900 dark:text-neutral-100"
+                        : "font-semibold text-neutral-900 dark:text-neutral-100"
+                      : tab.type === "PROPOSAL"
+                        ? "font-semibold text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
+                        : "font-medium text-neutral-700 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
                   }`}
                 >
                   <tab.icon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1203,6 +1300,9 @@ export function DealDetail({
                 style={{ left: tabIndicator.left, width: tabIndicator.width }}
               />
             </div>
+            {activeTab === "PROPOSAL" ? (
+              <ProposalsCard dealId={deal.id} proposals={proposals} defaultDescription={defaultProposalDescription} embedded />
+            ) : (
             <form onSubmit={submitActivity} className="space-y-2">
               <div className="space-y-1.5">
                 {/* Pílula com rótulo de texto — não cabia mais discreta num
@@ -1268,6 +1368,7 @@ export function DealDetail({
                 <ScheduleWhatsAppToggle value={scheduleWhatsApp} onChange={setScheduleWhatsApp} disabled={!dueDate} />
               )}
             </form>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -1288,373 +1389,258 @@ export function DealDetail({
         </div>
 
         <div className="space-y-4">
-          <DealValueCard label="Valor líquido" value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
-          <DealValueCard label="Valor bruto" value={deal.grossValue} editable={canEditDetails} onSave={saveDealGrossValue} />
-
-          {!chatOpen && whatsappThreadId && (
-            <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
-          )}
-
-          <ProposalsCard dealId={deal.id} proposals={proposals} defaultDescription={defaultProposalDescription} />
-
-          <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
-            <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
-              <div className="flex items-center gap-2">
-                <CalendarCheck className="h-4 w-4 text-brand" strokeWidth={2} />
-                <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Tarefas</h3>
-              </div>
-              {deal.tasks.length > 0 && (
-                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand dark:bg-brand/20 dark:text-brand-light">
-                  {deal.tasks.filter((t) => !t.completedAt).length} pendente(s)
-                </span>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              {deal.tasks.length === 0 && (
-                <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                  Nenhuma tarefa. Defina um prazo ao registrar uma atividade para criar uma.
-                </p>
-              )}
-              {deal.tasks.map((task) => (
-                <div
-                  key={task.id}
-                  id={`task-${task.id}`}
-                  className={`group -mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
-                    highlightedTaskId === task.id ? "animate-highlight-once" : ""
-                  }`}
-                >
-                  <label className="flex min-w-0 flex-1 items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!task.completedAt}
-                      onChange={(e) => toggleTask(task.id, e.target.checked)}
-                      className="mt-0.5 accent-neutral-900 dark:accent-white"
-                    />
-                    <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
-                      {task.title}
-                      {task.dueAt && (
-                        <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                          · Prazo: {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                  {canEditDetails && (
-                    <button
-                      type="button"
-                      onClick={() => setEditingTask(task)}
-                      className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
-                      aria-label="Editar tarefa"
-                    >
-                      <Pencil className="h-3 w-3" strokeWidth={2} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+          {/* Seletor de Abas da Coluna Lateral */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 bg-neutral-100 dark:bg-neutral-950/80 rounded-xl border border-neutral-200 dark:border-neutral-800/90 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setSidebarTab("general")}
+              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all duration-150 ${
+                sidebarTab === "general"
+                  ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs ring-1 ring-neutral-200 dark:ring-neutral-700/60"
+                  : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+              }`}
+            >
+              <Briefcase className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
+              <span>Negócio & Tarefas</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarTab("contact")}
+              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all duration-150 ${
+                sidebarTab === "contact"
+                  ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs ring-1 ring-neutral-200 dark:ring-neutral-700/60"
+                  : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+              }`}
+            >
+              <UserCheck className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
+              <span>Contato & Origem</span>
+            </button>
           </div>
 
-          <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
-            <div className="flex items-center gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
-              <Briefcase className="h-4 w-4 text-brand" strokeWidth={2} />
-              <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Dados do negócio</h3>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
-              <span className="flex items-center gap-1.5">
-                <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
-                <Select
-                  value={deal.owner.id}
-                  onChange={setPendingOwnerId}
-                  className="py-1 text-xs"
-                  options={members.map((m) => ({ value: m.id, label: m.name }))}
+          <div key={sidebarTab} className="animate-bubble-in space-y-4">
+            {sidebarTab === "general" ? (
+              <>
+                {/* Card de Valores Financeiros Unificado */}
+                <FinancialValuesCard
+                  value={deal.value}
+                  grossValue={deal.grossValue}
+                  editable={canEditDetails}
+                  onSaveValue={saveDealValue}
+                  onSaveGrossValue={saveDealGrossValue}
                 />
-              </span>
-            </div>
-            {/* createdAt é o timestamp real de quando a linha nasceu no banco — sempre
-                preenchido sozinho na criação (@default(now())), não importa a origem
-                (manual, Facebook Lead Ads, API pública, resposta de WhatsApp). Diferente
-                de "Início" (startedAt), que pode ter sido retroagido numa importação. */}
-            <Row
-              label="Criado em"
-              value={new Date(deal.createdAt).toLocaleString("pt-BR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            />
-            <Row
-              label="Início"
-              value={new Date(deal.startedAt).toLocaleString("pt-BR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            />
-            <EditableRow
-              label="Conclusão prevista"
-              value={toDateInputValue(deal.expectedCloseAt)}
-              displayValue={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
-              type="date"
-              editable={canEditDetails}
-              onSave={(v) => saveDealField("expectedCloseAt", v)}
-            />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-neutral-500 dark:text-neutral-400">Tipo de crédito</span>
-              <Select
-                value={deal.creditType ?? ""}
-                onChange={updateCreditType}
-                className="py-1 text-xs"
-                options={[
-                  { value: "", label: "—" },
-                  ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
-                ]}
-              />
-            </div>
-            <EditableRow
-              label="Descrição"
-              value={deal.description ?? ""}
-              type="textarea"
-              editable={canEditDetails}
-              onSave={(v) => saveDealField("description", v)}
-            />
-          </div>
 
-          <CustomFieldsCard
-            dealId={deal.id}
-            customFields={customFields}
-            values={deal.customFieldValues ?? {}}
-            editable={canEditDetails}
-            onSaved={() => router.refresh()}
-          />
+                {!chatOpen && whatsappThreadId && (
+                  <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
+                )}
 
-          {deal.status === "LOST" && (deal.lossReason || deal.lostReason) && (
-            <div className="card space-y-2 border-red-100 dark:border-red-900 bg-red-50/40 dark:bg-red-500/10 p-4 text-sm">
-              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Motivo da perda</h3>
-              <Row label="Motivo" value={deal.lossReason?.label ?? deal.lostReason ?? ""} />
-              {deal.lossReason && deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
-            </div>
-          )}
-
-          {(deal.contact.metaCampaignName || deal.contact.source) && (
-            <div className="card space-y-2 p-4 text-sm">
-              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Origem do lead</h3>
-              {deal.contact.metaCampaignName && (
-                <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
-                  <span>Facebook Ads</span>
-                  <span className="text-blue-600/70 dark:text-blue-300/70">· {deal.contact.metaCampaignName}</span>
+                <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
+                    <div className="flex items-center gap-2">
+                      <CalendarCheck className="h-4 w-4 text-brand" strokeWidth={2} />
+                      <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Tarefas</h3>
+                    </div>
+                    {deal.tasks.length > 0 && (
+                      <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand dark:bg-brand/20 dark:text-brand-light">
+                        {deal.tasks.filter((t) => !t.completedAt).length} pendente(s)
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    {deal.tasks.length === 0 && (
+                      <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                        Nenhuma tarefa. Defina um prazo ao registrar uma atividade para criar uma.
+                      </p>
+                    )}
+                    {deal.tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        id={`task-${task.id}`}
+                        className={`group -mx-1.5 flex items-start gap-1 rounded-md px-1.5 py-0.5 text-xs ${
+                          highlightedTaskId === task.id ? "animate-highlight-once" : ""
+                        }`}
+                      >
+                        <label className="flex min-w-0 flex-1 items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={!!task.completedAt}
+                            onChange={(e) => toggleTask(task.id, e.target.checked)}
+                            className="mt-0.5 accent-neutral-900 dark:accent-white"
+                          />
+                          <span className={task.completedAt ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-700 dark:text-neutral-300"}>
+                            {task.title}
+                            {task.dueAt && (
+                              <span className="ml-1 text-neutral-400 dark:text-neutral-500">
+                                · Prazo: {new Date(task.dueAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                        {canEditDetails && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingTask(task)}
+                            className="icon-btn h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 coarse:opacity-100"
+                            aria-label="Editar tarefa"
+                          >
+                            <Pencil className="h-3 w-3" strokeWidth={2} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-              {deal.contact.source && !deal.contact.metaCampaignName && (
-                <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs font-medium text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700">
-                  Origem: {deal.contact.source}
-                </div>
-              )}
-            </div>
-          )}
 
-          <div className="card space-y-3 p-4 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Qualificação do lead</h3>
-              {(() => {
-                const qual = localQualification ?? deal.contact.leadQualification;
-                if (!qual) return null;
-                return (
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    qual === "QUALIFIED"
-                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20"
-                      : "bg-neutral-100 text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700"
-                  }`}>
-                    {qual === "QUALIFIED" ? <ThumbsUp className="h-3 w-3" strokeWidth={2.5} /> : <ThumbsDown className="h-3 w-3" strokeWidth={2.5} />}
-                    {qual === "QUALIFIED" ? "Qualificado" : "Desqualificado"}
-                  </span>
-                );
-              })()}
-            </div>
-
-            {canEditDetails && (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={leadQualStatus.saving}
-                  onClick={() => setLeadQualification(
-                    (localQualification ?? deal.contact.leadQualification) === "QUALIFIED" ? null : "QUALIFIED"
-                  )}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    (localQualification ?? deal.contact.leadQualification) === "QUALIFIED"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-neutral-100 text-neutral-600 hover:bg-emerald-50 hover:text-emerald-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
-                  } disabled:opacity-50`}
-                >
-                  <ThumbsUp className="h-3.5 w-3.5" strokeWidth={2} />
-                  {(localQualification ?? deal.contact.leadQualification) === "QUALIFIED" ? "Remover" : "Qualificado"}
-                </button>
-                <button
-                  type="button"
-                  disabled={leadQualStatus.saving}
-                  onClick={() => setLeadQualification(
-                    (localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED" ? null : "UNQUALIFIED"
-                  )}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    (localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED"
-                      ? "bg-neutral-700 text-white dark:bg-neutral-600"
-                      : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                  } disabled:opacity-50`}
-                >
-                  <ThumbsDown className="h-3.5 w-3.5" strokeWidth={2} />
-                  {(localQualification ?? deal.contact.leadQualification) === "UNQUALIFIED" ? "Remover" : "Desqualificado"}
-                </button>
-                {leadQualStatus.saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-500" strokeWidth={2.5} />}
-              </div>
-            )}
-
-            {(() => {
-              const qual = localQualification ?? deal.contact.leadQualification;
-              const qualAt = localQualificationAt ?? deal.contact.leadQualificationAt;
-              if (!qual || !qualAt) {
-                if (leadQualStatus.error) return <p className="text-xs text-red-600 dark:text-red-400">{leadQualStatus.error}</p>;
-                return null;
-              }
-              return (
-                <div className="space-y-1 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs text-neutral-500 dark:bg-neutral-800/40 dark:text-neutral-400">
-                  <p>
-                    Classificado em {new Date(qualAt).toLocaleString("pt-BR", {
+                <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
+                  <div className="flex items-center gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
+                    <Briefcase className="h-4 w-4 text-brand" strokeWidth={2} />
+                    <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Dados do negócio</h3>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
+                    <span className="flex items-center gap-1.5">
+                      <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
+                      <Select
+                        value={deal.owner.id}
+                        onChange={setPendingOwnerId}
+                        className="py-1 text-xs"
+                        options={members.map((m) => ({ value: m.id, label: m.name }))}
+                      />
+                    </span>
+                  </div>
+                  <Row
+                    label="Criado em"
+                    value={new Date(deal.createdAt).toLocaleString("pt-BR", {
                       day: "2-digit",
                       month: "2-digit",
                       year: "numeric",
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
-                  </p>
-                  {deal.contact.qualifiedBy && <p>por {deal.contact.qualifiedBy.name}</p>}
+                  />
+                  <Row
+                    label="Início"
+                    value={new Date(deal.startedAt).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  />
+                  <EditableRow
+                    label="Conclusão prevista"
+                    value={toDateInputValue(deal.expectedCloseAt)}
+                    displayValue={deal.expectedCloseAt ? new Date(deal.expectedCloseAt).toLocaleDateString("pt-BR") : "—"}
+                    type="date"
+                    editable={canEditDetails}
+                    onSave={(v) => saveDealField("expectedCloseAt", v)}
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-neutral-500 dark:text-neutral-400">Tipo de crédito</span>
+                    <Select
+                      value={deal.creditType ?? ""}
+                      onChange={updateCreditType}
+                      className="py-1 text-xs"
+                      options={[
+                        { value: "", label: "—" },
+                        ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
+                      ]}
+                    />
+                  </div>
+                  <EditableRow
+                    label="Descrição"
+                    value={deal.description ?? ""}
+                    type="textarea"
+                    editable={canEditDetails}
+                    onSave={(v) => saveDealField("description", v)}
+                  />
                 </div>
-              );
-            })()}
-            {leadQualStatus.error && (
-              <p className="text-xs text-red-600 dark:text-red-400">{leadQualStatus.error}</p>
-            )}
-          </div>
 
-          <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
-            <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
-              <div className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-brand" strokeWidth={2} />
-                <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Dados do contato</h3>
-              </div>
-              <Link
-                href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                className="text-xs font-medium text-brand hover:underline"
-              >
-                Ver ficha →
-              </Link>
-            </div>
-            
-            {/* Barra de ações rápidas no card do contato */}
-            <div className="grid grid-cols-3 gap-1.5 pt-0.5 pb-1 border-b border-neutral-100 dark:border-neutral-800/60">
-              {deal.contact.phone || deal.contact.whatsapp ? (
-                <a
-                  href={`tel:${normalizePhoneNumber(deal.contact.phone || deal.contact.whatsapp || "")}`}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
-                  title="Ligar para contato"
-                >
-                  <Phone className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>Ligar</span>
-                </a>
-              ) : null}
-              {deal.contact.whatsapp || deal.contact.phone ? (
-                <a
-                  href={`https://wa.me/${normalizePhoneNumber(deal.contact.whatsapp || deal.contact.phone || "")}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/10 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
-                  title="Abrir WhatsApp"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>Whats</span>
-                </a>
-              ) : null}
-              {deal.contact.email ? (
-                <a
-                  href={`mailto:${deal.contact.email}`}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-sky-500/10 py-1.5 text-xs font-medium text-sky-600 hover:bg-sky-500/20 dark:text-sky-400 transition-colors"
-                  title="Enviar e-mail"
-                >
-                  <Mail className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>E-mail</span>
-                </a>
-              ) : null}
-            </div>
-            <EditableRow
-              label="Nome"
-              value={deal.contact.name}
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("name", v)}
-              onShowFix={showResponsavelFix}
-            />
-            <EditableRow
-              label="E-mail"
-              value={deal.contact.email ?? ""}
-              type="email"
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("email", v)}
-              onShowFix={showResponsavelFix}
-            />
-            <EditableRow
-              label="Celular"
-              value={deal.contact.phone ?? ""}
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("phone", v)}
-              onShowFix={showResponsavelFix}
-            />
-            <EditableRow
-              label="WhatsApp"
-              value={deal.contact.whatsapp ?? ""}
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("whatsapp", v)}
-              onShowFix={showResponsavelFix}
-            />
-            <EditableRow
-              label="Cargo"
-              value={deal.contact.jobTitle ?? ""}
-              type="select"
-              options={jobTitleOptions}
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("jobTitle", v)}
-              onShowFix={showResponsavelFix}
-            />
-            <EditableRow
-              label="Origem"
-              value={deal.contact.source ?? ""}
-              type="select"
-              options={sourceOptions}
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("source", v)}
-              onShowFix={showResponsavelFix}
-            />
-            {/* Pedido explícito: mostrar/editar o responsável do CONTATO
-                (independente do responsável do negócio, que já tem seu
-                próprio seletor no card "Dados do negócio" mais abaixo — os
-                dois podem divergir, ver comentário em confirmReassignOwner)
-                direto aqui. Sem responsável, quem edita assume
-                automaticamente (regra de app/api/contacts/[id]/route.ts,
-                sem precisar de gestor); pertencendo a outro consultor
-                continua bloqueado, mas o botão "Mostrar como ajustar" do
-                ErrorDialog das linhas acima traz o usuário direto pra cá
-                (autoEditSignal). */}
-            <EditableRow
-              label="Responsável"
-              value={deal.contact.responsavelId ?? ""}
-              displayValue={deal.contact.responsavel?.name ?? "Ninguém"}
-              type="select"
-              options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-              editable={canEditDetails}
-              onSave={(v) => saveContactField("responsavelId", v)}
-              autoEditSignal={responsavelFocusTrigger}
-            />
+                <CustomFieldsCard
+                  dealId={deal.id}
+                  customFields={customFields}
+                  values={deal.customFieldValues ?? {}}
+                  editable={canEditDetails}
+                  onSaved={() => router.refresh()}
+                />
+
+                {deal.status === "LOST" && (deal.lossReason || deal.lostReason) && (
+                  <div className="card space-y-2 border-red-100 dark:border-red-900 bg-red-50/40 dark:bg-red-500/10 p-4 text-sm">
+                    <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Motivo da perda</h3>
+                    <Row label="Motivo" value={deal.lossReason?.label ?? deal.lostReason ?? ""} />
+                    {deal.lossReason && deal.lostReason && <Row label="Detalhes" value={deal.lostReason} />}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Aba Contato & Origem */}
+                <div className="card space-y-3 p-4 text-sm border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 border-b border-neutral-100 pb-2.5 dark:border-neutral-800">
+                    <div className="flex items-center gap-2">
+                      <UserCheck className="h-4 w-4 text-brand" strokeWidth={2} />
+                      <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Dados do contato</h3>
+                    </div>
+                    <Link
+                      href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+                      className="text-xs font-medium text-brand hover:underline"
+                    >
+                      Ver ficha →
+                    </Link>
+                  </div>
+                  <EditableRow label="Nome" value={deal.contact.name} editable={canEditDetails} onSave={(v) => saveContactField("name", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="E-mail" value={deal.contact.email ?? ""} type="email" editable={canEditDetails} onSave={(v) => saveContactField("email", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="Celular" value={deal.contact.phone ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("phone", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="WhatsApp" value={deal.contact.whatsapp ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("whatsapp", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="Cargo" value={deal.contact.jobTitle ?? ""} type="select" options={jobTitleOptions} editable={canEditDetails} onSave={(v) => saveContactField("jobTitle", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="Origem" value={deal.contact.source ?? ""} type="select" options={sourceOptions} editable={canEditDetails} onSave={(v) => saveContactField("source", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="Responsável" value={deal.contact.responsavelId ?? ""} displayValue={deal.contact.responsavel?.name ?? "Ninguém"} type="select" options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]} editable={canEditDetails} onSave={(v) => saveContactField("responsavelId", v)} autoEditSignal={responsavelFocusTrigger} />
+                </div>
+
+                {(deal.contact.metaCampaignName || deal.contact.source) && (
+                  <div className="card space-y-2 p-4 text-sm">
+                    <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Origem do lead</h3>
+                    {deal.contact.metaCampaignName && (
+                      <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/20">
+                        <span>Facebook Ads</span>
+                        <span className="text-blue-600/70 dark:text-blue-300/70">· {deal.contact.metaCampaignName}</span>
+                      </div>
+                    )}
+                    {deal.contact.source && !deal.contact.metaCampaignName && (
+                      <div className="inline-flex w-full items-center gap-1.5 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs font-medium text-neutral-600 ring-1 ring-inset ring-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700">
+                        Origem: {deal.contact.source}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(() => {
+                  const qual = localQualification ?? deal.contact.leadQualification;
+                  const qualAt = localQualificationAt ?? deal.contact.leadQualificationAt;
+                  if (!qual || !qualAt) return null;
+                  return (
+                    <div className="card space-y-2 p-4 text-sm">
+                      <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Histórico de Qualificação</h3>
+                      <div className="space-y-1 rounded-md bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600 dark:bg-neutral-800/40 dark:text-neutral-300">
+                        <p>
+                          Status: <strong>{qual === "QUALIFIED" ? "Qualificado" : "Desqualificado"}</strong>
+                        </p>
+                        <p>
+                          Classificado em {new Date(qualAt).toLocaleString("pt-BR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                        {deal.contact.qualifiedBy && <p>por {deal.contact.qualifiedBy.name}</p>}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1707,14 +1693,18 @@ export function DealDetail({
           <div className="animate-bubble-in space-y-4">
             <div className="card p-3.5">
               <div className="scrollbar-none mb-3 flex gap-1.5 overflow-x-auto pb-0.5">
-                {ACTIVITY_TABS.map((tab) => (
+                {COMPOSER_TABS.map((tab) => (
                   <button
                     key={tab.type}
                     onClick={() => selectTab(tab.type)}
                     className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
                       activeTab === tab.type
-                        ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                        : "bg-neutral-100 text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
+                        ? tab.type === "PROPOSAL"
+                          ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                          : "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                        : tab.type === "PROPOSAL"
+                          ? "bg-neutral-100 text-neutral-700 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:active:bg-neutral-700"
+                          : "bg-neutral-100 text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
                     }`}
                   >
                     <tab.icon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1722,6 +1712,9 @@ export function DealDetail({
                   </button>
                 ))}
               </div>
+              {activeTab === "PROPOSAL" ? (
+                <ProposalsCard dealId={deal.id} proposals={proposals} defaultDescription={defaultProposalDescription} embedded />
+              ) : (
               <form onSubmit={submitActivity} className="space-y-3">
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -1787,6 +1780,7 @@ export function DealDetail({
                   <ScheduleWhatsAppToggle value={scheduleWhatsApp} onChange={setScheduleWhatsApp} disabled={!dueDate} />
                 )}
               </form>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1807,14 +1801,17 @@ export function DealDetail({
           </div>
         ) : (
           <div className="animate-bubble-in space-y-4">
-            <DealValueCard label="Valor líquido" value={deal.value} editable={canEditDetails} onSave={saveDealValue} />
-          <DealValueCard label="Valor bruto" value={deal.grossValue} editable={canEditDetails} onSave={saveDealGrossValue} />
+            <FinancialValuesCard
+              value={deal.value}
+              grossValue={deal.grossValue}
+              editable={canEditDetails}
+              onSaveValue={saveDealValue}
+              onSaveGrossValue={saveDealGrossValue}
+            />
 
             {!chatOpen && whatsappThreadId && (
               <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
             )}
-
-            <ProposalsCard dealId={deal.id} proposals={proposals} defaultDescription={defaultProposalDescription} />
 
             <div className="card space-y-2 p-4 text-sm">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>
@@ -2304,7 +2301,32 @@ function EditTaskModal({
   );
 }
 
-function DealValueCard({
+function FinancialValuesCard({
+  value,
+  grossValue,
+  editable,
+  onSaveValue,
+  onSaveGrossValue,
+}: {
+  value: number | null;
+  grossValue: number | null;
+  editable: boolean;
+  onSaveValue: (v: string) => Promise<{ ok: boolean; error?: string }>;
+  onSaveGrossValue: (v: string) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  return (
+    <div className="card p-3.5 border border-neutral-200 dark:border-neutral-800/80 shadow-2xs bg-white dark:bg-neutral-900/90">
+      <div className="grid grid-cols-2 gap-3">
+        <ValueItem label="Valor Líquido" value={value} editable={editable} onSave={onSaveValue} />
+        <div className="border-l border-neutral-100 dark:border-neutral-800/80 pl-3">
+          <ValueItem label="Valor Bruto" value={grossValue} editable={editable} onSave={onSaveGrossValue} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ValueItem({
   label,
   value,
   editable,
@@ -2320,45 +2342,11 @@ function DealValueCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!editing) {
-    if (!editable) {
-      return (
-        <div className="card p-4 text-sm bg-white dark:bg-gradient-to-br dark:from-neutral-900 dark:to-neutral-900/90 border border-neutral-200 dark:border-neutral-800 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</p>
-            <Wallet className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-          </div>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{formatCurrency(value)}</p>
-        </div>
-      );
+  useEffect(() => {
+    if (!editing) {
+      setDraft(value != null ? String(value) : "");
     }
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(value != null ? String(value) : "");
-          setError(null);
-          setEditing(true);
-        }}
-        className="card group w-full p-4 text-left text-sm transition-all duration-200 hover:border-brand/40 hover:bg-neutral-50 dark:hover:bg-neutral-900/95 border border-neutral-200 dark:border-neutral-800 shadow-sm"
-        aria-label={`Editar ${label.toLowerCase()}`}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Wallet className="h-4 w-4 text-brand" strokeWidth={2} />
-            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</p>
-          </div>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-[11px] font-semibold text-brand transition-transform group-hover:scale-105 dark:bg-brand/20 dark:text-brand-light">
-            <Pencil className="h-2.5 w-2.5" strokeWidth={2.5} />
-            Editar
-          </span>
-        </div>
-        <p className={`mt-2 text-2xl font-bold tracking-tight ${value ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-400 dark:text-neutral-500"}`}>
-          {formatCurrency(value)}
-        </p>
-      </button>
-    );
-  }
+  }, [value, editing]);
 
   async function handleSave() {
     setSaving(true);
@@ -2372,35 +2360,67 @@ function DealValueCard({
     setEditing(false);
   }
 
-  return (
-    <div className="card space-y-2 p-4 text-sm">
-      <p className="text-neutral-500 dark:text-neutral-400">{label}</p>
-      <div className="flex items-center gap-1.5">
-        <CurrencyInput value={draft} onChange={setDraft} />
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="icon-btn shrink-0"
-          aria-label="Salvar"
-        >
-          {saving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-          ) : (
-            <Check className="h-3.5 w-3.5" strokeWidth={2} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          disabled={saving}
-          className="icon-btn shrink-0"
-          aria-label="Cancelar"
-        >
-          <X className="h-3.5 w-3.5" strokeWidth={2} />
-        </button>
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      setEditing(false);
+      setDraft(value != null ? String(value) : "");
+      setError(null);
+    }
+  }
+
+  if (!editable) {
+    return (
+      <div className="space-y-0.5">
+        <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</span>
+        <p className={`text-lg font-bold tracking-tight ${value ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-400 dark:text-neutral-500"}`}>
+          {formatCurrency(value)}
+        </p>
       </div>
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    );
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(value != null ? String(value) : "");
+          setError(null);
+          setEditing(true);
+        }}
+        className="group w-full text-left space-y-0.5 rounded-lg p-1 -m-1 transition-colors hover:bg-neutral-100/80 dark:hover:bg-neutral-800/60 cursor-pointer"
+        title="Clique para editar"
+      >
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</span>
+          <Pencil className="h-3 w-3 text-neutral-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" strokeWidth={2} />
+        </div>
+        <p className={`text-lg font-bold tracking-tight ${value ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-400 dark:text-neutral-500"}`}>
+          {formatCurrency(value)}
+        </p>
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-1 rounded-lg p-1 -m-1 bg-neutral-100/80 dark:bg-neutral-800/80 ring-2 ring-brand/40">
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">{label}</span>
+        {saving && <Loader2 className="h-3 w-3 animate-spin text-brand shrink-0" strokeWidth={2.5} />}
+      </div>
+      <div onKeyDown={handleKeyDown}>
+        <CurrencyInput
+          value={draft}
+          onChange={setDraft}
+          autoFocus
+          onBlur={() => handleSave()}
+          className="text-base font-bold tracking-tight py-1 bg-white dark:bg-neutral-900 text-emerald-600 dark:text-emerald-400 border border-neutral-300 dark:border-neutral-700 rounded-md w-full"
+        />
+      </div>
+      {error && <p className="text-[10px] text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );
 }

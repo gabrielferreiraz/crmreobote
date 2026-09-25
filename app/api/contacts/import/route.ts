@@ -229,6 +229,7 @@ export async function POST(req: Request) {
       skipped: plan.summary.totalRows - actualCreated,
       skippedNoName: plan.summary.skippedNoName,
       skippedNoJobTitle: plan.summary.skippedNoJobTitle,
+      skippedInvalidPhone: plan.summary.skippedInvalidPhone,
       duplicateContacts: plan.summary.duplicateContacts,
       ownerFallbacks: plan.summary.ownerFallbacks,
       importBatchId,

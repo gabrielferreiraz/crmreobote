@@ -36,6 +36,7 @@ type ImportPlanSummary = {
   toCreate: number;
   skippedNoName: number;
   skippedNoJobTitle: number;
+  skippedInvalidPhone: number;
   duplicateContacts: number;
   ownerFallbacks: number;
 };
@@ -60,6 +61,8 @@ const ISSUE_LABEL: Record<string, string> = {
   NO_JOB_TITLE: "Sem cargo",
   DUPLICATE_CONTACT: "Duplicado",
   OWNER_NOT_FOUND: "Resp. não achado",
+  INVALID_WHATSAPP: "WhatsApp inválido",
+  INVALID_PHONE: "Celular inválido",
 };
 
 /**
@@ -99,6 +102,7 @@ function importHeadline(s: ImportPlanSummary, hasBlockingIssue: boolean): { icon
   const details = [
     s.duplicateContacts > 0 ? `${s.duplicateContacts} duplicado${s.duplicateContacts === 1 ? "" : "s"} evitado${s.duplicateContacts === 1 ? "" : "s"}` : null,
     s.skippedNoJobTitle > 0 ? `${s.skippedNoJobTitle} sem cargo (ignorado${s.skippedNoJobTitle === 1 ? "" : "s"})` : null,
+    s.skippedInvalidPhone > 0 ? `${s.skippedInvalidPhone} com número inválido (ignorado${s.skippedInvalidPhone === 1 ? "" : "s"})` : null,
   ].filter((d): d is string => !!d);
   return {
     icon: Sparkles,
@@ -426,10 +430,11 @@ export function ContactImportDialog({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           <StatChip label="Duplicados evitados" value={result.duplicateContacts} tone={result.duplicateContacts > 0 ? "warn" : undefined} />
           <StatChip label="Sem nome" value={result.skippedNoName} tone={result.skippedNoName > 0 ? "warn" : undefined} />
           <StatChip label="Sem cargo" value={result.skippedNoJobTitle} tone={result.skippedNoJobTitle > 0 ? "warn" : undefined} />
+          <StatChip label="Número inválido" value={result.skippedInvalidPhone} tone={result.skippedInvalidPhone > 0 ? "warn" : undefined} />
           <StatChip label="Resp. não achado" value={result.ownerFallbacks} tone={result.ownerFallbacks > 0 ? "warn" : undefined} />
         </div>
 
@@ -811,10 +816,11 @@ export function ContactImportDialog({
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <StatChip label="Vão criar contato" value={s.toCreate} />
               <StatChip label="Sem nome (ignoradas)" value={s.skippedNoName} tone={s.skippedNoName > 0 ? "warn" : undefined} />
               <StatChip label="Sem cargo (ignoradas)" value={s.skippedNoJobTitle} tone={s.skippedNoJobTitle > 0 ? "warn" : undefined} />
+              <StatChip label="Número inválido (ignoradas)" value={s.skippedInvalidPhone} tone={s.skippedInvalidPhone > 0 ? "warn" : undefined} />
               <StatChip label="Duplicados evitados" value={s.duplicateContacts} tone={s.duplicateContacts > 0 ? "warn" : undefined} />
               <StatChip label="Resp. não achado" value={s.ownerFallbacks} tone={s.ownerFallbacks > 0 ? "warn" : undefined} />
             </div>

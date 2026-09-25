@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Loader2 } from "lucide-react";
 import { Modal } from "@/components/modal";
@@ -10,8 +10,9 @@ import { PhoneInput } from "@/components/phone-input";
 import { BirthDateInput } from "@/components/birth-date-input";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
-import { isValidPhoneInput } from "@/lib/phone-normalize";
+import { validatePhoneField } from "@/lib/phone-normalize";
 import { isBirthDateInputInvalid, isoToBirthDateMask, parseBirthDateInput } from "@/lib/birth-date";
+import { useCepAutofill } from "@/lib/use-cep-autofill";
 
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
@@ -101,6 +102,21 @@ export function ContactEditForm({
   const [conflictData, setConflictData] = useState<{ message: string; conflict: ContactConflict } | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const cepAutofillFields = useMemo(
+    () => ({
+      setZipCode,
+      address,
+      setAddress,
+      neighborhood,
+      setNeighborhood,
+      city,
+      setCity,
+      state,
+      setState,
+    }),
+    [address, neighborhood, city, state],
+  );
+  const cepAutofill = useCepAutofill(zipCode, cepAutofillFields);
   // "Mostrar como ajustar" (erro de permissão por contato de outro
   // consultor) — o campo Responsável já está nesta mesma tela (diferente do
   // card "Dados do contato" do negócio, que precisa rolar até outra linha),
@@ -119,9 +135,13 @@ export function ContactEditForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    // Valida formato dos campos de telefone/data de nascimento antes de bater na API
-    const phoneErr = !isValidPhoneInput(phone) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
-    const waErr = !isValidPhoneInput(whatsapp) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    // Valida formato dos campos de telefone/data de nascimento antes de bater na API.
+    // Telefone/WhatsApp só é validado se a pessoa MUDOU o valor — o formulário
+    // devolve o número antigo ao salvar, e um contato com número legado
+    // inválido (ex.: fixo no WhatsApp) não pode ficar impedido de trocar cargo
+    // ou responsável por causa disso; o servidor faz a mesma exceção.
+    const phoneErr = phone !== (contact.phone ?? "") ? validatePhoneField(phone, "phone") : null;
+    const waErr = whatsapp !== (contact.whatsapp ?? "") ? validatePhoneField(whatsapp, "whatsapp") : null;
     const birthDateErr = isBirthDateInputInvalid(birthDate) ? "Data inválida. Use o formato DD/MM/AAAA." : null;
     setPhoneError(phoneErr);
     setWhatsappError(waErr);
@@ -241,7 +261,19 @@ export function ContactEditForm({
             onChange={(v) => { setBirthDate(v); setBirthDateError(null); }}
             error={birthDateError}
           />
-          <Field label="CEP" value={zipCode} onChange={setZipCode} />
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <label className="field-label">CEP</label>
+              {cepAutofill.loading && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                  Buscando
+                </span>
+              )}
+            </div>
+            <input value={zipCode} onChange={(e) => setZipCode(e.target.value)} className="field-input" />
+            {cepAutofill.error && <p className="text-xs text-amber-600 dark:text-amber-400">{cepAutofill.error}</p>}
+          </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Cidade" value={city} onChange={setCity} />

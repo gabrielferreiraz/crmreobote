@@ -386,6 +386,7 @@ export async function POST(req: Request) {
       existingContactsMatched: plan.summary.existingContactsMatched,
       duplicateDeals: plan.summary.duplicateDeals,
       skippedNoContact: plan.summary.skippedNoContact,
+      skippedInvalidPhone: plan.summary.skippedInvalidPhone,
       stageFallbacks: plan.summary.stageFallbacks,
       ownerFallbacks: plan.summary.ownerFallbacks,
       valueParseFailures: plan.summary.valueParseFailures,

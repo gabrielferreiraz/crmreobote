@@ -41,22 +41,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // Mesmo escopo do GET acima — sem isso, Consultor pausava/editava/
     // apagava a campanha de qualquer outro só sabendo o id.
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
-    const existing = await prisma.campaign.findFirst({
-      where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
-    });
-    if (!existing) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
     const bodyKeys = Object.keys(body);
     const isStatusOnly = bodyKeys.length === 1 && bodyKeys[0] === "status";
 
+    // Pausar/retomar/parar é o clique mais frequente desta tela, e o caminho
+    // curto abaixo tira uma ida ao banco do meio dele: o `findFirst` que
+    // existia só pra checar se a linha é acessível some, porque o próprio
+    // `updateMany` já leva o MESMO filtro de escopo no WHERE — `count === 0`
+    // significa exatamente o que o `!existing` significava (não existe ou
+    // está fora do escopo). Em troca, a resposta deixa de ser a campanha
+    // inteira e vira um ok: nenhum dos dois chamadores desta rota (a lista e
+    // a barra de ações da página de detalhe) lê esse corpo — a lista se
+    // atualiza sozinha na tela e depois com o router.refresh().
     if (isStatusOnly) {
       const { status } = body as { status?: string };
       if (!status || !VALID_STATUSES.includes(status as $Enums.CampaignStatus)) {
         return NextResponse.json({ error: "Status inválido" }, { status: 400 });
       }
-      const campaign = await prisma.campaign.update({ where: { id }, data: { status: status as $Enums.CampaignStatus } });
-      return NextResponse.json(campaign);
+      const { count } = await prisma.campaign.updateMany({
+        where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+        data: { status: status as $Enums.CampaignStatus },
+      });
+      if (count === 0) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+      return NextResponse.json({ ok: true, status });
     }
+
+    const existing = await prisma.campaign.findFirst({
+      where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+    });
+    if (!existing) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
     // Edição completa (nome, público, scripts, agenda...) só é permitida
     // enquanto a campanha nunca começou a rodar — depois disso, duplicar é o
@@ -110,14 +124,15 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
-    // Mesmo escopo do GET/PATCH acima.
+    // Mesmo escopo do GET/PATCH acima — e mesma troca do `findFirst` pelo
+    // filtro dentro do próprio DELETE (ver comentário no PATCH): uma ida ao
+    // banco em vez de duas, com a mesma garantia de escopo.
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
-    const existing = await prisma.campaign.findFirst({
+    const { count } = await prisma.campaign.deleteMany({
       where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
     });
-    if (!existing) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+    if (count === 0) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
 
-    await prisma.campaign.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   });
 }

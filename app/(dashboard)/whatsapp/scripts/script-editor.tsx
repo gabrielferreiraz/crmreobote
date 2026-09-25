@@ -10,12 +10,16 @@ import { LoadingDots } from "@/components/loading-dots";
 import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
 import { MessageVariationEditor } from "@/components/message-variation-editor";
 import { renderTemplate } from "@/lib/campaigns/spintax";
+import { normalizeSteps, textChangeRatio } from "@/lib/campaigns/script-steps";
 import { SYNONYM_REGEX, synonymsFor } from "@/lib/message-synonyms";
+import { ScriptSaveDialog, type ScriptImpactDTO, type ScriptSaveChoice } from "./script-save-dialog";
 
 type Step = { text: string; delayAfterSec: number };
 
 const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
 const MAX_DELAY_SEC = 120;
+/** Acima disso (fração do texto que mudou) o diálogo de salvar sugere "nova versão" em vez de "correção". */
+const NEW_VERSION_SUGGESTION_RATIO = 0.35;
 
 const TOKEN_LABEL = new Map<string, string>([
   ["nome", "Nome"],
@@ -167,6 +171,7 @@ export function ScriptEditor({
   existingTags,
   redirectTo = "/whatsapp/scripts",
   backLabel = "Scripts",
+  campaignId,
   defaultStepDelayRange,
 }: {
   scriptId?: string;
@@ -180,6 +185,8 @@ export function ScriptEditor({
   redirectTo?: string;
   /** Texto do link "Voltar" no topo. */
   backLabel?: string;
+  /** Campanha de onde a edição partiu (painel "Scripts desta campanha") — vem marcada no diálogo de salvar. */
+  campaignId?: string;
   /**
    * Quando setado (ex.: [10, 25]), a 1ª mensagem e cada "Adicionar outra
    * mensagem" preenchem o delay com um valor aleatório nessa faixa em vez do
@@ -208,6 +215,16 @@ export function ScriptEditor({
   const [focusedStepIndex, setFocusedStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Texto de quando a tela abriu — base pra saber se a edição mudou o que
+  // chega no lead (só aí vale perguntar "correção ou nova versão?" e "aplicar
+  // nas campanhas?", ver handleSubmit). Fixo de propósito: não acompanha re-renders.
+  const initialStepsRef = useRef<Step[] | undefined>(initialSteps);
+  const [saveDialog, setSaveDialog] = useState<{
+    impact: ScriptImpactDTO;
+    suggestedMode: "FIX" | "NEW_VERSION";
+    suggestionNote: string;
+  } | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   // Pedido explícito: variação nasce DIRETO do texto que a pessoa já
   // escreveu, não de um botão separado que abre uma caixa vazia lá embaixo.
   // Fluxo: seleciona um trecho já escrito → aparece um botãozinho flutuante
@@ -595,27 +612,83 @@ export function ScriptEditor({
   const totalChars = steps.reduce((sum, s) => sum + s.text.length, 0);
   const canSubmit = !!name.trim() && steps.length > 0 && steps.every((s) => s.text.trim().length > 0);
 
+  /** Grava o script (POST novo / PUT existente). `choice` só existe depois do diálogo de salvar. Devolve a mensagem de erro, ou null se deu certo. */
+  async function persist(choice?: ScriptSaveChoice): Promise<string | null> {
+    try {
+      const res = await fetch(scriptId ? `/api/message-scripts/${scriptId}` : "/api/message-scripts", {
+        method: scriptId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, steps, tags, visibility, ...(choice ?? {}) }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.error ?? "Erro ao salvar script";
+      }
+    } catch {
+      return "Falha de conexão. Tente novamente.";
+    }
+    router.push(redirectTo);
+    router.refresh();
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const res = await fetch(scriptId ? `/api/message-scripts/${scriptId}` : "/api/message-scripts", {
-      method: scriptId ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, steps, tags, visibility }),
-    });
-
-    setLoading(false);
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erro ao salvar script");
-      return;
+    // Script novo, ou edição que não mexeu no texto/intervalos (só nome, tags,
+    // visibilidade) → salva direto, sem perguntar nada.
+    const textChanged = !!scriptId && normalizeSteps(steps) !== normalizeSteps(initialStepsRef.current);
+    if (textChanged) {
+      // "O que essa edição afeta?" — só pergunta algo se o script já foi
+      // enviado (correção × nova versão) ou se há campanha ativa usando ele.
+      let impact: ScriptImpactDTO | null = null;
+      try {
+        const res = await fetch(`/api/message-scripts/${scriptId}/impact`);
+        if (res.ok) impact = await res.json();
+      } catch {
+        // cai no erro logo abaixo
+      }
+      if (!impact) {
+        setLoading(false);
+        setError("Não foi possível verificar as campanhas que usam este script. Tente salvar de novo.");
+        return;
+      }
+      if (impact.hasHistory || impact.campaigns.length > 0) {
+        const ratio = textChangeRatio(initialStepsRef.current, steps);
+        const percent = Math.max(1, Math.round(ratio * 100));
+        setDialogError(null);
+        setSaveDialog({
+          impact,
+          suggestedMode: ratio >= NEW_VERSION_SUGGESTION_RATIO ? "NEW_VERSION" : "FIX",
+          suggestionNote:
+            ratio === 0
+              ? "só mudou o intervalo entre as mensagens"
+              : ratio >= NEW_VERSION_SUGGESTION_RATIO
+                ? `cerca de ${percent}% do texto mudou`
+                : `mudança pequena (~${percent}% do texto)`,
+        });
+        setLoading(false);
+        return;
+      }
     }
 
-    router.push(redirectTo);
-    router.refresh();
+    const failure = await persist();
+    if (failure) {
+      setLoading(false);
+      setError(failure);
+    }
+  }
+
+  async function confirmSaveDialog(choice: ScriptSaveChoice) {
+    setLoading(true);
+    setDialogError(null);
+    const failure = await persist(choice);
+    if (failure) {
+      setLoading(false);
+      setDialogError(failure);
+    }
   }
 
   return (
@@ -959,6 +1032,19 @@ export function ScriptEditor({
           </button>
         </div>
       </form>
+
+      {saveDialog && (
+        <ScriptSaveDialog
+          impact={saveDialog.impact}
+          suggestedMode={saveDialog.suggestedMode}
+          suggestionNote={saveDialog.suggestionNote}
+          preselectCampaignId={campaignId}
+          saving={loading}
+          error={dialogError}
+          onCancel={() => setSaveDialog(null)}
+          onConfirm={confirmSaveDialog}
+        />
+      )}
     </div>
   );
 }

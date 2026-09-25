@@ -4,12 +4,24 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { ScriptEditor } from "../script-editor";
 
-export default async function EditScriptPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditScriptPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ campanha?: string | string[] }>;
+}) {
   const { id } = await params;
+  const { campanha } = await searchParams;
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
   const isOwner = session!.user.role === "OWNER";
+
+  // Veio do painel "Scripts desta campanha" (?campanha=<id>): salvar/cancelar
+  // volta pra lá, e o diálogo de salvar já vem com essa campanha marcada. Só
+  // aceita id "cuid-like" — o valor vira segmento de caminho no redirect.
+  const campaignId = typeof campanha === "string" && /^[a-z0-9]{10,40}$/i.test(campanha) ? campanha : undefined;
 
   return runWithTenant(organizationId, async () => {
     const [script, allScripts] = await Promise.all([
@@ -35,6 +47,9 @@ export default async function EditScriptPage({ params }: { params: Promise<{ id:
         initialTags={script.tags}
         initialVisibility={script.visibility}
         existingTags={existingTags}
+        campaignId={campaignId}
+        redirectTo={campaignId ? `/whatsapp/campanhas/${campaignId}` : undefined}
+        backLabel={campaignId ? "Campanha" : undefined}
       />
     );
   });

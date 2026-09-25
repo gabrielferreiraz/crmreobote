@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Trophy, Crown } from "lucide-react";
 import { formatCurrencyCompact } from "@/lib/format";
 
-/** Mesmo formato que lib/tv-dashboard.ts devolve em `metrics.ranking` — o
- * valor vendido no mês vem em `total` (não `value`, que é do tipo WinSale da
+/** Mesmo formato que getTvRanking (lib/tv-dashboard.ts) devolve em `ranking` —
+ * o valor vendido no mês vem em `total` (não `value`, que é do tipo WinSale da
  * comemoração de venda). */
 type RankingUser = { id: string; name: string; image: string | null; total: number };
 
@@ -13,8 +13,9 @@ type RankingUser = { id: string; name: string; image: string | null; total: numb
  * descer. Pedido explícito: 30s. */
 const STATIC_MS = 15_000;
 /** Descida até o último e volta até o primeiro — 25s cada, fechando o ciclo
- * total em 80s (1min20s) junto com STATIC_MS acima. Precisa bater com
- * RANKING_SCROLL_DURATION_MS em tv-view.tsx, que é quem tira esta tela do ar. */
+ * total em 65s junto com STATIC_MS acima. Depois disso recomeça sozinho do
+ * topo (ver o ramo "Ciclo fechou" abaixo): esta tela agora vive inteira na
+ * tela do Ranking do mês (app/tv/ranking-view.tsx), que não a tira do ar. */
 const SCROLL_DOWN_MS = 25_000;
 const SCROLL_UP_MS = 25_000;
 
@@ -37,11 +38,15 @@ function placeColor(index: number) {
 }
 
 /** Mostra o ranking de vendas do mês INTEIRO (não só o top 10): os 10
- * primeiros cabem na altura do painel e ficam parados por STATIC_MS; a
+ * primeiros cabem na altura da tela e ficam parados por STATIC_MS; a
  * rolagem depois é justamente o que revela quem está do 11º pra baixo. Quem
- * limita o tamanho da lista é a consulta (ver rankingRaw em
- * lib/tv-dashboard.ts), não este componente. */
-export function TvRankingScroll({ ranking }: { ranking: RankingUser[] }) {
+ * limita o tamanho da lista é a consulta (ver getTvRanking em
+ * lib/tv-dashboard.ts), não este componente.
+ *
+ * `hideHeader`: a tela do Ranking do mês (ranking-view.tsx) já tem cabeçalho
+ * próprio (logo + título + mês), então esconde o "Ranking do mês" daqui pra
+ * não aparecer duas vezes. */
+export function TvRankingScroll({ ranking, hideHeader = false }: { ranking: RankingUser[]; hideHeader?: boolean }) {
   /** Janela recortada (altura fixa, overflow escondido). */
   const viewportRef = useRef<HTMLDivElement>(null);
   /** Lista inteira, que desliza pra cima por dentro da janela acima. */
@@ -79,9 +84,9 @@ export function TvRankingScroll({ ranking }: { ranking: RankingUser[] }) {
       } else if (elapsed < STATIC_MS + SCROLL_DOWN_MS + SCROLL_UP_MS) {
         progress = 1 - easeInOutCubic((elapsed - STATIC_MS - SCROLL_DOWN_MS) / SCROLL_UP_MS);
       } else {
-        // Ciclo fechou — recomeça do topo. Na prática tv-view.tsx já trocou
-        // pra tela de cards antes disso; é só uma rede de segurança pra nunca
-        // travar no fim da lista se esta tela ficar montada mais tempo.
+        // Ciclo fechou — recomeça do topo. Esta tela agora fica de pé o tempo
+        // todo (ver app/tv/ranking-view.tsx), então é ISSO que mantém o vai-e-
+        // vem contínuo, não mais uma troca de tela por fora.
         start = now;
         progress = 0;
       }
@@ -136,15 +141,17 @@ export function TvRankingScroll({ ranking }: { ranking: RankingUser[] }) {
       {/* Cabeçalho — mesma gramática dos outros cards do painel (ícone +
           rótulo em caixa alta com tracking largo), pra esta tela não ler
           como um app diferente do resto da TV. */}
-      <div className="flex shrink-0 items-center justify-center gap-2">
-        <Trophy
-          style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "#eab308" }}
-          strokeWidth={2.5}
-        />
-        <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-          Ranking do mês
-        </p>
-      </div>
+      {!hideHeader && (
+        <div className="flex shrink-0 items-center justify-center gap-2">
+          <Trophy
+            style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "#eab308" }}
+            strokeWidth={2.5}
+          />
+          <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+            Ranking do mês
+          </p>
+        </div>
+      )}
 
       <div ref={viewportRef} className="min-h-0 flex-1 overflow-hidden">
         <div
@@ -255,7 +262,7 @@ export function TvRankingScroll({ ranking }: { ranking: RankingUser[] }) {
           está à vista. */}
       {atTop && (
         <p className="shrink-0 text-center font-semibold tracking-widest text-neutral-500 uppercase text-[length:var(--tv-text-label)]">
-          {ranking.length} consultores com venda no mês
+          {ranking.length} {ranking.length === 1 ? "consultor com venda" : "consultores com venda"} no mês
         </p>
       )}
     </div>

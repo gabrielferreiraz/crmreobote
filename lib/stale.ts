@@ -15,8 +15,3 @@ export function isStale(stageEnteredAt: Date | string) {
  * mas com público/gatilho diferentes, mudar um não deve mudar o outro.
  */
 export const STALE_DEAL_ALERT_DAYS = 14;
-
-export function daysSinceStageEntered(stageEnteredAt: Date | string): number {
-  const d = typeof stageEnteredAt === "string" ? new Date(stageEnteredAt) : stageEnteredAt;
-  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-}

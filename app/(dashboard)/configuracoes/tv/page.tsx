@@ -32,7 +32,7 @@ export default async function TvConfigPage() {
   // mais de um funil tem etapa de mesmo nome repetida em cada um (ex.:
   // "Prospecção" em 5 funis diferentes); sem o nome do funil pra agrupar,
   // a lista de seleção fica ambígua (qual "Prospecção" é qual?).
-  const [config, stagesRaw, displayLink] = await Promise.all([
+  const [config, stagesRaw, displayLink, rankingLink] = await Promise.all([
     getTvConfig(organizationId),
     runWithTenant(organizationId, () =>
       prisma.pipelineStage.findMany({
@@ -45,10 +45,21 @@ export default async function TvConfigPage() {
         orderBy: [{ pipeline: { order: "asc" } }, { order: "asc" }],
       }),
     ),
+    // Um link ATIVO por tipo (TV principal e Ranking do mês) — códigos
+    // separados, ver TvDisplayLinkKind no schema.
     canManageDisplayLink
       ? runWithTenant(organizationId, () =>
           prisma.tvDisplayLink.findFirst({
-            where: { organizationId, revokedAt: null },
+            where: { organizationId, kind: "DASHBOARD", revokedAt: null },
+            orderBy: { createdAt: "desc" },
+            include: { createdBy: { select: { name: true } } },
+          }),
+        )
+      : Promise.resolve(null),
+    canManageDisplayLink
+      ? runWithTenant(organizationId, () =>
+          prisma.tvDisplayLink.findFirst({
+            where: { organizationId, kind: "RANKING", revokedAt: null },
             orderBy: { createdAt: "desc" },
             include: { createdBy: { select: { name: true } } },
           }),
@@ -67,6 +78,7 @@ export default async function TvConfigPage() {
       />
       {canManageDisplayLink && (
         <TvDisplayLinkManager
+          kind="DASHBOARD"
           initialLink={
             displayLink && {
               id: displayLink.id,
@@ -74,6 +86,20 @@ export default async function TvConfigPage() {
               createdByName: displayLink.createdBy.name,
               lastUsedAt: displayLink.lastUsedAt?.toISOString() ?? null,
               createdAt: displayLink.createdAt.toISOString(),
+            }
+          }
+        />
+      )}
+      {canManageDisplayLink && (
+        <TvDisplayLinkManager
+          kind="RANKING"
+          initialLink={
+            rankingLink && {
+              id: rankingLink.id,
+              tokenPrefix: rankingLink.tokenPrefix,
+              createdByName: rankingLink.createdBy.name,
+              lastUsedAt: rankingLink.lastUsedAt?.toISOString() ?? null,
+              createdAt: rankingLink.createdAt.toISOString(),
             }
           }
         />

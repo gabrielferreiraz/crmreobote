@@ -3,7 +3,8 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
 import { brazilDateKey } from "@/lib/timezone";
 import { estimateCampaignCompletion, nextAllowedSendWindow, type CompletionEstimate } from "@/lib/campaigns/estimate";
-import { campaignScopeWhere, type DealScope } from "@/lib/team-scope";
+import { campaignScopeWhere, scopeWhere, type DealScope } from "@/lib/team-scope";
+import { listCampaignScriptEntries, normalizeSteps, ACTIVE_CAMPAIGN_STATUSES } from "@/lib/campaigns/script-sync";
 
 export type CampaignSummary = {
   id: string;
@@ -35,11 +36,29 @@ export type CampaignSummary = {
  */
 export async function listCampaigns(organizationId: string, scope: DealScope): Promise<CampaignSummary[]> {
   const scopeFilter = campaignScopeWhere(scope);
+  // `select` em vez de trazer a linha inteira: Campaign tem `messageTemplates`,
+  // `audienceFilter`, `followUpTemplates` e `rmktWaves` (JSONs de vários KB em
+  // campanha de várias variantes de script) — nada disso é usado na lista, e
+  // eram transferidos do banco a cada carregamento da tela E a cada
+  // router.refresh() depois de pausar/retomar/parar uma campanha.
   const campaigns = await prisma.campaign.findMany({
     where: { organizationId, ...scopeFilter },
     orderBy: { createdAt: "desc" },
-    include: {
-      instance: { include: { user: { select: { name: true } } } },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      audienceFilter: true,
+      delayMinSec: true,
+      delayMaxSec: true,
+      dailyCap: true,
+      allowedWeekdays: true,
+      windowStartHour: true,
+      windowEndHour: true,
+      followUpEnabled: true,
+      followUpDelayHours: true,
+      createdAt: true,
+      instance: { select: { user: { select: { name: true } } } },
       createdBy: { select: { name: true } },
     },
   });
@@ -49,9 +68,14 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
     where: { campaign: { organizationId, ...scopeFilter } },
     _count: true,
   });
-  const repliedRows = await prisma.campaignRecipient.findMany({
+  // Contagem de respondidos, não a lista deles: antes isto era um findMany que
+  // trazia UMA LINHA POR RESPOSTA (só o campaignId era lido) — uma campanha
+  // com 5.000 respostas transferia 5.000 linhas pra depois contar de um em um.
+  // O banco já devolve o número pronto.
+  const repliedCounts = await prisma.campaignRecipient.groupBy({
+    by: ["campaignId"],
     where: { campaign: { organizationId, ...scopeFilter }, repliedAt: { not: null } },
-    select: { campaignId: true },
+    _count: true,
   });
 
   const countsByCampaign = new Map<string, CampaignSummary["counts"]>();
@@ -63,9 +87,9 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
     if (row.status === "SKIPPED") entry.skipped += row._count;
     countsByCampaign.set(row.campaignId, entry);
   }
-  for (const row of repliedRows) {
+  for (const row of repliedCounts) {
     const entry = countsByCampaign.get(row.campaignId) ?? { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 };
-    entry.replied += 1;
+    entry.replied += row._count;
     countsByCampaign.set(row.campaignId, entry);
   }
 
@@ -103,6 +127,13 @@ export type CampaignRecipientRow = {
    * direto pra conversa em /whatsapp/conversas?threadId=... (ver
    * recipients-table.tsx), sem precisar buscar o contato de novo lá. */
   threadId: string | null;
+  /**
+   * Negócio pra abrir em /negocios/[id] — só preenchido pra quem já
+   * respondeu (pedido explícito: "para quem respondeu, 'ver negócio'") E
+   * quando quem está olhando de fato enxerga esse negócio (ver dealScope em
+   * getCampaignDetail). null = sem link, nunca um link que cairia em 404.
+   */
+  dealId: string | null;
   sentAt: Date | null;
   repliedAt: Date | null;
   followUpSentAt: Date | null;
@@ -137,8 +168,35 @@ export type CampaignRecipientRow = {
 /** Um ponto do gráfico do painel de métricas — um dia (calendário de Brasília), quantos envios e quantas respostas. */
 export type CampaignDailyMetric = { date: string; sent: number; replied: number };
 
+/**
+ * Um script usado pela campanha (envio inicial, reenvio ou onda de RMKT) — o
+ * que o painel "Scripts desta campanha" mostra (ver campaign-scripts-panel.tsx).
+ * `state` compara a CÓPIA da campanha com a biblioteca: "outdated" = a
+ * biblioteca tem texto/versão diferente (alguém editou e a campanha não
+ * recebeu), "missing" = script apagado da biblioteca (a cópia continua
+ * enviando normalmente).
+ */
+export type CampaignScriptRow = {
+  key: string;
+  scriptId: string;
+  name: string;
+  kind: "initial" | "followUp" | "wave";
+  /** "Onda 2 · dia 5" — só pra kind "wave". */
+  waveLabel: string | null;
+  /** Fatia de sorteio entre as variantes do mesmo grupo (só quando há mais de uma). */
+  sharePct: number | null;
+  copyVersion: number;
+  libraryVersion: number | null;
+  state: "in-sync" | "outdated" | "missing";
+  preview: string | null;
+};
+
 export type CampaignDetail = CampaignSummary & {
   recipients: CampaignRecipientRow[];
+  /** Scripts em uso e se a cópia da campanha está igual à biblioteca. */
+  scripts: CampaignScriptRow[];
+  /** A campanha ainda pode receber alteração de script (rascunho/rodando/pausada). */
+  scriptsEditable: boolean;
   dailyMetrics: CampaignDailyMetric[];
   completionEstimate: CompletionEstimate;
   /**
@@ -172,11 +230,20 @@ export type CampaignDetail = CampaignSummary & {
  * métricas. `scope` obrigatório pelo mesmo motivo de listCampaigns acima —
  * sem ele, Consultor abrindo a URL de uma campanha alheia (nem precisava
  * adivinhar o id: aparecia na própria lista) via a lista de leads de outro.
+ *
+ * `dealScope` é um escopo SEPARADO de `scope`, de propósito: `scope` decide
+ * quais CAMPANHAS a pessoa vê (por quem criou), `dealScope` decide quais
+ * NEGÓCIOS ela consegue abrir (mesmo escopo de /negocios/[id], inclusive
+ * grupos de compartilhamento — ver getSharedScope). Numa campanha MANUAL o
+ * negócio de quem respondeu cai num dono sorteado (rodízio, ver
+ * lib/campaigns/reply.ts), que pode ser outro consultor — sem filtrar aqui,
+ * o "Ver negócio" levaria o criador da campanha pra um 404.
  */
 export async function getCampaignDetail(
   organizationId: string,
   campaignId: string,
   scope: DealScope,
+  dealScope: DealScope,
 ): Promise<CampaignDetail | null> {
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, organizationId, ...campaignScopeWhere(scope) },
@@ -191,13 +258,86 @@ export async function getCampaignDetail(
   });
   if (!campaign) return null;
 
+  const templateEntries = listCampaignScriptEntries(campaign);
   const scriptIds = Array.from(
-    new Set(campaign.recipients.flatMap((r) => [r.scriptId, r.followUpScriptId]).filter((id): id is string => !!id)),
+    new Set([
+      ...campaign.recipients.flatMap((r) => [r.scriptId, r.followUpScriptId]).filter((id): id is string => !!id),
+      ...templateEntries.map((e) => e.scriptId),
+    ]),
   );
   const scripts = scriptIds.length
-    ? await prisma.messageScript.findMany({ where: { id: { in: scriptIds } }, select: { id: true, name: true } })
+    ? await prisma.messageScript.findMany({ where: { id: { in: scriptIds } }, select: { id: true, name: true, version: true, steps: true } })
     : [];
   const scriptNameById = new Map(scripts.map((s) => [s.id, s.name]));
+  const libraryById = new Map(scripts.map((s) => [s.id, s]));
+
+  const firstStepText = (steps: unknown): string | null => {
+    const first = Array.isArray(steps) ? (steps[0] as { text?: string } | undefined)?.text : undefined;
+    return first ? (first.length > 160 ? `${first.slice(0, 160)}…` : first) : null;
+  };
+  // Peso só vira "%" quando há mais de uma variante no MESMO grupo (envio
+  // inicial / reenvio / cada onda) — uma variante sozinha é sempre 100%.
+  const groupKey = (e: { kind: string; waveIndex?: number }) => `${e.kind}:${e.waveIndex ?? ""}`;
+  const groupWeight = new Map<string, { total: number; count: number }>();
+  for (const e of templateEntries) {
+    const g = groupWeight.get(groupKey(e)) ?? { total: 0, count: 0 };
+    g.total += Math.max(0, e.weight);
+    g.count += 1;
+    groupWeight.set(groupKey(e), g);
+  }
+  const scriptRows: CampaignScriptRow[] = templateEntries.map((e, i) => {
+    const lib = libraryById.get(e.scriptId);
+    const g = groupWeight.get(groupKey(e))!;
+    const copyVersion = e.scriptVersion ?? 1;
+    const state: CampaignScriptRow["state"] = !lib
+      ? "missing"
+      : normalizeSteps(e.steps) !== normalizeSteps(lib.steps) || copyVersion !== lib.version
+        ? "outdated"
+        : "in-sync";
+    return {
+      key: `${groupKey(e)}:${e.scriptId}:${i}`,
+      scriptId: e.scriptId,
+      name: lib?.name ?? "Script removido da biblioteca",
+      kind: e.kind,
+      waveLabel: e.kind === "wave" ? `Onda ${(e.waveIndex ?? 0) + 1}${e.waveDayOffset != null ? ` · dia ${e.waveDayOffset}` : ""}` : null,
+      sharePct: g.count > 1 && g.total > 0 ? Math.round((Math.max(0, e.weight) / g.total) * 100) : null,
+      copyVersion,
+      libraryVersion: lib?.version ?? null,
+      state,
+      preview: firstStepText(e.steps),
+    };
+  });
+
+  // Negócio de quem respondeu. recipient.dealId sozinho não basta: reply.ts
+  // só o grava quando CRIA um negócio novo — se o contato já tinha um
+  // negócio aberto na hora da resposta, sai sem gravar nada, então esse caso
+  // (o mais comum) chega aqui com dealId null. Por isso busca pelo contato,
+  // já filtrando pelo que quem está olhando consegue abrir.
+  const repliedContactIds = Array.from(new Set(campaign.recipients.filter((r) => r.repliedAt).map((r) => r.contactId)));
+  const visibleDeals = repliedContactIds.length
+    ? await prisma.deal.findMany({
+        where: { organizationId, contactId: { in: repliedContactIds }, ...scopeWhere(dealScope) },
+        select: { id: true, contactId: true, status: true },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+  const dealsByContact = new Map<string, typeof visibleDeals>();
+  for (const d of visibleDeals) {
+    const list = dealsByContact.get(d.contactId);
+    if (list) list.push(d);
+    else dealsByContact.set(d.contactId, [d]);
+  }
+  // Preferência: o negócio que a própria campanha ligou a este destinatário
+  // (dealId) → o mais recente ainda aberto → o mais recente de qualquer
+  // status (ex.: já ganho/perdido, ainda vale abrir pra ver o histórico).
+  const pickDealId = (r: { dealId: string | null; contactId: string; repliedAt: Date | null }): string | null => {
+    if (!r.repliedAt) return null;
+    const deals = dealsByContact.get(r.contactId);
+    if (!deals || deals.length === 0) return null;
+    return (
+      deals.find((d) => d.id === r.dealId)?.id ?? deals.find((d) => d.status === "OPEN")?.id ?? deals[0].id
+    );
+  };
 
   const counts = { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 };
   let lastAt: Date | null = null;
@@ -315,6 +455,8 @@ export async function getCampaignDetail(
     followUpDelayHours: campaign.followUpDelayHours,
     createdAt: campaign.createdAt,
     counts,
+    scripts: scriptRows,
+    scriptsEditable: ACTIVE_CAMPAIGN_STATUSES.includes(campaign.status),
     recipients: campaign.recipients.map((r) => ({
       id: r.id,
       contactName: r.contact.name,
@@ -322,6 +464,7 @@ export async function getCampaignDetail(
       contactJobTitle: r.contact.jobTitle,
       status: r.status,
       threadId: r.threadId,
+      dealId: pickDealId(r),
       sentAt: r.sentAt,
       repliedAt: r.repliedAt,
       followUpSentAt: r.followUpSentAt,

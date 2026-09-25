@@ -13,16 +13,16 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
-import { normalizePhoneNumber, fallbackWhatsappToPhone } from "@/lib/phone-normalize";
+import { resolveContactPhones } from "@/lib/phone-normalize";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { findDuplicateContact } from "@/lib/contact-duplicate";
 import { linkOrphanThreadsForContact } from "@/lib/whatsapp/threads";
 import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 
+// phone/whatsapp NÃO estão aqui de propósito: passam por resolveContactPhones
+// (lib/phone-normalize.ts) — valor cru de telefone nunca vai direto pro banco.
 const TEXT_FIELDS = [
   "email",
-  "phone",
-  "whatsapp",
   "source",
   "company",
   "jobTitle",
@@ -44,12 +44,48 @@ export async function upsertContactFromIntegration(
   input: Record<string, unknown>,
 ): Promise<ContactUpsertOutcome> {
   const warnings: string[] = [];
-  const phone = typeof input.phone === "string" ? input.phone : undefined;
-  const whatsapp = typeof input.whatsapp === "string" ? input.whatsapp : undefined;
-  const phoneNormalized = normalizePhoneNumber(phone);
-  const whatsappNormalized = normalizePhoneNumber(whatsapp);
+  // Presente mas não-string (null, número…) = "esvazie esse campo"; ausente =
+  // "não mexa nele" (mesma regra dos demais campos abaixo).
+  const rawPhone = "phone" in input ? (typeof input.phone === "string" ? input.phone : null) : undefined;
+  const rawWhatsapp = "whatsapp" in input ? (typeof input.whatsapp === "string" ? input.whatsapp : null) : undefined;
 
-  const duplicate = await findDuplicateContact(organizationId, phoneNormalized, whatsappNormalized);
+  // 1ª passada (sem o contato existente): só pra achar a duplicata pelos
+  // números JÁ limpos/validados (ver resolveContactPhones em
+  // lib/phone-normalize.ts).
+  const firstPass = resolveContactPhones({ phone: rawPhone, whatsapp: rawWhatsapp });
+  const duplicate = await findDuplicateContact(organizationId, firstPass.phoneNormalized, firstPass.whatsappNormalized);
+
+  // Integração externa (e o webhook de anúncios da Meta) NUNCA perde o lead
+  // por causa de um número ruim — mesma filosofia do ownerId mais abaixo:
+  // número que não passa na validação é DESCARTADO (com aviso na resposta e no
+  // log, que guarda o texto original), o contato é salvo do mesmo jeito, e o
+  // número que já estava salvo nunca é apagado por um valor inválido.
+  const rejected = new Set(firstPass.issues.map((i) => i.field));
+  for (const issue of firstPass.issues) {
+    warnings.push(`${issue.field} ${JSON.stringify(issue.raw)} foi ignorado — ${issue.message}`);
+    console.warn(`[upsert-contact] ${issue.field} rejeitado (${issue.code}): ${JSON.stringify(issue.raw)}`);
+  }
+
+  // Estado efetivo pós-upsert (existente + o que veio nesta chamada) — uma
+  // integração que só manda "phone" ainda precisa terminar com o número
+  // movido pro WhatsApp se o contato não tinha antes (praticamente todo
+  // celular no Brasil também é WhatsApp) — não copiado, o celular esvazia.
+  const phones = resolveContactPhones(
+    {
+      phone: rejected.has("phone") ? undefined : rawPhone,
+      whatsapp: rejected.has("whatsapp") ? undefined : rawWhatsapp,
+    },
+    {
+      existing: duplicate
+        ? {
+            phone: duplicate.phone,
+            phoneNormalized: duplicate.phoneNormalized,
+            whatsapp: duplicate.whatsapp,
+            whatsappNormalized: duplicate.whatsappNormalized,
+          }
+        : null,
+    },
+  );
 
   const data: Record<string, unknown> = {};
   for (const field of TEXT_FIELDS) {
@@ -58,22 +94,13 @@ export async function upsertContactFromIntegration(
       data[field] = sanitizeCell(typeof raw === "string" ? raw : null);
     }
   }
-  // Estado efetivo pós-upsert (existente + o que veio nesta chamada) — uma
-  // integração que só manda "phone" ainda precisa terminar com o número
-  // movido pro WhatsApp se o contato não tinha antes (praticamente todo
-  // celular no Brasil também é WhatsApp) — não copiado, o celular esvazia.
-  const effectivePhone = "phone" in input ? phone : (duplicate?.phone ?? undefined);
-  const effectivePhoneNormalized = "phone" in input ? phoneNormalized : (duplicate?.phoneNormalized ?? null);
-  const effectiveWhatsapp = "whatsapp" in input ? whatsapp : (duplicate?.whatsapp ?? undefined);
-  const effectiveWhatsappNormalized = "whatsapp" in input ? whatsappNormalized : (duplicate?.whatsappNormalized ?? null);
-  const whatsappFallback = fallbackWhatsappToPhone(effectivePhone, effectivePhoneNormalized, effectiveWhatsapp, effectiveWhatsappNormalized);
-  if ("phone" in input || whatsappFallback.phoneNormalized !== (duplicate?.phoneNormalized ?? null)) {
-    data.phone = sanitizeCell(whatsappFallback.phone);
-    data.phoneNormalized = whatsappFallback.phoneNormalized;
+  if ("phone" in input || phones.phoneNormalized !== (duplicate?.phoneNormalized ?? null)) {
+    data.phone = phones.phone;
+    data.phoneNormalized = phones.phoneNormalized;
   }
-  if ("whatsapp" in input || whatsappFallback.whatsappNormalized !== (duplicate?.whatsappNormalized ?? null)) {
-    data.whatsapp = sanitizeCell(whatsappFallback.whatsapp);
-    data.whatsappNormalized = whatsappFallback.whatsappNormalized;
+  if ("whatsapp" in input || phones.whatsappNormalized !== (duplicate?.whatsappNormalized ?? null)) {
+    data.whatsapp = phones.whatsapp;
+    data.whatsappNormalized = phones.whatsappNormalized;
   }
   if ("tags" in input && Array.isArray(input.tags)) {
     data.tags = input.tags
@@ -155,8 +182,8 @@ export async function upsertContactFromIntegration(
       } as Prisma.ContactUncheckedCreateInput,
     });
 
-    if (phoneNormalized || whatsappNormalized) {
-      await linkOrphanThreadsForContact(organizationId, contact.id, [phoneNormalized, whatsappNormalized]);
+    if (phones.phoneNormalized || phones.whatsappNormalized) {
+      await linkOrphanThreadsForContact(organizationId, contact.id, [phones.phoneNormalized, phones.whatsappNormalized]);
     }
 
     enqueueWebhookEvent(organizationId, "contact.created", {

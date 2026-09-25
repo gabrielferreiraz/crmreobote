@@ -1,29 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, Plus, MessageCircleMore, CheckCircle2, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { CheckCheck, Loader2, CheckCircle2, RefreshCw, TriangleAlert } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
-import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
 import { DualRangeSlider } from "@/components/dual-range-slider";
 import { RmktWavesFields } from "@/components/rmkt-waves-fields";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useRmktWaves } from "@/lib/use-rmkt-waves";
 import { useMyWhatsappProvider, MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
+import { renderTemplate } from "@/lib/campaigns/spintax";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string; order: number }[] };
 
 type SendResult = { campaignId: string | null; queued: number; skippedNoPhone: number };
+type PreviewPosition = { top: number; left: number; maxHeight: number };
+type ScriptPreview = { script: ScriptOption; messages: string[] } & PreviewPosition;
 
 const DEFAULT_DELAY_MIN = 80;
 const DEFAULT_DELAY_MAX = 1220;
-const SLIDER_MIN_SEC = 80;
-const SLIDER_MAX_SEC = 2000;
+const SLIDER_MIN_MINUTES = 1;
+const SLIDER_MAX_MINUTES = 33;
+const PREVIEW_VARIABLES = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Campo Grande" };
 
 function toMinutesLabel(sec: number): string {
-  return `${(sec / 60).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} min`;
+  return `${Math.round(sec / 60)} min`;
+}
+
+function delayLabel(sec: number): string {
+  if (sec < 60) return `${sec}s depois`;
+  return `${Math.round(sec / 60)} min depois`;
+}
+
+function previewMessage(text: string): string {
+  return renderTemplate(text, PREVIEW_VARIABLES, "Boa tarde").replace(/\{[^{}]*\}/g, "Maria").replace(/[{}]/g, "");
+}
+
+function createPreviewMessages(script: ScriptOption): string[] {
+  return script.steps.map((step) => (step.text.trim() ? previewMessage(step.text) : "(mensagem vazia)"));
 }
 
 /**
@@ -61,9 +78,14 @@ export function SendLeadsDialog({
   const [pipelines, setPipelines] = useState<PipelineOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [scriptIds, setScriptIds] = useState<string[]>([]);
+  const [preview, setPreview] = useState<ScriptPreview | null>(null);
+  const previewScriptId = preview?.script.id;
+  const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewAnchorRef = useRef<HTMLElement | null>(null);
   const [pipelineId, setPipelineId] = useState("");
   const [stageId, setStageId] = useState("");
-  const rmkt = useRmktWaves();
+  const rmkt = useRmktWaves({ automaticNoReplyDays: true });
   const [useCustomDelay, setUseCustomDelay] = useState(false);
   const [delayMinSec, setDelayMinSec] = useState(DEFAULT_DELAY_MIN);
   const [delayMaxSec, setDelayMaxSec] = useState(DEFAULT_DELAY_MAX);
@@ -107,6 +129,76 @@ export function SendLeadsDialog({
   function toggleScript(id: string) {
     setScriptIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   }
+
+  function getPreviewPosition(anchor: HTMLElement): PreviewPosition {
+    const gutter = 12;
+    const preferredWidth = 360;
+    const preferredHeight = 420;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const rect = anchor.getBoundingClientRect();
+    const width = Math.min(preferredWidth, Math.max(0, viewportWidth - gutter * 2));
+    const maxLeft = Math.max(gutter, viewportWidth - gutter - width);
+    const canFitOnRight = rect.right + gutter + width <= viewportWidth - gutter;
+    const left = canFitOnRight
+      ? rect.right + gutter
+      : Math.min(maxLeft, Math.max(gutter, rect.left - gutter - width));
+    const availableHeight = Math.max(0, viewportHeight - gutter * 2);
+    const height = Math.min(preferredHeight, availableHeight);
+    const canFitBelow = rect.top + height <= viewportHeight - gutter;
+    const canFitAbove = rect.bottom - height >= gutter;
+    const top = canFitBelow ? Math.max(gutter, rect.top) : canFitAbove ? rect.bottom - height : gutter;
+
+    return { top, left, maxHeight: height };
+  }
+
+  function showPreview(script: ScriptOption, anchor: HTMLElement) {
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+    if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+    if (previewAnchorRef.current !== anchor) setPreview(null);
+    previewAnchorRef.current = anchor;
+    previewOpenTimer.current = setTimeout(() => {
+      if (previewAnchorRef.current !== anchor) return;
+      setPreview({ script, messages: createPreviewMessages(script), ...getPreviewPosition(anchor) });
+    }, 250);
+  }
+
+  function refreshPreview() {
+    setPreview((current) => (current ? { ...current, messages: createPreviewMessages(current.script) } : null));
+  }
+
+  function hidePreviewSoon() {
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+    if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+    previewCloseTimer.current = setTimeout(() => setPreview(null), 120);
+  }
+
+  useEffect(() => {
+    if (!previewScriptId) return;
+
+    const repositionPreview = () => {
+      const anchor = previewAnchorRef.current;
+      if (!anchor || !document.documentElement.contains(anchor)) {
+        setPreview(null);
+        return;
+      }
+      setPreview((current) => (current ? { ...current, ...getPreviewPosition(anchor) } : null));
+    };
+
+    window.addEventListener("resize", repositionPreview);
+    window.addEventListener("scroll", repositionPreview, true);
+    return () => {
+      window.removeEventListener("resize", repositionPreview);
+      window.removeEventListener("scroll", repositionPreview, true);
+    };
+  }, [previewScriptId]);
+
+  useEffect(() => {
+    return () => {
+      if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+      if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+    };
+  }, []);
 
   const canSend = scriptIds.length > 0 && !!pipelineId && !!stageId && rmkt.valid;
   // Só interrompe o fluxo com uma confirmação a mais quando as DUAS
@@ -180,14 +272,11 @@ export function SendLeadsDialog({
 
   return (
     <>
-    <Modal onClose={onClose} maxWidth="max-w-lg">
-      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Enviar leads e criar negócios</h2>
-      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-        {contactIds.length} contato{contactIds.length === 1 ? "" : "s"} selecionado{contactIds.length === 1 ? "" : "s"}. Quem
-        responder vira negócio automaticamente; quem não responder no prazo vira &quot;não respondeu&quot;.
-      </p>
+      <Modal onClose={onClose} maxWidth="max-w-lg">
+        <h2 className="mb-1 text-xl font-semibold text-neutral-900 dark:text-neutral-100">Enviar leads</h2>
+        <p className="mb-5 text-base text-neutral-500 dark:text-neutral-400">{contactIds.length} contato{contactIds.length === 1 ? "" : "s"} selecionado{contactIds.length === 1 ? "" : "s"}</p>
 
-      {/* Pedido explícito: avisar quando a seleção inclui contato que já tem
+        {/* Pedido explícito: avisar quando a seleção inclui contato que já tem
           negócio — esta tela é pensada pra prospecção de lead novo (ver
           doc-comment do componente), mandar de novo pra quem já está em
           andamento em algum funil normalmente não faz sentido. Só aviso,
@@ -195,205 +284,236 @@ export function SendLeadsDialog({
           (handleCampaignReply só cria se o contato ainda não tiver um
           aberto), então quem seguir mesmo assim não corre risco de
           duplicata, só de mandar uma mensagem de prospecção fora de hora. */}
-      {contactsWithDealHistory > 0 && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
-          <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
-          <p className="text-amber-700 dark:text-amber-400">
-            {contactsWithDealHistory === contactIds.length
-              ? contactsWithDealHistory === 1
-                ? "O contato selecionado já tem negócio registrado."
-                : "Todos os contatos selecionados já têm negócio registrado."
-              : `${contactsWithDealHistory} de ${contactIds.length} contatos selecionados já têm negócio registrado.`}{" "}
-            Essa prospecção é pensada pra lead novo — considere excluir quem já está em andamento, a menos que
-            reengajar de propósito.
-          </p>
-        </div>
-      )}
+        {contactsWithDealHistory > 0 && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
+            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+            <p className="text-amber-700 dark:text-amber-400">
+              {contactsWithDealHistory === contactIds.length
+                ? contactsWithDealHistory === 1
+                  ? "O contato selecionado já tem negócio registrado."
+                  : "Todos os contatos selecionados já têm negócio registrado."
+                : `${contactsWithDealHistory} de ${contactIds.length} contatos já têm negócio registrado.`}
+            </p>
+          </div>
+        )}
 
-      {loadError ? (
-        <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
-      ) : scripts === null || pipelines === null ? (
-        <p className="flex items-center gap-2 text-sm text-neutral-400 dark:text-neutral-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
-          Carregando...
-        </p>
-      ) : (
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="field-label">Script inicial (prospecção)</label>
-            {scripts.length > 0 && (
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Selecione mais de um pra testar variações — cada lead recebe um deles sorteado, com chance igual entre
-                eles.
-              </p>
-            )}
-            {scripts.length === 0 ? (
-              <EmptyState
-                icon={MessageCircleMore}
-                title="Você ainda não criou nenhum script"
-                description="Monte um script com sua própria mensagem (e variações) pra usar na prospecção."
-                action={
-                  <button type="button" onClick={onCreateScript} className="btn-primary btn-sm">
-                    <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-                    Criar script
-                  </button>
-                }
-              />
-            ) : (
-              <>
-                <div className="scrollbar-thin max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+        {loadError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+        ) : scripts === null || pipelines === null ? (
+          <p className="flex items-center gap-2 text-sm text-neutral-400 dark:text-neutral-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
+            Carregando...
+          </p>
+        ) : (
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Seu script</h3>
+                <button type="button" onClick={onCreateScript} className="text-sm font-semibold text-brand hover:text-brand-hover">
+                  + Criar script
+                </button>
+              </div>
+              {scripts.length === 0 ? (
+                <div className="border border-dashed border-neutral-300 px-4 py-5 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                  Nenhum script criado.
+                </div>
+              ) : (
+                <div className="scrollbar-thin max-h-48 space-y-1.5 overflow-y-auto border border-neutral-200 p-2 dark:border-neutral-800">
                   {scripts.map((s) => (
                     <label
                       key={s.id}
-                      className="flex cursor-pointer items-start gap-2.5 rounded-md p-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                      onMouseEnter={(e) => showPreview(s, e.currentTarget)}
+                      onMouseLeave={hidePreviewSoon}
+                      className="block cursor-pointer rounded-md px-3 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                     >
-                      <input
-                        type="checkbox"
-                        checked={scriptIds.includes(s.id)}
-                        onChange={() => toggleScript(s.id)}
-                        className="mt-0.5 accent-neutral-900 dark:accent-white"
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{s.name}</span>
-                        <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">
-                          {s.steps[0]?.text || "(vazio)"}
-                        </span>
+                      <span className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={scriptIds.includes(s.id)}
+                          onChange={() => toggleScript(s.id)}
+                          className="accent-neutral-900 dark:accent-white"
+                        />
+                        <span className="min-w-0 truncate text-base font-medium text-neutral-900 dark:text-neutral-100">{s.name}</span>
                       </span>
                     </label>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={onCreateScript}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-                >
-                  <Plus className="h-3 w-3" strokeWidth={2.5} />
-                  Criar script
-                </button>
-              </>
-            )}
-          </div>
-
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
-            Disparo em massa por número conectado via QR Code (Evolution) tem risco maior de banimento. Número conectado pela API oficial da Meta não tem esse risco.
-          </p>
-
-          <div className="grid grid-cols-2 gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-            <div className="space-y-1">
-              <label className="field-label">Pipeline de destino</label>
-              <Select
-                value={pipelineId}
-                onChange={(v) => {
-                  setPipelineId(v);
-                  const p = pipelines.find((pl) => pl.id === v);
-                  const firstStage = p?.stages.slice().sort((a, b) => a.order - b.order)[0];
-                  setStageId(firstStage?.id ?? "");
-                }}
-                className="w-full py-1.5 text-sm"
-                options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Etapa (quando virar negócio)</label>
-              <Select
-                value={stageId}
-                onChange={setStageId}
-                className="w-full py-1.5 text-sm"
-                options={sortedStages.map((s) => ({ value: s.id, label: s.name }))}
-              />
-            </div>
-          </div>
-
-          <RmktWavesFields rmkt={rmkt} scripts={scripts} />
-
-          <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-            <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-              <input
-                type="checkbox"
-                checked={useCustomDelay}
-                onChange={(e) => setUseCustomDelay(e.target.checked)}
-                className="accent-neutral-900 dark:accent-white"
-              />
-              Selecionar delay entre contatos
-            </label>
-
-            {useCustomDelay ? (
-              <div className="pl-6">
-                <DualRangeSlider
-                  min={SLIDER_MIN_SEC}
-                  max={SLIDER_MAX_SEC}
-                  value={[Math.min(delayMinSec, SLIDER_MAX_SEC), Math.min(delayMaxSec, SLIDER_MAX_SEC)]}
-                  onChange={([newMin, newMax]) => {
-                    setDelayMinSec(newMin);
-                    setDelayMaxSec(newMax);
-                  }}
-                />
-                <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
-                  <span className="shrink-0">De</span>
-                  <input
-                    type="number"
-                    min={SLIDER_MIN_SEC}
-                    max={SLIDER_MAX_SEC}
-                    value={delayMinSec}
-                    onChange={(e) => setDelayMinSec(Number(e.target.value))}
-                    className="field-input w-20 shrink-0 px-2 py-1 text-center"
-                  />
-                  <span className="shrink-0">a</span>
-                  <input
-                    type="number"
-                    min={SLIDER_MIN_SEC}
-                    max={SLIDER_MAX_SEC}
-                    value={delayMaxSec}
-                    onChange={(e) => setDelayMaxSec(Number(e.target.value))}
-                    className="field-input w-20 shrink-0 px-2 py-1 text-center"
-                  />
-                  <span className="shrink-0">segundos</span>
-                </div>
-                <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-                  {toMinutesLabel(delayMinSec)} a {toMinutesLabel(delayMaxSec)}
-                </p>
-              </div>
-            ) : (
-              <p className="pl-6 text-xs text-neutral-400 dark:text-neutral-500">
-                Um tempo aleatório entre {toMinutesLabel(DEFAULT_DELAY_MIN)} e {toMinutesLabel(DEFAULT_DELAY_MAX)} será usado
-                entre cada contato (padrão — ajuda a evitar bloqueios).
-              </p>
-            )}
-          </div>
-
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="btn-ghost">
-              Cancelar
-            </button>
-            <button type="button" onClick={handleSend} disabled={sending || !canSend} className="btn-primary">
-              {sending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
-              {sending ? (
-                <span className="inline-flex items-center gap-1">
-                  Enviando
-                  <LoadingDots />
-                </span>
-              ) : (
-                "Enviar"
               )}
-            </button>
+            </div>
+
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
+              QR Code: disparos em massa podem BLOQUEAR o WhatsApp. A API oficial da Meta é mais segura.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 border-t border-neutral-100 pt-5 dark:border-neutral-800">
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Destino</label>
+                <Select
+                  value={pipelineId}
+                  onChange={(v) => {
+                    setPipelineId(v);
+                    const p = pipelines.find((pl) => pl.id === v);
+                    const firstStage = p?.stages.slice().sort((a, b) => a.order - b.order)[0];
+                    setStageId(firstStage?.id ?? "");
+                  }}
+                  className="w-full py-1.5 text-sm"
+                  options={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Etapa</label>
+                <Select
+                  value={stageId}
+                  onChange={setStageId}
+                  className="w-full py-1.5 text-sm"
+                  options={sortedStages.map((s) => ({ value: s.id, label: s.name }))}
+                />
+              </div>
+            </div>
+
+            <RmktWavesFields rmkt={rmkt} scripts={scripts} showNoReplyDays={false} />
+
+            <div className="space-y-3 border-t border-neutral-100 pt-5 dark:border-neutral-800">
+              <label className="flex items-center gap-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                <input
+                  type="checkbox"
+                  checked={useCustomDelay}
+                  onChange={(e) => setUseCustomDelay(e.target.checked)}
+                  className="accent-neutral-900 dark:accent-white"
+                />
+                Tempo de envio entre contatos
+              </label>
+
+              {useCustomDelay ? (
+                <div className="pl-6">
+                  <DualRangeSlider
+                    min={SLIDER_MIN_MINUTES}
+                    max={SLIDER_MAX_MINUTES}
+                    value={[Math.min(Math.round(delayMinSec / 60), SLIDER_MAX_MINUTES), Math.min(Math.round(delayMaxSec / 60), SLIDER_MAX_MINUTES)]}
+                    onChange={([newMinMinutes, newMaxMinutes]) => {
+                      setDelayMinSec(newMinMinutes * 60);
+                      setDelayMaxSec(newMaxMinutes * 60);
+                    }}
+                  />
+                  <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                    <span className="shrink-0">De</span>
+                    <input
+                      type="number"
+                      min={SLIDER_MIN_MINUTES}
+                      max={SLIDER_MAX_MINUTES}
+                      value={Math.round(delayMinSec / 60)}
+                      onInput={(e) => {
+                        e.currentTarget.value = e.currentTarget.value.replace(/^0+(?=\d)/, "");
+                      }}
+                      onChange={(e) => setDelayMinSec(Number(e.target.value) * 60)}
+                      className="field-input w-20 shrink-0 px-2 py-1 text-center"
+                    />
+                    <span className="shrink-0">a</span>
+                    <input
+                      type="number"
+                      min={SLIDER_MIN_MINUTES}
+                      max={SLIDER_MAX_MINUTES}
+                      value={Math.round(delayMaxSec / 60)}
+                      onInput={(e) => {
+                        e.currentTarget.value = e.currentTarget.value.replace(/^0+(?=\d)/, "");
+                      }}
+                      onChange={(e) => setDelayMaxSec(Number(e.target.value) * 60)}
+                      className="field-input w-20 shrink-0 px-2 py-1 text-center"
+                    />
+                    <span className="shrink-0">minutos</span>
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                    {toMinutesLabel(delayMinSec)} a {toMinutesLabel(delayMaxSec)}
+                  </p>
+                </div>
+              ) : (
+                <p className="pl-6 text-sm text-neutral-400 dark:text-neutral-500">Padrão: {toMinutesLabel(DEFAULT_DELAY_MIN)} a {toMinutesLabel(DEFAULT_DELAY_MAX)}</p>
+              )}
+            </div>
+
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="btn-ghost">
+                Cancelar
+              </button>
+              <button type="button" onClick={handleSend} disabled={sending || !canSend} className="btn-primary">
+                {sending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+                {sending ? (
+                  <span className="inline-flex items-center gap-1">
+                    Enviando
+                    <LoadingDots />
+                  </span>
+                ) : (
+                  "Enviar"
+                )}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+      </Modal>
+      {preview &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            onMouseEnter={() => {
+              if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+              if (previewOpenTimer.current) clearTimeout(previewOpenTimer.current);
+            }}
+            onMouseLeave={hidePreviewSoon}
+            className="animate-pop-in scrollbar-thin fixed z-[70] max-h-[420px] w-[360px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-lg border border-neutral-200 bg-[#efeae2] shadow-xl motion-reduce:animate-none dark:border-neutral-700 dark:bg-[#0b141a]"
+            style={{ top: preview.top, left: preview.left, maxHeight: preview.maxHeight }}
+          >
+            <div className="flex items-center justify-between gap-3 bg-[#075e54] px-3 py-2.5 text-white dark:bg-[#202c33]">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">M</div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">Maria Silva</p>
+                  <p className="text-[11px] text-white/70">Prévia de envio</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={refreshPreview}
+                title="Gerar outra prévia"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[11px] font-semibold transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+              >
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+                Mudar prévia
+              </button>
+            </div>
+            <div className="space-y-2.5 p-3">
+              {preview.script.steps.map((step, index) => (
+                <div key={index}>
+                  {index > 0 && (
+                    <p className="mb-2 text-center text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                      {delayLabel(preview.script.steps[index - 1].delayAfterSec)}
+                    </p>
+                  )}
+                  <div className="ml-auto max-w-[88%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-snug whitespace-pre-wrap text-neutral-800 shadow-sm dark:bg-[#005c4b] dark:text-neutral-100">
+                    <p>{preview.messages[index]}</p>
+                    <span className="mt-1 flex items-center justify-end gap-1 text-[10px] text-neutral-500 dark:text-neutral-300">
+                      agora <CheckCheck className="h-3.5 w-3.5 text-sky-500 dark:text-sky-300" strokeWidth={2} />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
+      {confirmingBulkSend && (
+        <ConfirmDialog
+          title="Risco de banimento no WhatsApp"
+          description={`Você vai enviar mensagens para ${contactIds.length} contatos usando um número conectado via QR Code (Evolution). Esse tipo de conexão pode ser bloqueado pela Meta em disparos grandes. Deseja continuar?`}
+          confirmLabel="Disparar mesmo assim"
+          onClose={() => setConfirmingBulkSend(false)}
+          onConfirm={async () => {
+            setConfirmingBulkSend(false);
+            await doSend();
+          }}
+        />
       )}
-    </Modal>
-    {confirmingBulkSend && (
-      <ConfirmDialog
-        title="Risco de banimento no WhatsApp"
-        description={`Você vai enviar mensagens para ${contactIds.length} contatos usando um número conectado via QR Code (Evolution). Esse tipo de conexão pode ser bloqueado pela Meta em disparos grandes. Deseja continuar?`}
-        confirmLabel="Disparar mesmo assim"
-        onClose={() => setConfirmingBulkSend(false)}
-        onConfirm={async () => {
-          setConfirmingBulkSend(false);
-          await doSend();
-        }}
-      />
-    )}
     </>
   );
 }

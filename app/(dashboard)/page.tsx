@@ -20,8 +20,12 @@ import { getCurrentUserArea } from "@/lib/user-area";
 import { HomeAdministrativo } from "./home-administrativo";
 import { StaleDealsList } from "./stale-deals-list";
 import { ActionRequiredCard } from "./action-required-card";
+import { BirthdaysCard } from "./birthdays-card";
+import { getContactBirthdays } from "@/lib/birthdays";
 
 const STALE_DEALS_PAGE_SIZE = 10;
+/** Hoje + os próximos 6 dias — dá tempo de preparar a mensagem sem virar lista longa. */
+const BIRTHDAY_WINDOW_DAYS = 7;
 
 /** Each stat tile gets a distinct color identity — makes them scannable at a glance.
  * `bg` virou um degradê de 2 tons da MESMA família (não uma cor nova) — pedido
@@ -82,6 +86,7 @@ export default async function HomePage() {
   // uma % sem significado real pra quem não vê tudo (mesma decisão do
   // Pipeline, ver pipeline/page.tsx).
   const isOwnerForGoal = session!.user.role === "OWNER";
+  const seesAllBirthdays = session!.user.role === "OWNER";
   const alertBefore = new Date(Date.now() - STALE_DEAL_ALERT_DAYS * 24 * 60 * 60 * 1000);
 
   // TUDO num lote paralelo só. O funil padrão (`pipeline`) era buscado ANTES
@@ -106,6 +111,7 @@ export default async function HomePage() {
     parados14dCount,
     unreadCount,
     goalProgress,
+    birthdays,
   ] = await Promise.all([
     prisma.pipeline.findFirst({
       where: { organizationId, isDefault: true },
@@ -175,6 +181,10 @@ export default async function HomePage() {
     countDeals({ organizationId, scope, status: "OPEN", stageEnteredBefore: alertBefore }),
     countUnreadThreads(organizationId, scope),
     isOwnerForGoal ? getCurrentMonthGoalProgress(organizationId) : Promise.resolve(null),
+    // Só os clientes DESTE usuário (responsável), não o escopo de equipe do
+    // resto do Início — pedido explícito, ver lib/birthdays.ts. Exceção: o
+    // Dono vê os de todos (null = sem filtro de responsável).
+    getContactBirthdays(organizationId, seesAllBirthdays ? null : userId, BIRTHDAY_WINDOW_DAYS),
   ]);
 
   const stageData = (pipeline?.stages ?? []).map((stage) => ({
@@ -247,6 +257,8 @@ export default async function HomePage() {
         parados14dCount={parados14dCount}
         unreadCount={unreadCount}
       />
+
+      <BirthdaysCard birthdays={birthdays} windowDays={BIRTHDAY_WINDOW_DAYS} showResponsavel={seesAllBirthdays} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="card p-5 lg:col-span-2">

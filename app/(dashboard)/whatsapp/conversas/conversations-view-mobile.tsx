@@ -258,7 +258,7 @@ export function ConversationsMobile({
           threadId={selected.threadId}
           contactId={selected.contactId}
           contactName={selected.displayName}
-          contactPhone={selected.phoneNormalized}
+          contactPhone={formatBrazilianPhone(selected.phoneNormalized)}
           onClose={() => setSelectedThreadId(null)}
           onRenamed={(name) =>
             setConversations((prev) =>

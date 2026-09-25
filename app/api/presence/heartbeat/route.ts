@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordHeartbeat } from "@/lib/user-activity";
 import { recordFeatureUsage } from "@/lib/feature-usage/record";
+import { sendBirthdayPushOncePerDay } from "@/lib/birthdays";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,12 @@ export async function POST(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     await recordHeartbeat(organizationId, userId);
+    // Push de aniversário de cliente no 1º acesso do dia (ver
+    // lib/birthdays.ts) — sem await, nunca pode atrasar nem derrubar o
+    // heartbeat; mesmo padrão de recordUserChange nas outras rotas.
+    sendBirthdayPushOncePerDay(organizationId, userId).catch((err) =>
+      console.error("[birthdays] falha ao enviar push de aniversário", err),
+    );
     if (features) await recordFeatureUsage(organizationId, userId, features);
     return NextResponse.json({ ok: true });
   });

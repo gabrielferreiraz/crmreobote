@@ -18,17 +18,6 @@ export const PROPOSAL_STATUS_LABEL: Record<ProposalStatus, string> = {
   CANCELLED: "Cancelada",
 };
 
-/** Classes de cor do selo de status — mesmas famílias já usadas em STATUS_TONE de campanhas (recipients-table.tsx). */
-export const PROPOSAL_STATUS_TONE: Record<ProposalStatus, string> = {
-  DRAFT: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
-  GENERATED: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400",
-  SENT: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
-  ACCEPTED: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
-  DECLINED: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400",
-  SUPERSEDED: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
-  CANCELLED: "bg-neutral-100 text-neutral-400 line-through dark:bg-neutral-800 dark:text-neutral-500",
-};
-
 /**
  * Serializável pra Client Component (Decimal do Prisma NÃO atravessa a
  * fronteira servidor→cliente do Next — ver serializeProposal em
@@ -99,11 +88,6 @@ export function creditPerQuota(credit: number, quotaCount: number): number {
  */
 export function isProposalEditable(status: ProposalStatus): boolean {
   return status === "DRAFT" || status === "GENERATED";
-}
-
-/** Só rascunho nunca-gerado pode ser apagado de verdade — qualquer outro estado vira CANCELLED e a linha permanece. */
-export function isProposalDeletable(status: ProposalStatus): boolean {
-  return status === "DRAFT";
 }
 
 /** Estados em que a proposta ainda "está viva" (não chegou a um desfecho terminal). */

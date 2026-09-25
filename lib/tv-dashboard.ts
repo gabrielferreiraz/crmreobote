@@ -24,7 +24,7 @@ export async function getTvConfig(organizationId: string) {
         adsUrls: (config?.adsUrls as string[]) || [],
         churrascometroTarget: config?.churrascometroTarget || 0,
         selectedStageIds: (config?.selectedStageIds as string[]) || [],
-        visibleWidgets: (config?.visibleWidgets as string[]) || ["sales_summary","churrascometro","last_sale","funnels","ranking"],
+        visibleWidgets: (config?.visibleWidgets as string[]) || ["sales_summary","churrascometro","last_sale","funnels"],
       };
     });
   } catch (error) {
@@ -35,7 +35,7 @@ export async function getTvConfig(organizationId: string) {
       adsUrls: [],
       churrascometroTarget: 0,
       selectedStageIds: [],
-      visibleWidgets: ["sales_summary","churrascometro","last_sale","funnels","ranking"],
+      visibleWidgets: ["sales_summary","churrascometro","last_sale","funnels"],
     };
   }
 }
@@ -71,9 +71,9 @@ export async function getTvMetrics(organizationId: string) {
       // empresa continua no banco com o ownerId de sempre (não é reatribuído
       // sozinho quando alguém é desativado). Mesmo raciocínio já documentado
       // pros rankings do relatório Comercial (ver activeMemberIds em
-      // lib/reports/commercial-data.ts): usado abaixo pra Ranking, Última
-      // venda e Leads no Funil (widgets "de gente" — ranking/nome/lista de
-      // pessoa), mas de propósito NÃO pros totais de faturamento (Vendas do
+      // lib/reports/commercial-data.ts): usado abaixo pra Última venda e
+      // Leads no Funil (widgets "de gente" — nome/lista de pessoa), mas de
+      // propósito NÃO pros totais de faturamento (Vendas do
       // Mês/Vendas Anuais, ver totalVendasMes/vendasAnuais abaixo) — venda
       // que já entrou continua sendo receita real da empresa, mesmo que
       // quem vendeu não trabalhe mais aqui (mesma decisão de "Total ganho"
@@ -84,7 +84,8 @@ export async function getTvMetrics(organizationId: string) {
       // venda): sócio (Dono) vendendo cota da própria Reobote nunca deveria
       // ter entrado nesses números pra começo de conversa, então já sai lá
       // na consulta de wonDealsThisMonth/wonDealsThisYear abaixo, não só
-      // depois em memória.
+      // depois em memória. (O Ranking do mês NÃO mora mais aqui — ver
+      // getTvRanking no fim deste arquivo.)
       const [activeMembers, goalExcludedOwnerIds] = await Promise.all([
         prisma.organizationUser.findMany({
           where: { organizationId, active: true },
@@ -94,14 +95,18 @@ export async function getTvMetrics(organizationId: string) {
         // consultor nem "ganho" pra aparecer pro time inteiro na TV (ver
         // countsTowardGoal no schema/getGoalExcludedOwnerIds) — aplicado
         // abaixo em TODO widget de valor/ganho (Vendas do mês/ano,
-        // Ranking, Última venda, Churrascômetro), eixo INDEPENDENTE de
+        // Última venda, Churrascômetro), eixo INDEPENDENTE de
         // "ativo" (um dono pode estar ativo e ainda assim nunca contar).
         getGoalExcludedOwnerIds(organizationId),
       ]);
       const activeOwnerIds = activeMembers.map((m) => m.userId);
-      const activeOwnerIdSet = new Set(activeOwnerIds);
 
-      // 1. Ranking Empresas (Top 3 users this month)
+      // 1. Vendas ganhas do mês — só pros TOTAIS (Vendas do mês e valor bruto).
+      // O Ranking por consultor saiu deste painel: a TV principal fica à
+      // vista de cliente, e quanto cada consultor vendeu (inclusive um
+      // consultor que ainda não fechou nada no mês) não pode aparecer ali —
+      // pedido da diretoria, 09/2026. Vive em getTvRanking, servido só na
+      // tela interna do Ranking (app/r/[code], link por código, sem login).
       const wonDealsThisMonth = await prisma.deal.findMany({
         where: {
           organizationId,
@@ -110,51 +115,14 @@ export async function getTvMetrics(organizationId: string) {
           ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
         },
         select: {
-          ownerId: true,
           value: true,
           // Valor bruto (ver Deal.grossValue no schema) — só pro card
           // "Vendas do mês" (fileira Anuais/Cotas, ver vendasBrutoMes
-          // abaixo), nunca pro Ranking/Última venda/hero, que continuam
-          // 100% líquido (`value`) de propósito.
+          // abaixo), nunca pra Última venda/hero, que continuam 100%
+          // líquido (`value`) de propósito.
           grossValue: true,
-          // company: PJ do consultor (ver UserCompany no schema) — quando
-          // existe, é o nome dela que vai pro Ranking, não o nome pessoal
-          // (ver salesByUser logo abaixo).
-          owner: { select: { name: true, image: true, company: { select: { name: true } } } },
         },
       });
-
-      const salesByUser = new Map<string, { id: string; name: string; image: string | null; total: number }>();
-      for (const deal of wonDealsThisMonth) {
-        if (!deal.ownerId || !deal.owner) continue;
-        // Ranking é "quem do time atual mais vendeu" — ex-consultor nunca
-        // aparece aqui, mesmo tendo vendido muito antes de sair (ver
-        // totalVendasMes logo abaixo, que continua somando TODA venda do
-        // mês, incluindo a dele — só o pódio de pessoa é que exclui).
-        if (!activeOwnerIdSet.has(deal.ownerId)) continue;
-        const existing = salesByUser.get(deal.ownerId) || {
-          id: deal.ownerId,
-          // Nome da PJ quando o consultor cadastrou uma, nome pessoal quando
-          // não (pedido explícito: na TV aparece a empresa). Quem cadastra é
-          // components/cnpj-prompt.tsx via PUT /api/cnpj, que já grava o nome
-          // fantasia resolvido — aqui é só escolher entre os dois.
-          name: deal.owner.company?.name ?? deal.owner.name,
-          image: deal.owner.image,
-          total: 0,
-        };
-        existing.total += Number(deal.value || 0);
-        salesByUser.set(deal.ownerId, existing);
-      }
-
-      // Time inteiro, não só o pódio: a tela de Ranking da TV (ver
-      // tv-ranking-scroll.tsx) mostra os 10 primeiros parados e rola pra
-      // revelar quem vem depois. O pódio dos cards continua pegando só os 3
-      // primeiros sozinho (podiumOrder em tv-view.tsx). O teto de 50 é só pra
-      // não mandar uma lista gigante pro navegador da TV numa organização
-      // grande — ninguém rola além disso nos 25s de descida.
-      const rankingRaw = Array.from(salesByUser.values())
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 50);
 
       const totalVendasMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.value || 0), 0);
       // Bruto do MÊS (não do ano) — mesmo filtro `closedAt >= monthStart` de
@@ -166,9 +134,8 @@ export async function getTvMetrics(organizationId: string) {
       // soma, igual `value` ausente já era tratado.
       const vendasBrutoMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.grossValue || 0), 0);
 
-      // 2. Última venda — só de consultor ATIVO (mesmo raciocínio do
-      // ranking acima: pula pra próxima venda mais recente se a última
-      // registrada for de quem já saiu). id e closedAt junto pra
+      // 2. Última venda — só de consultor ATIVO (pula pra próxima venda mais
+      // recente se a última registrada for de quem já saiu). id e closedAt junto pra
       // tv-view.tsx saber DE VERDADE quando é uma venda nova (não só "o
       // valor mudou", que também aconteceria se o MESMO negócio fosse
       // reaberto/editado) e disparar a comemoração de confete só nesse
@@ -206,11 +173,8 @@ export async function getTvMetrics(organizationId: string) {
       // precisa virar URL assinada) ou uma URL externa já pronta (foto de
       // conta Google) — sem esse resolve, uma chave R2 crua ia pro cliente
       // como está, e um <img src="avatars/xxx.jpg"> vira um caminho relativo
-      // quebrado (foto sempre em branco no Ranking/Última Venda da TV). Um
-      // resolve só, batendo os dois widgets de uma vez (nunca resolve a
-      // mesma chave duas vezes, ver resolveAvatarUrlMap em lib/r2.ts).
-      const avatarMap = await resolveAvatarUrlMap([...rankingRaw.map((r) => r.image), lastSale?.owner?.image]);
-      const ranking = rankingRaw.map((r) => ({ ...r, image: r.image ? (avatarMap.get(r.image) ?? null) : null }));
+      // quebrado (foto sempre em branco na Última Venda da TV).
+      const avatarMap = await resolveAvatarUrlMap([lastSale?.owner?.image]);
 
       // 3. Vendas Anuais
       const wonDealsThisYear = await prisma.deal.aggregate({
@@ -225,7 +189,7 @@ export async function getTvMetrics(organizationId: string) {
       const vendasAnuais = Number(wonDealsThisYear._sum.value || 0);
 
       // 4. Leads no Funil — só de consultor ATIVO (activeOwnerIds já
-      // calculado lá em cima, reaproveitado do Ranking/Última venda).
+      // calculado lá em cima, reaproveitado da Última venda).
       const leadsInFunnels = await Promise.all(
         selectedStageIds.map(async (stageId) => {
           const stage = await prisma.pipelineStage.findUnique({
@@ -239,9 +203,10 @@ export async function getTvMetrics(organizationId: string) {
         })
       );
 
-      // 6b. Aniversariantes do mês — alimenta o carrossel do card Ranking (ver
-      // tv-view.tsx: depois de alguns minutos mostrando o pódio, gira pra
-      // mostrar quem faz aniversário este mês, destacando quem faz HOJE). Só
+      // 6b. Aniversariantes do mês — card próprio na TV (ver tv-view.tsx;
+      // quem faz aniversário HOJE ganha destaque e também troca com a Última
+      // venda). Antes viviam como o 2º "lado" do card Ranking, que saiu
+      // desta tela. Só
       // membros ativos com data de nascimento cadastrada (ver User.birthDate
       // no schema — opcional, então a maioria pode não ter ainda). Mês/dia
       // sempre por getUTCMonth()/getUTCDate() (nunca getMonth()/getDate()
@@ -296,7 +261,6 @@ export async function getTvMetrics(organizationId: string) {
             }
           : null,
         leadsInFunnels,
-        ranking,
         birthdaysThisMonth,
         churrascometroProgress:
           churrascometroTarget > 0 ? (totalVendasMes / churrascometroTarget) * 100 : 0,
@@ -315,7 +279,6 @@ export async function getTvMetrics(organizationId: string) {
       vendasMes: 0,
       lastSale: null,
       leadsInFunnels: [],
-      ranking: [],
       birthdaysThisMonth: [],
       churrascometroProgress: 0,
       adsUrls: config.adsUrls,
@@ -326,5 +289,102 @@ export async function getTvMetrics(organizationId: string) {
       // ambiente corrigida no mesmo deploy).
       serverInstanceId: SERVER_INSTANCE_ID,
     };
+  }
+}
+
+/**
+ * Ranking do mês — TODOS os consultores que fecharam venda no mês corrente,
+ * do que mais vendeu pro que menos. Servido só pela tela interna do Ranking
+ * (link público de código próprio em app/r/[code], sem login), NUNCA pela TV
+ * principal (ver getTvMetrics acima e o comentário lá sobre por que saiu): a diretoria não quer que um cliente que
+ * esteja na Reobote enxergue, por exemplo, que um consultor ainda não fechou
+ * nada no mês.
+ *
+ * Mesmas regras que o ranking sempre teve:
+ * - só time ATUAL (ex-consultor nunca aparece, mesmo tendo vendido antes de
+ *   sair — o total da empresa em getTvMetrics continua contando a venda dele);
+ * - fora quem não conta na meta (countsTowardGoal, ex.: sócio/Dono);
+ * - nome da PJ do consultor quando ele cadastrou uma (UserCompany), nome
+ *   pessoal quando não — pedido explícito, o ranking mostra a EMPRESA.
+ *
+ * Sem o teto de 50 que o painel da TV principal usava: aqui o pedido é
+ * "mostra todos que venderam naquele mês". O teto de 200 é só uma rede de
+ * segurança contra uma organização gigante mandando uma lista absurda pro
+ * navegador da TV — bem acima de qualquer time real.
+ */
+export async function getTvRanking(organizationId: string) {
+  const now = new Date();
+  const monthStart = brazilStartOfMonth(now);
+  const nowParts = getBrazilParts(now);
+  // "setembro de 2026" — mês/ano de Brasília (nowParts), formatado em UTC de
+  // propósito: o dia 1º à meia-noite UTC nunca cruza a virada de mês em
+  // nenhum fuso, então o nome do mês sai sempre certo.
+  const monthLabel = new Date(Date.UTC(nowParts.year, nowParts.month, 1)).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+  try {
+    return await runWithTenant(organizationId, async () => {
+      const [activeMembers, goalExcludedOwnerIds] = await Promise.all([
+        prisma.organizationUser.findMany({ where: { organizationId, active: true }, select: { userId: true } }),
+        getGoalExcludedOwnerIds(organizationId),
+      ]);
+      const activeOwnerIds = activeMembers.map((m) => m.userId);
+
+      // groupBy em vez de trazer todo negócio do mês e somar em memória — o
+      // banco já devolve uma linha por consultor. in + notIn no mesmo campo
+      // = AND (time ATUAL e que CONTA na meta), mesmo padrão de lastSale.
+      const grouped = await prisma.deal.groupBy({
+        by: ["ownerId"],
+        where: {
+          organizationId,
+          status: "WON",
+          closedAt: { gte: monthStart },
+          ownerId: { in: activeOwnerIds, ...(goalExcludedOwnerIds.length > 0 ? { notIn: goalExcludedOwnerIds } : {}) },
+        },
+        _sum: { value: true },
+      });
+
+      const users = grouped.length
+        ? await prisma.user.findMany({
+            where: { id: { in: grouped.map((g) => g.ownerId) } },
+            select: { id: true, name: true, image: true, company: { select: { name: true } } },
+          })
+        : [];
+      const userById = new Map(users.map((u) => [u.id, u]));
+
+      const rankingRaw = grouped
+        .flatMap((g) => {
+          const user = userById.get(g.ownerId);
+          if (!user) return [];
+          return [
+            {
+              id: user.id,
+              // Nome da PJ quando o consultor cadastrou uma (ver UserCompany
+              // no schema), nome pessoal quando não.
+              name: user.company?.name ?? user.name,
+              image: user.image,
+              total: Number(g._sum.value ?? 0),
+            },
+          ];
+        })
+        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "pt-BR"))
+        .slice(0, 200);
+
+      // Mesmo motivo de resolveAvatarUrlMap em getTvMetrics: `image` pode ser
+      // uma chave privada do R2 que precisa virar URL assinada.
+      const avatarMap = await resolveAvatarUrlMap(rankingRaw.map((r) => r.image));
+      const ranking = rankingRaw.map((r) => ({ ...r, image: r.image ? (avatarMap.get(r.image) ?? null) : null }));
+
+      // Detecção de deploy novo pela TV — ver lib/server-instance.ts.
+      return { ranking, monthLabel, serverInstanceId: SERVER_INSTANCE_ID };
+    });
+  } catch (error) {
+    console.error("[getTvRanking] Error fetching TV ranking:", error);
+    // Mesmo no fallback de erro a TV ainda precisa detectar um deploy novo e
+    // recarregar sozinha (pode ser exatamente o que resolve o erro).
+    return { ranking: [], monthLabel, serverInstanceId: SERVER_INSTANCE_ID };
   }
 }

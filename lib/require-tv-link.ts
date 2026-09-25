@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { hashTvDisplayLinkCode, normalizeTvDisplayLinkCode } from "@/lib/tv-display-link";
 import { runWithTvLinkLookup } from "@/lib/tenant-context";
 import { rateLimit } from "@/lib/rate-limit";
+import { checkShortCodeAttempt, recordShortCodeAttempt, shortCodePairKey } from "@/lib/tv-link-guard";
+import type { $Enums } from "@/app/generated/prisma/client";
 
 /**
  * Autenticação do link público (sem login) da TV — app/t/[code]/ (a
@@ -17,16 +19,40 @@ import { rateLimit } from "@/lib/rate-limit";
  * pra uso legítimo (uma TV só faz 1 a cada 15s = 20/5min, sobra margem pra
  * F5 manual no meio) e inviabiliza forçar um código de 60 bits de entropia
  * na prática.
+ *
+ * `kind` diz QUAL tela este código pode abrir (ver TvDisplayLinkKind no
+ * schema): app/t/[code] pede DASHBOARD, app/r/[code] pede RANKING. Um código
+ * de um tipo NUNCA autentica o outro — é o que impede que o código da TV
+ * principal (a que cliente enxerga) abra o Ranking do mês. Padrão DASHBOARD
+ * pra manter idêntico o comportamento de quem já chamava sem o 3º argumento.
+ *
+ * O código do RANKING tem só 3 caracteres (ver lib/tv-display-link.ts), então
+ * ele passa por uma proteção EXTRA contra adivinhação — orçamento de chutes
+ * errados por IP e no total (lib/tv-link-guard.ts) — além do limite geral
+ * acima. O código de 12 do DASHBOARD segue só com o limite geral.
  */
-export async function requireTvLink(rawCode: string, ip: string) {
+export async function requireTvLink(rawCode: string, ip: string, kind: $Enums.TvDisplayLinkKind = "DASHBOARD") {
   const rl = rateLimit(`tv-link:${ip}`, 60, 5 * 60 * 1000);
   if (!rl.allowed) return { ok: false as const, organizationId: null };
 
   const code = normalizeTvDisplayLinkCode(rawCode);
   const codeHash = hashTvDisplayLinkCode(code);
 
+  // Código curto: recusa ANTES de consultar o banco quando o orçamento de
+  // chutes errados acabou (recusar só depois de saber que está errado seria
+  // um oráculo de adivinhação).
+  const guardKey = kind === "RANKING" ? shortCodePairKey(ip, codeHash) : null;
+  let trusted = false;
+  if (guardKey) {
+    const check = checkShortCodeAttempt(ip, guardKey);
+    if (!check.allowed) return { ok: false as const, organizationId: null };
+    trusted = check.trusted;
+  }
+
   const link = await runWithTvLinkLookup(codeHash, () => prisma.tvDisplayLink.findUnique({ where: { tokenHash: codeHash } }));
-  if (!link || link.revokedAt) return { ok: false as const, organizationId: null };
+  const valid = !!link && !link.revokedAt && link.kind === kind;
+  if (guardKey) recordShortCodeAttempt(ip, guardKey, valid, trusted);
+  if (!link || !valid) return { ok: false as const, organizationId: null };
 
   // Fire-and-forget — não atrasa a TV por causa de um campo que só serve
   // pra exibir "último uso" na UI de gestão (mesmo padrão de

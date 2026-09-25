@@ -585,6 +585,19 @@ model MessageScript {
   // Auditoria/Membros) — ver enforcement em app/api/message-scripts/**.
   visibility MessageScriptVisibility @default(PUBLIC)
 
+  // Versão de MEDIÇÃO do script (não é um contador de toda gravação): só sobe
+  // quando quem edita escolhe "nova versão" ao salvar (ver
+  // lib/campaigns/script-sync.ts). Existe pro relatório de prospecção saber
+  // se um envio é do MESMO script (correção de texto — os números continuam
+  // juntos) ou de uma versão nova (recomeça a contar). Cada envio grava a
+  // versão que usou em CampaignRecipient.scriptVersion.
+  version        Int   @default(1)
+  // Textos das versões ANTERIORES, arquivados quando a versão sobe:
+  // [{ version, name, steps, savedAt, savedById }]. Sem isso, depois de
+  // editar não haveria como saber o que a "v1" dizia quando o relatório
+  // mostra que ela converteu melhor/pior.
+  versionHistory Json?
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -736,6 +749,12 @@ model CampaignRecipient {
   // script diferente (mesmo padrão de sentAt/followUpSentAt).
   scriptId         String?
   followUpScriptId String?
+  // Versão de MessageScript.version usada em cada um desses dois envios
+  // (gravada no momento do envio, a partir do snapshot da campanha — nunca
+  // relida da biblioteca depois, que pode já ter mudado). null = envio de
+  // antes do versionamento existir, tratado como versão 1 nos relatórios.
+  scriptVersion         Int?
+  followUpScriptVersion Int?
 
   repliedAt DateTime? // Marcado pelo webhook de mensagem recebida (lib/whatsapp/events.ts).
 
@@ -813,6 +832,13 @@ model OrganizationUser {
   // agora" (Configurações → Usuários). Sem relação com atividade/tempo no
   // CRM, isso vive em UserDailyActivity.
   lastActiveAt          DateTime?
+  // Último dia (Brasília, "YYYY-MM-DD" — mesma convenção de
+  // UserDailyActivity.date) em que esta pessoa já foi avisada por push dos
+  // aniversários de clientes dela (ver lib/birthdays.ts). É o marcador do
+  // "primeiro acesso do dia": o primeiro heartbeat do dia troca este valor
+  // por hoje num UPDATE condicional atômico e só quem conseguiu trocar envia
+  // o push — sem isso, duas abas abertas ao mesmo tempo mandavam em dobro.
+  birthdayPushDate      String?
   // Texto do convite de reunião mandado pro WhatsApp do cliente (ver
   // lib/meeting-invite.ts) — por vendedor, não por organização: cada um
   // manda pelo próprio número, então cada um tem seu próprio jeito de
@@ -2463,11 +2489,25 @@ model TvDashboardConfig {
  * impede mais de um por organização (histórico de revogados fica guardado,
  * mesmo padrão soft-revoke do ApiKey).
  */
+// Qual tela um código de link público abre. DASHBOARD = a TV principal (/t/CÓDIGO,
+// a que fica à vista de cliente); RANKING = o Ranking do mês, uma TV interna à
+// parte (/r/CÓDIGO, ver app/r/[code]/page.tsx). Códigos SEPARADOS de propósito:
+// o ranking mostra quanto cada consultor vendeu e não pode aparecer numa tela
+// que cliente enxerga (pedido da diretoria, 09/2026) — se os dois usassem o
+// mesmo código, quem tivesse o da TV principal abriria o ranking também.
+enum TvDisplayLinkKind {
+  DASHBOARD
+  RANKING
+}
+
 model TvDisplayLink {
   id             String    @id @default(cuid())
   organizationId String
   tokenPrefix    String
   tokenHash      String    @unique
+  // Default DASHBOARD: todo link que já existia antes desta coluna é da TV
+  // principal, sem precisar de backfill.
+  kind           TvDisplayLinkKind @default(DASHBOARD)
   createdById    String
   lastUsedAt     DateTime?
   revokedAt      DateTime?

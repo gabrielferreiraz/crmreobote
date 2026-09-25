@@ -42,6 +42,22 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# lib/ inteira (fonte .ts, ~1.6MB — irrelevante perto do node_modules) —
+# necessária em runtime, fora do bundle do Next: lib/parse-spreadsheet.ts
+# spawna lib/parse-spreadsheet-worker.ts como worker_thread via
+# `new Worker(path.join(process.cwd(), "lib", "..."))`, um caminho dinâmico
+# que o tracer do Next (.next/standalone) não enxerga como import — ele só
+# segue require/import estático. O worker roda o .ts direto (Node 24 tem
+# suporte nativo a strip de tipos, sem precisar de build/tsx/ts-node) e
+# importa outros arquivos de lib/ por caminho RELATIVO (nunca o alias "@/",
+# que só o webpack resolve) — copiar a pasta inteira, não só este arquivo,
+# evita ter que listar cada dependência transitiva na mão. Isola o parsing
+# de planilha (.csv/.xlsx) da importação de Clientes/Negócios num processo
+# à parte com limite de memória/tempo — ver o comentário longo em
+# lib/parse-spreadsheet-worker.ts pro porquê (CVE-2026-78206/78207 do
+# ExcelJS 4.4.0, sem correção oficial ainda).
+COPY --from=builder --chown=nextjs:nodejs /app/lib ./lib
+
 # Carimbo de quando esta imagem foi montada — exposto em /api/health. Serve só
 # pra diagnosticar deploy: dá pra confirmar de fora (curl) se o container que
 # está respondendo em produção é mesmo o da build mais recente, ou se o

@@ -14,6 +14,20 @@ import type { ScriptStep } from "@/lib/campaigns/spintax";
 
 const MAX_DELAY_SEC = 120;
 
+/**
+ * Restrita (PRIVATE) só é visível/editável por quem criou ou pelo OWNER
+ * (mesmo acesso administrativo total de Auditoria/Membros) — Pública, por
+ * todo mundo. Regra ÚNICA da biblioteca de scripts (antes uma cópia local em
+ * app/api/message-scripts/[id]/route.ts; a sincronização de campanhas em
+ * lib/campaigns/script-sync.ts precisa da mesma decisão).
+ */
+export function canAccessScript(
+  script: { visibility: $Enums.MessageScriptVisibility; createdById: string },
+  access: { userId: string; role: string },
+): boolean {
+  return script.visibility === "PUBLIC" || script.createdById === access.userId || access.role === "OWNER";
+}
+
 export function validateSteps(input: unknown): { ok: true; steps: ScriptStep[] } | { ok: false; error: string } {
   if (!Array.isArray(input) || input.length === 0) {
     return { ok: false, error: "Adicione ao menos uma mensagem ao script" };

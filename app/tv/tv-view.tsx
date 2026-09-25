@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
-import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } from "lucide-react";
+import { TrendingUp, Sparkles, Waypoints, PartyPopper, Cake } from "lucide-react";
 import { AnimatedFire } from "@/components/animated-fire";
 // import { ReoboteLogo } from "@/components/reobote-logo"; // desligado — ver comentário de LOGO_ASPECT_RATIO mais abaixo
 import { fetchTvMetrics } from "./actions";
@@ -9,8 +9,6 @@ import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
 import { TvClock } from "./tv-clock";
-import { CountUpValue } from "@/components/count-up-value";
-import { TvRankingScroll } from "./tv-ranking-scroll";
 
 type Metrics = Awaited<ReturnType<typeof fetchTvMetrics>>;
 type WinSale = { id: string; name: string; image: string | null; value: number };
@@ -18,8 +16,10 @@ type WinSale = { id: string; name: string; image: string | null; value: number }
 // Só o carrossel de propaganda gira sozinho — o painel de métricas mostra
 // TODOS os widgets habilitados ao mesmo tempo (ver corpo do componente
 // abaixo), num "bento" de tamanhos variados em vez de retângulos idênticos
-// empilhados: hero pra vendas do mês, última venda, tiras pro funil, pódio
-// de verdade pro ranking, e o churrascômetro numa barra full-width embaixo.
+// empilhados: hero pra vendas do mês, última venda, tiras pro funil, e o
+// churrascômetro numa barra full-width embaixo. (O Ranking do mês NÃO faz
+// parte desta tela: ela fica à vista de cliente, e o ranking vive numa TV
+// interna à parte — ver app/tv/ranking-view.tsx.)
 const AD_DURATION_MS = 10000;
 // Intervalo do refresh de métricas (venda nova, ranking, funil, etc.) —
 // 15s: rápido o bastante pra uma venda nova (ou uma venda desfeita — ver
@@ -40,33 +40,17 @@ const STALE_AFTER_MS = METRICS_POLL_MS * 3;
 // manhã — fora de qualquer expediente, ninguém vai notar a tela apagar por
 // um instante.
 const DAILY_RELOAD_HOUR = 4;
-// A cada 5 minutos, as fotos do pódio do Ranking giram (mesmo efeito 3D
-// "moeda" da comemoração de venda, ver .animate-tv-photo-spin em
-// globals.css) por alguns segundos — um destaque periódico pros líderes do
-// mês, não preso a nenhum evento (diferente da comemoração de venda, que só
-// acontece quando uma venda de verdade acontece).
-const RANKING_SPIN_INTERVAL_MS = 5 * 60 * 1000;
-const RANKING_SPIN_VISIBLE_MS = 6000;
-// O painel de métricas alterna entre os cards de sempre e uma tela dedicada
-// com o Ranking do mês inteiro (top 10, ver tv-ranking-scroll.tsx): 2min nos
-// cards, 1min20s no ranking, ciclo total de 3min20s. Os 80s do ranking são a
-// soma exata das 3 fases de lá (30s parado no topo + 25s descendo até o
-// último + 25s voltando ao primeiro) — mexer num dos dois lados sem o outro
-// deixa a tela trocando no meio da animação.
-const CARDS_DURATION_MS = 2 * 60 * 1000;
-const RANKING_SCROLL_DURATION_MS = 80 * 1000;
-// Carrossel de SÓ 2 cards do painel (Última venda e Ranking — ver
-// renderLastSaleContent/renderRankingContent no componente abaixo, cada um
-// com seu próprio slide independente) — alterna entre o conteúdo normal de
-// cada card e um conteúdo de aniversário, mesma lógica de "roda sozinho num
-// intervalo fixo" que o carrossel de propaganda já usa (ver AD_DURATION_MS).
-// Vendas do mês e Leads no funil NUNCA trocam de conteúdo — ficam estáticos
-// o tempo todo. Só entra nesse rodízio quando alguém faz aniversário este
-// mês (ver hasBirthdayThisMonth mais abaixo) — sem ninguém fazendo
-// aniversário no mês, os dois cards ficam só no conteúdo normal pra sempre.
-// Quem faz aniversário especificamente HOJE ainda ganha destaque à parte
-// dentro do conteúdo (ver renderLastSaleContent/renderRankingContent).
-const RANKING_CAROUSEL_INTERVAL_MS = 3 * 60 * 1000;
+// Carrossel do card ÚLTIMA VENDA (ver renderLastSaleContent no componente
+// abaixo) — alterna entre o conteúdo normal (a venda mais recente) e o(s)
+// aniversariante(s) de HOJE, mesma lógica de "roda sozinho num intervalo
+// fixo" que o carrossel de propaganda já usa (ver AD_DURATION_MS). Só entra
+// no rodízio quando alguém faz aniversário HOJE de verdade (ver
+// hasBirthdayToday mais abaixo); sem isso o card fica só no conteúdo normal.
+// Vendas do mês e Leads no funil NUNCA trocam de conteúdo. (Antes este mesmo
+// relógio também girava o card Ranking entre o pódio e a lista de
+// aniversariantes do mês; o Ranking saiu desta TV — ver getTvRanking em
+// lib/tv-dashboard.ts — e essa lista virou um card fixo próprio.)
+const BIRTHDAY_CAROUSEL_INTERVAL_MS = 3 * 60 * 1000;
 // Quanto tempo o lado que está SAINDO fica montado depois da troca, animando
 // pra fora da tela (ver outgoingSlide mais abaixo) — precisa bater com a
 // duração das animações tv-slide-in-from-*/tv-slide-out-to-* em globals.css,
@@ -165,9 +149,6 @@ export function TvView({
   const LOGO_ASPECT_RATIO = 3144 / 1784;
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [celebration, setCelebration] = useState<WinSale | null>(null);
-  // Alterna entre cards normais e ranking com scroll animado a cada 2min nos
-  // cards e 1min 20seg no ranking (ciclo total de 3min 20seg).
-  const [showRankingScroll, setShowRankingScroll] = useState(false);
   // Aviso discreto de "os números na tela podem estar desatualizados" — ver
   // STALE_AFTER_MS. `lastFetchOkAt` não é state de propósito (não precisa
   // re-renderizar a cada busca bem-sucedida, só quando `stale` muda de
@@ -199,39 +180,28 @@ export function TvView({
     const interval = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(interval);
   }, []);
-  // Giro nas fotos do pódio do Ranking — liga a cada 5min, desliga sozinho
-  // alguns segundos depois (ver RANKING_SPIN_INTERVAL_MS/RANKING_SPIN_VISIBLE_MS).
-  const [rankingSpinActive, setRankingSpinActive] = useState(false);
-  // Qual "lado" está visível nos cards Última venda/Ranking — 0 = conteúdo
-  // normal, 1 = aniversário de hoje (ver RANKING_CAROUSEL_INTERVAL_MS). Os
-  // dois cards trocam JUNTOS, no mesmo instante (um estado só controla os
-  // dois). Alterna (não avança sempre pro mesmo lado) de propósito — com só
-  // 2 conteúdos, ping-pong é o carrossel mais simples que ainda dá a
-  // sensação de "girar", sem precisar de um 3º estado só pra voltar.
-  const [rankingSlide, setRankingSlide] = useState<0 | 1>(0);
+  // Qual "lado" está visível no card Última venda — 0 = a venda mais recente,
+  // 1 = aniversário de hoje (ver BIRTHDAY_CAROUSEL_INTERVAL_MS). Alterna (não
+  // avança sempre pro mesmo lado) de propósito — com só 2 conteúdos,
+  // ping-pong é o carrossel mais simples que ainda dá a sensação de "girar",
+  // sem precisar de um 3º estado só pra voltar.
+  const [birthdaySlide, setBirthdaySlide] = useState<0 | 1>(0);
   // Lado que acabou de SAIR — fica montado por SLIDE_TRANSITION_MS depois de
-  // cada troca de rankingSlide só pra poder animar arrastando pra fora da
+  // cada troca de birthdaySlide só pra poder animar arrastando pra fora da
   // tela (ver JSX mais abaixo). Sem isso, a troca de `key` desmontava o
   // conteúdo anterior na hora — só o lado novo aparecia entrando, sem
   // nenhum lado saindo visível, e não passava a sensação de "arrastar pro
   // lado" pedida, só de "aparecer".
   const [outgoingSlide, setOutgoingSlide] = useState<0 | 1 | null>(null);
-  const prevRankingSlideRef = useRef<0 | 1>(0);
+  const prevBirthdaySlideRef = useRef<0 | 1>(0);
   useEffect(() => {
-    if (prevRankingSlideRef.current === rankingSlide) return;
-    const prev = prevRankingSlideRef.current;
-    prevRankingSlideRef.current = rankingSlide;
+    if (prevBirthdaySlideRef.current === birthdaySlide) return;
+    const prev = prevBirthdaySlideRef.current;
+    prevBirthdaySlideRef.current = birthdaySlide;
     setOutgoingSlide(prev);
     const timer = setTimeout(() => setOutgoingSlide(null), SLIDE_TRANSITION_MS);
     return () => clearTimeout(timer);
-  }, [rankingSlide]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setShowRankingScroll((prev) => !prev);
-    }, showRankingScroll ? RANKING_SCROLL_DURATION_MS : CARDS_DURATION_MS);
-    return () => clearInterval(timer);
-  }, [showRankingScroll]);
+  }, [birthdaySlide]);
 
   // Data (timestamp) da venda mais recente já vista — começa com a data que
   // já veio pronta do servidor, então o 1º carregamento da página (ou um F5)
@@ -356,56 +326,38 @@ export function TvView({
     return () => clearInterval(interval);
   }, []);
 
-  // Giro nas fotos do pódio do Ranking a cada 5min (ver RANKING_SPIN_*
-  // acima) — sem cleanup do setTimeout interno de propósito: mesmo se o
-  // componente desmontasse entre o `true` e o `false`, a TV nunca desmonta
-  // esse componente sozinha (só um F5 inteiro faria isso), não vale a pena
-  // a complexidade extra de rastrear esse timeout também.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setRankingSpinActive(true);
-      setTimeout(() => setRankingSpinActive(false), RANKING_SPIN_VISIBLE_MS);
-    }, RANKING_SPIN_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Dois gatilhos diferentes, um pra cada card — `birthdaysThisMonth` já vem
-  // do servidor filtrado pelo mês/dia ATUAIS de verdade (getBrazilParts(new
-  // Date()) em lib/tv-dashboard.ts, nunca um valor fixo), recorrente ano
-  // após ano.
-  // - hasBirthdayThisMonth: liga o TIMER do carrossel (compartilhado pelos
-  //   dois cards) — o Ranking mostra a lista do mês inteiro assim que tem
-  //   qualquer aniversariante no mês.
-  // - hasBirthdayToday: além do timer estar ligado, o card Última venda só
-  //   participa da troca quando alguém faz aniversário HOJE de verdade — 2
-  //   dias antes/depois não é suficiente pra ele sair do lugar (pedido
-  //   explícito); nesse caso ele fica sempre no conteúdo normal, mesmo com
-  //   o Ranking girando ao lado (ver JSX mais abaixo).
+  // `birthdaysThisMonth` já vem do servidor filtrado pelo mês/dia ATUAIS de
+  // verdade (getBrazilParts(new Date()) em lib/tv-dashboard.ts, nunca um valor
+  // fixo), recorrente ano após ano.
+  // - hasBirthdayThisMonth: mostra o card fixo "Aniversariantes do Mês" (ver
+  //   renderBirthdaysContent) — só existe quando alguém faz aniversário no mês.
+  // - hasBirthdayToday: além dele, liga o rodízio do card Última venda com o(s)
+  //   aniversariante(s) de HOJE — 2 dias antes/depois não é suficiente pra esse
+  //   card sair do lugar (pedido explícito).
   const hasBirthdayThisMonth = metrics.birthdaysThisMonth.length > 0;
   const hasBirthdayToday = metrics.birthdaysThisMonth.some((b) => b.isToday);
 
-  // Carrossel dos cards Última venda/Ranking (conteúdo normal ↔
-  // aniversariantes, ver RANKING_CAROUSEL_* acima) — só roda quando há de
-  // fato algum aniversariante este mês; sem isso, ligar o intervalo do mesmo
-  // jeito faria os cards "girarem" pra um conteúdo de aniversário vazio, à
-  // toa. Reavalia a cada refresh de métricas — se o carrossel estava ativo e
-  // a lista esvaziar (virou o mês), volta pro conteúdo normal e para de
+  // Rodízio do card Última venda (conteúdo normal ↔ aniversariantes de HOJE,
+  // ver BIRTHDAY_CAROUSEL_INTERVAL_MS) — só roda quando há de fato alguém
+  // fazendo aniversário hoje; sem isso, ligar o intervalo do mesmo jeito só
+  // re-renderizaria a tela à toa. Reavalia a cada refresh de métricas — se o
+  // carrossel estava ativo e o dia virou, volta pro conteúdo normal e para de
   // girar sozinho.
   useEffect(() => {
-    if (!hasBirthdayThisMonth) {
+    if (!hasBirthdayToday) {
       // setState direto no corpo do efeito é proposital — sincroniza o
-      // slide com uma condição EXTERNA (esvaziou a lista de
-      // aniversariantes) que só este efeito observa; não tem outro lugar
-      // certo pra fazer esse reset sem duplicar a lógica.
+      // slide com uma condição EXTERNA (deixou de haver aniversariante hoje)
+      // que só este efeito observa; não tem outro lugar certo pra fazer esse
+      // reset sem duplicar a lógica.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRankingSlide(0);
+      setBirthdaySlide(0);
       return;
     }
     const interval = setInterval(() => {
-      setRankingSlide((s) => (s === 0 ? 1 : 0));
-    }, RANKING_CAROUSEL_INTERVAL_MS);
+      setBirthdaySlide((s) => (s === 0 ? 1 : 0));
+    }, BIRTHDAY_CAROUSEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [hasBirthdayThisMonth]);
+  }, [hasBirthdayToday]);
 
   // Recarga diária de madrugada (ver DAILY_RELOAD_HOUR) — calcula os ms até
   // a próxima ocorrência UMA vez ao montar; depois do reload, a página monta
@@ -436,13 +388,12 @@ export function TvView({
   const showChurrasco = has.has("churrascometro");
   const showLastSale = has.has("last_sale");
   const showFunnels = has.has("funnels");
-  const showRanking = has.has("ranking");
-  // Nenhum widget habilitado — checa os 5 direto (antes passava por uma
+  // Nenhum widget habilitado — checa os 4 direto (antes passava por uma
   // variável intermediária `showPairRow`, nome de um design antigo em que
   // Última venda dividia linha com o Churrascômetro; hoje ela divide CARD
   // com Leads no funil, não tem "row" pareado nenhum mais — o nome não
   // correspondia a mais nada real, só a lógica em si estava certa).
-  const nothingEnabled = !showHero && !showChurrasco && !showLastSale && !showFunnels && !showRanking;
+  const nothingEnabled = !showHero && !showChurrasco && !showLastSale && !showFunnels;
   // Meta do mês batida — o Churrascômetro merece um "final feliz" em vez de
   // só continuar mostrando "134%" na mesma cor de sempre, como se nada
   // tivesse acontecido.
@@ -483,7 +434,7 @@ export function TvView({
     if (!churrascoGoalHit) {
       churrascoBannerShownRef.current = false;
       // setState direto no corpo do efeito é proposital — mesmo motivo do
-      // reset de rankingSlide acima: sincroniza com uma condição externa
+      // reset de birthdaySlide acima: sincroniza com uma condição externa
       // (meta deixou de estar batida) que só este efeito observa.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setChurrascoBannerPhase("hidden");
@@ -509,7 +460,7 @@ export function TvView({
   // Conteúdo de cada lado do card ÚLTIMA VENDA (0 = venda mais recente, 1 =
   // aniversário de hoje) — função em vez de JSX duplicado, porque o MESMO
   // lado pode precisar ser desenhado duas vezes ao mesmo tempo durante uma
-  // troca: uma vez como o que está ENTRANDO (rankingSlide atual) e, por
+  // troca: uma vez como o que está ENTRANDO (birthdaySlide atual) e, por
   // SLIDE_TRANSITION_MS, também como o que acabou de SAIR (outgoingSlide,
   // ver JSX mais abaixo) — arrastando pra fora enquanto o outro arrasta pra
   // dentro, ao mesmo tempo. Slide 1 usa a MESMA forma visual do slide 0
@@ -526,13 +477,10 @@ export function TvView({
         <div className="relative flex flex-wrap items-center justify-center" style={{ gap: "calc(var(--tv-gap) * 1.2)" }}>
           {todayBirthdays.map((b) => (
             <div key={b.id} className="flex items-center" style={{ gap: "calc(var(--tv-gap) * 0.8)" }}>
-              {/* Mesmo pacote de comemoração do card Ranking (ver
-                  renderRankingContent) — foto girando 3D + sparkles
-                  pulsando, pra quem faz aniversário hoje ganhar mais
-                  destaque que só a borda colorida. */}
+              {/* Pacote de comemoração com visual alegre e vibrante */}
               <div className="relative shrink-0" style={{ width: "var(--tv-avatar-md)", height: "var(--tv-avatar-md)", perspective: "800px" }}>
                 <span
-                  className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-60 blur-lg"
+                  className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-70 blur-lg"
                   style={{ inset: "-25%", backgroundColor: BIRTHDAY_COLOR }}
                 />
                 <Sparkles
@@ -550,31 +498,31 @@ export function TvView({
                     src={b.image}
                     alt={b.name}
                     className="animate-tv-photo-spin relative h-full w-full rounded-full object-cover shadow-lg"
-                    style={{ border: `2px solid ${BIRTHDAY_COLOR}` }}
+                    style={{ border: `3px solid ${BIRTHDAY_COLOR}` }}
                   />
                 ) : (
                   <div
-                    className="animate-tv-photo-spin relative flex h-full w-full items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-value-sm)]"
-                    style={{ border: `2px solid ${BIRTHDAY_COLOR}` }}
+                    className={`animate-tv-photo-spin relative flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${getBirthdayAvatarGradient(b.name)} text-[length:var(--tv-text-value-sm)] font-bold text-white shadow-lg`}
+                    style={{ border: `3px solid ${BIRTHDAY_COLOR}` }}
                   >
                     {b.name.charAt(0)}
                   </div>
                 )}
               </div>
               <div className="min-w-0 max-w-[var(--tv-truncate-lg)] text-left">
-                <div className="flex items-center gap-1.5">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 mb-1">
                   <Cake
                     className="shrink-0"
                     style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }}
                     strokeWidth={2.5}
                   />
-                  <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
+                  <p className="font-semibold tracking-widest uppercase text-[length:var(--tv-text-label)]">
                     Aniversário hoje
                   </p>
                 </div>
-                <p className="truncate font-medium text-[length:var(--tv-text-name)]">{b.name}</p>
-                <p className="font-extrabold text-[length:var(--tv-text-value-sm)]" style={{ color: BIRTHDAY_COLOR }}>
-                  <span className="inline-block animate-bounce">🎉</span> Parabéns!
+                <p className="truncate font-semibold text-white text-[length:var(--tv-text-name)]">{b.name}</p>
+                <p className="font-extrabold text-[length:var(--tv-text-value-sm)] flex items-center gap-1.5" style={{ color: BIRTHDAY_COLOR }}>
+                  <span className="inline-block animate-bounce">🎉</span> Parabéns pelo seu dia!
                 </p>
               </div>
             </div>
@@ -665,143 +613,96 @@ export function TvView({
     );
   };
 
-  // Conteúdo de cada lado do card RANKING (0 = pódio, 1 = aniversariantes do
-  // mês) — mesmo motivo de renderLastSaleContent acima (precisa poder
-  // desenhar o mesmo lado 2x ao mesmo tempo durante uma troca). Slide 1
-  // mostra o MÊS inteiro (ver hasBirthdayThisMonth); quem faz aniversário
-  // HOJE ganha borda rosa pra se destacar dentro da lista.
-  const renderRankingContent = (slide: 0 | 1) => {
-    if (slide === 1) {
-      return (
-        <>
-          <div className="relative flex items-center justify-center gap-2">
-            <Cake style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: BIRTHDAY_COLOR }} strokeWidth={2.5} />
-            <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-              Aniversariantes do mês
-            </p>
-          </div>
-          {/* Mesma linguagem visual do pódio (avatar em círculo com anel
-              colorido, nome truncado embaixo, legenda pequena embaixo do
-              nome) em vez da pílula com fundo/borda de antes — aquilo
-              destoava do resto do dashboard (nenhum outro card usa esse
-              estilo de chip pra pessoas, só pra contagem tipo "Leads no
-              funil"). Quem faz aniversário HOJE ganha anel mais grosso +
-              halo pulsante, igual o destaque do 1º lugar do pódio — o resto
-              do mês fica discreto, anel fino neutro. */}
-          <div
-            className="relative flex flex-wrap items-start justify-center"
-            style={{ gap: "calc(var(--tv-gap) * 1.1)", marginTop: "var(--tv-gap)" }}
-          >
-            {metrics.birthdaysThisMonth.map((b) => (
-              <div key={b.id} className="flex flex-col items-center">
-                {/* Quem faz aniversário HOJE ganha o pacote completo de
-                    "comemoração" — mesma linguagem já usada na TV pra venda
-                    fechada: foto girando 3D (animate-tv-photo-spin, mesma
-                    animação do pódio/win-celebration — `perspective` no PAI,
-                    não no elemento que gira), sparkles pulsando nos cantos, e
-                    o emoji quicando (animate-bounce, nativo do Tailwind). O
-                    resto do mês fica parado, sem competir com o destaque. */}
-                <div
-                  className="relative"
-                  style={{
-                    width: "var(--tv-avatar-lg)",
-                    height: "var(--tv-avatar-lg)",
-                    perspective: b.isToday ? "800px" : undefined,
-                  }}
-                >
-                  {b.isToday && (
-                    <>
-                      <span
-                        className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-60 blur-lg"
-                        style={{ inset: "-25%", backgroundColor: BIRTHDAY_COLOR }}
-                      />
-                      <Sparkles
-                        className="absolute -top-1.5 -right-1.5 animate-pulse"
-                        style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }}
-                        strokeWidth={2.5}
-                      />
-                      <Sparkles
-                        className="absolute -bottom-1 -left-1.5 animate-pulse"
-                        style={{
-                          width: "var(--tv-icon-sm)",
-                          height: "var(--tv-icon-sm)",
-                          color: BIRTHDAY_COLOR,
-                          animationDelay: "0.6s",
-                        }}
-                        strokeWidth={2.5}
-                      />
-                    </>
-                  )}
-                  {b.image ? (
-                    <img
-                      src={b.image}
-                      alt={b.name}
-                      className={`relative h-full w-full rounded-full object-cover shadow-lg ${b.isToday ? "animate-tv-photo-spin" : ""}`}
-                      style={{ border: `${b.isToday ? 5 : 4}px solid ${b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED}` }}
-                    />
-                  ) : (
-                    <div
-                      className={`relative flex h-full w-full items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-name)] ${b.isToday ? "animate-tv-photo-spin" : ""}`}
-                      style={{ border: `${b.isToday ? 5 : 4}px solid ${b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED}` }}
-                    >
-                      {b.name.charAt(0)}
-                    </div>
-                  )}
-                </div>
-                <p
-                  className={`mt-1.5 max-w-[var(--tv-truncate-md)] truncate text-[length:var(--tv-text-body)] ${b.isToday ? "font-bold text-white" : "font-medium"}`}
-                  style={b.isToday ? undefined : { color: BIRTHDAY_COLOR_MUTED }}
-                  title={b.name}
-                >
-                  {b.name}
-                </p>
-                <p
-                  className="font-semibold text-[length:var(--tv-text-body)]"
-                  style={{ color: b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED }}
-                >
-                  {b.isToday ? (
-                    <>
-                      <span className="inline-block animate-bounce">🎉</span> hoje
-                    </>
-                  ) : (
-                    `dia ${b.day}`
-                  )}
-                </p>
-              </div>
-            ))}
-          </div>
-        </>
-      );
-    }
-    return (
-      <>
-        <div className="relative flex items-center justify-center gap-2">
-          <Trophy style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)", color: "#eab308" }} strokeWidth={2.5} />
-          <p className="font-semibold tracking-widest text-neutral-400 uppercase text-[length:var(--tv-text-label)]">
-            Ranking do mês
+  // Conteúdo do card fixo ANIVERSARIANTES DO MÊS — a lista do mês inteiro (ver
+  // hasBirthdayThisMonth); quem faz aniversário HOJE ganha borda rosa pra se
+  // destacar dentro dela. Era o 2º "lado" do card Ranking, que girava entre o
+  // pódio e esta lista; com o Ranking fora desta TV (ver getTvRanking) virou um
+  // card próprio, sem rodízio.
+  const renderBirthdaysContent = () => (
+    <>
+      <div className="relative flex items-center justify-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 shadow-sm">
+          <PartyPopper style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }} strokeWidth={2.5} />
+          <p className="font-semibold tracking-wider uppercase text-[length:var(--tv-text-label)]">
+            Aniversariantes do Mês
           </p>
         </div>
-        {/* marginTop reduzido (era var(--tv-gap) cheio) — pedido explícito:
-            o card de Ranking estava cortando nome/valor dos consultores;
-            este respiro (cabeçalho → pódio) é espaço que não carrega
-            informação nenhuma, então é o primeiro a ceder antes de
-            encolher avatar/nome/valor (que continuam do mesmo tamanho —
-            esses SIM precisam de destaque). */}
-        {metrics.ranking.length > 0 ? (
-          <div
-            className="relative flex items-end justify-center"
-            style={{ gap: "var(--tv-gap)", marginTop: "calc(var(--tv-gap) * 0.6)" }}
-          >
-            {podiumOrder(metrics.ranking).map(({ user, place }) => (
-              <RankingPodiumSlot key={user.id} user={user} place={place} spinPhoto={rankingSpinActive} />
-            ))}
+      </div>
+      <div
+        className="relative flex flex-wrap items-start justify-center"
+        style={{ gap: "calc(var(--tv-gap) * 1.1)", marginTop: "var(--tv-gap)" }}
+      >
+        {metrics.birthdaysThisMonth.map((b) => (
+          <div key={b.id} className="flex flex-col items-center">
+            <div
+              className="relative"
+              style={{
+                width: "var(--tv-avatar-lg)",
+                height: "var(--tv-avatar-lg)",
+                perspective: b.isToday ? "800px" : undefined,
+              }}
+            >
+              {b.isToday && (
+                <>
+                  <span
+                    className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-70 blur-lg"
+                    style={{ inset: "-25%", backgroundColor: BIRTHDAY_COLOR }}
+                  />
+                  <Sparkles
+                    className="absolute -top-1.5 -right-1.5 animate-pulse"
+                    style={{ width: "var(--tv-icon-sm)", height: "var(--tv-icon-sm)", color: BIRTHDAY_COLOR }}
+                    strokeWidth={2.5}
+                  />
+                  <Sparkles
+                    className="absolute -bottom-1 -left-1.5 animate-pulse"
+                    style={{
+                      width: "var(--tv-icon-sm)",
+                      height: "var(--tv-icon-sm)",
+                      color: BIRTHDAY_COLOR,
+                      animationDelay: "0.6s",
+                    }}
+                    strokeWidth={2.5}
+                  />
+                </>
+              )}
+              {b.image ? (
+                <img
+                  src={b.image}
+                  alt={b.name}
+                  className={`relative h-full w-full rounded-full object-cover shadow-lg ${b.isToday ? "animate-tv-photo-spin" : ""}`}
+                  style={{ border: `${b.isToday ? 4 : 3}px solid ${b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED}` }}
+                />
+              ) : (
+                <div
+                  className={`relative flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br ${getBirthdayAvatarGradient(b.name)} text-white font-bold text-[length:var(--tv-text-name)] shadow-lg ${b.isToday ? "animate-tv-photo-spin" : ""}`}
+                  style={{ border: `${b.isToday ? 4 : 3}px solid ${b.isToday ? BIRTHDAY_COLOR : BIRTHDAY_COLOR_MUTED}` }}
+                >
+                  {b.name.charAt(0)}
+                </div>
+              )}
+            </div>
+            <p
+              className="mt-1.5 max-w-[var(--tv-truncate-md)] truncate text-[length:var(--tv-text-body)] font-semibold text-white"
+              title={b.name}
+            >
+              {b.name}
+            </p>
+            <div className="mt-0.5">
+              {b.isToday ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/25 px-2 py-0.5 text-[length:var(--tv-text-body)] font-bold text-rose-200 border border-rose-400/40 shadow-sm">
+                  <span className="inline-block animate-bounce">🎉</span> HOJE!
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[length:var(--tv-text-body)] font-medium text-neutral-300 border border-white/10">
+                  dia {b.day}
+                </span>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="relative mt-2 text-neutral-500 text-[length:var(--tv-text-body)]">Sem vendas este mês ainda.</p>
-        )}
-      </>
-    );
-  };
+        ))}
+      </div>
+    </>
+  );
 
   return (
     // Todo o tamanho/espaçamento daqui pra baixo (padding da página, vão
@@ -964,15 +865,6 @@ export function TvView({
             disso ele pode encolher de verdade pra dividir a altura com o
             painel de propaganda. */}
         <div className="scrollbar-thin flex min-h-0 w-full flex-col overflow-y-auto min-[900px]:w-[var(--tv-panel-w)] min-[900px]:shrink-0 min-[900px]:overflow-hidden">
-          {showRankingScroll && showRanking ? (
-            /* Tela dedicada do Ranking (top 10 com barra proporcional e
-               rolagem lenta) — ocupa o painel inteiro no lugar de logo+cards
-               por RANKING_SCROLL_DURATION_MS. Só entra se o widget de Ranking
-               estiver habilitado: com ele desligado nas configurações da TV,
-               o painel fica nos cards o tempo todo, como antes. */
-            <TvRankingScroll ranking={metrics.ranking} />
-          ) : (
-            <>
               {/* Sem container-type próprio aqui — desde a migração pro
                   contêiner único (ver components/tv-shell.tsx e o comentário
                   logo acima do `return`), logo+cards leem os MESMOS tokens
@@ -997,7 +889,7 @@ export function TvView({
               <div className="flex min-h-0 flex-1 flex-col justify-start" style={{ gap: "var(--tv-gap)" }}>
             <div className="flex shrink-0 justify-center">
               {/* A logo NUNCA participa do carrossel abaixo (ver
-                  rankingSlide) — fica fora do bloco que troca de
+                  birthdaySlide) — fica fora do bloco que troca de
                   conteúdo, sempre no mesmo lugar. Duas camadas
                   independentes (ver comentário de LOGO_ASPECT_RATIO lá em
                   cima) — largura e altura SEMPRE explícitas nas duas,
@@ -1086,10 +978,9 @@ export function TvView({
                 verdade (hasBirthdayToday, não hasBirthdayThisMonth — pedido
                 explícito: 2 dias antes/depois não é suficiente pra este
                 card sair do lugar). Sem isso, fica sempre no conteúdo
-                normal, MESMO com o Ranking girando ao lado por causa de
-                outro dia do mês — os dois cards têm o próprio gatilho,
-                embora compartilhem o mesmo relógio (`rankingSlide`) pra
-                trocar junto quando os dois estão de fato ativos.
+                normal, mesmo havendo aniversariantes em outro dia do mês
+                (esses aparecem no card fixo de Aniversariantes do Mês, mais
+                abaixo).
 
                 Quando ativo: o lado que está SAINDO (outgoingSlide) fica
                 sobreposto (absolute inset-0) animando pra fora, ao mesmo
@@ -1136,14 +1027,14 @@ export function TvView({
                       </div>
                     )}
                     <div
-                      key={hasBirthdayToday ? rankingSlide : 0}
+                      key={hasBirthdayToday ? birthdaySlide : 0}
                       className={
-                        hasBirthdayToday && rankingSlide === 1
+                        hasBirthdayToday && birthdaySlide === 1
                           ? "animate-tv-slide-in-from-right"
                           : "animate-tv-slide-in-from-left"
                       }
                     >
-                      {renderLastSaleContent(hasBirthdayToday ? rankingSlide : 0)}
+                      {renderLastSaleContent(hasBirthdayToday ? birthdaySlide : 0)}
                     </div>
                   </div>
                 )}
@@ -1205,33 +1096,14 @@ export function TvView({
               </GlassCard>
             )}
 
-            {/* Carrossel PRÓPRIO deste card — mesmo mecanismo do card Última
-                venda acima, ver comentário lá. minHeight evita o card
-                encolher/crescer demais entre o pódio (mais alto) e a lista
-                de aniversariantes (mais baixa) — clamp() em cqh contra o
-                canvas 16:9 (ver comentário no topo de app/globals.css),
-                mesmo piso/teto de sempre. */}
-            {showRanking && (
-              <GlassCard
-                delay={360}
-                className="shrink-0 text-center"
-                style={{ minHeight: "clamp(13rem, 28.17cqh, 19rem)" }}
-              >
-                <Glow color="#eab308" />
-                {outgoingSlide !== null && (
-                  <div
-                    className={`absolute inset-0 flex flex-col items-center justify-center ${outgoingSlide === 0 ? "animate-tv-slide-out-to-left" : "animate-tv-slide-out-to-right"
-                      }`}
-                  >
-                    {renderRankingContent(outgoingSlide)}
-                  </div>
-                )}
-                <div
-                  key={rankingSlide}
-                  className={rankingSlide === 1 ? "animate-tv-slide-in-from-right" : "animate-tv-slide-in-from-left"}
-                >
-                  {renderRankingContent(rankingSlide)}
-                </div>
+            {/* Aniversariantes do mês — card FIXO (sem rodízio), só existe quando
+                alguém faz aniversário no mês. Ocupa o lugar do antigo card
+                Ranking, que saiu desta TV (ver getTvRanking em
+                lib/tv-dashboard.ts); a lista era o 2º lado dele. */}
+            {hasBirthdayThisMonth && (
+              <GlassCard delay={360} className="shrink-0 text-center">
+                <Glow color={BIRTHDAY_COLOR} />
+                {renderBirthdaysContent()}
               </GlassCard>
             )}
 
@@ -1239,8 +1111,6 @@ export function TvView({
               <p className="text-center text-neutral-500 text-[length:var(--tv-text-body)]">Nenhum widget habilitado.</p>
             )}
           </div>
-            </>
-          )}
         </div>
       </div>
 
@@ -1481,134 +1351,23 @@ function Glow({ color }: { color: string }) {
   );
 }
 
-type RankingUser = Metrics["ranking"][number];
+const BIRTHDAY_COLOR = "#fb7185";
+const BIRTHDAY_COLOR_MUTED = "#f472b6";
 
-/** Reordena pro formato de pódio de verdade — 2º à esquerda, 1º no meio (mais
- * alto), 3º à direita — em vez de só 1º/2º/3º em fila da esquerda pra
- * direita. Com menos de 2 vendedores no ranking, mantém a ordem simples
- * (não tem "pódio" com uma pessoa só). */
-function podiumOrder(ranking: RankingUser[]): { user: RankingUser; place: number }[] {
-  if (ranking.length < 2) return ranking.map((user, i) => ({ user, place: i }));
-  return [1, 0, 2].filter((place) => place < ranking.length).map((place) => ({ user: ranking[place], place }));
+const BIRTHDAY_AVATAR_GRADIENTS = [
+  "from-rose-500 to-amber-500",
+  "from-pink-500 to-rose-500",
+  "from-amber-500 to-orange-500",
+  "from-violet-500 to-pink-500",
+  "from-fuchsia-500 to-rose-500",
+  "from-emerald-500 to-teal-500",
+];
+
+function getBirthdayAvatarGradient(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % BIRTHDAY_AVATAR_GRADIENTS.length;
+  return BIRTHDAY_AVATAR_GRADIENTS[index];
 }
-
-const PODIUM_RING = ["#eab308", "#cbd5e1", "#b45309"];
-// Alturas da base do pódio — 1º bem mais alta, 3º mais baixa, dá a forma de
-// pódio de verdade em vez de só variar o tamanho do avatar. clamp() em cqh
-// contra o canvas 16:9 (ver comentário no topo de app/globals.css) — a base
-// precisa crescer/encolher junto com avatar/texto ao redor conforme o
-// canvas muda de tamanho, em vez de ficar num valor fixo que desentoaria
-// do resto.
-// Reduzida (era 3.5/2.5/1.75rem no teto) — pedido explícito: o card de
-// Ranking estava cortando o valor (e, pro 1º lugar, o selo "Vendedor do
-// mês") na TV real, overflow-hidden sem rolagem (ver comentário em
-// tv-view.tsx's painel de métricas: "se não couber, o certo é ajustar os
-// tokens"). Essa base é só decorativa (a forma de pódio já é reforçada pelo
-// tamanho do avatar/coroa) — é o primeiro lugar a ceder antes de qualquer
-// coisa que carregue informação (nome, valor, selo).
-const PODIUM_BASE_HEIGHT = ["clamp(0.65rem, 1.7cqh, 2.1rem)", "clamp(0.5rem, 1.2cqh, 1.5rem)", "clamp(0.35rem, 0.85cqh, 1.05rem)"];
-const PODIUM_AVATAR_VAR = ["var(--tv-avatar-lg)", "var(--tv-avatar-md)", "var(--tv-avatar-md)"];
-const PODIUM_MEDAL = ["", "🥈", "🥉"];
-
-function RankingPodiumSlot({
-  user,
-  place,
-  spinPhoto,
-}: {
-  user: RankingUser;
-  place: number;
-  /** Liga a cada 5min pras 3 fotos ao mesmo tempo (ver RANKING_SPIN_* em
-   * tv-view.tsx) — destaque periódico pro pódio, não preso a nenhum evento. */
-  spinPhoto: boolean;
-}) {
-  // A ordem visual (2º, 1º, 3º da esquerda pra direita) já vem pronta de
-  // podiumOrder() acima — essa função só desenha o slot, não decide posição.
-  const ring = PODIUM_RING[place] ?? "#525252";
-  const avatarSize = PODIUM_AVATAR_VAR[place] ?? "var(--tv-avatar-md)";
-  return (
-    <div className="flex flex-col items-center">
-      <div className="flex items-center justify-center text-[length:var(--tv-text-value-sm)]" style={{ height: "var(--tv-icon-lg)" }}>
-        {place === 0 ? (
-          <Crown style={{ width: "var(--tv-icon-lg)", height: "var(--tv-icon-lg)", color: ring }} strokeWidth={2.5} />
-        ) : (
-          PODIUM_MEDAL[place]
-        )}
-      </div>
-      {/* perspective aqui no PAI (não no elemento que gira) é o que faz o
-          giro no eixo Y (.animate-tv-photo-spin) parecer 3D de verdade — a
-          própria foto gira dentro da moldura redonda que já tem. */}
-      <div className="relative mt-1" style={{ width: avatarSize, height: avatarSize, perspective: "800px" }}>
-        {/* Halo dourado pulsando só atrás do 1º lugar — o resto do pódio já
-            se diferencia por tamanho de avatar/coroa, mas o vencedor do mês
-            merecia um destaque que não depende de reparar em detalhe, bate o
-            olho na hora (mesmo .animate-tv-glow-pulse já usado nos halos de
-            fora da moldura de propaganda, só que aqui pequeno e centrado). */}
-        {place === 0 && (
-          <span
-            className="animate-tv-glow-pulse pointer-events-none absolute rounded-full opacity-60 blur-xl"
-            style={{ inset: "-30%", backgroundColor: ring }}
-          />
-        )}
-        {user.image ? (
-          <img
-            src={user.image}
-            alt={user.name}
-            className={`relative h-full w-full rounded-full object-cover shadow-lg ${spinPhoto ? "animate-tv-photo-spin" : ""}`}
-            style={{ border: `${place === 0 ? 4 : 3}px solid ${ring}` }}
-          />
-        ) : (
-          <div
-            className={`relative flex h-full w-full items-center justify-center rounded-full bg-neutral-700 text-[length:var(--tv-text-value-sm)] ${spinPhoto ? "animate-tv-photo-spin" : ""}`}
-            style={{ border: `${place === 0 ? 4 : 3}px solid ${ring}` }}
-          >
-            {user.name.charAt(0)}
-          </div>
-        )}
-      </div>
-      <div
-        className={`mt-1 max-w-[var(--tv-truncate-sm)] truncate ${place === 0 ? "font-bold text-[length:var(--tv-text-name)]" : "font-medium text-[length:var(--tv-text-body)]"}`}
-        title={user.name}
-      >
-        {user.name}
-      </div>
-      <div
-        className="font-bold"
-        style={place === 0 ? { color: ring, fontSize: "var(--tv-text-value-sm)" } : { fontSize: "var(--tv-text-body)" }}
-      >
-        <CountUpValue value={user.total} format="currency-compact" />
-      </div>
-      {/* Selo "🏆 Vendedor do mês" removido — pedido explícito: essa linha a
-          mais (crown/anel dourado/avatar maior já sinalizam 1º lugar sozinhos)
-          era o que sobrava de mais impactante pra cortar depois que a base do
-          pódio encolhida (ver PODIUM_BASE_HEIGHT acima) não bastou: o VALOR
-          do 1º lugar estava sendo cortado de verdade na TV real, não só a
-          decoração abaixo dele. */}
-      {/* Barra da base do pódio — 1º mais alta, 3º mais baixa, dá a forma de
-          pódio de verdade em vez de só variar o tamanho do avatar. Largura em
-          clamp() cqh, mesmo motivo/proporção de PODIUM_BASE_HEIGHT acima. */}
-      <div
-        className="mt-1 rounded-t-md"
-        style={{
-          width: "clamp(2.3rem, 5.93cqh, 7.4rem)",
-          height: PODIUM_BASE_HEIGHT[place],
-          background: `linear-gradient(180deg, ${ring}55, ${ring}15)`,
-        }}
-      />
-    </div>
-  );
-}
-
-const BIRTHDAY_COLOR = "#f472b6";
-// Versão apagada da mesma cor — pro anel/legenda de quem NÃO faz
-// aniversário hoje, na lista do mês (ver renderRankingContent em
-// tv-view.tsx). Antes era cinza neutro (mesmo tom do pódio sem posição),
-// lia como "sem cor nenhuma" — isso aqui já é a cor do tema de aniversário,
-// só discreta, pra quem faz hoje continuar claramente se destacando com a
-// cor cheia ao lado.
-//
-// Cor SÓLIDA (não rgba com opacidade) de propósito — a 1ª tentativa usava
-// `rgba(244,114,182,0.55)`, que misturado com o fundo quase preto do card
-// vira um tom escuro/dessaturado, lendo como "cinza" de novo numa TV vista
-// de longe (foi exatamente o que aconteceu: opacidade some contra fundo
-// escuro, sólido não).
-const BIRTHDAY_COLOR_MUTED = "#d98fb8";

@@ -19,6 +19,13 @@ const AUTH_ONLY_PATHS = ["/login", "/register"];
 // lib/require-tv-link.ts), isto aqui só destranca o proxy pra deixar a
 // página decidir.
 //
+// "/r/" é o irmão de "/t/" pro Ranking do mês numa TV interna (ver
+// app/r/[code]/page.tsx) — mesma necessidade (aparelho de TV sem sessão) e
+// mesma segurança de verdade: o código em si, agora de um tipo PRÓPRIO
+// (RANKING) que o código da TV principal não consegue usar (ver
+// requireTvLink em lib/require-tv-link.ts). A barra no fim, de novo, evita
+// casar por prefixo com rotas como "/relatorios".
+//
 // "/c/" é o mesmo tipo de liberação, pro Cartão Digital público (ver
 // app/c/[slug]/page.tsx, lib/require-digital-card.ts) — slug não é
 // segredo (feito pra ser compartilhado), a "segurança" aqui é só
@@ -48,7 +55,7 @@ const AUTH_ONLY_PATHS = ["/login", "/register"];
 // logado no CRM no mesmo navegador (a sessão passava escondida pra essa
 // requisição também). Relatado como "a logo não aparece só na TV" antes de
 // se descobrir a causa.
-const PUBLIC_PATHS = ["/docs", "/t/", "/c/", "/partner-logos/", "/card-defaults/", "/images/"];
+const PUBLIC_PATHS = ["/docs", "/t/", "/r/", "/c/", "/partner-logos/", "/card-defaults/", "/images/"];
 
 export const authConfig = {
   trustHost: true,

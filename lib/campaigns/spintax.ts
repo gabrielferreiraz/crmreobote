@@ -57,8 +57,13 @@ export function renderSteps(steps: ScriptStep[], vars: CampaignVariables, greeti
   return steps.map((step) => ({ text: renderTemplate(step.text, vars, greeting), delayAfterSec: step.delayAfterSec }));
 }
 
-/** Uma variante de script dentro de uma campanha — sorteada por peso (ver pickWeighted). */
-export type WeightedScript = { steps: ScriptStep[]; weight: number; scriptId?: string };
+/**
+ * Uma variante de script dentro de uma campanha — sorteada por peso (ver
+ * pickWeighted). `scriptVersion` = MessageScript.version da CÓPIA de texto
+ * que esta entrada carrega (ver lib/campaigns/script-sync.ts); ausente em
+ * campanha criada antes do versionamento, tratado como versão 1.
+ */
+export type WeightedScript = { steps: ScriptStep[]; weight: number; scriptId?: string; scriptVersion?: number };
 
 /** Sorteia um item proporcional ao peso configurado — genérico pra servir tanto scripts de campanha quanto qualquer outra lista com peso. */
 export function pickWeighted<T extends { weight: number }>(items: T[]): T {

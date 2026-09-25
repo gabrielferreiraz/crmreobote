@@ -395,10 +395,10 @@ async function claimRecipient(recipient: RecipientRow, kind: SendKind): Promise<
 }
 
 /** Preenche os detalhes finais (script sorteado ou erro) de uma tentativa não-inicial já reivindicada — não mexe mais em followUpSentAt/nextWaveIndex, isso já foi feito no claim. */
-async function finalizeNonInitialAttempt(recipientId: string, data: { scriptId?: string; error?: string }) {
+async function finalizeNonInitialAttempt(recipientId: string, data: { scriptId?: string; scriptVersion?: number; error?: string }) {
   await prisma.campaignRecipient.update({
     where: { id: recipientId },
-    data: { followUpScriptId: data.scriptId, followUpError: data.error },
+    data: { followUpScriptId: data.scriptId, followUpScriptVersion: data.scriptVersion, followUpError: data.error },
   });
 }
 
@@ -478,13 +478,17 @@ async function sendToRecipient(
       simulateTypingFirst: true,
     });
 
+    // scriptVersion vem da CÓPIA sorteada (não da biblioteca): campanha que
+    // não recebeu a edição continua enviando — e contando no relatório — a
+    // versão antiga, mesmo com o script já na v2 na biblioteca. null =
+    // campanha de antes do versionamento (tratado como v1 nos relatórios).
     if (kind === "initial") {
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
-        data: { status: "SENT", threadId: thread.id, scriptId: chosen.scriptId },
+        data: { status: "SENT", threadId: thread.id, scriptId: chosen.scriptId, scriptVersion: chosen.scriptVersion ?? null },
       });
     } else {
-      await finalizeNonInitialAttempt(recipient.id, { scriptId: chosen.scriptId });
+      await finalizeNonInitialAttempt(recipient.id, { scriptId: chosen.scriptId, scriptVersion: chosen.scriptVersion });
     }
 
     // Passos restantes (se houver) são melhor-esforço: o destinatário já

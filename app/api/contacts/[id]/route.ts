@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getCurrentMembership } from "@/lib/current-membership";
-import { normalizePhoneNumber, fallbackWhatsappToPhone, isValidPhoneInput } from "@/lib/phone-normalize";
+import { resolveContactPhones } from "@/lib/phone-normalize";
 import { isValidBirthDateIso } from "@/lib/birth-date";
 import { findDuplicateContact, buildConflictPayload } from "@/lib/contact-duplicate";
 import { sanitizeCell } from "@/lib/csv-sanitize";
@@ -141,39 +141,53 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const existing = rawExisting;
 
-    // Rejeita números com formato inválido (vírgulas, pontos, letras, etc.)
-    // antes de qualquer normalização — mesma proteção do POST, agora no PUT.
-    if ("phone" in body && phone && !isValidPhoneInput(phone)) {
-      return NextResponse.json({ error: "Celular com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
-    }
-    if ("whatsapp" in body && whatsapp && !isValidPhoneInput(whatsapp)) {
-      return NextResponse.json({ error: "WhatsApp com formato inválido. Use apenas dígitos, espaços, traços ou parênteses." }, { status: 400 });
-    }
     if ("birthDate" in body && birthDate && !isValidBirthDateIso(birthDate)) {
       return NextResponse.json({ error: "Data de nascimento inválida" }, { status: 400 });
     }
 
     // Só recalcula/valida o que de fato veio no corpo — uma chamada parcial
     // (ex.: ações em massa, que mandam só o campo que está mudando) não pode
-    // apagar telefone normalizado nem campos personalizados que não vieram.
-    const phoneNormalized = "phone" in body ? normalizePhoneNumber(phone) : undefined;
-    const whatsappNormalized = "whatsapp" in body ? normalizePhoneNumber(whatsapp) : undefined;
-
-    // Estado efetivo pós-update (existente + o que veio nessa chamada) — só
-    // assim dá pra saber se o contato vai FICAR com celular e sem WhatsApp,
-    // mesmo quando essa chamada em particular só tocou num dos dois campos.
-    const effectivePhone = "phone" in body ? sanitizeCell(phone) : existing.phone;
-    const effectivePhoneNormalized = phoneNormalized !== undefined ? phoneNormalized : existing.phoneNormalized;
-    const effectiveWhatsappRaw = "whatsapp" in body ? whatsapp : existing.whatsapp ?? undefined;
-    const effectiveWhatsappNormalized = whatsappNormalized !== undefined ? whatsappNormalized : existing.whatsappNormalized;
-    const whatsappFallback = fallbackWhatsappToPhone(effectivePhone, effectivePhoneNormalized, effectiveWhatsappRaw, effectiveWhatsappNormalized);
+    // apagar telefone normalizado nem campos personalizados que não vieram, e
+    // mexer só no nome NUNCA reescreve nem revalida o telefone que a pessoa
+    // nem tocou (`undefined` = "mantém o que já existe", ver
+    // resolveContactPhones em lib/phone-normalize.ts). Limpa (tira apóstrofo/
+    // aspas), valida, aplica a máscara e o 9º dígito, e — só quando algum dos
+    // dois campos veio no corpo — move celular pro WhatsApp vazio.
+    // Valor que voltou IGUAL ao que já está salvo também conta como "não
+    // mexeu": o formulário de edição devolve o número antigo ao salvar, e um
+    // contato com número legado inválido (ex.: fixo no WhatsApp, coisa de
+    // antes desta validação existir) não pode ficar impedido de trocar cargo
+    // ou responsável por causa disso. Qualquer valor DIFERENTE é validado
+    // por inteiro.
+    const phoneInput = "phone" in body && (phone ?? null) !== existing.phone ? (phone ?? null) : undefined;
+    const whatsappInput = "whatsapp" in body && (whatsapp ?? null) !== existing.whatsapp ? (whatsapp ?? null) : undefined;
+    const touchesPhones = phoneInput !== undefined || whatsappInput !== undefined;
+    const phones = resolveContactPhones(
+      {
+        phone: phoneInput,
+        whatsapp: whatsappInput,
+      },
+      {
+        existing: {
+          phone: existing.phone,
+          phoneNormalized: existing.phoneNormalized,
+          whatsapp: existing.whatsapp,
+          whatsappNormalized: existing.whatsappNormalized,
+        },
+        moveMobileToWhatsapp: touchesPhones,
+      },
+    );
+    if (phones.issues.length > 0) {
+      const issue = phones.issues[0];
+      return NextResponse.json({ error: `${issue.field === "phone" ? "Celular" : "WhatsApp"}: ${issue.message}` }, { status: 400 });
+    }
 
     const cleanTags = Array.isArray(tags)
       ? tags.map((t) => sanitizeCell(t.trim())).filter(Boolean)
       : undefined;
 
-    if (phoneNormalized !== undefined || whatsappNormalized !== undefined) {
-      const duplicate = await findDuplicateContact(organizationId, whatsappFallback.phoneNormalized, whatsappFallback.whatsappNormalized, id);
+    if (touchesPhones) {
+      const duplicate = await findDuplicateContact(organizationId, phones.phoneNormalized, phones.whatsappNormalized, id);
       if (duplicate) {
         // Antes devolvia só `{ error }` — a tela (edit-contact-dialog.tsx)
         // mostrava isso num modal genérico "Erro de servidor" sem nenhuma
@@ -203,8 +217,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const updateData = {
       name: sanitizeCell(name),
       email: sanitizeCell(email),
-      phone: sanitizeCell(whatsappFallback.phone),
-      whatsapp: sanitizeCell(whatsappFallback.whatsapp),
+      phone: phones.phone,
+      whatsapp: phones.whatsapp,
       source: sanitizeCell(source),
       company: sanitizeCell(company),
       jobTitle: sanitizeCell(jobTitle),
@@ -218,8 +232,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       zipCode: sanitizeCell(zipCode),
       ...(cleanTags !== undefined ? { tags: cleanTags } : {}),
       ...("responsavelId" in body ? { responsavelId: responsavelId || null } : {}),
-      phoneNormalized: whatsappFallback.phoneNormalized,
-      whatsappNormalized: whatsappFallback.whatsappNormalized,
+      phoneNormalized: phones.phoneNormalized,
+      whatsappNormalized: phones.whatsappNormalized,
       ...(cleanCustomFieldValues !== undefined ? { customFieldValues: cleanCustomFieldValues } : {}),
     };
 

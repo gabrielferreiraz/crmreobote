@@ -87,9 +87,11 @@ export async function POST(req: Request) {
     const allScriptIds = Array.from(new Set([...uniqueScriptIds, ...waves.map((w) => w.scriptId)]));
     const scriptRows = await prisma.messageScript.findMany({
       where: { id: { in: allScriptIds }, organizationId, createdById: userId },
-      select: { id: true, steps: true },
+      select: { id: true, steps: true, version: true },
     });
     const stepsByScriptId = new Map(scriptRows.map((s) => [s.id, s.steps]));
+    // Versão do script no momento da cópia (ver lib/campaigns/script-sync.ts).
+    const versionByScriptId = new Map(scriptRows.map((s) => [s.id, s.version]));
     for (const id of uniqueScriptIds) {
       if (!stepsByScriptId.has(id)) return NextResponse.json({ error: "Um dos scripts iniciais selecionados é inválido" }, { status: 400 });
     }
@@ -156,7 +158,7 @@ export async function POST(req: Request) {
         source: "LEAD_CAPTURE",
         // Mais de um script selecionado = sorteio com peso igual entre eles
         // a cada lead (ver pickWeighted em lib/campaigns/spintax.ts).
-        messageTemplates: uniqueScriptIds.map((id) => ({ steps: stepsByScriptId.get(id), weight: 1, scriptId: id })) as unknown as Prisma.InputJsonValue,
+        messageTemplates: uniqueScriptIds.map((id) => ({ steps: stepsByScriptId.get(id), weight: 1, scriptId: id, scriptVersion: versionByScriptId.get(id) })) as unknown as Prisma.InputJsonValue,
         audienceFilter: { jobTitles: [], tags: [], cities: [] } as unknown as Prisma.InputJsonValue,
         instanceId: instance.id,
         delayMinSec: resolvedDelayMinSec,
@@ -165,7 +167,7 @@ export async function POST(req: Request) {
           waves.length > 0
             ? (waves.map((w) => ({
                 dayOffset: w.dayOffset,
-                templates: [{ steps: stepsByScriptId.get(w.scriptId), weight: 1, scriptId: w.scriptId }],
+                templates: [{ steps: stepsByScriptId.get(w.scriptId), weight: 1, scriptId: w.scriptId, scriptVersion: versionByScriptId.get(w.scriptId) }],
               })) as unknown as Prisma.InputJsonValue)
             : undefined,
         noReplyDays: resolvedNoReplyDays,

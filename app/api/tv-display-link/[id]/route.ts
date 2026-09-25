@@ -28,7 +28,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       action: "TV_DISPLAY_LINK_REVOKED",
       targetType: "TvDisplayLink",
       targetId: existing.id,
-      detail: `prefixo "${existing.tokenPrefix}…"`,
+      // Ranking: o "prefixo" seria o código inteiro (3 caracteres) — não vai
+      // pro log de auditoria.
+      detail: existing.kind === "RANKING" ? "Ranking do mês" : `TV principal · prefixo "${existing.tokenPrefix}…"`,
       ip: getClientIp(req),
     });
 

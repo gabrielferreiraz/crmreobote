@@ -27,6 +27,15 @@ import { randomBytes, createHash } from "node:crypto";
 
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const CODE_LENGTH = 12;
+/**
+ * O link do Ranking do mês tem código de SÓ 3 caracteres — pedido explícito:
+ * digitar 12 no controle da TV é inviável. São 32³ = 32.768 combinações, muito
+ * pouco pra ser seguro só pela entropia (os 12 do dashboard são ~60 bits), então
+ * quem segura a adivinhação é o limite de chutes errados em lib/tv-link-guard.ts
+ * (ver lá o raciocínio inteiro). Não existe "grupo" de 4: um código de 3 se
+ * mostra corrido ("K7X").
+ */
+const RANKING_CODE_LENGTH = 3;
 /** Grupos de 4 pra exibição ("K7XP-Q2M9-8ANW") — mais fácil de ler/digitar/
  * conferir em voz alta do que uma sequência corrida de 12 caracteres. */
 const GROUP_SIZE = 4;
@@ -39,9 +48,19 @@ export function hashTvDisplayLinkCode(normalizedCode: string): string {
  * do celular) não deveria precisar acertar exatamente onde os traços
  * ficam nem a caixa das letras. Usado tanto ao GERAR (garantir que o que
  * fica salvo já está normalizado) quanto ao LER de volta (o que o usuário
- * digitou/colou), pra hash bater dos dois lados. */
+ * digitou/colou), pra hash bater dos dois lados.
+ *
+ * Também aceita os trocadinhos clássicos do alfabeto Crockford (O→0, I/L→1):
+ * o alfabeto de códigos NUNCA contém O/I/L, então um código gerado nunca muda
+ * por causa disso — só perdoa quem, lendo o código numa tela a metros de
+ * distância, digitou "O" onde era zero. Com código de 3 caracteres, um erro
+ * desses é o mais provável. */
 export function normalizeTvDisplayLinkCode(input: string): string {
-  return input.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return input
+    .replace(/[^A-Za-z0-9]/g, "")
+    .toUpperCase()
+    .replace(/O/g, "0")
+    .replace(/[IL]/g, "1");
 }
 
 export function formatTvDisplayLinkCode(normalizedCode: string): string {
@@ -52,7 +71,7 @@ export function formatTvDisplayLinkCode(normalizedCode: string): string {
   return groups.join("-");
 }
 
-export function generateTvDisplayLinkCode(): {
+export function generateTvDisplayLinkCode(kind: "DASHBOARD" | "RANKING" = "DASHBOARD"): {
   /** Sem traço, uppercase — o que é hasheado/salvo. */
   code: string;
   /** Com traço, pra exibir/copiar ("K7XP-Q2M9-8ANW") — funciona igual se
@@ -63,9 +82,10 @@ export function generateTvDisplayLinkCode(): {
   codePrefix: string;
   codeHash: string;
 } {
-  const bytes = randomBytes(CODE_LENGTH);
+  const length = kind === "RANKING" ? RANKING_CODE_LENGTH : CODE_LENGTH;
+  const bytes = randomBytes(length);
   let code = "";
-  for (let i = 0; i < CODE_LENGTH; i++) {
+  for (let i = 0; i < length; i++) {
     code += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
   }
   return {

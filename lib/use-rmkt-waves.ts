@@ -17,7 +17,7 @@ import type { RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 
 export type WaveRow = { dayOffset: string; scriptId: string };
 
-export function useRmktWaves() {
+export function useRmktWaves({ automaticNoReplyDays = false }: { automaticNoReplyDays?: boolean } = {}) {
   const [rmktEnabled, setRmktEnabled] = useState(false);
   const [waves, setWaves] = useState<WaveRow[]>([{ dayOffset: "3", scriptId: "" }]);
   const [noReplyDays, setNoReplyDays] = useState("3");
@@ -25,7 +25,6 @@ export function useRmktWaves() {
   // massa) — ver dealsContext em rmkt-waves-fields.tsx. Default false:
   // pedido explícito era ter a OPÇÃO de ligar/desligar, não ligar sozinho.
   const [markLostOnNoReply, setMarkLostOnNoReply] = useState(false);
-  const [noReplyLossReasonId, setNoReplyLossReasonId] = useState("");
 
   function addWave() {
     setWaves((prev) => [...prev, { dayOffset: "", scriptId: "" }]);
@@ -37,43 +36,43 @@ export function useRmktWaves() {
     setWaves((prev) => prev.map((w, i) => (i === index ? { ...w, ...patch } : w)));
   }
 
-  const noReplyDaysValid = !!noReplyDays.trim() && Number(noReplyDays) > 0;
+  // No envio de leads, a última onda já define o fim da sequência. Mantemos
+  // um dia técnico depois dela para a engine registrar "Não respondeu", sem
+  // expor um prazo redundante para quem está configurando o disparo.
+  const resolvedNoReplyDays = automaticNoReplyDays
+    ? Math.max(2, ...waves.map((wave) => Number(wave.dayOffset) || 0)) + 1
+    : Number(noReplyDays);
+  const noReplyDaysValid = automaticNoReplyDays
+    ? Number.isInteger(resolvedNoReplyDays) && resolvedNoReplyDays <= 90
+    : !!noReplyDays.trim() && resolvedNoReplyDays > 0;
   const wavesValid =
     !rmktEnabled ||
     (waves.length > 0 &&
       waves.every((w) => w.dayOffset.trim() && w.scriptId) &&
       waves.every((w, i) => i === 0 || Number(w.dayOffset) > Number(waves[i - 1].dayOffset)) &&
-      waves.every((w) => Number(w.dayOffset) < Number(noReplyDays || 0)));
-  // Só exige motivo escolhido quando o toggle está ligado — se
-  // markLostOnNoReply nunca foi marcado, o valor vazio de
-  // noReplyLossReasonId não deveria bloquear o envio.
-  const markLostValid = !markLostOnNoReply || !!noReplyLossReasonId;
+      waves.every((w) => Number(w.dayOffset) < resolvedNoReplyDays));
   // As condições sempre andaram juntas em canSend (ver send-leads-dialog.tsx
   // original) — expostas já combinadas aqui, cada chamador não precisa
   // lembrar de checar cada uma separado.
-  const valid = noReplyDaysValid && wavesValid && markLostValid;
+  const valid = noReplyDaysValid && wavesValid;
 
   /** Pronto pra espalhar (`...`) no body da requisição — mesmo shape que
    * app/api/contacts/bulk-send-leads/route.ts e
-   * app/api/deals/bulk-send-message/route.ts esperam. markLostOnNoReply/
-   * noReplyLossReasonId só têm efeito em quem lê esses dois campos (hoje só
-   * bulk-send-message/route.ts — bulk-send-leads ignora, LEAD_CAPTURE nunca
-   * tem negócio nesse ponto). */
+   * app/api/deals/bulk-send-message/route.ts esperam. O motivo de perda
+   * "Não respondeu" é definido pelo servidor quando necessário. */
   function serialize(): {
     rmktEnabled: boolean;
     rmktWaves?: RmktWaveInput[];
     noReplyDays: number;
     markLostOnNoReply: boolean;
-    noReplyLossReasonId?: string;
   } {
     return {
       rmktEnabled,
       rmktWaves: rmktEnabled
         ? waves.map((w) => ({ dayOffset: Number(w.dayOffset), scriptId: w.scriptId }))
         : undefined,
-      noReplyDays: Number(noReplyDays),
+      noReplyDays: resolvedNoReplyDays,
       markLostOnNoReply,
-      noReplyLossReasonId: markLostOnNoReply ? noReplyLossReasonId : undefined,
     };
   }
 
@@ -88,8 +87,6 @@ export function useRmktWaves() {
     setNoReplyDays,
     markLostOnNoReply,
     setMarkLostOnNoReply,
-    noReplyLossReasonId,
-    setNoReplyLossReasonId,
     valid,
     serialize,
   };

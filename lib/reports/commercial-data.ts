@@ -1327,6 +1327,7 @@ export async function getCommercialReportData(params: {
       select: {
         repliedAt: true,
         scriptId: true,
+        scriptVersion: true,
         threadId: true,
         instanceId: true,
         campaign: { select: { instanceId: true } },
@@ -1522,7 +1523,11 @@ export async function getCommercialReportData(params: {
     stat.sent += 1;
     if (r.repliedAt) stat.replied += 1;
 
-    const scriptKey = r.scriptId ?? "sem-script";
+    // Chave = script + VERSÃO usada naquele envio (ver MessageScript.version):
+    // correção de texto mantém a versão e continua somando no mesmo número;
+    // "nova versão" recomeça a contar em outra linha. scriptVersion null =
+    // envio de antes do versionamento (tratado como v1).
+    const scriptKey = r.scriptId ? `${r.scriptId}:${r.scriptVersion ?? 1}` : "sem-script";
     if (!campaignStatsByScript.has(scriptKey)) campaignStatsByScript.set(scriptKey, { sent: 0, replied: 0 });
     const scriptStat = campaignStatsByScript.get(scriptKey)!;
     scriptStat.sent += 1;
@@ -1535,18 +1540,59 @@ export async function getCommercialReportData(params: {
     if (r.repliedAt) jobTitleStat.replied += 1;
   }
 
-  const campaignScriptIds = Array.from(campaignStatsByScript.keys()).filter((id) => id !== "sem-script");
+  const campaignScriptIds = Array.from(new Set(Array.from(campaignStatsByScript.keys()).filter((k) => k !== "sem-script").map((k) => k.split(":")[0])));
   const campaignScripts = campaignScriptIds.length
-    ? await prisma.messageScript.findMany({ where: { id: { in: campaignScriptIds } }, select: { id: true, name: true } })
+    ? await prisma.messageScript.findMany({
+        where: { id: { in: campaignScriptIds } },
+        select: { id: true, name: true, version: true, steps: true, versionHistory: true },
+      })
     : [];
+  const campaignScriptById = new Map(campaignScripts.map((cs) => [cs.id, cs]));
+  // Quantas versões DISTINTAS de cada script aparecem neste período — o
+  // sufixo "· v2" só entra quando ajuda a distinguir (script já versionado ou
+  // com mais de uma versão no resultado), pra não poluir quem nunca mexeu.
+  const versionsSeenByScript = new Map<string, Set<number>>();
+  for (const k of campaignStatsByScript.keys()) {
+    if (k === "sem-script") continue;
+    const [sid, ver] = k.split(":");
+    if (!versionsSeenByScript.has(sid)) versionsSeenByScript.set(sid, new Set());
+    versionsSeenByScript.get(sid)!.add(Number(ver));
+  }
+  // Texto daquela versão pra dica na tabela: a atual vem de `steps`; as
+  // anteriores do arquivo em versionHistory (quando a correção sobrescreveu
+  // o texto da mesma versão, vale o texto mais recente dela).
+  const scriptVersionPreview = (scriptId: string, version: number): string | null => {
+    const lib = campaignScriptById.get(scriptId);
+    if (!lib) return null;
+    const pick = (steps: unknown) => {
+      const first = Array.isArray(steps) ? (steps[0] as { text?: string } | undefined)?.text : undefined;
+      return first ? (first.length > 160 ? `${first.slice(0, 160)}…` : first) : null;
+    };
+    if (version === lib.version) return pick(lib.steps);
+    const archived = Array.isArray(lib.versionHistory)
+      ? (lib.versionHistory as { version: number; steps: unknown }[]).find((h) => h.version === version)
+      : undefined;
+    return archived ? pick(archived.steps) : null;
+  };
   const scriptBreakdown = Array.from(campaignStatsByScript.entries())
-    .map(([id, s]) => ({
-      id,
-      name: id === "sem-script" ? "Sem script identificado" : (campaignScripts.find((cs) => cs.id === id)?.name ?? "Script removido"),
-      sent: s.sent,
-      replied: s.replied,
-      replyRate: s.sent > 0 ? Math.round((s.replied / s.sent) * 100) : 0,
-    }))
+    .map(([key, s]) => {
+      if (key === "sem-script") {
+        return { id: key, name: "Sem script identificado", preview: null as string | null, sent: s.sent, replied: s.replied, replyRate: s.sent > 0 ? Math.round((s.replied / s.sent) * 100) : 0 };
+      }
+      const [scriptId, versionStr] = key.split(":");
+      const version = Number(versionStr);
+      const lib = campaignScriptById.get(scriptId);
+      const showVersion = (lib?.version ?? 1) > 1 || (versionsSeenByScript.get(scriptId)?.size ?? 0) > 1;
+      const baseName = lib?.name ?? "Script removido";
+      return {
+        id: key,
+        name: showVersion ? `${baseName} · v${version}` : baseName,
+        preview: scriptVersionPreview(scriptId, version),
+        sent: s.sent,
+        replied: s.replied,
+        replyRate: s.sent > 0 ? Math.round((s.replied / s.sent) * 100) : 0,
+      };
+    })
     .sort((a, b) => b.sent - a.sent);
 
   const cargoBreakdown = Array.from(campaignStatsByJobTitle.entries())

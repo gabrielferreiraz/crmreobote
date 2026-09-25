@@ -52,13 +52,35 @@ import { countBulkFailures } from "@/lib/bulk-fetch";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
-import { isValidPhoneInput } from "@/lib/phone-normalize";
+import { validatePhoneField } from "@/lib/phone-normalize";
 import { isBirthDateInputInvalid, parseBirthDateInput } from "@/lib/birth-date";
+import { useCepAutofill } from "@/lib/use-cep-autofill";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 50;
+
+// Precisa bater EXATAMENTE com o objeto passado pra usePersistedFilters logo
+// abaixo (mesmos campos, mesmos valores iniciais dos useState) — é contra
+// isso que o filtro restaurado do localStorage é comparado pra decidir se a
+// 1ª busca pós-hidratação pode ser pulada (ver o efeito de busca principal).
+// Mesmo padrão de LISTA_DEFAULT_FILTERS_JSON em pipeline/deals-list.tsx.
+const CLIENTES_DEFAULT_FILTERS_JSON = JSON.stringify({
+  search: "",
+  sourceFilter: "",
+  jobTitleFilter: "",
+  tagFilter: "",
+  responsavelFilter: "",
+  stateFilter: "",
+  cityFilter: "",
+  onlyWithDeals: false,
+  hasEmailFilter: "",
+  hasWhatsappFilter: "",
+  registeredFrom: "",
+  registeredTo: "",
+  pageSize: DEFAULT_PAGE_SIZE,
+});
 
 // Cor emprestada da marca de quem a origem representa, puxando do mesmo
 // Badge usado no resto do sistema (ver components/badge.tsx) — origem sem
@@ -109,6 +131,14 @@ export function ContactsTable({
   const [contacts, setContacts] = useState(initialContacts);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [loading, setLoading] = useState(false);
+  // false só durante a janela entre montar e a 1ª busca pós-restauração do
+  // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
+  // volta pra esta tela com um filtro salvo via localStorage via TODOS os
+  // contatos (initialContacts, sem filtro nenhum — o servidor não sabe do
+  // localStorage) por um instante, até a busca filtrada terminar e trocar a
+  // lista debaixo do usuário. Mesmo padrão de filtersReady em
+  // pipeline/deals-list.tsx.
+  const [filtersReady, setFiltersReady] = useState(false);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -141,6 +171,21 @@ export function ContactsTable({
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
   const [claiming, setClaiming] = useState(false);
+  const cepAutofillFields = useMemo(
+    () => ({
+      setZipCode,
+      address,
+      setAddress,
+      neighborhood,
+      setNeighborhood,
+      city,
+      setCity,
+      state,
+      setState,
+    }),
+    [address, neighborhood, city, state],
+  );
+  const cepAutofill = useCepAutofill(zipCode, cepAutofillFields);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -179,9 +224,10 @@ export function ContactsTable({
 
   // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
-  usePersistedFilters(
+  const persistedFilterValues = { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, pageSize };
+  const { hydrated } = usePersistedFilters(
     "clientes",
-    { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, pageSize },
+    persistedFilterValues,
     (saved) => {
       if (saved.search !== undefined) setSearch(saved.search);
       if (saved.sourceFilter !== undefined) setSourceFilter(saved.sourceFilter);
@@ -229,9 +275,24 @@ export function ContactsTable({
   };
 
   useEffect(() => {
+    // Espera a restauração do localStorage terminar (ver usePersistedFilters
+    // acima) antes de decidir buscar ou não — decidir com base no valor
+    // ainda-não-restaurado é o que fazia essa 1ª busca pós-restauração ficar
+    // refém de um outro efeito disparar por acaso, deixando a tela presa
+    // mostrando os dados SEM filtro até o usuário mexer no filtro de novo
+    // manualmente. Mesmo padrão de pipeline/deals-list.tsx.
+    if (!hydrated) return;
     if (skipNextFetch.current) {
       skipNextFetch.current = false;
-      return;
+      // Só pula esta 1ª busca se o que foi restaurado (ou a ausência de
+      // qualquer coisa salva) bate exatamente com o que o servidor já usou
+      // pra montar initialContacts — senão os dados iniciais (sem filtro
+      // local nenhum) ficam desatualizados pra sempre.
+      if (JSON.stringify(persistedFilterValues) === CLIENTES_DEFAULT_FILTERS_JSON) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setFiltersReady(true);
+        return;
+      }
     }
     let cancelled = false;
     setLoading(true);
@@ -248,13 +309,16 @@ export function ContactsTable({
         setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setFiltersReady(true);
+        }
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, initialContacts]);
+  }, [hydrated, page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
   // visto na página atual — cobre valor "antigo" que só apareceria depois de
@@ -571,8 +635,8 @@ export function ContactsTable({
     e.preventDefault();
 
     // Valida formato dos campos de telefone/data de nascimento no cliente antes de bater na API
-    const phoneErr = !isValidPhoneInput(phone) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
-    const waErr = !isValidPhoneInput(whatsapp) ? "Número inválido. Use apenas dígitos, espaços, traços ou parênteses." : null;
+    const phoneErr = validatePhoneField(phone, "phone");
+    const waErr = validatePhoneField(whatsapp, "whatsapp");
     const birthDateErr = isBirthDateInputInvalid(birthDate) ? "Data inválida. Use o formato DD/MM/AAAA." : null;
     setPhoneError(phoneErr);
     setWhatsappError(waErr);
@@ -894,7 +958,14 @@ export function ContactsTable({
       {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
       {bulkNotice && <p className="text-sm text-neutral-500 dark:text-neutral-400">{bulkNotice}</p>}
 
-      {totalCount === 0 ? (
+      {!filtersReady ? (
+        // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
+        // filtersReady acima) — evita piscar `initialContacts` (sem o filtro
+        // salvo) antes de trocar pra lista filtrada de verdade.
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-5 w-5 animate-spin text-neutral-300 dark:text-neutral-700" strokeWidth={2} />
+        </div>
+      ) : totalCount === 0 ? (
         <div className="card">
           <EmptyState
             icon={Inbox}
@@ -1344,7 +1415,19 @@ export function ContactsTable({
                 onChange={(v) => { setBirthDate(v); setBirthDateError(null); }}
                 error={birthDateError}
               />
-              <Field label="CEP" value={zipCode} onChange={setZipCode} />
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="field-label">CEP</label>
+                  {cepAutofill.loading && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                      <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                      Buscando
+                    </span>
+                  )}
+                </div>
+                <input value={zipCode} onChange={(e) => setZipCode(e.target.value)} className="field-input" />
+                {cepAutofill.error && <p className="text-xs text-amber-600 dark:text-amber-400">{cepAutofill.error}</p>}
+              </div>
             </div>
             <Field label="Cidade" value={city} onChange={setCity} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

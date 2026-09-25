@@ -15,6 +15,43 @@ type TvDisplayLink = {
   createdAt: string;
 };
 
+type LinkKind = "DASHBOARD" | "RANKING";
+
+/** Texto e endereço de cada um dos dois links — ver TvDisplayLinkKind no schema.
+ * Dois códigos SEPARADOS de propósito: o Ranking do mês mostra quanto cada
+ * consultor vendeu e não pode abrir a partir do código da TV principal (a que
+ * cliente enxerga). */
+const KIND_CONFIG: Record<
+  LinkKind,
+  {
+    title: string;
+    description: string;
+    /** Caminho no nível raiz do site, o mais curto possível (digitado num controle remoto). */
+    path: string;
+    emptyLabel: string;
+    revokeDescription: string;
+  }
+> = {
+  DASHBOARD: {
+    title: "Link público da TV",
+    description:
+      "Pra abrir o dashboard num dispositivo de TV que não faz login (Smart TV, mini PC, Fire TV Stick etc.) — um código curto, fácil de digitar no controle remoto. Gerar um novo substitui o anterior, que para de funcionar na hora.",
+    path: "t",
+    emptyLabel: "Nenhum código gerado ainda.",
+    revokeDescription:
+      "Qualquer TV usando esse código para de mostrar o dashboard imediatamente. Não pode ser desfeito — só gerando um novo depois.",
+  },
+  RANKING: {
+    title: "Link público do Ranking do mês",
+    description:
+      "Pra abrir o Ranking do mês (todos os consultores que venderam) numa TV interna, separada do dashboard principal — que fica à vista de cliente e por isso não mostra ranking. O código tem só 3 caracteres, fácil de digitar no controle, e fica visível aqui embaixo caso precise digitar de novo. É um código DIFERENTE do da TV principal: um não abre o outro. Gerar um novo substitui o anterior, que para de funcionar na hora.",
+    path: "r",
+    emptyLabel: "Nenhum código do Ranking gerado ainda.",
+    revokeDescription:
+      "Qualquer TV usando esse código para de mostrar o Ranking imediatamente. Não pode ser desfeito — só gerando um novo depois.",
+  },
+};
+
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
@@ -44,8 +81,10 @@ function CopyField({ value, mono = false }: { value: string; mono?: boolean }) {
 }
 
 /**
- * Gerenciamento do link público (sem login) da TV — ver app/t/[code]/
- * page.tsx (rota no nível raiz do site, o mais curta possível — pedido
+ * Gerenciamento do link público (sem login) da TV — `kind` diz de qual dos
+ * dois (ver KIND_CONFIG acima): DASHBOARD abre em app/t/[code]/page.tsx,
+ * RANKING abre em app/r/[code]/page.tsx. Tudo abaixo vale igual pros dois
+ * (rota no nível raiz do site, o mais curta possível — pedido
  * explícito: não é só o código que precisa ser fácil de digitar no
  * controle remoto, o endereço inteiro também). Código curto de propósito
  * (12 caracteres, ver lib/tv-display-link.ts) — o formato anterior (token
@@ -53,10 +92,11 @@ function CopyField({ value, mono = false }: { value: string; mono?: boolean }) {
  * digitar; o código continua só sendo mostrado uma vez, na hora de gerar,
  * nunca mais recuperável depois — mesmo cuidado do formato anterior e de
  * configuracoes/integracoes/api-keys-manager.tsx. "O" link é singular por
- * organização, não uma lista — gerar de novo já substitui (revoga) o
- * anterior.
+ * organização POR TIPO, não uma lista — gerar de novo já substitui
+ * (revoga) o anterior daquele tipo, sem mexer no do outro.
  */
-export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLink | null }) {
+export function TvDisplayLinkManager({ kind, initialLink }: { kind: LinkKind; initialLink: TvDisplayLink | null }) {
+  const cfg = KIND_CONFIG[kind];
   const router = useRouter();
   const [link, setLink] = useState(initialLink);
   const [loading, setLoading] = useState(false);
@@ -68,7 +108,11 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
   async function generate() {
     setLoading(true);
     setError(null);
-    const res = await fetch("/api/tv-display-link", { method: "POST" });
+    const res = await fetch("/api/tv-display-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    });
     const data = await res.json().catch(() => ({}));
     setLoading(false);
     setConfirmRegenerate(false);
@@ -87,7 +131,7 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
     });
     setReveal({
       displayCode: data.displayCode,
-      url: `${window.location.origin}/t/${data.displayCode}`,
+      url: `${window.location.origin}/${cfg.path}/${data.displayCode}`,
     });
     router.refresh();
   }
@@ -103,12 +147,8 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-3">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Link público da TV</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Pra abrir o dashboard num dispositivo de TV que não faz login (Smart TV, mini PC, Fire TV Stick etc.) — um
-          código curto, fácil de digitar no controle remoto. Gerar um novo substitui o anterior, que para de funcionar
-          na hora.
-        </p>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{cfg.title}</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{cfg.description}</p>
       </div>
 
       <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
@@ -118,9 +158,20 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
               <Tv className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-mono text-sm text-neutral-700 dark:text-neutral-300">
-                {link.tokenPrefix}…
-              </p>
+              {kind === "RANKING" ? (
+                // Código curto (3 caracteres) inteiro à vista — é o próprio
+                // tokenPrefix. Grande porque é pra ler e digitar na TV.
+                <p className="font-mono text-lg font-semibold tracking-widest text-neutral-900 dark:text-neutral-100">
+                  {link.tokenPrefix}
+                  <span className="ml-3 text-xs font-normal tracking-normal text-neutral-400 dark:text-neutral-500">
+                    endereço: /{cfg.path}/{link.tokenPrefix}
+                  </span>
+                </p>
+              ) : (
+                <p className="truncate font-mono text-sm text-neutral-700 dark:text-neutral-300">
+                  {link.tokenPrefix}…
+                </p>
+              )}
               <p className="text-xs text-neutral-400 dark:text-neutral-500">
                 Gerado por {link.createdByName} em {formatDateTime(link.createdAt)} · último acesso{" "}
                 {formatDateTime(link.lastUsedAt)}
@@ -142,7 +193,7 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhum código gerado ainda.</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{cfg.emptyLabel}</p>
             <button type="button" onClick={generate} disabled={loading} className="btn-primary btn-sm">
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
               {loading ? (
@@ -164,7 +215,9 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
         <Modal onClose={() => setReveal(null)} maxWidth="max-w-md">
           <h2 className="mb-2 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Código gerado</h2>
           <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">
-            Anote ou copie agora — não será mostrado de novo. Qualquer código anterior já parou de funcionar.
+            {kind === "RANKING"
+              ? "Qualquer código anterior já parou de funcionar. Este código continua visível em Configurações → TV, caso precise digitar de novo."
+              : "Anote ou copie agora — não será mostrado de novo. Qualquer código anterior já parou de funcionar."}
           </p>
 
           <p className="field-label mb-1">Digite isso no controle da TV</p>
@@ -199,7 +252,7 @@ export function TvDisplayLinkManager({ initialLink }: { initialLink: TvDisplayLi
       {confirmRevoke && (
         <ConfirmDialog
           title="Revogar o código público?"
-          description="Qualquer TV usando esse código para de mostrar o dashboard imediatamente. Não pode ser desfeito — só gerando um novo depois."
+          description={cfg.revokeDescription}
           confirmLabel="Revogar"
           onClose={() => setConfirmRevoke(false)}
           onConfirm={revoke}

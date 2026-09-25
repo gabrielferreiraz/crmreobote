@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { MessageCircle } from "lucide-react";
+import { Briefcase, MessageCircle } from "lucide-react";
 
 type RecipientStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
 
@@ -13,8 +13,10 @@ type Recipient = {
   contactJobTitle: string | null;
   status: RecipientStatus;
   /** Setado quando enviado (ver CampaignRecipient.threadId no schema) — liga
-   * pra conversa em /whatsapp/conversas?threadId=... (ver ReplyLink abaixo). */
+   * pra conversa em /whatsapp/conversas?threadId=... (ver RepliedAtCell abaixo). */
   threadId: string | null;
+  /** Negócio de quem respondeu, já filtrado pelo que quem está vendo consegue abrir (ver getCampaignDetail) — liga pra /negocios/[id]. */
+  dealId: string | null;
   sentAt: string | null;
   repliedAt: string | null;
   followUpSentAt: string | null;
@@ -50,24 +52,43 @@ function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-/** Data de resposta + link "Ver conversa" logo abaixo — pedido explícito:
- * "colocar um link indo direto para a conversa do WhatsApp de quem
- * respondeu". Só aparece quando há de fato uma conversa pra abrir
- * (threadId, gravado no envio — ver CampaignRecipient.threadId no schema);
- * sem resposta ainda, mostra só a data (ou "—"), sem link nenhum. */
-function RepliedAtCell({ repliedAt, threadId }: { repliedAt: string | null; threadId: string | null }) {
+/** Data de resposta + links logo abaixo — pedidos explícitos: "colocar um
+ * link indo direto para a conversa do WhatsApp de quem respondeu" e, depois,
+ * "Ver negócio" também. Cada link só aparece quando há de fato o que abrir:
+ * conversa (threadId, gravado no envio — ver CampaignRecipient.threadId no
+ * schema) e negócio (dealId, já filtrado pelo que quem vê consegue abrir).
+ * Sem resposta ainda, mostra só "—", sem link nenhum. */
+function RepliedAtCell({
+  repliedAt,
+  threadId,
+  dealId,
+}: {
+  repliedAt: string | null;
+  threadId: string | null;
+  dealId: string | null;
+}) {
   if (!repliedAt) return <>—</>;
   return (
     <>
       {formatDateTime(repliedAt)}
-      {threadId && (
-        <Link
-          href={`/whatsapp/conversas?threadId=${threadId}`}
-          className="mt-0.5 flex items-center gap-1 text-xs font-medium text-brand hover:underline"
-        >
-          <MessageCircle className="h-3 w-3" strokeWidth={2} />
-          Ver conversa
-        </Link>
+      {(threadId || dealId) && (
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+          {threadId && (
+            <Link
+              href={`/whatsapp/conversas?threadId=${threadId}`}
+              className="flex items-center gap-1 text-xs font-medium text-brand hover:underline"
+            >
+              <MessageCircle className="h-3 w-3" strokeWidth={2} />
+              Ver conversa
+            </Link>
+          )}
+          {dealId && (
+            <Link href={`/negocios/${dealId}`} className="flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+              <Briefcase className="h-3 w-3" strokeWidth={2} />
+              Ver negócio
+            </Link>
+          )}
+        </span>
       )}
     </>
   );
@@ -192,7 +213,7 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                   </p>
                   <p>Enviada em: {formatDateTime(r.sentAt)}</p>
                   <p>
-                    Respondeu em: <RepliedAtCell repliedAt={r.repliedAt} threadId={r.threadId} />
+                    Respondeu em: <RepliedAtCell repliedAt={r.repliedAt} threadId={r.threadId} dealId={r.dealId} />
                   </p>
                   <p>
                     Reenvio:{" "}
@@ -243,7 +264,7 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
                     </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
-                      <RepliedAtCell repliedAt={r.repliedAt} threadId={r.threadId} />
+                      <RepliedAtCell repliedAt={r.repliedAt} threadId={r.threadId} dealId={r.dealId} />
                     </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
                       <FollowUpCell

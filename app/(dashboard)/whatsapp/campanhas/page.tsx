@@ -43,7 +43,7 @@ export default async function CampanhasPage() {
     return (
       <div className="space-y-4">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Prospecção em massa por WhatsApp — variação de mensagem e intervalo seguro entre envios.
+          Envie a mesma mensagem para várias pessoas, uma por vez, com um intervalo entre cada envio.
         </p>
         {cronStatus?.stale && (
           <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">

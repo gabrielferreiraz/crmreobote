@@ -1,5 +1,5 @@
 import { Phone, Mail, MapPin, ChevronRight } from "lucide-react";
-import { normalizePhoneNumber, formatBrazilianPhone, ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
+import { normalizePhoneNumber, formatBrazilianPhone, ensureBrazilianMobileNinthDigit, toDialNumber } from "@/lib/phone-normalize";
 
 type Props = {
   phone?: string | null;
@@ -110,8 +110,9 @@ export function DigitalCardContactActions({ phone, whatsapp, email, address, ins
   const hasAny = phoneDigits || whatsappDigits || email || address || instagramHref;
   if (!hasAny) return null;
 
-  const whatsappHref = whatsappDigits ? `https://wa.me/55${whatsappDigits}` : null;
-  const phoneHref = phoneDigits ? `tel:+55${phoneDigits}` : null;
+  // toDialNumber: 55 só em número brasileiro (número de outro país já leva o próprio DDI).
+  const whatsappHref = whatsappDigits ? `https://wa.me/${toDialNumber(whatsappDigits)}` : null;
+  const phoneHref = phoneDigits ? `tel:+${toDialNumber(phoneDigits)}` : null;
   const emailHref = email ? `mailto:${email}` : null;
   const mapHref = address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : null;
 

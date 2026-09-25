@@ -6,10 +6,11 @@ import { Clock } from "lucide-react";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 
 const TIME_STEP_MINUTES = 15;
+const FIRST_AVAILABLE_MINUTE = 6 * 60;
 
 function generateTimes(): string[] {
   const times: string[] = [];
-  for (let m = 0; m < 24 * 60; m += TIME_STEP_MINUTES) {
+  for (let m = FIRST_AVAILABLE_MINUTE; m < 24 * 60; m += TIME_STEP_MINUTES) {
     const h = Math.floor(m / 60);
     const min = m % 60;
     times.push(`${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`);

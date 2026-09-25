@@ -6,6 +6,15 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // lib/parse-spreadsheet-worker.ts importa um arquivo irmão com a
+    // extensão ".ts" EXPLÍCITA de propósito (ver comentário lá) — é o único
+    // arquivo do projeto carregado pelo Node puro em runtime (worker_thread
+    // via `new Worker(caminho)`, fora do bundle do Next), e resolução ESM
+    // nativa do Node exige extensão explícita em import relativo. Só é
+    // seguro habilitar isto com "noEmit": true (já é o caso aqui) — o
+    // compilador nunca tenta de fato GERAR um arquivo que importaria outro
+    // ".ts" pelo nome, só typecheckar.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

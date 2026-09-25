@@ -13,7 +13,7 @@
  */
 
 import { normalizeHeader } from "@/lib/parse-spreadsheet";
-import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
+import { brazilianMobileVariants, resolveContactPhones } from "@/lib/phone-normalize";
 
 export type ContactImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "source" | "company" | "tags" | "responsavel";
 
@@ -84,7 +84,7 @@ export function detectColumns(rawHeaderRow: string[], overrides?: Partial<Record
   });
 }
 
-export type RowIssueCode = "NO_NAME" | "NO_JOB_TITLE" | "DUPLICATE_CONTACT" | "OWNER_NOT_FOUND";
+export type RowIssueCode = "NO_NAME" | "NO_JOB_TITLE" | "DUPLICATE_CONTACT" | "OWNER_NOT_FOUND" | "INVALID_WHATSAPP" | "INVALID_PHONE";
 
 /** Contato JÁ existente que colidiu com esta linha (telefone OU WhatsApp já
  * cadastrado) — presente só quando o issue é DUPLICATE_CONTACT contra um
@@ -129,6 +129,8 @@ export type ImportPlanSummary = {
   toCreate: number;
   skippedNoName: number;
   skippedNoJobTitle: number;
+  /** Linhas ignoradas porque o Celular/WhatsApp veio preenchido mas inválido (ver resolveContactPhones). */
+  skippedInvalidPhone: number;
   duplicateContacts: number;
   ownerFallbacks: number;
 };
@@ -289,6 +291,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   let toCreate = 0;
   let skippedNoName = 0;
   let skippedNoJobTitle = 0;
+  let skippedInvalidPhone = 0;
   let duplicateContacts = 0;
   let ownerFallbacks = 0;
 
@@ -314,10 +317,25 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       continue;
     }
 
-    const phone = cell(row, "phone") || undefined;
-    const whatsapp = cell(row, "whatsapp") || undefined;
-    const phoneNormalized = normalizePhoneNumber(phone);
-    const whatsappNormalized = normalizePhoneNumber(whatsapp);
+    // Limpa/valida/formata Celular e WhatsApp num lugar só (ver
+    // resolveContactPhones em lib/phone-normalize.ts): tira apóstrofo/aspas,
+    // exige DDD/DDI válidos, aplica a máscara e o 9º dígito, move celular pro
+    // WhatsApp vazio. Número preenchido mas INVÁLIDO barra a linha (não
+    // importa lixo) — a prévia e a planilha de erros dizem qual e por quê,
+    // pra corrigir e subir só essas de novo.
+    const phones = resolveContactPhones({ phone: cell(row, "phone") || null, whatsapp: cell(row, "whatsapp") || null });
+    if (phones.issues.length > 0) {
+      skippedInvalidPhone += 1;
+      for (const issue of phones.issues) {
+        issues.push({
+          code: issue.field === "whatsapp" ? "INVALID_WHATSAPP" : "INVALID_PHONE",
+          message: `${issue.field === "whatsapp" ? "WhatsApp" : "Celular"} "${issue.raw}" — ${issue.message}`,
+        });
+      }
+      rows.push({ rowNumber, willImport: false, name, jobTitle, source: source ?? null, responsavelName: null, issues });
+      continue;
+    }
+    const { phone, whatsapp, phoneNormalized, whatsappNormalized } = phones;
     // Resolvidos aqui (não só lá embaixo, na hora de criar) — o ramo de
     // duplicidade logo abaixo também precisa deles pra montar
     // divergentFields (ver ExistingContactMatch).
@@ -365,7 +383,19 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     toCreate += 1;
     rows.push({ rowNumber, willImport: true, name, jobTitle, source: source ?? null, responsavelName, issues });
     if (input.includeWrites) {
-      newContacts.push({ name, email, phone, whatsapp, source, company, jobTitle, tags, responsavelId, phoneNormalized, whatsappNormalized });
+      newContacts.push({
+        name,
+        email,
+        phone: phone ?? undefined,
+        whatsapp: whatsapp ?? undefined,
+        source,
+        company,
+        jobTitle,
+        tags,
+        responsavelId,
+        phoneNormalized,
+        whatsappNormalized,
+      });
     }
   }
 
@@ -374,6 +404,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     toCreate,
     skippedNoName,
     skippedNoJobTitle,
+    skippedInvalidPhone,
     ownerFallbacks,
     duplicateContacts,
   };

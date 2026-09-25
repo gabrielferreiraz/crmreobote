@@ -25,19 +25,17 @@ const ALLOWED_ROLES = ["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"] as const;
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, markLostOnNoReply, noReplyLossReasonId, delayMinSec, delayMaxSec } =
+  const { dealIds, scriptIds, rmktEnabled, rmktWaves, noReplyDays, markLostOnNoReply, delayMinSec, delayMaxSec } =
     body as {
       dealIds?: string[];
       scriptIds?: string[];
       rmktEnabled?: boolean;
       rmktWaves?: RmktWaveInput[];
       noReplyDays?: number;
-      /** Pedido explícito: opção de marcar o negócio como perdido quando
-       * "não respondeu" vencer, com liga/desliga (ver Campaign.markLostOnNoReply
-       * no schema) — só tem efeito de verdade quando `waves.length > 0`
-       * (mesma condição que já vale pro noReplyDays em si, ver abaixo). */
+      /** Só tem efeito de verdade quando `waves.length > 0`, mesma condição
+       * que já vale pro noReplyDays. O motivo é sempre "Não respondeu" e é
+       * resolvido no servidor. */
       markLostOnNoReply?: boolean;
-      noReplyLossReasonId?: string;
       delayMinSec?: number;
       delayMaxSec?: number;
     };
@@ -79,9 +77,11 @@ export async function POST(req: Request) {
     const allScriptIds = Array.from(new Set([...uniqueScriptIds, ...waves.map((w) => w.scriptId)]));
     const scriptRows = await prisma.messageScript.findMany({
       where: { id: { in: allScriptIds }, organizationId, createdById: userId },
-      select: { id: true, steps: true },
+      select: { id: true, steps: true, version: true },
     });
     const stepsByScriptId = new Map(scriptRows.map((s) => [s.id, s.steps]));
+    // Versão do script no momento da cópia (ver lib/campaigns/script-sync.ts).
+    const versionByScriptId = new Map(scriptRows.map((s) => [s.id, s.version]));
     for (const id of uniqueScriptIds) {
       if (!stepsByScriptId.has(id)) return NextResponse.json({ error: "Um dos scripts selecionados é inválido" }, { status: 400 });
     }
@@ -96,12 +96,23 @@ export async function POST(req: Request) {
     // logo abaixo) — sem onda configurada, ninguém nunca expira, então o
     // motivo nunca seria usado.
     const resolvedMarkLostOnNoReply = waves.length > 0 && !!markLostOnNoReply;
+    let resolvedNoReplyLossReasonId: string | undefined;
     if (resolvedMarkLostOnNoReply) {
-      if (!noReplyLossReasonId) {
-        return NextResponse.json({ error: "Selecione o motivo de perda pra usar quando \"não respondeu\" vencer" }, { status: 400 });
+      let reason = await prisma.lossReason.findFirst({
+        where: { organizationId, label: "Não respondeu" },
+        select: { id: true },
+      });
+      if (!reason) {
+        const maxOrder = await prisma.lossReason.aggregate({
+          where: { organizationId },
+          _max: { order: true },
+        });
+        reason = await prisma.lossReason.create({
+          data: { organizationId, label: "Não respondeu", order: (maxOrder._max.order ?? -1) + 1 },
+          select: { id: true },
+        });
       }
-      const reason = await prisma.lossReason.findFirst({ where: { id: noReplyLossReasonId, organizationId } });
-      if (!reason) return NextResponse.json({ error: "Motivo de perda inválido" }, { status: 400 });
+      resolvedNoReplyLossReasonId = reason.id;
     }
 
     // Nunca confia na seleção vinda do cliente — revalida contra o escopo
@@ -185,6 +196,7 @@ export async function POST(req: Request) {
           steps: stepsByScriptId.get(id),
           weight: 1,
           scriptId: id,
+          scriptVersion: versionByScriptId.get(id),
         })) as unknown as Prisma.InputJsonValue,
         audienceFilter: { jobTitles: [], tags: [], cities: [] } as unknown as Prisma.InputJsonValue,
         // Obrigatório no schema, mas não usado de fato pra PIPELINE_BULK —
@@ -201,12 +213,12 @@ export async function POST(req: Request) {
           waves.length > 0
             ? (waves.map((w) => ({
                 dayOffset: w.dayOffset,
-                templates: [{ steps: stepsByScriptId.get(w.scriptId), weight: 1, scriptId: w.scriptId }],
+                templates: [{ steps: stepsByScriptId.get(w.scriptId), weight: 1, scriptId: w.scriptId, scriptVersion: versionByScriptId.get(w.scriptId) }],
               })) as unknown as Prisma.InputJsonValue)
             : undefined,
         noReplyDays: waves.length > 0 ? resolvedNoReplyDays : undefined,
         markLostOnNoReply: resolvedMarkLostOnNoReply,
-        noReplyLossReasonId: resolvedMarkLostOnNoReply ? noReplyLossReasonId : undefined,
+        noReplyLossReasonId: resolvedNoReplyLossReasonId,
         createdById: userId,
       },
     });

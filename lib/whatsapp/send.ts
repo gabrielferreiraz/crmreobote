@@ -30,7 +30,7 @@ import * as metaWhatsApp from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
 import { getOrCreateThreadForContact, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { signMediaKey } from "@/lib/whatsapp/media-token";
-import { ensureBrazilianMobileNinthDigit } from "@/lib/phone-normalize";
+import { toDialNumber } from "@/lib/phone-normalize";
 
 export class WhatsAppSendError extends Error {}
 
@@ -183,7 +183,12 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
   // (fallbackWhatsappToPhone), dado antigo continuaria quebrado até alguém
   // reeditar o contato. Aqui garante que TODO envio funciona, independente
   // de quando/como aquele número entrou no banco.
-  const fullNumber = `55${ensureBrazilianMobileNinthDigit(thread.phoneNormalized)}`;
+  //
+  // toDialNumber também decide o DDI: só número com formato de brasileiro
+  // ganha o 55 — número de outro país (Portugal, EUA…) já carrega o próprio
+  // DDI no valor normalizado e antes virava um número inexistente
+  // ("55351968203610") por ganhar um 55 que não é dele.
+  const fullNumber = toDialNumber(thread.phoneNormalized) ?? thread.phoneNormalized;
 
   // Só EVOLUTION (sessão WhatsApp Web/Baileys) — a Cloud API oficial da Meta
   // não tem conceito de "presença"/digitando pra mensagem iniciada por nós.

@@ -6,10 +6,12 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getCampaignDetail } from "@/lib/campaigns/list";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
 import { getDealScope } from "@/lib/team-scope";
+import { getSharedScope } from "@/lib/share-groups";
 import { RecipientsTable } from "./recipients-table";
 import { CampaignMetricsChart } from "./metrics-chart";
 import { CampaignActions } from "./campaign-actions";
 import { NextSendCountdown } from "./next-send-countdown";
+import { CampaignScriptsPanel } from "./campaign-scripts-panel";
 
 function formatHours(hours: number): string {
   if (hours <= 0) return "0h";
@@ -35,7 +37,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     // telefone) de outro consultor. Fora do escopo cai no mesmo 404 de "id
     // não existe" — nunca revela que a campanha existe pra quem não pode vê-la.
     const scope = await getDealScope(organizationId, session!.user.id, session!.user.role);
-    const campaign = await getCampaignDetail(organizationId, id, scope);
+    // Mesmo escopo de /negocios/[id] (com grupos de compartilhamento) — o
+    // "Ver negócio" da tabela só aparece pra negócio que essa pessoa abre.
+    const dealScope = await getSharedScope(organizationId, session!.user.id, session!.user.role, "shareDeals");
+    const campaign = await getCampaignDetail(organizationId, id, scope, dealScope);
     if (!campaign) notFound();
 
     const total = campaign.counts.pending + campaign.counts.sent + campaign.counts.failed + campaign.counts.skipped;
@@ -184,6 +189,11 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </p>
           </div>
         )}
+
+        {/* Scripts que a campanha usa e se a cópia dela está igual à biblioteca —
+            editar aqui abre o editor com "esta campanha" já marcada pra receber
+            o texto novo (ver lib/campaigns/script-sync.ts). */}
+        <CampaignScriptsPanel campaignId={campaign.id} scripts={campaign.scripts} editable={campaign.scriptsEditable} />
 
         <CampaignMetricsChart data={campaign.dailyMetrics} />
 

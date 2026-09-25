@@ -21,7 +21,7 @@ const PERIOD_OPTIONS = [{ key: "all", label: "Todo o histórico" }, ...QUICK_RAN
 
 function formatDay(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Sao_Paulo" });
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Campo_Grande" });
 }
 
 /** Monta o link mantendo os outros filtros — cada chip só troca o próprio parâmetro (e volta pra página 1). */

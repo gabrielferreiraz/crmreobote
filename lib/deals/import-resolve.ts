@@ -16,7 +16,7 @@
  */
 
 import { normalizeHeader } from "@/lib/parse-spreadsheet";
-import { normalizePhoneNumber, brazilianMobileVariants } from "@/lib/phone-normalize";
+import { brazilianMobileVariants, resolveContactPhones } from "@/lib/phone-normalize";
 import { parseBrazilianCurrency } from "@/lib/format";
 import { buildDealName } from "@/lib/deal-name";
 
@@ -102,7 +102,9 @@ export type RowIssueCode =
   | "STAGE_NOT_FOUND"
   | "OWNER_NOT_FOUND"
   | "VALUE_UNREADABLE"
-  | "GROSS_VALUE_UNREADABLE";
+  | "GROSS_VALUE_UNREADABLE"
+  | "INVALID_WHATSAPP"
+  | "INVALID_PHONE";
 
 export type ResolvedRow = {
   /** 1-based, contando a linha de cabeçalho como 1 — bate com o número de linha que a pessoa vê ao abrir a planilha. */
@@ -125,6 +127,8 @@ export type ImportPlanSummary = {
   existingContactsMatched: number;
   duplicateDeals: number;
   skippedNoContact: number;
+  /** Linhas ignoradas porque o Celular/WhatsApp veio preenchido mas inválido (ver resolveContactPhones). */
+  skippedInvalidPhone: number;
   stageFallbacks: number;
   ownerFallbacks: number;
   valueParseFailures: number;
@@ -290,6 +294,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   let existingContactCount = 0;
   let duplicateDeals = 0;
   let skippedNoContact = 0;
+  let skippedInvalidPhone = 0;
   let stageFallbacks = 0;
   let ownerFallbacks = 0;
   let valueParseFailures = 0;
@@ -309,12 +314,34 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
       continue;
     }
 
-    const phone = cell(row, "phone") || undefined;
-    const whatsapp = cell(row, "whatsapp") || undefined;
+    // Limpa/valida/formata Celular e WhatsApp num lugar só (ver
+    // resolveContactPhones em lib/phone-normalize.ts) — tira apóstrofo/aspas,
+    // exige DDD/DDI válidos, aplica a máscara e o 9º dígito. Aqui o Celular
+    // continua sendo o "número 2/backup" (moveMobileToWhatsapp: false — só o
+    // WhatsApp identifica o contato, ver comentário mais acima). Número
+    // preenchido mas INVÁLIDO barra a linha em vez de importar lixo.
+    const phones = resolveContactPhones(
+      { phone: cell(row, "phone") || null, whatsapp: cell(row, "whatsapp") || null },
+      { moveMobileToWhatsapp: false },
+    );
+    if (phones.issues.length > 0) {
+      skippedInvalidPhone += 1;
+      for (const issue of phones.issues) {
+        issues.push({
+          code: issue.field === "whatsapp" ? "INVALID_WHATSAPP" : "INVALID_PHONE",
+          message: `${issue.field === "whatsapp" ? "WhatsApp" : "Celular"} "${issue.raw}" — ${issue.message}`,
+        });
+      }
+      rows.push({ rowNumber, willImport: false, contactName, contactStatus: null, dealName: null, stageName: null, ownerName: null, value: null, grossValue: null, issues });
+      rowContactRefs.push(null);
+      continue;
+    }
+    const phone = phones.phone ?? undefined;
+    const whatsapp = phones.whatsapp ?? undefined;
     const email = cell(row, "email") || undefined;
     const source = cell(row, "source") || input.fieldDefaults?.source || undefined;
-    const phoneNormalized = normalizePhoneNumber(phone);
-    const whatsappNormalized = normalizePhoneNumber(whatsapp);
+    const phoneNormalized = phones.phoneNormalized;
+    const whatsappNormalized = phones.whatsappNormalized;
 
     let ref: ContactRef | undefined = lookupWhatsapp(whatsappNormalized);
 
@@ -407,6 +434,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     existingContactsMatched: existingContactCount,
     duplicateDeals,
     skippedNoContact,
+    skippedInvalidPhone,
     stageFallbacks,
     ownerFallbacks,
     valueParseFailures,
