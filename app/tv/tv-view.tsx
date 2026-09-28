@@ -63,7 +63,8 @@ const RANKING_SPIN_VISIBLE_MS = 6000;
 // aniversário no mês, os dois cards ficam só no conteúdo normal pra sempre.
 // Quem faz aniversário especificamente HOJE ainda ganha destaque à parte
 // dentro do conteúdo (ver renderLastSaleContent/renderRankingContent).
-const RANKING_CAROUSEL_INTERVAL_MS = 3 * 60 * 1000;
+const RANKING_VISIBLE_MS = 3 * 60 * 1000;
+const BIRTHDAY_VISIBLE_MS = 5 * 1000;
 // Quanto tempo o lado que está SAINDO fica montado depois da troca, animando
 // pra fora da tela (ver outgoingSlide mais abaixo) — precisa bater com a
 // duração das animações tv-slide-in-from-*/tv-slide-out-to-* em globals.css,
@@ -388,11 +389,12 @@ export function TvView({
       setRankingSlide(0);
       return;
     }
-    const interval = setInterval(() => {
+    const delay = rankingSlide === 0 ? RANKING_VISIBLE_MS : BIRTHDAY_VISIBLE_MS;
+    const timer = setTimeout(() => {
       setRankingSlide((s) => (s === 0 ? 1 : 0));
-    }, RANKING_CAROUSEL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [hasBirthdayThisMonth]);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [hasBirthdayThisMonth, rankingSlide]);
 
   // Recarga diária de madrugada (ver DAILY_RELOAD_HOUR) — calcula os ms até
   // a próxima ocorrência UMA vez ao montar; depois do reload, a página monta

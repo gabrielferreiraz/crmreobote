@@ -3,10 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Undo2, X } from "lucide-react";
+import { AlertCircle, Undo2, X } from "lucide-react";
+import { subscribeErrorToast } from "@/lib/client-request";
 
 const TOAST_MS = 30_000;
 const MAX_STACKED = 3;
+const ERROR_TOAST_MS = 7_000;
+
+type ErrorToast = { key: number; message: string; count: number };
 
 export type UndoToastInput = { id: string; description: string };
 type UndoToast = UndoToastInput & { key: number };
@@ -167,12 +171,72 @@ export function UndoProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Avisos de ERRO (lib/client-request.ts) — mesmo canto, mesma pilha, pra
+  // pessoa só precisar olhar num lugar. Mensagem repetida (ex.: exclusão em
+  // massa com 10 falhas iguais) não empilha 10 avisos: soma no mesmo.
+  const [errors, setErrors] = useState<ErrorToast[]>([]);
+  const errorsRef = useRef<ErrorToast[]>([]);
+  const errorTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const dismissError = useCallback((key: number) => {
+    const timer = errorTimers.current.get(key);
+    if (timer) clearTimeout(timer);
+    errorTimers.current.delete(key);
+    errorsRef.current = errorsRef.current.filter((t) => t.key !== key);
+    setErrors(errorsRef.current);
+  }, []);
+
+  useEffect(() => {
+    const map = errorTimers.current;
+    const unsubscribe = subscribeErrorToast((message) => {
+      const current = errorsRef.current;
+      const existing = current.find((t) => t.message === message);
+      const key = existing?.key ?? ++toastKeySeq;
+      const timer = map.get(key);
+      if (timer) clearTimeout(timer);
+      map.set(
+        key,
+        setTimeout(() => dismissError(key), ERROR_TOAST_MS),
+      );
+      errorsRef.current = existing
+        ? current.map((t) => (t.key === key ? { ...t, count: t.count + 1 } : t))
+        : [...current, { key, message, count: 1 }].slice(-MAX_STACKED);
+      setErrors(errorsRef.current);
+    });
+    return () => {
+      unsubscribe();
+      for (const timer of map.values()) clearTimeout(timer);
+    };
+  }, [dismissError]);
+
   return (
     <UndoContext.Provider value={{ pushUndoToast }}>
       {children}
       {mounted &&
         createPortal(
           <div className="pointer-events-none fixed right-4 bottom-4 z-[70] flex flex-col-reverse gap-2">
+            {errors.map((t) => (
+              <div
+                key={t.key}
+                role="alert"
+                className="animate-pop-in pointer-events-auto flex max-w-sm items-start gap-2.5 rounded-lg bg-red-600 px-3.5 py-2.5 text-sm text-white shadow-2xl ring-1 ring-white/10"
+                style={{ transformOrigin: "bottom right" }}
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.25} />
+                <span className="min-w-0 flex-1">
+                  {t.message}
+                  {t.count > 1 && <span className="ml-1 font-semibold opacity-80">({t.count}×)</span>}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => dismissError(t.key)}
+                  aria-label="Fechar aviso"
+                  className="mt-0.5 shrink-0 text-white/70 hover:text-white"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              </div>
+            ))}
             {toasts.map((t) => (
               <div
                 key={t.key}

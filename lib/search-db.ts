@@ -59,7 +59,9 @@ function createSearchClient() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL_SEARCH,
     keepAlive: true,
-    max: 10,
+    // Busca é uma consulta curta por tecla (com debounce) — 5 conexões bastam;
+    // eram 10 somando às 20 do app e às dos crons (auditoria 09/2026).
+    max: 5,
   });
   pool.on("error", (err) => console.error("[search pg pool error]", err));
   pool.on("connect", (client) => {

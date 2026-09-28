@@ -10,6 +10,7 @@ import { resolveImportPlan, type ImportField } from "@/lib/deals/import-resolve"
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 import { publishDealsEvent } from "@/lib/deals/live-events";
+import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,16 @@ export async function POST(req: Request) {
   const rateLimited = rateLimitOrResponse(`import:${organizationId}`, 5, 60 * 60_000);
   if (rateLimited) return rateLimited;
 
-  const formData = await req.formData();
+  // Lido só depois da autenticação e com teto (lib/read-body.ts) — antes
+  // req.formData() carregava o corpo INTEIRO pra memória antes de checar tamanho.
+  let formData: FormData;
+  try {
+    formData = await readFormData(req, BODY_LIMITS.spreadsheet);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   const file = formData.get("file");
   const pipelineId = formData.get("pipelineId");
   const columnOverridesRaw = formData.get("columnOverrides");

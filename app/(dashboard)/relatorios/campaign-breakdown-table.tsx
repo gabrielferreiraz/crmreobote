@@ -11,7 +11,7 @@ function Cost({ value }: { value: number | null }) {
 
 /**
  * Desempenho por campanha (gasto cruzado com o que aconteceu com o lead no
- * CRM: qualificação, resposta, reunião, venda) — anúncios de cada campanha
+ * CRM: qualificação, resposta, videochamada, venda) — anúncios de cada campanha
  * aninhados embaixo dela (clique pra expandir). Tudo já vem pronto do
  * servidor (ver lib/meta-ads/performance.ts) numa chamada só; esse
  * componente só controla quais campanhas estão expandidas. Client de
@@ -44,8 +44,8 @@ export function CampaignBreakdownTable({ rows }: { rows: CampaignPerformanceRow[
           <th className="px-3 py-2.5 font-medium">Qualificados</th>
           <th className="px-3 py-2.5 font-medium">Desqualificados</th>
           <th className="px-3 py-2.5 font-medium">Não responderam</th>
-          <th className="px-3 py-2.5 font-medium">Reunião/Visita</th>
-          <th className="px-3 py-2.5 font-medium">Custo/reunião</th>
+          <th className="px-3 py-2.5 font-medium">Videochamada/Visita</th>
+          <th className="px-3 py-2.5 font-medium">Custo/videochamada</th>
           <th className="px-3 py-2.5 font-medium">No-show</th>
           <th className="px-3 py-2.5 font-medium">Vendas</th>
           <th className="px-3 py-2.5 font-medium">Valor ganho</th>
@@ -150,7 +150,7 @@ export function CampaignBreakdownTable({ rows }: { rows: CampaignPerformanceRow[
                     </td>
                     <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400">{formatCurrency(ad.spend)}</td>
                     <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400">{ad.leads}</td>
-                    {/* 15 colunas no total (ver <thead> acima), 3 já preenchidas (nome/gasto/leads) — o resto (12) vira essa célula só, o CRM não sabe reunião/venda por anúncio individual. */}
+                    {/* 15 colunas no total (ver <thead> acima), 3 já preenchidas (nome/gasto/leads) — o resto (12) vira essa célula só, o CRM não sabe videochamada/venda por anúncio individual. */}
                     <td className="px-3 py-2 tabular-nums text-neutral-500 dark:text-neutral-400" colSpan={12}>
                       {ad.leads > 0 ? formatCurrency(ad.spend / ad.leads) + "/lead" : "—"}
                     </td>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -35,15 +36,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 /** Só os marcadores — mover de etapa é uma ação à parte (ver /move, precisa gravar auditoria). */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const { documentStatus, quotaNumber, groupNumber } = body as {
-    documentStatus?: string;
-    quotaNumber?: string | null;
-    groupNumber?: string | null;
-  };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { documentStatus?: string; quotaNumber?: string | null; groupNumber?: string | null };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { documentStatus, quotaNumber, groupNumber } = body;
 
   const validDocumentStatuses: $Enums.DocumentStatus[] = ["NOT_REQUESTED", "PENDING_DELIVERY", "DELIVERED"];
   if (documentStatus !== undefined && !validDocumentStatuses.includes(documentStatus as $Enums.DocumentStatus)) {

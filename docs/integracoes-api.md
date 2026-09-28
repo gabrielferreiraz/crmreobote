@@ -362,11 +362,11 @@ curl -X POST https://api.seudominio.com/api/v1/deals \
 
 ---
 
-## Agendamento de reunião
+## Agendamento de videochamada
 
 Pensado pra landing page externa de captação de leads (Meta Ads): depois de
 criar o contato (`POST /api/v1/contacts`) e o negócio (`POST /api/v1/deals`),
-a última etapa do formulário deixa o lead escolher um horário de reunião com
+a última etapa do formulário deixa o lead escolher um horário de videochamada com
 o consultor responsável. Dois passos: `GET /api/v1/availability` pra
 mostrar a grade, `POST /api/v1/appointments` pra reservar.
 
@@ -380,7 +380,7 @@ mostrar a grade, `POST /api/v1/appointments` pra reservar.
 | 13:00 |
 | 14:30 |
 
-5 horários fixos, de 1h30 em 1h30 a partir das 08:30 (a reunião em si dura
+5 horários fixos, de 1h30 em 1h30 a partir das 08:30 (a videochamada em si dura
 20-30min — o resto do intervalo é folga do consultor pra prospectar outros
 leads ou absorver um no-show). Timezone: `America/Campo_Grande` (fuso de
 Mato Grosso do Sul, UTC-4 — **não** é o mesmo fuso de São Paulo/UTC-3,
@@ -396,7 +396,7 @@ dia com pelo menos 1 horário livre — só esse dia é devolvido. Se seu
 formulário mostrar "sem vaga" depois que o lead demorou muito pra preencher,
 chame `GET /api/v1/availability` de novo: a grade pode ter mudado.
 
-Um horário é considerado ocupado se já existe uma reunião reservada pra
+Um horário é considerado ocupado se já existe uma videochamada reservada pra
 aquele consultor naquele exato horário (nesta API ou marcada direto no
 Google Agenda dele, quando ele tem uma conta conectada).
 
@@ -435,7 +435,7 @@ curl -X GET "https://api.seudominio.com/api/v1/availability?consultorId=cm..." \
 
 `googleCalendarConnected: false` significa que o consultor ainda não
 conectou o Google Agenda dele no CRM — os horários mostrados continuam
-válidos (checados só contra as reuniões já marcadas por aqui), só não
+válidos (checados só contra as videochamadas já marcadas por aqui), só não
 levam em conta compromissos que ele tenha marcado direto no Google.
 
 **Erros:** `401` (chave inválida/revogada), `404` (`consultorId` não existe
@@ -446,7 +446,7 @@ ou não pertence a esta organização).
 Reserva um dos horários devolvidos por `GET /api/v1/availability`. Assim
 como `/api/v1/deals`, aceita `contactId` (contato já existente) **ou**
 `contact` (mesmo formato de `/api/v1/contacts` — cria/atualiza o contato na
-mesma chamada). `dealId` é opcional — se vier, a reunião fica vinculada a
+mesma chamada). `dealId` é opcional — se vier, a videochamada fica vinculada a
 esse negócio.
 
 `date`/`time` são **revalidados no servidor** — a API nunca confia que um
@@ -487,7 +487,7 @@ curl -X POST https://api.seudominio.com/api/v1/appointments \
 
 `scheduledAt` vem em UTC (`Z`), igual todo outro timestamp desta API —
 `12:30:00.000Z` é exatamente `08:30` em `America/Campo_Grande` (UTC-4).
-`googleCalendarSynced: false` significa que a reunião foi reservada
+`googleCalendarSynced: false` significa que a videochamada foi reservada
 normalmente (`taskId` sempre é retornado), mas não deu pra criar o evento
 no Google Agenda do consultor nessa hora (token revogado, API do Google
 fora do ar, ou o consultor não tem conexão) — a reserva **não é perdida**

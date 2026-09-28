@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { requestJson } from "@/lib/client-request";
+
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -18,6 +20,12 @@ import { ProcessStageManager, type ProcessStage } from "@/components/process-sta
 
 export type PipelineTreeItem = { id: string; name: string; stages: ProcessStage[]; _count: { processes: number } };
 export type CategoryTreeItem = { id: string; name: string; pipelines: PipelineTreeItem[] };
+type CategoryTreeNavProps = {
+  categories: CategoryTreeItem[];
+  activePipelineId: string;
+  isAdmin: boolean;
+  onSelect: (pipelineId: string) => void;
+};
 
 /**
  * Categoria (grupo colapsável) → Subcategoria (item indentado), com
@@ -25,26 +33,22 @@ export type CategoryTreeItem = { id: string; name: string; pipelines: PipelineTr
  * na própria página de Processos, sem precisar ir em Configurações (que
  * continua existindo, só não é mais o único jeito de gerenciar isso).
  */
-export function CategoryTreeNav({
+export function CategoryTreeNav(props: CategoryTreeNavProps) {
+  const categoriesVersion = JSON.stringify(props.categories);
+  return <CategoryTreeNavState key={categoriesVersion} {...props} />;
+}
+
+function CategoryTreeNavState({
   categories: initialCategories,
   activePipelineId,
   isAdmin,
   onSelect,
-}: {
-  categories: CategoryTreeItem[];
-  activePipelineId: string;
-  isAdmin: boolean;
-  onSelect: (pipelineId: string) => void;
-}) {
+}: CategoryTreeNavProps) {
   const router = useRouter();
   const [categories, setCategories] = useState(initialCategories);
-  useEffect(() => setCategories(initialCategories), [initialCategories]);
 
   const activeCategoryId = categories.find((c) => c.pipelines.some((p) => p.id === activePipelineId))?.id;
   const [openIds, setOpenIds] = useState<Set<string>>(new Set(activeCategoryId ? [activeCategoryId] : []));
-  useEffect(() => {
-    if (activeCategoryId) setOpenIds((prev) => (prev.has(activeCategoryId) ? prev : new Set(prev).add(activeCategoryId)));
-  }, [activeCategoryId]);
 
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -107,13 +111,19 @@ export function CategoryTreeNav({
   }
 
   async function renameCategory(id: string, name: string) {
+    const previousName = categories.find((category) => category.id === id)?.name;
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
-    await fetch(`/api/process-categories/${id}`, {
+    const res = await requestJson(`/api/process-categories/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      json: { name },
     });
-    router.refresh();
+    if (res.ok) {
+      router.refresh();
+      return;
+    }
+    if (previousName !== undefined) {
+      setCategories((prev) => prev.map((category) => (category.id === id ? { ...category, name: previousName } : category)));
+    }
   }
 
   async function deleteCategory(category: CategoryTreeItem) {
@@ -135,13 +145,14 @@ export function CategoryTreeNav({
     const oldIndex = categories.findIndex((c) => c.id === active.id);
     const newIndex = categories.findIndex((c) => c.id === over.id);
     const reordered = arrayMove(categories, oldIndex, newIndex);
+    const prev = categories;
     setCategories(reordered);
-    await fetch("/api/process-categories/reorder", {
+    const res = await requestJson("/api/process-categories/reorder", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryIds: reordered.map((c) => c.id) }),
+      json: { categoryIds: reordered.map((c) => c.id) },
     });
-    router.refresh();
+    if (!res.ok) setCategories(prev);
+    else router.refresh();
   }
 
   async function createSubcategory(categoryId: string) {
@@ -174,17 +185,25 @@ export function CategoryTreeNav({
   }
 
   async function renameSubcategory(categoryId: string, pipelineId: string, name: string) {
-    setCategories((prev) =>
-      prev.map((c) =>
+    const prevPipeline = categories.find((c) => c.id === categoryId)?.pipelines.find((p) => p.id === pipelineId);
+    setCategories((cs) =>
+      cs.map((c) =>
         c.id === categoryId ? { ...c, pipelines: c.pipelines.map((p) => (p.id === pipelineId ? { ...p, name } : p)) } : c,
       ),
     );
-    await fetch(`/api/process-pipelines/${pipelineId}`, {
+    const res = await requestJson(`/api/process-pipelines/${pipelineId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      json: { name },
     });
-    router.refresh();
+    if (!res.ok && prevPipeline)
+      setCategories((cs) =>
+        cs.map((c) =>
+          c.id === categoryId
+            ? { ...c, pipelines: c.pipelines.map((p) => (p.id === pipelineId ? { ...p, name: prevPipeline.name } : p)) }
+            : c,
+        ),
+      );
+    if (res.ok) router.refresh();
   }
 
   async function deleteSubcategory(categoryId: string, pipeline: PipelineTreeItem) {
@@ -210,13 +229,14 @@ export function CategoryTreeNav({
     const oldIndex = category.pipelines.findIndex((p) => p.id === active.id);
     const newIndex = category.pipelines.findIndex((p) => p.id === over.id);
     const reordered = arrayMove(category.pipelines, oldIndex, newIndex);
-    setCategories((prev) => prev.map((c) => (c.id === categoryId ? { ...c, pipelines: reordered } : c)));
-    await fetch(`/api/process-categories/${categoryId}/pipelines/reorder`, {
+    const prev = category.pipelines;
+    setCategories((cs) => cs.map((c) => (c.id === categoryId ? { ...c, pipelines: reordered } : c)));
+    const res = await requestJson(`/api/process-categories/${categoryId}/pipelines/reorder`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pipelineIds: reordered.map((p) => p.id) }),
+      json: { pipelineIds: reordered.map((p) => p.id) },
     });
-    router.refresh();
+    if (!res.ok) setCategories((cs) => cs.map((c) => (c.id === categoryId ? { ...c, pipelines: prev } : c)));
+    else router.refresh();
   }
 
   // Corpo da árvore em si — igual pra barra lateral (desktop) e pra dentro
@@ -230,9 +250,9 @@ export function CategoryTreeNav({
           <div className="space-y-0.5">
             {categories.map((category) => (
               <CategoryGroup
-                key={category.id}
+                key={`${category.id}:${category.name}`}
                 category={category}
-                isOpen={openIds.has(category.id)}
+                isOpen={openIds.has(category.id) || category.id === activeCategoryId}
                 onToggle={() => toggle(category.id)}
                 isAdmin={isAdmin}
                 activePipelineId={activePipelineId}
@@ -419,7 +439,6 @@ function CategoryGroup({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
   const [name, setName] = useState(category.name);
-  useEffect(() => setName(category.name), [category.name]);
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
 
   return (
@@ -475,7 +494,7 @@ function CategoryGroup({
               ) : (
                 category.pipelines.map((pipeline) => (
                   <SubcategoryRow
-                    key={pipeline.id}
+                    key={`${pipeline.id}:${pipeline.name}`}
                     pipeline={pipeline}
                     active={pipeline.id === activePipelineId}
                     isAdmin={isAdmin}
@@ -547,7 +566,6 @@ function SubcategoryRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: pipeline.id });
   const [name, setName] = useState(pipeline.name);
   const [editing, setEditing] = useState(false);
-  useEffect(() => setName(pipeline.name), [pipeline.name]);
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
 
   return (

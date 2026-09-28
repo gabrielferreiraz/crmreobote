@@ -8,6 +8,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Select } from "@/components/select";
+import { requestJson } from "@/lib/client-request";
 
 type MemberInfo = { id: string; name: string };
 
@@ -90,12 +91,11 @@ export function ShareGroupManager({
   }
 
   async function patchGroup(groupId: string, data: Record<string, unknown>) {
-    await fetch(`/api/share-groups/${groupId}`, {
+    const res = await requestJson(`/api/share-groups/${groupId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      json: data,
     });
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   async function deleteGroup(groupId: string) {

@@ -14,6 +14,7 @@
  */
 
 const MAX_MONEY = 9_999_999_999.99;
+const MAX_PERCENT = 999.99;
 const MAX_TERM_MONTHS = 600;
 const MAX_QUOTA_COUNT = 999;
 const MAX_DESCRIPTION_LENGTH = 4000;
@@ -23,6 +24,7 @@ export type ProposalFields = {
   credit: number;
   termMonths: number;
   installment: number;
+  feePercent: number;
   quotaCount: number;
   description: string;
 };
@@ -49,6 +51,15 @@ function parseInt_(raw: unknown, label: string, max: number): Result<number> {
   return { ok: true, value: n };
 }
 
+function parsePercent(raw: unknown, label: string): Result<number> {
+  if (raw === null || raw === undefined || raw === "") return { ok: true, value: 0 };
+  const n = typeof raw === "number" ? raw : Number(String(raw).replace(",", "."));
+  if (!Number.isFinite(n)) return { ok: false, error: `${label} inválida` };
+  if (n < 0) return { ok: false, error: `${label} não pode ser negativa` };
+  if (n > MAX_PERCENT) return { ok: false, error: `${label} acima do máximo permitido (${MAX_PERCENT}%)` };
+  return { ok: true, value: Math.round(n * 100) / 100 };
+}
+
 export function parseProposalFields(raw: unknown): Result<ProposalFields> {
   if (!raw || typeof raw !== "object") return { ok: false, error: "Dados da proposta inválidos" };
   const body = raw as Record<string, unknown>;
@@ -57,6 +68,8 @@ export function parseProposalFields(raw: unknown): Result<ProposalFields> {
   if (!credit.ok) return credit;
   const installment = parseMoney(body.installment, "Parcela");
   if (!installment.ok) return installment;
+  const feePercent = parsePercent(body.feePercent, "Taxa");
+  if (!feePercent.ok) return feePercent;
   const termMonths = parseInt_(body.termMonths, "Prazo", MAX_TERM_MONTHS);
   if (!termMonths.ok) return termMonths;
   const quotaCount = parseInt_(body.quotaCount, "Quantidade de cotas", MAX_QUOTA_COUNT);
@@ -73,6 +86,7 @@ export function parseProposalFields(raw: unknown): Result<ProposalFields> {
       credit: credit.value,
       termMonths: termMonths.value,
       installment: installment.value,
+      feePercent: feePercent.value,
       quotaCount: quotaCount.value,
       description,
     },

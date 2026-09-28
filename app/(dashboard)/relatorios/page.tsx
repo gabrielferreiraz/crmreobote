@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet, PhoneCall, FileText, FileCheck2 } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet, PhoneCall, FileText, FileCheck2, ListTodo } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
@@ -146,6 +146,7 @@ export default async function RelatoriosPage({
     dealsClosedRanking,
     meetingsRanking,
     funnelActivityRanking,
+    completedTasksRanking,
     attendanceRanking,
     attendanceSummary,
     attendanceRateOverall,
@@ -463,10 +464,10 @@ export default async function RelatoriosPage({
           eyebrow={isMember ? "Meu desempenho" : isSupervisor ? "Minha equipe" : "Time"}
           title={isMember ? "O que eu fiz no período" : isSupervisor ? "Ranking da equipe" : "Ranking do time"}
           description={isMember
-            ? "Seus negócios fechados, reuniões e visitas, ligações, propostas e WhatsApp, comparecimento e conversão no período selecionado."
+            ? "Suas tarefas concluídas, negócios fechados, videochamadas e visitas, ligações, propostas e WhatsApp, comparecimento e conversão no período selecionado."
             : isSupervisor
             ? "Desempenho de cada membro da sua equipe no período."
-            : "Quem mais fechou negócio, quem mais foi atrás do lead (reunião ou visita), quem mais movimentou o funil (ligação, proposta, WhatsApp), a taxa de comparecimento desses encontros e quem converte melhor."
+            : "Quem mais fechou negócio, concluiu tarefas, foi atrás do lead (videochamada ou visita), movimentou o funil, teve comparecimento e converteu melhor."
           }
         />
         {/* flex-wrap + min-w/basis (não grid-cols-12 col-span-N) de propósito
@@ -494,15 +495,15 @@ export default async function RelatoriosPage({
           <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
             <div className="mb-1 flex shrink-0 items-center gap-2">
               <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Reuniões e visitas realizadas</h3>
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Videochamadas e visitas realizadas</h3>
             </div>
             {/* Só conta quem o cliente de fato COMPARECEU — agendada que
-                virou no-show ou remarcação não é reunião realizada (ver
+                virou no-show ou remarcação não é videochamada realizada (ver
                 comentário em lib/reports/commercial-data.ts). O detalhamento
                 por consultor (agendadas/no-show/remarcadas) mostra onde cada
-                um está perdendo reunião, não só o número final. */}
+                um está perdendo videochamada, não só o número final. */}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma reunião ou visita realizada ainda" />
+              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma videochamada ou visita realizada ainda" />
             </div>
           </div>
           <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
@@ -512,11 +513,20 @@ export default async function RelatoriosPage({
             </div>
             {/* Ligação + proposta + WhatsApp registrados (ver comentário em
                 lib/reports/commercial-data.ts) — diferente do card de
-                reuniões/visitas ao lado, esses 3 tipos não têm "resultado"
+                videochamadas/visitas ao lado, esses 3 tipos não têm "resultado"
                 pra separar: a própria Activity existir já é o registro de
                 que a ação aconteceu. */}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
               <Leaderboard entries={funnelActivityRanking} emptyLabel="Nenhuma ligação, proposta ou WhatsApp registrado ainda" />
+            </div>
+          </div>
+          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
+            <div className="mb-1 flex shrink-0 items-center gap-2">
+              <ListTodo className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tarefas concluídas</h3>
+            </div>
+            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+              <Leaderboard entries={completedTasksRanking} emptyLabel="Nenhuma tarefa concluída ainda" />
             </div>
           </div>
           <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
@@ -527,7 +537,7 @@ export default async function RelatoriosPage({
               </div>
               {/* Total do time (não por consultor) — bate o olho na taxa
                   geral antes de abrir o detalhamento por pessoa logo abaixo.
-                  Mesma régua do ranking: só conta quem já teve reunião/visita
+                  Mesma régua do ranking: só conta quem já teve videochamada/visita
                   com resultado final (compareceu ou no-show), remarcado fica
                   de fora — ver comentário em lib/reports/commercial-data.ts. */}
               {attendanceRateOverall !== null && (
@@ -542,7 +552,7 @@ export default async function RelatoriosPage({
               </p>
             )}
             <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma reunião ou visita com resultado registrado ainda" />
+              <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma videochamada ou visita com resultado registrado ainda" />
             </div>
           </div>
           <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">

@@ -45,6 +45,7 @@ import { formatCurrency } from "@/lib/format";
 import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { withViewTransition } from "@/lib/view-transition";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
+import { trackUse } from "@/lib/feature-usage/track";
 
 // Reexportado só pra não quebrar quem já importava daqui (ver
 // lib/view-transition.ts pra onde a implementação de fato mora agora).
@@ -508,6 +509,17 @@ export function ChatWindow({
         return false;
       }
       setReplyingTo(null);
+      // Um ponto só cobre texto/áudio/imagem/contato/Pix (todos passam por aqui) — distingue pelo type.
+      const sentType = String(payload.type ?? "TEXT");
+      trackUse(
+        sentType === "TEXT"
+          ? "whatsapp.mensagem.enviar"
+          : sentType === "AUDIO"
+            ? "whatsapp.audio.enviar"
+            : sentType === "PIX"
+              ? "whatsapp.pix.enviar"
+              : "whatsapp.anexo.enviar",
+      );
       // Mandar uma mensagem sempre desce a tela pro final, mesmo que a pessoa
       // tivesse subido pra ler algo antigo — ela precisa ver o que acabou de mandar.
       wasNearBottomRef.current = true;
@@ -1119,6 +1131,7 @@ function SendScriptModal({ threadId, onClose }: { threadId: string; onClose: () 
         setSending(false);
         return;
       }
+      trackUse("whatsapp.script.enviar");
       setSent(true);
       setTimeout(onClose, 1200);
     } catch {

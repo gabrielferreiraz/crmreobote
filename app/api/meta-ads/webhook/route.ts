@@ -5,6 +5,7 @@ import { secureEqual } from "@/lib/security/secure-compare";
 import { verifyMetaWebhookSignature } from "@/lib/meta-graph";
 import { decryptSecret } from "@/lib/security/secret-crypto";
 import { processLeadgenEvent } from "@/lib/meta-ads/leads";
+import { readText, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   // Corpo CRU (não .json() direto) — a assinatura é calculada sobre os bytes
   // exatos que a Meta mandou (mesma nota do webhook do WhatsApp).
-  const rawBody = await req.text();
+  // Texto cru (a assinatura é calculada sobre ele), mas com teto — rota pública.
+  let rawBody: string;
+  try {
+    rawBody = await readText(req, BODY_LIMITS.webhook);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   const signature = req.headers.get("x-hub-signature-256");
   if (!verifyMetaWebhookSignature(rawBody, signature)) {
     console.warn("[meta-ads:webhook] requisição rejeitada: X-Hub-Signature-256 ausente/incorreta");
@@ -60,7 +69,7 @@ export async function POST(req: NextRequest) {
       const leadgenId = change.value?.leadgen_id;
       const pageId = change.value?.page_id ?? entry.id;
       if (!leadgenId || !pageId) {
-        console.warn("[meta-ads:webhook] change de leadgen ignorado: sem leadgen_id/page_id", JSON.stringify(change));
+        console.warn("[meta-ads:webhook] change de leadgen ignorado: sem leadgen_id/page_id");
         continue;
       }
 

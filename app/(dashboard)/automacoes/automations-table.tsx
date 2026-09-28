@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -314,18 +316,20 @@ export function AutomationsTable({
 
   async function toggleEnabled(rule: Rule) {
     setTogglingId(rule.id);
-    await fetch(`/api/automations/${rule.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !rule.enabled }),
-    });
-    setTogglingId(null);
-    router.refresh();
+    try {
+      const res = await requestJson(`/api/automations/${rule.id}`, {
+        method: "PATCH",
+        json: { enabled: !rule.enabled },
+      });
+      if (res.ok) router.refresh();
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   async function deleteRule(id: string) {
-    await fetch(`/api/automations/${id}`, { method: "DELETE" });
-    router.refresh();
+    const res = await requestJson(`/api/automations/${id}`, { method: "DELETE" });
+    if (res.ok) router.refresh();
   }
 
   return (
@@ -1116,7 +1120,7 @@ function AutomationDialog({
             <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 p-2.5 dark:border-neutral-800">
               <div>
                 <p className="text-sm text-neutral-800 dark:text-neutral-200">Parar outras regras se esta disparar</p>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">Útil quando duas palavras-chave se sobrepõem (ex.: "comprar" e "comprar casa").</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">Útil quando duas palavras-chave se sobrepõem (ex.: &ldquo;comprar&rdquo; e &ldquo;comprar casa&rdquo;).</p>
               </div>
               <Switch checked={stopOnMatch} onChange={setStopOnMatch} />
             </div>

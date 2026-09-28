@@ -4,6 +4,7 @@ import { ArrowLeft, Clock3, TriangleAlert } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCampaignDetail } from "@/lib/campaigns/list";
+import { QUEUE_EDITABLE_STATUSES, getCampaignQueue } from "@/lib/campaigns/queue";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
 import { getDealScope } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
@@ -12,6 +13,9 @@ import { CampaignMetricsChart } from "./metrics-chart";
 import { CampaignActions } from "./campaign-actions";
 import { NextSendCountdown } from "./next-send-countdown";
 import { CampaignScriptsPanel } from "./campaign-scripts-panel";
+import { CampaignQueue, type CampaignQueueData } from "./campaign-queue";
+import { OfflineNotice, PausedNotice } from "./paused-notice";
+import { PAUSE_REASON } from "@/lib/campaigns/pause-reasons";
 
 function formatHours(hours: number): string {
   if (hours <= 0) return "0h";
@@ -64,6 +68,21 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       ? await getCronStaleness(CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES)
       : null;
 
+    // Fila de disparo (quem sai em qual horário, quem sai na próxima hora, reordenar): só pra quem
+    // GERENCIA a campanha — a fila lista e reordena a campanha INTEIRA, inclusive os leads de
+    // outros consultores, então quem apenas enxerga o envio (parte dos destinatários no próprio
+    // WhatsApp) não recebe nem os dados. É um extra: se falhar, a página (que tem pausar/retomar)
+    // abre normalmente sem ele.
+    let queue: CampaignQueueData | null = null;
+    if (campaign.canManage && campaign.counts.pending > 0 && campaign.status !== "DONE") {
+      try {
+        const view = await getCampaignQueue(organizationId, campaign.id, { offset: 0, limit: 100 });
+        if (view) queue = { ...view, canEdit: QUEUE_EDITABLE_STATUSES.includes(view.status) };
+      } catch (err) {
+        console.error("[campanhas] falha ao montar a fila de disparo", err);
+      }
+    }
+
     return (
       <div className="space-y-4">
         <Link
@@ -92,9 +111,19 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                 campaign.audienceFilter.cities.length > 0
               }
               hasRmktWaves={campaign.hasRmktWaves}
+              autoPausedByDisconnect={campaign.status === "PAUSED" && campaign.pausedReason === PAUSE_REASON.WHATSAPP_DISCONNECTED}
             />
           )}
         </div>
+
+        {/* Pausada pelo PRÓPRIO motor (WhatsApp caiu, número instável, falhas seguidas): por que
+            parou, se volta sozinha e o que fazer — ver lib/campaigns/instance-guard.ts. */}
+        {campaign.status === "PAUSED" && campaign.pausedReason && (
+          <PausedNotice reason={campaign.pausedReason} instance={campaign.pauseInstance} canManage={campaign.canManage} />
+        )}
+        {campaign.whatsappOffline && (
+          <OfflineNotice ownerName={campaign.whatsappOffline.ownerName} disconnectedAt={campaign.whatsappOffline.disconnectedAt} />
+        )}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="card p-3">
@@ -157,6 +186,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             )}
           </div>
         )}
+
+        {/* Ordem de envio dos pendentes, por horário previsto, e quem sai na próxima hora — editável
+            por quem gerencia a campanha (ver campaign-queue.tsx). */}
+        {queue && <CampaignQueue campaignId={campaign.id} initial={queue} />}
 
         {/* Pedido explícito: "não mostra quando vai começar a fase de
             follow-up" — antes disso não existia nenhum horário previsto pra

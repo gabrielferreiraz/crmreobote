@@ -75,6 +75,7 @@ export async function notifyInstanceDisconnected(instance: InstanceRef): Promise
   const html = `
     <p>O WhatsApp de <strong>${safeName}</strong>${phoneLabel} desconectou do CRM.</p>
     <p>Enquanto estiver desconectado, mensagens não são enviadas nem recebidas pelo CRM pra esse número.</p>
+    <p>As campanhas em andamento neste WhatsApp ficam pausadas automaticamente até ele reconectar — nenhum contato da fila é perdido.</p>
     <p><a href="${reconnectUrl}">Reconectar agora</a> (Configurações → Perfil → WhatsApp).</p>
   `;
 

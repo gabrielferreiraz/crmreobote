@@ -4,7 +4,7 @@ import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
-import { getCurrentMembership } from "@/lib/current-membership";
+import { validateTaskLinks } from "@/lib/task-link-guard";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
@@ -17,7 +17,7 @@ const VALID_TYPES: $Enums.TaskType[] = [
   "CALL",
   "WHATSAPP",
   "EMAIL",
-  "MEETING",
+  "VIDEO_CALL",
   "VISIT",
   "PROPOSAL",
   "NOTE",
@@ -64,17 +64,17 @@ export async function POST(req: Request) {
     dealId?: string;
     contactId?: string;
     ownerId?: string;
-    // Activity MEETING/VISIT já criada por quem chamou (ver deal-detail.tsx,
+    // Activity VIDEO_CALL/VISIT já criada por quem chamou (ver deal-detail.tsx,
     // que cria a Activity primeiro e passa o id aqui) — liga a Task a ela
     // pra saber qual atualizar quando a Task concluir. Se não vier e o type
-    // for MEETING/VISIT, uma Activity companheira é criada aqui mesmo (ver
+    // for VIDEO_CALL/VISIT, uma Activity companheira é criada aqui mesmo (ver
     // abaixo) — cobre quem cria a Task sem passar por esse fluxo (Agenda).
     activityId?: string;
   };
 
-  const { organizationId, userId } = await requireSession();
-  if (!organizationId || !userId)
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId } = access;
 
   if (!title || !type || !VALID_TYPES.includes(type as $Enums.TaskType)) {
     return NextResponse.json({ error: "title e type são obrigatórios" }, { status: 400 });
@@ -82,43 +82,24 @@ export async function POST(req: Request) {
   const taskType = type as $Enums.TaskType;
 
   return runWithTenant(organizationId, async () => {
-    if (dealId) {
-      const deal = await prisma.deal.findFirst({ where: { id: dealId, organizationId } });
-      if (!deal) return NextResponse.json({ error: "Negócio inválido" }, { status: 400 });
-    }
+    // Negócio/contato/responsável/atividade dentro do escopo de quem pede —
+    // ver lib/task-link-guard.ts (antes só conferia "mesma organização").
+    const links = await validateTaskLinks({ organizationId, userId, role: access.role, dealId, contactId, ownerId, activityId });
+    if (!links.ok) return NextResponse.json({ error: links.error }, { status: 400 });
 
-    if (contactId) {
-      // MEMBER só pode vincular tarefa a contato do qual é responsável —
-      // sem isso, criar uma tarefa com contactId alheio seria um vetor de
-      // enumeração: o MEMBER saberia que o ID existe (404 vs 400).
-      const membership = await getCurrentMembership();
-      const isMember = membership?.role === "MEMBER";
-      const contactOwnerFilter = isMember ? { responsavelId: userId } : {};
-      const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId, ...contactOwnerFilter } });
-      if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
-    }
-
-    if (ownerId) {
-      const membership = await prisma.organizationUser.findUnique({
-        where: { organizationId_userId: { organizationId, userId: ownerId } },
-      });
-      if (!membership) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
-    }
-
-    // Vínculo Task↔Activity pro resultado de Reunião/Visita ser perguntado
+    // Vínculo Task↔Activity pro resultado de Videochamada/Visita ser perguntado
     // na conclusão da Task, não na criação (ver ActivityMeetingOutcome no
     // schema). Duas origens possíveis:
     let linkedActivityId: string | undefined;
     if (activityId) {
       // deal-detail.tsx já criou a Activity (com o corpo/nota digitado) e
-      // manda o id aqui — só valida que é da mesma organização antes de ligar.
-      const activity = await prisma.activity.findFirst({ where: { id: activityId, organizationId } });
-      if (!activity) return NextResponse.json({ error: "Activity inválida" }, { status: 400 });
-      linkedActivityId = activity.id;
-    } else if (taskType === "MEETING" || taskType === "VISIT") {
+      // manda o id aqui — validateTaskLinks já conferiu que é do mesmo
+      // negócio ou de quem pede.
+      linkedActivityId = activityId;
+    } else if (taskType === "VIDEO_CALL" || taskType === "VISIT") {
       // Ninguém criou uma Activity antes (caso da Agenda solta, "Nova
       // atividade" — só manda Task) — cria a companheira aqui mesmo, em
-      // PENDING, pra esta Reunião/Visita também aparecer na timeline do
+      // PENDING, pra esta Videochamada/Visita também aparecer na timeline do
       // negócio e contar nos relatórios assim que tiver um resultado.
       const activity = await prisma.activity.create({
         data: {
@@ -153,12 +134,12 @@ export async function POST(req: Request) {
       console.error("[user-activity] falha ao registrar alteração", err),
     );
 
-    // Só consultada pra Reunião — é o único tipo que usa isso (ver
+    // Só consultada pra Videochamada — é o único tipo que usa isso (ver
     // MeetingInviteDialog), poupa a consulta à toa nos outros 7 tipos.
     // Calculado aqui (não num round-trip à parte do cliente) porque
     // MeetingInviteDialog já abre imediatamente após esta resposta.
     let ownerGoogleCalendarWriteConnected = false;
-    if (taskType === "MEETING") {
+    if (taskType === "VIDEO_CALL") {
       const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId: task.ownerId } });
       ownerGoogleCalendarWriteConnected = !!connection && hasCalendarWriteScope(connection.scope);
     }

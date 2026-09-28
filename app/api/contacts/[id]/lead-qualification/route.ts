@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { notifyMetaLeadQualification } from "@/lib/meta-ads/conversions";
 import { recordUserChange } from "@/lib/user-activity";
+import { findWritableContactId } from "@/lib/contact-write-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   return runWithTenant(organizationId, async () => {
+    // Mesma regra de quem pode editar o contato (Consultor: só os dele ou sem
+    // responsável) — qualificar dispara evento pro Meta Ads, não pode vir de
+    // quem nem enxerga o lead.
+    if (!(await findWritableContactId(organizationId, id))) {
+      return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
     const existing = await prisma.contact.findFirst({
       where: { id, organizationId },
       select: { id: true, email: true, phone: true, whatsapp: true, leadQualification: true },

@@ -1,15 +1,15 @@
 /**
- * Aviso automático de WhatsApp antes de uma Reunião — sequência de 1+
+ * Aviso automático de WhatsApp antes de uma Videochamada — sequência de 1+
  * mensagens (mensagem avulsa digitada, ou um Script existente com delay
  * entre etapas, ver components/meeting-invite-dialog.tsx) programada na
  * criação da tarefa. Mecanismo TOTALMENTE separado do mais antigo em
  * scheduled-whatsapp.ts (aquele é só WHATSAPP, 1 mensagem única, dispara
- * EXATAMENTE no dueAt) — aqui é só MEETING, suporta várias mensagens, e
+ * EXATAMENTE no dueAt) — aqui é só VIDEO_CALL, suporta várias mensagens, e
  * dispara ANTES do dueAt (dueAt - reminderMinutesBefore minutos).
  *
  * Decisão explícita do usuário: manda a sequência INTEIRA, respeitando os
  * delays originais do Script escolhido, mesmo que isso empurre alguma
- * mensagem pra depois do horário da própria reunião num script longo — não
+ * mensagem pra depois do horário da própria videochamada num script longo — não
  * corta a sequência no meio por causa disso.
  *
  * Roda no mesmo tick do cron de automações (ver
@@ -35,14 +35,14 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
     const result = await runWithTenant(org.id, async () => {
       const dueTasks = await prisma.task.findMany({
         where: {
-          type: "MEETING",
+          type: "VIDEO_CALL",
           // reminderNextSendAt só existe pra tarefa com aviso configurado
           // (ver schedule-reminder/route.ts) — não precisa checar
           // reminderSteps à parte.
           reminderNextSendAt: { lte: now },
           reminderSentAt: null,
           reminderFailedAt: null,
-          // Finalizar a reunião antes da hora cancela o aviso restante —
+          // Finalizar a videochamada antes da hora cancela o aviso restante —
           // mesma convenção de scheduledMessageText (sem botão novo só
           // pra isso).
           completedAt: null,
@@ -69,7 +69,7 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
           await prisma.task.update({ where: { id: task.id }, data: { reminderFailedAt: now } });
           orgFailed += 1;
           sendPushToUser(task.ownerId, {
-            title: "Aviso de reunião não enviado",
+            title: "Aviso de videochamada não enviado",
             body: `A tarefa "${task.title}" não tem mais um cliente vinculado.`,
             url: "/agenda",
           }).catch((err) => console.error("[meeting-reminder] falha ao notificar", err));
@@ -118,7 +118,7 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
             await prisma.task.update({ where: { id: task.id }, data: { reminderFailedAt: now } });
             orgFailed += 1;
             sendPushToUser(task.ownerId, {
-              title: "Falha ao enviar aviso de reunião",
+              title: "Falha ao enviar aviso de videochamada",
               body: `Não consegui mandar o aviso pra ${task.contact.name}: ${err.message}`,
               url: "/agenda",
             }).catch((e) => console.error("[meeting-reminder] falha ao notificar", e));
@@ -142,7 +142,7 @@ export async function sendDueMeetingReminders(): Promise<{ checked: number; sent
 }
 
 /**
- * Aviso PUSH pro PRÓPRIO consultor antes de uma Reunião — irmão mais simples
+ * Aviso PUSH pro PRÓPRIO consultor antes de uma Videochamada — irmão mais simples
  * do aviso ao cliente acima: 1 envio só (sem sequência/Script), texto sempre
  * gerado aqui (nunca escrito pelo consultor, ver
  * components/meeting-invite-dialog.tsx). Sem retry: falha de push (endpoint
@@ -161,7 +161,7 @@ export async function sendDueSelfReminders(): Promise<{ checked: number; sent: n
     const orgSent = await runWithTenant(org.id, async () => {
       const dueTasks = await prisma.task.findMany({
         where: {
-          type: "MEETING",
+          type: "VIDEO_CALL",
           selfReminderSendAt: { lte: now },
           selfReminderSentAt: null,
           completedAt: null,
@@ -175,7 +175,7 @@ export async function sendDueSelfReminders(): Promise<{ checked: number; sent: n
           ? task.dueAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })
           : "";
         await sendPushToUser(task.ownerId, {
-          title: "Reunião chegando",
+          title: "Videochamada chegando",
           body: task.contact
             ? `${task.title} com ${task.contact.name}${timeLabel ? ` às ${timeLabel}` : ""}`
             : `${task.title}${timeLabel ? ` às ${timeLabel}` : ""}`,

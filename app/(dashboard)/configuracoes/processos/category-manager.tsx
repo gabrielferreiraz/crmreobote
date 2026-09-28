@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2, Loader2, ChevronRight, Layers3 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProcessStageManager } from "@/components/process-stage-manager";
+import { requestJson } from "@/lib/client-request";
 
 type Stage = { id: string; name: string; color: string | null; order: number; isFinal: boolean; _count: { processes: number } };
 type Pipeline = { id: string; name: string; order: number; isDefault: boolean; stages: Stage[]; _count: { processes: number } };
@@ -43,24 +44,26 @@ export function CategoryManager({ initialCategories }: { initialCategories: Cate
     const oldIndex = categories.findIndex((c) => c.id === active.id);
     const newIndex = categories.findIndex((c) => c.id === over.id);
     const reordered = arrayMove(categories, oldIndex, newIndex);
+    const prev = categories;
     setCategories(reordered);
 
-    await fetch("/api/process-categories/reorder", {
+    const res = await requestJson("/api/process-categories/reorder", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryIds: reordered.map((c) => c.id) }),
+      json: { categoryIds: reordered.map((c) => c.id) },
     });
-    router.refresh();
+    if (!res.ok) setCategories(prev);
+    else router.refresh();
   }
 
   async function renameCategory(id: string, name: string) {
-    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
-    await fetch(`/api/process-categories/${id}`, {
+    const prev = categories.find((c) => c.id === id);
+    setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
+    const res = await requestJson(`/api/process-categories/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      json: { name },
     });
-    router.refresh();
+    if (!res.ok && prev) setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, name: prev.name } : c)));
+    if (res.ok) router.refresh();
   }
 
   async function deleteCategory(id: string) {
@@ -111,30 +114,40 @@ export function CategoryManager({ initialCategories }: { initialCategories: Cate
     const oldIndex = category.pipelines.findIndex((p) => p.id === active.id);
     const newIndex = category.pipelines.findIndex((p) => p.id === over.id);
     const reordered = arrayMove(category.pipelines, oldIndex, newIndex);
-    setCategories((prev) => prev.map((c) => (c.id === categoryId ? { ...c, pipelines: reordered } : c)));
+    const prev = category.pipelines;
+    setCategories((cs) => cs.map((c) => (c.id === categoryId ? { ...c, pipelines: reordered } : c)));
 
-    await fetch(`/api/process-categories/${categoryId}/pipelines/reorder`, {
+    const res = await requestJson(`/api/process-categories/${categoryId}/pipelines/reorder`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pipelineIds: reordered.map((p) => p.id) }),
+      json: { pipelineIds: reordered.map((p) => p.id) },
     });
-    router.refresh();
+    if (!res.ok) setCategories((cs) => cs.map((c) => (c.id === categoryId ? { ...c, pipelines: prev } : c)));
+    else router.refresh();
   }
 
   async function renamePipeline(categoryId: string, pipelineId: string, name: string) {
-    setCategories((prev) =>
-      prev.map((c) =>
+    const prevCat = categories.find((c) => c.id === categoryId);
+    const prevPipeline = prevCat?.pipelines.find((p) => p.id === pipelineId);
+    setCategories((cs) =>
+      cs.map((c) =>
         c.id === categoryId
           ? { ...c, pipelines: c.pipelines.map((p) => (p.id === pipelineId ? { ...p, name } : p)) }
           : c,
       ),
     );
-    await fetch(`/api/process-pipelines/${pipelineId}`, {
+    const res = await requestJson(`/api/process-pipelines/${pipelineId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      json: { name },
     });
-    router.refresh();
+    if (!res.ok && prevPipeline)
+      setCategories((cs) =>
+        cs.map((c) =>
+          c.id === categoryId
+            ? { ...c, pipelines: c.pipelines.map((p) => (p.id === pipelineId ? { ...p, name: prevPipeline.name } : p)) }
+            : c,
+        ),
+      );
+    if (res.ok) router.refresh();
   }
 
   async function deletePipeline(categoryId: string, pipelineId: string) {

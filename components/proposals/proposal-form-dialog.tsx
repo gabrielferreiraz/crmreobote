@@ -2,18 +2,25 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Calculator, FileText, Info, Loader2, Save } from "lucide-react";
+import { AlertTriangle, Calculator, FileText, Info, Loader2, Save, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { CurrencyInput } from "@/components/currency-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { formatCurrency } from "@/lib/format";
 import { proposalApi } from "@/lib/proposals/client";
 import { parseProposalFields } from "@/lib/proposals/validate";
-import type { ProposalDTO } from "@/lib/proposals/types";
+import { formatPercent, type ProposalDTO } from "@/lib/proposals/types";
 
 type CreditMode = "TOTAL" | "PER_QUOTA";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function parsePercentInput(value: string): number {
+  const normalized = value.replace(",", ".").trim();
+  if (!normalized) return 0;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : NaN;
+}
 
 export function ProposalFormDialog({
   dealId,
@@ -33,6 +40,7 @@ export function ProposalFormDialog({
   const [creditInput, setCreditInput] = useState(proposal ? proposal.credit.toFixed(2) : "");
   const [quotaStr, setQuotaStr] = useState(proposal ? String(proposal.quotaCount) : "1");
   const [termStr, setTermStr] = useState(proposal ? String(proposal.termMonths) : "");
+  const [feePercent, setFeePercent] = useState(proposal ? proposal.feePercent.toFixed(2) : "");
   const [installment, setInstallment] = useState(proposal ? proposal.installment.toFixed(2) : "");
   const [description, setDescription] = useState(proposal ? proposal.description : defaultDescription);
   const [totalBeforeSwitch, setTotalBeforeSwitch] = useState<number | null>(null);
@@ -71,6 +79,7 @@ export function ProposalFormDialog({
       credit: total,
       termMonths: Number(termStr),
       installment: Number(installment),
+      feePercent: parsePercentInput(feePercent),
       quotaCount: quota,
       description,
     });
@@ -108,30 +117,38 @@ export function ProposalFormDialog({
   const busy = submitting !== null;
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-2xl">
-      <div className="mb-4 flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand dark:bg-brand/15">
-          <FileText className="h-5 w-5" strokeWidth={2} />
-        </span>
-        <div>
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            {editing ? `Editar proposta - revisão ${proposal.revision}` : "Nova proposta"}
-          </h2>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Salvar ou gerar o documento não marca como enviada. O envio é um passo separado depois do PDF sair.
-          </p>
+    <Modal onClose={onClose} maxWidth="max-w-4xl !max-h-[calc(100vh-1rem)] !overflow-hidden">
+      <div className="-m-5 mb-0 border-b border-neutral-200 bg-white/80 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-950/40">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-light text-brand dark:bg-brand-light/20 dark:text-brand-light">
+              <FileText className="h-4 w-4" strokeWidth={2} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand dark:text-brand-light">Proposta comercial</p>
+              <h2 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+                {editing ? `Editar revisão ${proposal.revision}` : "Nova proposta"}
+              </h2>
+              <p className="mt-0.5 max-w-2xl text-sm leading-5 text-neutral-500 dark:text-neutral-400">
+                Gere a folha A4, salve o PDF pelo navegador e marque como enviada só depois de mandar ao cliente.
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} disabled={busy} className="icon-btn h-8 w-8 shrink-0" aria-label="Fechar">
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-            <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="grid gap-4 pt-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="space-y-3">
+          <section className="rounded-lg border border-neutral-200 bg-neutral-50/70 p-3 dark:border-neutral-800 dark:bg-neutral-900/50">
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <label className="field-label">{mode === "TOTAL" ? "Crédito total" : "Crédito por cota"}</label>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">O sistema sempre guarda o total.</p>
+                <label className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{mode === "TOTAL" ? "Crédito total" : "Crédito por cota"}</label>
+                <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">O valor salvo será sempre o crédito total.</p>
               </div>
-              <div className="inline-flex rounded-md bg-neutral-100 p-0.5 text-xs dark:bg-neutral-800" role="group" aria-label="Como informar o crédito">
+              <div className="inline-flex rounded-lg border border-neutral-200 bg-white p-0.5 text-xs shadow-xs dark:border-neutral-800 dark:bg-neutral-950/60" role="group" aria-label="Como informar o crédito">
                 {(
                   [
                     { value: "TOTAL", label: "Total" },
@@ -142,10 +159,10 @@ export function ProposalFormDialog({
                     key={opt.value}
                     type="button"
                     onClick={() => switchMode(opt.value)}
-                    className={`rounded px-2.5 py-1 font-medium transition-colors ${
+                    className={`min-h-8 rounded-md px-3 font-semibold transition-colors ${
                       mode === opt.value
-                        ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100"
-                        : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                        ? "bg-neutral-900 text-white shadow-sm dark:bg-white dark:text-neutral-900"
+                        : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
                     }`}
                   >
                     {opt.label}
@@ -161,16 +178,16 @@ export function ProposalFormDialog({
               }}
             />
             {inexactNote && (
-              <div className="mt-2 flex gap-1.5 rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+              <div className="mt-2 flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} />
                 <span>{inexactNote} Volte para Total se quiser manter o valor original.</span>
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="field-label">Quantidade de cotas</label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[0.7fr_0.8fr_0.8fr_minmax(190px,1.55fr)]">
+            <div className="space-y-1.5">
+              <label className="field-label">Cotas</label>
               <input
                 inputMode="numeric"
                 value={quotaStr}
@@ -179,31 +196,49 @@ export function ProposalFormDialog({
                 placeholder="1"
               />
             </div>
-            <div className="space-y-1">
-              <label className="field-label">Prazo (meses)</label>
+            <div className="space-y-1.5">
+              <label className="field-label">Prazo</label>
               <input
                 inputMode="numeric"
                 value={termStr}
                 onChange={(e) => setTermStr(e.target.value.replace(/\D/g, "").slice(0, 3))}
                 className="field-input"
-                placeholder="180"
+                placeholder="180 meses"
               />
+            </div>
+            <div className="space-y-1.5">
+              <label className="field-label">Taxa</label>
+              <div className="relative">
+                <input
+                  inputMode="decimal"
+                  value={feePercent}
+                  onChange={(e) => setFeePercent(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))}
+                  onBlur={() => {
+                    const n = parsePercentInput(feePercent);
+                    setFeePercent(Number.isFinite(n) && n > 0 ? n.toFixed(2) : "");
+                  }}
+                  className="field-input pr-8"
+                  placeholder="0,00"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-neutral-400 dark:text-neutral-500">
+                  %
+                </span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="field-label">Parcela</label>
+              <CurrencyInput value={installment} onChange={setInstallment} className="font-semibold tabular-nums" />
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="field-label">Parcela</label>
-            <CurrencyInput value={installment} onChange={setInstallment} />
-          </div>
-
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <label className="field-label">Descrição</label>
+              <label className="field-label">Observações da proposta</label>
               {defaultDescription && description !== defaultDescription && (
                 <button
                   type="button"
                   onClick={() => setDescription(defaultDescription)}
-                  className="text-xs text-neutral-500 underline hover:text-neutral-800 dark:hover:text-neutral-200"
+                  className="text-xs font-medium text-brand hover:text-neutral-900 dark:text-brand-light dark:hover:text-neutral-100"
                 >
                   Usar texto padrão
                 </button>
@@ -212,39 +247,46 @@ export function ProposalFormDialog({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={7}
+              rows={4}
               maxLength={4000}
-              placeholder="Condições, observações e o que mais aparecer na proposta"
-              className="field-input"
+              placeholder="Condições, observações e informações que devem aparecer no PDF"
+              className="field-input min-h-28 resize-none"
             />
             <p className="text-right text-xs text-neutral-400 tabular-nums dark:text-neutral-500">{description.length}/4000</p>
           </div>
         </div>
 
         <aside className="space-y-3">
-          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
-            <div className="mb-2 flex items-center gap-2">
-              <Calculator className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Resumo</p>
+          <div className="rounded-lg border border-neutral-200 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-950/40">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                <Calculator className="h-4 w-4" strokeWidth={2} />
+              </span>
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Resumo</p>
             </div>
             <dl className="space-y-2 text-xs">
               <SummaryLine label="Crédito total" value={formatCurrency(total)} strong />
               <SummaryLine label="Por cota" value={quota > 0 ? formatCurrency(perQuota) : "-"} />
               <SummaryLine label="Cotas" value={quotaStr || "-"} />
               <SummaryLine label="Prazo" value={termStr ? `${termStr} meses` : "-"} />
+              <SummaryLine label="Taxa" value={formatPercent(parsePercentInput(feePercent) || 0)} />
               <SummaryLine label="Parcela" value={installment ? formatCurrency(Number(installment)) : "-"} strong />
             </dl>
           </div>
-          <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">
-            <Info className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
-            <p>Depois de marcar como enviada, estes valores travam. Para alterar, use Refazer e crie uma nova revisão.</p>
+          <div className="flex gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs leading-5 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand dark:text-brand-light" strokeWidth={2} />
+            <p>Depois de marcar como enviada, os valores travam. Para alterar, use Refazer.</p>
           </div>
         </aside>
       </div>
 
-      {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          {error}
+        </p>
+      )}
 
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <div className="-mx-5 -mb-7 mt-3 flex flex-wrap justify-end gap-2 border-t border-neutral-200 bg-white/75 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-950/30">
         <button type="button" onClick={onClose} disabled={busy} className="btn-ghost">
           Cancelar
         </button>

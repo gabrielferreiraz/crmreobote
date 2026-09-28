@@ -860,6 +860,33 @@ input[type="radio"] {
     box-shadow: none;
   }
 
+  /* Tela de negócio é uma superfície de trabalho: informação densa e estados
+     claros pedem cartões opacos e estáveis, sem vidro, flutuação ou sombras
+     decorativas. O restante do CRM continua com a linguagem visual própria. */
+  .deal-detail .card {
+    border-radius: 0.5rem;
+    background: #ffffff;
+    border-color: #e5e7eb;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .deal-detail .card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    transform: none;
+  }
+
+  .dark .deal-detail .card {
+    background: #171717;
+    border-color: #262626;
+  }
+
+  .dark .deal-detail .card:hover {
+    border-color: #404040;
+  }
+
   /* Vidro leve — menus/dropdowns pequenos (Select, DatePicker, popovers de
      filtro), e a barra superior fixa. No escuro, mesmo truque do .card
      acima (borda de luz, não cinza-sobre-cinza). */

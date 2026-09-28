@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/require-session";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
+import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,16 @@ export async function POST(req: Request) {
   const { organizationId } = await requireSession();
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
-  const formData = await req.formData();
+  // Lido só depois da autenticação e com teto (lib/read-body.ts) — antes
+  // req.formData() carregava o corpo INTEIRO pra memória antes de checar tamanho.
+  let formData: FormData;
+  try {
+    formData = await readFormData(req, BODY_LIMITS.chatMedia);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   const file = formData.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo" }, { status: 400 });

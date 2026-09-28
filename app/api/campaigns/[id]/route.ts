@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveCampaignInput, type CampaignInput } from "@/lib/campaigns/build";
 import { getDealScope, campaignScopeWhere } from "@/lib/team-scope";
+import { PAUSE_REASON, parsePauseReason } from "@/lib/campaigns/pause-reasons";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -59,9 +60,37 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!status || !VALID_STATUSES.includes(status as $Enums.CampaignStatus)) {
         return NextResponse.json({ error: "Status inválido" }, { status: 400 });
       }
+
+      // Iniciar/retomar com o WhatsApp desconectado não adianta: o motor pausaria a campanha de novo
+      // no tick seguinte (ver lib/campaigns/instance-guard.ts) e a pessoa ficaria sem entender por quê.
+      // Recusa AQUI, com o motivo. Só olha campanha de UM WhatsApp (MANUAL/LEAD_CAPTURE): no envio em
+      // massa do Pipeline cada destinatário tem o seu, e o motor confere um a um (o `instanceId` da
+      // campanha ali é só o do 1º destinatário).
+      if (status === "RUNNING") {
+        const target = await prisma.campaign.findFirst({
+          where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
+          select: { source: true, pausedReason: true, instance: { select: { status: true, user: { select: { name: true } } } } },
+        });
+        if (!target) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+        if (target.source !== "PIPELINE_BULK" && target.instance.status !== "CONNECTED") {
+          const comesBackAlone = parsePauseReason(target.pausedReason) === PAUSE_REASON.WHATSAPP_DISCONNECTED;
+          return NextResponse.json(
+            {
+              error: comesBackAlone
+                ? `O WhatsApp de ${target.instance.user.name} está desconectado. Reconecte-o (Configurações → Perfil → WhatsApp) — esta campanha volta a enviar sozinha assim que ele reconectar, não precisa retomar na mão.`
+                : `O WhatsApp de ${target.instance.user.name} está desconectado. Reconecte-o (Configurações → Perfil → WhatsApp) e tente de novo.`,
+              code: "WHATSAPP_OFFLINE",
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      // Toda mudança MANUAL de status zera o motivo de pausa automática: pausar na mão é definitivo
+      // (não retoma sozinha quando o WhatsApp voltar) e retomar/parar/iniciar não deixa motivo velho pra trás.
       const { count } = await prisma.campaign.updateMany({
         where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
-        data: { status: status as $Enums.CampaignStatus },
+        data: { status: status as $Enums.CampaignStatus, pausedReason: null, pausedInstanceId: null },
       });
       if (count === 0) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
       return NextResponse.json({ ok: true, status });
@@ -82,7 +111,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       );
     }
 
-    const resolved = await resolveCampaignInput(access.organizationId, body as CampaignInput, scope);
+    const resolved = await resolveCampaignInput(access.organizationId, body as CampaignInput, scope, {
+      userId: access.userId,
+      role: access.role,
+      currentInstanceId: existing.instanceId,
+    });
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
     const v = resolved.value;
 

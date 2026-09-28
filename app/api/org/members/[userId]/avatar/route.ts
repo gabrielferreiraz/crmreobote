@@ -11,17 +11,32 @@ import {
   resizeAvatar,
   AvatarUploadError,
 } from "@/lib/r2";
+import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
+import { isUserExclusiveToOrg, SHARED_ACCOUNT_MESSAGE } from "@/lib/org-membership-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
-  const formData = await req.formData();
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   if (access.role !== "OWNER" && access.userId !== userId) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+  // Foto é GLOBAL (User.image) — o Dono só troca a de quem é exclusivo desta organização.
+  if (access.userId !== userId && !(await isUserExclusiveToOrg(userId, access.organizationId))) {
+    return NextResponse.json({ error: SHARED_ACCOUNT_MESSAGE }, { status: 403 });
+  }
+
+  // Corpo lido só DEPOIS da autenticação, e com teto (ver lib/read-body.ts).
+  let formData: FormData;
+  try {
+    formData = await readFormData(req, BODY_LIMITS.image);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
   }
 
   const file = formData.get("file");
@@ -71,6 +86,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ user
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   if (access.role !== "OWNER" && access.userId !== userId) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  }
+  if (access.userId !== userId && !(await isUserExclusiveToOrg(userId, access.organizationId))) {
+    return NextResponse.json({ error: SHARED_ACCOUNT_MESSAGE }, { status: 403 });
   }
 
   return runWithTenant(access.organizationId, async () => {

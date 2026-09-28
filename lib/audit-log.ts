@@ -25,7 +25,14 @@ export type AuditAction =
   | "GOOGLE_CALENDAR_CONNECTED"
   | "GOOGLE_CALENDAR_DISCONNECTED"
   | "DEALS_IMPORTED"
-  | "CONTACTS_IMPORTED";
+  | "CONTACTS_IMPORTED"
+  // Fila de disparo de uma campanha reordenada à mão (arrastar / mover pro topo
+  // ou fim) — muda QUEM é contatado primeiro, então fica registrado quem mexeu.
+  | "CAMPAIGN_QUEUE_REORDERED"
+  // O motor pausou/retomou uma campanha SOZINHO por causa do WhatsApp (caiu / voltou), ou pausou
+  // depois de 5 falhas seguidas — sem isso ninguém saberia por que ela parou nem quando voltou.
+  | "CAMPAIGN_AUTO_PAUSED"
+  | "CAMPAIGN_AUTO_RESUMED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está

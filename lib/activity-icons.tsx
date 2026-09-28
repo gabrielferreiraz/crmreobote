@@ -17,7 +17,7 @@ export const ACTIVITY_TABS: { type: string; label: string; icon: IconComponent }
   { type: "EMAIL", label: "E-mail", icon: Mail },
   { type: "CALL", label: "Ligação", icon: Phone },
   { type: "WHATSAPP", label: "WhatsApp", icon: WhatsAppIcon },
-  { type: "MEETING", label: "Reunião", icon: Users2 },
+  { type: "VIDEO_CALL", label: "Videochamada", icon: Users2 },
   { type: "VISIT", label: "Visita", icon: MapPin },
 ];
 
@@ -45,12 +45,12 @@ export const ACTIVITY_BODY_TEMPLATES: Record<string, string> = {
   EMAIL: "E-mail: enviar e-mail para o cliente sobre ",
   CALL: "Ligação: ligar para o cliente sobre ",
   WHATSAPP: "WhatsApp: mandar mensagem para o cliente sobre ",
-  MEETING: "Reunião: marcar reunião com o cliente sobre ",
+  VIDEO_CALL: "Videochamada: marcar videochamada com o cliente sobre ",
   VISIT: "Visita: agendar visita ao cliente sobre ",
 };
 
 /**
- * Resultado perguntado na CONCLUSÃO de uma Task MEETING/VISIT (ver
+ * Resultado perguntado na CONCLUSÃO de uma Task VIDEO_CALL/VISIT (ver
  * components/meeting-outcome-dialog.tsx e ActivityMeetingOutcome no
  * schema) — alimenta o no-show do relatório de Facebook
  * (lib/meta-ads/attribution.ts) e a Taxa de comparecimento de Relatórios

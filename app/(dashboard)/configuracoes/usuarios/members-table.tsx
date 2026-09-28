@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil, History } from "lucide-react";
+import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil, History, Search, Filter, X } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
@@ -69,6 +69,24 @@ const GRID_COLS = "lg:grid-cols-[minmax(0,1fr)_110px_90px_110px_130px_90px_150px
 // bundle do navegador.
 const ONLINE_THRESHOLD_MS = 2 * 60_000;
 
+type MemberFilters = {
+  role: Member["role"] | "ALL";
+  teamId: string;
+  whatsapp: "ALL" | "CONNECTED" | "DISCONNECTED";
+  area: Member["area"] | "ALL";
+  processes: "ALL" | "YES" | "NO";
+  ranking: "ALL" | "ACTIVE" | "INACTIVE";
+};
+
+const EMPTY_FILTERS: MemberFilters = {
+  role: "ALL",
+  teamId: "ALL",
+  whatsapp: "ALL",
+  area: "ALL",
+  processes: "ALL",
+  ranking: "ALL",
+};
+
 function isOnline(lastActiveAt: Member["lastActiveAt"]) {
   if (!lastActiveAt) return false;
   return Date.now() - new Date(lastActiveAt).getTime() < ONLINE_THRESHOLD_MS;
@@ -97,6 +115,9 @@ export function MembersTable({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"active" | "inactive">("active");
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<MemberFilters>(EMPTY_FILTERS);
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -163,6 +184,37 @@ export function MembersTable({
   const activeMembers = useMemo(() => initialMembers.filter((m) => m.active), [initialMembers]);
   const inactiveMembers = useMemo(() => initialMembers.filter((m) => !m.active), [initialMembers]);
   const visibleMembers = tab === "active" ? activeMembers : inactiveMembers;
+  const teamOptions = useMemo(
+    () => Array.from(new Map(initialMembers.filter((m) => m.team).map((m) => [m.team!.id, m.team!.name])).entries()).sort((a, b) => a[1].localeCompare(b[1], "pt-BR")),
+    [initialMembers],
+  );
+  const filteredMembers = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+    return visibleMembers.filter((m) => {
+      const searchable = [m.user.name, m.user.email, m.team?.name ?? "", ROLE_LABELS[m.role], m.area].join(" ").toLocaleLowerCase("pt-BR");
+      const hasRanking = m.countsTowardGoal || m.showInPodium || m.showInMonthRanking;
+      return (
+        (!normalizedSearch || searchable.includes(normalizedSearch)) &&
+        (filters.role === "ALL" || m.role === filters.role) &&
+        (filters.teamId === "ALL" || m.team?.id === filters.teamId) &&
+        (filters.whatsapp === "ALL" || (filters.whatsapp === "CONNECTED" ? m.whatsappConnected : !m.whatsappConnected)) &&
+        (filters.area === "ALL" || m.area === filters.area) &&
+        (filters.processes === "ALL" || (filters.processes === "YES" ? m.canManageProcesses || m.role === "OWNER" || m.area === "ADMINISTRATIVO" : !m.canManageProcesses && m.role !== "OWNER" && m.area !== "ADMINISTRATIVO")) &&
+        (filters.ranking === "ALL" || (filters.ranking === "ACTIVE" ? hasRanking : !hasRanking))
+      );
+    });
+  }, [filters, search, visibleMembers]);
+  const activeFilterCount = Object.values(filters).filter((value) => value !== "ALL").length;
+
+  function updateFilter<K extends keyof MemberFilters>(key: K, value: MemberFilters[K]) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setFilters(EMPTY_FILTERS);
+    setOpenFilter(null);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -342,7 +394,7 @@ export function MembersTable({
         </p>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <button
             onClick={() => setTab("active")}
@@ -378,23 +430,90 @@ export function MembersTable({
         )}
       </div>
 
-      {visibleMembers.length === 0 ? (
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative min-w-[240px] flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" strokeWidth={2} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar usuário..."
+            aria-label="Buscar usuário"
+            className="field-input w-full pl-9"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+              title="Limpar busca"
+              aria-label="Limpar busca"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2} />
+            </button>
+          )}
+        </label>
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          {filteredMembers.length} de {visibleMembers.length}
+        </span>
+        {(search || activeFilterCount > 0) && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={2} />
+            Limpar filtros
+          </button>
+        )}
+      </div>
+
+      {filteredMembers.length === 0 ? (
         <div className="card px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-          {tab === "active" ? "Nenhum usuário ativo." : "Nenhum usuário inativo."}
+          {visibleMembers.length === 0
+            ? tab === "active"
+              ? "Nenhum usuário ativo."
+              : "Nenhum usuário inativo."
+            : "Nenhum usuário encontrado com esses filtros."}
         </div>
       ) : (
         <div className="card divide-y divide-neutral-100 overflow-hidden dark:divide-neutral-800">
           <div className={`hidden gap-4 px-4 py-2.5 text-xs font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500 lg:grid lg:items-center ${GRID_COLS}`}>
             <span>Usuário</span>
-            <span>Papel</span>
-            <span>Equipe</span>
-            <span>WhatsApp</span>
-            <span>Área</span>
-            <span>Processos</span>
-            <span>Meta e ranking</span>
+            <FilterHeader label="Papel" filterKey="role" active={filters.role !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
+              <FilterOption label="Todos" selected={filters.role === "ALL"} onClick={() => updateFilter("role", "ALL")} />
+              {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                <FilterOption key={value} label={label} selected={filters.role === value} onClick={() => updateFilter("role", value as Member["role"])} />
+              ))}
+            </FilterHeader>
+            <FilterHeader label="Equipe" filterKey="team" active={filters.teamId !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
+              <FilterOption label="Todas" selected={filters.teamId === "ALL"} onClick={() => updateFilter("teamId", "ALL")} />
+              {teamOptions.map(([value, label]) => (
+                <FilterOption key={value} label={label} selected={filters.teamId === value} onClick={() => updateFilter("teamId", value)} />
+              ))}
+            </FilterHeader>
+            <FilterHeader label="WhatsApp" filterKey="whatsapp" active={filters.whatsapp !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
+              <FilterOption label="Todos" selected={filters.whatsapp === "ALL"} onClick={() => updateFilter("whatsapp", "ALL")} />
+              <FilterOption label="Conectados" selected={filters.whatsapp === "CONNECTED"} onClick={() => updateFilter("whatsapp", "CONNECTED")} />
+              <FilterOption label="Desconectados" selected={filters.whatsapp === "DISCONNECTED"} onClick={() => updateFilter("whatsapp", "DISCONNECTED")} />
+            </FilterHeader>
+            <FilterHeader label="Área" filterKey="area" active={filters.area !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
+              <FilterOption label="Todas" selected={filters.area === "ALL"} onClick={() => updateFilter("area", "ALL")} />
+              <FilterOption label="Vendas" selected={filters.area === "VENDAS"} onClick={() => updateFilter("area", "VENDAS")} />
+              <FilterOption label="Administrativo" selected={filters.area === "ADMINISTRATIVO"} onClick={() => updateFilter("area", "ADMINISTRATIVO")} />
+            </FilterHeader>
+            <FilterHeader label="Processos" filterKey="processes" active={filters.processes !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
+              <FilterOption label="Todos" selected={filters.processes === "ALL"} onClick={() => updateFilter("processes", "ALL")} />
+              <FilterOption label="Com acesso" selected={filters.processes === "YES"} onClick={() => updateFilter("processes", "YES")} />
+              <FilterOption label="Sem acesso" selected={filters.processes === "NO"} onClick={() => updateFilter("processes", "NO")} />
+            </FilterHeader>
+            <FilterHeader label="Meta e ranking" filterKey="ranking" active={filters.ranking !== "ALL"} openFilter={openFilter} onToggle={setOpenFilter}>
+              <FilterOption label="Todos" selected={filters.ranking === "ALL"} onClick={() => updateFilter("ranking", "ALL")} />
+              <FilterOption label="Alguma opção ativa" selected={filters.ranking === "ACTIVE"} onClick={() => updateFilter("ranking", "ACTIVE")} />
+              <FilterOption label="Tudo desativado" selected={filters.ranking === "INACTIVE"} onClick={() => updateFilter("ranking", "INACTIVE")} />
+            </FilterHeader>
             <span />
           </div>
-          {visibleMembers.map((m) => {
+          {filteredMembers.map((m) => {
             const effectiveLastActiveAt = m.user.id in presence ? presence[m.user.id] : m.lastActiveAt;
             const online = isOnline(effectiveLastActiveAt);
             const seenFull = lastSeenFull(effectiveLastActiveAt);
@@ -929,6 +1048,58 @@ export function MembersTable({
         </Modal>
       )}
     </div>
+  );
+}
+
+function FilterHeader({
+  label,
+  filterKey,
+  active,
+  openFilter,
+  onToggle,
+  children,
+}: {
+  label: string;
+  filterKey: string;
+  active: boolean;
+  openFilter: string | null;
+  onToggle: (key: string | null) => void;
+  children: React.ReactNode;
+}) {
+  const open = openFilter === filterKey;
+
+  return (
+    <div className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => onToggle(open ? null : filterKey)}
+        className={`inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 ${active ? "text-brand dark:text-brand-light" : ""}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <span className="truncate">{label}</span>
+        <Filter className="h-3 w-3 shrink-0" strokeWidth={active ? 2.5 : 2} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 min-w-[170px] rounded-md border border-neutral-200 bg-white p-1 text-xs font-normal normal-case tracking-normal text-neutral-700 shadow-lg dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterOption({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={selected}
+      onClick={onClick}
+      className={`block w-full rounded px-2 py-1.5 text-left transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 ${selected ? "font-medium text-brand dark:text-brand-light" : ""}`}
+    >
+      {label}
+    </button>
   );
 }
 

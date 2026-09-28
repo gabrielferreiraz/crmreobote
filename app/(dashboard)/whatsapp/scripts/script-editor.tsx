@@ -14,6 +14,7 @@ import type { ScriptStep } from "@/lib/campaigns/spintax";
 import { normalizeSteps, textChangeRatio } from "@/lib/campaigns/script-steps";
 import { SYNONYM_REGEX, synonymsFor } from "@/lib/message-synonyms";
 import { ScriptSaveDialog, type ScriptImpactDTO, type ScriptSaveChoice } from "./script-save-dialog";
+import { trackUse } from "@/lib/feature-usage/track";
 
 type Step = ScriptStep & { previewUrl?: string };
 
@@ -662,6 +663,7 @@ export function ScriptEditor({
     } catch {
       return "Falha de conexão. Tente novamente.";
     }
+    trackUse("scripts.salvar");
     router.push(redirectTo);
     router.refresh();
     return null;

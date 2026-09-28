@@ -78,7 +78,7 @@ export const dealInputSchema = z
   });
 
 /**
- * POST /api/v1/appointments — agendamento de reunião (ver
+ * POST /api/v1/appointments — agendamento de videochamada (ver
  * lib/scheduling/meeting-availability.ts pra grade/cascata de horários).
  * `date`/`time` são revalidados no servidor contra a grade de verdade
  * (nunca confiar que o que o cliente mandou como "disponível" ainda está

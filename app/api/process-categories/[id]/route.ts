@@ -2,16 +2,24 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const { name } = body as { name?: string };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { name?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { name } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome não pode ser vazio" }, { status: 400 });
 

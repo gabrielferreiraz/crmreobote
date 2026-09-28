@@ -33,6 +33,7 @@ import {
   User,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { requestJson } from "@/lib/client-request";
 import { Avatar } from "@/components/avatar";
 import { SelectionBar } from "@/components/selection-bar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -135,7 +136,7 @@ export function TaskCalendar({
   const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleEvent | null>(null);
   // "selectedTask" abre TaskDetailModal por FORA do TaskRow (a grade do mês
   // mostra bolhas próprias, não TaskRow) — precisa da mesma trava que
-  // TaskRow.handleToggle já tem, senão concluir uma Reunião/Visita por aqui
+  // TaskRow.handleToggle já tem, senão concluir uma Videochamada/Visita por aqui
   // pula a pergunta de resultado inteira.
   const { requestComplete, dialog: outcomeDialog } = useMeetingOutcomeGate(onToggle);
   // taskToDelete/editingTask: mesma ideia de selectedTask acima — UM diálogo
@@ -149,7 +150,7 @@ export function TaskCalendar({
   const today = useMemo(() => startOfDay(new Date()), []);
 
   /** Reaproveitado pelo hover (TaskPreviewCard) e pelo TaskDetailModal — a
-   * MESMA trava de resultado de reunião/visita vale nos dois caminhos. */
+   * MESMA trava de resultado de videochamada/visita vale nos dois caminhos. */
   function handleToggleTask(task: Task) {
     const next = !task.completedAt;
     if (next && requestComplete(task)) return; // outcomeDialog assume a partir daqui
@@ -424,8 +425,8 @@ export function TaskCalendar({
         <ConfirmDialog
           title={`Excluir "${taskToDelete.title}"?`}
           description={
-            taskToDelete.type === "MEETING"
-              ? "Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
+            taskToDelete.type === "VIDEO_CALL"
+              ? "Se esta videochamada veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
               : "Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           }
           confirmLabel="Excluir"
@@ -618,12 +619,12 @@ function TaskPreviewCard({
   const [descriptionDraft, setDescriptionDraft] = useState(task.description ?? "");
   const [savingDescription, setSavingDescription] = useState(false);
 
-  async function saveField(field: "title" | "description", value: string) {
-    await fetch(`/api/tasks/${task.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    });
+  // Devolve se salvou — falhou (sem permissão, sem internet), o campo volta
+  // pro valor anterior e o aviso de erro explica (lib/client-request.ts), em
+  // vez de mostrar um texto que não foi salvo.
+  async function saveField(field: "title" | "description", value: string): Promise<boolean> {
+    const res = await requestJson(`/api/tasks/${task.id}`, { method: "PUT", json: { [field]: value } });
+    return res.ok;
   }
 
   async function saveTitle() {
@@ -639,7 +640,7 @@ function TaskPreviewCard({
     setTitleDraft(trimmed);
     setSavingTitle(true);
     try {
-      await saveField("title", trimmed);
+      if (!(await saveField("title", trimmed))) setTitleDraft(task.title);
     } finally {
       setSavingTitle(false);
     }
@@ -649,7 +650,7 @@ function TaskPreviewCard({
     if (descriptionDraft === (task.description ?? "")) return; // nada mudou, não bate a API à toa
     setSavingDescription(true);
     try {
-      await saveField("description", descriptionDraft);
+      if (!(await saveField("description", descriptionDraft))) setDescriptionDraft(task.description ?? "");
     } finally {
       setSavingDescription(false);
     }
@@ -939,7 +940,7 @@ function DayCell({
   onOpenTask: (task: Task) => void;
   onOpenGoogleEvent: (event: GoogleEvent) => void;
   /** Concluir/reabrir direto do preview de hover — mesma trava de resultado
-   * de reunião/visita do TaskDetailModal (ver handleToggleTask). */
+   * de videochamada/visita do TaskDetailModal (ver handleToggleTask). */
   onToggleTask: (task: Task) => void;
   canDelete?: boolean;
   onRequestDelete: (task: Task) => void;

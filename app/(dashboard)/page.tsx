@@ -23,6 +23,10 @@ import { ActionRequiredCard } from "./action-required-card";
 import { BirthdaysCard } from "./birthdays-card";
 import { getContactBirthdays } from "@/lib/birthdays";
 
+// Página renderizada no SERVIDOR (UTC) — toda data/hora exibida precisa do fuso
+// da operação, senão a hora da tarefa aparece 4h adiantada (ver lib/timezone.ts).
+const BRAZIL_TZ = "America/Campo_Grande";
+
 const STALE_DEALS_PAGE_SIZE = 10;
 /** Hoje + os próximos 6 dias — dá tempo de preparar a mensagem sem virar lista longa. */
 const BIRTHDAY_WINDOW_DAYS = 7;
@@ -112,6 +116,7 @@ export default async function HomePage() {
     unreadCount,
     goalProgress,
     birthdays,
+    overdueTasksCount,
   ] = await Promise.all([
     prisma.pipeline.findFirst({
       where: { organizationId, isDefault: true },
@@ -185,6 +190,10 @@ export default async function HomePage() {
     // resto do Início — pedido explícito, ver lib/birthdays.ts. Exceção: o
     // Dono vê os de todos (null = sem filtro de responsável).
     getContactBirthdays(organizationId, seesAllBirthdays ? null : userId, BIRTHDAY_WINDOW_DAYS),
+    // Atrasadas da própria pessoa — o card "Próximas atividades" só lista as
+    // FUTURAS; sem isto, justamente o que mais precisa de atenção sumia do
+    // Início (auditoria 09/2026). Só a contagem: a lista inteira está na Agenda.
+    prisma.task.count({ where: { organizationId, ownerId: userId, completedAt: null, dueAt: { lt: new Date() } } }),
   ]);
 
   const stageData = (pipeline?.stages ?? []).map((stage) => ({
@@ -326,6 +335,15 @@ export default async function HomePage() {
 
         <div className="card p-5">
           <h2 className="mb-4 text-sm font-medium text-neutral-900 dark:text-neutral-100">Próximas atividades</h2>
+          {overdueTasksCount > 0 && (
+            <Link
+              href="/agenda"
+              className="-mx-2 mb-3 flex items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/15"
+            >
+              {overdueTasksCount === 1 ? "1 atividade atrasada" : `${overdueTasksCount} atividades atrasadas`}
+              <ArrowRight className="h-4 w-4 shrink-0" strokeWidth={2} />
+            </Link>
+          )}
           {upcomingTasks.length === 0 ? (
             <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">Nenhuma tarefa agendada.</p>
           ) : (
@@ -347,8 +365,8 @@ export default async function HomePage() {
                     <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
                       {task.dueAt && (
                         <>
-                          <div className="font-semibold">{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit" })}</div>
-                          <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short" })}</div>
+                          <div className="font-semibold">{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: BRAZIL_TZ })}</div>
+                          <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short", timeZone: BRAZIL_TZ })}</div>
                         </>
                       )}
                     </div>
@@ -356,7 +374,7 @@ export default async function HomePage() {
                       <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
                       <p className="truncate text-neutral-500 dark:text-neutral-400">
                         {task.deal?.name ?? task.contact?.name ?? ""}
-                        {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
+                        {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRAZIL_TZ })}`}
                       </p>
                     </div>
                     <Avatar name={session!.user.name ?? "?"} src={ownPhotoUrl} size="xs" className="shrink-0" />
@@ -414,7 +432,7 @@ export default async function HomePage() {
                         src={activity.user.image ? avatarMap.get(activity.user.image) : null}
                         size="xs"
                       />
-                      {activity.user.name} · {activity.createdAt.toLocaleString("pt-BR")}
+                      {activity.user.name} · {activity.createdAt.toLocaleString("pt-BR", { timeZone: BRAZIL_TZ })}
                     </p>
                   </div>
                 </Link>

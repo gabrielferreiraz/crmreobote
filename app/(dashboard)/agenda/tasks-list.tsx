@@ -20,6 +20,8 @@ import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
 import { useUndoToast } from "@/components/undo-provider";
 import { popTasksScheduleDraft } from "@/lib/tasks-schedule-draft";
+import { trackUse } from "@/lib/feature-usage/track";
+import { requestJson } from "@/lib/client-request";
 
 export type Option = { id: string; name: string };
 
@@ -168,16 +170,18 @@ export function TasksList({
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED",
     newDueAt?: string,
   ) {
-    const res = await fetch(`/api/tasks/${taskId}`, {
+    // requestJson (lib/client-request.ts): se o servidor recusar (ex.: sem
+    // permissão, reunião sem resultado), mostra o motivo em vez de a tela só
+    // "desmarcar sozinha" no refresh.
+    const res = await requestJson(`/api/tasks/${taskId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
+      json:
         meetingOutcome === "RESCHEDULED"
           ? { meetingOutcome, dueAt: newDueAt }
           : { completed, ...(meetingOutcome ? { meetingOutcome } : {}) },
-      ),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = res.data ?? {};
+    if (res.ok && completed && meetingOutcome !== "RESCHEDULED") trackUse("agenda.atividade.concluir");
     router.refresh();
     // Ctrl+Z (ver components/undo-provider.tsx) — RESCHEDULED nunca
     // devolve `undo` (fora do escopo do v1, ver PUT /api/tasks/[id]),
@@ -186,10 +190,9 @@ export function TasksList({
   }
 
   async function deleteTask(taskId: string) {
-    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/tasks/${taskId}`, { method: "DELETE" });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   // Arrastar-e-soltar na grade do mês (ver task-calendar.tsx) — move uma ou

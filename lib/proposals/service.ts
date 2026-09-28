@@ -114,7 +114,12 @@ async function transition(
   data: Prisma.ProposalUncheckedUpdateManyInput,
 ): Promise<void> {
   const result = await tx.proposal.updateMany({
-    where: { id, organizationId: actor.organizationId, status: { in: from } },
+    where: {
+      id,
+      organizationId: actor.organizationId,
+      status: { in: from },
+      deal: { organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+    },
     data,
   });
   if (result.count !== 1) {
@@ -153,7 +158,14 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
       });
       if (!deal) throw new ProposalServiceError(404, "Negócio não encontrado");
 
-      let base: { credit: Prisma.Decimal | number; termMonths: number; installment: Prisma.Decimal | number; quotaCount: number; description: string };
+      let base: {
+        credit: Prisma.Decimal | number;
+        termMonths: number;
+        installment: Prisma.Decimal | number;
+        feePercent: Prisma.Decimal | number;
+        quotaCount: number;
+        description: string;
+      };
       let parentId: string | null = null;
 
       if ("fromProposalId" in input) {
@@ -179,6 +191,7 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
           credit: base.credit,
           termMonths: base.termMonths,
           installment: base.installment,
+          feePercent: base.feePercent,
           quotaCount: base.quotaCount,
           description: base.description,
         },
@@ -206,6 +219,7 @@ export async function updateProposal(actor: ProposalActor, id: string, fields: P
       credit: fields.credit,
       termMonths: fields.termMonths,
       installment: fields.installment,
+      feePercent: fields.feePercent,
       quotaCount: fields.quotaCount,
       description: fields.description,
     });
@@ -292,6 +306,7 @@ export async function redoProposal(
         credit: p.credit,
         termMonths: p.termMonths,
         installment: p.installment,
+        feePercent: p.feePercent,
         quotaCount: p.quotaCount,
         description: p.description,
       },
@@ -324,7 +339,14 @@ export async function deleteProposal(actor: ProposalActor, id: string): Promise<
     if (p.status !== "DRAFT") {
       throw new ProposalServiceError(409, "Só rascunho pode ser apagado — as demais ficam no histórico (use Cancelar).");
     }
-    const result = await tx.proposal.deleteMany({ where: { id, organizationId: actor.organizationId, status: "DRAFT" } });
+    const result = await tx.proposal.deleteMany({
+      where: {
+        id,
+        organizationId: actor.organizationId,
+        status: "DRAFT",
+        deal: { organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+      },
+    });
     if (result.count !== 1) {
       throw new ProposalServiceError(409, "A proposta mudou de estado enquanto você olhava — atualize a página e tente de novo.");
     }

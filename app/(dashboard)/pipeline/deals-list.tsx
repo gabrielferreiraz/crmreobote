@@ -27,6 +27,7 @@ import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
+import { trackUse } from "@/lib/feature-usage/track";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -928,7 +929,7 @@ export function DealsList({
         </FilterPopover>
         <PipelineQuickFilterNotice quickFilter={quickFilter} onClear={onToggleQuickFilter} />
         {canExport && (
-          <a href={`/api/deals/export?${buildFilterParams().toString()}`} className="btn-secondary btn-sm" title="Exporta só os negócios que batem com a busca e os filtros atuais">
+          <a href={`/api/deals/export?${buildFilterParams().toString()}`} onClick={() => trackUse("pipeline.exportar")} className="btn-secondary btn-sm" title="Exporta só os negócios que batem com a busca e os filtros atuais">
             <Download className="h-3.5 w-3.5" strokeWidth={2} />
             Exportar
           </a>

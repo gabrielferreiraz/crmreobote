@@ -36,8 +36,11 @@ export default async function AutomacoesPage() {
         include: { user: { select: { id: true, name: true } } },
       }),
       // Instâncias com WhatsApp conectado — usadas no campo "Enviar de"
+      // Dono/Gerente escolhem qualquer número (administram as regras da
+      // organização); os demais só o próprio — mesma regra de
+      // validateActionConfig em lib/automations/validation.ts.
       prisma.whatsAppInstance.findMany({
-        where: { organizationId, status: "CONNECTED" },
+        where: { organizationId, status: "CONNECTED", ...(isManager ? {} : { userId }) },
         select: { userId: true, phoneNumber: true },
         orderBy: { createdAt: "asc" },
       }),

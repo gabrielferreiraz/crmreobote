@@ -244,8 +244,8 @@ export type CreateGoogleCalendarEventInput = {
 /**
  * Contraparte de escrita de fetchGoogleCalendarEvents — cria o evento de
  * verdade no calendário principal da conta conectada. Usada pelo
- * agendamento de reunião via API v1 (ver app/api/v1/appointments/route.ts)
- * e pela criação manual de reunião no CRM (ver
+ * agendamento de videochamada via API v1 (ver app/api/v1/appointments/route.ts)
+ * e pela criação manual de videochamada no CRM (ver
  * app/api/tasks/[id]/create-google-meet/route.ts); precisa do escopo
  * calendar.events (ver SCOPES acima) — uma conexão antiga (só leitura)
  * falha aqui com 403 até o consultor reconectar.

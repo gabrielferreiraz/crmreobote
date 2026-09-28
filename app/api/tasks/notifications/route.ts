@@ -13,7 +13,7 @@ export async function GET() {
   return runWithTenant(organizationId, async () => {
     const now = new Date();
     // Antes filtrava só `dueAt <= now` (atrasada de verdade) — uma tarefa
-    // marcada pra hoje mais tarde (ex.: reunião às 18h, checado às 10h) nunca
+    // marcada pra hoje mais tarde (ex.: videochamada às 18h, checado às 10h) nunca
     // aparecia no sino, mesmo o painel se chamando "Tarefas atrasadas/hoje".
     // Estende o teto até o fim do dia civil de Brasília; `overdue` (abaixo)
     // é quem de fato diferencia "já passou" de "ainda hoje" pra UI agrupar.

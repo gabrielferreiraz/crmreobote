@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
-import { validateSteps, canAccessScript } from "@/lib/campaigns/scripts";
+import { validateSteps, canAccessScript, canManageScript, SCRIPT_READ_ONLY_MESSAGE } from "@/lib/campaigns/scripts";
 import { updateScriptAndSync } from "@/lib/campaigns/script-sync";
 import { getDealScope } from "@/lib/team-scope";
 
@@ -99,6 +99,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   return runWithTenant(access.organizationId, async () => {
     const existing = await prisma.messageScript.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing || !canAccessScript(existing, access)) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    if (!canManageScript(existing, access)) return NextResponse.json({ error: SCRIPT_READ_ONLY_MESSAGE }, { status: 403 });
 
     await prisma.messageScript.delete({ where: { id } });
     return NextResponse.json({ ok: true });

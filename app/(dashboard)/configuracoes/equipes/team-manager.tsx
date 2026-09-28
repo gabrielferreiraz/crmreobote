@@ -8,6 +8,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Select } from "@/components/select";
+import { requestJson } from "@/lib/client-request";
 
 type MemberInfo = {
   id: string;
@@ -74,39 +75,35 @@ export function TeamManager({
   }
 
   async function renameTeam(teamId: string, name: string) {
-    await fetch(`/api/teams/${teamId}`, {
+    const res = await requestJson(`/api/teams/${teamId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      json: { name },
     });
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   async function setLeader(teamId: string, leaderId: string) {
-    await fetch(`/api/teams/${teamId}`, {
+    const res = await requestJson(`/api/teams/${teamId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leaderId: leaderId || null }),
+      json: { leaderId: leaderId || null },
     });
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   async function setManager(teamId: string, managerId: string) {
-    await fetch(`/api/teams/${teamId}`, {
+    const res = await requestJson(`/api/teams/${teamId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ managerId: managerId || null }),
+      json: { managerId: managerId || null },
     });
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   async function assignMember(userId: string, teamId: string | null) {
-    await fetch(`/api/org/members/${userId}`, {
+    const res = await requestJson(`/api/org/members/${userId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ teamId }),
+      json: { teamId },
     });
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   async function deleteTeam(teamId: string) {

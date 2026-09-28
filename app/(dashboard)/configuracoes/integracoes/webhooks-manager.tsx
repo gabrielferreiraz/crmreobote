@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingDots } from "@/components/loading-dots";
+import { requestJson } from "@/lib/client-request";
 
 type WebhookEventType = "contact.created" | "deal.won" | "deal.lost";
 
@@ -71,19 +72,21 @@ export function WebhooksManager({ initialWebhooks }: { initialWebhooks: WebhookS
 
   async function toggleActive(webhook: WebhookSubscription) {
     setTogglingId(webhook.id);
-    await fetch(`/api/webhook-subscriptions/${webhook.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ active: !webhook.active }),
-    });
-    setTogglingId(null);
-    router.refresh();
+    try {
+      const res = await requestJson(`/api/webhook-subscriptions/${webhook.id}`, {
+        method: "PATCH",
+        json: { active: !webhook.active },
+      });
+      if (res.ok) router.refresh();
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   async function deleteWebhook(id: string) {
-    await fetch(`/api/webhook-subscriptions/${id}`, { method: "DELETE" });
+    const res = await requestJson(`/api/webhook-subscriptions/${id}`, { method: "DELETE" });
     setToDelete(null);
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   return (

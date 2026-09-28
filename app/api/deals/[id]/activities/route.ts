@@ -48,12 +48,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (type === "PROPOSAL") {
     return NextResponse.json({ error: "Propostas agora são criadas no cartão “Propostas” do negócio" }, { status: 400 });
   }
-  const validTypes = ["NOTE", "EMAIL", "CALL", "WHATSAPP", "MEETING", "VISIT"];
+  const validTypes = ["NOTE", "EMAIL", "CALL", "WHATSAPP", "VIDEO_CALL", "VISIT"];
   if (!type || !validTypes.includes(type)) {
     return NextResponse.json({ error: "type inválido" }, { status: 400 });
   }
 
-  // Só cabe pergunta de "o que aconteceu" pra Reunião/Visita — outro tipo
+  // Só cabe pergunta de "o que aconteceu" pra Videochamada/Visita — outro tipo
   // de atividade (nota, ligação, e-mail...) não tem um "resultado" desse
   // jeito, ver ActivityMeetingOutcome no schema. PENDING é o caso normal
   // quando esta Activity vai ganhar uma Task ligada (deal-detail.tsx manda
@@ -65,14 +65,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (meetingOutcome !== undefined && !validOutcomes.includes(meetingOutcome)) {
     return NextResponse.json({ error: "meetingOutcome inválido" }, { status: 400 });
   }
-  if (meetingOutcome !== undefined && type !== "MEETING" && type !== "VISIT") {
-    return NextResponse.json({ error: "meetingOutcome só se aplica a Reunião/Visita" }, { status: 400 });
+  if (meetingOutcome !== undefined && type !== "VIDEO_CALL" && type !== "VISIT") {
+    return NextResponse.json({ error: "meetingOutcome só se aplica a Videochamada/Visita" }, { status: 400 });
   }
-  // Reunião/Visita sempre precisa de uma resposta (PENDING conta como
+  // Videochamada/Visita sempre precisa de uma resposta (PENDING conta como
   // resposta válida aqui) — fecha a brecha de registrar sem nenhum
   // resultado, nem futuro nem imediato.
-  if (meetingOutcome === undefined && (type === "MEETING" || type === "VISIT")) {
-    return NextResponse.json({ error: "meetingOutcome é obrigatório para Reunião/Visita" }, { status: 400 });
+  if (meetingOutcome === undefined && (type === "VIDEO_CALL" || type === "VISIT")) {
+    return NextResponse.json({ error: "meetingOutcome é obrigatório para Videochamada/Visita" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
@@ -94,7 +94,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           | "CALL"
           | "WHATSAPP"
           | "PROPOSAL"
-          | "MEETING"
+          | "VIDEO_CALL"
           | "VISIT",
         body: activityBody,
         meetingOutcome: meetingOutcome as "ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | undefined,

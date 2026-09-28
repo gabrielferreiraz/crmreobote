@@ -17,6 +17,7 @@ import { formatCurrency, daysSince } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { matchesCustomFieldConditions, type CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
 import { coerceCustomFieldValue, stringifyCustomFieldValue, type CustomFieldDefinitionLike } from "@/lib/custom-fields";
+import { maskPhone } from "@/lib/log-redact";
 
 /** Resultado de uma ação executada — vira o `success`/`detail` gravados em AutomationExecution, exibidos no "Ver detalhes" do histórico. */
 export type ActionResult = { success: boolean; detail: string };
@@ -457,7 +458,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
           })();
         }
       } catch (err) {
-        console.error(`[automations] falha ao enviar script pra ${target.phoneNormalized} (regra "${rule.name}")`, err);
+        console.error(`[automations] falha ao enviar script pra ${maskPhone(target.phoneNormalized)} (regra "${rule.name}")`, err);
       }
     }
     const failed = targets.length - sent;

@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -101,21 +103,21 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   const [showSendTemplate, setShowSendTemplate] = useState(false);
 
   function reloadRequests() {
-    fetch(`/api/processes/${process.id}/requests`)
-      .then((r) => r.json())
-      .then(setRequests);
+    requestJson(`/api/processes/${process.id}/requests`).then((res) =>
+      setRequests(res.ok && Array.isArray(res.data) ? res.data : []),
+    );
   }
 
   function reloadNotes() {
-    fetch(`/api/processes/${process.id}/activities`)
-      .then((r) => r.json())
-      .then(setNotes);
+    requestJson(`/api/processes/${process.id}/activities`).then((res) =>
+      setNotes(res.ok && Array.isArray(res.data) ? res.data : []),
+    );
   }
 
   useEffect(() => {
-    fetch(`/api/processes/${process.id}/history`)
-      .then((r) => r.json())
-      .then(setHistory);
+    requestJson(`/api/processes/${process.id}/history`).then((res) =>
+      setHistory(res.ok && Array.isArray(res.data) ? res.data : []),
+    );
     reloadRequests();
     reloadNotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,9 +165,9 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
       return;
     }
     setHistory(null);
-    fetch(`/api/processes/${process.id}/history`)
-      .then((r) => r.json())
-      .then(setHistory);
+    requestJson(`/api/processes/${process.id}/history`).then((res) =>
+      setHistory(res.ok && Array.isArray(res.data) ? res.data : []),
+    );
     router.refresh();
   }
 

@@ -4,6 +4,7 @@ import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendWhatsAppMessageToContact, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { notifyProcessTemplateToConsultant } from "@/lib/processes/notify";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +27,19 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json().catch(() => null);
-  const { templateId, target, message } = (body ?? {}) as {
-    templateId?: string;
-    target?: "CONSULTANT" | "LEAD";
-    message?: string;
-  };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { templateId?: string; target?: "CONSULTANT" | "LEAD"; message?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { templateId, target, message } = body;
+
   if (!templateId) return NextResponse.json({ error: "templateId é obrigatório" }, { status: 400 });
   if (target !== "CONSULTANT" && target !== "LEAD") return NextResponse.json({ error: "target inválido" }, { status: 400 });
   if (!message?.trim()) return NextResponse.json({ error: "Mensagem é obrigatória" }, { status: 400 });

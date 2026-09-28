@@ -28,6 +28,33 @@ export function canAccessScript(
   return script.visibility === "PUBLIC" || script.createdById === access.userId || access.role === "OWNER";
 }
 
+/**
+ * Filtro de banco equivalente a canAccessScript — pra TODO lugar que busca
+ * script por id pra USAR (campanha, envio na conversa, lembrete, automação).
+ * Auditoria 09/2026: esses caminhos buscavam só por id+organização, então um
+ * id de script Restrito alheio (que aparece em campanha/relatório) bastava
+ * pra usar o texto dele.
+ */
+export function scriptAccessWhere(access: { userId: string; role: string | undefined }) {
+  return access.role === "OWNER" ? {} : { OR: [{ visibility: "PUBLIC" as const }, { createdById: access.userId }] };
+}
+
+/**
+ * Quem pode ALTERAR/APAGAR um script: quem criou, Gerente ou Dono. "Pública"
+ * quer dizer que a equipe inteira USA — não que qualquer consultor reescreve
+ * ou apaga o script padrão da empresa (que pode estar rodando em campanha).
+ * Quem não pode editar duplica e mexe na própria cópia.
+ */
+export function canManageScript(
+  script: { visibility: $Enums.MessageScriptVisibility; createdById: string },
+  access: { userId: string; role: string | undefined },
+): boolean {
+  return script.createdById === access.userId || access.role === "OWNER" || access.role === "MANAGER";
+}
+
+export const SCRIPT_READ_ONLY_MESSAGE =
+  "Só quem criou o script, um gerente ou o dono podem alterá-lo. Duplique para editar a sua própria cópia.";
+
 export function validateSteps(
   input: unknown,
   organizationId?: string,

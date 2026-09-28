@@ -157,7 +157,7 @@ export type LanguageProfile = {
   questionTagMarkers: string[];
   /** Verbo de confirmação/fechamento (pretérito perfeito, tipicamente) que,
    * aparecendo como a PRIMEIRA palavra da fala (sujeito omitido — "Fechou o
-   * negócio?", "Confirmou a reunião?"), quase sempre marca pergunta de
+   * negócio?", "Confirmou a videochamada?"), quase sempre marca pergunta de
    * sim/não em português falado: um relato ("ele fechou...") normalmente
    * mantém o sujeito explícito; começar direto pelo verbo sem sujeito é
    * majoritariamente pergunta ou eco de pergunta recebida. Dois níveis de
@@ -165,7 +165,7 @@ export type LanguageProfile = {
    *  - Forte: verbo de ação de fechamento sem uso declarativo plausível sem
    *    sujeito ("Assinou o contrato?", "Pagou a fatura?") — decide sozinho.
    *  - Moderado: verbo-resultado que TAMBÉM abre frase declarativa legítima
-   *    sem sujeito ("Rolou uma reunião ontem", "Deu certo a negociação") —
+   *    sem sujeito ("Rolou uma videochamada ontem", "Deu certo a negociação") —
    *    só ajuda a cruzar o threshold combinado com outro sinal. */
   subjectlessQuestionVerbsStrong: string[];
   subjectlessQuestionVerbsModerate: string[];

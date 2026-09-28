@@ -30,6 +30,7 @@ import {
   Eye,
   Info,
   TriangleAlert,
+  Unplug,
 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Badge, type BadgeTone } from "@/components/badge";
@@ -43,8 +44,26 @@ import { RmktWavesFields } from "@/components/rmkt-waves-fields";
 import { useRmktWaves, type WaveRow } from "@/lib/use-rmkt-waves";
 import { renderSteps, pickWeighted, renderTemplate, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
 import { DuplicateCampaignButton } from "./duplicate-campaign-button";
+import { trackUse } from "@/lib/feature-usage/track";
+import { PAUSE_REASON, type PauseReason } from "@/lib/campaigns/pause-reasons";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
+
+/** Etiqueta (e explicação no hover) de uma campanha PAUSADA pelo próprio motor — ver Campaign.pausedReason no schema. */
+const PAUSE_REASON_BADGE: Record<PauseReason, { label: string; hint: string }> = {
+  [PAUSE_REASON.WHATSAPP_DISCONNECTED]: {
+    label: "WhatsApp desconectado",
+    hint: "Pausada automaticamente porque o WhatsApp caiu. Volta a enviar SOZINHA quando ele reconectar — não precisa retomar.",
+  },
+  [PAUSE_REASON.WHATSAPP_INSTABILITY]: {
+    label: "Número instável",
+    hint: "Pausada automaticamente: o WhatsApp caiu 3 vezes ou mais em 7 dias (risco de banimento). NÃO volta sozinha — retome na mão quando o número estiver estável.",
+  },
+  [PAUSE_REASON.FAILURES]: {
+    label: "Falhas seguidas",
+    hint: "Pausada automaticamente depois de 5 falhas de envio seguidas. NÃO volta sozinha — resolva o problema e retome na mão.",
+  },
+};
 type AudienceFilter = { jobTitles: string[]; tags: string[]; cities: string[] };
 type AudienceOptions = AudienceFilter;
 
@@ -52,6 +71,8 @@ type Campaign = {
   id: string;
   name: string;
   status: CampaignStatus;
+  /** Por que está PAUSED sem alguém ter clicado em Pausar (null = pausa manual ou não pausada). */
+  pausedReason: PauseReason | null;
   audienceFilter: AudienceFilter;
   audienceLabel: string;
   instanceName: string;
@@ -341,9 +362,12 @@ export function CampaignsTable({
     setBusyId(null);
     if (!res?.ok) {
       setRows((current) => current.map((c) => (c.id === campaign.id ? { ...c, status: campaign.status } : c)));
-      setActionError(`Não foi possível alterar "${campaign.name}" agora. Tente de novo.`);
+      // O servidor recusa com o motivo quando sabe (ex.: "o WhatsApp de fulano está desconectado").
+      const data = await res?.json().catch(() => null);
+      setActionError(data?.error ?? `Não foi possível alterar "${campaign.name}" agora. Tente de novo.`);
       return;
     }
+    trackUse(status === "RUNNING" ? "campanhas.iniciar" : status === "PAUSED" ? "campanhas.pausar" : "campanhas.parar");
     router.refresh();
   }
 
@@ -639,6 +663,12 @@ export function CampaignsTable({
                           <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
                           {meta.label}
                         </Badge>
+                        {c.status === "PAUSED" && c.pausedReason && (
+                          <Badge tone="warning" size="sm" title={PAUSE_REASON_BADGE[c.pausedReason].hint}>
+                            <Unplug className="h-2.5 w-2.5" strokeWidth={2.5} />
+                            {PAUSE_REASON_BADGE[c.pausedReason].label}
+                          </Badge>
+                        )}
                         {isInFollowUpPhase(c, pending, total) && (
                           <Badge tone="brand" size="sm" title="Todas as mensagens iniciais já saíram; falta só o reenvio de quem não respondeu">
                             <Clock className="h-2.5 w-2.5" strokeWidth={2.5} />
@@ -1245,6 +1275,7 @@ function CampaignDialog({
       return;
     }
 
+    if (!isEdit) trackUse("campanhas.criar");
     onSaved();
   }
 

@@ -62,7 +62,7 @@ export function ContactInfoPanel({
   whatsappConnected,
 }: {
   contactId: string;
-  /** Só afeta o passo de convite quando a nova tarefa é uma Reunião (ver
+  /** Só afeta o passo de convite quando a nova tarefa é uma Videochamada (ver
    * NewTaskDialog/MeetingInviteDialog) — sem instância própria conectada,
    * esse passo não oferece a opção de mandar o convite por WhatsApp. */
   whatsappConnected?: boolean;

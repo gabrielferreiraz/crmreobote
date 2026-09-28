@@ -156,6 +156,9 @@ export async function getCommercialReportData(params: {
     effectiveScope = { type: "owners", ownerIds: [filterOwnerId] };
   }
   const ownerScopeWhere = effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {};
+  // Activity usa userId; Task usa ownerId. Mantemos filtros separados para
+  // que a visão de equipe não misture tarefas de pessoas fora do escopo.
+  const taskOwnerScopeWhere = effectiveScope.type === "owners" ? { ownerId: { in: effectiveScope.ownerIds } } : {};
   // Ranking de equipes exige a visão irrestrita de base — um líder de equipe
   // só veria a própria equipe sozinha (não é comparação de verdade), e um
   // filtro ativo (equipe/pessoa específica) já não faz sentido comparar times.
@@ -167,7 +170,7 @@ export async function getCommercialReportData(params: {
   const showTeamActivity = session!.user.role === "OWNER" || session!.user.role === "MANAGER";
 
   // Período do relatório — só afeta negócios DECIDIDOS (ganhos/perdidos),
-  // reuniões e WhatsApp. O pipeline em aberto continua sempre "agora": não
+  // videochamadas e WhatsApp. O pipeline em aberto continua sempre "agora": não
   // faz sentido dizer que um negócio ainda aberto "é de março".
   // fromParam/toParam são dias civis de Brasília (calculados no navegador do
   // usuário, ver date-range-filter.tsx) — o servidor roda em UTC (ver
@@ -206,7 +209,9 @@ export async function getCommercialReportData(params: {
       : defaultRange
         ? brazilEndOfDayUTC(defaultRange.to)
         : null;
-  const dateWhere = (field: "closedAt" | "createdAt" | "sentAt") =>
+  // "Não é PENDING" incluindo nulo (histórico anterior à coluna) — ver o ranking de videochamadas.
+  const NOT_PENDING = [{ meetingOutcome: null }, { meetingOutcome: { not: "PENDING" as const } }];
+  const dateWhere = (field: "closedAt" | "createdAt" | "sentAt" | "completedAt") =>
     rangeFrom || rangeTo
       ? { [field]: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } }
       : {};
@@ -280,6 +285,7 @@ export async function getCommercialReportData(params: {
     lostByReason,
     meetingsAndVisitsByOwner,
     funnelActivityByOwner,
+    completedTasksByOwner,
     wonDealsForTrend,
     wonByCreditType,
     dailyActivityRaw,
@@ -337,8 +343,8 @@ export async function getCommercialReportData(params: {
       where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
       _count: true,
     }),
-    // Ranking de reuniões + visitas: as duas são "foi falar com o lead direto"
-    // (reunião = online, visita = presencial), então o ranking soma as duas —
+    // Ranking de videochamadas + visitas: as duas são "foi falar com o lead direto"
+    // (videochamada = online, visita = presencial), então o ranking soma as duas —
     // mas agrupado por type também, pra manter o detalhamento de quantas
     // foram de cada tipo (ver breakdown no card). Activity não tem
     // pipelineId direto (pode nem estar ligada a negócio nenhum), então não
@@ -348,13 +354,35 @@ export async function getCommercialReportData(params: {
     // sem custo extra de ida ao banco só pra isso.
     prisma.activity.groupBy({
       by: ["userId", "type", "meetingOutcome"],
-      where: { organizationId, type: { in: ["MEETING", "VISIT"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
+      // (NOT_PENDING explícito com `null`: `NOT { meetingOutcome: "PENDING" }`
+      // vira SQL `NOT (x = 'PENDING')`, que DESCARTA as linhas com x nulo — o
+      // histórico antigo inteiro. Medido: o ranking cairia de 2.188 pra 192.)
+      // Data que vale = a do ENCONTRO (auditoria 09/2026): videochamada criada
+      // em agosto e realizada em setembro contava em agosto, porque o filtro
+      // era Activity.createdAt. Com tarefa ligada, vale o dueAt dela (a data
+      // marcada); registro avulso (sem tarefa, ex.: histórico) continua pelo
+      // createdAt. PENDING sem tarefa = sobra de tarefa apagada (ou criação
+      // que falhou no meio) — encontro que nunca vai ter resultado, fica fora.
+      where: {
+        organizationId,
+        type: { in: ["VIDEO_CALL", "VISIT"] },
+        ...ownerScopeWhere,
+        ...(rangeFrom || rangeTo
+          ? {
+              OR: [
+                { task: { is: { dueAt: { ...(rangeFrom ? { gte: rangeFrom } : {}), ...(rangeTo ? { lte: rangeTo } : {}) } } } },
+                { task: { is: { dueAt: null } }, ...dateWhere("createdAt") },
+                { task: { is: null }, ...dateWhere("createdAt"), OR: NOT_PENDING },
+              ],
+            }
+          : { OR: [{ task: { isNot: null } }, ...NOT_PENDING] }),
+      },
       _count: true,
     }),
     // "Quem movimentou mais o funil" (pedido explícito) — ligação, proposta e
     // mensagem de WhatsApp registradas na timeline do negócio/contato, além
-    // das reuniões/visitas que já têm o próprio card acima. Diferente de
-    // MEETING/VISIT, esses 3 tipos não têm "resultado" (meetingOutcome é
+    // das videochamadas/visitas que já têm o próprio card acima. Diferente de
+    // VIDEO_CALL/VISIT, esses 3 tipos não têm "resultado" (meetingOutcome é
     // sempre PENDING/null neles — só faz sentido pra um encontro agendado
     // que pode ser remarcado/no-show) — a Activity já EXISTIR é o próprio
     // registro de que a ação aconteceu, então conta tudo, sem filtrar por
@@ -363,6 +391,20 @@ export async function getCommercialReportData(params: {
     prisma.activity.groupBy({
       by: ["userId", "type"],
       where: { organizationId, type: { in: ["CALL", "PROPOSAL", "WHATSAPP"] }, ...ownerScopeWhere, ...dateWhere("createdAt") },
+      _count: true,
+    }),
+    // Tarefas e Activities são coisas diferentes: uma Activity representa o
+    // registro comercial, enquanto a Task representa o trabalho agendado.
+    // Contar Task em um ranking próprio cobre os oito tipos sem duplicar as
+    // Activities de ligação, proposta ou WhatsApp deste relatório.
+    prisma.task.groupBy({
+      by: ["ownerId", "type"],
+      where: {
+        organizationId,
+        completedAt: { not: null },
+        ...taskOwnerScopeWhere,
+        ...dateWhere("completedAt"),
+      },
       _count: true,
     }),
     prisma.deal.findMany({
@@ -558,12 +600,13 @@ export async function getCommercialReportData(params: {
     };
   });
 
-  // ─── Pessoas: junta quem tem negócio, quem registrou reunião e quem é
+  // ─── Pessoas: junta quem tem negócio, quem registrou videochamada e quem é
   // membro de organização, pra não deixar ninguém de fora do nome/avatar. ──
   const peopleIds = Array.from(
     new Set([
       ...allByOwner.map((o) => o.ownerId),
       ...meetingsAndVisitsByOwner.map((m) => m.userId),
+      ...completedTasksByOwner.map((t) => t.ownerId),
       ...visibleMembers.map((m) => m.userId),
     ]),
   );
@@ -594,9 +637,9 @@ export async function getCommercialReportData(params: {
     activityByUser.set(row.userId, prev);
   }
 
-  // Reunião (online) e visita (presencial) contam junto no ranking — quem
+  // Videochamada (online) e visita (presencial) contam junto no ranking — quem
   // mais foi falar com o lead direto, não importa o meio — mas cada tipo
-  // continua contado à parte pra alimentar o "40 visitas e 10 reuniões" no
+  // continua contado à parte pra alimentar o "40 visitas e 10 videochamadas" no
   // detalhamento do card.
   //
   // Taxa de comparecimento (attended/noShow) usa a MESMA régua já
@@ -607,7 +650,7 @@ export async function getCommercialReportData(params: {
   // não se sabe se vai comparecer ou não), PENDING é uma Task ainda não
   // concluída (o resultado é perguntado só na conclusão dela — ver
   // ActivityMeetingOutcome no schema), contá-la como comparecida inflaria a
-  // taxa com reunião que ainda nem aconteceu.
+  // taxa com videochamada que ainda nem aconteceu.
   // rescheduledCount contado à parte (não é nem "realizada" nem entra no
   // denominador da taxa de comparecimento) — pedido explícito: precisa dar
   // pra enxergar separado quantas viraram remarcação, não só misturado num
@@ -620,9 +663,9 @@ export async function getCommercialReportData(params: {
       meetingCount: number;
       visitCount: number;
       attendedCount: number;
-      // attendedCount por tipo — pedido explícito: o card de "Reuniões e
+      // attendedCount por tipo — pedido explícito: o card de "Videochamadas e
       // visitas realizadas" mostrava só o total combinado (attendedCount),
-      // sem dar pra ver quanto disso era reunião (online) e quanto era
+      // sem dar pra ver quanto disso era videochamada (online) e quanto era
       // visita (presencial). meetingCount/visitCount acima não servem pra
       // isso: contam TUDO agendado, não só o que foi de fato realizado.
       meetingAttendedCount: number;
@@ -635,13 +678,13 @@ export async function getCommercialReportData(params: {
     const prev =
       meetingVisitByUser.get(row.userId) ??
       { meetingCount: 0, visitCount: 0, attendedCount: 0, meetingAttendedCount: 0, visitAttendedCount: 0, noShowCount: 0, rescheduledCount: 0 };
-    if (row.type === "MEETING") prev.meetingCount += row._count;
+    if (row.type === "VIDEO_CALL") prev.meetingCount += row._count;
     else if (row.type === "VISIT") prev.visitCount += row._count;
     if (row.meetingOutcome === "NO_SHOW") prev.noShowCount += row._count;
     else if (row.meetingOutcome === "RESCHEDULED") prev.rescheduledCount += row._count;
     else if (row.meetingOutcome !== "PENDING") {
       prev.attendedCount += row._count;
-      if (row.type === "MEETING") prev.meetingAttendedCount += row._count;
+      if (row.type === "VIDEO_CALL") prev.meetingAttendedCount += row._count;
       else if (row.type === "VISIT") prev.visitAttendedCount += row._count;
     }
     meetingVisitByUser.set(row.userId, prev);
@@ -660,8 +703,15 @@ export async function getCommercialReportData(params: {
     funnelActivityByUser.set(row.userId, prev);
   }
 
+  const completedTasksByUser = new Map<string, Map<string, number>>();
+  for (const row of completedTasksByOwner) {
+    const byType = completedTasksByUser.get(row.ownerId) ?? new Map<string, number>();
+    byType.set(row.type, row._count);
+    completedTasksByUser.set(row.ownerId, byType);
+  }
+
   // ─── Quem CONTA como time atual pros rankings abaixo ───────────────────
-  // peopleIds (acima) inclui todo mundo que já foi dono de negócio/reunião
+  // peopleIds (acima) inclui todo mundo que já foi dono de negócio/videochamada
   // um dia — inclusive quem já SAIU da empresa (o negócio antigo continua
   // no banco com o ownerId de quem fechou, não é reatribuído sozinho quando
   // alguém é desativado). Isso é o comportamento certo pros totais de
@@ -714,6 +764,8 @@ export async function getCommercialReportData(params: {
     // RESCHEDULED fica de fora (ver comentário em meetingVisitByUser acima).
     const attendanceResolved = meetingVisit.attendedCount + meetingVisit.noShowCount;
     const funnelActivity = funnelActivityByUser.get(id) ?? { callCount: 0, proposalCount: 0, whatsappCount: 0 };
+    const completedTasksByType = completedTasksByUser.get(id) ?? new Map<string, number>();
+    const completedTaskCount = Array.from(completedTasksByType.values()).reduce((sum, count) => sum + count, 0);
     return {
       id,
       name: personName(id),
@@ -736,6 +788,8 @@ export async function getCommercialReportData(params: {
       proposalCount: funnelActivity.proposalCount,
       whatsappCount: funnelActivity.whatsappCount,
       funnelActivityCount: funnelActivity.callCount + funnelActivity.proposalCount + funnelActivity.whatsappCount,
+      completedTaskCount,
+      completedTasksByType,
       activeSeconds: activity.activeSeconds,
       changeCount: activity.changeCount,
       activeDayCount: activity.activeDayCount,
@@ -761,21 +815,21 @@ export async function getCommercialReportData(params: {
       secondaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
     }));
 
-  // Pedido explícito: "quem fez mais reuniões" tem que contar só quem o
-  // cliente de fato COMPARECEU (attendedCount) — remarcada não é reunião
+  // Pedido explícito: "quem fez mais videochamadas" tem que contar só quem o
+  // cliente de fato COMPARECEU (attendedCount) — remarcada não é videochamada
   // realizada (só uma tentativa que virou outro dia, com Task própria pra
   // aquele novo dia — ver app/api/tasks/[id]/route.ts) e no-show muito menos.
   // Antes ordenava por meetingsAndVisitsCount (tudo que foi AGENDADO, sem
-  // olhar o resultado) — um consultor cheio de reunião marcada mas que não
-  // comparece/remarca sempre aparecia como "o que mais fez reunião", o
+  // olhar o resultado) — um consultor cheio de videochamada marcada mas que não
+  // comparece/remarca sempre aparecia como "o que mais fez videochamada", o
   // oposto do que o número deveria significar. secondaryValue agora mostra
   // as 3 categorias separadas (agendadas no total / no-show / remarcadas)
   // de propósito — pra dar pra ver ONDE está o problema de um consultor com
   // poucas realizadas (agenda muito mas não vai? falta comparecimento do
   // lead? fica remarcando?), não só o número final sem contexto.
   //
-  // Pedido explícito (2026-09): detalhar o "N reuniões/visitas" — agora abre
-  // em quantas foram reunião (online) e quantas foram visita (presencial)
+  // Pedido explícito (2026-09): detalhar o "N videochamadas/visitas" — agora abre
+  // em quantas foram videochamada (online) e quantas foram visita (presencial)
   // DENTRE as que de fato aconteceram, não o agendado bruto (meetingCount/
   // visitCount em ownerStats contam tudo, inclusive no-show/remarcada — não
   // servem pra esse detalhamento).
@@ -785,7 +839,7 @@ export async function getCommercialReportData(params: {
     .map((o) => {
       const typeParts: string[] = [];
       if (o.visitAttendedCount > 0) typeParts.push(`${o.visitAttendedCount} visita${o.visitAttendedCount === 1 ? "" : "s"}`);
-      if (o.meetingAttendedCount > 0) typeParts.push(`${o.meetingAttendedCount} reuni${o.meetingAttendedCount === 1 ? "ão" : "ões"}`);
+      if (o.meetingAttendedCount > 0) typeParts.push(`${o.meetingAttendedCount} videochamada${o.meetingAttendedCount === 1 ? "" : "s"}`);
       const typeText = typeParts.join(" · ") || `${o.attendedCount} realizadas`;
 
       const extraParts: string[] = [];
@@ -801,7 +855,7 @@ export async function getCommercialReportData(params: {
         id: o.id,
         name: o.name,
         photoUrl: o.photoUrl,
-        primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "reunião/visita" : "reuniões/visitas"}`,
+        primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "videochamada/visita" : "videochamadas/visitas"}`,
         secondaryValue: `${typeText}${extraText}`,
       };
     });
@@ -828,11 +882,40 @@ export async function getCommercialReportData(params: {
       };
     });
 
-  // Taxa de comparecimento por consultor — de quem marcou reunião/visita
+  const taskTypeLabels: Record<string, string> = {
+    CALL: "ligação",
+    WHATSAPP: "WhatsApp",
+    EMAIL: "e-mail",
+    VIDEO_CALL: "videochamada",
+    VISIT: "visita",
+    PROPOSAL: "proposta",
+    NOTE: "nota",
+    OTHER: "outro",
+  };
+
+  // Todas as TaskType entram aqui. Usa completedAt (e não createdAt) para
+  // medir trabalho efetivamente realizado dentro do período escolhido.
+  const completedTasksRanking: LeaderboardEntry[] = ownerStats
+    .filter((o) => activeMemberIds.has(o.id) && o.completedTaskCount > 0)
+    .sort((a, b) => b.completedTaskCount - a.completedTaskCount)
+    .map((o) => {
+      const types = Array.from(o.completedTasksByType.entries())
+        .sort(([, left], [, right]) => right - left)
+        .map(([type, count]) => `${count} ${taskTypeLabels[type] ?? type.toLowerCase()}`);
+      return {
+        id: o.id,
+        name: o.name,
+        photoUrl: o.photoUrl,
+        primaryValue: `${o.completedTaskCount} tarefa${o.completedTaskCount === 1 ? "" : "s"}`,
+        secondaryValue: types.join(" · "),
+      };
+    });
+
+  // Taxa de comparecimento por consultor — de quem marcou videochamada/visita
   // (attendedCount + noShowCount > 0, ver ownerStats acima), quantos % de
   // fato compareceram. Ordenado pelo total de encontros RESOLVIDOS (não
-  // pela taxa em si) — sem isso, um consultor com 1 reunião e 100% de
-  // comparecimento apareceria acima de outro com 40 reuniões e 85%, o que
+  // pela taxa em si) — sem isso, um consultor com 1 videochamada e 100% de
+  // comparecimento apareceria acima de outro com 40 videochamadas e 85%, o que
   // não ajuda a achar quem realmente tem volume suficiente pra a taxa
   // significar algo.
   const attendanceRanking: LeaderboardEntry[] = ownerStats
@@ -2064,6 +2147,7 @@ export async function getCommercialReportData(params: {
     dealsClosedRanking,
     meetingsRanking,
     funnelActivityRanking,
+    completedTasksRanking,
     attendanceRanking,
     attendanceSummary,
     attendanceRateOverall,

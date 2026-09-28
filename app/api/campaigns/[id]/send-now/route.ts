@@ -13,6 +13,7 @@ const REASON_MESSAGES: Record<string, string> = {
   "outside-schedule": "Fora da janela de dias/horário configurada — nada foi enviado.",
   "daily-cap-reached": "Teto diário já atingido — nada foi enviado.",
   "no-pending": "Não há ninguém pendente pra enviar agora.",
+  "whatsapp-offline": "O WhatsApp desta campanha está desconectado — reconecte-o (Configurações → Perfil → WhatsApp) e tente de novo. Nada foi enviado.",
 };
 
 // "no-pending" pro alvo wave merece uma mensagem própria — "ninguém

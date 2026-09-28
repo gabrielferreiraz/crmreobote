@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
   return runWithTenant(access.organizationId, async () => {
     const scope = await getDealScope(access.organizationId, access.userId, access.role);
-    const resolved = await resolveCampaignInput(access.organizationId, body, scope);
+    const resolved = await resolveCampaignInput(access.organizationId, body, scope, { userId: access.userId, role: access.role });
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
     const v = resolved.value;
 

@@ -9,6 +9,7 @@ import type { $Enums } from "@/app/generated/prisma/client";
 import { coerceCustomFieldValue } from "@/lib/custom-fields";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import type { CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
+import { scriptAccessWhere } from "@/lib/campaigns/scripts";
 
 /** Triggers cuja entidade principal é um Deal/Contact estável — únicos onde "condições de campo personalizado" fazem sentido. */
 export const CUSTOM_FIELD_CONDITION_ENTITY: Partial<Record<$Enums.AutomationTrigger, "DEAL" | "CONTACT">> = {
@@ -200,10 +201,28 @@ export async function validateTriggerConfig(
   return null;
 }
 
+/**
+ * Quem está salvando a regra. Remetente de WhatsApp de OUTRA pessoa só pode
+ * ser escolhido por Dono/Gerente (que já administram as regras da organização
+ * inteira) — Supervisor/Consultor só o próprio número, ou o remetente que a
+ * regra já tinha (editar outra coisa numa regra antiga não pode travar).
+ * Script: só os que a pessoa enxerga (auditoria 09/2026).
+ */
+export type AutomationActor = { userId: string; role: string | undefined; previousActionConfig?: unknown };
+
+function canUseSender(senderId: string, key: "whatsappSenderId" | "scriptSenderId", actor: AutomationActor): boolean {
+  if (actor.role === "OWNER" || actor.role === "MANAGER" || senderId === actor.userId) return true;
+  const previous = actor.previousActionConfig as Record<string, unknown> | null | undefined;
+  return previous?.[key] === senderId;
+}
+
+const FOREIGN_SENDER_MESSAGE = "Você só pode enviar pelo seu próprio WhatsApp. Peça a um gerente para configurar outro remetente.";
+
 export async function validateActionConfig(
   organizationId: string,
   action: $Enums.AutomationAction,
   actionConfig: Record<string, unknown> | undefined,
+  actor: AutomationActor,
 ): Promise<string | null> {
   if (action === "MARK_LOST") {
     const lossReasonId = actionConfig?.lossReasonId as string | undefined;
@@ -216,6 +235,7 @@ export async function validateActionConfig(
     if (!(actionConfig?.whatsappRecipients as unknown[] | undefined)?.length) return "Selecione ao menos um destinatário";
     const senderId = actionConfig?.whatsappSenderId as string | undefined;
     if (senderId) {
+      if (!canUseSender(senderId, "whatsappSenderId", actor)) return FOREIGN_SENDER_MESSAGE;
       const member = await prisma.organizationUser.findFirst({
         where: { organizationId, userId: senderId, active: true },
       });
@@ -229,11 +249,12 @@ export async function validateActionConfig(
   if (action === "SEND_SCRIPT") {
     const scriptId = actionConfig?.scriptId as string | undefined;
     if (!scriptId) return "Selecione o script";
-    const script = await prisma.messageScript.findFirst({ where: { id: scriptId, organizationId } });
+    const script = await prisma.messageScript.findFirst({ where: { id: scriptId, organizationId, ...scriptAccessWhere(actor) } });
     if (!script) return "Script inválido";
     if (!(actionConfig?.scriptRecipients as unknown[] | undefined)?.length) return "Selecione ao menos um destinatário";
     const senderId = actionConfig?.scriptSenderId as string | undefined;
     if (senderId) {
+      if (!canUseSender(senderId, "scriptSenderId", actor)) return FOREIGN_SENDER_MESSAGE;
       const member = await prisma.organizationUser.findFirst({
         where: { organizationId, userId: senderId, active: true },
       });

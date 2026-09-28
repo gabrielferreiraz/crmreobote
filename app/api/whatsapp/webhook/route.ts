@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithInstanceLookup, runWithTenant } from "@/lib/tenant-context";
 import { secureEqual } from "@/lib/security/secure-compare";
+import { readJson, BodyTooLargeError } from "@/lib/read-body";
 import {
   handleIncomingMessage,
   handleStatusUpdate,
@@ -10,6 +11,8 @@ import {
   handleHistorySync,
   handlePresenceUpdate,
 } from "@/lib/whatsapp/events";
+
+const EVOLUTION_WEBHOOK_MAX_BYTES = 25 * 1024 * 1024;
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +33,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  const body = await req.json().catch((err) => {
-    console.error("[wa:webhook] corpo da requisição não é JSON válido", err);
-    return null;
-  });
+  // Teto de 25 MB (não o de 2 MB dos outros webhooks): o evento de histórico
+  // (MESSAGES_SET) traz muitas mensagens de uma vez. Mídia não vem embutida
+  // (base64: false, ver lib/evolution.ts). A rota já exige o segredo; o teto
+  // só impede um corpo gigante de derrubar a memória do servidor.
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = await readJson<Record<string, unknown>>(req, EVOLUTION_WEBHOOK_MAX_BYTES);
+  } catch (err) {
+    if (err instanceof BodyTooLargeError) {
+      console.error(`[wa:webhook] corpo acima de ${EVOLUTION_WEBHOOK_MAX_BYTES} bytes — ignorado`);
+      return NextResponse.json({ ok: true });
+    }
+    console.error("[wa:webhook] corpo da requisição não é JSON válido", err instanceof Error ? err.message : err);
+    body = null;
+  }
   const instanceName = body?.instance as string | undefined;
   const event = (body?.event as string | undefined)?.toLowerCase();
   const data = body?.data;
@@ -43,7 +57,8 @@ export async function POST(req: NextRequest) {
   // Payload que não reconhecemos: responde 200 mesmo assim, senão o Evolution
   // fica reenviando o mesmo evento indefinidamente.
   if (!instanceName || !event) {
-    console.warn("[wa:webhook] ignorado: instance ou event ausente no payload", JSON.stringify(body));
+    // Só as CHAVES do payload — o corpo traz telefone e conteúdo de mensagem.
+    console.warn("[wa:webhook] ignorado: instance ou event ausente no payload; chaves:", Object.keys((body as object) ?? {}).join(","));
     return NextResponse.json({ ok: true });
   }
 

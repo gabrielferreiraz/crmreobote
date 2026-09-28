@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -52,24 +54,26 @@ export function ProcessStageManager({ pipelineId, initialStages }: { pipelineId:
     const oldIndex = stages.findIndex((s) => s.id === active.id);
     const newIndex = stages.findIndex((s) => s.id === over.id);
     const reordered = arrayMove(stages, oldIndex, newIndex);
+    const prev = stages;
     setStages(reordered);
 
-    await fetch(`/api/process-pipelines/${pipelineId}/stages/reorder`, {
+    const res = await requestJson(`/api/process-pipelines/${pipelineId}/stages/reorder`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageIds: reordered.map((s) => s.id) }),
+      json: { stageIds: reordered.map((s) => s.id) },
     });
-    router.refresh();
+    if (!res.ok) setStages(prev);
+    else router.refresh();
   }
 
   async function patchStage(stageId: string, data: Partial<Pick<ProcessStage, "name" | "color" | "isFinal">>) {
-    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, ...data } : s)));
-    await fetch(`/api/process-pipelines/${pipelineId}/stages/${stageId}`, {
+    const prev = stages.find((s) => s.id === stageId);
+    setStages((ss) => ss.map((s) => (s.id === stageId ? { ...s, ...data } : s)));
+    const res = await requestJson(`/api/process-pipelines/${pipelineId}/stages/${stageId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      json: data,
     });
-    router.refresh();
+    if (!res.ok && prev) setStages((ss) => ss.map((s) => (s.id === stageId ? { ...s, ...prev } : s)));
+    if (res.ok) router.refresh();
   }
 
   async function deleteStage(stageId: string) {

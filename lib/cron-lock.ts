@@ -2,7 +2,11 @@ import { Pool } from "pg";
 
 const lockPool = new Pool({
   connectionString: process.env.DATABASE_URL_APP ?? process.env.DATABASE_URL,
-  max: 10,
+  // No máximo 1 conexão por cron simultâneo (são 5 crons, cada um segura a sua
+  // durante o tick) — 10 deixava 5 conexões ociosas contra o Postgres remoto
+  // por processo, somando às 20 do app (auditoria 09/2026).
+  max: 5,
+  idleTimeoutMillis: 30_000,
   keepAlive: true,
 });
 

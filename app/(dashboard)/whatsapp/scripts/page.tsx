@@ -30,6 +30,9 @@ export default async function ScriptsPage() {
         </p>
         <ScriptsTable
           currentUserId={userId}
+          // Gerente/Dono editam qualquer script; os demais só os que criaram
+          // (mesma regra de canManageScript, que o servidor reforça).
+          canManageAll={isOwner || session!.user.role === "MANAGER"}
           initialScripts={scriptsRaw.map((s) => ({
             id: s.id,
             name: s.name,

@@ -9,6 +9,7 @@ import { TempPasswordDialog } from "@/components/temp-password-dialog";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingDots } from "@/components/loading-dots";
+import { requestJson } from "@/lib/client-request";
 
 type ApiKey = {
   id: string;
@@ -72,9 +73,9 @@ export function ApiKeysManager({ initialKeys }: { initialKeys: ApiKey[] }) {
   }
 
   async function revokeKey(id: string) {
-    await fetch(`/api/api-keys/${id}`, { method: "DELETE" });
+    const res = await requestJson(`/api/api-keys/${id}`, { method: "DELETE" });
     setKeyToRevoke(null);
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   return (

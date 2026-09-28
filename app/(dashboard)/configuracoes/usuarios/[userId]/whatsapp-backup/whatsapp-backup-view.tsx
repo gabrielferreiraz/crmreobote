@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Archive, ImageOff, User, QrCode, Search, X } from "lucide-react";
 import { Avatar } from "@/components/avatar";
@@ -94,10 +96,10 @@ export function WhatsAppBackupView({ userId }: { userId: string }) {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    fetch(`/api/org/members/${userId}/whatsapp-backup`)
-      .then((r) => r.json())
-      .then((data) => setThreads(data.threads ?? []))
-      .catch(() => setError("Não foi possível carregar as conversas."));
+    requestJson(`/api/org/members/${userId}/whatsapp-backup`, undefined, { silent: true }).then((res) => {
+      if (res.ok) setThreads(res.data?.threads ?? []);
+      else setError("Não foi possível carregar as conversas.");
+    });
   }, [userId]);
 
   useEffect(() => {
@@ -105,10 +107,10 @@ export function WhatsAppBackupView({ userId }: { userId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(null);
     setMessagesError(null);
-    fetch(`/api/org/members/${userId}/whatsapp-backup/${selectedId}`)
-      .then((r) => r.json())
-      .then((data) => setMessages(data.messages ?? []))
-      .catch(() => setMessagesError("Não foi possível carregar as mensagens."));
+    requestJson(`/api/org/members/${userId}/whatsapp-backup/${selectedId}`, undefined, { silent: true }).then((res) => {
+      if (res.ok) setMessages(res.data?.messages ?? []);
+      else setMessagesError("Não foi possível carregar as mensagens.");
+    });
   }, [userId, selectedId]);
 
   // Filtro em memória sobre a lista já carregada — instantâneo (sem round-trip

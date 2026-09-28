@@ -327,15 +327,23 @@ export async function uploadTvAd(key: string, body: Buffer, contentType: string)
   return `${TV_ADS_PUBLIC_URL}/${key}`;
 }
 
+/** URL de anúncio que a gente hospedou PRA ESTA organização (prefixo `tv-ads/<orgId>/`, ver buildTvAdKey). */
+export function isAllowedTvAdUrl(url: string, organizationId: string): boolean {
+  if (!TV_ADS_PUBLIC_URL) return false;
+  const key = url.startsWith(`${TV_ADS_PUBLIC_URL}/`) ? url.slice(`${TV_ADS_PUBLIC_URL}/`.length) : null;
+  // Sem "..", barra dupla ou query: a chave é sempre tv-ads/<org>/<hex>.<ext>.
+  return !!key && key.startsWith(`tv-ads/${organizationId}/`) && /^[\w./-]+$/.test(key) && !key.includes("..");
+}
+
 /**
  * Recebe a URL pública salva em TvDashboardConfig.adsUrls e apaga do bucket
- * — só se a URL for de fato uma que a gente hospedou (prefixo bate com
- * TV_ADS_PUBLIC_URL); link externo colado à mão antes dessa funcionalidade
- * existir não tem o que apagar aqui, só sai da lista mesmo (ver
- * tv-config-form.tsx).
+ * — só se for um anúncio DESTA organização. Antes bastava o prefixo do bucket
+ * (global): como as URLs aparecem no link público da TV, qualquer usuário
+ * logado de qualquer organização apagava o anúncio de outra (auditoria
+ * 09/2026). Link externo colado à mão não tem o que apagar, só sai da lista.
  */
-export async function deleteTvAdByUrl(url: string): Promise<void> {
-  if (!TV_ADS_PUBLIC_URL || !url.startsWith(`${TV_ADS_PUBLIC_URL}/`)) return;
+export async function deleteTvAdByUrl(url: string, organizationId: string): Promise<void> {
+  if (!isAllowedTvAdUrl(url, organizationId)) return;
   const key = url.slice(`${TV_ADS_PUBLIC_URL}/`.length);
   await client.send(new DeleteObjectCommand({ Bucket: TV_ADS_BUCKET, Key: key }));
 }

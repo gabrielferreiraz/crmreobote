@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Switch } from "./switch";
 import { Select } from "./select";
 import { VariablePills, SCRIPT_VARIABLES } from "./variable-pills";
+import { requestJson } from "@/lib/client-request";
 
 type ScriptOption = { id: string; name: string; steps: { text: string; delayAfterSec: number }[] };
 
@@ -39,10 +40,9 @@ export function ScheduleWhatsAppToggle({
   function loadScripts() {
     if (scripts || loadingScripts) return;
     setLoadingScripts(true);
-    fetch("/api/message-scripts")
-      .then((r) => r.json())
-      .then((data) => setScripts(Array.isArray(data) ? data : []))
-      .catch(() => setScripts([]))
+    // silent: true — erro de rede não merece aviso aqui, só lista vazia.
+    requestJson("/api/message-scripts", undefined, { silent: true })
+      .then((res) => setScripts(res.ok && Array.isArray(res.data) ? res.data : []))
       .finally(() => setLoadingScripts(false));
   }
 

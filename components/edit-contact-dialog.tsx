@@ -18,6 +18,7 @@ import { useCepAutofill } from "@/lib/use-cep-autofill";
 
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
+import { trackUse } from "@/lib/feature-usage/track";
 
 type Contact = {
   id: string;
@@ -206,6 +207,7 @@ export function ContactEditForm({
       return;
     }
 
+    trackUse("clientes.contato.editar");
     onSaved();
   }
 

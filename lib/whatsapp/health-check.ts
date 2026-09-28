@@ -22,20 +22,16 @@ import { getPhoneNumberHealth } from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
 import { notifyInstanceDisconnected, notifyInstanceStillDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
+import { RISK_THRESHOLD, RISK_WINDOW_MS } from "@/lib/whatsapp/risk";
+import { pauseCampaignsForUnstableInstance, pauseRunningCampaignsForOfflineInstance } from "@/lib/campaigns/instance-guard";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Exportado — o relatório de instabilidade (app/(dashboard)/relatorios/page.tsx)
-// usa a MESMA janela/limiar aqui pra "quantas mensagens de campanha essa
-// instância mandou na janela de risco" fazer sentido junto do
-// recentDisconnectCount, em vez de duplicar o número e arriscar os dois
-// desalinharem se esse limiar mudar um dia.
-export const RISK_WINDOW_MS = 7 * DAY_MS;
-// Queda confirmada 3x numa janela de 7 dias é tratada como sinal de que o
-// número está instável/sob suspeita da própria WhatsApp (não só uma
-// coincidência de rede) — insistir mandando campanha nesse estado é
-// exatamente o padrão que aumenta risco de banimento em vez de reduzir.
-export const RISK_THRESHOLD = 3;
+// Janela/limiar de "número instável" moram em lib/whatsapp/risk.ts (arquivo folha, sem banco — o
+// motor de campanhas usa o mesmo critério pra não retomar sozinho um número suspeito). Reexportados
+// aqui porque o relatório de instabilidade (app/(dashboard)/relatorios/page.tsx) e
+// lib/reports/commercial-data.ts importam daqui.
+export { RISK_THRESHOLD, RISK_WINDOW_MS };
 
 type CheckableInstance = {
   id: string;
@@ -49,16 +45,6 @@ type CheckableInstance = {
   riskWindowStartedAt: Date | null;
 };
 
-/** Pausa toda campanha RODANDO que dispara por essa instância — rede de segurança, não substitui o usuário retomar manualmente depois de resolver a instabilidade. */
-async function pauseCampaignsForInstance(instanceId: string): Promise<void> {
-  const result = await prisma.campaign.updateMany({
-    where: { instanceId, status: "RUNNING" },
-    data: { status: "PAUSED" },
-  });
-  if (result.count > 0) {
-    console.warn(`[wa:health] ${result.count} campanha(s) pausada(s) automaticamente por instabilidade da instância ${instanceId}`);
-  }
-}
 
 /**
  * Confirma-então-alerta compartilhado pelos dois providers — só o "como
@@ -135,12 +121,18 @@ async function checkAndMaybeDisconnect(
     });
     await notifyInstanceDisconnected(instance);
     counters.disconnected += 1;
+    await pauseRunningCampaignsForOfflineInstance(instance.organizationId, instance.id, {
+      status: "DISCONNECTED",
+      pendingDisconnectSince: null,
+      recentDisconnectCount: nextDisconnectCount,
+      riskWindowStartedAt: windowExpired ? new Date() : instance.riskWindowStartedAt,
+    });
 
     if (nextDisconnectCount >= RISK_THRESHOLD) {
       console.warn(
         `[wa:health] instância ${instance.instanceName} caiu ${nextDisconnectCount}x em 7 dias — pausando campanhas (risco de banimento)`,
       );
-      await pauseCampaignsForInstance(instance.id);
+      await pauseCampaignsForUnstableInstance(instance.organizationId, instance.id);
     }
   } catch (err) {
     console.error(`[wa:health] falha ao checar instância ${instance.instanceName}`, err);

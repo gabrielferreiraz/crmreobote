@@ -3,7 +3,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import { campaignScopeWhere, type DealScope } from "@/lib/team-scope";
-import { canAccessScript } from "@/lib/campaigns/scripts";
+import { canAccessScript, canManageScript, SCRIPT_READ_ONLY_MESSAGE } from "@/lib/campaigns/scripts";
 import type { ScriptStep } from "@/lib/campaigns/spintax";
 import { normalizeSteps } from "@/lib/campaigns/script-steps";
 
@@ -196,7 +196,7 @@ export type ScriptUpdateResult =
       /** Pedidas mas ignoradas (fora do escopo, encerradas ou que não usam o script). */
       skippedCampaignIds: string[];
     }
-  | { ok: false; status: 404; error: string };
+  | { ok: false; status: 403 | 404; error: string };
 
 /**
  * prismaRaw.$transaction com CALLBACK (a forma em array não é atômica neste
@@ -212,6 +212,7 @@ export async function updateScriptAndSync(actor: ScriptUpdateActor, scriptId: st
 
       const existing = await tx.messageScript.findFirst({ where: { id: scriptId, organizationId: actor.organizationId } });
       if (!existing || !canAccessScript(existing, actor)) return { ok: false as const, status: 404 as const, error: "Não encontrado" };
+      if (!canManageScript(existing, actor)) return { ok: false as const, status: 403 as const, error: SCRIPT_READ_ONLY_MESSAGE };
 
       const stepsChanged = normalizeSteps(existing.steps) !== normalizeSteps(input.steps);
       const bump = stepsChanged && input.versionMode === "NEW_VERSION";

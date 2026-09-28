@@ -7,7 +7,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 
 // Sem nenhum mouse/toque/tecla por esse tempo = "parado na tela", mesmo com
 // a aba em primeiro plano — sem isso, uma aba do CRM esquecida aberta (ex.:
-// foi almoçar, foi pra reunião) contava o tempo todo como uso ativo, só
+// foi almoçar, foi pra videochamada) contava o tempo todo como uso ativo, só
 // porque ninguém trocou de aba nem minimizou. Curto o bastante pra refletir
 // uso de verdade, longo o bastante pra não penalizar quem só está lendo a
 // tela parado (sem clicar/rolar) por um instante.

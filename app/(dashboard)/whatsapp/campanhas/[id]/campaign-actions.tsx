@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Pause, Play, Send, Waves } from "lucide-react";
 import { DuplicateCampaignButton } from "../duplicate-campaign-button";
+import { trackUse } from "@/lib/feature-usage/track";
 
 type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE";
 
@@ -12,12 +13,15 @@ export function CampaignActions({
   status,
   hasAudienceFilter,
   hasRmktWaves,
+  autoPausedByDisconnect,
 }: {
   id: string;
   status: CampaignStatus;
   hasAudienceFilter: boolean;
   /** Só campanha com ondas de RMKT configuradas (Campaign.rmktWaves) ganha o botão dedicado "Enviar onda de RMKT agora" — ver getCampaignDetail em lib/campaigns/list.ts. */
   hasRmktWaves: boolean;
+  /** Pausada pelo motor porque o WhatsApp caiu (vai retomar SOZINHA ao reconectar) — ganha o botão "Manter pausada" pra desligar essa retomada. */
+  autoPausedByDisconnect: boolean;
 }) {
   const router = useRouter();
   const [togglingStatus, setTogglingStatus] = useState(false);
@@ -28,12 +32,21 @@ export function CampaignActions({
 
   async function setStatus(next: "RUNNING" | "PAUSED") {
     setTogglingStatus(true);
-    await fetch(`/api/campaigns/${id}`, {
+    setSendNowResult(null);
+    const res = await fetch(`/api/campaigns/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: next }),
-    });
+    }).catch(() => null);
     setTogglingStatus(false);
+    if (res?.ok) {
+      trackUse(next === "RUNNING" ? "campanhas.iniciar" : "campanhas.pausar");
+    } else {
+      // O servidor recusa com o motivo (ex.: "o WhatsApp está desconectado") — mostra, em vez de a
+      // pessoa clicar em Retomar e a campanha simplesmente continuar pausada sem explicação.
+      const data = await res?.json().catch(() => null);
+      setSendNowResult(data?.error ?? "Não foi possível alterar a campanha agora. Tente de novo.");
+    }
     router.refresh();
   }
 
@@ -58,6 +71,7 @@ export function CampaignActions({
       setSendNowResult(data.error ?? "Não foi possível enviar agora");
       return;
     }
+    trackUse("campanhas.enviar-agora");
     setSendNowResult(
       data.outcome === "sent"
         ? "Mensagem enviada agora!"
@@ -74,6 +88,21 @@ export function CampaignActions({
         <button type="button" disabled={togglingStatus} onClick={() => setStatus("RUNNING")} className="btn-secondary">
           {togglingStatus ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Play className="h-4 w-4" strokeWidth={2} />}
           Retomar
+        </button>
+      )}
+      {status === "PAUSED" && autoPausedByDisconnect && (
+        // Interruptor de desligar a retomada automática: vira pausa MANUAL (o servidor zera o motivo),
+        // que só volta quando alguém clicar em Retomar — pra quem NÃO quer que a campanha volte sozinha
+        // quando o WhatsApp reconectar (ex.: a live já passou).
+        <button
+          type="button"
+          disabled={togglingStatus}
+          onClick={() => setStatus("PAUSED")}
+          className="btn-ghost"
+          title="Cancela a retomada automática: a campanha só volta a enviar quando você clicar em Retomar."
+        >
+          <Pause className="h-4 w-4" strokeWidth={2} />
+          Manter pausada
         </button>
       )}
       {status === "RUNNING" && (

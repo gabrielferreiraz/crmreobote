@@ -13,7 +13,7 @@ export type MeetingOutcomeResult =
   | { outcome: "RESCHEDULED"; dueAt: string };
 
 /**
- * Pergunta o resultado de uma Reunião/Visita na CONCLUSÃO da tarefa (não
+ * Pergunta o resultado de uma Videochamada/Visita na CONCLUSÃO da tarefa (não
  * mais na criação — ver ActivityMeetingOutcome no schema e o motivo dessa
  * mudança lá). Reaproveitado nos 3 pontos que concluem tarefa desse tipo
  * (negocios/[id]/deal-detail.tsx, agenda/task-row.tsx, agenda/task-detail-
@@ -28,7 +28,7 @@ export type MeetingOutcomeResult =
  * essa tentativa é finalizada (fica registrado que o consultor foi atrás,
  * mesmo sem sucesso) e uma tarefa NOVA nasce pro próximo encontro, em vez de
  * só editar a data desta mesma tarefa; RESCHEDULED nunca entra como
- * "reunião realizada" nos Relatórios (ver PUT /api/tasks/[id] e
+ * "videochamada realizada" nos Relatórios (ver PUT /api/tasks/[id] e
  * lib/reports/commercial-data.ts).
  */
 export function MeetingOutcomeDialog({
@@ -36,7 +36,7 @@ export function MeetingOutcomeDialog({
   onResolve,
   onClose,
 }: {
-  taskType: "MEETING" | "VISIT";
+  taskType: "VIDEO_CALL" | "VISIT";
   onResolve: (result: MeetingOutcomeResult) => Promise<void> | void;
   onClose: () => void;
 }) {
@@ -44,7 +44,7 @@ export function MeetingOutcomeDialog({
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [loading, setLoading] = useState(false);
-  const typeLabel = taskType === "MEETING" ? "reunião" : "visita";
+  const typeLabel = taskType === "VIDEO_CALL" ? "videochamada" : "visita";
 
   async function confirm() {
     if (!choice) return;

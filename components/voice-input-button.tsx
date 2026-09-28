@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Mic, Loader2, AlertCircle } from "lucide-react";
 import { appendDictatedText } from "@/lib/dictation";
 import { VoiceSessionManager } from "@/lib/voice/voice-session-manager";
+import { trackUse } from "@/lib/feature-usage/track";
 
 const WAVEFORM_BARS = 4;
 
@@ -92,6 +93,7 @@ export function VoiceInputButton({
       manager.stop();
       return;
     }
+    trackUse("voz.ditar");
     manager.start({
       onInterim: (text) => onInterimResultRef.current?.(text),
       onFinal: (text) => onResultRef.current(text),

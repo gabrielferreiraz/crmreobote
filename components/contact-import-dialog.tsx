@@ -7,6 +7,7 @@ import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
 import { useFileDrop } from "@/lib/use-file-drop";
 import { downloadContactImportTemplate } from "@/lib/contact-import-template";
+import { trackUse } from "@/lib/feature-usage/track";
 
 type ImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "source" | "company" | "tags" | "responsavel";
 
@@ -407,6 +408,7 @@ export function ContactImportDialog({
       }
       setResult(data);
       setStep("done");
+      trackUse("clientes.importar");
       onImported();
     } catch {
       setError("Falha de conexão. Tente novamente.");

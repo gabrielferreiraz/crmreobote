@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -52,9 +54,9 @@ export function MetaAdsConnect() {
     refreshStatus();
     if (metaAdsParam && QUERY_MESSAGES[metaAdsParam]) setError(QUERY_MESSAGES[metaAdsParam]);
     if (metaAdsParam === "select_page") {
-      fetch("/api/meta-ads/pages")
-        .then((r) => r.json())
-        .then((data) => setPendingPages(data.pages ?? []));
+      requestJson("/api/meta-ads/pages", undefined, { silent: true }).then((res) =>
+        setPendingPages(res.ok && Array.isArray(res.data?.pages) ? res.data.pages : []),
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -130,20 +132,19 @@ export function MetaAdsConnect() {
   async function disconnect() {
     setBusy(true);
     setError(null);
-    try {
-      await fetch("/api/meta-ads/disconnect", { method: "DELETE" });
-      setStatus("disconnected");
-      setPageName(null);
-      setPixelId("");
-      setAdAccountId(null);
-      setAdAccountName(null);
-      setHasInsightsToken(false);
-      setAdAccountChoices(null);
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-    } finally {
-      setBusy(false);
+    const res = await requestJson("/api/meta-ads/disconnect", { method: "DELETE" }, { silent: true });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? "Falha de conexão. Tente novamente.");
+      return;
     }
+    setStatus("disconnected");
+    setPageName(null);
+    setPixelId("");
+    setAdAccountId(null);
+    setAdAccountName(null);
+    setHasInsightsToken(false);
+    setAdAccountChoices(null);
   }
 
   async function savePixelId() {

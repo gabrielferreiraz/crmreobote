@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { requestJson } from "@/lib/client-request";
 
 type Reason = {
   id: string;
@@ -20,13 +21,14 @@ export function ReasonManager({ initialReasons }: { initialReasons: Reason[] }) 
   const [reasonToDelete, setReasonToDelete] = useState<Reason | null>(null);
 
   async function renameReason(id: string, label: string) {
-    setReasons((prev) => prev.map((r) => (r.id === id ? { ...r, label } : r)));
-    await fetch(`/api/loss-reasons/${id}`, {
+    const prev = reasons.find((r) => r.id === id);
+    setReasons((rs) => rs.map((r) => (r.id === id ? { ...r, label } : r)));
+    const res = await requestJson(`/api/loss-reasons/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label }),
+      json: { label },
     });
-    router.refresh();
+    if (!res.ok && prev) setReasons((rs) => rs.map((r) => (r.id === id ? { ...r, label: prev.label } : r)));
+    if (res.ok) router.refresh();
   }
 
   async function deleteReason(id: string) {

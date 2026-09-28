@@ -45,7 +45,7 @@ export async function getProposalPrintData(
         select: {
           name: true,
           creditType: true,
-          contact: { select: { name: true, email: true, phone: true, whatsapp: true } },
+          contact: { select: { name: true } },
         },
       },
     },
@@ -57,8 +57,6 @@ export async function getProposalPrintData(
     proposal: serializeProposal(row),
     dealName: row.deal.name,
     clientName: row.deal.contact.name,
-    clientEmail: row.deal.contact.email,
-    clientPhone: row.deal.contact.whatsapp || row.deal.contact.phone,
     creditType: row.deal.creditType,
     consultantName: consultant.name,
     consultantEmail: consultant.email,

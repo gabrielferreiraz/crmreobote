@@ -18,7 +18,7 @@
  * aqui no CRM depois da importação (ex.: reagendar direto na Agenda, não no
  * Agendor), esse valor já está certo — e este script vai somar 4h nele
  * também, adiantando incorretamente. Baixo risco na prática (a maioria das
- * edições de reunião passa pelo fluxo de reagendamento, que cria uma Task
+ * edições de videochamada passa pelo fluxo de reagendamento, que cria uma Task
  * NOVA sem agendorTaskId — fica fora do escopo daqui), mas não é
  * impossível. Sem um jeito de distinguir "veio do Agendor, nunca tocado"
  * de "veio do Agendor, editado depois aqui" sem um log de auditoria por
@@ -41,8 +41,8 @@ type ColumnTarget = {
   alreadyApplied?: boolean;
   /** Task.dueAt é a ÚNICA coluna com um índice único que enxerga a própria
    * coluna sendo corrigida (Task_owner_meeting_slot_unique, ownerId+dueAt
-   * pra type=MEETING). Um UPDATE em massa comum bate nisso no meio do
-   * caminho: encontrado na prática — 4 pares de tarefas MEETING (duplicata
+   * pra type=VIDEO_CALL). Um UPDATE em massa comum bate nisso no meio do
+   * caminho: encontrado na prática — 4 pares de tarefas VIDEO_CALL (duplicata
    * real do Agendor, mesmo owner) onde a NOVA data de uma bate com a data
    * ANTIGA (ainda não corrigida) da outra do mesmo par. As duas ficam
    * corretas e diferentes no final (owner+dueAt nunca colide de verdade no
@@ -79,12 +79,12 @@ async function resolveMeetingSlotCollisions(
     FROM "Task" a
     JOIN "Task" b
       ON b."ownerId" = a."ownerId"
-      AND b.type = 'MEETING'
+      AND b.type = 'VIDEO_CALL'
       AND b."dueAt" = a."dueAt" + INTERVAL '4 hours'
       AND b.id != a.id
     WHERE a."organizationId" = '${ORGANIZATION_ID}'
       AND a."agendorTaskId" IS NOT NULL
-      AND a.type = 'MEETING'
+      AND a.type = 'VIDEO_CALL'
       AND a."dueAt" IS NOT NULL
   `);
   if (pairs.length > 0) {
@@ -122,7 +122,7 @@ const TARGETS: ColumnTarget[] = [
   { table: "Task", column: "createdAt", where: `"organizationId" = '${ORGANIZATION_ID}' AND "agendorTaskId" IS NOT NULL` },
   { table: "Task", column: "updatedAt", where: `"organizationId" = '${ORGANIZATION_ID}' AND "agendorTaskId" IS NOT NULL` },
 
-  // Activity criada pelo backfill de reunião/visita (agendorTaskId setado).
+  // Activity criada pelo backfill de videochamada/visita (agendorTaskId setado).
   { table: "Activity", column: "createdAt", where: `"organizationId" = '${ORGANIZATION_ID}' AND "agendorTaskId" IS NOT NULL` },
   // Activity de log "Sincronizado do Agendor: ..." (syncExistingDeal) — não
   // tem agendorTaskId, só dá pra achar pelo corpo do log.

@@ -6,6 +6,7 @@ import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { cleanupInstanceIfDisconnected } from "@/lib/whatsapp/instance-cleanup";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
+import { countActiveMemberships, countMemberships, isUserExclusiveToOrg, SHARED_ACCOUNT_MESSAGE } from "@/lib/org-membership-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,15 @@ export async function PATCH(
       where: { organizationId_userId: { organizationId: access.organizationId, userId } },
     });
     if (!membership) return NextResponse.json({ error: "Membro não encontrado" }, { status: 404 });
+
+    // Nome, e-mail (= login) e nascimento vivem em User, que é GLOBAL — só o
+    // Dono da organização EXCLUSIVA da pessoa pode mudá-los (ver
+    // lib/org-membership-guard.ts). Papel, equipe, meta e ranking continuam
+    // livres: são da filiação, só desta organização.
+    const touchesGlobalProfile = name !== undefined || email !== undefined || birthDate !== undefined;
+    if (touchesGlobalProfile && !(await isUserExclusiveToOrg(userId, access.organizationId))) {
+      return NextResponse.json({ error: SHARED_ACCOUNT_MESSAGE }, { status: 403 });
+    }
 
     const losesOwnerStatus = (role && membership.role === "OWNER" && role !== "OWNER") ||
       (active === false && membership.role === "OWNER");
@@ -187,8 +197,10 @@ export async function PATCH(
       // PushSubscription é por User (global, sem organizationId — ver
       // schema.prisma), então só apaga se a pessoa não tiver NENHUMA outra
       // organização ativa; senão um dono desativando alguém na Org A cortaria
-      // push de negócios/tarefas dela na Org B também.
-      const remainingActive = await prisma.organizationUser.count({ where: { userId, active: true } });
+      // push de negócios/tarefas dela na Org B também. countActiveMemberships
+      // enxerga TODAS as organizações — a contagem daqui de dentro de
+      // runWithTenant só via esta (RLS) e sempre dava 0.
+      const remainingActive = await countActiveMemberships(userId);
       if (remainingActive === 0) {
         await prisma.pushSubscription.deleteMany({ where: { userId } });
       }
@@ -289,12 +301,12 @@ export async function DELETE(
 
     // Mesmo cuidado do PATCH: só limpa a inscrição de push (global por User)
     // se não sobrar nenhuma outra organização ativa pra essa pessoa.
-    const remainingActive = await prisma.organizationUser.count({ where: { userId, active: true } });
+    const remainingActive = await countActiveMemberships(userId);
     if (remainingActive === 0) {
       await prisma.pushSubscription.deleteMany({ where: { userId } });
     }
 
-    const remainingMemberships = await prisma.organizationUser.count({ where: { userId } });
+    const remainingMemberships = await countMemberships(userId);
     if (remainingMemberships === 0) {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { image: true } });
       const previousKey = user?.image?.startsWith("avatars/") ? user.image : null;

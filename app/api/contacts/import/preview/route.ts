@@ -5,6 +5,7 @@ import { parseSpreadsheet } from "@/lib/parse-spreadsheet";
 import { runWithTenant } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { resolveImportPlan, type ContactImportField } from "@/lib/contacts/import-resolve";
+import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,16 @@ export async function POST(req: Request) {
   const rateLimited = rateLimitOrResponse(`contact-import-preview:${organizationId}`, PREVIEW_LIMIT, 60 * 60_000);
   if (rateLimited) return rateLimited;
 
-  const formData = await req.formData();
+  // Lido só depois da autenticação e com teto (lib/read-body.ts) — antes
+  // req.formData() carregava o corpo INTEIRO pra memória antes de checar tamanho.
+  let formData: FormData;
+  try {
+    formData = await readFormData(req, BODY_LIMITS.spreadsheet);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   const file = formData.get("file");
   const columnOverridesRaw = formData.get("columnOverrides");
   const fieldDefaultsRaw = formData.get("fieldDefaults");

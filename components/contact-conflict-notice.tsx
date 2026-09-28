@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, Loader2, Send, UserCheck } from "lucide-react";
+import { trackUse } from "@/lib/feature-usage/track";
 
 /**
  * Corpo do 409 de POST/PUT /api/contacts quando o telefone/WhatsApp já bate
@@ -99,8 +100,13 @@ export function ContactConflictNotice({
       }
       if (data.alreadyYours) setResult({ kind: "already-yours" });
       else if (data.alreadyRequested) setResult({ kind: "already-requested" });
-      else if (data.claimed) setResult({ kind: "claimed", reason: data.reason ?? null });
-      else setResult({ kind: "requested" });
+      else if (data.claimed) {
+        trackUse("leads.assumir");
+        setResult({ kind: "claimed", reason: data.reason ?? null });
+      } else {
+        trackUse("leads.solicitar");
+        setResult({ kind: "requested" });
+      }
     } catch (err) {
       setResult({ kind: "error", message: err instanceof Error ? err.message : "Falha de conexão" });
     } finally {

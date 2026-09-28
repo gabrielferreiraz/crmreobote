@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
 import { notifyProcessRequestCreated } from "@/lib/processes/notify";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +35,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const { message } = body as { message?: string };
-
   const access = await requireProcessAccess();
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { message?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { message } = body;
+
   if (!message?.trim()) return NextResponse.json({ error: "Mensagem é obrigatória" }, { status: 400 });
 
   return runWithTenant(access.organizationId, async () => {

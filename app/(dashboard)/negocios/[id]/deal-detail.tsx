@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Wallet, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { normalizePhoneNumber, toDialNumber } from "@/lib/phone-normalize";
@@ -30,10 +30,25 @@ import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-f
 import { ClosedAtDialog } from "@/components/closed-at-dialog";
 import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reason-dialog";
 import { useUndoToast } from "@/components/undo-provider";
+import { requestJson } from "@/lib/client-request";
 import { ProposalsCard } from "@/components/proposals/proposals-card";
 import type { ProposalDTO } from "@/lib/proposals/types";
+import { trackUse } from "@/lib/feature-usage/track";
+import { CompleteRequiredFieldsDialog, type RequirableFieldValues } from "@/components/complete-required-fields-dialog";
+import type { RequirableDealField } from "@/lib/deal-required-fields";
 
 const COMPOSER_TABS = [...ACTIVITY_TABS, { type: "PROPOSAL", label: "Proposta", icon: FileText }];
+
+function needsJobTitleBeforeWinning(jobTitle: string | null) {
+  return !jobTitle?.trim() || jobTitle.trim().toLocaleLowerCase("pt-BR") === "indefinido";
+}
+
+function missingFinancialValues(value: number | null, grossValue: number | null): RequirableDealField[] {
+  return [
+    ...(value == null ? ["value" as const] : []),
+    ...(grossValue == null ? ["grossValue" as const] : []),
+  ];
+}
 
 // Só carregam depois que a pessoa de fato abre o painel/confete/convite/
 // ditado por voz — cada um puxa dependências pesadas (chat com QR/mídia/
@@ -162,7 +177,7 @@ function ActivityItem({
     );
   }
 
-  const isMeetingOrVisit = activity.type === "MEETING" || activity.type === "VISIT";
+  const isMeetingOrVisit = activity.type === "VIDEO_CALL" || activity.type === "VISIT";
   const Icon = ACTIVITY_ICON[activity.type] ?? StickyNote;
 
   function startEdit() {
@@ -196,7 +211,7 @@ function ActivityItem({
   const activityTypeColors: Record<string, string> = {
     WHATSAPP: "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 ring-1 ring-emerald-500/30",
     CALL: "bg-sky-500/15 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400 ring-1 ring-sky-500/30",
-    MEETING: "bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400 ring-1 ring-violet-500/30",
+    VIDEO_CALL: "bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400 ring-1 ring-violet-500/30",
     VISIT: "bg-rose-500/15 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 ring-1 ring-rose-500/30",
     PROPOSAL: "bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 ring-1 ring-indigo-500/30",
     EMAIL: "bg-cyan-500/15 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-400 ring-1 ring-cyan-500/30",
@@ -356,7 +371,7 @@ export function DealDetail({
   hasUnreadWhatsApp?: boolean;
   /** null quando o contato não tem WhatsApp/celular cadastrado — não dá pra conversar. */
   whatsappThreadId: string | null;
-  /** WhatsApp do responsável pelo negócio conectado — condição pro convite de reunião oferecer "enviar" (ver MeetingInviteDialog). */
+  /** WhatsApp do responsável pelo negócio conectado — condição pro convite de videochamada oferecer "enviar" (ver MeetingInviteDialog). */
   isWhatsAppConnected: boolean;
   /** Dono, Gerente ou Supervisor vendo o negócio de outro consultor, com
    * WhatsApp próprio conectado — deixa trocar pra "enviar como você" em vez
@@ -364,7 +379,7 @@ export function DealDetail({
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
   /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
   canEditDetails: boolean;
-  /** Excluir tarefa (Reunião/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
+  /** Excluir tarefa (Videochamada/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
   currentUserRole?: string;
   currentUserId: string;
   /** Propostas comerciais deste negócio (mais nova primeiro) — ver components/proposals/proposals-card.tsx. */
@@ -392,9 +407,14 @@ export function DealDetail({
   const [saving, setSaving] = useState(false);
   const [movingStage, setMovingStage] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [requiredFieldsPrompt, setRequiredFieldsPrompt] = useState<{
+    stageId: string;
+    stageName: string;
+    missingFields: RequirableDealField[];
+  } | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
-  // Só pedido (e só mandado pro servidor) quando activeTab é Reunião/Visita
+  // Só pedido (e só mandado pro servidor) quando activeTab é Videochamada/Visita
   // E não tem Prazo preenchido — com Prazo, uma Task vai ser criada junto,
   // e o resultado passa a ser perguntado só na CONCLUSÃO dela (ver
   // MeetingOutcomeDialog mais abaixo), não aqui. Sem Prazo é um registro
@@ -403,15 +423,21 @@ export function DealDetail({
   // problema que essa mudança corrige: "Compareceu" marcado por padrão
   // registrava comparecimento antes do encontro acontecer).
   const [meetingOutcome, setMeetingOutcome] = useState<"ATTENDED" | "NO_SHOW" | "RESCHEDULED" | null>(null);
-  // Id da Task MEETING/VISIT sendo concluída — abre o MeetingOutcomeDialog
+  // Id da Task VIDEO_CALL/VISIT sendo concluída — abre o MeetingOutcomeDialog
   // em vez de concluir direto (ver toggleTask).
   const [meetingOutcomeTaskId, setMeetingOutcomeTaskId] = useState<string | null>(null);
   const [lossDialogOpen, setLossDialogOpen] = useState(false);
   const [wonDialogOpen, setWonDialogOpen] = useState(false);
+  const [wonJobTitleDialogOpen, setWonJobTitleDialogOpen] = useState(false);
+  const [wonJobTitle, setWonJobTitle] = useState("");
+  const [wonJobTitleError, setWonJobTitleError] = useState<string | null>(null);
+  const [savingWonJobTitle, setSavingWonJobTitle] = useState(false);
+  const [wonValuesPromptOpen, setWonValuesPromptOpen] = useState(false);
+  const [savingWonValues, setSavingWonValues] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<DealTask | null>(null);
-  // Setado depois de criar/reagendar uma tarefa Reunião com data definida —
+  // Setado depois de criar/reagendar uma tarefa Videochamada com data definida —
   // abre o MeetingInviteDialog por cima (ver submitActivity/saveTask).
   const [meetingInviteTask, setMeetingInviteTask] = useState<MeetingInviteTask | null>(null);
   // Toggle "Enviar mensagem agendada para o lead" na própria aba WhatsApp
@@ -479,43 +505,111 @@ export function DealDetail({
       return;
     }
     if (status === "WON") {
+      if (needsJobTitleBeforeWinning(deal.contact.jobTitle)) {
+        setWonJobTitle(jobTitleOptions.find((option) => !needsJobTitleBeforeWinning(option.value))?.value ?? "");
+        setWonJobTitleError(null);
+        setWonJobTitleDialogOpen(true);
+        return;
+      }
+      if (deal.value == null || deal.grossValue == null) {
+        setWonValuesPromptOpen(true);
+        return;
+      }
       setWonDialogOpen(true);
       return;
     }
-    const res = await fetch(`/api/deals/${deal.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/deals/${deal.id}`, { method: "PUT", json: { status } });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function confirmWon(closedAt: string) {
     const wasWon = deal.status === "WON";
-    const res = await fetch(`/api/deals/${deal.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "WON", closedAt }),
-    });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(
+      `/api/deals/${deal.id}`,
+      { method: "PUT", json: { status: "WON", closedAt } },
+      { silent: true, errorMessage: "Não foi possível marcar o negócio como ganho" },
+    );
+    const data = res.data ?? {};
+    if (!res.ok) {
+      setMoveError(res.error);
+      return;
+    }
     setWonDialogOpen(false);
     if (!wasWon) setShowConfetti(true);
+    if (!wasWon) trackUse("negocio.ganho");
     router.refresh();
     pushUndoToast(data.undo);
   }
 
+  async function confirmWonJobTitle() {
+    if (savingWonJobTitle || !wonJobTitle || needsJobTitleBeforeWinning(wonJobTitle)) return;
+
+    setSavingWonJobTitle(true);
+    try {
+      const result = await saveContactField("jobTitle", wonJobTitle);
+      if (!result.ok) {
+        setWonJobTitleError(result.error ?? "Não foi possível salvar o cargo");
+        return;
+      }
+
+      setWonJobTitleDialogOpen(false);
+      if (deal.value == null || deal.grossValue == null) {
+        setWonValuesPromptOpen(true);
+        return;
+      }
+      setWonDialogOpen(true);
+    } catch {
+      setWonJobTitleError("Não foi possível salvar o cargo");
+    } finally {
+      setSavingWonJobTitle(false);
+    }
+  }
+
+  async function confirmWonValues(values: RequirableFieldValues) {
+    setSavingWonValues(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(values.value !== undefined ? { value: Number(values.value) } : {}),
+          ...(values.grossValue !== undefined ? { grossValue: Number(values.grossValue) } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMoveError(data.error ?? "Não foi possível salvar os valores");
+        return;
+      }
+
+      setWonValuesPromptOpen(false);
+      setWonDialogOpen(true);
+      router.refresh();
+      pushUndoToast(data.undo);
+    } catch {
+      setMoveError("Falha de conexão ao salvar os valores");
+    } finally {
+      setSavingWonValues(false);
+    }
+  }
+
   async function confirmLoss(lossReasonId: string, note: string, closedAt: string) {
-    const res = await fetch(`/api/deals/${deal.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "LOST", lossReasonId, lostReason: note || undefined, closedAt }),
-    });
-    const data = await res.json().catch(() => ({}));
+    // Falhou: o diálogo continua aberto (motivo e observação preservados) e o
+    // erro aparece — antes fechava igual e o negócio seguia aberto sem aviso.
+    const res = await requestJson(
+      `/api/deals/${deal.id}`,
+      { method: "PUT", json: { status: "LOST", lossReasonId, lostReason: note || undefined, closedAt } },
+      { silent: true, errorMessage: "Não foi possível marcar o negócio como perdido" },
+    );
+    if (!res.ok) {
+      setMoveError(res.error);
+      return;
+    }
     setLossDialogOpen(false);
+    trackUse("negocio.perdido");
     router.refresh();
-    pushUndoToast(data.undo);
+    pushUndoToast(res.data?.undo);
   }
 
   // Troca de responsável tem peso de negócio (comissão, quem fala com o
@@ -539,25 +633,15 @@ export function DealDetail({
 
   async function confirmReassignOwner(ownerId: string) {
     setPendingOwnerId(null);
-    const res = await fetch(`/api/deals/${deal.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ownerId }),
-    });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/deals/${deal.id}`, { method: "PUT", json: { ownerId } });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function updateCreditType(creditType: string) {
-    const res = await fetch(`/api/deals/${deal.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ creditType: creditType || null }),
-    });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/deals/${deal.id}`, { method: "PUT", json: { creditType: creditType || null } });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function saveDealField(
@@ -690,68 +774,68 @@ export function DealDetail({
     return { ok: true, ownerGoogleCalendarWriteConnected: data.ownerGoogleCalendarWriteConnected };
   }
 
-  async function moveToStage(stageId: string) {
+  async function moveToStage(stageId: string, values?: RequirableFieldValues) {
     if (stageId === deal.stageId) return;
     setMovingStage(stageId);
     setMoveError(null);
     const res = await fetch(`/api/deals/${deal.id}/move`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageId }),
+      body: JSON.stringify({ stageId, ...values }),
     });
     setMovingStage(null);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (Array.isArray(data.missingFields) && data.missingFields.length > 0) {
+        setRequiredFieldsPrompt({
+          stageId,
+          stageName: deal.pipeline.stages.find((stage) => stage.id === stageId)?.name ?? "esta etapa",
+          missingFields: data.missingFields,
+        });
+        return;
+      }
       setMoveError(data.error ?? "Não foi possível mover o negócio");
       return;
     }
+    setRequiredFieldsPrompt(null);
     router.refresh();
     pushUndoToast(data.undo);
   }
 
   async function toggleTask(taskId: string, completed: boolean) {
-    // Concluindo (não desmarcando) uma Reunião/Visita — precisa do
+    // Concluindo (não desmarcando) uma Videochamada/Visita — precisa do
     // resultado antes (ver MeetingOutcomeDialog); desmarcar continua
     // instantâneo, igual antes.
     if (completed) {
       const task = deal.tasks.find((t) => t.id === taskId);
-      if (task && (task.type === "MEETING" || task.type === "VISIT")) {
+      if (task && (task.type === "VIDEO_CALL" || task.type === "VISIT")) {
         setMeetingOutcomeTaskId(taskId);
         return;
       }
     }
-    const res = await fetch(`/api/tasks/${taskId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed }),
-    });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/tasks/${taskId}`, { method: "PUT", json: { completed } });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function resolveMeetingOutcome(result: MeetingOutcomeResult) {
     if (!meetingOutcomeTaskId) return;
-    const res = await fetch(`/api/tasks/${meetingOutcomeTaskId}`, {
+    const res = await requestJson(`/api/tasks/${meetingOutcomeTaskId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
+      json:
         result.outcome === "RESCHEDULED"
           ? { meetingOutcome: "RESCHEDULED", dueAt: result.dueAt }
           : { completed: true, meetingOutcome: result.outcome },
-      ),
     });
-    const data = await res.json().catch(() => ({}));
     setMeetingOutcomeTaskId(null);
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function deleteTask(taskId: string) {
-    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/tasks/${taskId}`, { method: "DELETE" });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function setLeadQualification(qualification: ContactLeadQualification | null) {
@@ -790,10 +874,9 @@ export function DealDetail({
   }
 
   async function confirmDeleteActivity(activity: Activity) {
-    const res = await fetch(`/api/activities/${activity.id}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/activities/${activity.id}`, { method: "DELETE" });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   async function saveActivityEdit(
@@ -835,57 +918,55 @@ export function DealDetail({
     if (!body.trim()) return;
     setSaving(true);
 
-    const isMeetingOrVisit = activeTab === "MEETING" || activeTab === "VISIT";
+    const isMeetingOrVisit = activeTab === "VIDEO_CALL" || activeTab === "VISIT";
     // Com Prazo, uma Task vai ser criada logo abaixo e o resultado passa a
     // ser perguntado só na conclusão dela — PENDING aqui é só o estado
     // inicial "aguardando". Sem Prazo não existe conclusão futura nenhuma
     // pra perguntar depois, então usa o que foi escolhido no seletor.
-    let activityId: string | undefined;
-    if (isMeetingOrVisit) {
-      const activityRes = await fetch(`/api/deals/${deal.id}/activities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: activeTab,
-          activityBody: body,
-          meetingOutcome: dueDate ? "PENDING" : meetingOutcome,
-        }),
-      });
-      if (activityRes.ok) activityId = (await activityRes.json()).id;
-    } else {
-      await fetch(`/api/deals/${deal.id}/activities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: activeTab, activityBody: body }),
-      });
+    // Registro da atividade falhou (sem permissão, sem internet): PARA aqui,
+    // mostra o motivo e mantém o texto digitado no campo — antes o formulário
+    // era limpo igual e a anotação sumia sem ter sido salva.
+    const activityRes = await requestJson(`/api/deals/${deal.id}/activities`, {
+      method: "POST",
+      json: isMeetingOrVisit
+        ? { type: activeTab, activityBody: body, meetingOutcome: dueDate ? "PENDING" : meetingOutcome }
+        : { type: activeTab, activityBody: body },
+    });
+    if (!activityRes.ok) {
+      setSaving(false);
+      return;
     }
+    const activityId: string | undefined = isMeetingOrVisit ? activityRes.data?.id : undefined;
 
     if (dueDate) {
-      const taskRes = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: body,
-          type: activeTab,
-          dueAt: `${dueDate}T${dueTime || "00:00"}`,
-          dealId: deal.id,
-          contactId: deal.contact.id,
-          // Sempre o RESPONSÁVEL do negócio, nunca omitido — sem isso, POST
-          // /api/tasks (ver app/api/tasks/route.ts) cai no default
-          // `ownerId ?? userId`, ou seja, dono de QUEM ESTÁ LOGADO agora, não
-          // do negócio. Pra quem já é o próprio responsável não muda nada
-          // (os dois ids são iguais), mas Dono/Gerente/Supervisor abrindo o
-          // negócio de outro consultor pra registrar uma ligação/WhatsApp
-          // criava a tarefa em NOME PRÓPRIO — ela nunca aparecia na Agenda do
-          // consultor de verdade (relatado: "não fica em tarefas, fica sem
-          // nada"), e por não ser dele, os campos de prazo (dia/hora) do
-          // card na timeline do negócio também não ficavam editáveis depois.
-          ownerId: deal.owner.id,
-          activityId,
-        }),
-      });
-      if (activeTab === "MEETING" && taskRes.ok) {
-        const created = await taskRes.json();
+      const taskRes = await requestJson(
+        "/api/tasks",
+        {
+          method: "POST",
+          json: {
+            title: body,
+            type: activeTab,
+            dueAt: `${dueDate}T${dueTime || "00:00"}`,
+            dealId: deal.id,
+            contactId: deal.contact.id,
+            // Sempre o RESPONSÁVEL do negócio, nunca omitido — sem isso, POST
+            // /api/tasks (ver app/api/tasks/route.ts) cai no default
+            // `ownerId ?? userId`, ou seja, dono de QUEM ESTÁ LOGADO agora, não
+            // do negócio. Pra quem já é o próprio responsável não muda nada
+            // (os dois ids são iguais), mas Dono/Gerente/Supervisor abrindo o
+            // negócio de outro consultor pra registrar uma ligação/WhatsApp
+            // criava a tarefa em NOME PRÓPRIO — ela nunca aparecia na Agenda do
+            // consultor de verdade (relatado: "não fica em tarefas, fica sem
+            // nada"), e por não ser dele, os campos de prazo (dia/hora) do
+            // card na timeline do negócio também não ficavam editáveis depois.
+            ownerId: deal.owner.id,
+            activityId,
+          },
+        },
+        { errorMessage: "A atividade foi registrada, mas a tarefa com prazo não foi criada." },
+      );
+      if (activeTab === "VIDEO_CALL" && taskRes.ok) {
+        const created = taskRes.data;
         setMeetingInviteTask({
           id: created.id,
           title: created.title,
@@ -900,13 +981,13 @@ export function DealDetail({
       // separado) já usava, só que decidido de uma vez com o resto do
       // registro, não numa pergunta à parte depois.
       if (activeTab === "WHATSAPP" && taskRes.ok && scheduleWhatsApp.enabled && scheduleWhatsApp.message.trim()) {
-        const created = await taskRes.json();
+        const created = taskRes.data;
         if (created.dueAt && new Date(created.dueAt) > new Date()) {
-          await fetch(`/api/tasks/${created.id}/schedule-message`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: scheduleWhatsApp.message.trim() }),
-          }).catch(() => {});
+          await requestJson(
+            `/api/tasks/${created.id}/schedule-message`,
+            { method: "POST", json: { message: scheduleWhatsApp.message.trim() } },
+            { errorMessage: "A tarefa foi criada, mas a mensagem de WhatsApp não foi agendada." },
+          );
         }
       }
     }
@@ -921,7 +1002,7 @@ export function DealDetail({
   }
 
   return (
-    <div className="flex items-start gap-4">
+    <div className="deal-detail flex items-start gap-4">
       {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
       <div className="min-w-0 flex-1 space-y-6">
       <div className="flex items-center justify-between gap-2">
@@ -1066,16 +1147,16 @@ export function DealDetail({
       </div>
 
       {/* Desktop Header */}
-      <div className="hidden card p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5 min-w-0">
-          <Avatar name={deal.contact.name} size="lg" className="ring-2 ring-brand/40 shadow-sm shrink-0" />
-          <div className="space-y-1.5 min-w-0">
+      <div className="hidden card p-4 lg:flex items-center justify-between gap-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar name={deal.contact.name} size="lg" className="shrink-0 ring-1 ring-brand/35" />
+          <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 lg:text-2xl truncate">
+              <h1 className="truncate text-xl font-semibold text-neutral-900 dark:text-neutral-100">
                 {deal.name}
               </h1>
               {deal.value != null && (
-                <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                <span className="inline-flex shrink-0 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-400">
                   {formatCurrency(deal.value)}
                 </span>
               )}
@@ -1083,25 +1164,26 @@ export function DealDetail({
             <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <Link
                 href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
-                className="group inline-flex items-center gap-1.5 font-semibold text-neutral-800 dark:text-neutral-200 hover:text-brand dark:hover:text-brand-light transition-all bg-neutral-100/90 dark:bg-neutral-800/80 hover:bg-neutral-200/80 dark:hover:bg-neutral-800 px-2.5 py-1 rounded-md border border-neutral-200/90 dark:border-neutral-700/80 shadow-2xs"
+                className="group inline-flex items-center gap-1.5 font-medium text-neutral-800 transition-colors hover:text-brand dark:text-neutral-200 dark:hover:text-brand-light"
                 title="Ver ficha do cliente"
               >
                 <User className="h-3.5 w-3.5 shrink-0 text-brand" strokeWidth={2} />
                 <span>{deal.contact.name}</span>
-                <ExternalLink className="h-3 w-3 text-neutral-400 group-hover:text-brand transition-colors ml-0.5" strokeWidth={2} />
+                <ExternalLink className="ml-0.5 h-3 w-3 text-neutral-400 transition-colors group-hover:text-brand" strokeWidth={2} />
               </Link>
-              <span className="text-neutral-400 dark:text-neutral-600">·</span>
-              <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-400">
-                <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="2xs" />
-                <span>Resp: <strong className="font-semibold text-neutral-800 dark:text-neutral-200">{deal.owner.name}</strong></span>
+              <span className="border-l border-neutral-200 pl-2 text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
+                <span className="inline-flex items-center gap-1.5">
+                  <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="2xs" />
+                  <span>Resp. <strong className="font-semibold text-neutral-800 dark:text-neutral-200">{deal.owner.name}</strong></span>
+                </span>
               </span>
 
               {/* Botões de Ação Rápida do Contato */}
-              <div className="flex items-center gap-1 ml-1 border-l border-neutral-200 dark:border-neutral-700/80 pl-2.5">
+              <div className="ml-1 flex items-center gap-1 border-l border-neutral-200 pl-2.5 dark:border-neutral-700">
                 {(deal.contact.phone || deal.contact.whatsapp) && (
                   <a
                     href={`tel:+${toDialNumber(normalizePhoneNumber(deal.contact.phone || deal.contact.whatsapp || "")) ?? ""}`}
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
                     title="Ligar para contato"
                   >
                     <Phone className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1113,7 +1195,7 @@ export function DealDetail({
                     href={`https://wa.me/${toDialNumber(normalizePhoneNumber(deal.contact.whatsapp || deal.contact.phone || "")) ?? ""}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
                     title="Abrir WhatsApp"
                   >
                     <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1123,7 +1205,7 @@ export function DealDetail({
                 {deal.contact.email && (
                   <a
                     href={`mailto:${deal.contact.email}`}
-                    className="inline-flex items-center gap-1 rounded-md bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 hover:bg-sky-500/20 dark:text-sky-400 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-500/10"
                     title="Enviar e-mail"
                   >
                     <Mail className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1135,13 +1217,13 @@ export function DealDetail({
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2.5 shrink-0">
-          <div className="flex items-center gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-950/80 p-1 border border-neutral-200 dark:border-neutral-800/80">
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-1 rounded-md border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-800 dark:bg-neutral-950/80">
             {(
               [
-                { s: "LOST" as const, label: "Perdido", icon: XCircle, activeClass: "bg-red-600 text-white shadow-sm shadow-red-900/50" },
-                { s: "OPEN" as const, label: "Em andamento", icon: CircleDot, activeClass: "bg-brand text-white shadow-sm shadow-brand/40" },
-                { s: "WON" as const, label: "Ganho", icon: CheckCircle2, activeClass: "bg-emerald-600 text-white shadow-sm shadow-emerald-900/50" },
+                { s: "LOST" as const, label: "Perdido", icon: XCircle, activeClass: "bg-red-600 text-white" },
+                { s: "OPEN" as const, label: "Em andamento", icon: CircleDot, activeClass: "bg-brand text-white" },
+                { s: "WON" as const, label: "Ganho", icon: CheckCircle2, activeClass: "bg-emerald-600 text-white" },
               ]
             ).map(({ s, label, icon: Icon, activeClass }) => {
               const isActive = deal.status === s;
@@ -1149,7 +1231,7 @@ export function DealDetail({
                 <button
                   key={s}
                   onClick={() => updateStatus(s)}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                  className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
                     isActive
                       ? activeClass
                       : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-200"
@@ -1163,7 +1245,7 @@ export function DealDetail({
           </div>
 
           {/* Qualificação de Lead no Cabeçalho */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {(() => {
               const qual = localQualification ?? deal.contact.leadQualification;
               return (
@@ -1182,7 +1264,7 @@ export function DealDetail({
                     <span className="text-[11px] italic text-neutral-400">Pendente</span>
                   )}
                   {canEditDetails && (
-                    <div className="flex items-center gap-1 ml-1">
+                    <div className="ml-1 flex items-center gap-1">
                       <button
                         type="button"
                         disabled={leadQualStatus.saving}
@@ -1222,7 +1304,7 @@ export function DealDetail({
       </div>
 
       {/* Stepper Visual de Etapas (Apenas Desktop — no mobile usava seletor embutido) */}
-      <div className="hidden lg:flex card scrollbar-thin items-center gap-1.5 overflow-x-auto p-2 bg-white dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-800 shadow-sm">
+      <div className="hidden lg:flex card scrollbar-thin items-center gap-1.5 overflow-x-auto p-2">
         {deal.pipeline.stages.map((stage, idx) => {
           const isCurrent = stage.id === deal.stageId;
           const stageIndex = deal.pipeline.stages.findIndex((s) => s.id === deal.stageId);
@@ -1233,17 +1315,17 @@ export function DealDetail({
               <button
                 disabled={movingStage !== null}
                 onClick={() => moveToStage(stage.id)}
-                className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap transition-all duration-200 ${
+                className={`group flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
                   isCurrent
-                    ? "bg-gradient-to-r from-brand to-brand-dark text-white shadow-md shadow-brand/25 ring-1 ring-brand/50 font-semibold"
+                    ? "bg-brand text-white font-semibold"
                     : isPast
-                    ? "bg-neutral-100 text-neutral-800 font-semibold hover:bg-neutral-200 hover:text-neutral-950 dark:bg-neutral-800/80 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-white"
-                    : "bg-neutral-100/70 text-neutral-700 font-medium hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-900/60 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    ? "bg-neutral-100 text-neutral-800 font-semibold hover:bg-neutral-200 hover:text-neutral-950 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-white"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
                 }`}
               >
                 <span
-                  className={`h-2.5 w-2.5 rounded-full transition-transform group-hover:scale-125 ${
-                    isCurrent ? "ring-2 ring-white/50 animate-pulse" : ""
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    isCurrent ? "ring-2 ring-white/50" : ""
                   }`}
                   style={{ backgroundColor: stage.color ?? "#999" }}
                 />
@@ -1320,7 +1402,7 @@ export function DealDetail({
                   className="field-input"
                 />
               </div>
-              {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (
+              {(activeTab === "VIDEO_CALL" || activeTab === "VISIT") && !dueDate && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
                   {MEETING_OUTCOME_OPTIONS.map((opt) => (
@@ -1350,7 +1432,7 @@ export function DealDetail({
                 </div>
                 <button
                   type="submit"
-                  disabled={saving || !body.trim() || ((activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
+                  disabled={saving || !body.trim() || ((activeTab === "VIDEO_CALL" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
                   className="btn-primary btn-sm shrink-0"
                 >
                   {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />}
@@ -1390,14 +1472,14 @@ export function DealDetail({
 
         <div className="space-y-4">
           {/* Seletor de Abas da Coluna Lateral */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 bg-neutral-100 dark:bg-neutral-950/80 rounded-xl border border-neutral-200 dark:border-neutral-800/90 shadow-2xs">
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
             <button
               type="button"
               onClick={() => setSidebarTab("general")}
-              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all duration-150 ${
+              className={`flex items-center justify-center gap-2 border-r border-neutral-200 px-3 py-2.5 text-xs font-semibold transition-colors dark:border-neutral-800 ${
                 sidebarTab === "general"
-                  ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs ring-1 ring-neutral-200 dark:ring-neutral-700/60"
-                  : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                  ? "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white"
+                  : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-200"
               }`}
             >
               <Briefcase className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
@@ -1406,10 +1488,10 @@ export function DealDetail({
             <button
               type="button"
               onClick={() => setSidebarTab("contact")}
-              className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all duration-150 ${
+              className={`flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold transition-colors ${
                 sidebarTab === "contact"
-                  ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-xs ring-1 ring-neutral-200 dark:ring-neutral-700/60"
-                  : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                  ? "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white"
+                  : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-200"
               }`}
             >
               <UserCheck className="h-3.5 w-3.5 text-brand" strokeWidth={2} />
@@ -1732,7 +1814,7 @@ export function DealDetail({
                     className="field-input text-sm"
                   />
                 </div>
-                {(activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && (
+                {(activeTab === "VIDEO_CALL" || activeTab === "VISIT") && !dueDate && (
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Resultado:</span>
                     {MEETING_OUTCOME_OPTIONS.map((opt) => (
@@ -1762,7 +1844,7 @@ export function DealDetail({
                   </div>
                   <button
                     type="submit"
-                    disabled={saving || !body.trim() || ((activeTab === "MEETING" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
+                    disabled={saving || !body.trim() || ((activeTab === "VIDEO_CALL" || activeTab === "VISIT") && !dueDate && !meetingOutcome)}
                     className="btn-primary w-full py-2.5 text-sm font-semibold sm:w-auto sm:py-1.5"
                   >
                     {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
@@ -2080,6 +2162,53 @@ export function DealDetail({
         )}
       </div>
 
+      {requiredFieldsPrompt && (
+        <CompleteRequiredFieldsDialog
+          isOpen={true}
+          onClose={() => setRequiredFieldsPrompt(null)}
+          missingFields={requiredFieldsPrompt.missingFields}
+          stageName={requiredFieldsPrompt.stageName}
+          leadSources={sources}
+          jobTitles={jobTitles}
+          creditTypes={creditTypes}
+          deals={[
+            {
+              id: deal.id,
+              name: deal.name,
+              contactName: deal.contact.name,
+              contactInitials: deal.contact.name.charAt(0),
+            },
+          ]}
+          onSubmit={(values) => moveToStage(requiredFieldsPrompt.stageId, values)}
+          submitting={movingStage === requiredFieldsPrompt.stageId}
+        />
+      )}
+
+      {wonValuesPromptOpen && (
+        <CompleteRequiredFieldsDialog
+          isOpen={true}
+          onClose={() => {
+            if (!savingWonValues) setWonValuesPromptOpen(false);
+          }}
+          missingFields={missingFinancialValues(deal.value, deal.grossValue)}
+          stageName="Ganho"
+          leadSources={sources}
+          jobTitles={jobTitles}
+          creditTypes={creditTypes}
+          deals={[
+            {
+              id: deal.id,
+              name: deal.name,
+              contactName: deal.contact.name,
+              contactInitials: deal.contact.name.charAt(0),
+            },
+          ]}
+          onSubmit={confirmWonValues}
+          submitting={savingWonValues}
+          submitLabel="Salvar e continuar"
+        />
+      )}
+
       {wonDialogOpen && (
         <ClosedAtDialog
           title="Quando foi ganho?"
@@ -2088,6 +2217,50 @@ export function DealDetail({
           onClose={() => setWonDialogOpen(false)}
           onConfirm={confirmWon}
         />
+      )}
+
+      {wonJobTitleDialogOpen && (
+        <Modal
+          onClose={() => {
+            if (savingWonJobTitle) return;
+            setWonJobTitleDialogOpen(false);
+            setWonJobTitleError(null);
+          }}
+        >
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Qual é o cargo de {deal.contact.name}?</h2>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Informe antes de marcar este negócio como ganho.</p>
+          <form
+            className="mt-5 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmWonJobTitle();
+            }}
+          >
+            <div className="space-y-1.5">
+              <label className="field-label">Cargo</label>
+              <Select
+                value={wonJobTitle}
+                onChange={(value) => {
+                  setWonJobTitle(value);
+                  setWonJobTitleError(null);
+                }}
+                options={jobTitleOptions.filter((option) => !needsJobTitleBeforeWinning(option.value))}
+                placeholder="Selecione o cargo"
+                autoFocus
+                invalid={!!wonJobTitleError}
+              />
+              {wonJobTitleError && <p className="field-error">{wonJobTitleError}</p>}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={savingWonJobTitle} onClick={() => setWonJobTitleDialogOpen(false)} className="btn-ghost">
+                Cancelar
+              </button>
+              <button type="submit" disabled={savingWonJobTitle || !wonJobTitle || needsJobTitleBeforeWinning(wonJobTitle)} className="btn-primary">
+                {savingWonJobTitle ? "Salvando..." : "Continuar"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {lossDialogOpen && (
@@ -2111,9 +2284,9 @@ export function DealDetail({
           }}
           onSave={async (fields) => {
             const result = await saveTask(editingTask.id, fields);
-            // Reagendou uma Reunião com data definida — mesmo convite
+            // Reagendou uma Videochamada com data definida — mesmo convite
             // oferecido na criação, agora pro novo horário.
-            if (result.ok && editingTask.type === "MEETING" && fields.dueAt) {
+            if (result.ok && editingTask.type === "VIDEO_CALL" && fields.dueAt) {
               setMeetingInviteTask({
                 id: editingTask.id,
                 title: fields.title,
@@ -2138,7 +2311,7 @@ export function DealDetail({
 
       {meetingOutcomeTaskId && (
         <MeetingOutcomeDialog
-          taskType={deal.tasks.find((t) => t.id === meetingOutcomeTaskId)?.type === "VISIT" ? "VISIT" : "MEETING"}
+          taskType={deal.tasks.find((t) => t.id === meetingOutcomeTaskId)?.type === "VISIT" ? "VISIT" : "VIDEO_CALL"}
           onResolve={resolveMeetingOutcome}
           onClose={() => setMeetingOutcomeTaskId(null)}
         />
@@ -2285,8 +2458,8 @@ function EditTaskModal({
         <ConfirmDialog
           title={`Excluir "${task.title}"?`}
           description={
-            task.type === "MEETING"
-              ? "Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
+            task.type === "VIDEO_CALL"
+              ? "Se esta videochamada veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
               : "Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           }
           confirmLabel="Excluir"
@@ -2349,6 +2522,15 @@ function ValueItem({
   }, [value, editing]);
 
   async function handleSave() {
+    if (saving) return;
+
+    const nextValue = draft.trim() ? Number(draft) : null;
+    if (nextValue === value) {
+      setError(null);
+      setEditing(false);
+      return;
+    }
+
     setSaving(true);
     setError(null);
     const result = await onSave(draft);

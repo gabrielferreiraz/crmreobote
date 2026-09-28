@@ -92,7 +92,7 @@ export default async function AgendaPage({
       // esperando/mostra que não conectou, nunca bloqueia tarefa nenhuma do CRM.
       resolveConnectedInstance(organizationId, userId),
     ]);
-    // Se meu WhatsApp não está conectado, o convite de reunião (ver
+    // Se meu WhatsApp não está conectado, o convite de videochamada (ver
     // MeetingInviteDialog) nem oferece a opção de enviar — só o botão de
     // agenda Google continua disponível.
     const isWhatsAppConnected = !!whatsappInstance;
@@ -140,7 +140,7 @@ export default async function AgendaPage({
       <div className="space-y-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Agenda</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Reuniões, ligações e follow-ups do time</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Videochamadas, ligações e follow-ups do time</p>
         </div>
         <AgendaClient
           initialTasks={tasks}

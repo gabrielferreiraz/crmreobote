@@ -34,6 +34,7 @@ export type ProposalDTO = {
   credit: number;
   termMonths: number;
   installment: number;
+  feePercent: number;
   quotaCount: number;
   description: string;
   createdById: string;
@@ -56,8 +57,6 @@ export type ProposalPrintData = {
   proposal: ProposalDTO;
   dealName: string;
   clientName: string;
-  clientEmail: string | null;
-  clientPhone: string | null;
   /** Tipo de crédito do NEGÓCIO (Imóvel/Automóvel/...) — informação extra no documento quando preenchida. */
   creditType: string | null;
   /** Quem enviou (se já enviada) ou, antes disso, quem criou — nome que aparece no documento e não muda depois de SENT. */
@@ -75,6 +74,11 @@ export function formatProposalNumber(n: number): string {
 export function creditPerQuota(credit: number, quotaCount: number): number {
   if (!quotaCount || quotaCount <= 0) return 0;
   return credit / quotaCount;
+}
+
+export function formatPercent(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return "0%";
+  return `${n.toLocaleString("pt-BR", { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}%`;
 }
 
 /**

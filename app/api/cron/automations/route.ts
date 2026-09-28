@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 const CRON_NAME = "automations";
 
 // Mensagens de WhatsApp programadas em tarefa (ver lib/tasks/scheduled-whatsapp.ts)
-// e avisos automáticos antes de Reunião — pro cliente via WhatsApp e pro
+// e avisos automáticos antes de Videochamada — pro cliente via WhatsApp e pro
 // próprio consultor via push (ver lib/tasks/meeting-reminder.ts, os dois
 // caminhos moram no mesmo arquivo) — pegam carona neste mesmo tick — já
 // roda a cada 1-2min via cron-job.org em produção, então não precisa de uma

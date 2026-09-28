@@ -1,42 +1,42 @@
-# CRM — Briefing Completo para Implementação
+﻿# CRM â€” Briefing Completo para ImplementaÃ§Ã£o
 
 ## Contexto e Objetivo
 
-Construir um CRM SaaS profissional, separado do SenderWhats, com foco inicial em equipes de vendas de consórcio. O produto deve ser escalável o suficiente para ser vendido para outras empresas no futuro.
+Construir um CRM SaaS profissional, separado do SenderWhats, com foco inicial em equipes de vendas de consÃ³rcio. O produto deve ser escalÃ¡vel o suficiente para ser vendido para outras empresas no futuro.
 
-Referência visual: Agendor CRM / Datacrazy.
+ReferÃªncia visual: Agendor CRM / Datacrazy.
 
 ---
 
-## Decisões Arquiteturais (já definidas — não questionar)
+## DecisÃµes Arquiteturais (jÃ¡ definidas â€” nÃ£o questionar)
 
 ### Multi-tenancy
 - **`organizationId` em todas as tabelas** + Row Level Security no PostgreSQL
-- Cada empresa (organização) vê apenas seus próprios dados
-- É o modelo usado por Pipedrive, HubSpot, Salesforce
+- Cada empresa (organizaÃ§Ã£o) vÃª apenas seus prÃ³prios dados
+- Ã‰ o modelo usado por Pipedrive, HubSpot, Salesforce
 
-### Autenticação
-- **Auth.js v5 (NextAuth)** — gratuito, open source, sem limite de usuários
+### AutenticaÃ§Ã£o
+- **Auth.js v5 (NextAuth)** â€” gratuito, open source, sem limite de usuÃ¡rios
 - Suporte a email/senha e OAuth (Google)
-- Sessão baseada em JWT
+- SessÃ£o baseada em JWT
 
 ### Stack
 - **Next.js 15+ App Router** (force-dynamic nas rotas de API)
-- **TypeScript** — strict mode
+- **TypeScript** â€” strict mode
 - **Prisma 7 + PostgreSQL**
-- **Tailwind CSS v4** — dark mode por padrão
-- **Projeto separado** — diretório próprio, não dentro do SenderWhats
+- **Tailwind CSS v4** â€” dark mode por padrÃ£o
+- **Projeto separado** â€” diretÃ³rio prÃ³prio, nÃ£o dentro do SenderWhats
 
-### Regras de migração
+### Regras de migraÃ§Ã£o
 - NUNCA usar `prisma migrate dev` contra banco remoto
-- Sempre usar `prisma migrate deploy` para aplicar no banco de produção
+- Sempre usar `prisma migrate deploy` para aplicar no banco de produÃ§Ã£o
 
 ---
 
 ## Entidades e Schema Prisma
 
 ```prisma
-// ─── Multi-tenancy root ───────────────────────────────────────────────────────
+// â”€â”€â”€ Multi-tenancy root â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Organization {
   id        String   @id @default(cuid())
@@ -53,7 +53,7 @@ model Organization {
   activities Activity[]
 }
 
-// ─── Usuários ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ UsuÃ¡rios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model User {
   id        String   @id @default(cuid())
@@ -83,7 +83,7 @@ model OrganizationUser {
 
 enum OrgRole { OWNER ADMIN MEMBER }
 
-// ─── Pipeline (Funil) ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Pipeline (Funil) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Pipeline {
   id             String   @id @default(cuid())
@@ -103,7 +103,7 @@ model Pipeline {
 model PipelineStage {
   id         String   @id @default(cuid())
   pipelineId String
-  name       String   // "Prospecção", "Mensagem/Ligação", "No-show", etc.
+  name       String   // "ProspecÃ§Ã£o", "Mensagem/LigaÃ§Ã£o", "No-show", etc.
   order      Int
   color      String?  // hex color para UI
   createdAt  DateTime @default(now())
@@ -114,7 +114,7 @@ model PipelineStage {
   @@index([pipelineId, order])
 }
 
-// ─── Contatos e Empresas ──────────────────────────────────────────────────────
+// â”€â”€â”€ Contatos e Empresas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Company {
   id             String   @id @default(cuid())
@@ -139,7 +139,7 @@ model Contact {
   email          String?
   phone          String?   // celular principal
   whatsapp       String?   // pode ser diferente do celular
-  source         String?   // "FACEBOOK", "INSTAGRAM", "INDICAÇÃO", etc.
+  source         String?   // "FACEBOOK", "INSTAGRAM", "INDICAÃ‡ÃƒO", etc.
   createdAt      DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -150,7 +150,7 @@ model Contact {
   @@index([organizationId, phone])
 }
 
-// ─── Negócio (Deal) ───────────────────────────────────────────────────────────
+// â”€â”€â”€ NegÃ³cio (Deal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Deal {
   id             String     @id @default(cuid())
@@ -158,17 +158,17 @@ model Deal {
   pipelineId     String
   stageId        String
   contactId      String
-  ownerId        String     // User responsável
+  ownerId        String     // User responsÃ¡vel
 
-  // Identificação
+  // IdentificaÃ§Ã£o
   name           String     // auto: "06/26 - Lucia Moura FACEBOOK"
   status         DealStatus @default(OPEN)  // OPEN | WON | LOST
 
   // Financeiro
-  value          Decimal?   @db.Decimal(12, 2)  // Valor da carta de crédito
+  value          Decimal?   @db.Decimal(12, 2)  // Valor da carta de crÃ©dito
 
-  // Campos específicos de consórcio
-  creditType     String?    // "IMÓVEL" | "VEÍCULO" | "OUTROS"
+  // Campos especÃ­ficos de consÃ³rcio
+  creditType     String?    // "IMÃ“VEL" | "VEÃCULO" | "OUTROS"
 
   // Datas
   startedAt      DateTime   @default(now())
@@ -197,7 +197,7 @@ model Deal {
 
 enum DealStatus { OPEN WON LOST }
 
-// ─── Tarefas ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Tarefas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Task {
   id             String     @id @default(cuid())
@@ -205,7 +205,7 @@ model Task {
   dealId         String?
   contactId      String?
   ownerId        String
-  type           TaskType   // CALL | WHATSAPP | EMAIL | MEETING | VISIT | OTHER
+  type           TaskType   // CALL | WHATSAPP | EMAIL | VIDEO_CALL | VISIT | OTHER
   title          String
   description    String?
   dueAt          DateTime?
@@ -221,9 +221,9 @@ model Task {
   @@index([organizationId, dealId])
 }
 
-enum TaskType { CALL WHATSAPP EMAIL MEETING VISIT PROPOSAL NOTE OTHER }
+enum TaskType { CALL WHATSAPP EMAIL VIDEO_CALL VISIT PROPOSAL NOTE OTHER }
 
-// ─── Histórico de Atividades ──────────────────────────────────────────────────
+// â”€â”€â”€ HistÃ³rico de Atividades â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model Activity {
   id             String       @id @default(cuid())
@@ -243,138 +243,138 @@ model Activity {
   @@index([organizationId, dealId, createdAt])
 }
 
-enum ActivityType { NOTE EMAIL CALL WHATSAPP PROPOSAL MEETING VISIT }
+enum ActivityType { NOTE EMAIL CALL WHATSAPP PROPOSAL VIDEO_CALL VISIT }
 ```
 
 ---
 
-## Etapas Padrão do Funil de Vendas
+## Etapas PadrÃ£o do Funil de Vendas
 
-Ao criar uma nova organização, seed automático com essas etapas no pipeline "Funil de Vendas":
+Ao criar uma nova organizaÃ§Ã£o, seed automÃ¡tico com essas etapas no pipeline "Funil de Vendas":
 
 | Ordem | Nome | Cor |
 |-------|------|-----|
-| 1 | Prospecção | #6366f1 |
-| 2 | Mensagem/Ligação | #8b5cf6 |
+| 1 | ProspecÃ§Ã£o | #6366f1 |
+| 2 | Mensagem/LigaÃ§Ã£o | #8b5cf6 |
 | 3 | No-show | #f59e0b |
 | 4 | Remarketing | #f97316 |
 | 5 | Visita Marcada | #06b6d4 |
-| 6 | Em Análise | #3b82f6 |
+| 6 | Em AnÃ¡lise | #3b82f6 |
 | 7 | Quente | #10b981 |
 | 8 | Extras | #64748b |
 
 ---
 
-## Estrutura de Páginas e Rotas
+## Estrutura de PÃ¡ginas e Rotas
 
 ```
 app/
-├── (auth)/
-│   ├── login/page.tsx
-│   └── register/page.tsx
-│
-├── (dashboard)/
-│   ├── layout.tsx              ← sidebar + topbar
-│   ├── page.tsx                ← Início: KPIs + atividades recentes
-│   ├── tarefas/page.tsx        ← lista de tarefas do usuário
-│   ├── pessoas/
-│   │   ├── page.tsx            ← tabela de contatos com filtros
-│   │   └── [id]/page.tsx       ← perfil do contato + deals vinculados
-│   ├── empresas/
-│   │   ├── page.tsx
-│   │   └── [id]/page.tsx
-│   ├── negocios/
-│   │   ├── page.tsx            ← Kanban principal (pipeline view)
-│   │   └── [id]/page.tsx       ← detalhe do negócio (screenshot referência)
-│   ├── relatorios/page.tsx     ← funil de conversão, ranking de consultores
-│   └── configuracoes/
-│       ├── page.tsx            ← org settings
-│       ├── pipeline/page.tsx   ← customizar etapas (drag-and-drop)
-│       └── usuarios/page.tsx   ← gerenciar time
-│
-└── api/
-    ├── auth/[...nextauth]/route.ts
-    ├── deals/
-    │   ├── route.ts            ← GET list, POST create
-    │   └── [id]/
-    │       ├── route.ts        ← GET, PUT, DELETE
-    │       ├── move/route.ts   ← PATCH mover de etapa (atualiza stageId + stageEnteredAt)
-    │       └── activities/route.ts
-    ├── contacts/route.ts
-    ├── companies/route.ts
-    ├── tasks/route.ts
-    ├── pipelines/
-    │   └── [id]/stages/route.ts
-    └── org/route.ts
+â”œâ”€â”€ (auth)/
+â”‚   â”œâ”€â”€ login/page.tsx
+â”‚   â””â”€â”€ register/page.tsx
+â”‚
+â”œâ”€â”€ (dashboard)/
+â”‚   â”œâ”€â”€ layout.tsx              â† sidebar + topbar
+â”‚   â”œâ”€â”€ page.tsx                â† InÃ­cio: KPIs + atividades recentes
+â”‚   â”œâ”€â”€ tarefas/page.tsx        â† lista de tarefas do usuÃ¡rio
+â”‚   â”œâ”€â”€ pessoas/
+â”‚   â”‚   â”œâ”€â”€ page.tsx            â† tabela de contatos com filtros
+â”‚   â”‚   â””â”€â”€ [id]/page.tsx       â† perfil do contato + deals vinculados
+â”‚   â”œâ”€â”€ empresas/
+â”‚   â”‚   â”œâ”€â”€ page.tsx
+â”‚   â”‚   â””â”€â”€ [id]/page.tsx
+â”‚   â”œâ”€â”€ negocios/
+â”‚   â”‚   â”œâ”€â”€ page.tsx            â† Kanban principal (pipeline view)
+â”‚   â”‚   â””â”€â”€ [id]/page.tsx       â† detalhe do negÃ³cio (screenshot referÃªncia)
+â”‚   â”œâ”€â”€ relatorios/page.tsx     â† funil de conversÃ£o, ranking de consultores
+â”‚   â””â”€â”€ configuracoes/
+â”‚       â”œâ”€â”€ page.tsx            â† org settings
+â”‚       â”œâ”€â”€ pipeline/page.tsx   â† customizar etapas (drag-and-drop)
+â”‚       â””â”€â”€ usuarios/page.tsx   â† gerenciar time
+â”‚
+â””â”€â”€ api/
+    â”œâ”€â”€ auth/[...nextauth]/route.ts
+    â”œâ”€â”€ deals/
+    â”‚   â”œâ”€â”€ route.ts            â† GET list, POST create
+    â”‚   â””â”€â”€ [id]/
+    â”‚       â”œâ”€â”€ route.ts        â† GET, PUT, DELETE
+    â”‚       â”œâ”€â”€ move/route.ts   â† PATCH mover de etapa (atualiza stageId + stageEnteredAt)
+    â”‚       â””â”€â”€ activities/route.ts
+    â”œâ”€â”€ contacts/route.ts
+    â”œâ”€â”€ companies/route.ts
+    â”œâ”€â”€ tasks/route.ts
+    â”œâ”€â”€ pipelines/
+    â”‚   â””â”€â”€ [id]/stages/route.ts
+    â””â”€â”€ org/route.ts
 ```
 
 ---
 
-## Página de Detalhe do Negócio (prioridade máxima de UI)
+## PÃ¡gina de Detalhe do NegÃ³cio (prioridade mÃ¡xima de UI)
 
 Baseado no screenshot do Agendor, deve ter:
 
 **Topo:**
-- Nome do negócio editável inline
-- Status: `Perdido` | `Em andamento` | `Ganho` (botões)
+- Nome do negÃ³cio editÃ¡vel inline
+- Status: `Perdido` | `Em andamento` | `Ganho` (botÃµes)
 - Contato vinculado (com link)
 - Rating estrelas (1-5)
-- Responsável
+- ResponsÃ¡vel
 
 **Barra de progresso do pipeline:**
-- Etapas clicáveis em sequência
+- Etapas clicÃ¡veis em sequÃªncia
 - Etapa atual destacada + tempo nela (ex: "3d")
 
-**Área principal (esquerda):**
-- Tabs para registrar atividade: Nota | E-mail | Ligação | WhatsApp | Proposta | Reunião | Visita
-- Textarea: "O que foi feito e qual o próximo passo?"
+**Ãrea principal (esquerda):**
+- Tabs para registrar atividade: Nota | E-mail | LigaÃ§Ã£o | WhatsApp | Proposta | ReuniÃ£o | Visita
+- Textarea: "O que foi feito e qual o prÃ³ximo passo?"
 - Timeline de atividades (mais recente no topo)
-- Cada item: ícone do tipo, texto, data, autor, checkbox "Finalizar" para tarefas
+- Cada item: Ã­cone do tipo, texto, data, autor, checkbox "Finalizar" para tarefas
 
 **Sidebar direita:**
-- Ações rápidas: Enviar e-mail, Fazer ligação, Gerar proposta, Enviar WhatsApp
-- Valor do negócio (R$)
-- Dados do negócio: responsável, data início, data conclusão, descrição, WhatsApp
+- AÃ§Ãµes rÃ¡pidas: Enviar e-mail, Fazer ligaÃ§Ã£o, Gerar proposta, Enviar WhatsApp
+- Valor do negÃ³cio (R$)
+- Dados do negÃ³cio: responsÃ¡vel, data inÃ­cio, data conclusÃ£o, descriÃ§Ã£o, WhatsApp
 - Dados do contato: nome, email, celular
 
 ---
 
-## Prioridade de Implementação
+## Prioridade de ImplementaÃ§Ã£o
 
-### Fase 1 — MVP (construir nessa ordem)
+### Fase 1 â€” MVP (construir nessa ordem)
 1. Setup do projeto (Next.js, Auth.js, Prisma, multi-tenant)
-2. Auth: login/register + criação de organização
+2. Auth: login/register + criaÃ§Ã£o de organizaÃ§Ã£o
 3. Schema completo + primeira migration
-4. Pipeline/Kanban — listagem e drag-and-drop entre etapas
-5. Criar/editar negócio
-6. Detalhe do negócio com histórico de atividades
+4. Pipeline/Kanban â€” listagem e drag-and-drop entre etapas
+5. Criar/editar negÃ³cio
+6. Detalhe do negÃ³cio com histÃ³rico de atividades
 7. Cadastro de contatos (Pessoas)
 
 ### Fase 2
-8. Tarefas com prazo e notificação
+8. Tarefas com prazo e notificaÃ§Ã£o
 9. Empresas
-10. Relatórios (funil de conversão, ranking)
+10. RelatÃ³rios (funil de conversÃ£o, ranking)
 
 ### Fase 3
-11. Customização de pipeline pelo admin
-12. Gerenciamento de usuários/permissões
-13. Automações
+11. CustomizaÃ§Ã£o de pipeline pelo admin
+12. Gerenciamento de usuÃ¡rios/permissÃµes
+13. AutomaÃ§Ãµes
 
 ---
 
-## Convenções de Código
+## ConvenÃ§Ãµes de CÃ³digo
 
 - `export const dynamic = "force-dynamic"` em todas as route handlers
-- Sem comentários óbvios — só quando o WHY não é evidente
-- Sem `prisma migrate dev` — sempre `prisma migrate deploy`
-- Tailwind v4 — dark mode por padrão
+- Sem comentÃ¡rios Ã³bvios â€” sÃ³ quando o WHY nÃ£o Ã© evidente
+- Sem `prisma migrate dev` â€” sempre `prisma migrate deploy`
+- Tailwind v4 â€” dark mode por padrÃ£o
 - TypeScript strict
-- Sem otimismo no frontend a menos que a UX exija — preferir refetch real após mutação
-- Rotas de API sempre validam `organizationId` da sessão antes de qualquer query
+- Sem otimismo no frontend a menos que a UX exija â€” preferir refetch real apÃ³s mutaÃ§Ã£o
+- Rotas de API sempre validam `organizationId` da sessÃ£o antes de qualquer query
 
 ---
 
-## Variáveis de Ambiente necessárias
+## VariÃ¡veis de Ambiente necessÃ¡rias
 
 ```env
 DATABASE_URL="postgresql://..."
@@ -388,4 +388,4 @@ GOOGLE_CLIENT_SECRET="..."   # opcional
 
 ## Nome do Produto
 
-**CRM** — nome definitivo a definir pelo usuário. Por enquanto usar "CRM" como placeholder nos textos da UI.
+**CRM** â€” nome definitivo a definir pelo usuÃ¡rio. Por enquanto usar "CRM" como placeholder nos textos da UI.

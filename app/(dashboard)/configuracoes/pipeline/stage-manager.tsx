@@ -18,7 +18,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2, Loader2, Settings2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { REQUIRABLE_DEAL_FIELDS, type RequirableDealField } from "@/lib/deal-required-fields";
+import { getEffectiveRequiredFields, REQUIRABLE_DEAL_FIELDS, type RequirableDealField } from "@/lib/deal-required-fields";
+import { requestJson } from "@/lib/client-request";
 
 type Stage = {
   id: string;
@@ -63,50 +64,59 @@ export function StageManager({
     const oldIndex = stages.findIndex((s) => s.id === active.id);
     const newIndex = stages.findIndex((s) => s.id === over.id);
     const reordered = arrayMove(stages, oldIndex, newIndex);
+    const prev = stages;
     setStages(reordered);
 
-    await fetch(`/api/pipelines/${pipelineId}/stages/reorder`, {
+    const res = await requestJson(`/api/pipelines/${pipelineId}/stages/reorder`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageIds: reordered.map((s) => s.id) }),
+      json: { stageIds: reordered.map((s) => s.id) },
     });
-    router.refresh();
+    if (!res.ok) setStages(prev);
+    else router.refresh();
   }
 
   async function renameStage(stageId: string, name: string) {
-    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, name } : s)));
-    await fetch(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
+    const prev = stages.find((s) => s.id === stageId);
+    setStages((s) => s.map((st) => (st.id === stageId ? { ...st, name } : st)));
+    const res = await requestJson(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      json: { name },
     });
-    router.refresh();
+    if (!res.ok && prev) setStages((s) => s.map((st) => (st.id === stageId ? { ...st, name: prev.name } : st)));
+    if (res.ok) router.refresh();
   }
 
   async function recolorStage(stageId: string, color: string) {
-    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, color } : s)));
-    await fetch(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
+    const prev = stages.find((s) => s.id === stageId);
+    setStages((s) => s.map((st) => (st.id === stageId ? { ...st, color } : st)));
+    const res = await requestJson(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ color }),
+      json: { color },
     });
-    router.refresh();
+    if (!res.ok && prev) setStages((s) => s.map((st) => (st.id === stageId ? { ...st, color: prev.color } : st)));
+    if (res.ok) router.refresh();
   }
 
   async function toggleRequiredField(stageId: string, field: RequirableDealField, checked: boolean) {
     const stage = stages.find((s) => s.id === stageId);
     if (!stage) return;
-    const requiredFields = checked
-      ? [...stage.requiredFields, field]
-      : stage.requiredFields.filter((f) => f !== field);
+    const isFinancialValue = field === "value" || field === "grossValue";
+    const requiredFields = isFinancialValue
+      ? checked
+        ? getEffectiveRequiredFields([...stage.requiredFields, "value", "grossValue"])
+        : stage.requiredFields.filter((requiredField) => requiredField !== "value" && requiredField !== "grossValue")
+      : checked
+        ? getEffectiveRequiredFields([...stage.requiredFields, field])
+        : stage.requiredFields.filter((requiredField) => requiredField !== field);
 
-    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, requiredFields } : s)));
-    await fetch(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
+    const prevFields = stage.requiredFields;
+    setStages((s) => s.map((st) => (st.id === stageId ? { ...st, requiredFields } : st)));
+    const res = await requestJson(`/api/pipelines/${pipelineId}/stages/${stageId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requiredFields }),
+      json: { requiredFields },
     });
-    router.refresh();
+    if (!res.ok) setStages((s) => s.map((st) => (st.id === stageId ? { ...st, requiredFields: prevFields } : st)));
+    if (res.ok) router.refresh();
   }
 
   async function deleteStage(stageId: string) {
@@ -224,6 +234,7 @@ function StageRow({
   const [showRequiredFields, setShowRequiredFields] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const requiredFieldsRef = useRef<HTMLDivElement>(null);
+  const effectiveRequiredFields = getEffectiveRequiredFields(stage.requiredFields);
 
   useEffect(() => {
     if (!showColors) return;
@@ -309,7 +320,7 @@ function StageRow({
           title="Campos obrigatórios pra um negócio entrar nesta etapa"
         >
           <Settings2 className="h-3.5 w-3.5" strokeWidth={2} />
-          {stage.requiredFields.length > 0 ? `${stage.requiredFields.length} obrigatório(s)` : "Nada obrigatório"}
+          {effectiveRequiredFields.length > 0 ? `${effectiveRequiredFields.length} obrigatório(s)` : "Nada obrigatório"}
         </button>
         {showRequiredFields && (
           <div
@@ -318,18 +329,18 @@ function StageRow({
             <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-neutral-400 uppercase dark:text-neutral-500">
               Exigir antes de entrar
             </p>
-            {REQUIRABLE_DEAL_FIELDS.map((field) => (
+            {REQUIRABLE_DEAL_FIELDS.filter((field) => field.key !== "grossValue").map((field) => (
               <label
                 key={field.key}
                 className="flex items-center gap-2 rounded px-1 py-1 text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
                 <input
                   type="checkbox"
-                  checked={stage.requiredFields.includes(field.key)}
+                  checked={effectiveRequiredFields.includes(field.key)}
                   onChange={(e) => onToggleRequiredField(stage.id, field.key, e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700"
                 />
-                {field.label}
+                {field.key === "value" ? "Valores líquido e bruto" : field.label}
               </label>
             ))}
           </div>

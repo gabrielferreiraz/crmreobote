@@ -25,6 +25,18 @@ export type RequirableDealField = (typeof REQUIRABLE_DEAL_FIELDS)[number]["key"]
 
 const REQUIRABLE_DEAL_FIELD_KEYS = new Set<string>(REQUIRABLE_DEAL_FIELDS.map((f) => f.key));
 
+/** Valores líquido e bruto são informados juntos nas etapas comerciais. */
+export function getEffectiveRequiredFields(fields: readonly string[]): RequirableDealField[] {
+  const selected = new Set(fields.filter((field): field is RequirableDealField => isRequirableDealField(field)));
+
+  if (selected.has("value") || selected.has("grossValue")) {
+    selected.add("value");
+    selected.add("grossValue");
+  }
+
+  return REQUIRABLE_DEAL_FIELDS.filter((field) => selected.has(field.key)).map((field) => field.key);
+}
+
 export function isRequirableDealField(key: string): key is RequirableDealField {
   return REQUIRABLE_DEAL_FIELD_KEYS.has(key);
 }
@@ -32,7 +44,7 @@ export function isRequirableDealField(key: string): key is RequirableDealField {
 /** Filtra qualquer entrada que não seja um campo elegível reconhecido. */
 export function sanitizeRequiredFields(fields: unknown): RequirableDealField[] {
   if (!Array.isArray(fields)) return [];
-  return fields.filter((f): f is RequirableDealField => typeof f === "string" && isRequirableDealField(f));
+  return getEffectiveRequiredFields(fields.filter((field): field is string => typeof field === "string"));
 }
 
 export function labelForRequiredField(key: string): string {
@@ -44,8 +56,7 @@ type RequirableFieldValues = Partial<Record<RequirableDealField, unknown>>;
 
 /** Dos campos exigidos pela etapa, quais estão vazios/nulos no negócio (+ contato) informado. */
 export function findMissingRequiredFields(requiredFields: string[], values: RequirableFieldValues): RequirableDealField[] {
-  return requiredFields.filter((field): field is RequirableDealField => {
-    if (!isRequirableDealField(field)) return false;
+  return getEffectiveRequiredFields(requiredFields).filter((field) => {
     const value = values[field];
     return value === null || value === undefined || value === "";
   });

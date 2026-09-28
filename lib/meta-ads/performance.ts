@@ -3,7 +3,7 @@
  * campanha (Insights API, mesma chamada level:"ad" que
  * lib/meta-ads/insights.ts usa) com o que aconteceu com os LEADS daquela
  * campanha no CRM (getMetaAdsAttribution) — pro mesmo período. Sozinhas,
- * nenhuma das duas responde "quanto custou uma reunião" ou "quanto custou
+ * nenhuma das duas responde "quanto custou uma videochamada" ou "quanto custou
  * uma venda"; juntas, respondem.
  */
 
@@ -37,7 +37,7 @@ export type CampaignPerformanceRow = {
   costPerWon: number | null;
   /** (valor ganho − gasto) / gasto, como fração — multiplicar por 100 pra virar %. null sem gasto conhecido. */
   roi: number | null;
-  /** Só gasto/leads por anúncio (lado Meta) — o CRM não tem reunião/venda quebrado por anúncio individual, só por campanha. */
+  /** Só gasto/leads por anúncio (lado Meta) — o CRM não tem videochamada/venda quebrado por anúncio individual, só por campanha. */
   ads: { id: string; name: string; spend: number; leads: number }[];
 };
 
@@ -81,7 +81,7 @@ export async function getCampaignPerformance(
 
   // Gasto é opcional pro resto da tabela funcionar — sem conexão/token/Ad
   // Account configurados, ainda mostra tudo que o CRM já sabe por conta
-  // própria (leads, reunião, venda), só sem coluna de custo/ROI preenchida
+  // própria (leads, videochamada, venda), só sem coluna de custo/ROI preenchida
   // (spend fica null em toda linha, ver spendConnected abaixo pra UI saber
   // se deve pedir pra conectar/reconectar em vez de simplesmente "sem
   // gasto nesse período").

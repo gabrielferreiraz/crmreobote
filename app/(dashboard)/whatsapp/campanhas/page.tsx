@@ -20,8 +20,10 @@ export default async function CampanhasPage() {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
     const [campaigns, instancesRaw, scriptsRaw, audienceContacts] = await Promise.all([
       listCampaigns(organizationId, scope),
+      // Só o Dono monta campanha no WhatsApp de outra pessoa (regra reforçada
+      // em lib/campaigns/build.ts) — os demais só veem o próprio número.
       prisma.whatsAppInstance.findMany({
-        where: { organizationId, status: "CONNECTED" },
+        where: { organizationId, status: "CONNECTED", ...(isOwner ? {} : { userId }) },
         include: { user: { select: { id: true, name: true } } },
       }),
       // Picker de script na criação de campanha respeita a mesma

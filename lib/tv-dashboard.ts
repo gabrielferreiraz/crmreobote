@@ -357,7 +357,7 @@ async function computeMonthRanking(organizationId: string, monthStart: Date, whe
       return [
         {
           id: user.id,
-          name: where === "month" ? (user.company?.name ?? user.name) : user.name,
+          name: where === "month" ? (user.company?.name ?? user.name).replace(/\d+/g, "").replace(/\s+/g, " ").trim() : user.name,
           image: user.image,
           total: Number(g._sum.value ?? 0),
         },

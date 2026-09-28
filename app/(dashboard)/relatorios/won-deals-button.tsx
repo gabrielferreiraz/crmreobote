@@ -7,6 +7,7 @@ import { SidePanel } from "@/components/side-panel";
 import { Avatar } from "@/components/avatar";
 import { formatCurrency } from "@/lib/format";
 import type { WonDealRow, WonDealsResult } from "@/lib/reports/won-deals";
+import { trackUse } from "@/lib/feature-usage/track";
 
 const PAGE_SIZE = 20;
 
@@ -53,7 +54,10 @@ export function WonDealsButton({
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          trackUse("relatorios.negocios-ganhos");
+          setOpen(true);
+        }}
         className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand/10"
       >
         Ver negócios

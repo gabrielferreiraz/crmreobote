@@ -1,5 +1,5 @@
 /**
- * Grade de horários pra agendar reunião com um consultor — usado só pela
+ * Grade de horários pra agendar videochamada com um consultor — usado só pela
  * landing page externa de captação de leads (Meta Ads) via API v1 (ver
  * app/api/v1/availability/route.ts e app/api/v1/appointments/route.ts), sem
  * UI correspondente dentro do CRM. Regras de negócio: 5 slots fixos por dia
@@ -27,7 +27,7 @@ export function isMeetingSlotTime(value: string): value is MeetingSlotTime {
 
 // Duração considerada só pra checar conflito com o Google Agenda (o bloco
 // reservado pro consultor é de 1h30 — o resto é folga pra prospectar ou
-// absorver um no-show — mas a reunião de verdade dura uns 20-30min). Não é
+// absorver um no-show — mas a videochamada de verdade dura uns 20-30min). Não é
 // gravado em lugar nenhum, é só o "fim" do intervalo comparado contra os
 // eventos existentes no Google.
 const MEETING_CHECK_DURATION_MINUTES = 30;
@@ -106,7 +106,7 @@ export type SlotStatus = { time: MeetingSlotTime; available: boolean };
  * Disponibilidade dos 5 slots fixos de um dia pra um consultor — ocupado se
  * (a) o horário já passou (ou está a menos de MIN_LEAD_TIME_MINUTES de
  * "agora" — só importa de verdade pra HOJE, dias futuros nunca chegam perto
- * disso), (b) já existe Task type=MEETING ou VISIT dele nesse exato
+ * disso), (b) já existe Task type=VIDEO_CALL ou VISIT dele nesse exato
  * horário, OU (c) o Google Agenda dele tem evento conflitando nesse
  * intervalo. Sem GoogleCalendarConnection, só (a)+(b) valem — não bloqueia
  * o fluxo inteiro por falta de conexão Google (pedido original); o mesmo
@@ -125,7 +125,7 @@ export async function getSlotsForDay(
     where: {
       organizationId,
       ownerId: consultorId,
-      type: { in: ["MEETING", "VISIT"] },
+      type: { in: ["VIDEO_CALL", "VISIT"] },
       dueAt: { in: slotTimes.map((s) => s.dueAt) },
     },
     select: { dueAt: true },

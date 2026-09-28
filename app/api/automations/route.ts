@@ -61,11 +61,10 @@ export async function POST(req: Request) {
     );
     if (triggerError) return NextResponse.json({ error: triggerError }, { status: 400 });
 
-    const actionError = await validateActionConfig(
-      access.organizationId,
-      action as $Enums.AutomationAction,
-      actionConfig,
-    );
+    const actionError = await validateActionConfig(access.organizationId, action as $Enums.AutomationAction, actionConfig, {
+      userId: access.userId,
+      role: access.role,
+    });
     if (actionError) return NextResponse.json({ error: actionError }, { status: 400 });
 
     const targetResult = await resolveTargetConfig(access.organizationId, isManager, {

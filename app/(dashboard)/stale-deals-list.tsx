@@ -61,10 +61,12 @@ export function StaleDealsList({
     fetch(`/api/deals?${params}`)
       .then(async (res) => {
         if (cancelled) return;
+        if (!res.ok) { setDeals([]); return; }
         const data = (await res.json()) as StaleDeal[];
-        setDeals(data);
+        setDeals(Array.isArray(data) ? data : []);
         setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
       })
+      .catch(() => { if (!cancelled) setDeals([]); })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });

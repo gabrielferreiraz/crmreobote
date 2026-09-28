@@ -2,16 +2,24 @@ import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const { name, isDefault, categoryId } = body as { name?: string; isDefault?: boolean; categoryId?: string };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { name?: string; isDefault?: boolean; categoryId?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { name, isDefault, categoryId } = body;
 
   if (name === undefined && isDefault === undefined && categoryId === undefined) {
     return NextResponse.json({ error: "name, isDefault ou categoryId é obrigatório" }, { status: 400 });

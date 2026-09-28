@@ -55,11 +55,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (triggerError) return NextResponse.json({ error: triggerError }, { status: 400 });
     }
     if (action !== undefined) {
-      const actionError = await validateActionConfig(
-        access.organizationId,
-        action as $Enums.AutomationAction,
-        actionConfig,
-      );
+      const actionError = await validateActionConfig(access.organizationId, action as $Enums.AutomationAction, actionConfig, {
+        userId: access.userId,
+        role: access.role,
+        previousActionConfig: existing.actionConfig,
+      });
       if (actionError) return NextResponse.json({ error: actionError }, { status: 400 });
     }
 

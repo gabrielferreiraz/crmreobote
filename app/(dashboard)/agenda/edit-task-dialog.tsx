@@ -30,7 +30,7 @@ function toDateTimeLocalValue(date: string | Date | null): string {
  * /api/tasks/[id] nunca foi restrito a Dono, só faltava esta UI; ver
  * TaskDetailModal, que agora abre isto a partir do botão "Editar").
  *
- * `type` fica de FORA de propósito — trocar o tipo (ex.: Ligação → Reunião)
+ * `type` fica de FORA de propósito — trocar o tipo (ex.: Ligação → Videochamada)
  * mexe em toda a máquina de Activity/meetingOutcome vinculada (ver PUT
  * /api/tasks/[id]/route.ts), risco desproporcional ao pedido ("editar a
  * visita", não "trocar o tipo da tarefa"); quem precisar disso hoje ainda

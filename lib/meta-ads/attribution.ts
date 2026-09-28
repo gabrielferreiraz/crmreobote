@@ -34,9 +34,9 @@ export type CampaignAttributionRow = {
   whatsappRespondedLeads: number;
   /** Teve conversa iniciada no WhatsApp mas nunca respondeu nada (withWhatsappThread menos whatsappRespondedLeads) — não inclui quem nunca chegou a ter conversa iniciada. */
   noResponseLeads: number;
-  /** Ao menos uma Activity tipo Reunião/Visita com outcome ATTENDED (ou sem outcome registrado — histórico anterior à essa coluna existir, ver ActivityMeetingOutcome no schema). */
+  /** Ao menos uma Activity tipo Videochamada/Visita com outcome ATTENDED (ou sem outcome registrado — histórico anterior à essa coluna existir, ver ActivityMeetingOutcome no schema). */
   meetingLeads: number;
-  /** Ao menos uma Activity tipo Reunião/Visita com outcome NO_SHOW — não é mutuamente exclusivo com meetingLeads (um lead pode ter levado um no-show e depois comparecido numa remarcação). */
+  /** Ao menos uma Activity tipo Videochamada/Visita com outcome NO_SHOW — não é mutuamente exclusivo com meetingLeads (um lead pode ter levado um no-show e depois comparecido numa remarcação). */
   noShowLeads: number;
   won: number;
   lost: number;
@@ -124,17 +124,17 @@ export async function getMetaAdsAttribution(
     select: { contactId: true, status: true, value: true },
   });
 
-  // Reunião/visita já realizada (Activity, não Task — Task é o agendamento,
+  // Videochamada/visita já realizada (Activity, não Task — Task é o agendamento,
   // Activity é o "aconteceu de fato", mesma fonte que o resto de Relatórios
-  // usa pro ranking de reuniões). Sem filtro de data aqui de propósito: um
-  // lead que entrou este mês mas só teve a reunião marcada semana que vem
+  // usa pro ranking de videochamadas). Sem filtro de data aqui de propósito: um
+  // lead que entrou este mês mas só teve a videochamada marcada semana que vem
   // continua contando pra esse período (mesmo raciocínio do won/lost acima,
   // não filtrar por closedAt). Busca TODAS as linhas (não só contactId
   // distinct) porque precisa do outcome de cada uma pra separar
   // compareceu/no-show — um contato pode ter mais de uma Activity dessas
   // (ex.: no-show numa data, compareceu na remarcação).
   const meetingActivities = await prisma.activity.findMany({
-    where: { organizationId, contactId: { in: contactIds }, type: { in: ["MEETING", "VISIT"] } },
+    where: { organizationId, contactId: { in: contactIds }, type: { in: ["VIDEO_CALL", "VISIT"] } },
     select: { contactId: true, meetingOutcome: true },
   });
   const meetingContactIds = new Set<string>();

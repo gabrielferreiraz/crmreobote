@@ -16,6 +16,14 @@ import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { renderSteps, pickWeighted, type WeightedScript } from "@/lib/campaigns/spintax";
 import { warmupDailyCap } from "@/lib/whatsapp/warmup";
 import { getSuppressionReason, suppressionMessage } from "@/lib/campaigns/engagement";
+import { CAMPAIGN_QUEUE_ORDER_BY } from "@/lib/campaigns/queue-order";
+import {
+  ensureInstanceReadyOrPause,
+  getInstanceReadiness,
+  recordAutoPause,
+  resumeCampaignsWithReconnectedInstance,
+} from "@/lib/campaigns/instance-guard";
+import { PAUSE_REASON } from "@/lib/campaigns/pause-reasons";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import type { $Enums, Contact } from "@/app/generated/prisma/client";
 
@@ -176,15 +184,28 @@ async function shouldSendNow(campaign: CampaignRow): Promise<boolean> {
   return elapsedSec >= threshold;
 }
 
-/** Depois de 5 falhas seguidas (mesma sequência em que os destinatários são processados), pausa sozinha em vez de continuar insistindo. */
-async function pauseIfFailing(campaignId: string): Promise<void> {
+/**
+ * Depois de 5 falhas seguidas, pausa sozinha em vez de continuar insistindo.
+ * "Seguidas" = as 5 tentativas mais RECENTES (sentAt é gravado na reivindicação,
+ * então FAILED também tem) — antes olhava createdAt, que é igual pro lote
+ * inteiro (o Postgres escolhia entre os empatados sem critério) e, com a fila
+ * editável, também não acompanha mais a ordem em que os destinatários saem.
+ */
+async function pauseIfFailing(organizationId: string, campaignId: string): Promise<void> {
   const recent = await prisma.campaignRecipient.findMany({
     where: { campaignId, status: { in: ["SENT", "FAILED"] } },
-    orderBy: { createdAt: "desc" },
+    orderBy: { sentAt: { sort: "desc", nulls: "last" } },
     take: 5,
   });
   if (recent.length === 5 && recent.every((r) => r.status === "FAILED")) {
-    await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
+    // Só se ainda estiver RODANDO (alguém que parou ou pausou a campanha nesse meio-tempo não é
+    // sobrescrito) e com o motivo gravado: essa pausa NUNCA retoma sozinha — a queda de WhatsApp já é
+    // pega ANTES do envio (ensureInstanceReadyOrPause), então o que sobra aqui é falha de outro tipo.
+    const { count } = await prisma.campaign.updateMany({
+      where: { id: campaignId, status: "RUNNING" },
+      data: { status: "PAUSED", pausedReason: PAUSE_REASON.FAILURES, pausedInstanceId: null },
+    });
+    if (count === 1) await recordAutoPause(organizationId, campaignId, PAUSE_REASON.FAILURES, null);
   }
 }
 
@@ -526,7 +547,7 @@ async function sendToRecipient(
         where: { id: recipient.id },
         data: { status: "FAILED" as $Enums.CampaignRecipientStatus, error: message },
       });
-      await pauseIfFailing(campaign.id);
+      await pauseIfFailing(organizationId, campaign.id);
     } else {
       await finalizeNonInitialAttempt(recipient.id, { error: message });
     }
@@ -558,7 +579,17 @@ async function recoverStaleSendingRecipients(campaignId: string): Promise<void> 
 
 export type SendNowResult =
   | { ok: true; outcome: SendOutcome; kind: SendKind }
-  | { ok: false; reason: "not-running" | "outside-schedule" | "daily-cap-reached" | "no-pending" };
+  | { ok: false; reason: "not-running" | "outside-schedule" | "daily-cap-reached" | "no-pending" | "whatsapp-offline" };
+
+/**
+ * "Enviar agora" é manual e ignora a régua automática, mas um WhatsApp
+ * DESCONECTADO não é régua: mandar assim só queimaria o destinatário (FAILED é
+ * terminal). Recusa sem consumir ninguém. Não pausa a campanha — quem pausa é o
+ * tick automático (ver ensureInstanceReadyOrPause), este caminho não tem efeito colateral.
+ */
+async function whatsappIsOffline(instanceId: string): Promise<boolean> {
+  return (await getInstanceReadiness(instanceId)) === "offline";
+}
 
 /** Só a parte de onda de RMKT — extraído pra ser reaproveitado tanto pelo
  * fallback de sendCampaignRecipientNow (3º na ordem de prioridade) quanto
@@ -579,6 +610,7 @@ async function trySendWave(organizationId: string, campaign: CampaignRow): Promi
   if (campaign.noReplyDays == null) return null;
   const waveCandidate = await findNextWaveCandidate(campaign);
   if (!waveCandidate) return null;
+  if (await whatsappIsOffline(waveCandidate.recipient.instanceId ?? campaign.instanceId)) return { ok: false, reason: "whatsapp-offline" };
   const outcome = await sendToRecipient(organizationId, campaign, waveCandidate.recipient, "wave", waveCandidate.wave);
   return { ok: true, outcome, kind: "wave" };
 }
@@ -604,10 +636,11 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
 
     const recipient = await prisma.campaignRecipient.findFirst({
       where: { campaignId: campaign.id, status: "PENDING" },
-      orderBy: { createdAt: "asc" },
+      orderBy: CAMPAIGN_QUEUE_ORDER_BY, // a mesma fila que a tela mostra e deixa reordenar
       include: RECIPIENT_INCLUDE,
     });
     if (recipient) {
+      if (await whatsappIsOffline(recipient.instanceId ?? campaign.instanceId)) return { ok: false, reason: "whatsapp-offline" };
       const outcome = await sendToRecipient(organizationId, campaign, recipient, "initial");
       return { ok: true, outcome, kind: "initial" };
     }
@@ -615,6 +648,7 @@ export async function sendCampaignRecipientNow(organizationId: string, campaignI
     if (campaign.followUpEnabled) {
       const followUpCandidate = await findFollowUpCandidate(campaign);
       if (followUpCandidate) {
+        if (await whatsappIsOffline(followUpCandidate.instanceId ?? campaign.instanceId)) return { ok: false, reason: "whatsapp-offline" };
         const outcome = await sendToRecipient(organizationId, campaign, followUpCandidate, "followUp");
         return { ok: true, outcome, kind: "followUp" };
       }
@@ -655,6 +689,15 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
   for (const org of organizations) {
     try {
       await runWithTenant(org.id, async () => {
+        // Retoma as campanhas que pausaram SOZINHAS por queda do WhatsApp e cujo WhatsApp já voltou a
+        // ficar conectado (ver lib/campaigns/instance-guard.ts) — ANTES de listar as RUNNING, pra elas
+        // já enviarem neste mesmo tick. Isolado: se falhar, as demais campanhas da organização seguem.
+        try {
+          await resumeCampaignsWithReconnectedInstance(org.id);
+        } catch (err) {
+          console.error(`[campaigns] falha ao retomar campanhas depois da reconexão do WhatsApp (organização ${org.id})`, err);
+        }
+
         const campaigns = await prisma.campaign.findMany({ where: { status: "RUNNING" } });
 
         for (const campaign of campaigns) {
@@ -686,13 +729,27 @@ export async function runCampaigns(): Promise<{ checked: number; sent: number; f
             // dentro do mesmo tick de qualquer forma, então cachear nunca
             // economizava nada de verdade, só arriscava aplicar o teto de
             // aquecimento do destinatário ERRADO — ver dailyCapReached).
+            //
+            // O 1º portão é o WhatsApp de quem seria enviado: caiu → pausa a campanha (com motivo, retoma
+            // sozinha quando reconectar) e NÃO consome o destinatário — antes ele virava FAILED, que é
+            // terminal (ver lib/campaigns/instance-guard.ts). Fica AQUI, e não no topo do laço, de
+            // propósito: só se importa com WhatsApp quando há um ENVIO a fazer. A expiração "Não
+            // respondeu" e o fechamento (DONE) mais abaixo são contabilidade por tempo, não dependem
+            // do WhatsApp, e não podem congelar porque ele caiu.
             async function canSendNow(instanceId: string): Promise<boolean> {
-              return isWithinSchedule(campaign) && !(await dailyCapReached(campaign, instanceId)) && (await shouldSendNow(campaign));
+              return (
+                (await ensureInstanceReadyOrPause(org.id, campaign.id, instanceId)) &&
+                isWithinSchedule(campaign) &&
+                !(await dailyCapReached(campaign, instanceId)) &&
+                (await shouldSendNow(campaign))
+              );
             }
 
             const recipient = await prisma.campaignRecipient.findFirst({
               where: { campaignId: campaign.id, status: "PENDING" },
-              orderBy: { createdAt: "asc" },
+              // Fila de disparo (ver lib/campaigns/queue-order.ts): quem foi posicionado à
+              // mão sai primeiro; sem posição, a ordem de criação de sempre.
+              orderBy: CAMPAIGN_QUEUE_ORDER_BY,
               include: RECIPIENT_INCLUDE,
             });
 

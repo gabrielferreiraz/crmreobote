@@ -9,6 +9,7 @@ import { Badge } from "./badge";
 import { formatCurrency } from "@/lib/format";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { useFileDrop } from "@/lib/use-file-drop";
+import { trackUse } from "@/lib/feature-usage/track";
 
 type ImportField = "contact" | "phone" | "whatsapp" | "email" | "source" | "dealName" | "value" | "grossValue" | "creditType" | "stage" | "owner";
 
@@ -296,6 +297,7 @@ export function DealImportDialog({
       }
       setResult(data);
       setStep("done");
+      trackUse("pipeline.importar");
       onImported();
     } catch {
       setError("Falha de conexão. Tente novamente.");

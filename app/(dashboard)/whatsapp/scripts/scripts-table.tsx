@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -48,7 +50,15 @@ function withFakeVariables(text: string): string {
   return text.replace(/\{(?!\[)([^{}]+)\}/g, (_, key: string) => FAKE_VARIABLE_VALUES[key.trim()] ?? "Maria");
 }
 
-export function ScriptsTable({ initialScripts, currentUserId }: { initialScripts: Script[]; currentUserId: string }) {
+export function ScriptsTable({
+  initialScripts,
+  currentUserId,
+  canManageAll,
+}: {
+  initialScripts: Script[];
+  currentUserId: string;
+  canManageAll: boolean;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -73,8 +83,8 @@ export function ScriptsTable({ initialScripts, currentUserId }: { initialScripts
   }, [initialScripts, search, tagFilter]);
 
   async function deleteScript(id: string) {
-    await fetch(`/api/message-scripts/${id}`, { method: "DELETE" });
-    router.refresh();
+    const res = await requestJson(`/api/message-scripts/${id}`, { method: "DELETE" });
+    if (res.ok) router.refresh();
   }
 
   return (
@@ -167,21 +177,37 @@ export function ScriptsTable({ initialScripts, currentUserId }: { initialScripts
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <Link href={`/whatsapp/scripts/novo?duplicate=${s.id}`} className="icon-btn" aria-label="Duplicar">
-                      <Copy className="h-3.5 w-3.5" strokeWidth={2} />
-                    </Link>
-                    <Link href={`/whatsapp/scripts/${s.id}`} className="icon-btn-labeled" aria-label="Editar">
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-                      Editar
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => setScriptToDelete(s)}
-                      className="icon-btn"
-                      aria-label="Excluir"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    </button>
+                    {canManageAll || s.createdById === currentUserId ? (
+                      <>
+                        <Link href={`/whatsapp/scripts/novo?duplicate=${s.id}`} className="icon-btn" aria-label="Duplicar" title="Duplicar">
+                          <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                        </Link>
+                        <Link href={`/whatsapp/scripts/${s.id}`} className="icon-btn-labeled" aria-label="Editar">
+                          <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                          Editar
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => setScriptToDelete(s)}
+                          className="icon-btn"
+                          aria-label="Excluir"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                        </button>
+                      </>
+                    ) : (
+                      // Script da equipe criado por outra pessoa: a pessoa USA
+                      // (campanhas/conversas), mas quem ajusta o texto duplica e
+                      // edita a própria cópia — nunca o script padrão da empresa.
+                      <Link
+                        href={`/whatsapp/scripts/novo?duplicate=${s.id}`}
+                        className="icon-btn-labeled"
+                        title="Criar uma cópia sua deste script para editar"
+                      >
+                        <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                        Duplicar para editar
+                      </Link>
+                    )}
                   </div>
                 </div>
 

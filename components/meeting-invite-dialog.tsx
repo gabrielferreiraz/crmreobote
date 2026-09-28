@@ -143,7 +143,7 @@ export function MeetingInviteDialog({
 
   function handleTemplateChange(next: string) {
     setTemplate(next);
-    // Salva instantaneamente (debounced) — a próxima reunião já abre com o
+    // Salva instantaneamente (debounced) — a próxima videochamada já abre com o
     // texto editado, sem precisar de um botão "Salvar" separado.
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -280,7 +280,7 @@ export function MeetingInviteDialog({
       {step === "prompt" && (
         <div className="space-y-4">
           <div>
-            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Reunião marcada</h2>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Videochamada marcada</h2>
             <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
               {task.contact.name} · {formatDateTime(dueAt)}
             </p>
@@ -357,7 +357,7 @@ export function MeetingInviteDialog({
             {/* Sempre disponível — diferente do "Sim, enviar" acima (que
                 precisa de WhatsApp conectado + o cliente ter número), "Me
                 avisar" (ver reminder-choice abaixo) não depende de nada
-                disso, só existe uma reunião marcada. */}
+                disso, só existe uma videochamada marcada. */}
             <button
               type="button"
               onClick={() => {
@@ -413,7 +413,7 @@ export function MeetingInviteDialog({
               className="field-input text-sm"
             />
             <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-              Variáveis: {MEETING_INVITE_VARIABLES.map((v) => v.token).join(" ")} — mudança salva automaticamente pras próximas reuniões.
+              Variáveis: {MEETING_INVITE_VARIABLES.map((v) => v.token).join(" ")} — mudança salva automaticamente pras próximas videochamadas.
             </p>
           </div>
 
@@ -447,7 +447,7 @@ export function MeetingInviteDialog({
             <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Programar aviso automático</h2>
           </div>
 
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">Quem deve receber o aviso antes da reunião?</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Quem deve receber o aviso antes da videochamada?</p>
 
           <div className="flex flex-col gap-2">
             {canScheduleReminder ? (
@@ -616,7 +616,7 @@ export function MeetingInviteDialog({
 
           {reminderSource === "script" && scripts && scripts.length > 0 && (
             <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-              As mensagens saem em sequência, respeitando o intervalo configurado no script — se o script for longo, alguma pode sair já perto (ou depois) do horário da reunião.
+              As mensagens saem em sequência, respeitando o intervalo configurado no script — se o script for longo, alguma pode sair já perto (ou depois) do horário da videochamada.
             </p>
           )}
 
@@ -641,10 +641,10 @@ export function MeetingInviteDialog({
             {savedReminderFor === "client"
               ? `Aviso programado! Vai sair pro cliente automaticamente ${
                   REMINDER_MINUTES_PRESETS.find((p) => p.value === reminderMinutes)?.label.toLowerCase() ?? `${reminderMinutes} min antes`
-                } da reunião.`
+                } da videochamada.`
               : `Combinado! Você recebe uma notificação ${
                   REMINDER_MINUTES_PRESETS.find((p) => p.value === selfReminderMinutes)?.label.toLowerCase() ?? `${selfReminderMinutes} min antes`
-                } da reunião.`}
+                } da videochamada.`}
           </p>
           <button type="button" onClick={onClose} className="btn-ghost">
             Fechar

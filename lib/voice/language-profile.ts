@@ -95,7 +95,7 @@ const PT_BR: LanguageProfile = {
     "topa",
   ],
   // Verbo de confirmação com sujeito omitido logo no início — "Fechou o
-  // negócio?", "Confirmou a reunião?", "Assinou o contrato?". Só pretérito
+  // negócio?", "Confirmou a videochamada?", "Assinou o contrato?". Só pretérito
   // perfeito/particípio de verbo de ação/fechamento de venda (ver comentário
   // do campo em types.ts pra por que isso é confiável nesse registro, e pra
   // por que "vai"/"quer"/"pode" ficam de fora — esses já entram como
@@ -108,7 +108,7 @@ const PT_BR: LanguageProfile = {
     "pagou", "pago", "aceitou", "aceita", "topou",
   ],
   // Mesma ideia, mas verbo-RESULTADO que também abre frase declarativa
-  // legítima sem sujeito ("Rolou uma reunião ontem", "Deu certo a
+  // legítima sem sujeito ("Rolou uma videochamada ontem", "Deu certo a
   // negociação", "Funcionou o desconto") — por isso só ajuda a cruzar o
   // threshold junto de outro sinal, nunca decide sozinho.
   subjectlessQuestionVerbsModerate: [

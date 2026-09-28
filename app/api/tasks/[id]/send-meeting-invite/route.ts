@@ -9,7 +9,7 @@ import { renderMeetingInviteMessage, buildMeetingInviteVariables } from "@/lib/m
 export const dynamic = "force-dynamic";
 
 /**
- * Manda o convite de reunião (texto + link "adicionar ao calendário", ver
+ * Manda o convite de videochamada (texto + link "adicionar ao calendário", ver
  * lib/meeting-invite.ts) pro WhatsApp do cliente vinculado à tarefa — sempre
  * pelo número do RESPONSÁVEL da tarefa (task.ownerId), nunca de quem clicou
  * "Enviar" (pode ser um gerente ajudando, mas o cliente precisa continuar
@@ -33,11 +33,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       include: { contact: true, owner: { select: { id: true, name: true } } },
     });
     if (!task) return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });
-    if (task.type !== "MEETING") {
-      return NextResponse.json({ error: "Só dá pra mandar convite em tarefas do tipo Reunião" }, { status: 400 });
+    if (task.type !== "VIDEO_CALL") {
+      return NextResponse.json({ error: "Só dá pra mandar convite em tarefas do tipo Videochamada" }, { status: 400 });
     }
-    if (!task.dueAt) return NextResponse.json({ error: "A reunião precisa de data/hora marcada" }, { status: 400 });
-    if (!task.contact) return NextResponse.json({ error: "A reunião precisa de um cliente vinculado" }, { status: 400 });
+    if (!task.dueAt) return NextResponse.json({ error: "A videochamada precisa de data/hora marcada" }, { status: 400 });
+    if (!task.contact) return NextResponse.json({ error: "A videochamada precisa de um cliente vinculado" }, { status: 400 });
 
     const vars = buildMeetingInviteVariables({
       contactName: task.contact.name,

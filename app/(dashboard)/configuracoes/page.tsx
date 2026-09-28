@@ -219,8 +219,8 @@ export default async function ConfiguracoesPage() {
           href: "/configuracoes/perfil",
           icon: "Mail",
           title: "Google Agenda",
-          description: "Conecte sua conta pra ver seus eventos na Agenda do CRM e receber reuniões marcadas pela landing page.",
-          keywords: ["agenda", "calendário", "google", "reunião", "evento", "sincronizar"],
+          description: "Conecte sua conta pra ver seus eventos na Agenda do CRM e receber videochamadas marcadas pela landing page.",
+          keywords: ["agenda", "calendário", "google", "videochamada", "evento", "sincronizar"],
         },
         ...(isManager
           ? [

@@ -82,12 +82,12 @@ function endsNearPhrase(tokens: string[], phrase: string, tolerance: number): bo
  *    marcadores lexicais são o substituto. Sinal forte o bastante pra
  *    sozinho cruzar o threshold (não depende dos outros 4).
  * 5. Verbo de confirmação sem sujeito abrindo a frase ("Fechou o negócio?",
- *    "Confirmou a reunião?") — pretérito perfeito de verbo de fechamento de
+ *    "Confirmou a videochamada?") — pretérito perfeito de verbo de fechamento de
  *    venda largado sem sujeito no início quase sempre é pergunta nesse
  *    registro (um relato mantém o sujeito: "ele fechou..."). Dois níveis
  *    (ver subjectlessQuestionVerbsStrong/Moderate em language-profile.ts):
  *    verbo de ação sem uso declarativo plausível decide sozinho; verbo-
- *    resultado (que também abre declarativa legítima, "rolou uma reunião")
+ *    resultado (que também abre declarativa legítima, "rolou uma videochamada")
  *    só ajuda a cruzar o threshold combinado com outro sinal.
  */
 export function detectQuestion(text: string, profile: LanguageProfile): QuestionScore {

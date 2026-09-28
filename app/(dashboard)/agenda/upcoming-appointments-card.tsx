@@ -53,7 +53,7 @@ export function UpcomingAppointmentsCard({
   const [openItem, setOpenItem] = useState<UpcomingItem | null>(null);
   // Abre TaskDetailModal por FORA do TaskRow (cartão próprio de "próximos
   // compromissos") — mesma trava de use-meeting-outcome-gate.tsx, senão
-  // concluir uma Reunião/Visita por aqui pula a pergunta de resultado.
+  // concluir uma Videochamada/Visita por aqui pula a pergunta de resultado.
   const { requestComplete, dialog: outcomeDialog } = useMeetingOutcomeGate(onToggle);
 
   const upcoming = useMemo(() => {

@@ -7,6 +7,7 @@ import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { renderSteps } from "@/lib/campaigns/spintax";
 import { brazilGreeting } from "@/lib/timezone";
 import type { Contact } from "@/app/generated/prisma/client";
+import { scriptAccessWhere } from "@/lib/campaigns/scripts";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
       return NextResponse.json({ error: "O WhatsApp desta conversa não está conectado no CRM" }, { status: 400 });
     }
 
-    const script = await prisma.messageScript.findFirst({ where: { id: scriptId, organizationId } });
+    // Só script que a pessoa enxerga (público ou dela) — ver scriptAccessWhere.
+    const script = await prisma.messageScript.findFirst({
+      where: { id: scriptId, organizationId, ...scriptAccessWhere({ userId, role: session!.user.role }) },
+    });
     if (!script) return NextResponse.json({ error: "Script não encontrado" }, { status: 404 });
 
     const steps = renderSteps(

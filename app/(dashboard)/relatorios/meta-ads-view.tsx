@@ -72,7 +72,7 @@ function AdSpendCards({ summary }: { summary: AdSpendSummary }) {
 
 /**
  * Soma os totais de todas as campanhas do período pra virar os 6 cards do
- * topo — custo/lead, custo/reunião, custo/venda e ROI são recalculados a
+ * topo — custo/lead, custo/videochamada, custo/venda e ROI são recalculados a
  * partir dos TOTAIS agregados aqui, não a média das razões por campanha
  * (média de razão engana quando as campanhas têm tamanhos bem diferentes;
  * total sobre total não).
@@ -119,7 +119,7 @@ function aggregatePerformance(rows: CampaignPerformanceRow[]) {
 /**
  * Cards de resumo do período — hierarquia em duas camadas em vez dos 7 com o
  * mesmo peso visual de antes: 5 números que decidem se a campanha vale a
- * pena (Leads → Reunião/Visita → Vendas → Valor ganho, o funil de dinheiro em
+ * pena (Leads → Videochamada/Visita → Vendas → Valor ganho, o funil de dinheiro em
  * si, + ROI) em destaque; 3 números de diagnóstico (por que um lead NÃO virou
  * venda) menores e discretos logo abaixo — pra bater o olho no que importa
  * primeiro. "Valor ganho" (com ticket médio) ganhou card próprio — antes só
@@ -142,11 +142,11 @@ function PerformanceSummaryCards({ agg }: { agg: ReturnType<typeof aggregatePerf
         <div className="card space-y-1 p-4">
           <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
             <CalendarCheck className="h-3.5 w-3.5" />
-            Reunião/Visita
+            Videochamada/Visita
           </div>
           <div className="text-3xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{agg.meetingLeads}</div>
           <div className="text-xs text-neutral-500 dark:text-neutral-400">
-            {agg.costPerMeeting != null ? `${formatCurrency(agg.costPerMeeting)}/reunião` : "sem dado de gasto"}
+            {agg.costPerMeeting != null ? `${formatCurrency(agg.costPerMeeting)}/videochamada` : "sem dado de gasto"}
           </div>
         </div>
         <div className="card space-y-1 p-4">
@@ -231,7 +231,7 @@ function PerformanceSummaryCards({ agg }: { agg: ReturnType<typeof aggregatePerf
  * Duas leituras complementares dos mesmos leads: progressão (funil — quantos
  * avançam etapa a etapa, onde a maior parte "vaza") e composição (rosca —
  * dos leads já classificados, quantos são bons ou ruins). Uma NÃO re-soma a
- * outra de propósito: qualificação e reunião/resposta são classificações
+ * outra de propósito: qualificação e videochamada/resposta são classificações
  * independentes no CRM (ver notas no rodapé da página), então tratar tudo
  * como uma única jornada linear fingiria uma relação que os números não têm.
  */
@@ -246,7 +246,7 @@ function LeadFunnelOverview({ agg }: { agg: ReturnType<typeof aggregatePerforman
           stages={[
             { id: "leads", label: "Leads", count: agg.leads, unit: "leads", color: "#a1a1aa" },
             { id: "qualified", label: "Qualificados", count: agg.qualifiedLeads, unit: "leads", color: "#818cf8" },
-            { id: "meeting", label: "Reunião/Visita", count: agg.meetingLeads, unit: "leads", color: "#6366f1" },
+            { id: "VIDEO_CALL", label: "Videochamada/Visita", count: agg.meetingLeads, unit: "leads", color: "#6366f1" },
             { id: "won", label: "Vendas", count: agg.won, value: agg.wonValue, unit: "vendas", color: "#10b981" },
           ]}
         />
@@ -341,7 +341,7 @@ function PerformanceSection({ performance }: { performance: CampaignPerformance 
 
 /**
  * Aba "Facebook" de Relatórios — gasto cruzado com o funil de leads
- * (qualificação, resposta no WhatsApp, reunião/visita, venda), por
+ * (qualificação, resposta no WhatsApp, videochamada/visita, venda), por
  * campanha e por anúncio, pro período escolhido (mesma ideia de
  * AdminReportsView: Server Component auto-contido, busca os próprios dados,
  * chamado direto de relatorios/page.tsx sem passar props). Antes vivia
@@ -391,7 +391,7 @@ export async function MetaAdsReportView({
             <p className="mt-1 max-w-lg text-sm text-neutral-500 dark:text-neutral-400">
               Leads recebidos via formulário nativo do Facebook/Instagram — mais os marcados manualmente como
               anúncio pela Origem (ver Configurações → Origens) — cruzados com gasto, qualificação, resposta no
-              WhatsApp, reunião/visita e venda.
+              WhatsApp, videochamada/visita e venda.
             </p>
           </div>
         </div>
@@ -403,8 +403,8 @@ export async function MetaAdsReportView({
         <div className="card p-4 text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Período:</strong> conta pela data em que o LEAD chegou, não pela data em que fechou — um lead que chegou este mês e só vira venda mês que vem continua contando neste mês (é quando o gasto que trouxe ele foi feito).</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Não responderam:</strong> teve conversa de WhatsApp iniciada mas nunca respondeu nada — não inclui quem nunca chegou a ser contatado.</div>
-          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Reunião/Visita:</strong> ao menos um encontro marcado como "Realizada" (resultado perguntado ao concluir a tarefa de Reunião/Visita, não mais ao criar) — histórico sem resposta registrada (anterior a essa opção existir) também conta aqui, nunca como no-show; já um encontro cuja tarefa ainda não foi concluída fica de fora dos dois até ter resposta.</div>
-          <div>• <strong className="text-neutral-700 dark:text-neutral-300">No-show:</strong> ao menos um encontro marcado como "Não compareceu". Não é o oposto de Reunião/Visita — um lead pode ter levado um no-show numa data e comparecido na remarcação, contando nos dois.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Videochamada/Visita:</strong> ao menos um encontro marcado como "Realizada" (resultado perguntado ao concluir a tarefa de Videochamada/Visita, não mais ao criar) — histórico sem resposta registrada (anterior a essa opção existir) também conta aqui, nunca como no-show; já um encontro cuja tarefa ainda não foi concluída fica de fora dos dois até ter resposta.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">No-show:</strong> ao menos um encontro marcado como "Não compareceu". Não é o oposto de Videochamada/Visita — um lead pode ter levado um no-show numa data e comparecido na remarcação, contando nos dois.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Qualificado/Desqualificado:</strong> classificação manual na página do negócio. Só "Qualificado" dispara um evento &quot;Lead&quot; pra Conversions API da Meta — "Desqualificado" fica só neste relatório.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Ticket médio:</strong> valor ganho ÷ vendas, da própria campanha (ou do período todo, no card de resumo) — não é o ticket médio geral da organização.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">ROI:</strong> (valor ganho − gasto) ÷ gasto, no período. Sem dado de gasto (campanha manual, ou Meta Ads não conectado), fica sem número em vez de mostrar 0%.</div>

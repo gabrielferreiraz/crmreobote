@@ -5,7 +5,7 @@ import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/me
 import type { Task } from "./task-row";
 
 /**
- * Intercepta a conclusão de uma Task MEETING/VISIT pra perguntar o
+ * Intercepta a conclusão de uma Task VIDEO_CALL/VISIT pra perguntar o
  * resultado antes (ver ActivityMeetingOutcome no schema e
  * meeting-outcome-dialog.tsx) — reaproveitado nos 2 pontos da Agenda que
  * concluem tarefa: TaskRow.handleToggle (checkbox da lista + botão
@@ -22,7 +22,7 @@ export function useMeetingOutcomeGate(
    * interceptada (dialog aberto) e quem chamou NÃO deve seguir com o toggle
    * normal. Desmarcar (completed→false) nunca passa por aqui. */
   function requestComplete(task: Task): boolean {
-    if (task.type !== "MEETING" && task.type !== "VISIT") return false;
+    if (task.type !== "VIDEO_CALL" && task.type !== "VISIT") return false;
     setPending(task);
     return true;
   }
@@ -40,7 +40,7 @@ export function useMeetingOutcomeGate(
 
   const dialog = pending ? (
     <MeetingOutcomeDialog
-      taskType={pending.type === "VISIT" ? "VISIT" : "MEETING"}
+      taskType={pending.type === "VISIT" ? "VISIT" : "VIDEO_CALL"}
       onResolve={resolve}
       onClose={() => setPending(null)}
     />

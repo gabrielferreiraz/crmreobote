@@ -57,6 +57,7 @@ import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "
 import { validatePhoneField } from "@/lib/phone-normalize";
 import { birthDateInputError, parseBirthDateInput } from "@/lib/birth-date";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
+import { trackUse } from "@/lib/feature-usage/track";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -534,6 +535,7 @@ export function ContactsTable({
       if (failures > 0) {
         setBulkError("Alguns contatos não puderam ser apagados.");
       }
+      if (failures < selectedContactIds.length) trackUse("clientes.massa.apagar");
       clearSelection();
       router.refresh();
     } finally {
@@ -576,6 +578,7 @@ export function ContactsTable({
       const failures = results.filter((r) => r.status === "rejected").length;
       const skipped = results.filter((r) => r.status === "fulfilled" && r.value === "skipped").length;
       const created = results.filter((r) => r.status === "fulfilled" && r.value === "created").length;
+      if (created > 0) trackUse("clientes.massa.negocio");
 
       if (failures > 0) {
         setBulkError("Alguns negócios não puderam ser criados.");
@@ -668,6 +671,7 @@ export function ContactsTable({
     const ok = await submitContact();
     setCreating(false);
     if (!ok) return;
+    trackUse("clientes.contato.novo");
 
     resetContactForm();
     router.refresh();
@@ -680,6 +684,7 @@ export function ContactsTable({
     const ok = await submitContact(conflict.contactId);
     setClaiming(false);
     if (!ok) return;
+    trackUse("leads.assumir");
 
     setConflict(null);
     resetContactForm();
@@ -750,6 +755,7 @@ export function ContactsTable({
         {isOwner && (
           <a
             href={`/api/contacts/export?${buildFilterParams().toString()}`}
+            onClick={() => trackUse("clientes.exportar")}
             className="btn-secondary"
             title="Exporta só os contatos que batem com a busca e os filtros atuais"
           >
@@ -1379,6 +1385,7 @@ export function ContactsTable({
           contactsWithDealHistory={selectedContactsWithDealHistory}
           onClose={() => setSendLeadsOpen(false)}
           onSent={() => {
+            trackUse("clientes.massa.mensagem");
             clearSelection();
             router.refresh();
           }}

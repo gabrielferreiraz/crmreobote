@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar as CalendarIcon, Loader2, TriangleAlert, Unplug } from "lucide-react";
@@ -47,16 +49,15 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
   async function disconnect() {
     setBusy(true);
     setError(null);
-    try {
-      await fetch("/api/google-calendar/disconnect", { method: "POST" });
-      setStatus("disconnected");
-      setEmail(null);
-      setHasWriteScope(null);
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-    } finally {
-      setBusy(false);
+    const res = await requestJson("/api/google-calendar/disconnect", { method: "POST" }, { silent: true });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? "Falha de conexão. Tente novamente.");
+      return;
     }
+    setStatus("disconnected");
+    setEmail(null);
+    setHasWriteScope(null);
   }
 
   if (status === "loading") {
@@ -104,8 +105,8 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} />
           <p>
-            Esta conexão foi feita antes do agendamento automático de reunião existir e só tem permissão de
-            <strong className="font-medium"> leitura</strong>. Reuniões marcadas pela landing page não estão sendo
+            Esta conexão foi feita antes do agendamento automático de videochamada existir e só tem permissão de
+            <strong className="font-medium"> leitura</strong>. Videochamadas marcadas pela landing page não estão sendo
             criadas no seu Google Agenda até você <strong className="font-medium">desconectar e conectar de novo</strong> —
             a reserva no CRM continua acontecendo normalmente, só não aparece automaticamente no Google.
           </p>
@@ -113,7 +114,7 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
       )}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        Lemos os eventos da sua agenda pra mostrar na Agenda do CRM, e criamos o evento da reunião quando um lead
+        Lemos os eventos da sua agenda pra mostrar na Agenda do CRM, e criamos o evento da videochamada quando um lead
         agenda um horário pela landing page (Configurações → API e webhooks) — nunca editamos nem apagamos nada que
         você mesmo criou direto no Google.
       </p>

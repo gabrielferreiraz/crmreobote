@@ -71,8 +71,10 @@ export async function GET() {
       const webhookConfig = await getWebhookConfig(instance.instanceName);
       const expectedUrl = buildWebhookUrl();
       const missingEvents = WEBHOOK_EVENTS.filter((e) => !webhookConfig?.events?.includes(e));
+      // A URL do webhook carrega EVOLUTION_WEBHOOK_SECRET na query — nunca
+      // loga a URL em si, só se ela bate com a esperada.
       console.log(
-        `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} url="${webhookConfig?.url}" esperado="${expectedUrl}" events=${JSON.stringify(webhookConfig?.events)} faltando=${JSON.stringify(missingEvents)}`,
+        `[wa:webhook-config] instância=${instance.instanceName} enabled=${webhookConfig?.enabled} urlCorreta=${webhookConfig?.url === expectedUrl} faltando=${JSON.stringify(missingEvents)}`,
       );
       if (webhookConfig && (!webhookConfig.enabled || webhookConfig.url !== expectedUrl || missingEvents.length > 0)) {
         console.warn(

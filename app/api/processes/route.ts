@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { countProcesses, fetchProcessList } from "@/lib/processes/list-query";
 import { createProcessForDeal } from "@/lib/processes/create";
 import { recordUserChange } from "@/lib/user-activity";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -63,11 +64,18 @@ export async function GET(req: Request) {
  * contemplações, não o consultor.
  */
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { dealId, pipelineId } = body as { dealId?: string; pipelineId?: string };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { dealId?: string; pipelineId?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { dealId, pipelineId } = body;
 
   if (!dealId || !pipelineId) {
     return NextResponse.json({ error: "dealId e pipelineId são obrigatórios" }, { status: 400 });

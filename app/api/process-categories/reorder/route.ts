@@ -2,15 +2,23 @@ import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request) {
-  const body = await req.json();
-  const { categoryIds } = body as { categoryIds?: string[] };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { categoryIds?: string[] };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { categoryIds } = body;
 
   return runWithTenant(access.organizationId, async () => {
     const categories = await prisma.processCategory.findMany({ where: { organizationId: access.organizationId } });

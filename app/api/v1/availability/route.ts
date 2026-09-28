@@ -8,7 +8,7 @@ import { findNextAvailableDay, getSlotsForDay, isLegitimateBookableDate } from "
 export const dynamic = "force-dynamic";
 
 /**
- * Grade de horários pra agendar reunião com um consultor. Sem `?date=`,
+ * Grade de horários pra agendar videochamada com um consultor. Sem `?date=`,
  * devolve o primeiro dia útil (a partir de hoje) com pelo menos 1 slot
  * livre, nunca mais de 1 dia por chamada (cascata, ver
  * lib/scheduling/meeting-availability.ts). Com `?date=YYYY-MM-DD`, devolve

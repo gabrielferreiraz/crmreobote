@@ -7,7 +7,7 @@ import { sanitizeCell } from "@/lib/csv-sanitize";
 export const dynamic = "force-dynamic";
 
 /**
- * Template de convite de reunião — self-service (qualquer membro edita o
+ * Template de convite de videochamada — self-service (qualquer membro edita o
  * PRÓPRIO texto, sem checagem de papel; requireRole(["OWNER"]) não se aplica
  * aqui, isso não é gestão de organização). Nunca usa requireRole.
  */

@@ -5,6 +5,7 @@ import { listProposalsForDeal } from "@/lib/proposals/queries";
 import { createProposal } from "@/lib/proposals/service";
 import { parseProposalFields } from "@/lib/proposals/validate";
 import { withProposalActor, respond } from "@/lib/proposals/route-helpers";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json().catch(() => null);
-  if (!body || typeof body !== "object") return NextResponse.json({ error: "Corpo inválido" }, { status: 400 });
-
   return withProposalActor(async (actor) => {
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch (err) {
+      const response = bodyErrorResponse(err);
+      if (response) return response;
+      throw err;
+    }
+    if (!body || typeof body !== "object") return NextResponse.json({ error: "Corpo inválido" }, { status: 400 });
+
     const { fromProposalId } = body as { fromProposalId?: unknown };
     if (typeof fromProposalId === "string" && fromProposalId) {
       return respond(actor, await createProposal(actor, { dealId: id, fromProposalId }), { status: 201, mutation: true });

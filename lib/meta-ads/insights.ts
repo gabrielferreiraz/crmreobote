@@ -95,4 +95,4 @@ export async function getAdSpendSummary(organizationId: string): Promise<AdSpend
 // Detalhamento por campanha/anúncio (gasto puro, sem cruzar com o CRM) foi
 // substituído por getCampaignPerformance em lib/meta-ads/performance.ts, que
 // já traz o mesmo gasto por anúncio cruzado com o funil (qualificação,
-// reunião, venda) — ver PerformanceSection em relatorios/meta-ads-view.tsx.
+// videochamada, venda) — ver PerformanceSection em relatorios/meta-ads-view.tsx.

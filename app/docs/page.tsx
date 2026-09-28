@@ -474,13 +474,13 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
             endpoint={{ method: "GET", path: "/api/v1/availability" }}
           >
             <P>
-              Grade de horários pra agendar reunião com um consultor — pensado pra última etapa de um formulário de
+              Grade de horários pra agendar videochamada com um consultor — pensado pra última etapa de um formulário de
               captação de leads (ex.: landing page de anúncios) antes de <Code>POST /api/v1/appointments</Code>.
             </P>
             <P>
               <strong className="font-medium">5 horários fixos por dia útil</strong> (segunda a sexta), de 1h30 em
               1h30 a partir das 08:30 — <Code>08:30</Code>, <Code>10:00</Code>, <Code>11:30</Code>, <Code>13:00</Code>,{" "}
-              <Code>14:30</Code>. A reunião em si costuma durar só 20-30min; o resto do intervalo é folga do
+              <Code>14:30</Code>. A videochamada em si costuma durar só 20-30min; o resto do intervalo é folga do
               consultor pra prospectar outros leads ou absorver um no-show. Timezone:{" "}
               <Code>America/Campo_Grande</Code> (fuso de Mato Grosso do Sul, UTC-4 —{" "}
               <strong className="font-medium">não</strong> é o mesmo fuso de São Paulo/UTC-3, mesmo os dois sendo
@@ -507,9 +507,9 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
             </P>
             <P>
               Horário de <strong className="font-medium">hoje</strong> só aparece disponível com pelo menos 45
-              minutos de antecedência a partir de agora (dá tempo do consultor ver o aviso antes da reunião) — os
+              minutos de antecedência a partir de agora (dá tempo do consultor ver o aviso antes da videochamada) — os
               horários já passados ou muito em cima da hora vêm como <Code>available: false</Code>, nunca somem da
-              lista. Um horário também é considerado ocupado se já existe uma reunião ou visita reservada pra aquele
+              lista. Um horário também é considerado ocupado se já existe uma videochamada ou visita reservada pra aquele
               consultor naquele exato horário — nesta API, ou marcada direto no Google Agenda dele, quando ele tem
               uma conta conectada (Perfil → Google Agenda).
             </P>
@@ -544,7 +544,7 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
 }`}</CodeBlock>
             <P>
               <Code>googleCalendarConnected: false</Code> significa que o consultor ainda não conectou o Google
-              Agenda dele no CRM — os horários mostrados continuam válidos (checados só contra as reuniões/visitas já
+              Agenda dele no CRM — os horários mostrados continuam válidos (checados só contra as videochamadas/visitas já
               marcadas por aqui), só não levam em conta compromissos que ele tenha marcado direto no Google.
             </P>
             <P>
@@ -563,7 +563,7 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
               . Assim como <Code>/api/v1/deals</Code>, aceita <Code>contactId</Code> (contato já existente){" "}
               <strong className="font-medium">ou</strong> <Code>contact</Code> (mesmo formato de{" "}
               <Code>/api/v1/contacts</Code> — cria/atualiza o contato na mesma chamada). <Code>dealId</Code> é
-              opcional — se vier, a reunião fica vinculada a esse negócio.
+              opcional — se vier, a videochamada fica vinculada a esse negócio.
             </P>
             <P>
               <Code>date</Code>/<Code>time</Code> são <strong className="font-medium">revalidados no servidor</strong>{" "}
@@ -596,7 +596,7 @@ Authorization: Bearer crm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`}</Co
             <P>
               <Code>scheduledAt</Code> vem em UTC (<Code>Z</Code>), igual todo outro timestamp desta API —{" "}
               <Code>12:30:00.000Z</Code> é exatamente <Code>08:30</Code> em <Code>America/Campo_Grande</Code>{" "}
-              (UTC-4). <Code>googleCalendarSynced: false</Code> significa que a reunião foi reservada normalmente
+              (UTC-4). <Code>googleCalendarSynced: false</Code> significa que a videochamada foi reservada normalmente
               (<Code>taskId</Code> sempre é retornado), mas não deu pra criar o evento no Google Agenda do consultor
               nessa hora (token revogado, API do Google fora do ar, ou o consultor não tem conexão) — a reserva{" "}
               <strong className="font-medium">não é perdida</strong> por causa disso, só não aparece

@@ -96,7 +96,11 @@ type ContactMetadata = { name?: string; phone?: string };
  * que o Evolution acrescenta no fim não interfere no path.
  */
 function buildEvolutionMediaUrl(mediaKey: string): string {
-  if (!mediaKey.startsWith("whatsapp-media/")) return mediaKey; // já é uma URL externa
+  // Só chave do NOSSO bucket chega aqui (ver assertOwnMediaKey em
+  // sendWhatsAppMessage) — URL externa não é mais repassada: o Evolution/Meta
+  // baixava qualquer endereço que o cliente mandasse (SSRF na infraestrutura
+  // deles, inclusive rede interna do Evolution — auditoria 09/2026).
+  if (!mediaKey.startsWith("whatsapp-media/")) throw new WhatsAppSendError("Mídia inválida");
   const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
   if (!appUrl) throw new WhatsAppSendError("NEXTAUTH_URL não configurado");
   const token = signMediaKey(mediaKey);
@@ -143,6 +147,17 @@ export type WhatsAppOutgoingMessage = {
 
 export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Promise<{ id: string }> {
   const { organizationId, threadId, text, type = "TEXT", mediaUrl, metadata, replyToId, campaignId, automationRuleId, simulateTypingFirst, sentByUserId } = params;
+
+  // Mídia SÓ da própria organização, SÓ como chave do bucket (é o que o upload
+  // do composer e a imagem de script geram — ver buildChatMediaKey e
+  // validateSteps). Barra URL externa (SSRF no Evolution/Meta) e chave de
+  // OUTRA organização (o proxy de mídia assinaria e entregaria o arquivo dela).
+  if (mediaUrl !== undefined && mediaUrl !== null && mediaUrl !== "") {
+    const ownPrefix = `whatsapp-media/${organizationId}/`;
+    if (!mediaUrl.startsWith(ownPrefix) || mediaUrl.includes("..") || !/^[\w./-]+$/.test(mediaUrl)) {
+      throw new WhatsAppSendError("Mídia inválida — envie o arquivo pelo botão de anexo.");
+    }
+  }
 
   const thread = await prisma.whatsAppThread.findFirst({ where: { id: threadId, organizationId } });
   if (!thread) throw new WhatsAppSendError("Conversa não encontrada");

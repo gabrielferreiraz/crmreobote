@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
+import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 import {
   assertValidAvatar,
   buildCardCoverPhotoKey,
@@ -26,11 +27,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const url = new URL(req.url);
   const isAppend = url.searchParams.get("append") === "true";
 
-  const formData = await req.formData();
-
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   const { organizationId, userId, role } = access;
+
+  // Lido só depois da autenticação e com teto (lib/read-body.ts) — antes
+  // req.formData() carregava o corpo INTEIRO pra memória antes de checar tamanho.
+  let formData: FormData;
+  try {
+    formData = await readFormData(req, BODY_LIMITS.image);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
 
   const file = formData.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Envie uma imagem" }, { status: 400 });

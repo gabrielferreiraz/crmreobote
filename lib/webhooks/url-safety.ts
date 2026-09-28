@@ -34,6 +34,8 @@ const PRIVATE_IPV4_RANGES: Array<[string, number]> = [
   ["240.0.0.0", 4], // reservado
 ];
 
+const MAX_WEBHOOK_RESPONSE_BYTES = 1 * 1024 * 1024;
+
 function ipv4ToInt(ip: string): number | null {
   const parts = ip.split(".");
   if (parts.length !== 4) return null;
@@ -155,7 +157,20 @@ export async function safeFetchJson(
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (chunk) => chunks.push(chunk));
+        let responseBytes = 0;
+        res.on("data", (chunk: Buffer) => {
+          if (settled) return;
+          responseBytes += chunk.length;
+          if (responseBytes > MAX_WEBHOOK_RESPONSE_BYTES) {
+            settled = true;
+            clearTimeout(timer);
+            res.destroy();
+            req.destroy();
+            reject(new Error("Resposta do webhook excedeu 1 MB"));
+            return;
+          }
+          chunks.push(chunk);
+        });
         res.on("end", () => {
           if (settled) return;
           settled = true;

@@ -1,5 +1,5 @@
 /**
- * Convite de reunião mandado pro WhatsApp do cliente — texto editável (com
+ * Convite de videochamada mandado pro WhatsApp do cliente — texto editável (com
  * variáveis, ver `MEETING_INVITE_VARIABLES`) + um link "adicionar ao
  * calendário" que abre a tela de criar evento do Google já preenchida pro
  * PRÓPRIO cliente salvar na agenda dele. Não é o mesmo link "Google Agenda"
@@ -11,15 +11,15 @@ import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
 
 export const DEFAULT_MEETING_INVITE_TEMPLATE =
   "Oi {cliente}! Aqui é o {consultor} 🙂\n\n" +
-  "Confirmando nossa reunião marcada para *{data} às {hora}*.\n\n" +
+  "Confirmando nossa videochamada marcada para *{data} às {hora}*.\n\n" +
   "Adiciona na sua agenda com um toque: {link}\n\n" +
   "Qualquer imprevisto, me chama por aqui!";
 
 export const MEETING_INVITE_VARIABLES = [
   { token: "{cliente}", label: "Nome do cliente" },
   { token: "{consultor}", label: "Seu nome" },
-  { token: "{data}", label: "Data da reunião" },
-  { token: "{hora}", label: "Hora da reunião" },
+  { token: "{data}", label: "Data da videochamada" },
+  { token: "{hora}", label: "Hora da videochamada" },
   { token: "{link}", label: "Link pra adicionar na agenda" },
 ] as const;
 
@@ -41,7 +41,7 @@ export function renderMeetingInviteMessage(template: string, vars: MeetingInvite
 
 /**
  * Monta as variáveis a partir dos dados já conhecidos da tarefa — duração
- * fixa de 60min (reunião custuma ser mais longa que o padrão de 30min do
+ * fixa de 60min (videochamada custuma ser mais longa que o padrão de 30min do
  * link "quick add" genérico de outras telas).
  */
 export function buildMeetingInviteVariables(params: {
@@ -52,7 +52,7 @@ export function buildMeetingInviteVariables(params: {
 }): MeetingInviteVariables {
   const { contactName, consultorName, dueAt, meetingTitle } = params;
   const link = buildGoogleCalendarUrl({
-    title: `Reunião com ${consultorName}`,
+    title: `Videochamada com ${consultorName}`,
     description: meetingTitle,
     start: dueAt,
     durationMinutes: 60,

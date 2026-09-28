@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
+import { getUserOrganizationIds, EMAIL_BELONGS_TO_OTHER_ORG_MESSAGE } from "@/lib/org-membership-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -49,10 +50,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
+
   return runWithTenant(access.organizationId, async () => {
-    let user = await prisma.user.findUnique({ where: { email } });
+    let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (user) {
+      // Conta que já pertence a OUTRA organização nunca é anexada aqui: o Dono
+      // desta organização passaria a poder trocar a senha global dela e entrar
+      // no lugar da pessoa (ver lib/org-membership-guard.ts). Conta sem nenhuma
+      // filiação (ex.: consultor removido que volta) pode ser reaproveitada.
+      const otherOrgs = (await getUserOrganizationIds(user.id)).filter((id) => id !== access.organizationId);
+      if (otherOrgs.length > 0) {
+        return NextResponse.json({ error: EMAIL_BELONGS_TO_OTHER_ORG_MESSAGE }, { status: 409 });
+      }
       const existingMembership = await prisma.organizationUser.findUnique({
         where: { organizationId_userId: { organizationId: access.organizationId, userId: user.id } },
       });
@@ -70,7 +81,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Senha é obrigatória (mínimo 8 caracteres)" }, { status: 400 });
       }
       const hashedPassword = await bcrypt.hash(password, 10);
-      user = await prisma.user.create({ data: { name, email, password: hashedPassword } });
+      user = await prisma.user.create({ data: { name, email: normalizedEmail, password: hashedPassword } });
     }
 
     const membership = await prisma.organizationUser.create({

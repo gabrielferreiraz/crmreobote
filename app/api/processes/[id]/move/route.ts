@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
 import { notifyProcessReachedFinalStage } from "@/lib/processes/notify";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +15,19 @@ export const dynamic = "force-dynamic";
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const { stageId } = body as { stageId?: string };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { stageId?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { stageId } = body;
+
   if (!stageId) return NextResponse.json({ error: "stageId é obrigatório" }, { status: 400 });
 
   return runWithTenant(access.organizationId, async () => {

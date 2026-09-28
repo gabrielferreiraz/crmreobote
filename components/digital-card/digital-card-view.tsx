@@ -125,7 +125,7 @@ export function DigitalCardView({
   const isLight = theme === "LIGHT";
   const isPhoto = theme === "PHOTO";
 
-  const { track, sessionId } = useCardTracking(data.slug, source ?? null, presentationId);
+  const { track } = useCardTracking(data.slug, source ?? null, presentationId);
   const onTrack = interactive ? track : () => {};
 
   return (
@@ -213,7 +213,7 @@ export function DigitalCardView({
           }`}
         >
           {/* Avatar com Anel de Brilho em Gradiente Neon */}
-          <div className="relative z-30 mx-auto -mt-20 mb-4 h-28 w-28">
+          <div className="relative z-30 mx-auto -mt-24 mb-4 h-32 w-32 sm:h-36 sm:w-36">
             <div
               className={`h-full w-full overflow-hidden rounded-full border p-1 shadow-[0_10px_20px_rgba(0,0,0,0.3)] transition-transform duration-300 hover:scale-105 ${
                 isLight
@@ -231,7 +231,7 @@ export function DigitalCardView({
                   <img src={data.photoUrl} alt={data.displayName} className="h-full w-full object-cover" />
                 ) : (
                   <div className={`flex h-full w-full items-center justify-center ${isLight ? "bg-sky-100" : "bg-white/10"}`}>
-                    <UserIcon className={`h-12 w-12 ${isLight ? "text-sky-600/60" : "text-white/50"}`} strokeWidth={1.5} />
+                    <UserIcon className={`h-16 w-16 ${isLight ? "text-sky-600/60" : "text-white/50"}`} strokeWidth={1.5} />
                   </div>
                 )}
               </div>
@@ -290,12 +290,9 @@ export function DigitalCardView({
           {/* Ações principais */}
           <div className="mt-4">
             <DigitalCardActions
-              slug={data.slug}
               displayName={data.displayName}
               publicUrl={data.publicUrl}
-              sessionId={sessionId}
-              source={source ?? null}
-              presentationId={presentationId}
+              whatsapp={data.whatsapp}
               onTrack={onTrack}
               autoOpenQr={interactive && autoOpenQr}
               light={isLight}
@@ -305,8 +302,6 @@ export function DigitalCardView({
           {/* Contato */}
           <div className="mt-4">
             <DigitalCardContactActions
-              whatsapp={data.whatsapp}
-              email={data.displayEmail}
               address={data.address}
               instagram="reoboteconsorcios"
               onTrack={onTrack}

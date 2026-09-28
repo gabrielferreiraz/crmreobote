@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sanitizeCell } from "@/lib/csv-sanitize";
+import { findWritableContactId } from "@/lib/contact-write-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
-    const existing = await prisma.contact.findFirst({ where: { id, organizationId } });
-    if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    // Mesma regra de quem pode editar o contato (Consultor: só os dele ou sem responsável).
+    if (!(await findWritableContactId(organizationId, id))) {
+      return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
 
     const cleanTags = tags.map((t) => sanitizeCell(t.trim())).filter((t): t is string => !!t);
 

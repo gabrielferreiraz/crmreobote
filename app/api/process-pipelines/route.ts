@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -21,11 +22,18 @@ export async function GET() {
 
 /** Cria uma Subcategoria (nome interno "pipeline", ver comentário no schema) dentro de uma Categoria. */
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { name, categoryId } = body as { name?: string; categoryId?: string };
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { name?: string; categoryId?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { name, categoryId } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
   if (!categoryId) return NextResponse.json({ error: "categoryId é obrigatório" }, { status: 400 });

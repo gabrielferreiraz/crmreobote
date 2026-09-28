@@ -8,11 +8,17 @@ import { DEFAULT_PROCESS_PIPELINE_NAME, DEFAULT_PROCESS_STAGES } from "@/lib/def
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import { isValidEmail } from "@/lib/email-format";
+import { isPublicSignupEnabled } from "@/lib/signup";
 
 export const dynamic = "force-dynamic";
 
 
 export async function POST(req: Request) {
+  // Fechado por padrão (ver lib/signup.ts) — checado antes de ler o corpo.
+  if (!isPublicSignupEnabled()) {
+    return NextResponse.json({ error: "Cadastro público desativado. Peça acesso ao administrador." }, { status: 403 });
+  }
+
   const ip = getClientIp(req);
   const { allowed, retryAfterMs } = rateLimit(`register:${ip}`, 10, 60 * 60 * 1000);
   if (!allowed) {

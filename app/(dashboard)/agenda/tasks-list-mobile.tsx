@@ -16,6 +16,8 @@ import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
 import { useUndoToast } from "@/components/undo-provider";
 import { CompactMonthCalendar } from "./compact-month-calendar";
+import { trackUse } from "@/lib/feature-usage/track";
+import { requestJson } from "@/lib/client-request";
 
 function groupTasks(tasks: Task[]) {
   const now = new Date();
@@ -142,25 +144,26 @@ export function TasksListMobile({
     meetingOutcome?: "ATTENDED" | "NO_SHOW" | "RESCHEDULED",
     newDueAt?: string,
   ) {
-    const res = await fetch(`/api/tasks/${taskId}`, {
+    // requestJson (lib/client-request.ts): se o servidor recusar (ex.: sem
+    // permissão, reunião sem resultado), mostra o motivo em vez de a tela só
+    // "desmarcar sozinha" no refresh.
+    const res = await requestJson(`/api/tasks/${taskId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
+      json:
         meetingOutcome === "RESCHEDULED"
           ? { meetingOutcome, dueAt: newDueAt }
           : { completed, ...(meetingOutcome ? { meetingOutcome } : {}) },
-      ),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = res.data ?? {};
+    if (res.ok && completed && meetingOutcome !== "RESCHEDULED") trackUse("agenda.atividade.concluir");
     router.refresh();
     pushUndoToast(data.undo);
   }
 
   async function deleteTask(taskId: string) {
-    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const res = await requestJson(`/api/tasks/${taskId}`, { method: "DELETE" });
     router.refresh();
-    pushUndoToast(data.undo);
+    if (res.ok) pushUndoToast(res.data?.undo);
   }
 
   return (

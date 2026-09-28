@@ -9,6 +9,7 @@ import { resolveChatMediaUrl, resolveAvatarUrlMap } from "@/lib/r2";
 import { getDealScope } from "@/lib/team-scope";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { readJson, bodyErrorResponse } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -151,7 +152,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
 
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
   const { threadId } = await params;
-  const requestBody = await req.json();
+
+  const { session, organizationId, userId } = await requireSession();
+  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  // Corpo lido só DEPOIS da autenticação e com teto (lib/read-body.ts) — a
+  // mídia em si nunca vem aqui (só a chave do upload), 1 MB sobra.
+  let requestBody: unknown;
+  try {
+    requestBody = await readJson(req);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   const { text, type, mediaUrl, metadata, replyToId } = requestBody as {
     text?: string;
     type?: string;
@@ -159,9 +173,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     metadata?: Record<string, unknown>;
     replyToId?: string;
   };
-
-  const { session, organizationId, userId } = await requireSession();
-  if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   // Generoso o bastante pra não incomodar conversa manual de verdade (pessoa
   // digitando), só freia um script/automação externa tentando disparar em

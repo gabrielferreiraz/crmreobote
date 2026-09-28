@@ -1,16 +1,16 @@
 /**
- * Backfill de Reuniões/Visitas migradas do Agendor: import-tarefas.ts só
- * cria Task (MEETING/VISIT), nunca Activity — mas o relatório de
- * "Reuniões/visitas" (app/(dashboard)/relatorios/page.tsx,
+ * Backfill de Videochamadas/Visitas migradas do Agendor: import-tarefas.ts só
+ * cria Task (VIDEO_CALL/VISIT), nunca Activity — mas o relatório de
+ * "Videochamadas/visitas" (app/(dashboard)/relatorios/page.tsx,
  * meetingsAndVisitsByOwner) conta de Activity, não de Task. Activity é o
  * registro de "isso aconteceu"; Task é o lembrete/agendamento — no fluxo
- * normal do CRM os dois nascem juntos ao logar uma reunião (ver
+ * normal do CRM os dois nascem juntos ao logar uma videochamada (ver
  * submitActivity em app/(dashboard)/negocios/[id]/deal-detail.tsx), mas a
  * migração só produziu o lado Task. Sem este backfill, todo o histórico de
- * reuniões/visitas migradas fica invisível em Relatórios.
+ * videochamadas/visitas migradas fica invisível em Relatórios.
  *
  * Só cria Activity pra Task migrada (agendorTaskId preenchido) e já
- * CONCLUÍDA (completedAt preenchido) — reunião/visita que nunca aconteceu
+ * CONCLUÍDA (completedAt preenchido) — videochamada/visita que nunca aconteceu
  * de verdade não deveria contar. Create-only por (agendorTaskId, userId),
  * mesma chave de reconciliação do Task de origem — seguro pra rodar de novo.
  *
@@ -34,7 +34,7 @@ async function main() {
       where: {
         organizationId: ORGANIZATION_ID,
         agendorTaskId: { not: null },
-        type: { in: ["MEETING", "VISIT"] },
+        type: { in: ["VIDEO_CALL", "VISIT"] },
         completedAt: { not: null },
       },
       select: {
@@ -48,7 +48,7 @@ async function main() {
         completedAt: true,
       },
     });
-    console.log(`Tarefas migradas de Reunião/Visita já concluídas: ${tasks.length}`);
+    console.log(`Tarefas migradas de Videochamada/Visita já concluídas: ${tasks.length}`);
 
     const existing = await prisma.activity.findMany({
       where: { organizationId: ORGANIZATION_ID, agendorTaskId: { not: null } },

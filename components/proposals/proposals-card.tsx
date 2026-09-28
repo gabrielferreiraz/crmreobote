@@ -24,10 +24,13 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProposalFormDialog } from "@/components/proposals/proposal-form-dialog";
 import { formatCurrency } from "@/lib/format";
 import { proposalApi } from "@/lib/proposals/client";
+import { trackUse } from "@/lib/feature-usage/track";
+import type { FeatureKey } from "@/lib/feature-usage/features";
 import {
   PROPOSAL_STATUS_LABEL,
   allowedProposalActions,
   creditPerQuota,
+  formatPercent,
   formatProposalNumber,
   isProposalOpen,
   type ProposalAction,
@@ -142,7 +145,11 @@ export function ProposalsCard({
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
-  async function perform<T>(proposal: ProposalDTO, call: () => Promise<{ ok: true; data: T } | { ok: false; error: string }>): Promise<T | null> {
+  async function perform<T>(
+    proposal: ProposalDTO,
+    call: () => Promise<{ ok: true; data: T } | { ok: false; error: string }>,
+    feature?: FeatureKey,
+  ): Promise<T | null> {
     setBusyId(proposal.id);
     setError(null);
     const res = await call();
@@ -152,19 +159,20 @@ export function ProposalsCard({
       setError(res.error);
       return null;
     }
+    if (feature) trackUse(feature);
     return res.data;
   }
 
   async function runConfirmed(kind: ConfirmKind, p: ProposalDTO) {
     switch (kind) {
       case "send":
-        await perform(p, () => proposalApi.action(p.id, "send"));
+        await perform(p, () => proposalApi.action(p.id, "send"), "proposta.enviada");
         break;
       case "accept":
-        await perform(p, () => proposalApi.action(p.id, "accept"));
+        await perform(p, () => proposalApi.action(p.id, "accept"), "proposta.aceita");
         break;
       case "decline":
-        await perform(p, () => proposalApi.action(p.id, "decline"));
+        await perform(p, () => proposalApi.action(p.id, "decline"), "proposta.recusada");
         break;
       case "cancel":
         await perform(p, () => proposalApi.action(p.id, "cancel"));
@@ -173,7 +181,7 @@ export function ProposalsCard({
         await perform(p, () => proposalApi.remove(p.id));
         break;
       case "redo": {
-        const result = await perform(p, () => proposalApi.action<{ superseded: ProposalDTO; created: ProposalDTO }>(p.id, "redo"));
+        const result = await perform(p, () => proposalApi.action<{ superseded: ProposalDTO; created: ProposalDTO }>(p.id, "redo"), "proposta.refeita");
         if (result) setForm({ proposal: result.created });
         break;
       }
@@ -363,7 +371,7 @@ function ActiveProposalCard({
       </div>
 
       {/* Faixa Única de Métricas (Metric Strip Horizontal) */}
-      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 rounded-md border border-neutral-200/80 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-800/40 p-2.5 divide-y sm:divide-y-0 sm:divide-x divide-neutral-200 dark:divide-neutral-700/60">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 rounded-md border border-neutral-200/80 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-800/40 p-2.5 divide-y sm:divide-y-0 sm:divide-x divide-neutral-200 dark:divide-neutral-700/60">
         <div className="p-1 sm:px-2.5">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Crédito</span>
           <span className="font-bold text-neutral-900 dark:text-neutral-100 tabular-nums text-xs sm:text-sm">
@@ -380,6 +388,12 @@ function ActiveProposalCard({
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Cotas</span>
           <span className="font-medium text-neutral-800 dark:text-neutral-200 tabular-nums text-xs sm:text-sm">
             {p.quotaCount > 1 ? `${p.quotaCount} x ${formatCurrency(perQuota)}` : `${p.quotaCount} cota`}
+          </span>
+        </div>
+        <div className="p-1 sm:px-2.5 pt-2 sm:pt-1">
+          <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Taxa</span>
+          <span className="font-medium text-neutral-800 dark:text-neutral-200 tabular-nums text-xs sm:text-sm">
+            {formatPercent(p.feePercent)}
           </span>
         </div>
         <div className="p-1 sm:px-2.5 pt-2 sm:pt-1">
@@ -486,6 +500,7 @@ function PastRevisionRow({
         <span className="text-neutral-300 dark:text-neutral-700">·</span>
         <span className="font-medium text-neutral-700 dark:text-neutral-300 tabular-nums">{formatCurrency(p.credit)}</span>
         <span className="text-neutral-400 tabular-nums text-[11px]">({p.quotaCount}x {formatCurrency(perQuota)})</span>
+        <span className="text-neutral-400 tabular-nums text-[11px]">Taxa {formatPercent(p.feePercent)}</span>
         <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_BADGE_STYLE[p.status]}`}>
           {PROPOSAL_STATUS_LABEL[p.status]}
         </span>

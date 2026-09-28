@@ -23,6 +23,7 @@ import { FieldError, focusField } from "@/components/field-error";
 import { parseBrazilDateTime } from "@/lib/timezone";
 import { TASK_TYPE_LABELS } from "@/lib/task-icons";
 import type { Option } from "@/app/(dashboard)/agenda/tasks-list";
+import { trackUse } from "@/lib/feature-usage/track";
 
 export function NewTaskDialog({
   deals,
@@ -68,7 +69,7 @@ export function NewTaskDialog({
   // Prazo digitado já passou — só AVISA (atividade retroativa é legítima; o risco é erro de digitação
   // no ano — achado B4 do QA). Calculado no onChange (não no render: Date.now() é impuro).
   const [dueInPast, setDueInPast] = useState(false);
-  // Setado só quando a tarefa recém-criada é uma Reunião com data e cliente
+  // Setado só quando a tarefa recém-criada é uma Videochamada com data e cliente
   // vinculado — troca o formulário pelo MeetingInviteDialog em vez de fechar
   // na hora (ver render abaixo).
   const [meetingInviteTask, setMeetingInviteTask] = useState<MeetingInviteTask | null>(null);
@@ -108,7 +109,8 @@ export function NewTaskDialog({
     }
 
     const created = await res.json();
-    if (created.type === "MEETING" && created.dueAt && created.contact) {
+    trackUse("agenda.atividade.nova");
+    if (created.type === "VIDEO_CALL" && created.dueAt && created.contact) {
       setMeetingInviteTask({
         id: created.id,
         title: created.title,

@@ -31,12 +31,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       where: { id, organizationId, ...scopeWhere(scope) },
     });
     if (!task) return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });
-    if (task.type !== "MEETING") {
-      return NextResponse.json({ error: "Só dá pra criar link do Meet em tarefas do tipo Reunião" }, { status: 400 });
+    if (task.type !== "VIDEO_CALL") {
+      return NextResponse.json({ error: "Só dá pra criar link do Meet em tarefas do tipo Videochamada" }, { status: 400 });
     }
-    if (!task.dueAt) return NextResponse.json({ error: "A reunião precisa de data/hora marcada" }, { status: 400 });
+    if (!task.dueAt) return NextResponse.json({ error: "A videochamada precisa de data/hora marcada" }, { status: 400 });
     if (task.googleEventId) {
-      return NextResponse.json({ error: "Esta reunião já tem um evento criado no Google Agenda" }, { status: 400 });
+      return NextResponse.json({ error: "Esta videochamada já tem um evento criado no Google Agenda" }, { status: 400 });
     }
 
     const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId: task.ownerId } });

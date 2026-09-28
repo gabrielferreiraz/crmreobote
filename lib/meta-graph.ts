@@ -12,6 +12,7 @@
 
 import { createHmac } from "node:crypto";
 import { secureEqual } from "@/lib/security/secure-compare";
+import { redactForLog, redactUrl } from "@/lib/log-redact";
 
 export const GRAPH_API_VERSION = "v21.0";
 export const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -40,6 +41,10 @@ export function getAppCredentials(): { appId: string; appSecret: string } {
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export async function metaGraphRequest<T>(path: string, accessToken: string, init?: RequestInit): Promise<T> {
+  // `path` pode carregar client_secret/code/fb_exchange_token na query (ver
+  // exchangeCodeForToken) — tudo que vai pra log ou pra mensagem de erro usa a
+  // versão redigida, NUNCA o path cru (ver lib/log-redact.ts).
+  const safePath = redactUrl(path);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -56,11 +61,11 @@ export async function metaGraphRequest<T>(path: string, accessToken: string, ini
     });
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "AbortError";
-    console.error(`[meta-graph] ${timedOut ? "timeout" : "falha de rede"} em ${path}`, err);
+    console.error(`[meta-graph] ${timedOut ? "timeout" : "falha de rede"} em ${safePath}`, err instanceof Error ? err.message : err);
     throw new MetaApiError(
       timedOut
-        ? `Graph API não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (${path})`
-        : `Falha de conexão com o Graph API (${path})`,
+        ? `Graph API não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (${safePath})`
+        : `Falha de conexão com o Graph API (${safePath})`,
       0,
     );
   } finally {
@@ -71,15 +76,16 @@ export async function metaGraphRequest<T>(path: string, accessToken: string, ini
 
   if (!res.ok) {
     // O corpo de erro do Graph API vem em {error:{message,type,code,
-    // error_subcode,fbtrace_id}} — logado inteiro no servidor (nunca sobe
-    // pro chamador) porque é onde aparece a causa real (token expirado,
-    // permissão faltando, etc.).
-    console.error(`[meta-graph] ${init?.method ?? "GET"} ${path} →`, JSON.stringify(json)?.slice(0, 500));
+    // error_subcode,fbtrace_id}} — é onde aparece a causa real (token
+    // expirado, permissão faltando), então vai pro log, mas redigido.
+    console.error(`[meta-graph] ${init?.method ?? "GET"} ${safePath} → ${res.status}`, redactForLog(json));
     const message = (json as { error?: { message?: string } } | null)?.error?.message;
-    throw new MetaApiError(message ?? `Graph API respondeu ${res.status} em ${path}`, res.status);
+    throw new MetaApiError(message ?? `Graph API respondeu ${res.status} em ${safePath}`, res.status);
   }
 
-  console.log(`[meta-graph] ${init?.method ?? "GET"} ${path} → ${res.status}:`, JSON.stringify(json).slice(0, 1000));
+  // Sucesso: só método/path/status. O corpo NUNCA é logado — a resposta de
+  // /oauth/access_token É o token de acesso (antes ia inteiro pro log).
+  console.log(`[meta-graph] ${init?.method ?? "GET"} ${safePath} → ${res.status}`);
   return json as T;
 }
 

@@ -89,13 +89,13 @@ export async function POST(req: Request) {
           ownerId: consultorId,
           dealId: resolvedDealId,
           contactId: contact.id,
-          type: "MEETING",
-          title: sanitizeCell(`Reunião com ${contact.name}`),
+          type: "VIDEO_CALL",
+          title: sanitizeCell(`Videochamada com ${contact.name}`),
           dueAt,
         },
       });
     } catch (err) {
-      // Índice único parcial (ownerId, dueAt) WHERE type='MEETING' — é a
+      // Índice único parcial (ownerId, dueAt) WHERE type='VIDEO_CALL' — é a
       // trava real contra dois leads reservando o mesmo horário ao mesmo
       // tempo (ver migration). A checagem isSlotStillAvailable acima cobre
       // o caso comum; isto aqui cobre a corrida de verdade.
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
         // A reserva já está gravada (Task criada) — uma falha aqui (token
         // revogado, Google fora do ar) não pode desfazer o agendamento,
         // só sinalizar na resposta e logar pra investigar depois.
-        console.error(`[appointments] falha ao sincronizar reunião ${task.id} com o Google Agenda de ${consultorId}`, err);
+        console.error(`[appointments] falha ao sincronizar videochamada ${task.id} com o Google Agenda de ${consultorId}`, err);
       }
     }
 

@@ -7,6 +7,7 @@ import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { StageManager } from "./stage-manager";
+import { requestJson } from "@/lib/client-request";
 
 type Stage = {
   id: string;
@@ -73,23 +74,24 @@ export function PipelineManager({
   }
 
   async function renamePipeline(id: string, newName: string) {
-    await fetch(`/api/pipelines/${id}`, {
+    const res = await requestJson(`/api/pipelines/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName }),
+      json: { name: newName },
     });
-    router.refresh();
+    if (res.ok) router.refresh();
   }
 
   async function setDefault(id: string) {
     setBusyId(id);
-    await fetch(`/api/pipelines/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isDefault: true }),
-    });
-    setBusyId(null);
-    router.refresh();
+    try {
+      const res = await requestJson(`/api/pipelines/${id}`, {
+        method: "PATCH",
+        json: { isDefault: true },
+      });
+      if (res.ok) router.refresh();
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function deletePipeline(id: string) {

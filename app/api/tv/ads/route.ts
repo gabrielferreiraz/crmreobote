@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/require-session";
+import { requireRole } from "@/lib/require-role";
 import { assertValidTvAd, buildTvAdKey, uploadTvAd, deleteTvAdByUrl, TvAdUploadError } from "@/lib/r2";
+import { readFormData, readJson, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +11,23 @@ export const dynamic = "force-dynamic";
  * (formData com "file", valida bytes de verdade antes de aceitar), só que
  * sobe pro bucket PÚBLICO de anúncios (ver lib/r2.ts) em vez do privado de
  * avatar/mídia — devolve a URL final pronta, sem indireção de assinatura.
- * Mesmo `requireSession` (sem checar role) que `saveTvConfig` já usa — quem
- * pode salvar a configuração da TV também pode subir a imagem que vai nela.
+ *
+ * Só Dono/Gerente — mesmo papel que saveTvConfig (a TV fica à vista de
+ * cliente). Autentica ANTES de ler o arquivo, e lê com teto (lib/read-body.ts).
  */
 export async function POST(req: Request) {
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "MANAGER"]);
+  if (!access.ok) return NextResponse.json({ error: "Só o dono ou um gerente pode alterar a TV." }, { status: 403 });
 
-  const formData = await req.formData();
+  let formData: FormData;
+  try {
+    formData = await readFormData(req, BODY_LIMITS.image);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
+
   const file = formData.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie uma imagem" }, { status: 400 });
@@ -34,20 +44,27 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  const key = buildTvAdKey(organizationId, file.type);
+  const key = buildTvAdKey(access.organizationId, file.type);
   const url = await uploadTvAd(key, buffer, file.type);
 
   return NextResponse.json({ url });
 }
 
-/** Remove uma imagem já enviada (botão de lixeira na lista, ver tv-config-form.tsx). */
+/** Remove uma imagem já enviada (botão de lixeira na lista, ver tv-config-form.tsx) — só anúncio DESTA organização. */
 export async function DELETE(req: Request) {
-  const { organizationId } = await requireSession();
-  if (!organizationId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "MANAGER"]);
+  if (!access.ok) return NextResponse.json({ error: "Só o dono ou um gerente pode alterar a TV." }, { status: 403 });
 
-  const { url } = (await req.json().catch(() => ({}))) as { url?: string };
+  let url: string | undefined;
+  try {
+    ({ url } = await readJson<{ url?: string }>(req));
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   if (!url) return NextResponse.json({ error: "url é obrigatório" }, { status: 400 });
 
-  await deleteTvAdByUrl(url).catch(() => {});
+  await deleteTvAdByUrl(url, access.organizationId).catch(() => {});
   return NextResponse.json({ ok: true });
 }

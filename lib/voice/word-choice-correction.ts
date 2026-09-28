@@ -6,7 +6,7 @@ import { foldAccents } from "./number-normalizer";
  * (demonstrativo "this" vs. verbo "estar"/"is"). Corrige SEM risco de falso
  * positivo porque não é ambíguo de verdade: o demonstrativo "esta" em
  * português SEMPRE precede um SUBSTANTIVO ("esta proposta", "esta
- * reunião") — nunca um predicado de estado (adjetivo típico de "estar" ou
+ * videochamada") — nunca um predicado de estado (adjetivo típico de "estar" ou
  * verbo no gerúndio) direto. Se a palavra seguinte é claramente um
  * predicado desses, só pode ser o verbo — não existe leitura alternativa
  * gramatical válida.

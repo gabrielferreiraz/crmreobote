@@ -6,6 +6,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail } from "@/lib/email";
 import { isEmailNotificationEnabled } from "@/lib/notification-settings";
 import { escapeHtml } from "@/lib/security/html-escape";
+import { isUserExclusiveToOrg, SHARED_ACCOUNT_MESSAGE } from "@/lib/org-membership-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,12 @@ export async function POST(
       include: { user: { select: { name: true, email: true } } },
     });
     if (!membership) return NextResponse.json({ error: "Membro não encontrado" }, { status: 404 });
+
+    // A senha é GLOBAL (vale em todas as organizações da pessoa) — só quem é
+    // exclusivo desta organização pode ter a senha trocada pelo Dono dela.
+    if (!(await isUserExclusiveToOrg(userId, access.organizationId))) {
+      return NextResponse.json({ error: SHARED_ACCOUNT_MESSAGE }, { status: 403 });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 

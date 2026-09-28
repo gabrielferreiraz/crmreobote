@@ -10,6 +10,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { parseAudienceFilter, audienceFilterIsEmpty, buildAudienceWhere, type AudienceFilter } from "@/lib/campaigns/audience";
 import { validateRmktAndDelay, type RmktWaveInput } from "@/lib/campaigns/validate-rmkt";
 import type { DealScope } from "@/lib/team-scope";
+import { scriptAccessWhere } from "@/lib/campaigns/scripts";
 
 export type ScriptRef = { scriptId: string; weight: number };
 
@@ -68,10 +69,24 @@ function validateLegacyFollowUp(input: CampaignInput): string | null {
   return null;
 }
 
+/**
+ * Quem está montando/editando a campanha — decide QUAL WhatsApp pode ser usado
+ * e QUAIS scripts (auditoria 09/2026: antes qualquer consultor escolhia o
+ * WhatsApp de um colega e disparava em nome dele, e usava script Restrito
+ * alheio só sabendo o id).
+ *  - WhatsApp: o Dono usa qualquer um (é ele quem monta campanha pra outra
+ *    pessoa — pedido explícito); os demais, só o próprio — ou o que a campanha
+ *    JÁ usava, na edição de rascunho (gerente ajustando o rascunho de alguém
+ *    da equipe não pode ser barrado por não ser o dono do número).
+ *  - Scripts: só os que a pessoa enxerga (públicos ou dela; Dono vê todos).
+ */
+export type CampaignActor = { userId: string; role: string | undefined; currentInstanceId?: string };
+
 export async function resolveCampaignInput(
   organizationId: string,
   input: CampaignInput,
-  scope?: DealScope,
+  scope: DealScope | undefined,
+  actor: CampaignActor,
 ): Promise<{ ok: true; value: ResolvedCampaign } | { ok: false; error: string }> {
   if (!input.name?.trim()) return { ok: false, error: "Nome é obrigatório" };
 
@@ -100,6 +115,11 @@ export async function resolveCampaignInput(
   if (!input.instanceId) return { ok: false, error: "Selecione de qual WhatsApp enviar" };
   const instance = await prisma.whatsAppInstance.findFirst({ where: { id: input.instanceId, organizationId } });
   if (!instance) return { ok: false, error: "Instância de WhatsApp inválida" };
+  const canUseInstance =
+    actor.role === "OWNER" || instance.userId === actor.userId || instance.id === actor.currentInstanceId;
+  if (!canUseInstance) {
+    return { ok: false, error: "Você só pode disparar campanhas pelo seu próprio WhatsApp. Peça ao dono da organização para montar a campanha em nome de outra pessoa." };
+  }
 
   if (!input.scripts?.length) return { ok: false, error: "Selecione ao menos um script" };
 
@@ -112,7 +132,7 @@ export async function resolveCampaignInput(
     ...schedule.waves.map((wave) => wave.scriptId),
   ];
   const scriptRows = await prisma.messageScript.findMany({
-    where: { id: { in: allScriptIds }, organizationId },
+    where: { id: { in: allScriptIds }, organizationId, ...scriptAccessWhere(actor) },
     select: { id: true, steps: true, version: true },
   });
   const stepsById = new Map(scriptRows.map((s) => [s.id, s.steps]));

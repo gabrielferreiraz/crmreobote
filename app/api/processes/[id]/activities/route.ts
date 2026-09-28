@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -41,13 +42,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 /** Só o administrativo registra anotações de Processo — consultor usa o botão de Solicitação. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const { activityBody } = body as { activityBody?: string };
-
-  if (!activityBody?.trim()) return NextResponse.json({ error: "Nota vazia" }, { status: 400 });
-
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  let body: { activityBody?: string };
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    const response = bodyErrorResponse(err);
+    if (response) return response;
+    throw err;
+  }
+  const { activityBody } = body;
+  if (!activityBody?.trim()) return NextResponse.json({ error: "Nota vazia" }, { status: 400 });
 
   return runWithTenant(access.organizationId, async () => {
     const process = await prisma.process.findFirst({ where: { id, organizationId: access.organizationId } });

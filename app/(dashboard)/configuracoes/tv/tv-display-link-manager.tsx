@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw, Trash2, Tv, Copy, Check } from "lucide-react";
@@ -138,7 +140,8 @@ export function TvDisplayLinkManager({ kind, initialLink }: { kind: LinkKind; in
 
   async function revoke() {
     if (!link) return;
-    await fetch(`/api/tv-display-link/${link.id}`, { method: "DELETE" });
+    const res = await requestJson(`/api/tv-display-link/${link.id}`, { method: "DELETE" });
+    if (!res.ok) return;
     setLink(null);
     setConfirmRevoke(false);
     router.refresh();

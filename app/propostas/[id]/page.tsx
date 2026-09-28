@@ -70,8 +70,8 @@ export default async function ProposalPrintPage({ params }: { params: Promise<{ 
   return (
     // bg-neutral-200 explícito (não herda o tema): é a "mesa" em que a folha
     // branca está apoiada na tela; no papel (print:) some tudo isso.
-    <div className="min-h-screen overflow-x-auto bg-neutral-200 px-4 py-6 print:min-h-0 print:bg-white print:p-0">
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-4 lg:flex-row lg:items-start lg:gap-6 print:block print:max-w-none">
+    <div className="min-h-screen overflow-x-hidden bg-neutral-200 dark:bg-neutral-900 px-2.5 py-3 sm:px-4 sm:py-6 print:min-h-0 print:overflow-visible print:bg-white print:p-0 print:m-0">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-3 sm:gap-4 lg:flex-row lg:items-start lg:gap-6 print:block print:w-auto print:max-w-none print:m-0 print:p-0 print:gap-0">
         <ProposalToolbar proposal={loaded.data.proposal} />
         <ProposalDocument data={loaded.data} />
       </div>

@@ -19,6 +19,10 @@ export default async function TvConfigPage() {
   // "Sem permissão" só de olhar a própria tela de configuração.
   const membership = await getCurrentMembership();
   const canManageDisplayLink = membership?.role === "OWNER" || membership?.role === "MANAGER";
+  // A configuração inteira é só de Dono/Gerente (saveTvConfig e /api/tv/ads
+  // exigem isso) — o item já nem aparece em Configurações pros demais; quem
+  // abrir pelo endereço volta pra lá em vez de ver um formulário que não salva.
+  if (!canManageDisplayLink) redirect("/configuracoes");
 
   // getTvConfig já abre o próprio runWithTenant por dentro — as duas não
   // dependem uma da outra, então não precisam esperar em fila.

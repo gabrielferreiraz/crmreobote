@@ -82,8 +82,8 @@ export async function HomeAdministrativo() {
                   <div className="w-11 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
                     {task.dueAt && (
                       <>
-                        <div>{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit" })}</div>
-                        <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short" })}</div>
+                        <div>{new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Campo_Grande" })}</div>
+                        <div className="uppercase">{new Date(task.dueAt).toLocaleDateString("pt-BR", { month: "short", timeZone: "America/Campo_Grande" })}</div>
                       </>
                     )}
                   </div>
@@ -91,7 +91,7 @@ export async function HomeAdministrativo() {
                     <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{task.title}</p>
                     <p className="truncate text-neutral-500 dark:text-neutral-400">
                       {task.deal?.name ?? task.contact?.name ?? ""}
-                      {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
+                      {task.dueAt && ` · ${new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Campo_Grande" })}`}
                     </p>
                   </div>
                 </Link>
@@ -120,7 +120,7 @@ export async function HomeAdministrativo() {
                       {note.process?.contact.name ?? "Processo"}
                     </p>
                     {note.body && <p className="truncate text-neutral-500 dark:text-neutral-400">{note.body}</p>}
-                    <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{note.createdAt.toLocaleString("pt-BR")}</p>
+                    <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{note.createdAt.toLocaleString("pt-BR", { timeZone: "America/Campo_Grande" })}</p>
                   </div>
                 </Link>
               ))}

@@ -35,6 +35,7 @@ const DEBUG_LOG_ENABLED = process.env.WHATSAPP_WEBHOOK_DEBUG_LOG === "true" || p
 function debugLog(...args: unknown[]): void {
   if (DEBUG_LOG_ENABLED) console.log(...args);
 }
+import { maskPhone } from "@/lib/log-redact";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
 import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
@@ -45,6 +46,7 @@ import { isOptOutMessage } from "@/lib/whatsapp/opt-out";
 import { dispatchMessageReceivedAutomations } from "@/lib/automations/message-trigger";
 import { shouldResetWarmup } from "@/lib/whatsapp/warmup";
 import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
+import { pauseRunningCampaignsForOfflineInstance, resumeCampaignsWithReconnectedInstance } from "@/lib/campaigns/instance-guard";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
@@ -131,7 +133,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     return;
   }
   if (isNonIndividualJid(remoteJid)) {
-    console.log(`[wa:webhook] ignorada: JID não-individual (${remoteJid})`);
+    console.log(`[wa:webhook] ignorada: JID não-individual (${maskPhone(remoteJid)})`);
     return;
   }
 
@@ -161,7 +163,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     whatsappName: direction === "INBOUND" ? msg.pushName : undefined,
   });
   debugLog(
-    `[wa:webhook] remoteJid=${remoteJid} → normalizado=${normalized} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
+    `[wa:webhook] remoteJid=${maskPhone(remoteJid)} → normalizado=${maskPhone(normalized)} → thread=${thread.id} contactId=${thread.contactId ?? "—"} pushName="${msg.pushName ?? "—"}"`,
   );
 
   const externalId = msg.key?.id;
@@ -459,7 +461,7 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
         continue;
       }
       if (isNonIndividualJid(remoteJid)) {
-        console.log(`[wa:webhook] chamada ignorada: JID não-individual (${remoteJid})`);
+        console.log(`[wa:webhook] chamada ignorada: JID não-individual (${maskPhone(remoteJid)})`);
         continue;
       }
 
@@ -728,6 +730,11 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
         ...warmupFields,
       },
     });
+    if (shouldPersistStatus && instance.status === "CONNECTED" && status === "DISCONNECTED") {
+      await pauseRunningCampaignsForOfflineInstance(instance.organizationId, instance.id);
+    } else if (shouldPersistStatus && status === "CONNECTED" && instance.status !== "CONNECTED") {
+      await resumeCampaignsWithReconnectedInstance(instance.organizationId);
+    }
     console.log(
       `[wa:webhook] instância ${instance.instanceName} → status=${status}${shouldPersistStatus ? "" : " (não persistido — blip passageiro)"} phoneNumber=${phoneNumber}`,
     );

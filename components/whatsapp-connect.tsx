@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, QrCode, Unplug, History, ShieldCheck } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
@@ -142,16 +144,15 @@ export function WhatsAppConnect() {
   async function disconnect() {
     setBusy(true);
     setError(null);
-    try {
-      await fetch("/api/whatsapp/instance", { method: "DELETE" });
-      setStatus("disconnected");
-      setPhoneNumber(null);
-      setQrCode(null);
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-    } finally {
-      setBusy(false);
+    const res = await requestJson("/api/whatsapp/instance", { method: "DELETE" }, { silent: true });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? "Falha de conexão. Tente novamente.");
+      return;
     }
+    setStatus("disconnected");
+    setPhoneNumber(null);
+    setQrCode(null);
   }
 
   // O puxão automático de histórico (no momento do pareamento) depende do
@@ -368,15 +369,14 @@ function MetaWhatsAppConnect() {
   async function disconnect() {
     setBusy(true);
     setError(null);
-    try {
-      await fetch("/api/whatsapp/instance/meta/connect", { method: "DELETE" });
-      setStatus("disconnected");
-      setPhoneNumber(null);
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-    } finally {
-      setBusy(false);
+    const res = await requestJson("/api/whatsapp/instance/meta/connect", { method: "DELETE" }, { silent: true });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? "Falha de conexão. Tente novamente.");
+      return;
     }
+    setStatus("disconnected");
+    setPhoneNumber(null);
   }
 
   if (status === "loading") {

@@ -11,11 +11,14 @@ import {
   type DealScope,
 } from "@/lib/team-scope";
 import { listCampaignScriptEntries, normalizeSteps, ACTIVE_CAMPAIGN_STATUSES } from "@/lib/campaigns/script-sync";
+import { PAUSE_REASON, parsePauseReason, type PauseReason } from "@/lib/campaigns/pause-reasons";
 
 export type CampaignSummary = {
   id: string;
   name: string;
   status: $Enums.CampaignStatus;
+  /** Por que está PAUSED sem alguém ter clicado em "Pausar" (Campaign.pausedReason no schema) — null = pausa manual ou não pausada. */
+  pausedReason: PauseReason | null;
   audienceFilter: AudienceFilter;
   audienceLabel: string;
   instanceName: string;
@@ -64,6 +67,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       id: true,
       name: true,
       status: true,
+      pausedReason: true,
       audienceFilter: true,
       delayMinSec: true,
       delayMaxSec: true,
@@ -118,6 +122,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       id: c.id,
       name: c.name,
       status: c.status,
+      pausedReason: c.status === "PAUSED" ? parsePauseReason(c.pausedReason) : null,
       audienceFilter,
       audienceLabel: describeAudienceFilter(audienceFilter),
       instanceName: c.instance.user.name,
@@ -212,6 +217,17 @@ export type CampaignScriptRow = {
 };
 
 export type CampaignDetail = CampaignSummary & {
+  /**
+   * O WhatsApp por trás do aviso "pausada automaticamente" (o que derrubou a campanha — em envio em
+   * massa do Pipeline, um dos vários). Só vem preenchido quando o motivo da pausa é sobre um WhatsApp.
+   */
+  pauseInstance: { ownerName: string; status: $Enums.WhatsAppInstanceStatus; disconnectedAt: Date | null } | null;
+  /**
+   * RUNNING com o WhatsApp da campanha fora do ar: o motor só PAUSA quando há um envio a fazer (uma
+   * campanha que só espera prazo de reenvio segue "Rodando" sem mandar nada), então a tela avisa nesse
+   * meio-tempo. Só campanha de UM WhatsApp (no envio em massa do Pipeline cada destinatário tem o seu).
+   */
+  whatsappOffline: { ownerName: string; disconnectedAt: Date | null } | null;
   recipients: CampaignRecipientRow[];
   /** Scripts em uso e se a cópia da campanha está igual à biblioteca. */
   scripts: CampaignScriptRow[];
@@ -465,10 +481,32 @@ export async function getCampaignDetail(
   const nextFollowUpEstimateAtInWindow =
     campaign.status === "RUNNING" && nextFollowUpEstimateAt ? nextAllowedSendWindow(campaign, nextFollowUpEstimateAt) : nextFollowUpEstimateAt;
 
+  const pausedReason = campaign.status === "PAUSED" ? parsePauseReason(campaign.pausedReason) : null;
+  let pauseInstance: CampaignDetail["pauseInstance"] = null;
+  if (pausedReason === PAUSE_REASON.WHATSAPP_DISCONNECTED || pausedReason === PAUSE_REASON.WHATSAPP_INSTABILITY) {
+    // Numa campanha de UM WhatsApp é o `instance` que já veio no include; no envio em massa do Pipeline
+    // (um WhatsApp por destinatário) é o que a pausa gravou.
+    const source =
+      campaign.pausedInstanceId && campaign.pausedInstanceId !== campaign.instanceId
+        ? await prisma.whatsAppInstance.findUnique({
+            where: { id: campaign.pausedInstanceId },
+            select: { status: true, disconnectedAt: true, user: { select: { name: true } } },
+          })
+        : campaign.instance;
+    if (source) pauseInstance = { ownerName: source.user.name, status: source.status, disconnectedAt: source.disconnectedAt };
+  }
+  const whatsappOffline: CampaignDetail["whatsappOffline"] =
+    campaign.status === "RUNNING" && campaign.source !== "PIPELINE_BULK" && campaign.instance.status !== "CONNECTED"
+      ? { ownerName: campaign.instance.user.name, disconnectedAt: campaign.instance.disconnectedAt }
+      : null;
+
   return {
     id: campaign.id,
     name: campaign.name,
     status: campaign.status,
+    pausedReason,
+    pauseInstance,
+    whatsappOffline,
     audienceFilter,
     audienceLabel: describeAudienceFilter(audienceFilter),
     instanceName: campaign.instance.user.name,

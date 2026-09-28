@@ -10,7 +10,7 @@ const MIN_MINUTES_BEFORE = 1;
 const MAX_MINUTES_BEFORE = 24 * 60; // mesmo teto do aviso pro cliente (schedule-reminder/route.ts)
 
 /**
- * Programa o aviso PUSH pro PRÓPRIO consultor antes de uma Reunião —
+ * Programa o aviso PUSH pro PRÓPRIO consultor antes de uma Videochamada —
  * caminho irmão de schedule-reminder/route.ts (aquele é WhatsApp pro
  * cliente, com mensagem escolhida; este é só um push do sistema, sem texto
  * pra escrever). Ver lib/tasks/meeting-reminder.ts pro cron que manda de
@@ -32,10 +32,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const scope = await getDealScope(organizationId, userId, session!.user.role);
     const task = await prisma.task.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!task) return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });
-    if (task.type !== "MEETING") {
-      return NextResponse.json({ error: "Só dá pra programar aviso em tarefas do tipo Reunião" }, { status: 400 });
+    if (task.type !== "VIDEO_CALL") {
+      return NextResponse.json({ error: "Só dá pra programar aviso em tarefas do tipo Videochamada" }, { status: 400 });
     }
-    if (!task.dueAt) return NextResponse.json({ error: "A reunião precisa de data/hora marcada" }, { status: 400 });
+    if (!task.dueAt) return NextResponse.json({ error: "A videochamada precisa de data/hora marcada" }, { status: 400 });
 
     const selfReminderSendAt = new Date(task.dueAt.getTime() - minutesBefore! * 60_000);
 

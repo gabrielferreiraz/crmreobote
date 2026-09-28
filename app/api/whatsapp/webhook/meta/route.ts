@@ -4,6 +4,7 @@ import { runWithInstanceLookup, runWithTenant } from "@/lib/tenant-context";
 import { secureEqual } from "@/lib/security/secure-compare";
 import { verifyWebhookSignature } from "@/lib/meta-whatsapp";
 import { handleMetaMessages, handleMetaStatuses, type MetaMessage, type MetaStatus, type MetaContact } from "@/lib/whatsapp/meta-events";
+import { readText, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,16 @@ export async function POST(req: NextRequest) {
   // exatos que a Meta mandou; reserializar o JSON parseado poderia produzir
   // uma string byte-a-byte diferente (espaços, ordem de chaves) e invalidar
   // a verificação mesmo com um payload legítimo.
-  const rawBody = await req.text();
+  // Texto cru (a assinatura é calculada sobre ele), mas com teto — é rota
+  // pública, e o corpo era lido inteiro antes de qualquer checagem.
+  let rawBody: string;
+  try {
+    rawBody = await readText(req, BODY_LIMITS.webhook);
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
   const signature = req.headers.get("x-hub-signature-256");
   if (!verifyWebhookSignature(rawBody, signature)) {
     console.warn("[wa:meta-webhook] requisição rejeitada: X-Hub-Signature-256 ausente/incorreta");
@@ -64,7 +74,7 @@ export async function POST(req: NextRequest) {
       const value = change.value;
       const phoneNumberId = value?.metadata?.phone_number_id;
       if (!phoneNumberId) {
-        console.warn("[wa:meta-webhook] change ignorado: sem metadata.phone_number_id", JSON.stringify(change));
+        console.warn("[wa:meta-webhook] change ignorado: sem metadata.phone_number_id; field:", change.field);
         continue;
       }
 

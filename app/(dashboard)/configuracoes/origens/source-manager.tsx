@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, Search, Megaphone } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { requestJson } from "@/lib/client-request";
 
 type Source = {
   id: string;
@@ -40,23 +41,26 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
   }, [sources, search]);
 
   async function renameSource(id: string, label: string) {
-    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, label } : s)));
-    await fetch(`/api/lead-sources/${id}`, {
+    const prev = sources.find((s) => s.id === id);
+    setSources((s) => s.map((src) => (src.id === id ? { ...src, label } : src)));
+    const res = await requestJson(`/api/lead-sources/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label }),
+      json: { label },
     });
-    router.refresh();
+    // Reverte se falhou (requestJson já exibiu o aviso)
+    if (!res.ok && prev) setSources((s) => s.map((src) => (src.id === id ? { ...src, label: prev.label } : src)));
+    if (res.ok) router.refresh();
   }
 
   async function toggleCountsAsAd(id: string, countsAsAd: boolean) {
-    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, countsAsAd } : s)));
-    await fetch(`/api/lead-sources/${id}`, {
+    const prev = sources.find((s) => s.id === id);
+    setSources((s) => s.map((src) => (src.id === id ? { ...src, countsAsAd } : src)));
+    const res = await requestJson(`/api/lead-sources/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ countsAsAd }),
+      json: { countsAsAd },
     });
-    router.refresh();
+    if (!res.ok && prev) setSources((s) => s.map((src) => (src.id === id ? { ...src, countsAsAd: prev.countsAsAd } : src)));
+    if (res.ok) router.refresh();
   }
 
   async function deleteSource(id: string) {

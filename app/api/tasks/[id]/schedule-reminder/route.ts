@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import type { ScriptStep } from "@/lib/campaigns/spintax";
+import { scriptAccessWhere } from "@/lib/campaigns/scripts";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ const MIN_MINUTES_BEFORE = 1;
 const MAX_MINUTES_BEFORE = 24 * 60; // 1 dia — generoso o bastante, sem deixar programar "3 meses antes" por engano
 
 /**
- * Programa o aviso automático de WhatsApp antes de uma Reunião — mensagem
+ * Programa o aviso automático de WhatsApp antes de uma Videochamada — mensagem
  * avulsa (`message`) OU um Script já existente da biblioteca (`scriptId`,
  * copiado aqui como está: mudança futura no Script não altera um aviso já
  * programado). Ver lib/tasks/meeting-reminder.ts pro cron que manda de
@@ -37,15 +38,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const scope = await getDealScope(organizationId, userId, session!.user.role);
     const task = await prisma.task.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!task) return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });
-    if (task.type !== "MEETING") {
-      return NextResponse.json({ error: "Só dá pra programar aviso em tarefas do tipo Reunião" }, { status: 400 });
+    if (task.type !== "VIDEO_CALL") {
+      return NextResponse.json({ error: "Só dá pra programar aviso em tarefas do tipo Videochamada" }, { status: 400 });
     }
-    if (!task.dueAt) return NextResponse.json({ error: "A reunião precisa de data/hora marcada" }, { status: 400 });
-    if (!task.contactId) return NextResponse.json({ error: "A reunião precisa de um cliente vinculado" }, { status: 400 });
+    if (!task.dueAt) return NextResponse.json({ error: "A videochamada precisa de data/hora marcada" }, { status: 400 });
+    if (!task.contactId) return NextResponse.json({ error: "A videochamada precisa de um cliente vinculado" }, { status: 400 });
 
     let steps: ScriptStep[];
     if (scriptId) {
-      const script = await prisma.messageScript.findFirst({ where: { id: scriptId, organizationId } });
+      const script = await prisma.messageScript.findFirst({
+        where: { id: scriptId, organizationId, ...scriptAccessWhere({ userId, role: session!.user.role }) },
+      });
       if (!script) return NextResponse.json({ error: "Script não encontrado" }, { status: 404 });
       steps = script.steps as unknown as ScriptStep[];
       if (!Array.isArray(steps) || steps.length === 0) {

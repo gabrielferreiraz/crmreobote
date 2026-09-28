@@ -89,9 +89,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: permission.reason ?? "Sem permissão" }, { status: 403 });
     }
 
-    const isMeetingOrVisit = existing.type === "MEETING" || existing.type === "VISIT";
+    const isMeetingOrVisit = existing.type === "VIDEO_CALL" || existing.type === "VISIT";
     if (meetingOutcome !== undefined && !isMeetingOrVisit) {
-      return NextResponse.json({ error: "meetingOutcome só se aplica a Reunião/Visita" }, { status: 400 });
+      return NextResponse.json({ error: "meetingOutcome só se aplica a Videochamada/Visita" }, { status: 400 });
     }
 
     const updateData: { body?: string | null; meetingOutcome?: typeof meetingOutcome } = {};

@@ -6,7 +6,7 @@ import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
-import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
+import { getEffectiveRequiredFields, labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
 import { formatCurrency } from "@/lib/format";
 import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 import { notifyMetaConversionWon } from "@/lib/meta-ads/conversions";
@@ -93,6 +93,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+    if (status === "WON" && status !== existing.status) {
+      const contact = await prisma.contact.findUnique({ where: { id: existing.contactId }, select: { jobTitle: true } });
+      const jobTitle = contact?.jobTitle?.trim();
+      if (!jobTitle || jobTitle.toLocaleLowerCase("pt-BR") === "indefinido") {
+        return NextResponse.json({ error: "Informe o cargo do contato antes de marcar o negócio como ganho" }, { status: 400 });
+      }
+
+      const netValue = value !== undefined ? value : existing.value;
+      const grossDealValue = grossValue !== undefined ? grossValue : existing.grossValue;
+      if (netValue == null || grossDealValue == null) {
+        return NextResponse.json({ error: "Informe o valor líquido e o valor bruto antes de marcar o negócio como ganho" }, { status: 400 });
+      }
+    }
+
     if (ownerId) {
       const membership = await prisma.organizationUser.findUnique({
         where: { organizationId_userId: { organizationId, userId: ownerId } },
@@ -129,7 +143,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     if (clearedFields.length > 0) {
       const currentStage = await prisma.pipelineStage.findUnique({ where: { id: existing.stageId } });
-      const blocked = clearedFields.filter((field) => currentStage?.requiredFields.includes(field));
+      const blocked = clearedFields.filter((field) => currentStage && getEffectiveRequiredFields(currentStage.requiredFields).includes(field));
       if (blocked.length > 0) {
         return NextResponse.json(
           { error: `Esta etapa exige: ${blocked.map(labelForRequiredField).join(", ")}` },
@@ -190,11 +204,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
     }
 
+    const currentValue = existing.value != null ? Number(existing.value) : null;
+    const currentGrossValue = existing.grossValue != null ? Number(existing.grossValue) : null;
+    const valueChanged = value !== undefined && value !== currentValue;
+    const grossValueChanged = grossValue !== undefined && grossValue !== currentGrossValue;
+
     const updateData = {
       name: sanitizeCell(name),
       status,
-      value,
-      grossValue,
+      value: valueChanged ? value : undefined,
+      grossValue: grossValueChanged ? grossValue : undefined,
       creditType: sanitizeCell(creditType),
       description: sanitizeCell(description),
       lossReasonId,

@@ -6,10 +6,10 @@ import { AlertCircle, ArrowRight } from "lucide-react";
 import { Select } from "./select";
 import { CurrencyInput } from "./currency-input";
 import { DatePicker } from "./date-picker";
-import { labelForRequiredField, type RequirableDealField } from "@/lib/deal-required-fields";
+import type { RequirableDealField } from "@/lib/deal-required-fields";
 import { Avatar } from "./avatar";
 
-export type RequirableFieldValues = Partial<Record<RequirableDealField, any>>;
+export type RequirableFieldValues = Partial<Record<RequirableDealField, string>>;
 
 export interface CompleteRequiredFieldsDialogProps {
   isOpen: boolean;
@@ -22,6 +22,7 @@ export interface CompleteRequiredFieldsDialogProps {
   jobTitles: { label: string }[];
   creditTypes: { id: string; label: string }[];
   submitting?: boolean;
+  submitLabel?: string;
 }
 
 export function CompleteRequiredFieldsDialog({
@@ -35,6 +36,7 @@ export function CompleteRequiredFieldsDialog({
   jobTitles,
   creditTypes,
   submitting,
+  submitLabel,
 }: CompleteRequiredFieldsDialogProps) {
   const [values, setValues] = useState<RequirableFieldValues>({});
   const isBulk = deals.length > 1;
@@ -181,7 +183,7 @@ export function CompleteRequiredFieldsDialog({
             disabled={!isFormValid || submitting}
             className="btn-primary flex items-center gap-2 px-5 py-2.5 font-medium disabled:opacity-50"
           >
-            {submitting ? "Movendo..." : isBulk ? "Aplicar a todos e Mover" : "Salvar e Mover"}
+            {submitting ? "Salvando..." : submitLabel ?? (isBulk ? "Aplicar a todos e Mover" : "Salvar e Mover")}
             {!submitting && <ArrowRight className="h-4 w-4" strokeWidth={2} />}
           </button>
         </div>

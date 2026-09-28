@@ -9,6 +9,8 @@
  * "use client") — ele lê EVOLUTION_API_KEY do ambiente do servidor.
  */
 
+import { maskPhone, redactForLog } from "@/lib/log-redact";
+
 // Lista única de eventos que o webhook assina — usada tanto ao criar quanto
 // ao reconfigurar uma instância, e comparada no diagnóstico de
 // app/api/whatsapp/instance/route.ts pra saber se uma instância antiga
@@ -91,7 +93,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // "instance not connected" etc.), sem isso o erro genérico não ajuda a
     // diagnosticar por que uma mensagem "foi enviada" mas não chegou.
     const errorBody = await res.text().catch(() => "");
-    console.error(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, errorBody.slice(0, 500));
+    console.error(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, maskPhone(errorBody.slice(0, 500)));
     throw new EvolutionApiError(`Evolution API respondeu ${res.status} em ${path}`, res.status);
   }
 
@@ -101,12 +103,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   const json = await res.json();
-  // Loga toda resposta bem-sucedida, não só erro — pra "sendButtons"/"sendList"
-  // em especial, o Evolution pode responder 200 e mesmo assim a mensagem não
-  // aparecer de fato no WhatsApp do destinatário (limitação da própria Meta
-  // fora de conta Business API oficial); só vendo o corpo da resposta real dá
-  // pra confirmar se o Evolution aceitou ou já avisou algo estranho aqui.
-  console.log(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, JSON.stringify(json).slice(0, 1000));
+  // Corpo de SUCESSO não vai mais pro log (auditoria 09/2026): trazia QR code,
+  // código de pareamento, o token (hash) da instância no createInstance e o
+  // conteúdo/telefone das mensagens. Pra investigar um envio específico,
+  // ligar EVOLUTION_DEBUG_LOG=true temporariamente (sai redigido mesmo assim).
+  if (process.env.EVOLUTION_DEBUG_LOG === "true") {
+    console.log(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, redactForLog(json, 1000));
+  } else {
+    console.log(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}`);
+  }
   return json as T;
 }
 
@@ -255,7 +260,7 @@ export async function simulateTyping(instanceName: string, number: string, textL
   try {
     await sendPresence(instanceName, number, "composing", Math.round(waitMs));
   } catch (err) {
-    console.error(`[evolution] falha ao simular digitação pra ${number} (seguindo com o envio normalmente)`, err);
+    console.error(`[evolution] falha ao simular digitação pra ${maskPhone(number)} (seguindo com o envio normalmente)`, err);
   }
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 }
@@ -274,7 +279,7 @@ export async function fetchProfilePictureUrl(instanceName: string, number: strin
     );
     return data?.profilePictureUrl ?? null;
   } catch (err) {
-    console.error(`[evolution] falha ao buscar foto de perfil de ${number}`, err);
+    console.error(`[evolution] falha ao buscar foto de perfil de ${maskPhone(number)}`, err);
     return null;
   }
 }
@@ -315,7 +320,7 @@ export async function fetchSavedContactName(instanceName: string, number: string
     // o Evolution ecoando o mesmo valor em dois campos.
     return savedName && savedName !== pushName ? savedName : null;
   } catch (err) {
-    console.error(`[evolution] falha ao buscar nome salvo de ${number}`, err);
+    console.error(`[evolution] falha ao buscar nome salvo de ${maskPhone(number)}`, err);
     return null;
   }
 }

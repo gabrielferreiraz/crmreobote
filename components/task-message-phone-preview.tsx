@@ -4,7 +4,7 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
 /**
  * Peças de preview de celular compartilhadas entre MeetingInviteDialog
- * (convite de reunião) e ScheduleMessageDialog (mensagem de WhatsApp
+ * (convite de videochamada) e ScheduleMessageDialog (mensagem de WhatsApp
  * programada em tarefa) — extraídas de meeting-invite-dialog.tsx pra não
  * duplicar o mesmo mockup nos dois diálogos.
  */
@@ -67,7 +67,7 @@ export function MessageBubblePreview({ text, animate }: { text: string; animate?
       }`}
     >
       {/* break-words — sem isso, um link comprido sem espaço nenhum (o
-          "adicionar à agenda" do convite de reunião, por exemplo) estourava
+          "adicionar à agenda" do convite de videochamada, por exemplo) estourava
           pra fora da bolha/moldura do celular em vez de quebrar linha. */}
       <p className="text-[12px] leading-relaxed break-words whitespace-pre-wrap text-neutral-800">{renderWhatsAppFormatting(text)}</p>
       <p className="mt-0.5 text-right text-[9px] text-neutral-400">agora</p>

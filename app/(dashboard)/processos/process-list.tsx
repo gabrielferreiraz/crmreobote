@@ -60,13 +60,17 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
     if (categoryId) params.set("categoryId", categoryId);
     if (pipelineId) params.set("pipelineId", pipelineId);
 
+    // Fetch direto: X-Total-Count vem no header HTTP; requestJson não o expõe.
+    // .catch garante que queda de rede deixa lista vazia em vez de travar.
     fetch(`/api/processes?${params}`)
       .then(async (res) => {
+        if (!res.ok) { setProcesses([]); setLoading(false); return; }
         const data = (await res.json()) as ProcessListItem[];
-        setProcesses(data);
+        setProcesses(Array.isArray(data) ? data : []);
         setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
+        setLoading(false);
       })
-      .finally(() => setLoading(false));
+      .catch(() => { setProcesses([]); setLoading(false); });
   }, [page, pageSize, debouncedSearch, categoryId, pipelineId]);
 
   function handleSearchChange(value: string) {

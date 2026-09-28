@@ -27,6 +27,7 @@ export function serializeProposal(p: ProposalWithUsers): ProposalDTO {
     credit: Number(p.credit),
     termMonths: p.termMonths,
     installment: Number(p.installment),
+    feePercent: Number(p.feePercent),
     quotaCount: p.quotaCount,
     description: p.description,
     createdById: p.createdById,

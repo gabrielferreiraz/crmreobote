@@ -141,7 +141,7 @@ export function TaskRow({
   function handleToggle(e?: React.MouseEvent) {
     e?.stopPropagation();
     const next = !completed;
-    // Concluindo (não desmarcando) uma Reunião/Visita — precisa do
+    // Concluindo (não desmarcando) uma Videochamada/Visita — precisa do
     // resultado antes de seguir (ver use-meeting-outcome-gate.tsx).
     if (next && requestComplete(task)) return;
     setCompleted(next);

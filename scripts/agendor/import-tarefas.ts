@@ -29,7 +29,9 @@ const TYPE_MAP: Record<string, $Enums.TaskType> = {
   Email: "EMAIL",
   WhatsApp: "WHATSAPP",
   Visita: "VISIT",
-  Reunião: "MEETING",
+  // Rótulo histórico exportado pelo Agendor. No CRM, ambos viram VIDEO_CALL.
+  Reunião: "VIDEO_CALL",
+  Videochamada: "VIDEO_CALL",
   Proposta: "PROPOSAL",
   Nota: "NOTE",
   Tarefa: "OTHER",
@@ -117,7 +119,7 @@ async function syncExistingTask(
     await prisma.task.update({ where: { id: existing.id }, data });
   } catch (err) {
     // Ex.: a nova data/hora colide com o índice único anti-duplo-agendamento
-    // (mesmo owner+dueAt já ocupado por OUTRA reunião) — mesmo tratamento
+    // (mesmo owner+dueAt já ocupado por OUTRA videochamada) — mesmo tratamento
     // resiliente do caminho de criação (loga e segue, não derruba a fase
     // inteira por causa de 1 linha).
     console.error(`[tarefas] falha ao sincronizar tarefa (Código da tarefa ${codigoTarefa}):`, err instanceof Error ? err.message : err);

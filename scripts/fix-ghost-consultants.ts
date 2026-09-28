@@ -12,7 +12,7 @@
  * chave única (agendorTaskId, ownerId)/(agendorTaskId, userId) — pra essas
  * 4 pessoas, o MESMO agendorTaskId às vezes existe em DUAS linhas, uma sob
  * o fantasma (import mais recente, 03/09 — geralmente com o dado mais
- * completo: completedAt preenchido, nota de "como foi a visita/reunião")
+ * completo: completedAt preenchido, nota de "como foi a visita/videochamada")
  * e outra sob o usuário real (import mais antigo, geralmente mais pobre —
  * às vezes até completedAt=null quando a tarefa já foi concluída de
  * verdade). Pra cada colisão, mantém a linha "vencedora" (completedAt

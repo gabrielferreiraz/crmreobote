@@ -370,8 +370,8 @@ export function TaskDetailModal({
         <ConfirmDialog
           title={`Excluir "${task.title}"?`}
           description={
-            task.type === "MEETING"
-              ? "Se esta reunião veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
+            task.type === "VIDEO_CALL"
+              ? "Se esta videochamada veio de um agendamento externo (landing page), o horário volta a ficar disponível pra outro lead reservar. Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
               : "Dá pra desfazer logo em seguida, pelo aviso que aparece no canto da tela (ou Ctrl+Z)."
           }
           confirmLabel="Excluir"

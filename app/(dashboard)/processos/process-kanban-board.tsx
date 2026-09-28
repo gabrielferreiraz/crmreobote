@@ -1,5 +1,7 @@
 "use client";
 
+import { requestJson } from "@/lib/client-request";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -246,6 +248,11 @@ export function ProcessKanbanBoard({
         setProcessesByStage(byStage);
         setCountByStage(counts);
       })
+      .catch(() => {
+        if (cancelled) return;
+        setProcessesByStage({});
+        setCountByStage({});
+      })
       .finally(() => {
         if (!cancelled) setStagesLoading(false);
       });
@@ -270,6 +277,8 @@ export function ProcessKanbanBoard({
       const total = Number(res.headers.get("X-Total-Count") ?? currentLength + more.length);
       setProcessesByStage((prev) => ({ ...prev, [stageId]: [...(prev[stageId] ?? []), ...more] }));
       setCountByStage((prev) => ({ ...prev, [stageId]: total }));
+    } catch {
+      setMoveError("Nao foi possivel carregar mais processos. Tente novamente.");
     } finally {
       setLoadingMoreStages((prev) => {
         const next = new Set(prev);
@@ -316,10 +325,9 @@ export function ProcessKanbanBoard({
     }));
     setPending(true);
 
-    const res = await fetch(`/api/processes/${processId}/move`, {
+    const res = await requestJson(`/api/processes/${processId}/move`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageId: targetStageId }),
+      json: { stageId: targetStageId },
     });
 
     setPending(false);
@@ -335,8 +343,7 @@ export function ProcessKanbanBoard({
         [targetStageId]: Math.max(0, (prev[targetStageId] ?? 1) - 1),
         [previousStageId]: (prev[previousStageId] ?? 0) + 1,
       }));
-      const data = await res.json().catch(() => ({}));
-      setMoveError(data.error ?? "Não foi possível mover o processo");
+      setMoveError(res.error ?? "Não foi possível mover o processo");
       return;
     }
 
@@ -478,13 +485,15 @@ function StageColumn({
 
   async function patchStage(data: Partial<{ name: string; color: string; slaBusinessDays: number | null }>) {
     setSaving(true);
-    await fetch(`/api/process-pipelines/${pipelineId}/stages/${stage.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    setSaving(false);
-    router.refresh();
+    try {
+      const res = await requestJson(`/api/process-pipelines/${pipelineId}/stages/${stage.id}`, {
+        method: "PATCH",
+        json: data,
+      });
+      if (res.ok) router.refresh();
+    } finally {
+      setSaving(false);
+    }
   }
 
   function commitName() {
@@ -506,8 +515,8 @@ function StageColumn({
 
   async function deleteStage() {
     setConfirmingDelete(false);
-    await fetch(`/api/process-pipelines/${pipelineId}/stages/${stage.id}`, { method: "DELETE" });
-    router.refresh();
+    const res = await requestJson(`/api/process-pipelines/${pipelineId}/stages/${stage.id}`, { method: "DELETE" });
+    if (res.ok) router.refresh();
   }
 
   // Virtualização — mesmo padrão de app/(dashboard)/pipeline/kanban-board.tsx:
