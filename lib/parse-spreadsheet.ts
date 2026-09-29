@@ -42,8 +42,7 @@ if (typeof ExcelJS.Workbook !== "function") {
  */
 
 // Generoso o bastante pra qualquer planilha de verdade dentro do limite de
-// 5MB/5000 linhas já aplicado nas rotas (ver MAX_FILE_SIZE/MAX_ROWS em
-// app/api/contacts/import e app/api/deals/import) — um .xlsx legítimo desse
+// 5MB/20 mil linhas na importação de contatos (ver import-limits.ts) — um .xlsx legítimo desse
 // tamanho descompacta pra, no máximo, poucas dezenas de MB. Bem abaixo do
 // que ameaçaria um container pequeno, bem acima de qualquer uso real —
 // estourar isto SÓ acontece com um arquivo construído de propósito pra

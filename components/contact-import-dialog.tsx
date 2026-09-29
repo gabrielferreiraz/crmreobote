@@ -8,6 +8,7 @@ import { Select } from "./select";
 import { useFileDrop } from "@/lib/use-file-drop";
 import { downloadContactImportTemplate } from "@/lib/contact-import-template";
 import { trackUse } from "@/lib/feature-usage/track";
+import { MAX_CONTACT_IMPORT_ROWS } from "@/lib/contacts/import-limits";
 
 type ImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "source" | "company" | "tags" | "responsavel";
 
@@ -1014,7 +1015,7 @@ export function ContactImportDialog({
 
       <div className="mt-3 flex items-start gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
         <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        Até 5000 linhas por arquivo, 5MB.
+        Até {MAX_CONTACT_IMPORT_ROWS.toLocaleString("pt-BR")} linhas por arquivo, 5MB.
       </div>
 
       <div className="flex justify-end gap-2 pt-4">

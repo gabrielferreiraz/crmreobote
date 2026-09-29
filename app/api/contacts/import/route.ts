@@ -8,11 +8,14 @@ import { rateLimitOrResponse, getClientIp } from "@/lib/rate-limit";
 import { resolveImportPlan, type ContactImportField } from "@/lib/contacts/import-resolve";
 import { logAudit } from "@/lib/audit-log";
 import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
+import {
+  CONTACT_IMPORT_TRANSACTION_OPTIONS,
+  CONTACT_IMPORT_WRITE_CHUNK_SIZE,
+  MAX_CONTACT_IMPORT_FILE_SIZE_BYTES,
+  MAX_CONTACT_IMPORT_ROWS,
+} from "@/lib/contacts/import-limits";
 
 export const dynamic = "force-dynamic";
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_ROWS = 5000;
 
 export async function POST(req: Request) {
   const { organizationId, userId: sessionUserId, session } = await requireSession();
@@ -20,7 +23,7 @@ export async function POST(req: Request) {
   const userId: string = sessionUserId;
   const actorName = session?.user.name ?? session?.user.email ?? "?";
 
-  // Cada chamada pode criar até MAX_ROWS contatos — sem limite de quantas
+  // Cada chamada pode criar até MAX_CONTACT_IMPORT_ROWS contatos — sem limite de quantas
   // vezes por hora, dava pra inundar a organização de registros. Chave
   // separada da prévia (ver preview/route.ts) — analisar um arquivo várias
   // vezes ajustando o mapeamento de coluna não deveria gastar essa cota, só
@@ -45,7 +48,7 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
   }
-  if (file.size > MAX_FILE_SIZE) {
+  if (file.size > MAX_CONTACT_IMPORT_FILE_SIZE_BYTES) {
     return NextResponse.json({ error: "Arquivo maior que 5MB" }, { status: 400 });
   }
   let columnOverrides: Partial<Record<ContactImportField, number>> | undefined;
@@ -85,18 +88,18 @@ export async function POST(req: Request) {
     }
 
     const totalDataRows = rows.length - 1;
-    if (totalDataRows > MAX_ROWS) {
-      // Antes cortava em silêncio (só as primeiras MAX_ROWS entravam, sem
+    if (totalDataRows > MAX_CONTACT_IMPORT_ROWS) {
+      // Antes cortava em silêncio (só as primeiras linhas entravam, sem
       // avisar) — quem mandasse 8.000 linhas achava que importou tudo e só ia
       // notar depois, contando os contatos um por um. Recusa e deixa claro
       // quanto precisa cortar, em vez de importar uma fração sem dizer.
       return NextResponse.json(
-        { error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_ROWS}. Divida em arquivos menores e importe em partes.` },
+        { error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_CONTACT_IMPORT_ROWS}. Divida em arquivos menores e importe em partes.` },
         { status: 400 },
       );
     }
 
-    const dataRows = rows.slice(1, 1 + MAX_ROWS);
+    const dataRows = rows.slice(1, 1 + MAX_CONTACT_IMPORT_ROWS);
     const rawHeaderRow = rows[0];
 
     // Mesma consulta enriquecida da prévia (ver preview/route.ts) — o
@@ -184,35 +187,39 @@ export async function POST(req: Request) {
       // (outro cadastro/importação gravando o mesmo telefone entre a
       // resolução acima e este INSERT) — a dedup de verdade (dentro do
       // arquivo E contra o banco) já aconteceu em resolveImportPlan.
-      const created = await tx.contact.createManyAndReturn({
-        data: plan.writes!.newContacts.map((c) => ({
-          organizationId,
-          name: c.name,
-          email: c.email,
-          phone: c.phone,
-          whatsapp: c.whatsapp,
-          source: c.source,
-          company: c.company,
-          jobTitle: c.jobTitle,
-          tags: c.tags,
-          responsavelId: c.responsavelId,
-          phoneNormalized: c.phoneNormalized,
-          whatsappNormalized: c.whatsappNormalized,
-          importBatchId: batch.id,
-        })),
-        skipDuplicates: true,
-      });
+      let actualCreated = 0;
+      const newContacts = plan.writes!.newContacts;
+      for (let start = 0; start < newContacts.length; start += CONTACT_IMPORT_WRITE_CHUNK_SIZE) {
+        const created = await tx.contact.createMany({
+          data: newContacts.slice(start, start + CONTACT_IMPORT_WRITE_CHUNK_SIZE).map((c) => ({
+            organizationId,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            whatsapp: c.whatsapp,
+            source: c.source,
+            company: c.company,
+            jobTitle: c.jobTitle,
+            tags: c.tags,
+            responsavelId: c.responsavelId,
+            phoneNormalized: c.phoneNormalized,
+            whatsappNormalized: c.whatsappNormalized,
+            importBatchId: batch.id,
+          })),
+          skipDuplicates: true,
+        });
+        actualCreated += created.count;
+      }
 
       // Se a corrida rara acima descartou alguma linha, o rowsCreated
       // gravado no início (calculado antes de saber que ia colidir) ficou
       // otimista demais — corrige pra bater com o que realmente foi criado.
-      const actualCreated = created.length;
       if (actualCreated !== plan.summary.toCreate) {
         await tx.importBatch.update({ where: { id: batch.id }, data: { rowsCreated: actualCreated, rowsSkipped: plan.summary.totalRows - actualCreated } });
       }
 
       return { importBatchId: batch.id, actualCreated };
-    });
+    }, CONTACT_IMPORT_TRANSACTION_OPTIONS);
 
     // Fora da transação de propósito — não precisa ser atômico com a
     // criação (mesma decisão de app/api/deals/import/route.ts), e escaneia a

@@ -6,17 +6,16 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { resolveImportPlan, type ContactImportField } from "@/lib/contacts/import-resolve";
 import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
+import { MAX_CONTACT_IMPORT_FILE_SIZE_BYTES, MAX_CONTACT_IMPORT_ROWS } from "@/lib/contacts/import-limits";
 
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_ROWS = 5000;
 // Nunca grava nada — só lê e resolve em memória — então pode ser bem mais
 // generoso que a cota de commit de verdade (5/hora, ver /api/contacts/import):
 // quem está ajustando o mapeamento de coluna até acertar pode analisar várias
 // vezes seguidas sem gastar a cota de importar de fato.
 const PREVIEW_LIMIT = 30;
-// Não devolve as 5000 linhas resolvidas pro navegador — só uma amostra (mais
+// Não devolve as 20 mil linhas resolvidas pro navegador — só uma amostra (mais
 // o resumo agregado, que já é sobre TODAS as linhas) é suficiente pra pessoa
 // confirmar que o mapeamento está certo.
 const PREVIEW_ROWS_SHOWN = 50;
@@ -45,7 +44,7 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
   }
-  if (file.size > MAX_FILE_SIZE) {
+  if (file.size > MAX_CONTACT_IMPORT_FILE_SIZE_BYTES) {
     return NextResponse.json({ error: "Arquivo maior que 5MB" }, { status: 400 });
   }
   let columnOverrides: Partial<Record<ContactImportField, number>> | undefined;
@@ -85,14 +84,14 @@ export async function POST(req: Request) {
     }
 
     const totalDataRows = rows.length - 1;
-    if (totalDataRows > MAX_ROWS) {
+    if (totalDataRows > MAX_CONTACT_IMPORT_ROWS) {
       return NextResponse.json(
-        { error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_ROWS}. Divida em arquivos menores e importe em partes.` },
+        { error: `Arquivo tem ${totalDataRows} linhas — o máximo por importação é ${MAX_CONTACT_IMPORT_ROWS}. Divida em arquivos menores e importe em partes.` },
         { status: 400 },
       );
     }
 
-    const dataRows = rows.slice(1, 1 + MAX_ROWS);
+    const dataRows = rows.slice(1, 1 + MAX_CONTACT_IMPORT_ROWS);
     const rawHeaderRow = rows[0];
 
     // Só quem tem telefone OU whatsapp preenchido — os únicos dois campos
