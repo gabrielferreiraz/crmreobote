@@ -18,7 +18,9 @@ import { useDealsLive } from "@/lib/use-deals-live";
 import { trackUse } from "@/lib/feature-usage/track";
 
 type MemberOption = { id: string; name: string };
-type MemberFilterOption = { id: string; name: string; active: boolean };
+/** teamId: null = sem equipe atribuída — nunca bate com nenhum "team:<id>" do filtro de Responsável (ver ./owner-filter.ts). */
+type MemberFilterOption = { id: string; name: string; active: boolean; teamId: string | null };
+type TeamOption = { id: string; name: string };
 type LossReasonOption = { id: string; label: string };
 type CreditTypeOption = { id: string; label: string };
 type LabelOption = { label: string };
@@ -40,6 +42,7 @@ export function PipelineView({
   currentUserId,
   members,
   allMembers,
+  teams,
   lossReasons,
   customFields,
   creditTypes,
@@ -73,6 +76,9 @@ export function PipelineView({
   currentUserId: string;
   members: MemberOption[];
   allMembers: MemberFilterOption[];
+  /** "Equipe: <nome>" no filtro de Responsável do Kanban/Lista — pedido explícito do usuário. Já
+   * vem vazio de page.tsx pra quem não é Supervisor/Gerente/Dono (só esses papéis podem ver/usar). */
+  teams: TeamOption[];
   lossReasons: LossReasonOption[];
   customFields: CustomFieldDefinitionInput[];
   creditTypes: CreditTypeOption[];
@@ -393,6 +399,7 @@ export function PipelineView({
           // Kanban (ver kanban-board.tsx) precisa enxergar os inativos
           // também, senão "Somente inativos" nunca teria ninguém pra listar.
           members={allMembers}
+          teams={teams}
           currentUserId={currentUserId}
           leadSources={leadSources}
           jobTitles={jobTitles}
@@ -417,6 +424,7 @@ export function PipelineView({
           initialSums={listaSums}
           reloadToken={listaReloadToken}
           members={allMembers}
+          teams={teams}
           currentUserId={currentUserId}
           stages={stages}
           pipelineId={pipelineId}

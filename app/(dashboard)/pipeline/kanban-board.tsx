@@ -30,6 +30,7 @@ import { Select } from "@/components/select";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
+import { teamFilterOptions, resolveOwnerIdParam, type TeamOption } from "./owner-filter";
 import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
 import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
@@ -73,7 +74,8 @@ export type Deal = {
   lostReason: string | null;
 };
 
-type MemberOption = { id: string; name: string; active: boolean };
+/** teamId: null = sem equipe atribuída — nunca bate com nenhum "team:<id>" do filtro (ver ./owner-filter.ts). */
+type MemberOption = { id: string; name: string; active: boolean; teamId: string | null };
 type LabelOption = { label: string };
 
 // Sentinela impossível — mesmo truque de deals-list.tsx: combinar um
@@ -122,6 +124,8 @@ export function KanbanBoard({
   initialSumByStage,
   initialWithTaskByStage,
   members,
+  /** "Equipe: <nome>" no filtro de Responsável — já vem vazio de page.tsx pra quem não é Supervisor/Gerente/Dono. */
+  teams,
   currentUserId,
   leadSources,
   jobTitles,
@@ -149,6 +153,7 @@ export function KanbanBoard({
    * "saúde da etapa" (barra no cabeçalho da coluna). */
   initialWithTaskByStage: Record<string, number>;
   members: MemberOption[];
+  teams: TeamOption[];
   currentUserId?: string;
   /** Listas canônicas (Configurações → Origens/Cargos) — as opções do filtro
    * não podem depender só do que já carregou na tela: com paginação por
@@ -528,20 +533,12 @@ export function KanbanBoard({
     params.set("pipelineId", pipelineId);
     params.set("status", "OPEN");
     if (filters.debouncedSearch) params.set("q", filters.debouncedSearch);
-    // Combina responsável específico + status ativo/inativo (mesma lógica de
-    // deals-list.tsx) — /api/deals já aceita "ownerId" como lista separada
-    // por vírgula (ver app/api/deals/route.ts), então "somente inativos"
-    // sozinho vira a lista de todo mundo inativo.
-    if (filters.ownerFilter && filters.ownerStatusFilter) {
-      const isActive = members.find((m) => m.id === filters.ownerFilter)?.active ?? true;
-      const matches = filters.ownerStatusFilter === "active" ? isActive : !isActive;
-      params.set("ownerId", matches ? filters.ownerFilter : IMPOSSIBLE_OWNER_ID);
-    } else if (filters.ownerFilter) {
-      params.set("ownerId", filters.ownerFilter);
-    } else if (filters.ownerStatusFilter) {
-      const ids = members.filter((m) => (filters.ownerStatusFilter === "active" ? m.active : !m.active)).map((m) => m.id);
-      params.set("ownerId", ids.length > 0 ? ids.join(",") : IMPOSSIBLE_OWNER_ID);
-    }
+    // Combina responsável (pessoa OU equipe inteira) + status ativo/inativo —
+    // ver ./owner-filter.ts (mesma função em deals-list.tsx). /api/deals já
+    // aceita "ownerId" como lista separada por vírgula (ver
+    // app/api/deals/route.ts), então uma equipe inteira vira essa lista.
+    const ownerIdParam = resolveOwnerIdParam(filters.ownerFilter, filters.ownerStatusFilter, members, IMPOSSIBLE_OWNER_ID);
+    if (ownerIdParam !== null) params.set("ownerId", ownerIdParam);
     if (filters.sourceFilter) params.set("source", filters.sourceFilter);
     if (filters.jobTitleFilter) params.set("jobTitle", filters.jobTitleFilter);
     if (filters.noValueOnly) params.set("noValue", "1");
@@ -982,6 +979,7 @@ export function KanbanBoard({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
+                ...teamFilterOptions(teams),
                 ...orderedMembers.map((m) => ({
                   value: m.id,
                   label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,

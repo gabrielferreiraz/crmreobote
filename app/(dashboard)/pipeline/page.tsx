@@ -59,7 +59,7 @@ export default async function PipelinePage({
       prisma.organizationUser.findMany({
         where: { organizationId },
         orderBy: [{ active: "desc" }, { createdAt: "asc" }],
-        include: { user: { select: { id: true, name: true } } },
+        include: { user: { select: { id: true, name: true } }, team: { select: { id: true, name: true } } },
       }),
       prisma.lossReason.findMany({
         where: { organizationId },
@@ -167,6 +167,21 @@ export default async function PipelinePage({
 
   const isOwner = session!.user.role === "OWNER";
   const isManager = ["OWNER", "MANAGER"].includes(session!.user.role ?? "");
+  // Filtro de equipe no seletor de Responsável (Kanban/Lista) — pedido
+  // explícito: "quem pode filtrar e ver são apenas Supervisores, Gerentes e
+  // Donos". Um Consultor nunca recebe opção de equipe nenhuma (array vazio —
+  // as telas do Pipeline não checam papel, só o que chega aqui já filtrado).
+  const canFilterByTeam = isManager || session!.user.role === "SUPERVISOR";
+  // Mesmo padrão de teamFilterOptions em lib/reports/commercial-data.ts:
+  // distinto por Team.id a partir de quem já é visível (allMembersForFilter,
+  // já escopado por papel) — nunca abre acesso a mais gente/equipe do que o
+  // escopo normal já permitia, só dá um jeito novo de filtrar dentro dele.
+  const teams = canFilterByTeam
+    ? Array.from(
+        new Map(allMembersForFilter.filter((m) => m.teamId && m.team).map((m) => [m.teamId!, m.team!.name])),
+        ([id, name]) => ({ id, name }),
+      )
+    : [];
   // Liberado pra todo mundo — a rota (app/api/deals/bulk-send-message) já
   // revalida a seleção contra getDealScope/scopeWhere do próprio papel de
   // quem chama, então um Consultor só consegue mesmo mandar mensagem pros
@@ -199,7 +214,8 @@ export default async function PipelinePage({
         listaSums={listaSums}
         currentUserId={userId}
         members={members.map((m) => m.user)}
-        allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active }))}
+        allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active, teamId: m.teamId }))}
+        teams={teams}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}
         customFields={customFields}
         creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}

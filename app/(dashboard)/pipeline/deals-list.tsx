@@ -24,6 +24,7 @@ import { countBulkFailures } from "@/lib/bulk-fetch";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { sortAlpha, sortActiveThenAlpha } from "@/lib/sort-alpha";
+import { teamFilterOptions, resolveOwnerIdParam, type TeamOption } from "./owner-filter";
 import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
@@ -67,7 +68,8 @@ const LISTA_DEFAULT_FILTERS_JSON = JSON.stringify({
   sortDir: "desc",
 });
 
-type MemberOption = { id: string; name: string; active: boolean };
+/** teamId: null = sem equipe atribuída — nunca bate com nenhum "team:<id>" do filtro (ver ./owner-filter.ts). */
+type MemberOption = { id: string; name: string; active: boolean; teamId: string | null };
 type Stage = { id: string; name: string; color: string | null };
 type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 type Sums = { wonSum: number; lostSum: number; totalSum: number };
@@ -84,6 +86,7 @@ export function DealsList({
   initialSums,
   reloadToken,
   members,
+  teams,
   currentUserId,
   stages,
   pipelineId,
@@ -109,6 +112,8 @@ export function DealsList({
   /** Incrementado pelo componente pai (novo negócio criado, importação concluída) pra forçar buscar de novo a página/filtro atual. */
   reloadToken: number;
   members: MemberOption[];
+  /** "Equipe: <nome>" no filtro de Responsável — já vem vazio de page.tsx pra quem não é Supervisor/Gerente/Dono. */
+  teams: TeamOption[];
   /** Pra "Eu" aparecer sempre em primeiro no filtro de Responsável (ver lib/sort-self-first.ts). */
   currentUserId?: string;
   stages: Stage[];
@@ -265,16 +270,10 @@ export function DealsList({
     const params = new URLSearchParams({ pipelineId });
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (statusFilter) params.set("status", statusFilter);
-    if (ownerFilter && ownerStatusFilter) {
-      const isActive = members.find((m) => m.id === ownerFilter)?.active ?? true;
-      const matches = ownerStatusFilter === "active" ? isActive : !isActive;
-      params.set("ownerId", matches ? ownerFilter : IMPOSSIBLE_OWNER_ID);
-    } else if (ownerFilter) {
-      params.set("ownerId", ownerFilter);
-    } else if (ownerStatusFilter) {
-      const ids = members.filter((m) => (ownerStatusFilter === "active" ? m.active : !m.active)).map((m) => m.id);
-      params.set("ownerId", ids.length > 0 ? ids.join(",") : IMPOSSIBLE_OWNER_ID);
-    }
+    // Combina responsável (pessoa OU equipe inteira) + status ativo/inativo —
+    // ver ./owner-filter.ts (mesma função em kanban-board.tsx).
+    const ownerIdParam = resolveOwnerIdParam(ownerFilter, ownerStatusFilter, members, IMPOSSIBLE_OWNER_ID);
+    if (ownerIdParam !== null) params.set("ownerId", ownerIdParam);
     if (stageFilter) params.set("stageId", stageFilter);
     if (lossReasonFilter) params.set("lossReasonId", lossReasonFilter);
     if (jobTitleFilter) params.set("jobTitle", jobTitleFilter);
@@ -763,6 +762,7 @@ export function DealsList({
               className="w-full py-1.5 text-sm"
               options={[
                 { value: "", label: "Todos os responsáveis" },
+                ...teamFilterOptions(teams),
                 ...orderedMembers.map((m) => ({
                   value: m.id,
                   label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,
@@ -1134,10 +1134,13 @@ export function DealsList({
                         value={ownerFilter}
                         onChange={(v) => { setOwnerFilter(v); setPage(1); }}
                         allLabel="Todos os responsáveis"
-                        options={orderedMembers.map((m) => ({
-                          value: m.id,
-                          label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,
-                        }))}
+                        options={[
+                          ...teamFilterOptions(teams),
+                          ...orderedMembers.map((m) => ({
+                            value: m.id,
+                            label: m.id === currentUserId ? "Eu" : m.active ? m.name : `${m.name} (inativo)`,
+                          })),
+                        ]}
                       />
                     </span>
                   </th>

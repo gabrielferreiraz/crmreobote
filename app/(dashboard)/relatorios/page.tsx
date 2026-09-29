@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, Timer, Target, Zap, UserCheck, Wallet, PhoneCall, FileText, FileCheck2, ListTodo } from "lucide-react";
+import { Trophy, XCircle, CalendarCheck, Percent, UsersRound, Clock, Activity, UserCheck, Wallet, PhoneCall, FileText, FileCheck2, ListTodo } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { formatCurrency, formatDuration } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
@@ -28,6 +28,7 @@ import { ReportTabs } from "./report-tabs";
 import { getCommercialReportData } from "@/lib/reports/commercial-data";
 import { AutoInsights, DeltaBadge } from "./auto-insights";
 import { WeekdayHeatmap } from "./weekday-heatmap";
+import { RankingCardsGrid, type RankingCardData } from "./ranking-cards-grid";
 
 export default async function RelatoriosPage({
   searchParams,
@@ -144,6 +145,7 @@ export default async function RelatoriosPage({
     creditTypeTotalValue,
     stageData,
     dealsClosedRanking,
+    topSellerRevenueShare,
     meetingsRanking,
     funnelActivityRanking,
     completedTasksRanking,
@@ -171,15 +173,6 @@ export default async function RelatoriosPage({
     COLD_POSSIBLE_DEAL_MIN_REPLIES,
     scriptBreakdown,
     cargoBreakdown,
-    slaSummaryRows,
-    slaTotalFirstTouch,
-    slaWithin1hCount,
-    slaOverallFirstTouchWithin1h,
-    slaTotalAvgFirstTouchMs,
-    slaTotalAvgFirstReplyMs,
-    slaTotalP95FirstReplyMs,
-    slaTotalAvgQualificationMs,
-    slaTotalQualified,
     sellerWhatsappCards,
     currentMonthLabel,
     selectedMonthLabel,
@@ -233,9 +226,182 @@ export default async function RelatoriosPage({
   const personalRankingPos = isPersonalView
     ? findRankingPosition(dealsClosedRanking, currentUserName)
     : null;
-  const personalSlaRow = isPersonalView
-    ? slaSummaryRows.find((r) => r.name === currentUserName) ?? null
-    : null;
+
+  // Cards do ranking do time (ver RankingCardsGrid) — array em vez de JSX solto
+  // de propósito: é o que deixa a pessoa arrastar pra reordenar (a grade
+  // precisa de um id estável por card pra isso). Ordem aqui = ordem padrão até
+  // alguém mexer pela 1ª vez (guardada só no navegador dela).
+  const rankingCards: RankingCardData[] = [
+    {
+      id: "dealsClosed",
+      icon: <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Negócios fechados",
+      body: (
+        // Time inteiro, não só o top 8 (ver comentário em
+        // lib/reports/commercial-data.ts) — rola dentro do card em vez de
+        // esticar o card (e a fileira inteira, já que os cards dividem altura
+        // por serem da mesma fileira) até o tamanho do time.
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={dealsClosedRankingWithAction} emptyLabel="Nenhum negócio ganho ainda" />
+        </div>
+      ),
+    },
+    {
+      id: "meetings",
+      icon: <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Videochamadas e visitas realizadas",
+      body: (
+        // Só conta quem o cliente de fato COMPARECEU — agendada que virou
+        // no-show ou remarcação não é videochamada realizada (ver comentário
+        // em lib/reports/commercial-data.ts). O detalhamento por consultor
+        // (agendadas/no-show/remarcadas) mostra onde cada um está perdendo
+        // videochamada, não só o número final.
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma videochamada ou visita realizada ainda" />
+        </div>
+      ),
+    },
+    {
+      id: "funnelActivity",
+      icon: <PhoneCall className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Quem movimentou mais o funil",
+      body: (
+        // Ligação + proposta + WhatsApp registrados (ver comentário em
+        // lib/reports/commercial-data.ts) — diferente do card de
+        // videochamadas/visitas, esses 3 tipos não têm "resultado" pra
+        // separar: a própria Activity existir já é o registro de que a ação
+        // aconteceu.
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={funnelActivityRanking} emptyLabel="Nenhuma ligação, proposta ou WhatsApp registrado ainda" />
+        </div>
+      ),
+    },
+    {
+      id: "completedTasks",
+      icon: <ListTodo className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Tarefas concluídas",
+      body: (
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={completedTasksRanking} emptyLabel="Nenhuma tarefa concluída ainda" />
+        </div>
+      ),
+    },
+    {
+      id: "attendance",
+      icon: <UserCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Taxa de comparecimento",
+      // Total do time (não por consultor) — bate o olho na taxa geral antes de
+      // abrir o detalhamento por pessoa logo abaixo. Mesma régua do ranking:
+      // só conta quem já teve videochamada/visita com resultado final
+      // (compareceu ou no-show), remarcado fica de fora — ver comentário em
+      // lib/reports/commercial-data.ts.
+      headerExtra:
+        attendanceRateOverall !== null ? (
+          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">{attendanceRateOverall}%</span>
+        ) : null,
+      subheader:
+        attendanceRateOverall !== null ? (
+          <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            {attendanceSummary.attended} de {attendanceSummary.attended + attendanceSummary.noShow} encontros realizados
+            {attendanceSummary.noShow > 0 ? ` · ${attendanceSummary.noShow} no-show` : ""}
+          </p>
+        ) : null,
+      body: (
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma videochamada ou visita com resultado registrado ainda" />
+        </div>
+      ),
+    },
+    {
+      id: "conversion",
+      icon: <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Taxa de conversão",
+      body: (
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
+        </div>
+      ),
+    },
+    // Propostas comerciais (módulo Proposal, ver lib/proposals). Dois cards
+    // com o MESMO resumo no topo — volume enviado e conversão contam a mesma
+    // coorte (propostas com data de envio no período), só ordenam diferente:
+    // quem manda mais × quem aceita mais. O resumo mostra TODOS os desfechos
+    // (recusada, refeita, cancelada, pendente), não só aceitas: porcentagem
+    // sozinha engana e "pendente" é o que denuncia proposta que ninguém
+    // acompanhou.
+    {
+      id: "proposalsSent",
+      icon: <FileText className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Propostas enviadas",
+      headerExtra:
+        proposalsSummary.sent > 0 ? (
+          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">{proposalsSummary.sent}</span>
+        ) : null,
+      subheader:
+        proposalsSummary.sent > 0 ? (
+          <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+            <ProposalMetric label="Aceitas" value={proposalsSummary.accepted} tone="success" />
+            <ProposalMetric label="Pendentes" value={proposalsSummary.pending} tone={proposalsSummary.pending > 0 ? "warn" : "neutral"} />
+            <ProposalMetric label="Recusadas" value={proposalsSummary.declined} tone="danger" />
+            <ProposalMetric label="Refeitas" value={proposalsSummary.superseded} tone="info" />
+          </div>
+        ) : null,
+      body: (
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={proposalsSentRanking} emptyLabel="Nenhuma proposta enviada no período" />
+        </div>
+      ),
+    },
+    {
+      id: "proposalsConversion",
+      icon: <FileCheck2 className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+      title: "Conversão de propostas",
+      headerExtra:
+        proposalsConversionRate !== null ? (
+          <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">{proposalsConversionRate}%</span>
+        ) : null,
+      subheader:
+        proposalsConversionRate !== null ? (
+          <div className="mb-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+            <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+              {proposalsSummary.accepted} de {proposalsSummary.sent} enviadas foram aceitas
+            </p>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, proposalsConversionRate)}%` }} />
+            </div>
+            <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {proposalsSummary.pending > 0
+                ? `${proposalsSummary.pending} ainda sem resposta. Pendências não contam como aceita nem como recusa.`
+                : "Sem pendências no período."}
+            </p>
+          </div>
+        ) : null,
+      body: (
+        <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+          <Leaderboard entries={proposalsConversionRanking} emptyLabel="Nenhuma proposta enviada no período" />
+        </div>
+      ),
+    },
+    // Ranking de equipes (só quando existe mais de uma configurada, ver
+    // showTeamRanking) — pedido explícito: "o ranking [de equipes] dá pra
+    // entrar nesse scroll lateral também". Antes era um card full-width
+    // solto abaixo da fileira; agora é só mais um card dela, arrastável e
+    // alcançável pelo mesmo scroll lateral que os outros.
+    ...(showTeamRanking && teamRanking.length > 0
+      ? [
+          {
+            id: "teamRanking",
+            icon: <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
+            title: "Ranking de equipes",
+            body: (
+              <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
+                <Leaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
+              </div>
+            ),
+          } satisfies RankingCardData,
+        ]
+      : []),
+  ];
 
   return (
     <div className="space-y-10 pb-8 sm:space-y-16">
@@ -321,8 +487,6 @@ export default async function RelatoriosPage({
             winRate={winRate}
             rankingPosition={personalRankingPos}
             totalRankingMembers={dealsClosedRanking.length}
-            slaFirstTouchWithin1h={personalSlaRow?.firstTouchWithin1h ?? null}
-            avgFirstReplyMs={personalSlaRow?.avgFirstReplyMs ?? null}
             currentMonthLabel={currentMonthLabel}
           />
         )}
@@ -349,7 +513,8 @@ export default async function RelatoriosPage({
         compareData={compareData}
         winRate={winRate}
         dealsClosedRanking={dealsClosedRanking}
-        slaOverallFirstTouchWithin1h={slaOverallFirstTouchWithin1h}
+        lossBreakdown={lossBreakdown}
+        topSellerRevenueShare={topSellerRevenueShare}
         revenueTrendDaily={revenueTrendDaily}
       />
 
@@ -470,173 +635,7 @@ export default async function RelatoriosPage({
             : "Quem mais fechou negócio, concluiu tarefas, foi atrás do lead (videochamada ou visita), movimentou o funil, teve comparecimento e converteu melhor."
           }
         />
-        {/* flex-wrap + min-w/basis (não grid-cols-12 col-span-N) de propósito
-            — com 5 cards, um grid-12 em col-span-4 (3 por fileira) sobra uma
-            2ª fileira com só 2 cards e um vão vazio enorme do lado direito
-            (2×4=8 de 12), feio de doer. flex-1 nos cards faz o que COUBER em
-            cada fileira esticar e preencher o espaço sozinho, em qualquer
-            combinação de largura de tela — mesmo padrão já usado nos painéis
-            de estatística do card de WhatsApp mais abaixo (SellerStatPanel). */}
-        <div className="flex flex-wrap gap-5">
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <Trophy className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Negócios fechados</h3>
-            </div>
-            {/* Time inteiro, não só o top 8 (ver comentário em
-                lib/reports/commercial-data.ts) — rola dentro do card em vez
-                de esticar o card (e a fileira inteira, já que os cards
-                dividem altura por serem da mesma fileira) até o tamanho do
-                time. */}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={dealsClosedRankingWithAction} emptyLabel="Nenhum negócio ganho ainda" />
-            </div>
-          </div>
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Videochamadas e visitas realizadas</h3>
-            </div>
-            {/* Só conta quem o cliente de fato COMPARECEU — agendada que
-                virou no-show ou remarcação não é videochamada realizada (ver
-                comentário em lib/reports/commercial-data.ts). O detalhamento
-                por consultor (agendadas/no-show/remarcadas) mostra onde cada
-                um está perdendo videochamada, não só o número final. */}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={meetingsRanking} emptyLabel="Nenhuma videochamada ou visita realizada ainda" />
-            </div>
-          </div>
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <PhoneCall className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Quem movimentou mais o funil</h3>
-            </div>
-            {/* Ligação + proposta + WhatsApp registrados (ver comentário em
-                lib/reports/commercial-data.ts) — diferente do card de
-                videochamadas/visitas ao lado, esses 3 tipos não têm "resultado"
-                pra separar: a própria Activity existir já é o registro de
-                que a ação aconteceu. */}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={funnelActivityRanking} emptyLabel="Nenhuma ligação, proposta ou WhatsApp registrado ainda" />
-            </div>
-          </div>
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <ListTodo className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Tarefas concluídas</h3>
-            </div>
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={completedTasksRanking} emptyLabel="Nenhuma tarefa concluída ainda" />
-            </div>
-          </div>
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de comparecimento</h3>
-              </div>
-              {/* Total do time (não por consultor) — bate o olho na taxa
-                  geral antes de abrir o detalhamento por pessoa logo abaixo.
-                  Mesma régua do ranking: só conta quem já teve videochamada/visita
-                  com resultado final (compareceu ou no-show), remarcado fica
-                  de fora — ver comentário em lib/reports/commercial-data.ts. */}
-              {attendanceRateOverall !== null && (
-                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
-                  {attendanceRateOverall}%
-                </span>
-              )}
-            </div>
-            {attendanceRateOverall !== null && (
-              <p className="mb-2 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                {attendanceSummary.attended} de {attendanceSummary.attended + attendanceSummary.noShow} encontros realizados{attendanceSummary.noShow > 0 ? ` · ${attendanceSummary.noShow} no-show` : ""}
-              </p>
-            )}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={attendanceRanking} emptyLabel="Nenhuma videochamada ou visita com resultado registrado ainda" />
-            </div>
-          </div>
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center gap-2">
-              <Percent className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Taxa de conversão</h3>
-            </div>
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={conversionRanking} emptyLabel="Nenhum negócio na carteira ainda" />
-            </div>
-          </div>
-          {/* Propostas comerciais (módulo Proposal, ver lib/proposals). Dois
-              cards com o MESMO resumo no topo — volume enviado e conversão
-              contam a mesma coorte (propostas com data de envio no período),
-              só ordenam diferente: quem manda mais × quem aceita mais. O
-              resumo mostra TODOS os desfechos (recusada, refeita, cancelada,
-              pendente), não só aceitas: porcentagem sozinha engana e
-              "pendente" é o que denuncia proposta que ninguém acompanhou. */}
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Propostas enviadas</h3>
-              </div>
-              {proposalsSummary.sent > 0 && (
-                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
-                  {proposalsSummary.sent}
-                </span>
-              )}
-            </div>
-            {proposalsSummary.sent > 0 && (
-              <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                <ProposalMetric label="Aceitas" value={proposalsSummary.accepted} tone="success" />
-                <ProposalMetric label="Pendentes" value={proposalsSummary.pending} tone={proposalsSummary.pending > 0 ? "warn" : "neutral"} />
-                <ProposalMetric label="Recusadas" value={proposalsSummary.declined} tone="danger" />
-                <ProposalMetric label="Refeitas" value={proposalsSummary.superseded} tone="info" />
-              </div>
-            )}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={proposalsSentRanking} emptyLabel="Nenhuma proposta enviada no período" />
-            </div>
-          </div>
-          <div className="card min-w-[260px] flex-1 basis-[260px] flex flex-col p-6">
-            <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <FileCheck2 className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Conversão de propostas</h3>
-              </div>
-              {proposalsConversionRate !== null && (
-                <span className="shrink-0 text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
-                  {proposalsConversionRate}%
-                </span>
-              )}
-            </div>
-            {proposalsConversionRate !== null && (
-              <div className="mb-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
-                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-                  {proposalsSummary.accepted} de {proposalsSummary.sent} enviadas foram aceitas
-                </p>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, proposalsConversionRate)}%` }} />
-                </div>
-                <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
-                  {proposalsSummary.pending > 0
-                    ? `${proposalsSummary.pending} ainda sem resposta. Pendências não contam como aceita nem como recusa.`
-                    : "Sem pendências no período."}
-                </p>
-              </div>
-            )}
-            <div className="scrollbar-thin max-h-[360px] overflow-x-hidden overflow-y-auto pr-1">
-              <Leaderboard entries={proposalsConversionRanking} emptyLabel="Nenhuma proposta enviada no período" />
-            </div>
-          </div>
-        </div>
-
-        {showTeamRanking && teamRanking.length > 0 && (
-          <div className="card p-6">
-            <div className="mb-1 flex items-center gap-2">
-              <UsersRound className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Ranking de equipes</h3>
-            </div>
-            <Leaderboard entries={teamRanking} emptyLabel="Nenhuma equipe configurada ainda" />
-          </div>
-        )}
+        <RankingCardsGrid cards={rankingCards} />
       </section>
 
       {/* ─── Faturamento por tipo de crédito ───────────────────────────── */}
@@ -740,236 +739,6 @@ export default async function RelatoriosPage({
           </div>
         </div>
       </section>
-
-      {/* ─── SLA e Health de equipe — gerente/dono veem a tabela completa;
-           supervisor vê a equipe dele (já filtrada pelo escopo do servidor);
-           consultor vê só os próprios números (já no PersonalHero) ── */}
-      {(isManager || isSupervisor) && (slaSummaryRows.length > 0 || slaTotalFirstTouch > 0 || slaTotalQualified > 0) && (
-        <section className="space-y-6">
-          <SectionHeading
-            eyebrow="SLA do time"
-            title="Tempo de resposta & Health da operação"
-            description="Métricas operacionais que dono de operação de vendas paga pra ver: quanto tempo demora pro lead receber a 1ª mensagem, pra uma mensagem do lead ser respondida e pra um lead ser qualificado."
-          />
-          {compareData && (
-            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-              Comparando com o período selecionado: {compareData.rangeLabel}
-            </p>
-          )}
-          <div className="grid grid-cols-12 items-start gap-5">
-            <div className="col-span-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-12">
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="card p-5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2">
-                      <Zap className="h-4 w-4 text-emerald-500" strokeWidth={2} />
-                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                        Contato em menos de 1 hora
-                      </p>
-                    </span>
-                    {/* current=null (sem dado no período ATUAL) nunca vira 0
-                        fingido aqui — isso faria parecer "caiu 100%" quando
-                        na verdade é "não tem o que comparar ainda". */}
-                    {compareData && slaOverallFirstTouchWithin1h !== null && (
-                      <DeltaBadge
-                        current={slaOverallFirstTouchWithin1h}
-                        previous={compareData.slaFirstTouchWithin1h}
-                        compareLabel={compareData.rangeLabel}
-                      />
-                    )}
-                  </div>
-                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-                    {slaOverallFirstTouchWithin1h !== null ? `${slaOverallFirstTouchWithin1h}%` : "—"}
-                  </p>
-                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-                    {slaTotalFirstTouch > 0
-                      ? `${slaWithin1hCount} de ${slaTotalFirstTouch} lead${slaTotalFirstTouch === 1 ? "" : "s"} abordado${slaTotalFirstTouch === 1 ? "" : "s"} no período`
-                      : "Sem contatos abordados no período"}
-                  </p>
-                </div>
-                <div className="card p-5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2">
-                      <Timer className="h-4 w-4 text-sky-500" strokeWidth={2} />
-                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                        Tempo médio até o 1º contato
-                      </p>
-                    </span>
-                    {compareData && slaTotalAvgFirstTouchMs !== null && (
-                      <DeltaBadge
-                        current={slaTotalAvgFirstTouchMs}
-                        previous={compareData.slaAvgFirstTouchMs}
-                        compareLabel={compareData.rangeLabel}
-                        invert
-                      />
-                    )}
-                  </div>
-                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-                    {slaTotalAvgFirstTouchMs !== null ? formatDuration(slaTotalAvgFirstTouchMs) : "—"}
-                  </p>
-                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-                    {slaTotalFirstTouch > 0
-                      ? `Média do tempo entre o lead entrar no CRM e receber a 1ª mensagem OUTBOUND`
-                      : "Sem contatos abordados no período"}
-                  </p>
-                </div>
-                <div className="card p-5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2">
-                      <Target className="h-4 w-4 text-violet-500" strokeWidth={2} />
-                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                        Tempo médio de resposta do vendedor
-                      </p>
-                    </span>
-                    {compareData && slaTotalAvgFirstReplyMs !== null && (
-                      <DeltaBadge
-                        current={slaTotalAvgFirstReplyMs}
-                        previous={compareData.slaAvgFirstReplyMs}
-                        compareLabel={compareData.rangeLabel}
-                        invert
-                      />
-                    )}
-                  </div>
-                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-                    {slaTotalAvgFirstReplyMs !== null ? formatDuration(slaTotalAvgFirstReplyMs) : "—"}
-                  </p>
-                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-                    {slaTotalP95FirstReplyMs !== null
-                      ? `P95 ${formatDuration(slaTotalP95FirstReplyMs)} — tempo que 95% dos leads esperam no máximo`
-                      : "Nenhuma resposta enviada no período (lead não chamou primeiro)"}
-                  </p>
-                </div>
-                <div className="card p-5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2">
-                      <UserCheck className="h-4 w-4 text-amber-500" strokeWidth={2} />
-                      <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                        Tempo médio até qualificação
-                      </p>
-                    </span>
-                    {compareData && slaTotalAvgQualificationMs !== null && (
-                      <DeltaBadge
-                        current={slaTotalAvgQualificationMs}
-                        previous={compareData.slaAvgQualificationMs}
-                        compareLabel={compareData.rangeLabel}
-                        invert
-                      />
-                    )}
-                  </div>
-                  <p className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-                    {slaTotalAvgQualificationMs !== null ? formatDuration(slaTotalAvgQualificationMs) : "—"}
-                  </p>
-                  <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-                    {slaTotalQualified > 0
-                      ? `${slaTotalQualified} lead${slaTotalQualified === 1 ? "" : "s"} QUALIFICADO${slaTotalQualified === 1 ? "" : "S"} no período`
-                      : "Nenhum lead qualificado no período"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {slaSummaryRows.length > 0 && (
-            <div className="card overflow-x-auto p-6">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                  SLA por vendedor
-                </h3>
-                <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                  Tempo real 24/7 — não conta apenas horário comercial (configurável).
-                </p>
-              </div>
-              <table className="mt-4 w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-200 text-left text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                    <th className="pb-2 font-medium">Vendedor</th>
-                    <th className="pb-2 text-right font-medium">Contato &lt;1h</th>
-                    <th className="pb-2 text-right font-medium">Médio p/ 1º contato</th>
-                    <th className="pb-2 text-right font-medium">Médio p/ responder</th>
-                    <th className="pb-2 text-right font-medium">P95 responder</th>
-                    <th className="pb-2 text-right font-medium">Médio p/ qualificar</th>
-                    <th className="pb-2 text-right font-medium">Leads qualificados</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slaSummaryRows
-                    // Ordena por "quem atende mais em <1h" primeiro, depois por
-                    // menor tempo médio de primeira resposta. Critério de ranking
-                    // de SLA operacional: quem fecha a janela de 1h do lead com
-                    // mais frequência.
-                    .sort((a, b) => {
-                      const apct = a.firstTouchWithin1h ?? -1;
-                      const bpct = b.firstTouchWithin1h ?? -1;
-                      if (bpct !== apct) return bpct - apct;
-                      const at = a.avgFirstReplyMs ?? Infinity;
-                      const bt = b.avgFirstReplyMs ?? Infinity;
-                      if (at !== bt) return at - bt;
-                      return a.name.localeCompare(b.name, "pt-BR");
-                    })
-                    .map((r) => (
-                      <tr key={r.id} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800">
-                        <td className="py-2.5">
-                          <div className="flex items-center gap-2.5">
-                            <Avatar name={r.name} src={r.photoUrl ?? null} size="xs" />
-                            <span className="font-medium text-neutral-900 dark:text-neutral-100">{r.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 text-right tabular-nums">
-                          {r.firstTouchWithin1h !== null ? (
-                            <span
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                                r.firstTouchWithin1h >= 70
-                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                                  : r.firstTouchWithin1h >= 40
-                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-                                    : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
-                              }`}
-                            >
-                              {r.firstTouchWithin1h}%
-                              <span className="text-[10px] font-normal opacity-75">
-                                ({r.firstTouchTotal})
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="text-neutral-400 dark:text-neutral-500">—</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                          {r.avgFirstTouchMs !== null ? formatDuration(r.avgFirstTouchMs) : "—"}
-                        </td>
-                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                          {r.avgFirstReplyMs !== null ? formatDuration(r.avgFirstReplyMs) : "—"}
-                        </td>
-                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                          {r.p95FirstReplyMs !== null ? formatDuration(r.p95FirstReplyMs) : "—"}
-                        </td>
-                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                          {r.avgQualificationMs !== null ? formatDuration(r.avgQualificationMs) : "—"}
-                        </td>
-                        <td className="py-2.5 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                          {r.qualificationCount > 0 ? r.qualificationCount : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Contato em menos de 1 hora: % dos leads abordados (1ª mensagem OUTBOUND do vendedor)
-            que receberam a 1ª mensagem até 60 min depois de entrar no CRM (ou da thread ser
-            criada, o que for mais recente — um contato importado ontem não penaliza quem
-            abordou hoje). Tempo de resposta: lead chamou primeiro (mensagem INBOUND na 1ª
-            posição da thread) → tempo até a 1ª mensagem OUTBOUND do vendedor; P95 = 95% dos
-            casos demoram no máximo esse valor — serve pra identificar quem tem &apos;pico de
-            espera&apos; escondido na média. Tempo até qualificação: tempo entre a criação do
-            contato e a marcação QUALIFIED. Vendedores sem nenhum dado no período não
-            aparecem aqui — o card &apos;Atividade da equipe&apos; abaixo já mostra tempo no CRM por
-            pessoa, inclusive quem ficou parado.
-          </p>
-        </section>
-      )}
 
       {/* ─── Atividade da equipe (só Dono/Gerente) ─────────────────────── */}
       {isManager && showTeamActivity && (
