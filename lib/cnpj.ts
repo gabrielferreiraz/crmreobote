@@ -80,20 +80,15 @@ export class CnpjLookupError extends Error {
   }
 }
 
-/** Fonte pública, sem chave de API e sem cadastro — é um proxy da própria
- * Receita mantido pelo projeto BrasilAPI. */
+const MINHA_RECEITA_API = "https://minhareceita.org";
 const BRASIL_API_CNPJ = "https://brasilapi.com.br/api/cnpj/v1";
-/** Teto de espera: a rota que chama isto está no caminho de um clique de
- * usuário, e a Receita às vezes fica minutos sem responder. Melhor um erro
- * rápido e claro ("tente de novo") do que a tela pendurada. */
 const LOOKUP_TIMEOUT_MS = 8000;
 
 /**
  * Busca o nome da empresa a partir do CNPJ.
  *
- * Valida o número localmente antes de sair pela rede (ver isValidCnpj) e
- * traduz as falhas da fonte externa em erros com status próprio, pra rota não
- * precisar conhecer os detalhes da BrasilAPI.
+ * Utiliza o Minha Receita (dados atualizados diariamente da Receita Federal)
+ * com fallback para BrasilAPI em caso de indisponibilidade.
  */
 export async function lookupCnpj(raw: string): Promise<CnpjLookup> {
   const cnpj = normalizeCnpj(raw);
@@ -101,24 +96,34 @@ export async function lookupCnpj(raw: string): Promise<CnpjLookup> {
     throw new CnpjLookupError("CNPJ inválido — confira os números digitados.", 400);
   }
 
-  let res: Response;
+  let res: Response | null = null;
+
+  // 1. Primeira tentativa: Minha Receita (base atualizada diariamente)
   try {
-    res = await fetch(`${BRASIL_API_CNPJ}/${cnpj}`, {
-      headers: {
-        Accept: "application/json",
-        // Obrigatório: sem User-Agent a BrasilAPI responde 403 Forbidden em
-        // TODA requisição (verificado na prática — com o cabeçalho, 200; sem
-        // ele, 403 sempre). O valor em si não importa, só a presença.
-        "User-Agent": "crm-reobote/1.0",
-      },
+    res = await fetch(`${MINHA_RECEITA_API}/${cnpj}`, {
+      headers: { Accept: "application/json", "User-Agent": "crm-reobote/1.0" },
       signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
-      // Sem cache do Next: a situação cadastral muda com o tempo e um CNPJ
-      // consultado hoje pode estar baixado semana que vem. Quem quiser o
-      // valor memorizado guarda em UserCompany, que é o ponto de verdade.
       cache: "no-store",
     });
   } catch {
-    throw new CnpjLookupError("Não foi possível consultar a Receita agora. Tente de novo em instantes.", 502);
+    res = null;
+  }
+
+  // 2. Fallback para BrasilAPI se a primeira falhar
+  if (!res || !res.ok) {
+    if (res?.status === 404) {
+      throw new CnpjLookupError("CNPJ não encontrado na Receita Federal.", 404);
+    }
+
+    try {
+      res = await fetch(`${BRASIL_API_CNPJ}/${cnpj}`, {
+        headers: { Accept: "application/json", "User-Agent": "crm-reobote/1.0" },
+        signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+        cache: "no-store",
+      });
+    } catch {
+      throw new CnpjLookupError("Não foi possível consultar a Receita agora. Tente de novo em instantes.", 502);
+    }
   }
 
   if (res.status === 404) {
@@ -139,8 +144,6 @@ export async function lookupCnpj(raw: string): Promise<CnpjLookup> {
 
   const razaoSocial = data?.razao_social?.trim();
   if (!razaoSocial) {
-    // Resposta 200 sem razão social não deveria acontecer — se acontecer, é
-    // mudança de contrato da fonte, e seguir em frente gravaria nome vazio.
     throw new CnpjLookupError("A Receita respondeu sem o nome da empresa.", 502);
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, SlidersHorizontal, Download, UserPlus, Send, Clock3, RefreshCw } from "lucide-react";
+import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, Download, UserPlus, Send, Clock3, RefreshCw } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
@@ -53,19 +53,6 @@ type PreviewResponse = {
 type ImportResult = ImportPlanSummary & { total: number; created: number; skipped: number; importBatchId: string; issueRows: ResolvedRow[] };
 
 type Step = "pick" | "analyzing" | "headers" | "details" | "importing" | "done";
-
-/** Quantas linhas a tabela de prévia mostra antes do "Mostrar mais" — ver showAllRows. */
-const PREVIEW_ROWS_COLLAPSED = 5;
-
-/** Etiqueta curta pro "Aviso" da tabela de linhas — o motivo mais lido de relance, sem precisar passar o mouse pra entender. */
-const ISSUE_LABEL: Record<string, string> = {
-  NO_NAME: "Sem nome",
-  NO_JOB_TITLE: "Sem cargo",
-  DUPLICATE_CONTACT: "Duplicado",
-  OWNER_NOT_FOUND: "Resp. não achado",
-  INVALID_WHATSAPP: "WhatsApp inválido",
-  INVALID_PHONE: "Celular inválido",
-};
 
 /**
  * Campo que faz sentido ter UM valor só aplicado a toda a planilha quando a
@@ -188,12 +175,6 @@ export function ContactImportDialog({
   const [sourceDraft, setSourceDraft] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [showIssueRows, setShowIssueRows] = useState(false);
-  // Grade completa de mapeamento (9 campos) escondida por padrão — na
-  // maioria das vezes a detecção automática já acerta tudo sozinha. Abre
-  // sozinha quando falta algo obrigatório (não dá pra esconder o que
-  // bloqueia continuar).
-  const [showColumnMapping, setShowColumnMapping] = useState(false);
-  const [showAllRows, setShowAllRows] = useState(false);
   // Ação por contato já existente (ver "linhas ignoradas" abaixo) — chave é
   // o id do CONTATO existente (não da linha), porque a mesma pessoa pode
   // aparecer em mais de uma linha da planilha (telefone E whatsapp
@@ -221,7 +202,8 @@ export function ContactImportDialog({
     currentOverrides: Partial<Record<ImportField, number>>,
     currentFieldDefaults: Partial<Record<DefaultableField, string>>,
     nextStep: "headers" | "details" = "headers",
-  ) {
+    includeAllRows = false,
+  ): Promise<boolean> {
     setStep("analyzing");
     setError(null);
     try {
@@ -229,20 +211,22 @@ export function ContactImportDialog({
       formData.append("file", pickedFile);
       if (Object.keys(currentOverrides).length > 0) formData.append("columnOverrides", JSON.stringify(currentOverrides));
       if (Object.keys(currentFieldDefaults).length > 0) formData.append("fieldDefaults", JSON.stringify(currentFieldDefaults));
+      if (includeAllRows) formData.append("includeAllRows", "true");
 
       const res = await fetch("/api/contacts/import/preview", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Erro ao analisar o arquivo");
         setStep(nextStep === "details" ? "details" : "pick");
-        return;
+        return false;
       }
       setPreview(data);
-      setShowAllRows(false);
       setStep(nextStep);
+      return true;
     } catch {
       setError("Falha de conexão. Tente novamente.");
       setStep(nextStep === "details" ? "details" : "pick");
+      return false;
     }
   }
 
@@ -492,14 +476,28 @@ export function ContactImportDialog({
     const hasBlockingIssue = preview.missingRequiredColumns.length > 0;
 
     const headline = importHeadline(s, hasBlockingIssue);
-    const HeadlineIcon = headline.icon;
-    const hasAnyMissingOptionalColumn = preview.columns.some((col) => !col.required && col.index === -1);
-    const mappingExpanded = step === "headers" || showColumnMapping || hasBlockingIssue || hasAnyMissingOptionalColumn;
+    const status =
+      step === "headers"
+        ? hasBlockingIssue
+          ? {
+              icon: TriangleAlert,
+              tone: "warning" as const,
+              title: "Escolha as colunas obrigatórias",
+              subtitle: "Informe onde estão Nome e Cargo para continuar.",
+            }
+          : {
+              icon: CheckCircle2,
+              tone: "success" as const,
+              title: "Confira se as colunas estão certas",
+              subtitle: "Ajuste apenas os campos que não corresponderem à sua planilha.",
+            }
+        : headline;
+    const StatusIcon = status.icon;
     const hasMissingDefaultableColumn = preview.columns.some(
       (col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField),
     );
-    const visibleRows = showAllRows ? preview.rows : preview.rows.slice(0, PREVIEW_ROWS_COLLAPSED);
-    const hiddenRowCount = preview.rows.length - visibleRows.length;
+    const requiredColumns = preview.columns.filter((col) => col.required);
+    const optionalColumns = preview.columns.filter((col) => !col.required);
     // Pedido explícito: mostrar quem já tem cada contato ignorado por
     // duplicidade, com ação de assumir (dono inativo/sem dono) ou pedir
     // (dono ativo). Uma linha por CONTATO existente (não por linha da
@@ -526,12 +524,12 @@ export function ContactImportDialog({
       <Modal onClose={onClose} maxWidth="max-w-3xl">
         <div key={step} className="animate-step-slide-in">
         <div className="mb-4 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
-          <span className={step === "headers" ? "text-brand" : ""}>1. Planilha</span>
+          <span className={step === "headers" ? "text-brand" : ""}>1. Colunas</span>
           <ChevronRight className="h-3 w-3" />
-          <span className={step === "details" ? "text-brand" : ""}>2. Solicitações</span>
+          <span className={step === "details" ? "text-brand" : ""}>2. Revisar importação</span>
         </div>
         <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          {step === "headers" ? "Reconheça sua planilha" : "Revise solicitações e detalhes"}
+          {step === "headers" ? "Confira as colunas" : "Revise a importação"}
         </h2>
         <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
           {file?.name} — {s.totalRows} linha{s.totalRows === 1 ? "" : "s"} de dados. Nada foi gravado ainda.
@@ -539,27 +537,27 @@ export function ContactImportDialog({
 
         <div
           className={`mb-4 flex items-start gap-3 rounded-lg border p-3 ${
-            headline.tone === "success"
+            status.tone === "success"
               ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"
-              : headline.tone === "danger"
+              : status.tone === "danger"
                 ? "border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10"
                 : "border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10"
           }`}
         >
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-              headline.tone === "success"
+              status.tone === "success"
                 ? "bg-emerald-100 dark:bg-emerald-500/20"
-                : headline.tone === "danger"
+                : status.tone === "danger"
                   ? "bg-red-100 dark:bg-red-500/20"
                   : "bg-amber-100 dark:bg-amber-500/20"
             }`}
           >
-            <HeadlineIcon
+            <StatusIcon
               className={`h-4 w-4 ${
-                headline.tone === "success"
+                status.tone === "success"
                   ? "text-emerald-600 dark:text-emerald-400"
-                  : headline.tone === "danger"
+                  : status.tone === "danger"
                     ? "text-red-600 dark:text-red-400"
                     : "text-amber-600 dark:text-amber-400"
               }`}
@@ -567,8 +565,8 @@ export function ContactImportDialog({
             />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{headline.title}</p>
-            <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">{headline.subtitle}</p>
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{status.title}</p>
+            <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">{status.subtitle}</p>
           </div>
         </div>
 
@@ -825,127 +823,60 @@ export function ContactImportDialog({
           </div>
         )}
 
-        {/* Igual ao mapeamento técnico de negócios — pedido explícito: "formas
-            de localizar os cabeçalhos da planilha pra não haver erros". Um só
-            "avançado" pra tudo que é técnico, escondido por padrão, some
-            sozinho quando falta a coluna obrigatória. */}
-        <button
-          type="button"
-          onClick={() => setShowColumnMapping((v) => !v)}
-          disabled={hasBlockingIssue}
-          className={`${step === "headers" ? "" : "hidden"} mb-2 flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-60 dark:text-neutral-400 dark:hover:text-neutral-200`}
-        >
-          <ChevronRight className={`h-3 w-3 transition-transform duration-200 ease-smooth ${mappingExpanded ? "rotate-90" : ""}`} strokeWidth={2} />
-          <SlidersHorizontal className="h-3 w-3" strokeWidth={2} />
-          Ver detalhes técnicos
-        </button>
-        {step === "headers" && mappingExpanded && (
-          <div className="mb-4 space-y-3">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
-              {preview.columns.map((col) => (
-                <div key={col.field} className="flex items-center justify-between gap-2">
-                  <span className={`text-xs ${col.required ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-500 dark:text-neutral-400"}`}>
-                    {col.label}
-                    {col.required && <span className="text-red-500"> *</span>}
-                  </span>
-                  <Select
-                    value={overrides[col.field] === -1 ? "" : overrides[col.field] !== undefined ? String(overrides[col.field]) : (col.index === -1 ? "" : String(col.index))}
-                    onChange={(v) => updateOverride(col.field, v)}
-                    className="w-40 py-1 text-xs"
-                    placeholder="Não usar"
-                    // "Não usar" precisa ser uma OPÇÃO de verdade na lista
-                    // (não só o placeholder mostrado quando value === ""),
-                    // senão não tem como voltar atrás depois de escolher uma
-                    // coluna — relatado direto: "não tem como remover
-                    // coluna". Só aparece pra campo OPCIONAL — um campo
-                    // obrigatório (Nome/Cargo) sempre precisa de alguma
-                    // coluna, "Não usar" ali só levaria a um erro óbvio.
-                    options={[
-                      ...(col.required ? [] : [{ value: "", label: "Não usar" }]),
-                      ...preview.rawHeaderRow.map((h, i) => ({ value: String(i), label: h || `Coluna ${i + 1}` })),
-                    ]}
-                  />
-                </div>
-              ))}
+        {step === "headers" && (
+          <section className="mb-4 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Colunas da planilha</h3>
+                <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Nome e Cargo são obrigatórios. Os demais campos são opcionais.</p>
+              </div>
+              <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{preview.rawHeaderRow.length} colunas</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <StatChip label="Vão criar contato" value={s.toCreate} />
-              <StatChip label="Sem nome (ignoradas)" value={s.skippedNoName} tone={s.skippedNoName > 0 ? "warn" : undefined} />
-              <StatChip label="Sem cargo (ignoradas)" value={s.skippedNoJobTitle} tone={s.skippedNoJobTitle > 0 ? "warn" : undefined} />
-              <StatChip label="Número inválido (ignoradas)" value={s.skippedInvalidPhone} tone={s.skippedInvalidPhone > 0 ? "warn" : undefined} />
-              <StatChip label="Duplicados evitados" value={s.duplicateContacts} tone={s.duplicateContacts > 0 ? "warn" : undefined} />
-              <StatChip label="Resp. não achado" value={s.ownerFallbacks} tone={s.ownerFallbacks > 0 ? "warn" : undefined} />
-            </div>
-          </div>
-        )}
 
-        {step === "headers" && !hasBlockingIssue && (
-          <div className="mb-4 overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-neutral-100 bg-neutral-50 text-left text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400">
-                  <th className="px-2 py-1.5 font-medium">Linha</th>
-                  <th className="px-2 py-1.5 font-medium">Nome</th>
-                  <th className="px-2 py-1.5 font-medium">Cargo</th>
-                  <th className="px-2 py-1.5 font-medium">Origem</th>
-                  <th className="px-2 py-1.5 font-medium">Responsável</th>
-                  <th className="px-2 py-1.5 font-medium">Aviso</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.map((r) => (
-                  <tr
-                    key={r.rowNumber}
-                    className={`border-b border-neutral-50 last:border-0 dark:border-neutral-900 ${!r.willImport ? "opacity-50" : ""}`}
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[...requiredColumns, ...optionalColumns].map((col) => {
+                const override = overrides[col.field];
+                const selectedIndex = override === -1 ? -1 : (override ?? col.index);
+                const isMapped = selectedIndex >= 0;
+
+                return (
+                  <div
+                    key={col.field}
+                    className={`rounded-md border p-2.5 ${
+                      col.required
+                        ? isMapped
+                          ? "border-brand/25 bg-brand/5 dark:bg-[var(--brand-subtle)]"
+                          : "border-amber-300 bg-amber-50/60 dark:border-amber-500/35 dark:bg-amber-500/10"
+                        : "border-neutral-200 dark:border-neutral-800"
+                    }`}
                   >
-                    <td className="px-2 py-1.5 tabular-nums text-neutral-400 dark:text-neutral-500">{r.rowNumber}</td>
-                    <td className="px-2 py-1.5 text-neutral-800 dark:text-neutral-200">{r.name ?? "—"}</td>
-                    <td className="px-2 py-1.5 text-neutral-600 dark:text-neutral-400">{r.jobTitle ?? "—"}</td>
-                    <td className="px-2 py-1.5 text-neutral-600 dark:text-neutral-400">{r.source ?? "—"}</td>
-                    <td className="px-2 py-1.5 text-neutral-600 dark:text-neutral-400">{r.responsavelName ?? "—"}</td>
-                    <td className="px-2 py-1.5">
-                      {r.issues.length > 0 && (
-                        <span
-                          title={r.issues.map((i) => i.message).join("; ")}
-                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-                        >
-                          {ISSUE_LABEL[r.issues[0].code] ?? r.issues[0].message}
-                          {r.issues.length > 1 && ` +${r.issues.length - 1}`}
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-neutral-800 dark:text-neutral-200">
+                        {col.label}
+                        {col.required && <span className="text-red-500"> *</span>}
+                      </span>
+                      {col.required && (
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${isMapped ? "text-emerald-600 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                          {isMapped ? <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} /> : <TriangleAlert className="h-3.5 w-3.5" strokeWidth={2} />}
+                          {isMapped ? "Pronto" : "Escolha uma coluna"}
                         </span>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="flex items-center justify-between gap-2 border-t border-neutral-100 px-2 py-1.5 dark:border-neutral-900">
-              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                {s.totalRows > preview.rowsShown
-                  ? `Mostrando as primeiras ${preview.rowsShown} de ${s.totalRows} linhas — o resumo acima já considera todas.`
-                  : `${preview.rows.length} linha${preview.rows.length === 1 ? "" : "s"} analisada${preview.rows.length === 1 ? "" : "s"}.`}
-              </p>
-              {hiddenRowCount > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAllRows(true)}
-                  className="shrink-0 text-xs font-medium text-neutral-600 underline hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
-                >
-                  Mostrar mais {hiddenRowCount}
-                </button>
-              ) : (
-                showAllRows &&
-                preview.rows.length > PREVIEW_ROWS_COLLAPSED && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllRows(false)}
-                    className="shrink-0 text-xs font-medium text-neutral-600 underline hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
-                  >
-                    Mostrar menos
-                  </button>
-                )
-              )}
+                    </div>
+                    <Select
+                      value={selectedIndex === -1 ? "" : String(selectedIndex)}
+                      onChange={(v) => updateOverride(col.field, v)}
+                      className="w-full py-1.5 text-sm"
+                      placeholder="Não usar"
+                      options={[
+                        ...(col.required ? [] : [{ value: "", label: "Não usar" }]),
+                        ...preview.rawHeaderRow.map((header, index) => ({ value: String(index), label: header || `Coluna ${index + 1}` })),
+                      ]}
+                    />
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          </section>
         )}
 
         {error && <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>}

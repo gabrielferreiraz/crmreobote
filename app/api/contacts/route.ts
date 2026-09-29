@@ -22,7 +22,11 @@ export const dynamic = "force-dynamic";
 // contacts-table.tsx) — nunca devolve a organização inteira de uma vez só.
 const DEFAULT_SEARCH_LIMIT = 8;
 const DEFAULT_LIST_LIMIT = 500;
-const MAX_LIMIT = 500;
+// Teto real da paginação da tela (ver PAGE_SIZE_OPTIONS em contacts-table.tsx,
+// que agora vai até 1000) — sem subir isto junto, escolher "1000 por página"
+// pedia 1000 e recebia só 500 de volta em silêncio: a tela mostrava "1-1000
+// de X" mas metade das linhas nunca existiu na resposta.
+const MAX_LIMIT = 1000;
 
 function parseDate(value: string | null): Date | undefined {
   if (!value) return undefined;

@@ -36,14 +36,23 @@ export async function AdminClientsView() {
     }));
 
     return (
-      <div className="space-y-4">
-        <div>
+      // /clientes virou rota "app shell" em app-main.tsx (o <main> não rola
+      // mais sozinho, ver comentário lá) — precisa da mesma casca de scroll
+      // que ContactsTable (a outra tela que esta MESMA rota pode renderizar,
+      // conforme o papel de quem está logado), senão uma lista comprida de
+      // clientes ganhos ficava cortada, sem nenhuma barra pra rolar até o
+      // fim. Sem paginação/rodapé fixo aqui (esta tela não tem — é lista
+      // única, filtrada só em memória), só o scroll interno mesmo.
+      <div className="flex h-full min-h-0 flex-col gap-4">
+        <div className="shrink-0">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             {clients.length} cliente{clients.length === 1 ? "" : "s"} com negócio ganho
           </p>
         </div>
-        <AdminClientsTable clients={clients} />
+        <div className="min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-3">
+          <AdminClientsTable clients={clients} />
+        </div>
       </div>
     );
   });

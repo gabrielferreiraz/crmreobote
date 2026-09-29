@@ -32,7 +32,7 @@ import { trackUse } from "@/lib/feature-usage/track";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500, 1000];
 const DEFAULT_PAGE_SIZE = 50;
 /** Nenhum negócio de verdade tem esse id de responsável — usado quando o
  * filtro de "responsável X" + "status do consultor" (ativo/inativo) se

@@ -10,7 +10,9 @@ import { bodyErrorResponse, readJson } from "@/lib/read-body";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
+// Teto real da paginação da tela (ver PAGE_SIZE_OPTIONS em process-list.tsx,
+// que agora vai até 1000) — mesmo motivo do MAX_LIMIT em app/api/contacts.
+const MAX_LIMIT = 1000;
 
 /**
  * Lista de processos — admin vê tudo, consultor só os próprios (ver

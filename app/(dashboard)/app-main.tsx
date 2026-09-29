@@ -21,7 +21,15 @@ import { usePathname } from "next/navigation";
  * qualquer resto de arredondamento vira `overflow-hidden` (invisível) em vez
  * de virar uma barra de rolagem visível.
  */
-const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/processos", "/pipeline"];
+// /clientes entrou aqui em 09/2026: a lista de Contatos cresceu (Por página
+// até 1000, `PAGE_SIZE_OPTIONS` em contacts-table.tsx) e a rolagem passou a
+// ser da PÁGINA inteira, não da tabela — selecionar tudo, rolar a lista
+// inteira até achar "Próxima página" lá embaixo, trocar de página e ter que
+// rolar de volta pro topo pra achar "Selecionar todos" de novo (relatado
+// pelo usuário). Mesmo tratamento que o Pipeline já tinha: cabeçalho da
+// tabela fica sticky e a paginação vira rodapé fixo (ver contacts-table.tsx),
+// os dois sempre à vista, sem depender do tamanho da lista.
+const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/processos", "/pipeline", "/clientes"];
 
 // Pipeline é um quadro Kanban de colunas de largura fixa que rolam na
 // horizontal — o teto de 1500px (bom pra texto/formulário não esticar
@@ -66,11 +74,12 @@ export function AppMain({ children }: { children: React.ReactNode }) {
             // pb-28 (96px+) sempre, em qualquer tamanho de tela — já
             // tentamos um `lg:pb-8` (32px) menor no desktop pra "economizar"
             // espaço, mas isso fazia toda página comum (Relatórios,
-            // Configurações, Clientes, Início) voltar a ficar com o último
-            // elemento colado na borda da janela — o problema real e
-            // recorrente. Nunca reduza esse valor no desktop de novo sem
-            // confirmar que o rodapé de uma página comprida (ex.:
-            // Configurações) sobra visível.
+            // Configurações, Início) voltar a ficar com o último elemento
+            // colado na borda da janela — o problema real e recorrente.
+            // Nunca reduza esse valor no desktop de novo sem confirmar que o
+            // rodapé de uma página comprida (ex.: Configurações) sobra
+            // visível. Clientes saiu da lista de exemplos (virou app-shell
+            // acima, com o próprio pb interno — ver contacts-table.tsx).
             "overflow-y-auto pb-28 [scrollbar-gutter:stable] lg:pb-24"
       }`}
     >

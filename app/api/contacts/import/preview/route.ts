@@ -40,6 +40,7 @@ export async function POST(req: Request) {
   const file = formData.get("file");
   const columnOverridesRaw = formData.get("columnOverrides");
   const fieldDefaultsRaw = formData.get("fieldDefaults");
+  const includeAllRows = formData.get("includeAllRows") === "true";
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
@@ -158,8 +159,8 @@ export async function POST(req: Request) {
       columns: plan.columns,
       missingRequiredColumns: plan.missingRequiredColumns,
       summary: plan.summary,
-      rows: plan.rows.slice(0, PREVIEW_ROWS_SHOWN),
-      rowsShown: Math.min(PREVIEW_ROWS_SHOWN, plan.rows.length),
+      rows: includeAllRows ? plan.rows : plan.rows.slice(0, PREVIEW_ROWS_SHOWN),
+      rowsShown: includeAllRows ? plan.rows.length : Math.min(PREVIEW_ROWS_SHOWN, plan.rows.length),
     });
   });
 }

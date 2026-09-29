@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 
 const DEFAULT_SEARCH_LIMIT = 50;
 const DEFAULT_LIST_LIMIT = 500;
-const MAX_LIMIT = 500;
+// Teto real da paginação da tela (ver PAGE_SIZE_OPTIONS em deals-list.tsx,
+// que agora vai até 1000) — mesmo motivo do MAX_LIMIT em app/api/contacts.
+const MAX_LIMIT = 1000;
 
 function parseDate(value: string | null): Date | undefined {
   if (!value) return undefined;

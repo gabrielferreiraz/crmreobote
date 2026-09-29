@@ -61,7 +61,7 @@ import { trackUse } from "@/lib/feature-usage/track";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500, 1000];
 const DEFAULT_PAGE_SIZE = 50;
 
 // Precisa bater EXATAMENTE com o objeto passado pra usePersistedFilters logo
@@ -717,8 +717,15 @@ export function ContactsTable({
   }
 
   return (
-    <div className="space-y-4">
-      <div>
+    // flex h-full min-h-0 flex-col (não mais space-y-4 solto): /clientes
+    // entrou em APP_SHELL_ROUTES (ver app-main.tsx) — quem rola agora é só o
+    // bloco da lista logo abaixo (min-h-0 flex-1 overflow-y-auto), não a
+    // página inteira. Cabeçalho/filtros ficam de fora do scroll (tamanho
+    // natural) e a paginação (mais embaixo) vira rodapé fixo, sempre à
+    // vista — mesmo padrão já usado em pipeline/deals-list.tsx. gap-4 no
+    // lugar de space-y-4 dá o mesmo respiro entre os blocos dentro de flex.
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           {hasActiveFilter
@@ -983,9 +990,14 @@ export function ContactsTable({
           </div>
         )}
       </div>
-      {bulkError && <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
-      {bulkNotice && <p className="text-sm text-neutral-500 dark:text-neutral-400">{bulkNotice}</p>}
+      {bulkError && <p className="shrink-0 text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
+      {bulkNotice && <p className="shrink-0 text-sm text-neutral-500 dark:text-neutral-400">{bulkNotice}</p>}
 
+      {/* min-h-0 flex-1 overflow-y-auto: só ESTE bloco rola (cabeçalho de
+          cima e paginação de baixo ficam sempre à vista, fora do scroll).
+          pb-24 lg:pb-3 dá espaço pra última linha não ficar embaixo da barra
+          inferior fixa do celular (MobileNav) — mesmo valor de deals-list.tsx. */}
+      <div className="min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-3">
       {!filtersReady ? (
         // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
         // filtersReady acima) — evita piscar `initialContacts` (sem o filtro
@@ -1074,9 +1086,22 @@ export function ContactsTable({
           </div>
 
           {/* Desktop: table */}
-          <div className="card hidden overflow-x-auto border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:block">
+          {/* overflow-y-hidden explícito — sem isso o eixo Y deste wrapper
+              também vira "auto" (mistura de overflow-x/y não-visible vira os
+              DOIS "auto", regra do CSS), e ele vira um SEGUNDO container que
+              rola sozinho por dentro do de fora, brigando com o <thead>
+              sticky abaixo (que gruda nesse ancestral errado, que nunca rola
+              de verdade, em vez de no wrapper externo que rola a lista
+              inteira). Mesma armadilha já documentada em deals-list.tsx. */}
+          <div className="card hidden overflow-x-auto overflow-y-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:block">
             <table className="w-full text-sm">
-              <thead>
+              {/* sticky top-0: "Selecionar todos" continua à vista rolando a
+                  lista inteira — antes só aparecia no topo da tabela, e
+                  reaparecer pra selecionar de novo exigia rolar até lá. bg-
+                  opaco (não a superfície translúcida de .card, que deixaria
+                  as linhas "vazando" por trás) cobre de verdade o que passa
+                  por baixo ao rolar. */}
+              <thead className="sticky top-0 z-10 bg-white dark:bg-neutral-900">
                 <tr className="border-b border-neutral-200 bg-neutral-100/90 dark:border-neutral-800 dark:bg-neutral-900/90 text-left text-[11px] font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider whitespace-nowrap">
                   <th className="border-r border-neutral-200 dark:border-neutral-800/60 px-3 py-3 whitespace-nowrap">
                     <input
@@ -1299,19 +1324,25 @@ export function ContactsTable({
           </div>
         </>
       )}
+      </div>
 
-      <Pagination
-        page={page}
-        pageSize={pageSize}
-        totalCount={totalCount}
-        onPageChange={setPage}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPage(1);
-        }}
-        pageSizeOptions={PAGE_SIZE_OPTIONS}
-        itemLabel="contas"
-      />
+      {/* shrink-0: fora do scroll acima — a paginação (e o "Por página",
+          onde alguém pode escolher 1000 pra ver mais) fica sempre visível,
+          sem precisar descer a lista inteira pra trocar de página. */}
+      <div className="shrink-0">
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          itemLabel="contas"
+        />
+      </div>
 
       {confirmBulkDelete && (
         <ConfirmDialog

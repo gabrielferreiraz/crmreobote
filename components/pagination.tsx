@@ -30,7 +30,7 @@ export function Pagination({
   totalCount,
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = [25, 50, 100, 200],
+  pageSizeOptions = [25, 50, 100, 200, 500, 1000],
   itemLabel = "itens",
 }: {
   page: number;
@@ -57,7 +57,9 @@ export function Pagination({
           <Select
             value={String(pageSize)}
             onChange={(v) => onPageSizeChange(Number(v))}
-            className="w-20 py-1 text-sm"
+            // w-24 (não w-20): "1000" precisa caber ao lado do ícone sem
+            // truncar — w-20 já ficava no limite só com "200".
+            className="w-24 py-1 text-sm"
             options={pageSizeOptions.map((n) => ({ value: String(n), label: String(n) }))}
           />
         </div>
