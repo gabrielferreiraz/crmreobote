@@ -55,6 +55,118 @@ const MAX_YOUNG_GENERATION_MB = 64;
 // pra sempre esperando um worker que nunca vai responder (arquivo
 // construído pra gastar CPU sem necessariamente estourar memória).
 const TIMEOUT_MS = 20_000;
+const MAX_CONCURRENT_PARSERS = 2;
+const MAX_WAITING_PARSERS = 4;
+const MAX_XLSX_ENTRIES = 2_048;
+const MAX_XLSX_EXPANDED_BYTES = 32 * 1024 * 1024;
+
+export type SpreadsheetParseOptions = {
+  /** Includes the header row. */
+  maxRows: number;
+  maxColumns?: number;
+  maxCellCharacters?: number;
+  maxTotalCharacters?: number;
+};
+
+type WorkerLimits = Required<SpreadsheetParseOptions>;
+
+const DEFAULT_LIMITS: WorkerLimits = {
+  maxRows: 1_001,
+  maxColumns: 64,
+  maxCellCharacters: 4_000,
+  maxTotalCharacters: 12 * 1024 * 1024,
+};
+
+type ParserPool = { active: number; waiting: Array<() => void> };
+const globalForSpreadsheetParsing = globalThis as unknown as { spreadsheetParserPool?: ParserPool };
+// Route Handlers can load separate module copies in Next. The pool must be
+// process-wide, otherwise each route could open two workers independently.
+const parserPool = globalForSpreadsheetParsing.spreadsheetParserPool ?? { active: 0, waiting: [] };
+globalForSpreadsheetParsing.spreadsheetParserPool = parserPool;
+
+class SpreadsheetParseError extends Error {
+  constructor(code: string) {
+    super(code);
+    this.name = "SpreadsheetParseError";
+  }
+}
+
+async function acquireParser(): Promise<() => void> {
+  if (parserPool.active < MAX_CONCURRENT_PARSERS) {
+    parserPool.active += 1;
+    return releaseParser;
+  }
+  if (parserPool.waiting.length >= MAX_WAITING_PARSERS) throw new SpreadsheetParseError("SPREADSHEET_BUSY");
+  await new Promise<void>((resolve) => parserPool.waiting.push(resolve));
+  return releaseParser;
+}
+
+function releaseParser() {
+  const next = parserPool.waiting.shift();
+  if (next) {
+    next();
+    return;
+  }
+  parserPool.active -= 1;
+}
+
+function readU16(buffer: Buffer, offset: number): number {
+  return buffer.readUInt16LE(offset);
+}
+
+function readU32(buffer: Buffer, offset: number): number {
+  return buffer.readUInt32LE(offset);
+}
+
+/** Rejects non-XLSX ZIP archives and archives that would expand too far. */
+function validateXlsxArchive(buffer: Buffer) {
+  const endSignature = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+  const centralSignature = 0x02014b50;
+  const earliestEnd = Math.max(0, buffer.length - 65_557);
+  let endOffset = -1;
+
+  for (let offset = buffer.length - 22; offset >= earliestEnd; offset -= 1) {
+    if (buffer.subarray(offset, offset + 4).equals(endSignature) && offset + 22 + readU16(buffer, offset + 20) === buffer.length) {
+      endOffset = offset;
+      break;
+    }
+  }
+  if (endOffset < 0) throw new SpreadsheetParseError("INVALID_XLSX_ARCHIVE");
+
+  const entryCount = readU16(buffer, endOffset + 10);
+  const centralSize = readU32(buffer, endOffset + 12);
+  const centralOffset = readU32(buffer, endOffset + 16);
+  if (entryCount === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff || entryCount > MAX_XLSX_ENTRIES) {
+    throw new SpreadsheetParseError("INVALID_XLSX_ARCHIVE");
+  }
+  if (centralOffset + centralSize > endOffset) throw new SpreadsheetParseError("INVALID_XLSX_ARCHIVE");
+
+  let offset = centralOffset;
+  let expandedBytes = 0;
+  let hasContentTypes = false;
+  let hasWorkbook = false;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > endOffset || readU32(buffer, offset) !== centralSignature) throw new SpreadsheetParseError("INVALID_XLSX_ARCHIVE");
+    const flags = readU16(buffer, offset + 8);
+    const compressionMethod = readU16(buffer, offset + 10);
+    const uncompressedSize = readU32(buffer, offset + 24);
+    const fileNameLength = readU16(buffer, offset + 28);
+    const extraLength = readU16(buffer, offset + 30);
+    const commentLength = readU16(buffer, offset + 32);
+    const nextOffset = offset + 46 + fileNameLength + extraLength + commentLength;
+    if (nextOffset > endOffset || (flags & 0x1) !== 0 || (compressionMethod !== 0 && compressionMethod !== 8) || uncompressedSize === 0xffffffff) {
+      throw new SpreadsheetParseError("INVALID_XLSX_ARCHIVE");
+    }
+    expandedBytes += uncompressedSize;
+    if (expandedBytes > MAX_XLSX_EXPANDED_BYTES) throw new SpreadsheetParseError("XLSX_EXPANSION_LIMIT");
+
+    const name = buffer.subarray(offset + 46, offset + 46 + fileNameLength).toString("utf8");
+    if (name === "[Content_Types].xml") hasContentTypes = true;
+    if (name === "xl/workbook.xml") hasWorkbook = true;
+    offset = nextOffset;
+  }
+  if (!hasContentTypes || !hasWorkbook) throw new SpreadsheetParseError("INVALID_XLSX_ARCHIVE");
+}
 
 // process.cwd() (não __dirname do arquivo compilado, que muda de lugar
 // dentro do bundle do Next) — em produção é /app (WORKDIR do Dockerfile,
@@ -65,11 +177,51 @@ const WORKER_PATH = path.join(process.cwd(), "lib", "parse-spreadsheet-worker.ts
 
 type WorkerOutput = { ok: true; rows: string[][] } | { ok: false; error: string };
 
-export async function parseSpreadsheet(buffer: Buffer, filename: string): Promise<string[][]> {
+export function spreadsheetParseFailure(error: unknown): { status: number; message: string } | null {
+  if (!(error instanceof Error)) return null;
+  switch (error.message) {
+    case "SPREADSHEET_BUSY":
+      return { status: 503, message: "Muitas planilhas estão sendo analisadas. Tente novamente em instantes." };
+    case "SPREADSHEET_MAX_ROWS":
+      return { status: 400, message: "A planilha passa do limite de linhas permitido." };
+    case "SPREADSHEET_MAX_COLUMNS":
+      return { status: 400, message: "A planilha tem colunas demais para importar." };
+    case "SPREADSHEET_CELL_TOO_LARGE":
+    case "SPREADSHEET_TOTAL_TEXT_TOO_LARGE":
+    case "XLSX_EXPANSION_LIMIT":
+      return { status: 400, message: "A planilha tem dados demais para ser processada com segurança." };
+    case "INVALID_XLSX_ARCHIVE":
+      return { status: 400, message: "O arquivo .xlsx é inválido ou não parece ser uma planilha do Excel." };
+    case "UNSUPPORTED_SPREADSHEET_TYPE":
+      return { status: 400, message: "Envie um arquivo .csv ou .xlsx." };
+    default:
+      return null;
+  }
+}
+
+export async function parseSpreadsheet(buffer: Buffer, filename: string, options: SpreadsheetParseOptions = DEFAULT_LIMITS): Promise<string[][]> {
+  const limits: WorkerLimits = {
+    ...DEFAULT_LIMITS,
+    ...options,
+  };
+  const lowerFilename = filename.toLowerCase();
+  if (lowerFilename.endsWith(".xls")) throw new SpreadsheetParseError("XLS_NOT_SUPPORTED");
+  if (!lowerFilename.endsWith(".csv") && !lowerFilename.endsWith(".xlsx")) throw new SpreadsheetParseError("UNSUPPORTED_SPREADSHEET_TYPE");
+  if (lowerFilename.endsWith(".xlsx")) validateXlsxArchive(buffer);
+
+  const release = await acquireParser();
+  try {
+    return await parseInWorker(buffer, filename, limits);
+  } finally {
+    release();
+  }
+}
+
+function parseInWorker(buffer: Buffer, filename: string, limits: WorkerLimits): Promise<string[][]> {
   return new Promise<string[][]>((resolve, reject) => {
     let settled = false;
     const worker = new Worker(WORKER_PATH, {
-      workerData: { buffer, filename },
+      workerData: { buffer, filename, limits },
       resourceLimits: {
         maxOldGenerationSizeMb: MAX_OLD_GENERATION_MB,
         maxYoungGenerationSizeMb: MAX_YOUNG_GENERATION_MB,
@@ -96,7 +248,7 @@ export async function parseSpreadsheet(buffer: Buffer, filename: string): Promis
 
     worker.on("message", (msg: WorkerOutput) => {
       if (msg.ok) finish(() => resolve(msg.rows));
-      else finish(() => reject(new Error(msg.error)));
+      else finish(() => reject(new SpreadsheetParseError(msg.error)));
     });
 
     // Erro NÃO tratado dentro do worker (exceção fora do try/catch do

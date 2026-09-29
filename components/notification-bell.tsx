@@ -110,6 +110,8 @@ export function NotificationBell() {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label="Notificações"
+        // Âncora do tour guiado da Central de ajuda (ver lib/help/tours.ts).
+        data-help="notifications"
         className="icon-btn relative h-9 w-9"
       >
         <Bell className="h-4 w-4" strokeWidth={2} />

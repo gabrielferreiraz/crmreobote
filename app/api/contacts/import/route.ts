@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
-import { parseSpreadsheet } from "@/lib/parse-spreadsheet";
+import { parseSpreadsheet, spreadsheetParseFailure } from "@/lib/parse-spreadsheet";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 import { rateLimitOrResponse, getClientIp } from "@/lib/rate-limit";
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     let rows: string[][];
     try {
-      rows = await parseSpreadsheet(buffer, file.name);
+      rows = await parseSpreadsheet(buffer, file.name, { maxRows: MAX_CONTACT_IMPORT_ROWS + 1 });
     } catch (err) {
       if (err instanceof Error && err.message === "XLS_NOT_SUPPORTED") {
         return NextResponse.json(
@@ -80,6 +80,8 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
+      const parseFailure = spreadsheetParseFailure(err);
+      if (parseFailure) return NextResponse.json({ error: parseFailure.message }, { status: parseFailure.status });
       return NextResponse.json({ error: "Não foi possível ler o arquivo" }, { status: 400 });
     }
 

@@ -116,6 +116,7 @@ model Organization {
   processTemplateUsages  ProcessTemplateUsage[]
   leadRequests           LeadRequest[]
   proposals              Proposal[]
+  proposalTemplates      ProposalTemplate[]
   userCompanies          UserCompany[]
 }
 
@@ -183,6 +184,7 @@ model User {
   leadRequestsResolved        LeadRequest[]             @relation("LeadRequestResolvedBy")
   proposalsCreated            Proposal[]                @relation("ProposalCreatedBy")
   proposalsSent               Proposal[]                @relation("ProposalSentBy")
+  proposalTemplatesCreated   ProposalTemplate[]        @relation("ProposalTemplateCreatedBy")
   company                     UserCompany?
 }
 
@@ -1535,6 +1537,11 @@ model Proposal {
   // Nasce com Organization.defaultProposalDescription (se configurado),
   // editável livremente até a proposta ser gerada (ver status abaixo).
   description String
+  // Personalizações da apresentação desta proposta; não alteram o contato.
+  displayName  String?
+  coverIntro   String?
+  coverDetails String?
+  coverImagePosition String @default("after-title")
 
   status ProposalStatus @default(DRAFT)
   // GENERATED = documento (PDF) existe — NUNCA implica que foi enviado de
@@ -1568,6 +1575,23 @@ model Proposal {
   // Relatório de "quem enviou quanto no período" (ver lib/reports/
   // commercial-data.ts) — filtra por sentById + intervalo de sentAt.
   @@index([sentById, sentAt])
+}
+
+model ProposalTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  createdById    String?
+  name           String
+  description    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("ProposalTemplateCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, createdById, name])
+  @@index([organizationId])
+  @@index([createdById])
 }
 
 enum ProposalStatus {

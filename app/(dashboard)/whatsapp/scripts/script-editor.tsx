@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Trash2, Loader2, ArrowLeft, X, Shuffle, MessageCircleMore, Pencil, Globe2, Lock, ImagePlus, Image as ImageIcon } from "lucide-react";
 import { VariablePills } from "@/components/variable-pills";
+import { Switch } from "@/components/switch";
 import { LoadingDots } from "@/components/loading-dots";
 import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
 import { MessageVariationEditor } from "@/components/message-variation-editor";
@@ -20,6 +21,7 @@ type Step = ScriptStep & { previewUrl?: string };
 
 const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
 const MAX_DELAY_SEC = 120;
+const SYNONYM_TIP_STORAGE_KEY = "whatsapp-script-synonyms-tip-seen";
 /** Acima disso (fração do texto que mudou) o diálogo de salvar sugere "nova versão" em vez de "correção". */
 const NEW_VERSION_SUGGESTION_RATIO = 0.35;
 
@@ -215,9 +217,9 @@ export function ScriptEditor({
   // remover a mensagem 1 faria a mensagem 2 "herdar" o DOM (e o innerHTML já
   // deserializado) da mensagem 1 no React, já que os editores não são mais
   // controlados por `value` a cada tecla (ver deserializeIntoEditor).
-  const nextKeyRef = useRef(0);
+  const nextKeyRef = useRef(steps.length);
   const newStepKey = () => `s${nextKeyRef.current++}`;
-  const [stepKeys, setStepKeys] = useState<string[]>(() => steps.map(() => newStepKey()));
+  const [stepKeys, setStepKeys] = useState<string[]>(() => steps.map((_, idx) => `s${idx}`));
   const [tags, setTags] = useState<string[]>(initialTags);
   const [tagInput, setTagInput] = useState("");
   const [focusedStepIndex, setFocusedStepIndex] = useState(0);
@@ -256,6 +258,11 @@ export function ScriptEditor({
   const editorRefs = useRef<(HTMLDivElement | null)[]>([]);
   const initializedSteps = useRef<Set<number>>(new Set());
   const floatingButtonRef = useRef<HTMLButtonElement>(null);
+  const [useSynonyms, setUseSynonyms] = useState(true);
+  const [showSynonymTip, setShowSynonymTip] = useState(false);
+  // Suggestion pills never change the saved script. The ref makes existing
+  // debounced callbacks respect a toggle change immediately.
+  const useSynonymsRef = useRef(true);
   const synonymDebounceRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   // Marca qual mensagem acabou de receber um COLAR — consumido (e limpo) na
   // próxima varredura de sugestão (ver applySynonymSuggestions): colar um
@@ -273,6 +280,22 @@ export function ScriptEditor({
     },
     [],
   );
+
+  useEffect(() => {
+    let shouldShow = false;
+    try {
+      if (window.localStorage.getItem(SYNONYM_TIP_STORAGE_KEY)) return;
+      window.localStorage.setItem(SYNONYM_TIP_STORAGE_KEY, "true");
+      shouldShow = true;
+    } catch {
+      // Navegadores que bloqueiam armazenamento ainda recebem a dica nesta visita.
+      shouldShow = true;
+    }
+
+    if (!shouldShow) return;
+    const frame = window.requestAnimationFrame(() => setShowSynonymTip(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   // Fecha o botão flutuante "Variar este trecho" ao clicar em QUALQUER lugar
   // que não seja ele mesmo nem dentro de um editor (esse último caso já é
@@ -356,10 +379,37 @@ export function ScriptEditor({
     scheduleSynonymSuggestions(idx);
   }
 
+  function clearSynonymSuggestions(idx?: number) {
+    const editors = idx === undefined ? editorRefs.current : [editorRefs.current[idx]];
+    for (const editor of editors) {
+      editor?.querySelectorAll("[data-synonym-key], [data-synonym-apply-all]").forEach((node) => node.remove());
+    }
+  }
+
+  function setSynonymSuggestionsEnabled(enabled: boolean) {
+    useSynonymsRef.current = enabled;
+    setUseSynonyms(enabled);
+    setShowSynonymTip(false);
+
+    for (const timer of synonymDebounceRef.current.values()) clearTimeout(timer);
+    synonymDebounceRef.current.clear();
+
+    if (!enabled) {
+      clearSynonymSuggestions();
+      pastedStepsRef.current.clear();
+      return;
+    }
+
+    editorRefs.current.forEach((editor, idx) => {
+      if (editor) scheduleSynonymSuggestions(idx);
+    });
+  }
+
   /** Só sugere depois que a digitação PARA — nunca no meio de uma tecla,
    * senão uma pílula nascendo no meio do texto ainda sendo escrito
    * atrapalharia o cursor. */
   function scheduleSynonymSuggestions(idx: number) {
+    if (!useSynonymsRef.current) return;
     const existing = synonymDebounceRef.current.get(idx);
     if (existing) clearTimeout(existing);
     synonymDebounceRef.current.set(
@@ -388,7 +438,11 @@ export function ScriptEditor({
   function applySynonymSuggestions(idx: number) {
     const el = editorRefs.current[idx];
     if (!el) return;
-    el.querySelectorAll("[data-synonym-key], [data-synonym-apply-all]").forEach((n) => n.remove());
+    if (!useSynonymsRef.current) {
+      clearSynonymSuggestions(idx);
+      return;
+    }
+    clearSynonymSuggestions(idx);
 
     const candidates: { node: Text; start: number; end: number; text: string }[] = [];
     for (const node of Array.from(el.childNodes)) {
@@ -595,10 +649,14 @@ export function ScriptEditor({
       return;
     }
 
-    if (target.type === "chip" && el.contains(target.el)) {
+    const chip =
+      target.type === "chip"
+        ? Array.from(el.querySelectorAll<HTMLElement>("[data-variation-options]")).find((candidate) => candidate === target.el)
+        : null;
+    if (chip) {
       const encoded = encodeURIComponent(JSON.stringify(options));
-      target.el.setAttribute("data-variation-options", encoded);
-      target.el.innerHTML = `🔀 ${escapeHtml(options.join(" / "))}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span>`;
+      chip.setAttribute("data-variation-options", encoded);
+      chip.innerHTML = `🔀 ${escapeHtml(options.join(" / "))}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span>`;
     } else if (target.type === "range") {
       // Restaura a seleção original (o range continua válido mesmo com o
       // foco/seleção "de verdade" já tendo saído pra dentro do popover) e
@@ -857,9 +915,30 @@ export function ScriptEditor({
                   Fluxo de mensagens
                 </h2>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Inserir:</span>
-                <VariablePills onInsert={insertVariable} />
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="relative flex items-center gap-2">
+                  <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Usar sinônimos</span>
+                  <Switch checked={useSynonyms} onChange={setSynonymSuggestionsEnabled} label="Usar sinônimos" />
+                  <span className="text-xs font-semibold text-neutral-400 dark:text-neutral-500">{useSynonyms ? "Sim" : "Não"}</span>
+                  {showSynonymTip && (
+                    <div role="status" className="absolute top-full right-0 z-10 mt-2 flex w-64 gap-2 rounded-lg border border-brand/25 bg-white p-3 text-xs leading-5 text-neutral-600 shadow-lg dark:bg-neutral-900 dark:text-neutral-300">
+                      <span className="absolute -top-1.5 right-8 h-3 w-3 rotate-45 border-t border-l border-brand/25 bg-white dark:bg-neutral-900" />
+                      <p className="relative">Agora você pode desligar os sinônimos.</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowSynonymTip(false)}
+                        className="icon-btn relative -mt-1 -mr-1 h-6 w-6 shrink-0"
+                        aria-label="Fechar dica sobre sinônimos"
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-medium text-neutral-400 dark:text-neutral-500">Inserir:</span>
+                  <VariablePills onInsert={insertVariable} />
+                </div>
               </div>
             </div>
 

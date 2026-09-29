@@ -20,6 +20,7 @@ import { PushNotificationsPrompt } from "@/components/push-notifications-prompt"
 import { CnpjPrompt } from "@/components/cnpj-prompt";
 import { UndoProvider } from "@/components/undo-provider";
 import { ProductivityTipsHost } from "@/components/productivity-tips-host";
+import { HelpCenterProvider } from "@/components/help/help-center";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -80,6 +81,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
         components/command-palette.tsx (o bug real que isso corrige: Cmd+K
         abria 2 modais de busca empilhados, um por header). */}
     <CommandPaletteProvider>
+    {/* Central de ajuda (botão flutuante + painel + tour guiado) montada 1x
+        aqui, mesmo padrão dos dois providers acima. Precisa do papel e da
+        área pra nunca ensinar uma tela que a pessoa não pode abrir — ajuda
+        que ensina e depois dá 403 é pior que não ter ajuda. Os `data-help`
+        espalhados no cabeçalho abaixo são as âncoras que o tour destaca
+        (ver lib/help/tours.ts). */}
+    <HelpCenterProvider role={membership.role} isAdministrativo={isAdministrativo}>
     <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
       <MobileHeader
         photoUrl={photoUrl}
@@ -103,7 +111,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <>
               <CommandPalette />
               {!isAdministrativo && (
-                <Link href="/pipeline?novo=1" className="btn-primary btn-sm">
+                <Link href="/pipeline?novo=1" data-help="new-deal" className="btn-primary btn-sm">
                   <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
                   Novo negócio
                 </Link>
@@ -114,7 +122,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <>
               <CommandPalette compact />
               {!isAdministrativo && (
-                <Link href="/pipeline?novo=1" className="icon-btn" aria-label="Novo negócio" title="Novo negócio">
+                <Link href="/pipeline?novo=1" data-help="new-deal" className="icon-btn" aria-label="Novo negócio" title="Novo negócio">
                   <Plus className="h-4 w-4" strokeWidth={2.5} />
                 </Link>
               )}
@@ -148,6 +156,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <CnpjPrompt />
       <ProductivityTipsHost />
     </div>
+    </HelpCenterProvider>
     </CommandPaletteProvider>
     </UndoProvider>
   );

@@ -1,6 +1,6 @@
 /**
  * Busca e computa TODOS os dados do relatório Comercial (funil, faturamento,
- * ranking do time, WhatsApp/SLA, meta do mês) — extraído de
+ * ranking do time, WhatsApp, meta do mês) — extraído de
  * app/(dashboard)/relatorios/page.tsx, que antes fazia essa conta inteira
  * (~1350 linhas) misturada com a montagem do JSX no mesmo arquivo de ~2200
  * linhas. page.tsx agora só resolve roteamento (Administrativo/Processos/
@@ -9,8 +9,8 @@
  *
  * Retorna só os campos que a UI de fato usa (ver page.tsx) — as dezenas de
  * variáveis intermediárias usadas só pra CALCULAR esses campos (ex.:
- * ownerFilterSql, threadById, slaByUser) continuam privadas da função, não
- * vazam pro chamador.
+ * ownerFilterSql, contactIdByThread) continuam privadas da função, não vazam
+ * pro chamador.
  */
 
 import { prisma, prismaRaw } from "@/lib/prisma";
@@ -32,9 +32,7 @@ import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
 import { buildQuickRanges, singleMonthLabel } from "@/lib/date-ranges";
 import { countActiveSellers, suggestedGoalValue, getGoalExcludedOwnerIds } from "@/lib/goals/suggestion";
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
-import { average, percentile } from "@/lib/reports/stats";
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
-import { computeSlaAggregate } from "@/lib/reports/sla-aggregate";
 import type { Session } from "next-auth";
 
 export async function getCommercialReportData(params: {
@@ -239,12 +237,6 @@ export async function getCommercialReportData(params: {
     compareMode && rangeFrom && rangeTo
       ? resolveComparePeriod(compareMode, rangeFrom, rangeTo, { from: compareFromParam, to: compareToParam })
       : null;
-
-  // Disparado AQUI (não só onde o resultado é usado, lá embaixo) pra rodar
-  // em paralelo com todo o resto da função — é uma consulta pesada por conta
-  // própria (ver lib/reports/sla-aggregate.ts), esperar ela só depois de
-  // todo o resto já ter rodado desperdiçaria esse paralelismo à toa.
-  const compareSlaPromise = comparePeriod ? computeSlaAggregate(organizationId, effectiveScope, comparePeriod) : Promise.resolve(null);
 
   const activePipeline =
     pipelines.find((p) => p.id === pipelineIdParam) ??
@@ -495,13 +487,11 @@ export async function getCommercialReportData(params: {
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
   const lostCount = lostByOwner.reduce((sum, l) => l._count + sum, 0);
 
-  // "Comparar período" (compareData) é montado mais abaixo, depois do bloco
-  // de SLA — junta os números de negócio (ganho/perdido) calculados aqui
-  // embaixo com os 4 números agregados de SLA (ver compareSlaPromise, já
-  // disparado lá em cima em paralelo com o resto). compareWonCount/
-  // compareWonTotalValue/compareClosedCount ficam guardados aqui, mesmo
-  // formato que closedCount/winRate/avgWonValue do período atual logo
-  // abaixo — nunca duas fórmulas divergentes pra a "mesma" métrica.
+  // "Comparar período" (compareData) é montado mais abaixo — junta os
+  // números de negócio (ganho/perdido) calculados aqui embaixo.
+  // compareWonCount/compareWonTotalValue/compareClosedCount ficam guardados
+  // aqui, mesmo formato que closedCount/winRate/avgWonValue do período atual
+  // logo abaixo — nunca duas fórmulas divergentes pra a "mesma" métrica.
   const compareWonCount = compareWonAgg?._count ?? 0;
   const compareWonTotalValue = compareWonAgg?._sum.value != null ? Number(compareWonAgg._sum.value) : 0;
   const compareWonGrossTotalValue = compareWonAgg?._sum.grossValue != null ? Number(compareWonAgg._sum.grossValue) : 0;
@@ -814,6 +804,26 @@ export async function getCommercialReportData(params: {
       primaryValue: formatCurrency(o.wonValue),
       secondaryValue: `${o.wonCount} negócio${o.wonCount === 1 ? "" : "s"}`,
     }));
+
+  // Concentração de faturamento no TOP vendedor — risco de dependência de uma
+  // pessoa só: se ela sair, ficar de licença ou só tirar férias, a empresa
+  // perde essa fatia inteira da receita de um mês só. Reaproveita o mesmo
+  // ownerStats/wonTotalValue já calculados (dealsClosedRanking já é essa
+  // mesma lista ordenada por wonValue, só que com o valor já formatado em
+  // string — refaz o filtro/sort aqui em vez de tentar reaproveitar o
+  // resultado formatado). Só faz sentido com 2+ vendedores ativos com venda
+  // no período — com 1 só, seria sempre "100%", óbvio demais pra virar
+  // destaque.
+  const activeSellersWithSales = ownerStats
+    .filter((o) => activeMemberIds.has(o.id) && o.wonValue > 0)
+    .sort((a, b) => b.wonValue - a.wonValue);
+  const topSellerRevenueShare =
+    activeSellersWithSales.length > 1 && wonTotalValue > 0
+      ? {
+          name: activeSellersWithSales[0].name,
+          pct: Math.round((activeSellersWithSales[0].wonValue / wonTotalValue) * 100),
+        }
+      : null;
 
   // Pedido explícito: "quem fez mais videochamadas" tem que contar só quem o
   // cliente de fato COMPARECEU (attendedCount) — remarcada não é videochamada
@@ -1186,30 +1196,15 @@ export async function getCommercialReportData(params: {
   ];
 
   const reasonIds = lostByReason.map((l) => l.lossReasonId).filter((id): id is string => !!id);
-  const reasonsList = await prisma.lossReason.findMany({
-    where: { id: { in: reasonIds } },
-    select: { id: true, label: true },
-  });
-  // Contagem do MESMO motivo no período de comparação, por lossReasonId —
-  // só precisa da contagem (não do rótulo): a barra de cada motivo já vem
-  // do período ATUAL (lossBreakdown abaixo é sempre "motivos usados agora");
-  // um motivo que só apareceu no período de comparação e não no atual não
-  // ganha barra nova, só não tem com o que comparar (mesmo raciocínio de
-  // creditTypeBreakdown acima — 0/ausente vira null, sem badge inventado).
-  const compareLossByReasonId = new Map(compareLostByReason.map((l) => [l.lossReasonId, l._count]));
-  const lossBreakdown = lostByReason
-    .map((l) => ({
-      id: l.lossReasonId ?? "none",
-      label: reasonsList.find((r) => r.id === l.lossReasonId)?.label ?? "Sem motivo",
-      count: l._count,
-      compareCount: comparePeriod ? (compareLossByReasonId.get(l.lossReasonId) ?? 0) : null,
-    }))
-    .sort((a, b) => b.count - a.count);
-  const maxLossCount = Math.max(1, ...lossBreakdown.map((l) => l.count));
 
-  // ─── Negócios decididos por cargo do contato — Prisma não agrupa por
-  // campo de relação (contact.jobTitle não é coluna de Deal), então antes
-  // isso buscava TODO negócio decidido (WON+LOST) da organização inteira pra
+  // ─── SQL das 3 consultas independentes logo abaixo (motivos de perda,
+  // negócio por cargo, threads de negócio) — só monta os fragmentos aqui,
+  // sem `await` nenhum ainda, pra dar pra disparar as 3 juntas num
+  // Promise.all só (ver logo abaixo). Nenhuma depende do resultado de outra.
+  //
+  // Negócios decididos por cargo do contato — Prisma não agrupa por campo de
+  // relação (contact.jobTitle não é coluna de Deal), então antes isso
+  // buscava TODO negócio decidido (WON+LOST) da organização inteira pra
   // agrupar na mão em JS. Numa organização com histórico migrado (dezenas de
   // milhares de negócios já decididos), isso significava trazer todas essas
   // linhas pro Node toda vez que o filtro de data está em "Tudo" (ver
@@ -1229,45 +1224,11 @@ export async function getCommercialReportData(params: {
         : Prisma.sql`AND false`
       : Prisma.empty;
   const pipelineFilterSql = pipelineFilter.pipelineId ? Prisma.sql`AND d."pipelineId" = ${pipelineFilter.pipelineId}` : Prisma.empty;
-  const jobTitleAgg = await prismaRaw.$transaction(async (tx) => {
-    await setTenantOnTx(tx, organizationId);
-    return tx.$queryRaw<{ label: string; won: number; lost: number; wonValue: Prisma.Decimal }[]>`
-      SELECT
-        COALESCE(NULLIF(c."jobTitle", ''), 'Sem cargo cadastrado') AS label,
-        COUNT(*) FILTER (WHERE d.status = 'WON')::int AS won,
-        COUNT(*) FILTER (WHERE d.status = 'LOST')::int AS lost,
-        COALESCE(SUM(d.value) FILTER (WHERE d.status = 'WON'), 0) AS "wonValue"
-      FROM "Deal" d
-      JOIN "Contact" c ON c.id = d."contactId"
-      WHERE d."organizationId" = ${organizationId}
-        AND d.status IN ('WON', 'LOST')
-        ${ownerFilterSql}
-        ${pipelineFilterSql}
-        ${rangeFrom ? Prisma.sql`AND d."closedAt" >= ${rangeFrom}` : Prisma.empty}
-        ${rangeTo ? Prisma.sql`AND d."closedAt" <= ${rangeTo}` : Prisma.empty}
-      GROUP BY 1
-    `;
-  });
-  const jobTitleBreakdown = jobTitleAgg
-    .map((row) => ({
-      label: row.label,
-      won: row.won,
-      lost: row.lost,
-      wonValue: Number(row.wonValue),
-      winRate: row.won + row.lost > 0 ? Math.round((row.won / (row.won + row.lost)) * 100) : 0,
-    }))
-    .sort((a, b) => b.won + b.lost - (a.won + a.lost));
 
-  // ─── WhatsApp: enviadas, responderam e conversão por vendedor ──────────
-  // "Geral" nunca conta mensagem de disparo de lista fria (campaignId
-  // setado por lib/campaigns/engine.ts) nem mensagem de thread já vinculada a
-  // negócio (essa vira "Conversas de negócio"/"Prospecção manual" abaixo) —
-  // sem essas exclusões, a mesma mensagem aparecia contada em mais de uma
-  // categoria ao mesmo tempo.
-
-  // ─── WhatsApp dos negócios: threads de contato que já viraram negócio
-  // (aberto, ganho ou perdido) — precisa vir ANTES do bloco "Geral" abaixo,
-  // que usa dealThreadIds pra excluir essas threads da contagem geral.
+  // WhatsApp dos negócios: threads de contato que já viraram negócio (aberto,
+  // ganho ou perdido) — precisa do resultado ANTES do bloco "Geral" mais
+  // abaixo, que usa dealThreadIds pra excluir essas threads da contagem
+  // geral (mas não precisa esperar reasonsList/jobTitleAgg pra ser disparada).
   //
   // Antes: uma consulta buscava TODO contactId distinto entre os negócios da
   // organização (até ~113 mil linhas numa organização com histórico
@@ -1293,19 +1254,87 @@ export async function getCommercialReportData(params: {
         ? Prisma.sql`AND EXISTS (SELECT 1 FROM "WhatsAppInstance" i WHERE i.id = t."instanceId" AND i."userId" IN (${Prisma.join(effectiveScope.ownerIds)}))`
         : Prisma.sql`AND false`
       : Prisma.empty;
-  const dealThreads = await prismaRaw.$transaction(async (tx) => {
-    await setTenantOnTx(tx, organizationId);
-    return tx.$queryRaw<{ id: string; instanceId: string | null; contactId: string | null }[]>`
-      SELECT t.id, t."instanceId", t."contactId"
-      FROM "WhatsAppThread" t
-      WHERE t."organizationId" = ${organizationId}
-        AND EXISTS (
-          SELECT 1 FROM "Deal" d
-          WHERE d."contactId" = t."contactId" AND d."organizationId" = ${organizationId} ${dealOwnerFilterSql}
-        )
-        ${instanceOwnerFilterSql}
-    `;
-  });
+
+  // As 3 rodam juntas (Promise.all), não uma depois da outra — nenhuma
+  // depende do resultado de outra (só de organizationId/escopo/período, já
+  // calculados acima). Cada `prismaRaw.$transaction` é curto (só um SELECT
+  // lá dentro) e usa conexão própria do pool, então correm em paralelo sem
+  // conflito nenhum. Antes eram 3 idas-e-voltas sequenciais ao Postgres
+  // (cada uma com o próprio custo de round-trip, ver comentário em
+  // lib/deals/list-query.ts sobre o preço de cada transação de RLS) — juntar
+  // num Promise.all corta esse tempo pro maior dos três, não a soma deles.
+  const [reasonsList, jobTitleAgg, dealThreads] = await Promise.all([
+    prisma.lossReason.findMany({
+      where: { id: { in: reasonIds } },
+      select: { id: true, label: true },
+    }),
+    prismaRaw.$transaction(async (tx) => {
+      await setTenantOnTx(tx, organizationId);
+      return tx.$queryRaw<{ label: string; won: number; lost: number; wonValue: Prisma.Decimal }[]>`
+        SELECT
+          COALESCE(NULLIF(c."jobTitle", ''), 'Sem cargo cadastrado') AS label,
+          COUNT(*) FILTER (WHERE d.status = 'WON')::int AS won,
+          COUNT(*) FILTER (WHERE d.status = 'LOST')::int AS lost,
+          COALESCE(SUM(d.value) FILTER (WHERE d.status = 'WON'), 0) AS "wonValue"
+        FROM "Deal" d
+        JOIN "Contact" c ON c.id = d."contactId"
+        WHERE d."organizationId" = ${organizationId}
+          AND d.status IN ('WON', 'LOST')
+          ${ownerFilterSql}
+          ${pipelineFilterSql}
+          ${rangeFrom ? Prisma.sql`AND d."closedAt" >= ${rangeFrom}` : Prisma.empty}
+          ${rangeTo ? Prisma.sql`AND d."closedAt" <= ${rangeTo}` : Prisma.empty}
+        GROUP BY 1
+      `;
+    }),
+    prismaRaw.$transaction(async (tx) => {
+      await setTenantOnTx(tx, organizationId);
+      return tx.$queryRaw<{ id: string; instanceId: string | null; contactId: string | null }[]>`
+        SELECT t.id, t."instanceId", t."contactId"
+        FROM "WhatsAppThread" t
+        WHERE t."organizationId" = ${organizationId}
+          AND EXISTS (
+            SELECT 1 FROM "Deal" d
+            WHERE d."contactId" = t."contactId" AND d."organizationId" = ${organizationId} ${dealOwnerFilterSql}
+          )
+          ${instanceOwnerFilterSql}
+      `;
+    }),
+  ]);
+
+  // Contagem do MESMO motivo no período de comparação, por lossReasonId —
+  // só precisa da contagem (não do rótulo): a barra de cada motivo já vem
+  // do período ATUAL (lossBreakdown abaixo é sempre "motivos usados agora");
+  // um motivo que só apareceu no período de comparação e não no atual não
+  // ganha barra nova, só não tem com o que comparar (mesmo raciocínio de
+  // creditTypeBreakdown acima — 0/ausente vira null, sem badge inventado).
+  const compareLossByReasonId = new Map(compareLostByReason.map((l) => [l.lossReasonId, l._count]));
+  const lossBreakdown = lostByReason
+    .map((l) => ({
+      id: l.lossReasonId ?? "none",
+      label: reasonsList.find((r) => r.id === l.lossReasonId)?.label ?? "Sem motivo",
+      count: l._count,
+      compareCount: comparePeriod ? (compareLossByReasonId.get(l.lossReasonId) ?? 0) : null,
+    }))
+    .sort((a, b) => b.count - a.count);
+  const maxLossCount = Math.max(1, ...lossBreakdown.map((l) => l.count));
+
+  const jobTitleBreakdown = jobTitleAgg
+    .map((row) => ({
+      label: row.label,
+      won: row.won,
+      lost: row.lost,
+      wonValue: Number(row.wonValue),
+      winRate: row.won + row.lost > 0 ? Math.round((row.won / (row.won + row.lost)) * 100) : 0,
+    }))
+    .sort((a, b) => b.won + b.lost - (a.won + a.lost));
+
+  // ─── WhatsApp: enviadas, responderam e conversão por vendedor ──────────
+  // "Geral" nunca conta mensagem de disparo de lista fria (campaignId
+  // setado por lib/campaigns/engine.ts) nem mensagem de thread já vinculada a
+  // negócio (essa vira "Conversas de negócio"/"Prospecção manual" abaixo) —
+  // sem essas exclusões, a mesma mensagem aparecia contada em mais de uma
+  // categoria ao mesmo tempo.
   const dealThreadIds = dealThreads.map((t) => t.id);
   const dealThreadIdSet = new Set(dealThreadIds);
 
@@ -1346,7 +1375,7 @@ export async function getCommercialReportData(params: {
     }
   }
 
-  const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients, slaContactsQualified, slaAllThreadsFirstMessages] = await Promise.all([
+  const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
     prisma.whatsAppInstance.findMany({
       where: { organizationId, ...(effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {}) },
       include: { user: { select: { id: true, name: true } } },
@@ -1415,50 +1444,6 @@ export async function getCommercialReportData(params: {
         instanceId: true,
         campaign: { select: { instanceId: true } },
         contact: { select: { jobTitle: true } },
-      },
-    }),
-    // ─── SLA: leads QUALIFIED no período — tempo entre criação e qualificação,
-    // e quem qualificou. `responsavelId` mapeia pro vendedor (dono do contato),
-    // `leadQualificationBy` pra quem clicou no botão. No ranking de SLA usamos
-    // o responsável (é o operacional do vendedor, não a pessoa de gestão que
-    // eventualmente qualificou um lead pra alguém).
-    prisma.contact.findMany({
-      where: {
-        organizationId,
-        leadQualification: "QUALIFIED",
-        leadQualificationAt: {
-          ...(rangeFrom ? { gte: rangeFrom } : {}),
-          ...(rangeTo ? { lte: rangeTo } : {}),
-        },
-        ...(effectiveScope.type === "owners" ? { responsavelId: { in: effectiveScope.ownerIds } } : {}),
-      },
-      select: {
-        id: true,
-        createdAt: true,
-        leadQualificationAt: true,
-        responsavelId: true,
-      },
-    }),
-    // ─── SLA: 1ª mensagem DE TODAS as threads do período (inclui "Geral",
-    // negócios e manual) — usada pra calcular:
-    //   • % de contato em <1h: 1ª OUTBOUND do vendedor menos quando o contato
-    //     entrou no CRM / quando a thread foi criada (o que for mais próximo).
-    //   • Tempo de 1ª resposta do vendedor em 100% das threads, não só de
-    //     negócio — quando a 1ª mensagem foi INBOUND (lead bateu primeiro).
-    prisma.whatsAppMessage.findMany({
-      where: {
-        organizationId,
-        ...whatsappScopeWhere(effectiveScope),
-        ...dateWhere("createdAt"),
-      },
-      orderBy: { createdAt: "asc" },
-      distinct: ["threadId"],
-      select: {
-        threadId: true,
-        instanceId: true,
-        direction: true,
-        campaignId: true,
-        createdAt: true,
       },
     }),
   ]);
@@ -1690,183 +1675,16 @@ export async function getCommercialReportData(params: {
   // groupBy não alcança campo de relação (thread.contactId) — resolve à
   // parte. Thread sem Contact vinculado (aba "Geral") não entra nas métricas
   // de resposta/conversão, só quem é lead de verdade mesmo.
-  // `createdAt` da thread aqui também alimenta o SLA: é o teto mínimo do
-  // "tempo até o 1º contato" (a 1ª mensagem não pode ser antes da thread
-  // existir, mesmo que o Contact seja mais novo que a thread).
-  const slaAllThreadIds = Array.from(
-    new Set([...inboundPairs.map((p) => p.threadId), ...outboundPairs.map((p) => p.threadId), ...slaAllThreadsFirstMessages.map((m) => m.threadId)]),
-  );
+  const allThreadIds = Array.from(new Set([...inboundPairs.map((p) => p.threadId), ...outboundPairs.map((p) => p.threadId)]));
   const threads = await prisma.whatsAppThread.findMany({
-    where: { id: { in: slaAllThreadIds } },
+    where: { id: { in: allThreadIds } },
     select: { id: true, contactId: true, createdAt: true },
   });
-  const threadById = new Map(threads.map((t) => [t.id, t]));
   const contactIdByThread = new Map(threads.map((t) => [t.id, t.contactId]));
 
-  // ─── SLA: Contatos (Contact) abordados no período — createdAt de contato
-  // é o "t0" do SLA. Busca só quem tem responsavelId e thread vinculada,
-  // pra poder quebrar por vendedor no ranking.
-  const slaContactThreadIds = Array.from(new Set(slaAllThreadsFirstMessages.map((m) => threadById.get(m.threadId)?.contactId).filter((id): id is string => !!id)));
-  const slaContactsForFirstTouch = slaContactThreadIds.length
-    ? await prisma.contact.findMany({
-        where: {
-          organizationId,
-          id: { in: slaContactThreadIds },
-          ...(effectiveScope.type === "owners" ? { responsavelId: { in: effectiveScope.ownerIds } } : {}),
-        },
-        select: { id: true, createdAt: true, responsavelId: true },
-      })
-    : [];
-  const slaContactById = new Map(slaContactsForFirstTouch.map((c) => [c.id, c]));
-
-  // ─── SLA: Para cada thread onde a 1ª mensagem foi INBOUND (lead bateu
-  // primeiro), pega a 1ª OUTBOUND do vendedor — calcula o tempo atém a
-  // resposta, por thread.
-  const slaLeadFirstThreadsIds = slaAllThreadsFirstMessages
-    .filter((m) => m.direction === "INBOUND")
-    .map((m) => m.threadId);
-  const slaFirstReplyOutbound = slaLeadFirstThreadsIds.length
-    ? await prisma.whatsAppMessage.findMany({
-        where: {
-          organizationId,
-          threadId: { in: slaLeadFirstThreadsIds },
-          direction: "OUTBOUND",
-        },
-        orderBy: { createdAt: "asc" },
-        distinct: ["threadId"],
-        select: { threadId: true, instanceId: true, createdAt: true },
-      })
-    : [];
-  const slaFirstOutboundByThread = new Map(slaFirstReplyOutbound.map((m) => [m.threadId, m]));
-
-  // ─── SLA: Cálculo agregado e por vendedor ───────────────────────────────
-  // Horário de SLA comercial: intervalo que conta como "dentro do horário"
-  // pro SLA de 1h. Por enquanto 100% do tempo conta (sla simples de tempo
-  // real, não horário comercial restrito) — fica um placeholder pra trocar
-  // depois se o cliente quiser apenas 9h-18h.
-  const SLA_FIRST_TOUCH_TARGET_MS = 60 * 60 * 1000; // 1 hora
-  const slaByUser = new Map<
-    string,
-    {
-      firstTouchMs: number[];
-      firstReplyMs: number[];
-      qualificationMs: number[];
-      firstTouchUnderTarget: number;
-      firstTouchTotal: number;
-    }
-  >();
-  const ensureSlaUser = (userId: string) => {
-    if (!slaByUser.has(userId)) {
-      slaByUser.set(userId, {
-        firstTouchMs: [],
-        firstReplyMs: [],
-        qualificationMs: [],
-        firstTouchUnderTarget: 0,
-        firstTouchTotal: 0,
-      });
-    }
-    return slaByUser.get(userId)!;
-  };
-
-  // Dono (userId) de cada instância — os dois loops abaixo consultam isso por
-  // mensagem (podem ser milhares no período), então um Map em vez de
-  // whatsappInstances.find() por mensagem evita um scan linear repetido.
-  const userIdByInstanceId = new Map(whatsappInstances.map((i) => [i.id, i.userId]));
-
-  // A. 1º contato (vendedor chama primeiro): tempo entre a entrada do
-  // contato no CRM (ou criação da thread, o que for MAIS RECENTE — é o t0
-  // mais correto, um contato importado ontem não penaliza quem abordou hoje)
-  // e a 1ª mensagem OUTBOUND.
-  for (const firstMsg of slaAllThreadsFirstMessages) {
-    if (firstMsg.direction !== "OUTBOUND") continue;
-    const thread = threadById.get(firstMsg.threadId);
-    if (!thread?.contactId) continue;
-    const contact = slaContactById.get(thread.contactId);
-    const userId = contact?.responsavelId ?? (firstMsg.instanceId ? userIdByInstanceId.get(firstMsg.instanceId) : undefined);
-    if (!userId) continue;
-    const t0 = contact && contact.createdAt > thread.createdAt ? contact.createdAt : thread.createdAt;
-    const delta = firstMsg.createdAt.getTime() - t0.getTime();
-    if (delta < 0) continue; // thread/msg fora de ordem (importação antiga) — ignora
-    const bucket = ensureSlaUser(userId);
-    bucket.firstTouchMs.push(delta);
-    bucket.firstTouchTotal += 1;
-    if (delta <= SLA_FIRST_TOUCH_TARGET_MS) bucket.firstTouchUnderTarget += 1;
-  }
-
-  // B. Tempo de 1ª resposta do vendedor (lead bateu primeiro): INBOUND 1ª
-  // -> OUTBOUND mais antiga depois dela.
-  for (const firstMsg of slaAllThreadsFirstMessages) {
-    if (firstMsg.direction !== "INBOUND") continue;
-    const reply = slaFirstOutboundByThread.get(firstMsg.threadId);
-    if (!reply) continue;
-    const userId = reply.instanceId ? userIdByInstanceId.get(reply.instanceId) : undefined;
-    if (!userId) continue;
-    const delta = reply.createdAt.getTime() - firstMsg.createdAt.getTime();
-    if (delta < 0) continue;
-    ensureSlaUser(userId).firstReplyMs.push(delta);
-  }
-
-  // C. Tempo até qualificação: Contact.createdAt -> leadQualificationAt.
-  for (const c of slaContactsQualified) {
-    if (!c.leadQualificationAt || !c.responsavelId) continue;
-    const delta = c.leadQualificationAt.getTime() - c.createdAt.getTime();
-    if (delta < 0) continue;
-    ensureSlaUser(c.responsavelId).qualificationMs.push(delta);
-  }
-
-  const slaSummaryRows = visibleMembers
-    .map((m) => ({ userId: m.userId, name: m.user.name, photoUrl: personPhoto(m.userId) }))
-    .map((u) => {
-      const s = slaByUser.get(u.userId);
-      const totalLeadsQualified = slaContactsQualified.filter((c) => c.responsavelId === u.userId).length;
-      return {
-        id: u.userId,
-        name: u.name,
-        photoUrl: u.photoUrl,
-        avgFirstTouchMs: average(s?.firstTouchMs ?? []),
-        firstTouchWithin1h: s && s.firstTouchTotal > 0 ? Math.round((s.firstTouchUnderTarget / s.firstTouchTotal) * 100) : null,
-        firstTouchTotal: s?.firstTouchTotal ?? 0,
-        avgFirstReplyMs: average(s?.firstReplyMs ?? []),
-        p95FirstReplyMs: percentile(s?.firstReplyMs ?? [], 95),
-        firstReplyCount: s?.firstReplyMs.length ?? 0,
-        avgQualificationMs: average(s?.qualificationMs ?? []),
-        qualificationCount: totalLeadsQualified,
-      };
-    })
-    // Vendedor que não tem nenhuma interação no período não aparece no
-    // ranking de SLA — não há dados para mostrar, e a tabela já tem
-    // "Atividade da equipe" pra ver quem ficou parado mesmo.
-    .filter((r) => r.firstTouchTotal > 0 || r.firstReplyCount > 0 || r.qualificationCount > 0);
-
-  // Totais agregados do time todo (para os 4 cards no topo da seção).
-  const slaAllFirstTouch = slaSummaryRows.flatMap((r) => {
-    const s = slaByUser.get(r.id);
-    return s?.firstTouchMs ?? [];
-  });
-  const slaAllFirstReplies = slaSummaryRows.flatMap((r) => {
-    const s = slaByUser.get(r.id);
-    return s?.firstReplyMs ?? [];
-  });
-  const slaAllQual = slaSummaryRows.flatMap((r) => {
-    const s = slaByUser.get(r.id);
-    return s?.qualificationMs ?? [];
-  });
-  const slaTotalFirstTouch = slaSummaryRows.reduce((a, r) => a + r.firstTouchTotal, 0);
-  const slaWithin1hCount = Array.from(slaByUser.values()).reduce((a, s) => a + s.firstTouchUnderTarget, 0);
-  const slaOverallFirstTouchWithin1h = slaTotalFirstTouch > 0 ? Math.round((slaWithin1hCount / slaTotalFirstTouch) * 100) : null;
-  const slaTotalAvgFirstTouchMs = average(slaAllFirstTouch);
-  const slaTotalAvgFirstReplyMs = average(slaAllFirstReplies);
-  const slaTotalP95FirstReplyMs = percentile(slaAllFirstReplies, 95);
-  const slaTotalAvgQualificationMs = average(slaAllQual);
-  const slaTotalQualified = slaContactsQualified.length;
-
   // "Comparar período" — junta os números de negócio (ganho/perdido, ver
-  // compareWonCount/compareWonTotalValue/compareClosedCount lá em cima) com
-  // os 4 números de SLA do período de comparação (compareSlaPromise,
-  // disparado em paralelo lá em cima também — só chega aqui agora porque é
-  // o primeiro ponto em que o resultado dele é de fato necessário). null
+  // compareWonCount/compareWonTotalValue/compareClosedCount lá em cima). null
   // quando a comparação está desligada.
-  const compareSla = await compareSlaPromise;
   const compareData =
     compareMode && comparePeriod
       ? {
@@ -1879,10 +1697,6 @@ export async function getCommercialReportData(params: {
           closedCount: compareClosedCount,
           winRate: compareClosedCount > 0 ? Math.round((compareWonCount / compareClosedCount) * 100) : 0,
           avgWonValue: compareWonCount > 0 ? compareWonTotalValue / compareWonCount : 0,
-          slaFirstTouchWithin1h: compareSla?.overallFirstTouchWithin1h ?? null,
-          slaAvgFirstTouchMs: compareSla?.avgFirstTouchMs ?? null,
-          slaAvgFirstReplyMs: compareSla?.avgFirstReplyMs ?? null,
-          slaAvgQualificationMs: compareSla?.avgQualificationMs ?? null,
         }
       : null;
 
@@ -2145,6 +1959,7 @@ export async function getCommercialReportData(params: {
     creditTypeTotalValue,
     stageData,
     dealsClosedRanking,
+    topSellerRevenueShare,
     meetingsRanking,
     funnelActivityRanking,
     completedTasksRanking,
@@ -2173,15 +1988,6 @@ export async function getCommercialReportData(params: {
     COLD_POSSIBLE_DEAL_MIN_REPLIES,
     scriptBreakdown,
     cargoBreakdown,
-    slaSummaryRows,
-    slaTotalFirstTouch,
-    slaWithin1hCount,
-    slaOverallFirstTouchWithin1h,
-    slaTotalAvgFirstTouchMs,
-    slaTotalAvgFirstReplyMs,
-    slaTotalP95FirstReplyMs,
-    slaTotalAvgQualificationMs,
-    slaTotalQualified,
     sellerWhatsappCards,
     currentMonthLabel,
     selectedMonthLabel,

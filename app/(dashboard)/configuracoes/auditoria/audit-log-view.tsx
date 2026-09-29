@@ -39,6 +39,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   DEALS_IMPORTED: "Negócios importados",
   CONTACTS_IMPORTED: "Contatos importados",
   CAMPAIGN_QUEUE_REORDERED: "Fila de disparo reordenada",
+  CAMPAIGN_RECIPIENT_REMOVED: "Contato removido da fila",
   CAMPAIGN_AUTO_PAUSED: "Campanha pausada automaticamente",
   CAMPAIGN_AUTO_RESUMED: "Campanha retomada automaticamente",
 };
@@ -64,6 +65,7 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   DEALS_IMPORTED: "neutral",
   CONTACTS_IMPORTED: "neutral",
   CAMPAIGN_QUEUE_REORDERED: "warning", // muda QUEM é contatado primeiro — vale destacar
+  CAMPAIGN_RECIPIENT_REMOVED: "warning",
   CAMPAIGN_AUTO_PAUSED: "warning", // a campanha parou sem ninguém mandar — é o que se procura quando "parou sozinha"
   CAMPAIGN_AUTO_RESUMED: "success",
 };

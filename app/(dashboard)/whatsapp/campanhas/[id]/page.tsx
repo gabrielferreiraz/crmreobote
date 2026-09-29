@@ -76,7 +76,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     let queue: CampaignQueueData | null = null;
     if (campaign.canManage && campaign.counts.pending > 0 && campaign.status !== "DONE") {
       try {
-        const view = await getCampaignQueue(organizationId, campaign.id, { offset: 0, limit: 100 });
+        const view = await getCampaignQueue(organizationId, campaign.id, { offset: 0, limit: 30 });
         if (view) queue = { ...view, canEdit: QUEUE_EDITABLE_STATUSES.includes(view.status) };
       } catch (err) {
         console.error("[campanhas] falha ao montar a fila de disparo", err);

@@ -92,6 +92,15 @@ export const FEATURE_LABELS = {
 
   // Busca geral (Cmd+K) — dá pra saber se vale investir nela
   "busca.abrir": "Busca geral (Cmd+K)",
+
+  // Central de ajuda — mede a própria ajuda: se ninguém abre, o problema não
+  // é falta de conteúdo; se abre muito num assunto só, aquela tela está
+  // confusa e é ali que vale mexer no CRM (não na ajuda).
+  "ajuda.abrir": "Central de ajuda · abrir",
+  "ajuda.buscar": "Central de ajuda · buscar",
+  "ajuda.topico": "Central de ajuda · abrir um tópico",
+  "ajuda.ir": "Central de ajuda · ir direto pra tela",
+  "ajuda.tour": "Central de ajuda · iniciar tour guiado",
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_LABELS;

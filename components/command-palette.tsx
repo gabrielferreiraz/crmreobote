@@ -283,13 +283,17 @@ export function CommandPalette({ compact = false }: { compact?: boolean }) {
     openPalette?.();
   }
 
+  // data-help: âncora do tour guiado da Central de ajuda (lib/help/tours.ts).
+  // Os dois formatos levam o mesmo nome — o tour destaca o que estiver
+  // VISÍVEL na largura de janela do momento (ver findTarget em help-tour.tsx).
   return compact ? (
-    <button onClick={handleClick} className="icon-btn" aria-label="Buscar">
+    <button onClick={handleClick} data-help="search" className="icon-btn" aria-label="Buscar">
       <Search className="h-4 w-4" strokeWidth={2} />
     </button>
   ) : (
     <button
       onClick={handleClick}
+      data-help="search"
       className="flex h-9 w-48 shrink-0 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-400 shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:border-neutral-600"
     >
       <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />

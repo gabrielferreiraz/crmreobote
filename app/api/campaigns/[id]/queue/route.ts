@@ -9,6 +9,7 @@ import {
   QUEUE_EDITABLE_STATUSES as EDITABLE_STATUSES,
   getCampaignQueue,
   moveCampaignQueueItem,
+  removeCampaignQueueItem,
   reorderCampaignQueue,
   searchCampaignQueue,
 } from "@/lib/campaigns/queue";
@@ -122,7 +123,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   return NextResponse.json({ ok: true, ...result });
 }
 
-/** Manda um contato pro início ou pro fim da fila inteira: `{ action: "move", id, to: "top" | "bottom" }`. */
+/** Move ou remove uma pessoa pendente da fila inteira. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const auth = await authorize(id);
@@ -137,8 +138,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const body = (await req.json().catch(() => null)) as { action?: unknown; id?: unknown; to?: unknown } | null;
-  if (body?.action !== "move" || typeof body.id !== "string" || !body.id || (body.to !== "top" && body.to !== "bottom")) {
-    return NextResponse.json({ error: 'Pedido inválido — use { action: "move", id, to: "top" | "bottom" }.' }, { status: 400 });
+  if (typeof body?.id !== "string" || !body.id) {
+    return NextResponse.json({ error: "Pedido inválido." }, { status: 400 });
+  }
+
+  if (body.action === "remove") {
+    const result = await removeCampaignQueueItem(access.organizationId, id, body.id);
+    if (result.removed) {
+      logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName: access.session?.user.name ?? access.session?.user.email ?? "?",
+        action: "CAMPAIGN_RECIPIENT_REMOVED",
+        targetType: "CampaignRecipient",
+        targetId: body.id,
+        detail: `${campaign.name} — 1 contato removido da fila`,
+        ip: getClientIp(req),
+      }).catch((err) => console.error("[audit-log] falha ao registrar CAMPAIGN_RECIPIENT_REMOVED", err));
+    }
+    return NextResponse.json({ ok: true, ...result });
+  }
+
+  if (body.action !== "move" || (body.to !== "top" && body.to !== "bottom")) {
+    return NextResponse.json({ error: 'Pedido inválido — use { action: "move", id, to: "top" | "bottom" } ou { action: "remove", id }.' }, { status: 400 });
   }
 
   const result = await moveCampaignQueueItem(access.organizationId, id, body.id, body.to);

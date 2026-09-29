@@ -5,17 +5,19 @@ import { useRouter } from "next/navigation";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDownToLine, ArrowUpToLine, CalendarClock, Check, Clock3, GripVertical, Info, ListOrdered, Loader2, Pencil, Search, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, CalendarClock, Check, Clock3, GripVertical, Info, ListOrdered, Loader2, Maximize2, Minimize2, Pencil, Search, UserRoundX, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { trackUse } from "@/lib/feature-usage/track";
+import { requestJson } from "@/lib/client-request";
 import type { CampaignQueueView, QueueItemView, QueueState } from "@/lib/campaigns/queue";
 
 export type CampaignQueueData = CampaignQueueView & { canEdit: boolean };
 
 /** A tela carrega as primeiras posições da fila (o resto se acha pela busca) — 20 mil linhas não cabem numa tela. */
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 30;
 const MAX_LOADED = 500;
 const POLL_MS = 30_000;
+const NEXT_HOUR_VISIBLE = 8;
 
 // Horário SEMPRE de Campo Grande (a operação inteira roda nele, ver lib/timezone.ts), não o do
 // navegador de quem abriu — e explícito também no servidor, pra renderizar igual nos dois lados.
@@ -221,6 +223,9 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [recipientToRemove, setRecipientToRemove] = useState<QueueItemView | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [showingAll, setShowingAll] = useState(false);
   const [query, setQuery] = useState("");
   // O resultado da busca guarda o TERMO que o gerou: "buscando" e "sem busca" saem de comparar termo x resultado.
   const [found, setFound] = useState<{ term: string; items: QueueItemView[] } | null>(null);
@@ -330,7 +335,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
     const out: { id: string; contactName: string; estimatedAt: string }[] = [];
     shown.forEach((item, i) => {
       const at = slots[i];
-      if (at && Date.parse(at) <= untilMs && out.length < 40) out.push({ id: item.id, contactName: item.contactName, estimatedAt: at });
+      if (at && Date.parse(at) <= untilMs && out.length < NEXT_HOUR_VISIBLE) out.push({ id: item.id, contactName: item.contactName, estimatedAt: at });
     });
     return out;
   }, [editing, shown, slots, untilMs, view.nextHour.items]);
@@ -439,6 +444,39 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
     }
   }
 
+  async function removeFromQueue() {
+    const item = recipientToRemove;
+    if (!item) return;
+    setBusy(`remove:${item.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await requestJson<{ removed?: boolean; reason?: string }>(
+        endpoint,
+        { method: "POST", json: { action: "remove", id: item.id } },
+        { silent: true },
+      );
+      if (!res.ok) {
+        setError(res.error ?? "Não foi possível remover esse contato da fila.");
+        return;
+      }
+      if (!res.data.removed) {
+        setNotice(`${item.contactName} já saiu da fila.`);
+        return;
+      }
+      setNotice(`${item.contactName} foi removido da fila.`);
+      setQuery("");
+      setFound(null);
+      await refresh(limitRef.current);
+      router.refresh();
+    } finally {
+      if (mounted.current) {
+        setBusy(null);
+        setRecipientToRemove(null);
+      }
+    }
+  }
+
   async function loadMore() {
     const next = Math.min(MAX_LOADED, view.total, view.items.length + PAGE_SIZE);
     limitRef.current = next;
@@ -447,6 +485,20 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
       const ids = fresh.items.map((i) => i.id);
       setOriginal(ids);
       setDraft(ids);
+    }
+  }
+
+  async function showAll() {
+    setShowingAll(true);
+    setExpanded(true);
+    try {
+      const next = Math.min(MAX_LOADED, view.total);
+      if (next > view.items.length) {
+        limitRef.current = next;
+        await refresh(next);
+      }
+    } finally {
+      if (mounted.current) setShowingAll(false);
     }
   }
 
@@ -468,12 +520,32 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
             {view.total} na fila
           </span>
         </div>
-        {canEditNow && !editing && (
-          <button type="button" onClick={enterEdit} disabled={starting} className="btn-secondary">
-            {starting ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Pencil className="h-4 w-4" strokeWidth={2} />}
-            Editar ordem
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!editing && view.items.length > 8 && (
+            <button
+              type="button"
+              onClick={expanded ? () => setExpanded(false) : showAll}
+              disabled={showingAll}
+              className="btn-secondary"
+              title={view.total > MAX_LOADED ? "Mostra até 500 contatos; use a busca para localizar qualquer outro." : undefined}
+            >
+              {showingAll ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+              ) : expanded ? (
+                <Minimize2 className="h-4 w-4" strokeWidth={2} />
+              ) : (
+                <Maximize2 className="h-4 w-4" strokeWidth={2} />
+              )}
+              {expanded ? "Compactar" : "Mostrar tudo"}
+            </button>
+          )}
+          {canEditNow && !editing && (
+            <button type="button" onClick={enterEdit} disabled={starting} className="btn-secondary">
+              {starting ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Pencil className="h-4 w-4" strokeWidth={2} />}
+              Editar ordem
+            </button>
+          )}
+        </div>
         {editing && (
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => (dirty ? setConfirmDiscard(true) : exitEdit())} disabled={saving} className="btn-secondary">
@@ -510,7 +582,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
           </span>
         </div>
         {view.nextHour.count > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap gap-1">
             {nextHourItems.map((n) => (
               <span
                 key={n.id}
@@ -601,6 +673,17 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
                       </button>
                     </div>
                   )}
+                  {!editing && view.canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setRecipientToRemove(r)}
+                      disabled={busy !== null}
+                      className="btn-secondary btn-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      <UserRoundX className="h-3.5 w-3.5" strokeWidth={2} />
+                      Remover
+                    </button>
+                  )}
                 </li>
               ))}
               {results.length > 0 && !editing && view.canEdit && (
@@ -615,27 +698,29 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
       {view.total === 0 ? (
         <p className="py-4 text-center text-sm text-neutral-400 dark:text-neutral-500">Fila vazia — todos os contatos já foram enviados.</p>
       ) : editing ? (
-        <DndContext id="campaign-queue" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={draft} strategy={verticalListSortingStrategy}>
-            <ul className="space-y-1.5">
-              {shown.map((item, index) => (
-                <SortableRow
-                  key={item.id}
-                  item={item}
-                  position={index + 1}
-                  slotIso={slots[index] ?? null}
-                  soon={isSoon(slots[index] ?? null)}
-                  showBottom={loadedAll}
-                  disabled={saving}
-                  onTop={() => moveInDraft(item.id, "top")}
-                  onBottom={() => moveInDraft(item.id, "bottom")}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
+        <div className="max-h-[55vh] overflow-y-auto overscroll-contain pr-1 scrollbar-thin">
+          <DndContext id="campaign-queue" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={draft} strategy={verticalListSortingStrategy}>
+              <ul className="space-y-1.5">
+                {shown.map((item, index) => (
+                  <SortableRow
+                    key={item.id}
+                    item={item}
+                    position={index + 1}
+                    slotIso={slots[index] ?? null}
+                    soon={isSoon(slots[index] ?? null)}
+                    showBottom={loadedAll}
+                    disabled={saving}
+                    onTop={() => moveInDraft(item.id, "top")}
+                    onBottom={() => moveInDraft(item.id, "bottom")}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        </div>
       ) : (
-        <div className="space-y-3">
+        <div className={expanded ? "space-y-3" : "max-h-[55vh] space-y-3 overflow-y-auto overscroll-contain pr-1 scrollbar-thin"}>
           {groups.map((group) => (
             <div key={group.key}>
               <div className="mb-1 flex items-center gap-1.5 border-b border-neutral-100 pb-1 text-xs font-semibold text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
@@ -652,6 +737,22 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
                     <span className="w-9 shrink-0 text-right text-xs tabular-nums text-neutral-400 dark:text-neutral-500">#{index + 1}</span>
                     <TimeChip iso={slots[index] ?? null} soon={isSoon(slots[index] ?? null)} />
                     <PersonLine item={item} />
+                    {view.canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setRecipientToRemove(item)}
+                        disabled={busy !== null}
+                        className="ml-auto rounded p-1 text-neutral-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                        title="Remover da fila"
+                        aria-label={`Remover ${item.contactName} da fila`}
+                      >
+                        {busy === `remove:${item.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                        ) : (
+                          <UserRoundX className="h-4 w-4" strokeWidth={2} />
+                        )}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -694,6 +795,18 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
           confirmLabel="Descartar mudanças"
           onConfirm={exitEdit}
           onClose={() => setConfirmDiscard(false)}
+        />
+      )}
+      {recipientToRemove && (
+        <ConfirmDialog
+          title={`Remover ${recipientToRemove.contactName} da fila?`}
+          description="A pessoa não receberá esta campanha nem os reenvios. O contato e o histórico da campanha serão preservados."
+          confirmLabel="Remover da fila"
+          danger
+          onConfirm={removeFromQueue}
+          onClose={() => {
+            if (!busy) setRecipientToRemove(null);
+          }}
         />
       )}
     </div>

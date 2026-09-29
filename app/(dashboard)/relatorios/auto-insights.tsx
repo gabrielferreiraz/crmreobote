@@ -44,7 +44,8 @@ export function AutoInsights({
   compareData,
   winRate,
   dealsClosedRanking,
-  slaOverallFirstTouchWithin1h,
+  lossBreakdown,
+  topSellerRevenueShare,
   revenueTrendDaily,
 }: {
   wonCount: number;
@@ -53,7 +54,10 @@ export function AutoInsights({
   compareData: CompareData;
   winRate: number;
   dealsClosedRanking: { name: string; primaryValue: string }[];
-  slaOverallFirstTouchWithin1h: number | null;
+  /** Mesmo shape de lossBreakdown em lib/reports/commercial-data.ts, já ordenado por count desc. */
+  lossBreakdown: { label: string; count: number }[];
+  /** null quando não há 2+ vendedores ativos com venda no período pra fazer sentido comparar (ver lib/reports/commercial-data.ts). */
+  topSellerRevenueShare: { name: string; pct: number } | null;
   revenueTrendDaily: DayBucket[];
 }) {
   const insights: Insight[] = [];
@@ -97,24 +101,35 @@ export function AutoInsights({
     });
   }
 
-  // 3. SLA de contato
-  if (slaOverallFirstTouchWithin1h !== null) {
-    if (slaOverallFirstTouchWithin1h >= 70) {
-      insights.push({
-        type: "positive",
-        highlight: `${slaOverallFirstTouchWithin1h}%`,
-        text: "dos leads abordados em menos de 1 hora — excelente velocidade",
-      });
-    } else if (slaOverallFirstTouchWithin1h < 40) {
-      insights.push({
-        type: "warning",
-        highlight: `${slaOverallFirstTouchWithin1h}%`,
-        text: "dos leads receberam contato em até 1 hora — atenção ao tempo de resposta",
-      });
-    }
+  // 3. Concentração de faturamento no TOP vendedor — risco de dependência de
+  // uma pessoa só: se ela sair, tirar férias ou ficar de licença, a empresa
+  // perde essa fatia inteira da receita de um mês só. Só dispara acima de
+  // 40% (concentração moderada pra cima já vale o alerta; abaixo disso é
+  // distribuição normal entre o time, não vale poluir o card).
+  if (topSellerRevenueShare && topSellerRevenueShare.pct >= 40) {
+    insights.push({
+      type: "warning",
+      highlight: `${topSellerRevenueShare.pct}%`,
+      text: `do faturamento veio só de ${topSellerRevenueShare.name} — risco de depender de 1 pessoa só`,
+    });
   }
 
-  // 4. Melhor dia/semana — acha o bucket de dia com maior valor
+  // 4. Principal motivo de perda — o sinal mais direto pro dono da operação:
+  // não só "quanto perdi", mas "por quê", com ação clara a tomar. "Sem
+  // motivo" no topo também é um achado válido: aponta falta de disciplina em
+  // registrar o motivo da perda, não necessariamente nenhum problema de venda.
+  const totalLost = lossBreakdown.reduce((sum, l) => sum + l.count, 0);
+  if (totalLost > 0) {
+    const top = lossBreakdown[0];
+    const pct = Math.round((top.count / totalLost) * 100);
+    insights.push({
+      type: "warning",
+      highlight: `${pct}%`,
+      text: `das perdas foram por "${top.label}" — motivo mais citado no período`,
+    });
+  }
+
+  // 5. Melhor dia/semana — acha o bucket de dia com maior valor
   if (revenueTrendDaily.length > 0) {
     const best = revenueTrendDaily.reduce((a, b) => (b.value > a.value ? b : a), revenueTrendDaily[0]);
     if (best.value > 0) {
@@ -128,7 +143,7 @@ export function AutoInsights({
     }
   }
 
-  // 5. Taxa de conversão
+  // 6. Taxa de conversão
   if (winRate >= 60) {
     insights.push({ type: "positive", highlight: `${winRate}%`, text: "Taxa de conversão — acima do esperado" });
   } else if (winRate > 0 && winRate < 20) {
@@ -146,15 +161,14 @@ export function AutoInsights({
       <p className="mb-3 text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
         Destaques do período
       </p>
-      {/* Grade de tiles (não mais lista de linhas do mesmo peso) — cada
-          insight vira um bloco autocontido, colorido pelo próprio tipo
-          (verde/âmbar/dourado/marca), com o número que resume ele em
-          destaque e a frase completa como legenda por baixo. 2 colunas a
-          partir de sm: com 3-5 insights (o normal aqui), 1 coluna larga
-          ficava com muito espaço vazio ao lado do texto curto; par ímpar
-          de itens simplesmente deixa o último ocupando a largura toda,
-          sem problema nenhum no grid. */}
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      {/* flex-wrap (não grid-cols-2) de propósito — a quantidade de insights
+          é DINÂMICA (0 a ~6, depende do que os dados do período disparam),
+          então um grid-cols-2 fixo deixa o último sozinho e estreito numa
+          fileira, com um vão vazio do lado (o SLA saiu e isso ficou visível
+          com só 3 insights — mesmo bug já visto e corrigido noutras grades
+          deste relatório). flex-1 em cada tile estica pra preencher o que
+          sobrar na própria fileira, em qualquer contagem. */}
+      <div className="flex flex-wrap gap-2.5">
         {insights.map((ins, i) => (
           <InsightTile key={i} insight={ins} />
         ))}
@@ -206,7 +220,7 @@ const INSIGHT_PALETTE: Record<
 function InsightTile({ insight }: { insight: Insight }) {
   const p = INSIGHT_PALETTE[insight.type];
   return (
-    <div className={`flex items-start gap-3 rounded-xl border p-3 ${p.bg} ${p.border}`}>
+    <div className={`flex min-w-[240px] flex-1 items-start gap-3 rounded-xl border p-3 ${p.bg} ${p.border}`}>
       <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${p.iconBg}`}>
         <InsightIcon type={insight.type} className={p.iconColor} />
       </span>

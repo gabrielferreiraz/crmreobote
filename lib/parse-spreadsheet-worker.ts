@@ -36,7 +36,14 @@ import { Readable } from "stream";
 // tentar variações de extensão).
 import { sanitizeCell } from "./csv-sanitize.ts";
 
-type WorkerInput = { buffer: Uint8Array; filename: string };
+type WorkerLimits = {
+  maxRows: number;
+  maxColumns: number;
+  maxCellCharacters: number;
+  maxTotalCharacters: number;
+};
+
+type WorkerInput = { buffer: Uint8Array; filename: string; limits: WorkerLimits };
 type WorkerOutput = { ok: true; rows: string[][] } | { ok: false; error: string };
 
 /** Mesma heurística de lib/parse-spreadsheet.ts (comentário completo lá). */
@@ -47,7 +54,7 @@ function detectCsvDelimiter(buffer: Buffer): string {
   return semicolons > commas ? ";" : ",";
 }
 
-async function parse({ buffer, filename }: { buffer: Buffer; filename: string }): Promise<string[][]> {
+async function parse({ buffer, filename, limits }: { buffer: Buffer; filename: string; limits: WorkerLimits }): Promise<string[][]> {
   const workbook = new ExcelJS.Workbook();
   const lowerFilename = filename.toLowerCase();
   const isCsv = lowerFilename.endsWith(".csv");
@@ -68,9 +75,19 @@ async function parse({ buffer, filename }: { buffer: Buffer; filename: string })
   if (!worksheet) return [];
 
   const rows: string[][] = [];
+  let totalCharacters = 0;
   worksheet.eachRow((row) => {
+    if (rows.length >= limits.maxRows) throw new Error("SPREADSHEET_MAX_ROWS");
     const values = row.values as unknown[];
-    const cells = values.slice(1).map((v) => (v === null || v === undefined ? "" : sanitizeCell(String(v).trim())));
+    const rawCells = values.slice(1);
+    if (rawCells.length > limits.maxColumns) throw new Error("SPREADSHEET_MAX_COLUMNS");
+    const cells = rawCells.map((v) => {
+      const cell = v === null || v === undefined ? "" : sanitizeCell(String(v).trim());
+      if (cell.length > limits.maxCellCharacters) throw new Error("SPREADSHEET_CELL_TOO_LARGE");
+      totalCharacters += cell.length;
+      if (totalCharacters > limits.maxTotalCharacters) throw new Error("SPREADSHEET_TOTAL_TEXT_TOO_LARGE");
+      return cell;
+    });
     rows.push(cells);
   });
   return rows;
@@ -81,9 +98,9 @@ async function parse({ buffer, filename }: { buffer: Buffer; filename: string })
 // acontecer em uso normal, mas falha explícito em vez de silencioso.
 if (!parentPort) throw new Error("parse-spreadsheet-worker precisa rodar dentro de um worker_thread");
 
-const { buffer, filename } = workerData as WorkerInput;
+const { buffer, filename, limits } = workerData as WorkerInput;
 
-parse({ buffer: Buffer.from(buffer), filename })
+parse({ buffer: Buffer.from(buffer), filename, limits })
   .then((rows) => {
     const msg: WorkerOutput = { ok: true, rows };
     parentPort!.postMessage(msg);

@@ -11,6 +11,7 @@ import type { ProposalFields } from "./validate";
  */
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export type ProposalTemplateDTO = { id: string; name: string; description: string };
 
 async function call<T>(url: string, init: RequestInit): Promise<ApiResult<T>> {
   try {
@@ -38,6 +39,11 @@ export const proposalApi = {
 
   update: (id: string, fields: ProposalFields) =>
     call<ProposalDTO>(`/api/proposals/${id}`, { method: "PATCH", body: JSON.stringify(fields) }),
+
+  templates: () => call<ProposalTemplateDTO[]>("/api/proposals/templates", { method: "GET" }),
+
+  saveTemplate: (name: string, description: string) =>
+    call<ProposalTemplateDTO>("/api/proposals/templates", { method: "POST", body: JSON.stringify({ name, description }) }),
 
   remove: (id: string) => call<{ id: string }>(`/api/proposals/${id}`, { method: "DELETE" }),
 

@@ -31,7 +31,6 @@ import {
   allowedProposalActions,
   creditPerQuota,
   formatPercent,
-  formatProposalNumber,
   isProposalOpen,
   type ProposalAction,
   type ProposalDTO,
@@ -221,9 +220,6 @@ export function ProposalsCard({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Propostas</h3>
-                <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                  {proposals.length} {proposals.length === 1 ? "revisão" : "revisões"}
-                </span>
                 {open > 0 && (
                   <span className="hidden xs:inline-block rounded-full border border-brand/30 bg-brand-light/30 px-2 py-0.5 text-[11px] font-medium text-brand dark:text-brand-light">
                     {open} em aberto
@@ -352,9 +348,7 @@ function ActiveProposalCard({
       {/* Topo do Card */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-            No. {formatProposalNumber(p.number)} · Revisão {p.revision}
-          </span>
+          <span className="font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">Revisão {p.revision}</span>
           <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_STYLE[p.status]}`}>
             {PROPOSAL_STATUS_LABEL[p.status]}
           </span>

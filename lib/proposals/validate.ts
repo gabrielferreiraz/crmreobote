@@ -18,6 +18,8 @@ const MAX_PERCENT = 999.99;
 const MAX_TERM_MONTHS = 600;
 const MAX_QUOTA_COUNT = 999;
 const MAX_DESCRIPTION_LENGTH = 4000;
+const MAX_DISPLAY_NAME_LENGTH = 120;
+const MAX_COVER_TEXT_LENGTH = 500;
 
 export type ProposalFields = {
   /** Total, nunca por cota — ver comentário em Proposal.credit no schema. */
@@ -27,6 +29,10 @@ export type ProposalFields = {
   feePercent: number;
   quotaCount: number;
   description: string;
+  displayName: string;
+  coverIntro: string;
+  coverDetails: string;
+  coverImagePosition: "before-copy" | "after-title";
 };
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -80,6 +86,15 @@ export function parseProposalFields(raw: unknown): Result<ProposalFields> {
     return { ok: false, error: `Descrição acima de ${MAX_DESCRIPTION_LENGTH} caracteres` };
   }
 
+  const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
+  if (displayName.length > MAX_DISPLAY_NAME_LENGTH) return { ok: false, error: `Nome acima de ${MAX_DISPLAY_NAME_LENGTH} caracteres` };
+  const coverIntro = typeof body.coverIntro === "string" ? body.coverIntro.trim() : "";
+  const coverDetails = typeof body.coverDetails === "string" ? body.coverDetails.trim() : "";
+  if (coverIntro.length > MAX_COVER_TEXT_LENGTH || coverDetails.length > MAX_COVER_TEXT_LENGTH) {
+    return { ok: false, error: `Texto da apresentação acima de ${MAX_COVER_TEXT_LENGTH} caracteres` };
+  }
+  const coverImagePosition = body.coverImagePosition === "before-copy" ? "before-copy" : "after-title";
+
   return {
     ok: true,
     value: {
@@ -89,6 +104,10 @@ export function parseProposalFields(raw: unknown): Result<ProposalFields> {
       feePercent: feePercent.value,
       quotaCount: quotaCount.value,
       description,
+      displayName,
+      coverIntro,
+      coverDetails,
+      coverImagePosition,
     },
   };
 }

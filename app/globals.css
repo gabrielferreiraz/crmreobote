@@ -446,6 +446,127 @@ body {
   }
 }
 
+/* Escurecido do tour guiado (o "fora do holofote"). Variável, e não um valor
+   fixo no componente, porque os dois temas pedem força diferente: no claro,
+   62% já separa bem o elemento destacado do resto; no escuro a página inteira
+   já é escura, então o mesmo valor quase não recorta nada — é preciso ir mais
+   fundo (e tirar o azulado, que no escuro lê como névoa). */
+:root {
+  --help-spotlight-scrim: rgba(10, 10, 15, 0.62);
+}
+
+.dark {
+  --help-spotlight-scrim: rgba(0, 0, 0, 0.76);
+}
+
+/* ─── Central de ajuda ─────────────────────────────────────────────────
+   Apresentação no estilo do iOS: o painel NASCE NO BOTÃO — transform-origin
+   no canto onde ele está ancorado — e cresce com o leve "passar do ponto" da
+   curva de mola. É o que faz ler como "o botão virou o painel", em vez de
+   "um retângulo apareceu na tela"; a mesma gramática do popover e do Control
+   Center do iOS.
+
+   Sem porcentagem de keyframe pro repique: quem dá o repique é a própria
+   --ease-spring (cubic-bezier com valor acima de 1). Somar os dois daria
+   dois solavancos, que é o visual de "animação barata".
+
+   A saída é bem mais curta que a entrada, também como no iOS: apresentar é
+   um gesto deliberado, dispensar é um descarte — esperar a mesma duração
+   pra sumir dá sensação de app travado.
+
+   Nota: o bloco de prefers-reduced-motion lá em cima zera tudo isto pra quem
+   pediu menos movimento no sistema, sem precisar de nada aqui. */
+@keyframes help-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes help-panel-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+  }
+}
+
+/* Celular: não existe botão flutuante (ver help-center.tsx), então o painel
+   não tem canto de onde nascer — é folha colada na base e sobe, que é o
+   gesto nativo de sheet do iOS. */
+@keyframes help-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes help-sheet-out {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.help-panel-enter {
+  animation: help-sheet-in 300ms var(--ease-sheet);
+  transform-origin: bottom center;
+}
+
+/* forwards: segura o último quadro até o React desmontar o painel — sem isso
+   ele pisca de volta ao estado inicial no fim da animação. */
+.help-panel-exit {
+  animation: help-sheet-out 220ms var(--ease-sheet) forwards;
+  transform-origin: bottom center;
+  pointer-events: none;
+}
+
+@media (min-width: 64rem) {
+
+  .help-panel-enter {
+    animation: help-panel-in 320ms var(--ease-spring);
+    transform-origin: bottom right;
+  }
+
+  .help-panel-exit {
+    animation: help-panel-out 170ms var(--ease-smooth) forwards;
+    transform-origin: bottom right;
+  }
+}
+
+@keyframes help-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.help-backdrop-enter {
+  animation: help-backdrop-in 300ms var(--ease-sheet);
+}
+
+.help-backdrop-exit {
+  animation: help-backdrop-in 220ms var(--ease-sheet) reverse forwards;
+}
+
 /* Painel auxiliar "encaixando" logo abaixo do que acabou de ganhar foco (ex.:
    caixa de inserir variável seguindo a mensagem ativa no editor de script) —
    assentada suave, não é um popover/modal aparecendo por cima de nada. */

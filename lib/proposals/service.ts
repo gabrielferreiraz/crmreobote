@@ -163,8 +163,12 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
         termMonths: number;
         installment: Prisma.Decimal | number;
         feePercent: Prisma.Decimal | number;
-        quotaCount: number;
-        description: string;
+          quotaCount: number;
+          description: string;
+          displayName?: string | null;
+          coverIntro?: string | null;
+          coverDetails?: string | null;
+          coverImagePosition?: string;
       };
       let parentId: string | null = null;
 
@@ -194,6 +198,10 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
           feePercent: base.feePercent,
           quotaCount: base.quotaCount,
           description: base.description,
+          displayName: "displayName" in base ? base.displayName : null,
+          coverIntro: "coverIntro" in base ? base.coverIntro : null,
+          coverDetails: "coverDetails" in base ? base.coverDetails : null,
+          coverImagePosition: base.coverImagePosition === "before-copy" ? "before-copy" : "after-title",
         },
         select: { id: true },
       });
@@ -222,6 +230,10 @@ export async function updateProposal(actor: ProposalActor, id: string, fields: P
       feePercent: fields.feePercent,
       quotaCount: fields.quotaCount,
       description: fields.description,
+      displayName: fields.displayName || null,
+      coverIntro: fields.coverIntro || null,
+      coverDetails: fields.coverDetails || null,
+      coverImagePosition: fields.coverImagePosition,
     });
     return reload(tx, id);
   });
@@ -309,6 +321,10 @@ export async function redoProposal(
         feePercent: p.feePercent,
         quotaCount: p.quotaCount,
         description: p.description,
+        displayName: p.displayName,
+        coverIntro: p.coverIntro,
+        coverDetails: p.coverDetails,
+        coverImagePosition: p.coverImagePosition,
       },
       select: { id: true, number: true, revision: true },
     });

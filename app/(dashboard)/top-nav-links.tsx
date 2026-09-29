@@ -101,6 +101,8 @@ export function TopNavLinks({ isAdministrativo }: { isAdministrativo: boolean })
     // numa janela apertada.
     <nav
       ref={scrollRef}
+      // Âncora do tour guiado da Central de ajuda (ver lib/help/tours.ts).
+      data-help="nav"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={endDrag}

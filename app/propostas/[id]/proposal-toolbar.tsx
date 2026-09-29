@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, FileText, Loader2, Printer } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { proposalApi } from "@/lib/proposals/client";
-import { PROPOSAL_STATUS_LABEL, formatProposalNumber, type ProposalDTO } from "@/lib/proposals/types";
+import { PROPOSAL_STATUS_LABEL, type ProposalDTO } from "@/lib/proposals/types";
 import { trackUse } from "@/lib/feature-usage/track";
 
 export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
@@ -32,40 +32,62 @@ export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
     return true;
   }
 
+  const statusTone = proposal.status === "DRAFT" ? "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800" : proposal.status === "GENERATED" ? "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800" : proposal.status === "SENT" ? "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" : "bg-neutral-100 text-neutral-800 border-neutral-300 dark:bg-neutral-800 dark:text-neutral-300";
+
   return (
-    <aside className="no-print w-full lg:sticky lg:top-6 lg:w-64 lg:shrink-0">
-      <div className="card space-y-3.5 p-3.5 sm:p-4">
-        <div className="flex items-center justify-between gap-3">
+    <aside className="no-print sticky top-3 sm:top-4 lg:top-6 z-40 w-full lg:w-64 lg:shrink-0 max-h-[calc(100vh-1.5rem)] overflow-y-auto">
+      <div className="card space-y-4 p-4 shadow-md border border-neutral-200 dark:border-neutral-800">
+        {/* Topo com Título e Voltar ao Negócio */}
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              Proposta Nº {formatProposalNumber(proposal.number)}
+            <p className="truncate text-sm font-extrabold text-neutral-950 dark:text-white">
+              Painel de Emissão
             </p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Revisão {proposal.revision} · {PROPOSAL_STATUS_LABEL[proposal.status]}
-            </p>
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTone}`}>
+                {PROPOSAL_STATUS_LABEL[proposal.status]}
+              </span>
+              <span className="text-[11px] font-bold text-neutral-500">Rev. {proposal.revision}</span>
+            </div>
           </div>
           <Link
             href={`/negocios/${proposal.dealId}`}
-            className="icon-btn h-8 w-8 shrink-0"
+            className="icon-btn h-9 w-9 shrink-0 rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700"
             aria-label="Voltar ao negócio"
             title="Voltar ao negócio"
           >
-            <ArrowLeft className="h-4 w-4" strokeWidth={2} />
+            <ArrowLeft className="h-4 w-4 text-neutral-700 dark:text-neutral-200" strokeWidth={2.5} />
           </Link>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+        {/* Orientação ao Usuário */}
+        <div className="rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50/70 dark:bg-sky-950/40 p-3 text-xs text-sky-950 dark:text-sky-200">
+          <p className="font-extrabold text-[11px] uppercase tracking-wider text-sky-800 dark:text-sky-400">Próximo Passo:</p>
+          <p className="mt-1 font-semibold leading-relaxed">
+            {proposal.status === "DRAFT" && "Clique no botão 1 abaixo para gerar a versão oficial do PDF."}
+            {proposal.status === "GENERATED" && "Baixe o PDF para seu aparelho e mande ao cliente pelo WhatsApp ou E-mail."}
+            {proposal.status === "SENT" && "Proposta enviada e registrada no histórico do negócio com sucesso."}
+            {proposal.status === "CANCELLED" && "Esta proposta está cancelada no histórico."}
+          </p>
+        </div>
+
+        {/* Botões de Ação Direta */}
+        <div className="space-y-2.5">
           {proposal.status === "DRAFT" && (
             <button
               type="button"
               disabled={busy}
               onClick={() => run("generate")}
-              className="btn-primary btn-sm w-full justify-center"
+              className="btn-primary w-full py-3 flex-col items-center justify-center text-center gap-0.5 shadow-sm"
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <FileText className="h-4 w-4" strokeWidth={2} />}
-              Gerar documento
+              <div className="flex items-center gap-2 font-extrabold text-sm">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <FileText className="h-4 w-4" strokeWidth={2.5} />}
+                <span>1. Gerar documento PDF</span>
+              </div>
+              <span className="text-[11px] font-normal opacity-90">Cria o arquivo oficial para download</span>
             </button>
           )}
+
           {canPrint && (
             <button
               type="button"
@@ -74,50 +96,44 @@ export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
                 window.print();
               }}
               className={`${
-                proposal.status === "GENERATED" ? "btn-secondary" : "btn-primary"
-              } btn-sm w-full justify-center`}
+                proposal.status === "GENERATED" ? "btn-primary bg-sky-600 hover:bg-sky-700 text-white shadow-md ring-2 ring-sky-400/40" : "btn-primary"
+              } w-full py-3 flex-col items-center justify-center text-center gap-0.5`}
             >
-              <Printer className="h-4 w-4" strokeWidth={2} />
-              Imprimir / Salvar PDF
+              <div className="flex items-center gap-2 font-extrabold text-sm">
+                <Printer className="h-4 w-4" strokeWidth={2.5} />
+                <span>{proposal.status === "GENERATED" ? "2. Baixar / Salvar PDF" : "Baixar / Imprimir PDF"}</span>
+              </div>
+              <span className="text-[11px] font-normal opacity-90">Salva o PDF no celular ou PC</span>
             </button>
           )}
+
           {proposal.status === "GENERATED" && (
             <button
               type="button"
               disabled={busy}
               onClick={() => setConfirmSend(true)}
-              className="btn-primary btn-sm w-full justify-center"
+              className="btn-secondary w-full py-3 flex-col items-center justify-center text-center gap-0.5 border-emerald-600/40 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
             >
-              <CheckCircle2 className="h-4 w-4" strokeWidth={2.5} />
-              Enviei para o cliente
+              <div className="flex items-center gap-2 font-extrabold text-sm">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} />
+                <span>3. Marcar como Enviada</span>
+              </div>
+              <span className="text-[11px] font-normal opacity-90">Confirma entrega ao cliente</span>
             </button>
           )}
         </div>
 
-        {/* Indicadores de progresso rápidos */}
-        <div className="grid grid-cols-3 gap-1.5 text-xs lg:grid-cols-1">
-          <StepBadge active={step >= 1} current={step === 1} label="1. Gerar" detail="Cria o documento" />
-          <StepBadge active={step >= 2} current={step === 2} label="2. Salvar PDF" detail="Salva o arquivo" />
-          <StepBadge active={step >= 3} current={step === 3} label="3. Enviar" detail="Marca como entregue" />
+        {/* Guia Etapas */}
+        <div className="space-y-1.5 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+          <p className="text-[11px] font-extrabold uppercase tracking-wider text-neutral-500">Progresso:</p>
+          <div className="grid grid-cols-1 gap-1.5 text-xs">
+            <StepBadge active={step >= 1} current={step === 1} label="1. Gerar" detail="Documento criado" />
+            <StepBadge active={step >= 2} current={step === 2} label="2. Baixar PDF" detail="Arquivo salvo no aparelho" />
+            <StepBadge active={step >= 3} current={step === 3} label="3. Enviar ao Cliente" detail="Registrado no CRM" />
+          </div>
         </div>
 
-        {/* Textos de no máximo 3 frases */}
-        <div className="rounded-md bg-neutral-100 dark:bg-neutral-800/60 p-2.5 text-xs text-neutral-600 dark:text-neutral-300">
-          {proposal.status === "DRAFT" && (
-            <p>Gere o documento oficial da proposta. Em seguida, você poderá baixar o PDF para enviar ao cliente.</p>
-          )}
-          {proposal.status === "GENERATED" && (
-            <p>Salve o arquivo PDF em seu aparelho. Compartilhe com o cliente e confirme o envio para registrar no histórico.</p>
-          )}
-          {proposal.status === "SENT" && (
-            <p>Proposta enviada ao cliente com sucesso. Os valores estão salvos no histórico deste negócio.</p>
-          )}
-          {proposal.status === "CANCELLED" && (
-            <p>Esta proposta foi cancelada.</p>
-          )}
-        </div>
-
-        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="text-xs font-bold text-red-600 dark:text-red-400">{error}</p>}
       </div>
 
       {confirmSend && (
@@ -156,3 +172,4 @@ function StepBadge({ active, current, label, detail }: { active: boolean; curren
     </div>
   );
 }
+

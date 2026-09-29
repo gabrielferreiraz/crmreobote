@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
+import { useHelpCenter } from "@/components/help/help-center";
 
 type NavItem = {
   href: string;
@@ -90,6 +91,7 @@ export function MobileNav({
   const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
   const overflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
   const { unsubscribe } = usePushSubscription();
+  const openHelp = useHelpCenter();
 
   // Mesmo motivo do UserMenu (desktop): desativa a inscrição de push deste
   // navegador antes de sair, pra não deixar notificação de quem saiu
@@ -216,6 +218,23 @@ export function MobileNav({
                   <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Simulador</span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
                 </a>
+                {/* A Central de ajuda não tem botão flutuante no celular (esse
+                    canto já é do "+" logo acima) — o caminho dela é aqui. Abre
+                    o MESMO painel do desktop, montado uma vez no layout. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetOpen(false);
+                    openHelp();
+                  }}
+                  className="flex w-full items-center gap-3 p-3 text-left text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                    <MessageSquare className="h-4 w-4 text-brand dark:text-brand" fill="currentColor" strokeWidth={1.5} />
+                  </span>
+                  <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Central de ajuda</span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+                </button>
               </div>
 
               <div className="card mt-2 flex items-center gap-3 p-3 text-sm">

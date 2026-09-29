@@ -37,6 +37,10 @@ export type ProposalDTO = {
   feePercent: number;
   quotaCount: number;
   description: string;
+  displayName: string | null;
+  coverIntro: string | null;
+  coverDetails: string | null;
+  coverImagePosition: "before-copy" | "after-title";
   createdById: string;
   createdByName: string;
   sentById: string | null;

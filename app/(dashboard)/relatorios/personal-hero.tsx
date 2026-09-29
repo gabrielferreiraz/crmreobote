@@ -1,11 +1,11 @@
-import { Trophy, TrendingUp, Percent, Zap } from "lucide-react";
-import { formatCurrency, formatDuration } from "@/lib/format";
+import { Trophy, TrendingUp, Percent } from "lucide-react";
+import { formatCurrency } from "@/lib/format";
 import { Avatar } from "@/components/avatar";
 
 /**
  * Hero de "Meu desempenho" exibido pra MEMBER e SUPERVISOR no topo do
  * relatório — substitui o título genérico "Panorama comercial" por um card
- * focado no próprio usuário: posição no ranking, negócios, ticket, SLA.
+ * focado no próprio usuário: posição no ranking, negócios, ticket.
  *
  * Recebe só os dados já calculados por getCommercialReportData (que já filtra
  * pelo escopo do cargo — nenhuma query extra aqui).
@@ -20,8 +20,6 @@ export function PersonalHero({
   winRate,
   rankingPosition,
   totalRankingMembers,
-  slaFirstTouchWithin1h,
-  avgFirstReplyMs,
   currentMonthLabel,
 }: {
   name: string;
@@ -34,27 +32,10 @@ export function PersonalHero({
   /** posição no ranking do time (1-indexed, null se sem vendas) */
   rankingPosition: number | null;
   totalRankingMembers: number;
-  slaFirstTouchWithin1h: number | null;
-  avgFirstReplyMs: number | null;
   currentMonthLabel: string;
 }) {
   const roleLabel = role === "SUPERVISOR" ? "Supervisor" : "Consultor";
   const hasSales = wonCount > 0;
-
-  const slaStatus =
-    slaFirstTouchWithin1h === null
-      ? null
-      : slaFirstTouchWithin1h >= 70
-        ? "good"
-        : slaFirstTouchWithin1h >= 40
-          ? "warn"
-          : "bad";
-
-  const slaColorClass = {
-    good: "text-emerald-600 dark:text-emerald-400",
-    warn: "text-amber-600 dark:text-amber-400",
-    bad: "text-red-600 dark:text-red-400",
-  };
 
   return (
     <div className="card overflow-hidden p-0">
@@ -88,8 +69,13 @@ export function PersonalHero({
         )}
       </div>
 
-      {/* Grid de KPIs */}
-      <div className="grid grid-cols-2 divide-x divide-y divide-neutral-100 sm:grid-cols-4 dark:divide-neutral-800">
+      {/* Grid de KPIs — 3 células agora (SLA saiu). grid-cols-1 no celular
+          (não grid-cols-2) pra nunca deixar a 3ª sozinha numa fileira com
+          vão vazio ao lado, mesmo raciocínio já aplicado noutras grades de
+          card fixo deste relatório; sm:grid-cols-3 cabe as 3 numa fileira só,
+          então os divisores trocam de "linha entre elas" (mobile, 1 coluna)
+          pra "coluna entre elas" (sm+, 1 única fileira). */}
+      <div className="grid grid-cols-1 divide-y divide-neutral-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0 dark:divide-neutral-800">
         <KpiCell
           icon={<TrendingUp className="h-4 w-4 text-emerald-500" strokeWidth={2} />}
           label="Total ganho"
@@ -108,17 +94,6 @@ export function PersonalHero({
           label="Taxa de conversão"
           value={`${winRate}%`}
           sub="ganhos ÷ decididos"
-        />
-        <KpiCell
-          icon={<Zap className="h-4 w-4 text-violet-500" strokeWidth={2} />}
-          label="Contato em <1h"
-          value={slaFirstTouchWithin1h !== null ? `${slaFirstTouchWithin1h}%` : "—"}
-          sub={
-            avgFirstReplyMs !== null
-              ? `Resposta média: ${formatDuration(avgFirstReplyMs)}`
-              : "Sem dados de SLA no período"
-          }
-          statusColorClass={slaStatus ? slaColorClass[slaStatus] : undefined}
         />
       </div>
     </div>

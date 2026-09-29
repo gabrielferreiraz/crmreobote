@@ -35,10 +35,14 @@ export function ProductivityTipShell({
   children: React.ReactNode;
 }) {
   return (
+    // lg:bottom-[5.5rem] pelo mesmo motivo dos avisos de desfazer: no desktop
+    // o canto inferior direito agora é do botão da Central de ajuda (ver
+    // components/help/help-center.tsx), e a dica sobe pra não sentar em cima
+    // dele.
     <div
       role="dialog"
       aria-live="polite"
-      className="surface-glass-panel fixed bottom-4 right-4 z-40 w-full max-w-md rounded-2xl p-4 shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+      className="surface-glass-panel fixed bottom-4 right-4 z-40 w-full max-w-md rounded-2xl p-4 shadow-2xl ring-1 ring-black/5 lg:bottom-[5.5rem] dark:ring-white/10"
       style={{ animation: "panel-pop-in 380ms var(--ease-spring)" }}
     >
       <div className="flex items-start justify-between gap-3">

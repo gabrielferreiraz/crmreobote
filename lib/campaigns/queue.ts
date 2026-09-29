@@ -461,3 +461,27 @@ export async function moveCampaignQueueItem(
     return count === 1 ? { moved: true } : { moved: false, reason: "not-pending" as const };
   }, WRITE_TX_OPTIONS);
 }
+
+/**
+ * Retira uma pessoa da fila sem apagar o histórico da campanha. Só PENDING
+ * pode virar SKIPPED: se o motor já reivindicou a linha como SENDING, a ação
+ * não disputa o envio que já começou.
+ */
+export async function removeCampaignQueueItem(
+  organizationId: string,
+  campaignId: string,
+  recipientId: string,
+): Promise<{ removed: boolean; reason?: "not-pending" }> {
+  return prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    const { count } = await tx.campaignRecipient.updateMany({
+      where: { id: recipientId, campaignId, status: "PENDING" },
+      data: {
+        status: "SKIPPED",
+        queuePosition: null,
+        error: "Removido manualmente da fila",
+      },
+    });
+    return count === 1 ? { removed: true } : { removed: false, reason: "not-pending" as const };
+  }, WRITE_TX_OPTIONS);
+}

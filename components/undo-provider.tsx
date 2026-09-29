@@ -214,7 +214,11 @@ export function UndoProvider({ children }: { children: React.ReactNode }) {
       {children}
       {mounted &&
         createPortal(
-          <div className="pointer-events-none fixed right-4 bottom-4 z-[70] flex flex-col-reverse gap-2">
+          // lg:bottom-[5.5rem]: no desktop o canto inferior direito passou a
+          // ter um morador fixo — o botão da Central de ajuda (ver
+          // components/help/help-center.tsx). Os avisos empilham ACIMA dele
+          // em vez de cair por cima.
+          <div className="pointer-events-none fixed right-4 bottom-4 z-[70] flex flex-col-reverse gap-2 lg:bottom-[5.5rem]">
             {errors.map((t) => (
               <div
                 key={t.key}

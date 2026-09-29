@@ -52,7 +52,7 @@ type PreviewResponse = {
 };
 type ImportResult = ImportPlanSummary & { total: number; created: number; skipped: number; importBatchId: string; issueRows: ResolvedRow[] };
 
-type Step = "pick" | "analyzing" | "preview" | "importing" | "done";
+type Step = "pick" | "analyzing" | "headers" | "details" | "importing" | "done";
 
 /** Quantas linhas a tabela de prévia mostra antes do "Mostrar mais" — ver showAllRows. */
 const PREVIEW_ROWS_COLLAPSED = 5;
@@ -200,6 +200,7 @@ export function ContactImportDialog({
   // duplicados, por exemplo) e as duas devem refletir a mesma ação.
   const [showDuplicateRows, setShowDuplicateRows] = useState(false);
   const [duplicateActionBusyId, setDuplicateActionBusyId] = useState<string | null>(null);
+  const [bulkActionBusy, setBulkActionBusy] = useState(false);
   const [duplicateActionResult, setDuplicateActionResult] = useState<
     Record<string, "claimed" | "requested" | "already-requested" | "already-yours" | "error">
   >({});
@@ -219,6 +220,7 @@ export function ContactImportDialog({
     pickedFile: File,
     currentOverrides: Partial<Record<ImportField, number>>,
     currentFieldDefaults: Partial<Record<DefaultableField, string>>,
+    nextStep: "headers" | "details" = "headers",
   ) {
     setStep("analyzing");
     setError(null);
@@ -232,15 +234,15 @@ export function ContactImportDialog({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Erro ao analisar o arquivo");
-        setStep("pick");
+        setStep(nextStep === "details" ? "details" : "pick");
         return;
       }
       setPreview(data);
       setShowAllRows(false);
-      setStep("preview");
+      setStep(nextStep);
     } catch {
       setError("Falha de conexão. Tente novamente.");
-      setStep("pick");
+      setStep(nextStep === "details" ? "details" : "pick");
     }
   }
 
@@ -250,7 +252,7 @@ export function ContactImportDialog({
     setFieldDefaults({});
     setJobTitleDraft("");
     setSourceDraft("");
-    runPreview(picked, {}, {});
+    runPreview(picked, {}, {}, "headers");
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -280,7 +282,7 @@ export function ContactImportDialog({
     if (value) next[field] = value;
     else delete next[field];
     setFieldDefaults(next);
-    if (file) runPreview(file, overrides, next);
+    if (file) runPreview(file, overrides, next, "details");
   }
 
   // Não faz nada - apenas mantém os drafts locais.
@@ -375,12 +377,18 @@ export function ContactImportDialog({
       else delete finalFieldDefaults.source;
 
       setStep("analyzing");
-      await runPreview(file, overrides, finalFieldDefaults);
-      setStep("preview");
+      await runPreview(file, overrides, finalFieldDefaults, "details");
     } catch {
       setError("Falha de conexão. Tente novamente.");
-      setStep("preview");
+      setStep("details");
     }
+  }
+
+  async function handleBulkLeadAction(contactIds: string[]) {
+    if (contactIds.length === 0 || bulkActionBusy) return;
+    setBulkActionBusy(true);
+    await Promise.all(contactIds.map((contactId) => handleLeadAction(contactId)));
+    setBulkActionBusy(false);
   }
 
   // Importação real (após revisar a prévia)
@@ -404,7 +412,7 @@ export function ContactImportDialog({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Erro ao importar arquivo");
-        setStep("preview");
+        setStep("details");
         return;
       }
       setResult(data);
@@ -413,7 +421,7 @@ export function ContactImportDialog({
       onImported();
     } catch {
       setError("Falha de conexão. Tente novamente.");
-      setStep("preview");
+      setStep("details");
     }
   }
 
@@ -421,6 +429,7 @@ export function ContactImportDialog({
   if (step === "done" && result) {
     return (
       <Modal onClose={onClose} maxWidth="max-w-lg">
+        <div key={step} className="animate-step-slide-in">
         <div className="flex gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/15">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
@@ -472,19 +481,20 @@ export function ContactImportDialog({
             Fechar
           </button>
         </div>
+        </div>
       </Modal>
     );
   }
 
   // ─── Passo de prévia ────────────────────────────────────────────────
-  if ((step === "preview" || step === "importing") && preview) {
+  if ((step === "headers" || step === "details" || step === "importing") && preview) {
     const s = preview.summary;
     const hasBlockingIssue = preview.missingRequiredColumns.length > 0;
 
     const headline = importHeadline(s, hasBlockingIssue);
     const HeadlineIcon = headline.icon;
     const hasAnyMissingOptionalColumn = preview.columns.some((col) => !col.required && col.index === -1);
-    const mappingExpanded = showColumnMapping || hasBlockingIssue || hasAnyMissingOptionalColumn;
+    const mappingExpanded = step === "headers" || showColumnMapping || hasBlockingIssue || hasAnyMissingOptionalColumn;
     const hasMissingDefaultableColumn = preview.columns.some(
       (col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField),
     );
@@ -504,10 +514,25 @@ export function ContactImportDialog({
       }
       return list;
     })();
+    const targetId = fieldDefaults.responsavel || currentUserId;
+    const bulkClaimIds = duplicateRows
+      .filter(({ existingContact: c }) => (!c.responsavelId || !c.responsavelActive) && c.responsavelId !== targetId)
+      .map(({ existingContact: c }) => c.id);
+    const bulkRequestIds = duplicateRows
+      .filter(({ existingContact: c }) => !!c.responsavelId && c.responsavelActive && c.responsavelId !== targetId)
+      .map(({ existingContact: c }) => c.id);
 
     return (
       <Modal onClose={onClose} maxWidth="max-w-3xl">
-        <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Confira antes de importar</h2>
+        <div key={step} className="animate-step-slide-in">
+        <div className="mb-4 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+          <span className={step === "headers" ? "text-brand" : ""}>1. Planilha</span>
+          <ChevronRight className="h-3 w-3" />
+          <span className={step === "details" ? "text-brand" : ""}>2. Solicitações</span>
+        </div>
+        <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          {step === "headers" ? "Reconheça sua planilha" : "Revise solicitações e detalhes"}
+        </h2>
         <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
           {file?.name} — {s.totalRows} linha{s.totalRows === 1 ? "" : "s"} de dados. Nada foi gravado ainda.
         </p>
@@ -547,7 +572,7 @@ export function ContactImportDialog({
           </div>
         </div>
 
-        {s.duplicateContacts > 0 && (
+        {step === "details" && s.duplicateContacts > 0 && (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/40">
             <Info className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
             <p className="text-neutral-600 dark:text-neutral-400">
@@ -573,8 +598,32 @@ export function ContactImportDialog({
           </div>
         )}
 
-        {showDuplicateRows && duplicateRows.length > 0 && (
+        {step === "details" && showDuplicateRows && duplicateRows.length > 0 && (
           <div className="mb-4 max-h-56 space-y-1.5 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white pb-2 dark:border-neutral-800 dark:bg-neutral-950">
+              {bulkClaimIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={bulkActionBusy}
+                  onClick={() => handleBulkLeadAction(bulkClaimIds)}
+                  className="btn-secondary btn-sm"
+                >
+                  {bulkActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+                  Atribuir todos os disponíveis ({bulkClaimIds.length})
+                </button>
+              )}
+              {bulkRequestIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={bulkActionBusy}
+                  onClick={() => handleBulkLeadAction(bulkRequestIds)}
+                  className="btn-secondary btn-sm"
+                >
+                  {bulkActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Solicitar tudo aos consultores ({bulkRequestIds.length})
+                </button>
+              )}
+            </div>
             {duplicateRows.map(({ existingContact: c }) => {
               const busy = duplicateActionBusyId === c.id;
               const result = duplicateActionResult[c.id];
@@ -710,7 +759,7 @@ export function ContactImportDialog({
             aqui — 1 frase de intro só (não repetida por campo) + rótulo
             curto por controle, mesmo padrão "field-label" do resto do
             formulário (ver "Cargo *"/"Responsável" no cadastro manual). */}
-        {hasMissingDefaultableColumn && (
+        {step === "details" && hasMissingDefaultableColumn && (
           <div className="mb-4 space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Não veio na planilha. Valor pra aplicar em <strong>todos</strong> os contatos:
@@ -784,13 +833,13 @@ export function ContactImportDialog({
           type="button"
           onClick={() => setShowColumnMapping((v) => !v)}
           disabled={hasBlockingIssue}
-          className="mb-2 flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-60 dark:text-neutral-400 dark:hover:text-neutral-200"
+          className={`${step === "headers" ? "" : "hidden"} mb-2 flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-60 dark:text-neutral-400 dark:hover:text-neutral-200`}
         >
           <ChevronRight className={`h-3 w-3 transition-transform duration-200 ease-smooth ${mappingExpanded ? "rotate-90" : ""}`} strokeWidth={2} />
           <SlidersHorizontal className="h-3 w-3" strokeWidth={2} />
           Ver detalhes técnicos
         </button>
-        {mappingExpanded && (
+        {step === "headers" && mappingExpanded && (
           <div className="mb-4 space-y-3">
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
               {preview.columns.map((col) => (
@@ -830,7 +879,7 @@ export function ContactImportDialog({
           </div>
         )}
 
-        {!hasBlockingIssue && (
+        {step === "headers" && !hasBlockingIssue && (
           <div className="mb-4 overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
             <table className="w-full text-xs">
               <thead>
@@ -925,8 +974,22 @@ export function ContactImportDialog({
                 <LoadingDots />
               </span>
             </button>
-          ) : Object.keys(overrides).length > 0 ? (
+          ) : step === "headers" ? (
+            <button
+              type="button"
+              disabled={hasBlockingIssue}
+              onClick={refreshPreview}
+              className="btn-primary"
+            >
+              Avançar
+              <ChevronRight className="h-4 w-4" strokeWidth={2} />
+            </button>
+          ) : (
             <>
+              <button type="button" onClick={() => setStep("headers")} className="btn-secondary">
+                Voltar
+              </button>
+              {Object.keys(overrides).length > 0 && (
               <button
                 type="button"
                 onClick={refreshPreview}
@@ -934,6 +997,7 @@ export function ContactImportDialog({
               >
                 Atualizar Prévia
               </button>
+              )}
               <button
                 type="button"
                 disabled={hasBlockingIssue || s.toCreate === 0}
@@ -943,16 +1007,8 @@ export function ContactImportDialog({
                 {s.toCreate === 0 ? "Nada pra importar" : "Confirmar Importação"}
               </button>
             </>
-          ) : (
-            <button
-              type="button"
-              disabled={hasBlockingIssue || s.toCreate === 0}
-              onClick={confirmFinalImport}
-              className="btn-primary"
-            >
-              {s.toCreate === 0 ? "Nada pra importar" : "Confirmar Importação"}
-            </button>
           )}
+        </div>
         </div>
       </Modal>
     );

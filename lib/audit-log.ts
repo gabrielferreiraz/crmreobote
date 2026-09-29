@@ -29,6 +29,7 @@ export type AuditAction =
   // Fila de disparo de uma campanha reordenada à mão (arrastar / mover pro topo
   // ou fim) — muda QUEM é contatado primeiro, então fica registrado quem mexeu.
   | "CAMPAIGN_QUEUE_REORDERED"
+  | "CAMPAIGN_RECIPIENT_REMOVED"
   // O motor pausou/retomou uma campanha SOZINHO por causa do WhatsApp (caiu / voltou), ou pausou
   // depois de 5 falhas seguidas — sem isso ninguém saberia por que ela parou nem quando voltou.
   | "CAMPAIGN_AUTO_PAUSED"

@@ -1,8 +1,9 @@
 /**
- * Estatísticas básicas de distribuição (média, mediana, percentil) usadas
- * pelos relatórios — extraído porque o Comercial (SLA de resposta) e o
- * Administrativo (tempo até finalização de processo) tinham cada um sua
- * própria versão de "média" e de "mediana" calculadas na mão.
+ * Estatísticas básicas de distribuição (média, mediana) usadas pelo relatório
+ * Administrativo (tempo até finalização de processo, ver admin-reports-view.tsx)
+ * — extraído de uma versão calculada na mão que existia ali. Também tinha um
+ * `percentile` aqui, usado só pelo SLA de resposta do relatório Comercial
+ * (removido) — removido junto por não ter mais chamador.
  */
 
 export function average(values: number[]): number | null {
@@ -14,14 +15,6 @@ export function median(values: number[]): number | null {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
-
-/** `p` de 0 a 100. Ex.: percentile(values, 95) = valor que 95% dos casos ficam abaixo (ou igual) dele. */
-export function percentile(values: number[], p: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const idx = Math.round((p / 100) * (sorted.length - 1));
-  return sorted[idx];
 }
 
 /**
