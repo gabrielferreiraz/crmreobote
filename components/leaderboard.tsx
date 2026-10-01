@@ -43,7 +43,14 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
   }
 
   return (
-    <div className="space-y-0.5">
+    // divide-y (não space-y) — cada linha ganha um filete embaixo pra separar
+    // da próxima: sem isso, um detalhe de 2 linhas ("31 WhatsApp · 13 visita ·
+    // 2 nota") colava visualmente na linha seguinte e o card inteiro lia como
+    // bagunça, um bloco só de texto, não 5 pessoas distintas (pedido
+    // explícito: "ainda vejo como uma bagunça visual"). O 1º colocado ganha um
+    // fundo âmbar bem leve — o mesmo tom do selo de ouro dele — pra bater o
+    // olho em quem está na frente sem precisar ler número nenhum.
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
       {entries.map((entry, i) => {
         const rank = i + 1;
         return (
@@ -56,7 +63,7 @@ export function Leaderboard({ entries, emptyLabel }: { entries: LeaderboardEntry
           // vão numa linha de baixo, sozinhos também — cada bloco com a
           // largura inteira do card só pra si, zero disputa, zero sobreposição
           // possível, não importa quão longo o nome ou o valor sejam.
-          <div key={entry.id} className="rounded-md px-1.5 py-2">
+          <div key={entry.id} className={`px-2 py-2.5 ${rank === 1 ? "bg-amber-50/70 dark:bg-amber-500/[0.06]" : ""}`}>
             <div className="flex items-center gap-3">
               <span
                 className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${

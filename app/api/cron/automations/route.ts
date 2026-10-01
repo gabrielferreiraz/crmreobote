@@ -4,6 +4,7 @@ import { runCampaigns } from "@/lib/campaigns/engine";
 import { runWebhookDeliveries } from "@/lib/webhooks/engine";
 import { sendDueScheduledTaskMessages } from "@/lib/tasks/scheduled-whatsapp";
 import { sendDueMeetingReminders, sendDueSelfReminders } from "@/lib/tasks/meeting-reminder";
+import { cleanupExpiredAcademyCredentials } from "@/lib/academy-oauth-cleanup";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
 import { recordCronRun, runLockedCron } from "@/lib/cron-run";
@@ -40,12 +41,16 @@ const CRON_NAME = "automations";
 // tick de automations (por isso o .catch em cada um, não deixado estourar
 // pro Promise.all inteiro).
 async function runCronTick() {
-  const [automations, scheduledMessages, meetingReminders, selfReminders, campaignsBackstop, webhooksBackstop] =
+  const [automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, campaignsBackstop, webhooksBackstop] =
     await Promise.all([
       runAutomations(),
       sendDueScheduledTaskMessages(),
       sendDueMeetingReminders(),
       sendDueSelfReminders(),
+      cleanupExpiredAcademyCredentials().catch((err) => {
+        console.error("[cron:automations] limpeza de credenciais da Academy falhou", err);
+        return { skipped: false, deleted: 0, cleanupFailed: true };
+      }),
       runLockedCron("campaigns", runCampaigns).catch((err) => {
         console.error("[cron:automations] backstop de campaigns falhou", err);
         return { backstopFailed: true };
@@ -55,7 +60,7 @@ async function runCronTick() {
         return { backstopFailed: true };
       }),
     ]);
-  return { automations, scheduledMessages, meetingReminders, selfReminders, campaignsBackstop, webhooksBackstop };
+  return { automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, campaignsBackstop, webhooksBackstop };
 }
 
 async function handleCron() {

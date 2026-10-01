@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
-import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, countDeals, aggregateDealValues } from "@/lib/deals/list-query";
@@ -115,7 +114,15 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+  }
   const {
     pipelineId,
     stageId,
@@ -153,9 +160,9 @@ export async function POST(req: Request) {
     skipIfOpenDealExists?: boolean;
   };
 
-  const { organizationId, userId } = await requireSession();
-  if (!organizationId || !userId)
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const { organizationId, userId, role } = access;
 
   if (!pipelineId || !stageId || !contactId) {
     return NextResponse.json(
@@ -163,40 +170,87 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if ((value != null && value < 0) || (grossValue != null && grossValue < 0)) {
-    return NextResponse.json({ error: "Valor não pode ser negativo" }, { status: 400 });
+  if (
+    typeof pipelineId !== "string" ||
+    typeof stageId !== "string" ||
+    typeof contactId !== "string" ||
+    (ownerId != null && typeof ownerId !== "string") ||
+    (name != null && typeof name !== "string") ||
+    (creditType != null && typeof creditType !== "string") ||
+    (description != null && typeof description !== "string") ||
+    (skipIfOpenDealExists != null && typeof skipIfOpenDealExists !== "boolean") ||
+    (customFieldValues != null &&
+      (typeof customFieldValues !== "object" || Array.isArray(customFieldValues)))
+  ) {
+    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+  }
+  if (
+    (value != null && (!Number.isFinite(value) || value < 0)) ||
+    (grossValue != null && (!Number.isFinite(grossValue) || grossValue < 0))
+  ) {
+    return NextResponse.json({ error: "Valor inválido" }, { status: 400 });
+  }
+  if (expectedCloseAt != null && (typeof expectedCloseAt !== "string" || Number.isNaN(Date.parse(expectedCloseAt)))) {
+    return NextResponse.json({ error: "Data de fechamento inválida" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
-    const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
-    if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
+    // O caso comum já manda o próprio usuário como responsável. A sessão
+    // ativa comprova essa permissão sem consultas extras; escolher outra
+    // pessoa continua revalidado contra o escopo e o vínculo ativo.
+    const ownerValidation = ownerId && ownerId !== userId
+      ? Promise.all([
+          getSharedScope(organizationId, userId, role, "shareDeals"),
+          prisma.organizationUser.findUnique({
+            where: { organizationId_userId: { organizationId, userId: ownerId } },
+            select: { active: true },
+          }),
+        ])
+      : Promise.resolve(null);
 
-    if (skipIfOpenDealExists) {
-      const existingOpenDeal = await prisma.deal.findFirst({ where: { organizationId, contactId, status: "OPEN" } });
+    const [contact, stage, fieldDefs, existingOpenDeal, ownerAccess] = await Promise.all([
+      prisma.contact.findFirst({
+        where: { id: contactId, organizationId },
+        select: { name: true, source: true },
+      }),
+      prisma.pipelineStage.findFirst({
+        where: { id: stageId, pipelineId, pipeline: { organizationId } },
+        select: { id: true },
+      }),
+      prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "DEAL" },
+        select: { id: true, label: true, type: true, options: true, required: true },
+      }),
+      skipIfOpenDealExists
+        ? prisma.deal.findFirst({
+            where: { organizationId, contactId, status: "OPEN" },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      ownerValidation,
+    ]);
+    if (!contact) return NextResponse.json({ error: "Contato inválido" }, { status: 400 });
+    if (!stage) return NextResponse.json({ error: "Etapa inválida" }, { status: 400 });
+
+    if (ownerAccess) {
+      const [scope, membership] = ownerAccess;
+      const requestedOwnerId = ownerId!;
+      if (scope.type === "owners" && !scope.ownerIds.includes(requestedOwnerId)) {
+        return NextResponse.json({ error: "Responsável fora do seu escopo" }, { status: 403 });
+      }
+      if (!membership?.active) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
+    }
+
+    if (existingOpenDeal) {
       // 200, não 4xx — não é um erro, é o comportamento pedido (ver
       // comentário em skipIfOpenDealExists acima). `skipped: true` deixa o
       // chamador (applyCreateDeals) contar certo quantos de fato criou vs.
       // quantos ignorou, pra informar os dois números pro usuário.
-      if (existingOpenDeal) return NextResponse.json({ skipped: true, dealId: existingOpenDeal.id });
-    }
-
-    const stage = await prisma.pipelineStage.findFirst({
-      where: { id: stageId, pipeline: { organizationId } },
-    });
-    if (!stage) return NextResponse.json({ error: "Etapa inválida" }, { status: 400 });
-
-    if (ownerId) {
-      const membership = await prisma.organizationUser.findUnique({
-        where: { organizationId_userId: { organizationId, userId: ownerId } },
-      });
-      if (!membership) return NextResponse.json({ error: "Responsável inválido" }, { status: 400 });
+      return NextResponse.json({ skipped: true, dealId: existingOpenDeal.id });
     }
 
     const resolvedOwnerId = ownerId || (await pickOwnerId(organizationId, userId));
 
-    const fieldDefs = await prisma.customFieldDefinition.findMany({
-      where: { organizationId, entityType: "DEAL" },
-    });
     let cleanCustomFieldValues;
     try {
       cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues);

@@ -7,6 +7,7 @@ import { sendPresence } from "@/lib/evolution";
 import { toDialNumber } from "@/lib/phone-normalize";
 import { resolveChatMediaUrl, resolveAvatarUrlMap } from "@/lib/r2";
 import { getDealScope } from "@/lib/team-scope";
+import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { readJson, bodyErrorResponse } from "@/lib/read-body";
@@ -89,6 +90,39 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       },
     });
     const messages = messagesDesc.reverse();
+
+    // Abrir a conversa é o próprio ato de "ler" — some com a bolinha/contador
+    // de não lidas na lista de Conversas e com o sinal de "lead respondeu" no
+    // card do negócio. Existia aqui desde sempre e foi apagado sem querer em
+    // d10c07b ("chat mostra quem enviou mensagem", 03/09) junto com a troca
+    // deste trecho pelo threadOwnerUser abaixo — desde então NADA no sistema
+    // marcava mensagem como lida, então o vermelho nunca sumia pra ninguém
+    // (relato do consultor: "respondo, entro na conversa e continua marcada").
+    //
+    // SÓ quem é dono da conversa marca como lida. Supervisor/gerente/dono
+    // abrindo conversa de um consultor NÃO consome o aviso dele: `read` é um
+    // flag único por mensagem (não "lido por fulano"), então marcar aqui
+    // apagaria o indicador do consultor que ainda nem olhou — pedido
+    // explícito. ownerUserId nulo = conversa órfã (instância apagada quando o
+    // dono foi desativado): nenhum consultor enxerga essa thread (ver
+    // loadAuthorizedThread acima), então não há aviso de ninguém pra
+    // preservar — marca normalmente, senão o contador fica preso pra sempre.
+    const viewerOwnsThread = !thread.ownerUserId || thread.ownerUserId === userId;
+    if (viewerOwnsThread) {
+      const marked = await prisma.whatsAppMessage.updateMany({
+        where: { organizationId, threadId, direction: "INBOUND", read: false },
+        data: { read: true },
+      });
+      // Só avisa quando ALGO mudou de verdade: o chat aberto recarrega a si
+      // mesmo ao ouvir evento da própria thread (ver useWhatsAppLive em
+      // components/whatsapp-chat.tsx), então publicar incondicionalmente aqui
+      // viraria laço infinito de GET → evento → GET. Com a guarda, o 2º GET
+      // marca 0 linhas, não publica, e o ciclo para. O que isso compra: a
+      // lista de Conversas apaga o badge na hora, sem esperar o poll de 45s.
+      if (marked.count > 0) {
+        publishWhatsAppEvent(organizationId, { type: "status", threadId });
+      }
+    }
 
     // Dono de verdade desta conversa (ownerUserId, não thread.instance —
     // sobrevive à instância ser apagada, ver comentário de

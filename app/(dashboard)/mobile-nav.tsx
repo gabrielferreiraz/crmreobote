@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
 import { useHelpCenter } from "@/components/help/help-center";
+import { useNewDeal } from "@/components/deals/new-deal-context";
 
 type NavItem = {
   href: string;
@@ -98,6 +99,7 @@ export function MobileNav({
   const overflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
   const { unsubscribe } = usePushSubscription();
   const openHelp = useHelpCenter();
+  const { openNewDeal, preloadNewDeal } = useNewDeal();
 
   // Mesmo motivo do UserMenu (desktop): desativa a inscrição de push deste
   // navegador antes de sair, pra não deixar notificação de quem saiu
@@ -113,7 +115,18 @@ export function MobileNav({
 
   return (
     <>
-      {fab && (
+      {fab?.href === "/pipeline?novo=1" && (
+        <button
+          type="button"
+          onClick={openNewDeal}
+          onTouchStart={preloadNewDeal}
+          className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/25 active:scale-95 dark:shadow-brand/15 lg:hidden"
+          aria-label={fab.label}
+        >
+          <Plus className="h-6 w-6" strokeWidth={2.5} />
+        </button>
+      )}
+      {fab && fab.href !== "/pipeline?novo=1" && (
         <Link
           href={fab.href}
           className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/25 active:scale-95 dark:shadow-brand/15 lg:hidden"

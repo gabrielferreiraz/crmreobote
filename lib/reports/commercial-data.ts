@@ -865,7 +865,12 @@ export async function getCommercialReportData(params: {
         id: o.id,
         name: o.name,
         photoUrl: o.photoUrl,
-        primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "videochamada/visita" : "videochamadas/visitas"}`,
+        // "encontro(s)" (não "videochamada(s)/visita(s)" por extenso) — esse texto é o
+        // valor GRANDE/negrito do card (ver components/leaderboard.tsx), e o nome
+        // completo dos dois tipos é comprido demais pra caber num card estreito sem
+        // quebrar no meio da palavra (pedido explícito do usuário); a abertura por
+        // tipo já vem logo abaixo, em secondaryValue — nenhuma informação se perde.
+        primaryValue: `${o.attendedCount} ${o.attendedCount === 1 ? "encontro" : "encontros"}`,
         secondaryValue: `${typeText}${extraText}`,
       };
     });

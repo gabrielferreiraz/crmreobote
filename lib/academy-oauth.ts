@@ -169,7 +169,8 @@ export function verifyClientBasicAuth(req: Request): ClientAuthResult {
  * HTTPS obrigatório em produção (ver item 5 do spec da Academy).
  */
 export function getAcademyBaseUrl(): URL | null {
-  const raw = process.env.NEXT_PUBLIC_ACADEMY_URL;
+  // Production uses ACADEMY_URL. The public name stays as a local legacy fallback.
+  const raw = process.env.ACADEMY_URL ?? process.env.NEXT_PUBLIC_ACADEMY_URL;
   if (!raw) return null;
   try {
     const url = new URL(raw);

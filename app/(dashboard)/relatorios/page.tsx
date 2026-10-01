@@ -249,7 +249,7 @@ export default async function RelatoriosPage({
     {
       id: "meetings",
       icon: <CalendarCheck className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
-      title: "Videochamadas e visitas realizadas",
+      title: "Videochamadas e visitas",
       body: (
         // Só conta quem o cliente de fato COMPARECEU — agendada que virou
         // no-show ou remarcação não é videochamada realizada (ver comentário
@@ -264,7 +264,7 @@ export default async function RelatoriosPage({
     {
       id: "funnelActivity",
       icon: <PhoneCall className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />,
-      title: "Quem movimentou mais o funil",
+      title: "Movimentação no funil",
       body: (
         // Ligação + proposta + WhatsApp registrados (ver comentário em
         // lib/reports/commercial-data.ts) — diferente do card de

@@ -119,8 +119,8 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
     <>
       <style>{`
         @page {
-          size: A4 portrait;
-          margin: 0;
+          size: 210mm 297mm;
+          margin: 0mm;
         }
 
         .proposal-page {
@@ -132,8 +132,8 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
           box-sizing: border-box;
         }
         .proposal-page-inner {
-          width: 100%;
-          height: 100%;
+          align-self: stretch;
+          flex: 1 1 0;
           min-height: 0;
           box-sizing: border-box;
           padding: 12mm;
@@ -161,6 +161,9 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
           box-sizing: border-box;
           padding: 7mm 12mm 10mm;
         }
+        .proposal-footer {
+          box-sizing: border-box;
+        }
 
         @media screen {
           .proposal-page {
@@ -170,8 +173,10 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
 
         @media print {
           html, body {
-            width: 210mm !important;
-            min-width: 210mm !important;
+            width: auto !important;
+            min-width: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #ffffff !important;
@@ -184,19 +189,22 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
           }
           .proposal-container {
             display: block !important;
+            flex: none !important;
+            align-self: flex-start !important;
             width: 210mm !important;
+            min-width: 210mm !important;
             max-width: 210mm !important;
             gap: 0 !important;
             padding: 0 !important;
             margin: 0 !important;
           }
           .proposal-page {
-            display: flex !important;
-            flex-direction: column !important;
+            display: block !important;
             position: relative !important;
             box-shadow: none !important;
             border-radius: 0 !important;
             width: 210mm !important;
+            min-width: 210mm !important;
             max-width: 210mm !important;
             height: 296mm !important;
             min-height: 296mm !important;
@@ -213,13 +221,24 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             print-color-adjust: exact !important;
           }
           .proposal-page-inner {
-            display: flex !important;
-            flex: 1 1 auto !important;
-            flex-direction: column !important;
+            display: block !important;
             width: 100% !important;
             height: 100% !important;
             min-height: 0 !important;
             box-sizing: border-box !important;
+          }
+          .proposal-detail-body {
+            display: block !important;
+            height: auto !important;
+            padding-bottom: 24mm !important;
+          }
+          .proposal-footer {
+            position: absolute !important;
+            right: 12mm !important;
+            bottom: 10mm !important;
+            left: 12mm !important;
+            width: auto !important;
+            margin: 0 !important;
           }
           .proposal-page:last-child {
             page-break-after: avoid !important;
@@ -323,7 +342,7 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             </div>
 
             {/* Rodapé da Página 1 */}
-            <footer className="flex items-center justify-between gap-3 border-t-2 border-neutral-200 pt-4 text-xs font-bold text-neutral-800">
+            <footer className="proposal-footer flex items-center justify-between gap-3 border-t-2 border-neutral-200 pt-4 text-xs font-bold text-neutral-800">
               <span className="font-extrabold text-neutral-950">{data.organizationName}</span>
               <ProposalSocialLinks />
               <span className="shrink-0 font-extrabold">Pág. 1 / 2</span>
@@ -384,7 +403,7 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             </div>
 
             {/* Rodapé */}
-            <footer className="flex items-center justify-between gap-3 border-t-2 border-neutral-300 pt-4 mt-6 text-xs font-bold text-neutral-800">
+            <footer className="proposal-footer flex items-center justify-between gap-3 border-t-2 border-neutral-300 pt-4 mt-6 text-xs font-bold text-neutral-800">
               <span className="font-extrabold text-neutral-950">{data.organizationName}</span>
               <span className="truncate">{data.consultantName} · {formattedDate}</span>
               <ProposalSocialLinks />

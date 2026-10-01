@@ -103,17 +103,11 @@ export async function POST(req: Request) {
       prisma.academyAuthCode.updateMany({ where: { id: codeRow.id, usedAt: null }, data: { usedAt: new Date() } }),
     );
     if (claim.count === 0) {
-      // Reuso: este code já tinha sido trocado antes (por esta ou outra
-      // requisição). RFC 6749 §4.1.2 — revoga tudo que nasceu dele.
+      // Reuso: remove a origem e, por cascade, todos os tokens derivados.
+      // Isso também fecha a corrida com um refresh que já leu seu token,
+      // mas ainda não chegou a criar a substituição.
       await runWithTenant(codeRow.organizationId, async () => {
-        await prisma.academyAccessToken.updateMany({
-          where: { issuedFromCodeId: codeRow.id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-        await prisma.academyRefreshToken.updateMany({
-          where: { issuedFromCodeId: codeRow.id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
+        await prisma.academyAuthCode.deleteMany({ where: { id: codeRow.id } });
       });
       return invalidGrantResponse();
     }

@@ -31,6 +31,7 @@ export function QuickRegisterDealForm({
   firstStageId,
   members,
   creditTypes,
+  jobTitles: initialJobTitles,
   currentUserId,
   onCreated,
   onCancel,
@@ -39,6 +40,7 @@ export function QuickRegisterDealForm({
   firstStageId?: string;
   members: MemberOption[];
   creditTypes: CreditTypeOption[];
+  jobTitles?: JobTitleOption[];
   /** Mesmo motivo do NewDealDialog (ver comentário lá): pré-seleciona o
    * próprio usuário logado como Responsável por padrão, continua trocável. */
   currentUserId: string;
@@ -68,7 +70,7 @@ export function QuickRegisterDealForm({
   const [description, setDescription] = useState("");
   const [ownerId, setOwnerId] = useState(currentUserId);
 
-  const [jobTitles, setJobTitles] = useState<JobTitleOption[]>([]);
+  const [jobTitles, setJobTitles] = useState<JobTitleOption[]>(initialJobTitles ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
@@ -114,6 +116,7 @@ export function QuickRegisterDealForm({
   }
 
   useEffect(() => {
+    if (initialJobTitles !== undefined) return;
     let cancelled = false;
     (async () => {
       try {
@@ -129,7 +132,7 @@ export function QuickRegisterDealForm({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialJobTitles]);
 
   function applyParsed(parsed: ParsedLeadFields) {
     const filled = new Set<string>();
@@ -681,7 +684,7 @@ export function QuickRegisterDealForm({
         <button type="button" onClick={onCancel} className="btn-ghost">
           Cancelar
         </button>
-        <button type="submit" disabled={loading || !analyzed || !name.trim() || !jobTitle} className="btn-primary">
+        <button type="submit" disabled={loading || !firstStageId || !analyzed || !name.trim() || !jobTitle} className="btn-primary">
           {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
           {loading ? (
             <span className="inline-flex items-center gap-1">

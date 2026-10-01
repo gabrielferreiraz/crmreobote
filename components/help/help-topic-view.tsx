@@ -17,13 +17,21 @@ export function HelpTopicView({
   onBack,
   onNavigate,
   onStartTour,
+  academyHref,
 }: {
   topic: HelpTopic;
   onBack: () => void;
   onNavigate: (href: string, newTab?: boolean) => void;
   onStartTour: (tourId: string) => void;
+  academyHref?: string | null;
 }) {
   const Icon = HELP_ICONS[topic.icon] ?? HELP_FALLBACK_ICON;
+  const links =
+    topic.id === "treinamento-academy"
+      ? academyHref
+        ? [{ label: "Acessar Treinamento", href: academyHref, newTab: true }]
+        : []
+      : topic.links ?? [];
 
   return (
     <div className="space-y-4 p-4">
@@ -114,9 +122,9 @@ export function HelpTopicView({
         </div>
       )}
 
-      {topic.links && topic.links.length > 0 && (
+      {links.length > 0 && (
         <div className="flex flex-wrap gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-          {topic.links.map((link, i) => (
+          {links.map((link, i) => (
             <button
               key={link.href}
               type="button"

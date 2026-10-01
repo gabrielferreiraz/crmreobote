@@ -14,6 +14,8 @@ import type { Deal } from "./kanban-board";
 
 type MemberOption = { id: string; name: string };
 type CreditTypeOption = { id: string; label: string };
+type JobTitleOption = { id: string; label: string };
+type PipelineOption = { id: string; name: string; stages: { id: string; name: string }[] };
 
 export function NewDealDialog({
   pipelineId,
@@ -21,6 +23,9 @@ export function NewDealDialog({
   members,
   customFields,
   creditTypes,
+  jobTitles,
+  pipelines,
+  onPipelineChange,
   currentUserId,
   onCreated,
   open,
@@ -32,6 +37,9 @@ export function NewDealDialog({
   members: MemberOption[];
   customFields: CustomFieldDefinitionInput[];
   creditTypes: CreditTypeOption[];
+  jobTitles?: JobTitleOption[];
+  pipelines?: PipelineOption[];
+  onPipelineChange?: (pipelineId: string) => void;
   /** Pré-seleciona o próprio usuário logado como Responsável (pedido
    * explícito: "vir pré-setado o responsável do login") — ainda dá pra
    * trocar livremente, é só o valor inicial do campo. `members` sempre
@@ -184,6 +192,23 @@ export function NewDealDialog({
             </button>
           </div>
 
+          {pipelines && pipelines.length > 1 && onPipelineChange && (
+            <div className="mb-4 space-y-1">
+              <label className="field-label">Funil</label>
+              <Select
+                value={pipelineId}
+                onChange={onPipelineChange}
+                options={pipelines.map((pipeline) => ({ value: pipeline.id, label: pipeline.name }))}
+              />
+            </div>
+          )}
+
+          {!firstStageId && (
+            <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+              Este funil ainda não possui uma etapa para receber o negócio.
+            </p>
+          )}
+
           <div className="mb-4 inline-flex rounded-lg bg-neutral-100 p-1 text-sm dark:bg-neutral-800">
             <button
               type="button"
@@ -218,6 +243,7 @@ export function NewDealDialog({
               firstStageId={firstStageId}
               members={members}
               creditTypes={creditTypes}
+              jobTitles={jobTitles}
               currentUserId={currentUserId}
               onCreated={(deal) => {
                 setOpen(false);
@@ -243,35 +269,37 @@ export function NewDealDialog({
                   autoFocus
                 />
               </div>
-              <div className="space-y-1">
-                <label className="field-label">Valor líquido</label>
-                <CurrencyInput value={value} onChange={setValue} />
-              </div>
-              <div className="space-y-1">
-                <label className="field-label">Valor bruto</label>
-                <CurrencyInput value={grossValue} onChange={setGrossValue} />
-              </div>
-              <div className="space-y-1">
-                <label className="field-label">Tipo de crédito</label>
-                <Select
-                  value={creditType}
-                  onChange={setCreditType}
-                  options={[
-                    { value: "", label: "—" },
-                    ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
-                  ]}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="field-label">Responsável</label>
-                <Select
-                  value={ownerId}
-                  onChange={setOwnerId}
-                  options={[
-                    { value: "", label: "Atribuição automática" },
-                    ...members.map((m) => ({ value: m.id, label: m.name })),
-                  ]}
-                />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="field-label">Valor líquido</label>
+                  <CurrencyInput value={value} onChange={setValue} />
+                </div>
+                <div className="space-y-1">
+                  <label className="field-label">Valor bruto</label>
+                  <CurrencyInput value={grossValue} onChange={setGrossValue} />
+                </div>
+                <div className="space-y-1">
+                  <label className="field-label">Tipo de crédito</label>
+                  <Select
+                    value={creditType}
+                    onChange={setCreditType}
+                    options={[
+                      { value: "", label: "—" },
+                      ...creditTypes.map((c) => ({ value: c.label, label: c.label })),
+                    ]}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="field-label">Responsável</label>
+                  <Select
+                    value={ownerId}
+                    onChange={setOwnerId}
+                    options={[
+                      { value: "", label: "Atribuição automática" },
+                      ...members.map((m) => ({ value: m.id, label: m.name })),
+                    ]}
+                  />
+                </div>
               </div>
               <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
@@ -281,7 +309,7 @@ export function NewDealDialog({
                 <button type="button" onClick={dismissClearingDraft} className="btn-ghost">
                   Cancelar
                 </button>
-                <button type="submit" disabled={loading || !contactId} className="btn-primary">
+                <button type="submit" disabled={loading || !contactId || !firstStageId} className="btn-primary">
                   {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
                   {loading ? (
                     <span className="inline-flex items-center gap-1">

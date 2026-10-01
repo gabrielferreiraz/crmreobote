@@ -5,17 +5,17 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Kanban, List, Upload, History } from "lucide-react";
 import { DealImportDialog } from "@/components/deal-import-dialog";
 import { ImportHistoryDialog } from "@/components/import-history-dialog";
-import { NewDealDialog } from "./new-deal-dialog";
 import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
 import { popBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
-import type { CustomFieldDefinitionInput } from "@/components/custom-fields-fieldset";
 import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filters";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineTitleSelect } from "./pipeline-title-select";
 import { useDealsLive } from "@/lib/use-deals-live";
 import { trackUse } from "@/lib/feature-usage/track";
+import { useNewDeal } from "@/components/deals/new-deal-context";
+import { DEAL_CREATED_EVENT } from "@/lib/deals/client-events";
 
 type MemberOption = { id: string; name: string };
 /** teamId: null = sem equipe atribuída — nunca bate com nenhum "team:<id>" do filtro de Responsável (ver ./owner-filter.ts). */
@@ -44,7 +44,6 @@ export function PipelineView({
   allMembers,
   teams,
   lossReasons,
-  customFields,
   creditTypes,
   leadSources,
   jobTitles,
@@ -80,7 +79,6 @@ export function PipelineView({
    * vem vazio de page.tsx pra quem não é Supervisor/Gerente/Dono (só esses papéis podem ver/usar). */
   teams: TeamOption[];
   lossReasons: LossReasonOption[];
-  customFields: CustomFieldDefinitionInput[];
   creditTypes: CreditTypeOption[];
   /** Listas canônicas (Configurações → Origens/Cargos) pros filtros do Kanban — ver kanban-board.tsx. */
   leadSources: LabelOption[];
@@ -110,6 +108,7 @@ export function PipelineView({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { openNewDeal: openGlobalNewDeal } = useNewDeal();
   const [view, setView] = useState<"kanban" | "lista">("kanban");
 
   // Lembra a última visão usada (Kanban/Lista) nesta tela, neste navegador —
@@ -177,7 +176,7 @@ export function PipelineView({
   const visibleDealCount = view === "kanban" ? totalAbertoCount : listaTotalCountLive;
   // KanbanBoard é dono do próprio estado por coluna (ver kanban-board.tsx) —
   // isso só entrega o negócio recém-criado uma única vez (consumido pelo
-  // filho via onNewDealConsumed, mesmo padrão do openNewDeal abaixo).
+  // filho via onNewDealConsumed). O evento vem do formulário global abaixo.
   const [newDeal, setNewDeal] = useState<Deal | null>(null);
   // DealsList é dono da própria página/filtro (ver deals-list.tsx) — isso só
   // precisa avisar "algo mudou, busque nem que seja a mesma página/filtro de
@@ -189,7 +188,6 @@ export function PipelineView({
   const [kanbanReloadToken, setKanbanReloadToken] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
-  const [dealDialogOpen, setDealDialogOpen] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState<BulkSendDraft | null>(null);
   // Botão "Mostrar negócios Ganhos" (pedido explícito) — incrementa a cada
   // clique só pra dar um valor NOVO pro efeito de deals-list.tsx reagir
@@ -210,11 +208,28 @@ export function PipelineView({
 
   useEffect(() => {
     if (openNewDeal) {
-      setDealDialogOpen(true);
-      router.replace("/pipeline");
+      openGlobalNewDeal();
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("novo");
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewDeal]);
+
+  // O modal agora vive no layout e pode criar um negócio a partir de qualquer
+  // tela. Se a Pipeline estiver aberta no mesmo funil, insere o novo card sem
+  // esperar o próximo evento SSE/refetch.
+  useEffect(() => {
+    function handleCreated(event: Event) {
+      const deal = (event as CustomEvent<Deal & { pipelineId: string }>).detail;
+      if (!deal || deal.pipelineId !== pipelineId) return;
+      setNewDeal(deal);
+      setListaReloadToken((token) => token + 1);
+    }
+    window.addEventListener(DEAL_CREATED_EVENT, handleCreated);
+    return () => window.removeEventListener(DEAL_CREATED_EVENT, handleCreated);
+  }, [pipelineId]);
 
   // Link externo pedindo a visão Lista (ver "Fechado no mês" no Início) —
   // roda DEPOIS do usePersistedFilters("pipeline-view", ...) acima (ordem de
@@ -225,6 +240,7 @@ export function PipelineView({
   // salvo (ver initialFilterOverride).
   useEffect(() => {
     if (openLista) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setView("lista");
       router.replace("/pipeline");
     }
@@ -308,13 +324,8 @@ export function PipelineView({
         <span className="text-xs whitespace-nowrap text-neutral-500 dark:text-neutral-400">
           {visibleDealCount} negócio{visibleDealCount === 1 ? "" : "s"}
         </span>
-        {/* "Novo negócio" local removido de propósito — ficava duplicado
-            com o botão do header (app/(dashboard)/layout.tsx, link pra
-            /pipeline?novo=1), que já abre no funil certo graças ao
-            cookie de último funil escolhido (ver PIPELINE_LAST_ID_COOKIE).
-            dealDialogOpen/NewDealDialog continuam aqui — é o header quem
-            aciona via openNewDeal, não removi a mecânica, só o gatilho
-            redundante. */}
+        {/* "Novo negócio" fica no cabeçalho e abre pelo provider global,
+            sem navegar ou esperar os dados pesados desta tela. */}
         <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <button
             onClick={() => setView("kanban")}
@@ -393,9 +404,8 @@ export function PipelineView({
           initialCountByStage={initialKanbanCountByStage}
           initialSumByStage={initialKanbanSumByStage}
           initialWithTaskByStage={initialKanbanWithTaskByStage}
-          // allMembers (não `members`, que fica só ativos — usado por
-          // NewDealDialog logo abaixo, pra nunca deixar atribuir negócio NOVO
-          // a alguém inativo): o filtro "Status do consultor" do próprio
+          // allMembers (não `members`, que fica só ativos — o formulário
+          // global usa a lista ativa): o filtro "Status do consultor" do próprio
           // Kanban (ver kanban-board.tsx) precisa enxergar os inativos
           // também, senão "Somente inativos" nunca teria ninguém pra listar.
           members={allMembers}
@@ -444,23 +454,6 @@ export function PipelineView({
           creditTypes={creditTypes}
         />
       )}
-
-      <NewDealDialog
-        pipelineId={pipelineId}
-        firstStageId={stages[0]?.id}
-        members={members}
-        customFields={customFields}
-        creditTypes={creditTypes}
-        currentUserId={currentUserId}
-        onCreated={(deal) => {
-          trackUse("pipeline.negocio.novo");
-          setNewDeal(deal);
-          setListaReloadToken((t) => t + 1);
-        }}
-        open={dealDialogOpen}
-        onOpenChange={setDealDialogOpen}
-        hideTrigger
-      />
 
       {importOpen && (
         <DealImportDialog

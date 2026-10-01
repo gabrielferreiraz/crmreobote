@@ -166,7 +166,6 @@ export const HELP_TOPICS: HelpTopic[] = [
       "Você será direcionado automaticamente sem precisar digitar senha.",
       "Assista às aulas do seu módulo e acompanhe seu progresso de aprendizado.",
     ],
-    links: [{ label: "Acessar Treinamento", href: "/api/academy/acesso", newTab: true }],
   },
   {
     id: "ditado-voz",

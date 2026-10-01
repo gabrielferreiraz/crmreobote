@@ -2,7 +2,7 @@ import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { Plus, Calculator, GraduationCap } from "lucide-react";
+import { Calculator, GraduationCap } from "lucide-react";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
@@ -22,6 +22,7 @@ import { CnpjPrompt } from "@/components/cnpj-prompt";
 import { UndoProvider } from "@/components/undo-provider";
 import { ProductivityTipsHost } from "@/components/productivity-tips-host";
 import { HelpCenterProvider } from "@/components/help/help-center";
+import { NewDealButton, NewDealProvider } from "./new-deal-provider";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -89,6 +90,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         components/command-palette.tsx (o bug real que isso corrige: Cmd+K
         abria 2 modais de busca empilhados, um por header). */}
     <CommandPaletteProvider>
+    <NewDealProvider currentUserId={session.user.id} enabled={!isAdministrativo}>
     {/* Central de ajuda (botão flutuante + painel + tour guiado) montada 1x
         aqui, mesmo padrão dos dois providers acima. Precisa do papel e da
         área pra nunca ensinar uma tela que a pessoa não pode abrir — ajuda
@@ -119,10 +121,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <>
               <CommandPalette />
               {!isAdministrativo && (
-                <Link href="/pipeline?novo=1" data-help="new-deal" className="btn-primary btn-sm">
-                  <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-                  Novo negócio
-                </Link>
+                <NewDealButton />
               )}
             </>
           }
@@ -130,9 +129,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <>
               <CommandPalette compact />
               {!isAdministrativo && (
-                <Link href="/pipeline?novo=1" data-help="new-deal" className="icon-btn" aria-label="Novo negócio" title="Novo negócio">
-                  <Plus className="h-4 w-4" strokeWidth={2.5} />
-                </Link>
+                <NewDealButton compact />
               )}
             </>
           }
@@ -187,6 +184,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <ProductivityTipsHost />
     </div>
     </HelpCenterProvider>
+    </NewDealProvider>
     </CommandPaletteProvider>
     </UndoProvider>
   );

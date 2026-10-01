@@ -27,6 +27,7 @@ import { trackUse } from "@/lib/feature-usage/track";
 import { HELP_ICONS, HELP_FALLBACK_ICON } from "./help-icons";
 import { HelpTopicView } from "./help-topic-view";
 import { HelpTour } from "./help-tour";
+import { useNewDeal } from "@/components/deals/new-deal-context";
 
 /** Atraso pra buscar o dado personalizado: a tela que a pessoa abriu vem primeiro. */
 const OVERVIEW_DELAY_MS = 2500;
@@ -124,6 +125,7 @@ export function HelpCenterProvider({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { openNewDeal } = useNewDeal();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>({ kind: "home" });
@@ -371,9 +373,13 @@ export function HelpCenterProvider({
         return;
       }
       closePanel();
+      if (href === "/pipeline?novo=1") {
+        openNewDeal();
+        return;
+      }
       router.push(href);
     },
-    [router, closePanel],
+    [router, closePanel, openNewDeal],
   );
 
   const startTour = useCallback(
@@ -567,6 +573,7 @@ export function HelpCenterProvider({
                         onBack={() => setView({ kind: "home" })}
                         onNavigate={goTo}
                         onStartTour={startTour}
+                        academyHref={academyHref}
                       />
                     ) : query.trim() ? (
                       <SearchResults results={results} query={query} onPick={showTopic} />

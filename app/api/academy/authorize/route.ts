@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
     const res = NextResponse.redirect(loginUrl, { headers: { "Cache-Control": "no-store" } });
     res.cookies.set(PENDING_COOKIE, JSON.stringify({ state, codeChallenge }), {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: PENDING_COOKIE_MAX_AGE_S,
       path: "/",

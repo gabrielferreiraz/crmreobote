@@ -45,7 +45,6 @@ export default async function PipelinePage({
       pipelines,
       allMembersRaw,
       lossReasons,
-      customFields,
       creditTypes,
       leadSources,
       jobTitles,
@@ -63,10 +62,6 @@ export default async function PipelinePage({
       }),
       prisma.lossReason.findMany({
         where: { organizationId },
-        orderBy: { order: "asc" },
-      }),
-      prisma.customFieldDefinition.findMany({
-        where: { organizationId, entityType: "DEAL" },
         orderBy: { order: "asc" },
       }),
       prisma.creditType.findMany({
@@ -217,7 +212,6 @@ export default async function PipelinePage({
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active, teamId: m.teamId }))}
         teams={teams}
         lossReasons={lossReasons.map((r) => ({ id: r.id, label: r.label }))}
-        customFields={customFields}
         creditTypes={creditTypes.map((c) => ({ id: c.id, label: c.label }))}
         leadSources={leadSources.map((s) => ({ label: s.label }))}
         jobTitles={jobTitles.map((j) => ({ label: j.label }))}

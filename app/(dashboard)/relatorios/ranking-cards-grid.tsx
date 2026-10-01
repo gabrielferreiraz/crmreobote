@@ -49,11 +49,22 @@ function SortableCard({ card }: { card: RankingCardData }) {
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 1 : undefined };
 
   return (
-    <div ref={setNodeRef} style={style} className="card group flex min-w-[260px] flex-1 basis-[260px] flex-col p-6">
-      <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {card.icon}
-          <h3 className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{card.title}</h3>
+    <div ref={setNodeRef} style={style} className="card group flex min-w-[290px] flex-1 basis-[290px] flex-col p-6">
+      {/* items-start (não items-center) + min-h de 2 linhas no bloco do título: um
+          título de 1 linha ao lado de outro de 2 desalinhava onde cada card começa
+          a listar gente — o rank "1" de um ficava mais alto que o de outro vizinho
+          (pedido explícito: "está tudo desalinhado"). Com a altura do cabeçalho
+          travada em 2 linhas pra TODOS, o corpo sempre começa na mesma régua,
+          título curto ou longo. O filete embaixo fecha o cabeçalho como um bloco
+          próprio, separado da lista — mesmo recurso já usado nos títulos de
+          seção do PDF de proposta (ver components/proposals/proposal-document.tsx),
+          reaproveitado aqui pela mesma razão: corta a sensação de tudo grudado. */}
+      <div className="mb-3 flex shrink-0 items-start justify-between gap-2 border-b border-neutral-100 pb-3 dark:border-neutral-800">
+        <div className="flex min-h-10 min-w-0 items-start gap-2">
+          {/* mt-0.5: no topo (items-start), o ícone de 16px fica meio alto sem esse
+              empurrão — alinha com a altura-x da 1ª linha do título. */}
+          <span className="mt-0.5 shrink-0">{card.icon}</span>
+          <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{card.title}</h3>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {card.headerExtra}

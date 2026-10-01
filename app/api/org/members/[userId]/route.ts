@@ -166,6 +166,20 @@ export async function PATCH(
         include: { user: { select: { id: true, name: true, email: true, image: true } } },
       });
 
+      // Academy credentials are kept in another system. Revoke them as soon
+      // as this membership is deactivated instead of waiting for expiration.
+      if (active === false && membership.active) {
+        const revokedAt = new Date();
+        await tx.academyAccessToken.updateMany({
+          where: { organizationId: access.organizationId, userId, revokedAt: null },
+          data: { revokedAt },
+        });
+        await tx.academyRefreshToken.updateMany({
+          where: { organizationId: access.organizationId, userId, revokedAt: null },
+          data: { revokedAt },
+        });
+      }
+
       if (clearsLeadership) {
         await tx.team.updateMany({
           where: { organizationId: access.organizationId, leaderId: userId },
@@ -279,6 +293,16 @@ export async function DELETE(
 
     await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, access.organizationId);
+
+      const revokedAt = new Date();
+      await tx.academyAccessToken.updateMany({
+        where: { organizationId: access.organizationId, userId, revokedAt: null },
+        data: { revokedAt },
+      });
+      await tx.academyRefreshToken.updateMany({
+        where: { organizationId: access.organizationId, userId, revokedAt: null },
+        data: { revokedAt },
+      });
 
       await tx.team.updateMany({
         where: { organizationId: access.organizationId, leaderId: userId },

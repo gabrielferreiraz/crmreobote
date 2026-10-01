@@ -84,6 +84,18 @@ export function GoalCard({
       setError("Informe um valor de meta maior que zero");
       return;
     }
+    // Não mudou nada (reabriu e fechou, ou apagou e redigitou o mesmo
+    // número) — pedido explícito: não faz sentido gravar de novo o que já
+    // está salvo. Comparação em CENTAVOS arredondados, não ===: goalValue
+    // vem do banco (Decimal virando number), draft vem de um campo de
+    // moeda (centavos inteiros por baixo, ver CurrencyInput) — os dois
+    // devem bater exato pro mesmo valor digitado, mas comparar em ponto
+    // flutuante direto é sempre a aposta errada.
+    const unchanged = goalValue !== null && Math.round(value * 100) === Math.round(goalValue * 100);
+    if (unchanged) {
+      cancelEditing();
+      return;
+    }
     await saveGoal(value);
   }
 
@@ -104,82 +116,153 @@ export function GoalCard({
   const paceDeltaPoints = pct - pacePct;
   const paceStatus: PaceStatus = paceDeltaPoints >= 5 ? "ahead" : paceDeltaPoints <= -5 ? "behind" : "onTrack";
 
+  function startEditing() {
+    if (!isOwner) return;
+    setDraft(goalValue !== null ? String(goalValue) : "");
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+    setError(null);
+  }
+
+  function handleEditKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEditing();
+    }
+  }
+
   return (
     <div className="card p-4 sm:p-5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
-            <Target className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Meta de {monthLabel}</p>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Time inteiro<span className="hidden sm:inline"> — não muda com os filtros acima</span>
-            </p>
-          </div>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 dark:bg-neutral-800">
+          <Target className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
         </div>
-
-        {isOwner && !editing && (
-          <button
-            type="button"
-            onClick={() => {
-              setDraft(goalValue !== null ? String(goalValue) : "");
-              setError(null);
-              setEditing(true);
-            }}
-            className="icon-btn-labeled shrink-0"
-            aria-label={hasGoal ? "Editar meta" : "Definir meta"}
-            title={hasGoal ? "Editar meta" : "Definir meta"}
-          >
-            <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-            <span className={hasGoal ? "hidden sm:inline" : ""}>{hasGoal ? "Editar" : "Definir meta"}</span>
-          </button>
-        )}
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Meta de {monthLabel}</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Time inteiro<span className="hidden sm:inline"> — não muda com os filtros acima</span>
+          </p>
+        </div>
       </div>
 
-      {error && !editing && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {/* O valor edita ONDE ele mora — pedido explícito do usuário: o botão
+          "Editar" ficava no canto direito do card e o campo de edição
+          abria do lado ESQUERDO, bem longe de onde o olho estava. Clicar no
+          próprio número já entra em edição no mesmo lugar; o lápis ao lado
+          é só reforço visual de que dá pra clicar (ver nota antiga sobre
+          botão só-ícone ser difícil de notar, CLAUDE.md), não o único jeito
+          de chegar lá.
 
+          IMPORTANTE: o editável é a META (goalValue), nunca o Alcançado
+          (achievedValue, dado de venda de verdade, não dá pra editar) — o
+          lápis/clique mora JUNTO da linha "de R$ X", não perto do número
+          grande de cima. Uma 1ª versão grudava o lápis no número grande
+          (Alcançado) só porque ele é o mais vistoso da tela, e isso lia
+          como "estou editando o valor vendido" (relatado pelo usuário, com
+          print). */}
       {editing ? (
-        <div className="mt-4 flex flex-wrap items-end gap-2">
-          <div className="w-40 space-y-1">
-            <label className="field-label">Meta do mês (R$)</label>
-            <CurrencyInput value={draft} onChange={setDraft} />
-          </div>
-          <button type="button" onClick={() => setEditing(false)} disabled={saving} className="btn-ghost btn-sm">
-            <X className="h-3.5 w-3.5" strokeWidth={2} />
-            Cancelar
-          </button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary btn-sm">
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
-            ) : (
-              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
-            )}
-            Salvar
-          </button>
-          {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
-        </div>
-      ) : !hasGoal ? (
-        isOwner ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-            <span>
-              Sugestão: {formatCurrency(suggestedValue)} ({sellerCount} consultor{sellerCount === 1 ? "" : "es"} ativo
-              {sellerCount === 1 ? "" : "s"} × {formatCurrency(1_200_000)})
-            </span>
+        <div className="mt-3">
+          <label className="field-label">Meta do mês</label>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {/* `bare`: edita no mesmo tamanho da linha "de R$ X" que ela
+                substitui (texto comum, não o número grande de Alcançado
+                acima) — pedido explícito: "a fonte está muito grande".
+                Mesmo contorno (`ring-2 ring-brand/30`, sem background/borda
+                de campo de formulário) que InlineEditableText já usa no
+                editor da proposta (ver proposal-document.tsx) — sem
+                `ring-offset`: o fundo do card aqui é vidro translúcido
+                (.card, 68% branco), não branco sólido como a página da
+                proposta, e o offset deixaria um halo branco errado em vez
+                de se misturar. */}
+            {/* prefixClassName + paddingLeft andam JUNTOS (ver nota em
+                CurrencyInput) — "R$" em text-base (16px) a partir de left-3
+                (12px) termina perto de 33px; 2.75rem (44px) de padding
+                deixa folga de verdade antes do número começar, em vez de
+                colar o "R$" em cima do primeiro dígito (aconteceu: um
+                tamanho de "R$", padding calculado pra outro). */}
+            <CurrencyInput
+              value={draft}
+              onChange={setDraft}
+              onKeyDown={handleEditKeyDown}
+              autoFocus
+              bare
+              prefixClassName="text-base"
+              className="w-44 cursor-text rounded-md text-lg font-semibold text-neutral-900 ring-2 ring-brand/30 dark:text-neutral-100"
+              style={{ paddingLeft: "2.75rem" }}
+            />
             <button
               type="button"
-              onClick={() => saveGoal(suggestedValue)}
+              onClick={handleSave}
               disabled={saving}
-              className="font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-300 dark:decoration-neutral-600 dark:hover:text-neutral-100"
+              className="btn-primary btn-sm"
+              aria-label="Salvar meta"
             >
-              {saving ? "Salvando…" : "Usar esta meta"}
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
+              ) : (
+                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+              )}
+              Salvar
+            </button>
+            <button
+              type="button"
+              onClick={cancelEditing}
+              disabled={saving}
+              className="btn-ghost btn-sm"
+              aria-label="Cancelar edição"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2} />
+              Cancelar
             </button>
           </div>
-        ) : (
-          <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
-            O dono ainda não definiu uma meta pra este mês.
-          </p>
-        )
+          {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        </div>
+      ) : !hasGoal ? (
+        <div className="mt-3">
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={startEditing}
+              className="group -ml-1 inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+            >
+              <span className="text-lg font-semibold text-neutral-400 dark:text-neutral-500">
+                Definir meta
+              </span>
+              <Pencil
+                className="h-3.5 w-3.5 shrink-0 text-neutral-300 transition-colors group-hover:text-neutral-500 dark:text-neutral-600 dark:group-hover:text-neutral-400"
+                strokeWidth={2}
+              />
+            </button>
+          ) : (
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              O dono ainda não definiu uma meta pra este mês.
+            </p>
+          )}
+          {isOwner && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+              <span>
+                Sugestão: {formatCurrency(suggestedValue)} ({sellerCount} consultor{sellerCount === 1 ? "" : "es"} ativo
+                {sellerCount === 1 ? "" : "s"} × {formatCurrency(1_200_000)})
+              </span>
+              <button
+                type="button"
+                onClick={() => saveGoal(suggestedValue)}
+                disabled={saving}
+                className="font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-300 dark:decoration-neutral-600 dark:hover:text-neutral-100"
+              >
+                {saving ? "Salvando…" : "Usar esta meta"}
+              </button>
+            </div>
+          )}
+          {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        </div>
       ) : (
         <div className="mt-4 space-y-4">
           {isOwner && goalBasisChanged && (
@@ -201,12 +284,32 @@ export function GoalCard({
           {/* Celular: valor + "de meta" em cima (o "de" desce pra linha de baixo em vez de espremer), ritmo à esquerda e % à direita numa linha só. */}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between">
             <div className="min-w-0">
-              <span className="block text-2xl font-semibold tabular-nums text-neutral-900 sm:inline dark:text-neutral-100">
+              {/* Alcançado: só TEXTO, nunca um botão — é dado de venda real,
+                  não existe "editar" aqui (ver nota grande acima). */}
+              <span className="block text-2xl font-semibold tabular-nums text-neutral-900 sm:text-3xl dark:text-neutral-100">
                 {formatCurrency(achievedValue)}
               </span>
-              <span className="block text-xs font-medium text-neutral-400 sm:ml-2 sm:inline dark:text-neutral-500">
-                de {formatCurrency(goalValue)}
-              </span>
+              {/* A META é o editável — o lápis mora AQUI, junto da linha
+                  "de R$ X", não perto do Alcançado acima. */}
+              {isOwner ? (
+                <button
+                  type="button"
+                  onClick={startEditing}
+                  className="group -ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                >
+                  <span className="text-sm font-medium text-neutral-400 dark:text-neutral-500">
+                    de {formatCurrency(goalValue)}
+                  </span>
+                  <Pencil
+                    className="h-3 w-3 shrink-0 text-neutral-300 transition-colors group-hover:text-neutral-500 dark:text-neutral-600 dark:group-hover:text-neutral-400"
+                    strokeWidth={2}
+                  />
+                </button>
+              ) : (
+                <span className="block text-sm font-medium text-neutral-400 dark:text-neutral-500">
+                  de {formatCurrency(goalValue)}
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between gap-3 sm:justify-end">
               {!exceeded && (
@@ -215,7 +318,7 @@ export function GoalCard({
                 </Badge>
               )}
               <span
-                className={`text-xl font-bold tabular-nums ${
+                className={`text-xl font-bold tabular-nums sm:text-2xl ${
                   exceeded ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-900 dark:text-neutral-100"
                 }`}
               >
@@ -223,6 +326,8 @@ export function GoalCard({
               </span>
             </div>
           </div>
+
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
           <div className="relative">
             <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
