@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import {
   BarChart3,
+  Calculator,
   CalendarDays,
   CheckSquare,
   Clock,
@@ -8,6 +9,7 @@ import {
   CreditCard,
   Download,
   FileText,
+  GraduationCap,
   HeartPulse,
   Kanban,
   Keyboard,
@@ -46,6 +48,7 @@ type IconComponent = ComponentType<{ className?: string; strokeWidth?: number }>
  */
 export const HELP_ICONS: Record<string, IconComponent> = {
   BarChart3,
+  Calculator,
   CalendarDays,
   CheckSquare,
   Clock,
@@ -53,6 +56,7 @@ export const HELP_ICONS: Record<string, IconComponent> = {
   CreditCard,
   Download,
   FileText,
+  GraduationCap,
   HeartPulse,
   Kanban,
   Keyboard,

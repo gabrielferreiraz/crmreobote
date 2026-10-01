@@ -53,7 +53,7 @@ export const HELP_TOURS: HelpTour[] = [
       {
         target: "help-launcher",
         title: "A ajuda mora aqui",
-        body: "Esse botão te acompanha em todas as telas. Ele sempre abre mostrando dicas da tela em que você está — e tem busca, se preferir procurar.",
+        body: "Esse botão te acompanha em todas as telas. Ele sempre abre mostrando dicas da tela em que você está — e tem busca, se preferir procurar. Atrapalhando algo? Arraste pro outro canto da tela.",
       },
     ],
   },

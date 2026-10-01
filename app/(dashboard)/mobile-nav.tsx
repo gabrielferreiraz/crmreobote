@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -82,9 +82,15 @@ function TabContent({ icon: Icon, label, isActive }: { icon: typeof Home; label:
 export function MobileNav({
   signOutAction,
   isAdministrativo,
+  academyHref,
 }: {
   signOutAction: () => Promise<void>;
   isAdministrativo: boolean;
+  /** Link "Treinamento" (Reobote Academy) — calculado no servidor (ver
+   * app/(dashboard)/layout.tsx, getAcademyBaseUrl em lib/academy-oauth.ts)
+   * porque depende de uma variável de ambiente que este componente cliente
+   * não enxerga. `null` sem ACADEMY_URL configurado — o botão some. */
+  academyHref: string | null;
 }) {
   const pathname = usePathname();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -218,6 +224,24 @@ export function MobileNav({
                   <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Simulador</span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
                 </a>
+                {/* Mesmo padrão do Simulador acima — link SIMPLES pro `/auth/start` da
+                    Academy (ela inicia o fluxo OAuth sozinha a partir daí, ver
+                    app/api/academy/authorize/route.ts). */}
+                {academyHref && (
+                  <a
+                    href={academyHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setSheetOpen(false)}
+                    className="flex items-center gap-3 p-3 text-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800/60"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-light dark:bg-brand-light">
+                      <GraduationCap className="h-4 w-4 text-brand dark:text-brand" strokeWidth={1.75} />
+                    </span>
+                    <span className="flex-1 font-medium text-neutral-700 dark:text-neutral-300">Treinamento</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" strokeWidth={2} />
+                  </a>
+                )}
                 {/* A Central de ajuda não tem botão flutuante no celular (esse
                     canto já é do "+" logo acima) — o caminho dela é aqui. Abre
                     o MESMO painel do desktop, montado uma vez no layout. */}

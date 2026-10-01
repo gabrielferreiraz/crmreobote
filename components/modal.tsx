@@ -112,11 +112,21 @@ export function Modal({
     <ModalDepthContext.Provider value={depth + 1}>
       {createPortal(
         <div
-          // Só o Modal mais externo escurece/borra o fundo — dois Modal
-          // empilhados aplicando blur cada um por cima do outro somava opacidade
-          // e virava um efeito "fantasma" duplicado atrás do painel de cima.
+          // Só o Modal mais externo BORRA o fundo — dois Modal empilhados
+          // aplicando blur cada um por cima do outro somava opacidade e virava
+          // um efeito "fantasma" duplicado atrás do painel de cima. Mas sem
+          // NENHUM fundo no aninhado (como era antes), o painel de fora ficava
+          // só parcialmente coberto: como o de dentro é sempre mais estreito/
+          // baixo (max-w-sm contra o max-w-xl típico de quem abre um Modal
+          // dentro do outro), as bordas do painel de fora sobravam visíveis
+          // ao redor do de dentro — título, abas e até um 2º par de
+          // "Cancelar"/"Criar" aparecendo "vazando" atrás (relatado com
+          // print: "Novo contato" dentro de "Novo negócio"). Um escurecido
+          // CHAPADO (sem blur) resolve isso sem reintroduzir o artefato
+          // antigo — o que somava mal era blur-sobre-blur, não tinta lisa
+          // por cima de algo já borrado uma vez.
           className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
-            isNested ? "" : "bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
+            isNested ? "bg-neutral-900/30 dark:bg-neutral-950/45" : "bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
           }`}
           style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
           onMouseDown={(e) => {

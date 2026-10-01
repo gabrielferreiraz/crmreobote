@@ -36,7 +36,8 @@ async function handleCron() {
     // acima já gravou a falha e mandou e-mail pro Dono (ver lib/cron-run.ts/
     // lib/system-alerts.ts) — esse já é o alerta de verdade; um 500 aqui só
     // arriscaria o cron-job.org desligar o job sozinho.
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    console.error("[cron:campaigns] falha", err);
+    return NextResponse.json({ ok: false, error: "Falha ao executar o cron." });
   }
 }
 

@@ -83,6 +83,10 @@ const CHURRASCO_BANNER_EXIT_MS = 600;
 // como `animationDelay` no próprio texto/glow (ver JSX mais abaixo), não
 // como uma fase de estado nova — mais simples, CSS puro cuidando de tudo.
 const CHURRASCO_BANNER_TEXT_DELAY_MS = 3000;
+// Quanto tempo cada lado fica visível no rodízio "Meta batida!" ↔ percentual
+// — mesma duração já usada pro rodízio de aniversário (BIRTHDAY_VISIBLE_MS),
+// tempo de sobra pra ler as duas sem ficar trocando rápido demais.
+const CHURRASCO_HIT_LABEL_SWAP_MS = 5000;
 
 /**
  * "há 12 min" em vez de só uma data fixa (26/07/2026) — numa TV ligada o dia
@@ -494,6 +498,21 @@ export function TvView({
       clearTimeout(hideTimer);
     };
   }, [churrascoGoalHit, celebration]);
+
+  // Com a meta batida, o canto do churrascômetro alterna entre "Meta
+  // batida!" e o percentual de verdade (100%, 101%...) — pedido explícito:
+  // antes, batendo a meta, o percentual sumia de vez (só "Meta batida!" pra
+  // sempre), escondendo o tanto que passou da meta.
+  const [showHitPercent, setShowHitPercent] = useState(false);
+  useEffect(() => {
+    if (!churrascoGoalHit) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowHitPercent(false);
+      return;
+    }
+    const interval = setInterval(() => setShowHitPercent((v) => !v), CHURRASCO_HIT_LABEL_SWAP_MS);
+    return () => clearInterval(interval);
+  }, [churrascoGoalHit]);
 
   // Conteúdo de cada lado do card ÚLTIMA VENDA (0 = venda mais recente, 1 =
   // aniversário de hoje) — função em vez de JSX duplicado, porque o MESMO
@@ -1008,9 +1027,17 @@ export function TvView({
                     Vendas do mês
                   </p>
                 </div>
+                {/* Dourado (mesmo gradiente do churrascômetro batido, ver
+                    churrascoGradient) quando a meta do mês já foi batida —
+                    pedido explícito. churrascometroProgress já É (vendasMes /
+                    meta) × 100 (ver lib/tv-dashboard.ts), então
+                    churrascoGoalHit aqui é exatamente "este valor bateu a
+                    meta", não uma condição nova. */}
                 <div
-                  className="relative mt-2 font-extrabold tabular-nums text-[length:var(--tv-text-hero)]"
-                  style={{ color: "var(--brand)" }}
+                  className={`relative mt-2 font-extrabold tabular-nums text-[length:var(--tv-text-hero)] ${
+                    churrascoGoalHit ? "bg-clip-text text-transparent" : ""
+                  }`}
+                  style={churrascoGoalHit ? { backgroundImage: churrascoGradient } : { color: "var(--brand)" }}
                 >
                   {formatCurrency(metrics.vendasMes)}
                 </div>
@@ -1245,12 +1272,29 @@ export function TvView({
                   style={{ width: "var(--tv-icon-lg)", height: "var(--tv-icon-lg)", color: "#eab308" }}
                   strokeWidth={2.5}
                 />
-                <span
-                  className="bg-clip-text font-extrabold text-transparent text-[length:var(--tv-text-value-sm)]"
-                  style={{ backgroundImage: churrascoGradient }}
-                >
-                  Meta batida!
-                </span>
+                {/* Alterna com o percentual de verdade (showHitPercent, ver
+                    efeito acima) — "Meta batida!" sozinho pra sempre escondia
+                    o quanto passou da meta (104%, 112%...). `key` força
+                    remontar a cada troca, pra tocar o animate-tv-stat-flip
+                    (giro tipo placar de aeroporto, ver globals.css) de novo
+                    a cada troca, em vez de um corte seco. */}
+                {showHitPercent ? (
+                  <span
+                    key="percent"
+                    className="animate-tv-stat-flip bg-clip-text font-extrabold tabular-nums text-transparent text-[length:var(--tv-text-value-sm)]"
+                    style={{ backgroundImage: churrascoGradient }}
+                  >
+                    {metrics.churrascometroProgress.toFixed(0)}%
+                  </span>
+                ) : (
+                  <span
+                    key="text"
+                    className="animate-tv-stat-flip bg-clip-text font-extrabold text-transparent text-[length:var(--tv-text-value-sm)]"
+                    style={{ backgroundImage: churrascoGradient }}
+                  >
+                    Meta batida!
+                  </span>
+                )}
               </div>
             ) : (
               <span

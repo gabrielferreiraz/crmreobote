@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Building2, CheckCircle2 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
+import { readHelpCorner } from "@/lib/help/corner";
 
 /** Mesma chave/estratégia do aviso de notificações (push-notifications-prompt.tsx):
  * sessionStorage, não localStorage — "configurar depois" vale pra esta sessão,
@@ -40,6 +41,18 @@ export function CnpjPrompt() {
   const [looking, setLooking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Esquerda por padrão (motivo abaixo, no card) — mas se a pessoa arrastou
+  // a Central de Ajuda pra lá (ver lib/help/corner.ts), este lembrete pula
+  // pro canto oposto, senão os dois ficariam exatamente um em cima do outro.
+  // Lido só uma vez, ao montar — é um empurrão pra não colidir, não uma
+  // sincronia ao vivo entre os dois; se a pessoa arrastar a ajuda DURANTE
+  // esta mesma sessão, o lembrete só reage na próxima navegação.
+  const [avoidLeft, setAvoidLeft] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAvoidLeft(readHelpCorner() === "left");
+  }, []);
 
   useEffect(() => {
     if (sessionStorage.getItem(DISMISS_KEY)) return;
@@ -144,7 +157,14 @@ export function CnpjPrompt() {
         // cadastrar, encostar ali garantiria sobreposição em vez de um
         // encontro eventual. bottom maior no celular pra não cobrir a barra
         // de navegação, que só existe abaixo de sm.
-        className="surface-glass-panel fixed bottom-20 left-4 z-40 w-[calc(100%-2rem)] max-w-xs rounded-2xl p-3 shadow-2xl ring-1 ring-black/5 sm:bottom-4 dark:ring-white/10"
+        //
+        // lg:right-4/lg:left-auto SÓ quando avoidLeft (a Central de Ajuda
+        // foi arrastada pro canto esquerdo, ver lib/help/corner.ts) — sem o
+        // prefixo lg:, isto viraria condicional no celular também, onde o
+        // botão flutuante da ajuda nunca aparece (é hidden lg:flex) e não
+        // há nada ali pra evitar; o lembrete continua sempre à esquerda
+        // abaixo do breakpoint lg.
+        className={`surface-glass-panel fixed bottom-20 left-4 z-40 w-[calc(100%-2rem)] max-w-xs rounded-2xl p-3 shadow-2xl ring-1 ring-black/5 sm:bottom-4 dark:ring-white/10 ${avoidLeft ? "lg:right-4 lg:left-auto" : ""}`}
         style={{ animation: "panel-pop-in 380ms var(--ease-spring)" }}
       >
         <div className="flex items-start gap-2.5">

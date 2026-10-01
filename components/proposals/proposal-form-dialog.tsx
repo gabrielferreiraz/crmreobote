@@ -82,6 +82,10 @@ export function ProposalFormDialog({
       feePercent: parsePercentInput(feePercent),
       quotaCount: quota,
       description,
+      displayName: proposal?.displayName ?? "",
+      coverIntro: proposal?.coverIntro ?? "",
+      coverDetails: proposal?.coverDetails ?? "",
+      coverImagePosition: proposal?.coverImagePosition ?? "after-title",
     });
     if (!parsed.ok) {
       setError(parsed.error);
@@ -90,6 +94,35 @@ export function ProposalFormDialog({
 
     setSubmitting(thenGenerate ? "generate" : "save");
     setError(null);
+
+    // Editando uma proposta que já existe: salvar e gerar mexem em colunas
+    // DIFERENTES da mesma linha (salvar nunca toca em status; gerar só toca
+    // em status/generatedAt) — dá pra mandar as duas chamadas ao mesmo tempo
+    // em vez de esperar uma terminar pra só então começar a outra, cortando
+    // uma ida-e-volta inteira do tempo que "Salvar e abrir documento" demora
+    // (pedido explícito: página de impressão demorava pra abrir). O servidor
+    // resolve a ordem sozinho (trava de linha do Postgres) — qualquer uma das
+    // duas ordens chega no mesmo estado final. Numa proposta NOVA (criando)
+    // isso não dá: gerar só pode começar depois que criar devolver o id.
+    if (editing && thenGenerate) {
+      const [saved, generated] = await Promise.all([
+        proposalApi.update(proposal.id, parsed.value),
+        proposalApi.action(proposal.id, "generate"),
+      ]);
+      if (!saved.ok) {
+        setSubmitting(null);
+        setError(saved.error);
+        return;
+      }
+      if (!generated.ok) {
+        setSubmitting(null);
+        setError(`Proposta salva, mas não foi possível gerar o documento: ${generated.error}`);
+        router.refresh();
+        return;
+      }
+      router.push(`/propostas/${proposal.id}`);
+      return;
+    }
 
     const saved = editing ? await proposalApi.update(proposal.id, parsed.value) : await proposalApi.create(dealId, parsed.value);
     if (!saved.ok) {

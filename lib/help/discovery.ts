@@ -36,6 +36,8 @@ export const DISCOVERY_ORDER: { feature: FeatureKey; topicId: string }[] = [
 export const EVERGREEN_TOPIC_IDS = [
   "desfazer",
   "atalhos",
+  "simulador-vendas",
+  "treinamento-academy",
   "cartao-digital",
   "mensagem-agendada",
   "resultado-reuniao",

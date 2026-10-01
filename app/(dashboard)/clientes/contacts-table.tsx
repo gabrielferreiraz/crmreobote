@@ -725,12 +725,20 @@ export function ContactsTable({
     // vista — mesmo padrão já usado em pipeline/deals-list.tsx. gap-4 no
     // lugar de space-y-4 dá o mesmo respiro entre os blocos dentro de flex.
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="shrink-0">
+      <div className="flex shrink-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Clientes</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          {hasActiveFilter
-            ? `${totalCount} conta${totalCount === 1 ? "" : "s"} encontrada${totalCount === 1 ? "" : "s"} com o filtro atual`
-            : `${totalCount} conta${totalCount === 1 ? "" : "s"} ativa${totalCount === 1 ? "" : "s"} na sua carteira`}
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          {hasActiveFilter ? (
+            <>
+              <strong className="font-bold text-neutral-900 dark:text-neutral-100">{totalCount}</strong>{" "}
+              {totalCount === 1 ? "conta encontrada" : "contas encontradas"} com o filtro atual
+            </>
+          ) : (
+            <>
+              <strong className="font-bold text-neutral-900 dark:text-neutral-100">{totalCount}</strong>{" "}
+              {totalCount === 1 ? "conta ativa" : "contas ativas"} na sua carteira
+            </>
+          )}
         </p>
       </div>
 
@@ -1532,7 +1540,15 @@ export function ContactsTable({
             <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
             <div ref={feedbackRef} className="space-y-3">
-              {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
+              {conflict && (
+                <ContactConflictNotice
+                  conflict={conflict}
+                  onClaim={conflict.claimable ? handleClaim : undefined}
+                  claiming={claiming}
+                  onUpdateExisting={handleClaim}
+                  updatingExisting={claiming}
+                />
+              )}
               {error && (
                 <p role="alert" className="text-sm text-red-600 dark:text-red-400">
                   {error}

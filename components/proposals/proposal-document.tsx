@@ -65,6 +65,11 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
       setError(result.error);
       return;
     }
+    setDisplayName(result.data.displayName ?? "");
+    setCoverIntro(result.data.coverIntro ?? "");
+    setCoverDetails(result.data.coverDetails ?? "");
+    setCoverImagePosition(result.data.coverImagePosition);
+    setDescription(result.data.description);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2200);
   }
@@ -118,6 +123,45 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
           margin: 0;
         }
 
+        .proposal-page {
+          width: 100%;
+          max-width: 210mm;
+          height: 296mm;
+          min-height: 296mm;
+          max-height: 296mm;
+          box-sizing: border-box;
+        }
+        .proposal-page-inner {
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          box-sizing: border-box;
+          padding: 12mm;
+        }
+        .proposal-page-inner--cover {
+          padding-bottom: 10mm;
+        }
+        .proposal-cover-media {
+          width: 100%;
+          height: auto;
+          aspect-ratio: 3 / 1;
+        }
+        .proposal-cover-media-wrap {
+          -webkit-clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+          clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+        }
+        .proposal-cover-copy {
+          margin-top: 7mm;
+        }
+        .proposal-detail-header {
+          padding: 12mm 12mm 5mm;
+        }
+        .proposal-detail-body {
+          min-height: 0;
+          box-sizing: border-box;
+          padding: 7mm 12mm 10mm;
+        }
+
         @media screen {
           .proposal-page {
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
@@ -147,13 +191,16 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             margin: 0 !important;
           }
           .proposal-page {
+            display: flex !important;
+            flex-direction: column !important;
+            position: relative !important;
             box-shadow: none !important;
             border-radius: 0 !important;
             width: 210mm !important;
             max-width: 210mm !important;
-            height: 297mm !important;
-            min-height: 297mm !important;
-            max-height: 297mm !important;
+            height: 296mm !important;
+            min-height: 296mm !important;
+            max-height: 296mm !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: hidden !important;
@@ -166,26 +213,13 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             print-color-adjust: exact !important;
           }
           .proposal-page-inner {
-            padding: 12mm !important;
-          }
-          .proposal-page-inner--cover {
-            padding-bottom: 10mm !important;
-          }
-          .proposal-cover-media {
-            height: 46mm !important;
-          }
-          .proposal-cover-copy {
-            margin-top: 7mm !important;
-          }
-          .proposal-note-card {
-            margin-top: 6mm !important;
-            padding: 3.5mm !important;
-          }
-          .proposal-detail-header {
-            padding: 12mm 12mm 5mm !important;
-          }
-          .proposal-detail-body {
-            padding: 7mm 12mm 10mm !important;
+            display: flex !important;
+            flex: 1 1 auto !important;
+            flex-direction: column !important;
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            box-sizing: border-box !important;
           }
           .proposal-page:last-child {
             page-break-after: avoid !important;
@@ -218,15 +252,15 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
           </div>
         )}
         {/* ── PÁGINA 1: capa objetiva e econômica ── */}
-        <article className="proposal-page relative mx-auto flex w-full max-w-[210mm] min-h-[297mm] h-[297mm] flex-col justify-between overflow-hidden rounded-2xl sm:rounded-none bg-white text-neutral-950 select-none">
-          <div className="proposal-page-inner proposal-page-inner--cover flex flex-1 flex-col justify-between p-8 sm:p-[14mm] sm:pb-[12mm]">
+        <article className="proposal-page relative mx-auto flex w-full max-w-[210mm] min-h-[296mm] h-[296mm] flex-col justify-between overflow-hidden rounded-2xl sm:rounded-none bg-white text-neutral-950 select-none">
+          <div className="proposal-page-inner proposal-page-inner--cover flex flex-1 flex-col justify-between p-[12mm] pb-[10mm]">
             <div className="flex flex-col">
               {/* Topo: Logo da Reobote em Destaque */}
               <header className="flex items-center justify-start border-b border-neutral-200 pb-5 sm:pb-6">
                 <ReoboteLogo isLight className="shrink-0" style={{ height: "18mm", width: "calc(18mm * 3144 / 1784)" }} />
               </header>
 
-              <section className="mt-8 max-w-2xl">
+              <section className={`max-w-2xl ${coverImagePosition === "before-copy" ? "order-2 mt-7" : "mt-8"}`}>
                 <p className="text-xs font-extrabold uppercase tracking-[0.24em] text-[#007fb4]">{categoryLabel}</p>
                 <h1 className="mt-3 text-4xl sm:text-5xl font-black leading-tight tracking-tight text-neutral-950">
                   Olá, <InlineEditableText
@@ -242,8 +276,8 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
               </section>
 
               {/* Foto de apoio: menor, clara e sem bloco escuro para economizar tinta. */}
-              <div className={`proposal-cover-media-wrap relative w-full overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs ${coverImagePosition === "before-copy" ? "order-3 mt-4" : "order-2 mt-7"}`}>
-                <div className="proposal-cover-media relative h-[54mm] sm:h-[62mm] w-full overflow-hidden">
+              <div className={`proposal-cover-media-wrap relative w-full overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs [clip-path:polygon(0_0,100%_0,100%_82%,50%_100%,0_82%)] ${coverImagePosition === "before-copy" ? "order-1 mt-7" : "order-2 mt-7"}`}>
+                <div className="proposal-cover-media relative aspect-[3/1] w-full overflow-hidden">
                   <Image
                     src={getCoverImage(category)}
                     alt={categoryLabel}
@@ -253,14 +287,13 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
                     sizes="210mm"
                     className="h-full w-full object-cover object-center opacity-90"
                   />
-                  <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-[#00aeee] to-sky-400" />
                   {editing && (
                     <div className="no-print absolute right-3 top-3 flex items-center gap-1 rounded-md bg-white/95 p-1 shadow-sm">
                       <span className="px-1 text-[11px] font-semibold text-neutral-700">Mover foto</span>
                       {coverImagePosition === "after-title" ? (
-                        <button type="button" onClick={() => setCoverImagePosition("before-copy")} className="icon-btn h-7 w-7" title="Mover para depois do texto" aria-label="Mover foto para depois do texto"><ArrowDown className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => setCoverImagePosition("before-copy")} className="icon-btn h-7 w-7" title="Mover foto para o início" aria-label="Mover foto para o início"><ArrowUp className="h-3.5 w-3.5" /></button>
                       ) : (
-                        <button type="button" onClick={() => setCoverImagePosition("after-title")} className="icon-btn h-7 w-7" title="Mover para antes do texto" aria-label="Mover foto para antes do texto"><ArrowUp className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => setCoverImagePosition("after-title")} className="icon-btn h-7 w-7" title="Mover foto para depois do título" aria-label="Mover foto para depois do título"><ArrowDown className="h-3.5 w-3.5" /></button>
                       )}
                     </div>
                   )}
@@ -268,7 +301,7 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
               </div>
 
               {/* Saudação e apresentação com amplo espaçamento vertical */}
-              <div className={`proposal-cover-copy flex max-w-2xl flex-col items-start ${coverImagePosition === "before-copy" ? "order-2 mt-8" : "order-3 mt-8"}`}>
+              <div className="proposal-cover-copy order-3 mt-[7mm] flex max-w-2xl flex-col items-start">
                 <InlineEditableText
                   as="p"
                   value={coverIntro}
@@ -286,6 +319,7 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
                   className={`mt-4 max-w-lg text-sm sm:text-base font-medium leading-relaxed text-neutral-500 ${editing ? "cursor-text rounded-md outline-none ring-2 ring-brand/30 ring-offset-4" : ""}`}
                 />
               </div>
+
             </div>
 
             {/* Rodapé da Página 1 */}
@@ -298,9 +332,9 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
         </article>
 
         {/* ── PÁGINA 2: valores, condições e observações ── */}
-        <article className="proposal-page relative mx-auto flex w-full max-w-[210mm] min-h-[297mm] h-[297mm] flex-col overflow-hidden rounded-2xl sm:rounded-none bg-white text-neutral-950">
+        <article className="proposal-page relative mx-auto flex w-full max-w-[210mm] min-h-[296mm] h-[296mm] flex-col overflow-hidden rounded-2xl sm:rounded-none bg-white text-neutral-950">
           {/* Cabeçalho leve (filete, não bloco de tinta) */}
-          <header className="proposal-detail-header flex items-center justify-between gap-4 border-b-2 border-neutral-300 px-8 sm:px-[16mm] pt-8 sm:pt-[12mm] pb-4 sm:pb-5">
+          <header className="proposal-detail-header flex items-center justify-between gap-4 border-b-2 border-neutral-300 px-[12mm] pb-[5mm] pt-[12mm]">
             <div className="flex items-center gap-3">
               <ReoboteLogo isLight className="shrink-0" style={{ height: "8mm", width: "calc(8mm * 3144 / 1784)" }} />
               <div className="border-l-2 border-neutral-300 pl-3">
@@ -313,7 +347,7 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             </div>
           </header>
 
-          <div className="proposal-detail-body flex flex-1 flex-col justify-between px-8 sm:px-[16mm] pt-6 sm:pt-8 pb-6 sm:pb-[12mm]">
+          <div className="proposal-detail-body flex flex-1 flex-col justify-between px-[12mm] pb-[10mm] pt-[7mm]">
             <div className="space-y-6 sm:space-y-7">
               {/* Tabela de condições — legibilidade mobile máxima */}
               <section className="w-full">

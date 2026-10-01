@@ -2,10 +2,11 @@ import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { Plus, Calculator } from "lucide-react";
+import { Plus, Calculator, GraduationCap } from "lucide-react";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
+import { getAcademyBaseUrl } from "@/lib/academy-oauth";
 import { TopNavLinks } from "./top-nav-links";
 import { AdaptiveHeaderRow } from "./adaptive-header-row";
 import { AppMain } from "./app-main";
@@ -54,6 +55,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const cardShortcut = membership.cardShortcut;
   const cardShowUrl = cardShortcut?.active ? `${publicCardUrlFromHeaders(cardShortcut.slug, hdrs)}?qr=1` : null;
 
+  // Botão "Treinamento" — link SIMPLES pro próprio `/auth/start` da Academy
+  // (ela inicia o fluxo OAuth sozinha a partir daí, ver app/api/academy/
+  // authorize/route.ts). Sem ACADEMY_URL configurado, o botão não aparece
+  // em vez de apontar pra lugar nenhum.
+  const academyStartUrl = getAcademyBaseUrl();
+  const academyHref = academyStartUrl ? new URL("/auth/start", academyStartUrl).toString() : null;
+
   async function handleSignOut() {
     "use server";
     await signOut({ redirectTo: "/login" });
@@ -87,7 +95,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         que ensina e depois dá 403 é pior que não ter ajuda. Os `data-help`
         espalhados no cabeçalho abaixo são as âncoras que o tour destaca
         (ver lib/help/tours.ts). */}
-    <HelpCenterProvider role={membership.role} isAdministrativo={isAdministrativo}>
+    <HelpCenterProvider role={membership.role} isAdministrativo={isAdministrativo} academyHref={academyHref}>
     <div className="dashboard-gradient-bg relative flex h-dvh flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
       <MobileHeader
         photoUrl={photoUrl}
@@ -130,10 +138,32 @@ export default async function DashboardLayout({ children }: { children: React.Re
           }
           fixedActions={
             <>
-              <a href="/api/simulador-sso" target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm">
-                <Calculator className="h-3.5 w-3.5" strokeWidth={2} />
-                Simulador
+              <a
+                href="/api/simulador-sso"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
+                title="Simulador"
+              >
+                <Calculator className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
+                  Simulador
+                </span>
               </a>
+              {academyHref && (
+                <a
+                  href={academyHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
+                  title="Treinamento"
+                >
+                  <GraduationCap className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                  <span className="max-w-0 overflow-hidden opacity-0 whitespace-nowrap transition-all duration-300 ease-in-out group-hover:ml-1 group-hover:max-w-xs group-hover:opacity-100">
+                    Treinamento
+                  </span>
+                </a>
+              )}
               <NotificationBell />
               <UserMenu
                 name={session.user.name ?? session.user.email ?? "?"}
@@ -149,7 +179,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <AppMain>{children}</AppMain>
 
-      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} />
+      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />

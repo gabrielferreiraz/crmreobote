@@ -13,7 +13,6 @@ import {
   FileText,
   HelpCircle,
   Loader2,
-  Pencil,
   Plus,
   RotateCcw,
   Send,
@@ -21,9 +20,11 @@ import {
   X,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { CurrencyInput } from "@/components/currency-input";
 import { ProposalFormDialog } from "@/components/proposals/proposal-form-dialog";
 import { formatCurrency } from "@/lib/format";
 import { proposalApi } from "@/lib/proposals/client";
+import { parseProposalFields, type ProposalFields } from "@/lib/proposals/validate";
 import { trackUse } from "@/lib/feature-usage/track";
 import type { FeatureKey } from "@/lib/feature-usage/features";
 import {
@@ -198,6 +199,18 @@ export function ProposalsCard({
     if (created) setForm({ proposal: created });
   }
 
+  async function saveInline(p: ProposalDTO, fields: ProposalFields): Promise<ProposalDTO | null> {
+    setBusyId(p.id);
+    setError(null);
+    const result = await proposalApi.update(p.id, fields);
+    setBusyId(null);
+    if (!result.ok) {
+      setError(result.error);
+      return null;
+    }
+    return result.data;
+  }
+
   const open = proposals.filter((p) => isProposalOpen(p.status)).length;
   const latest = proposals[0] ?? null;
   const pastRevisions = proposals.slice(1);
@@ -259,9 +272,10 @@ export function ProposalsCard({
             {/* Proposta Ativa / Mais Recente */}
             {latest && (
               <ActiveProposalCard
+                key={`${latest.id}:${latest.status}`}
                 p={latest}
                 busy={busyId === latest.id}
-                onEdit={() => setForm({ proposal: latest })}
+                onSave={(fields) => saveInline(latest, fields)}
                 onGenerate={() => generateAndOpen(latest)}
                 onDuplicate={() => duplicateFrom(latest)}
                 onConfirm={(kind) => setConfirm({ kind, proposal: latest })}
@@ -327,96 +341,239 @@ export function ProposalsCard({
 function ActiveProposalCard({
   p,
   busy,
-  onEdit,
+  onSave,
   onGenerate,
   onDuplicate,
   onConfirm,
 }: {
   p: ProposalDTO;
   busy: boolean;
-  onEdit: () => void;
+  onSave: (fields: ProposalFields) => Promise<ProposalDTO | null>;
   onGenerate: () => void;
   onDuplicate: () => void;
   onConfirm: (kind: ConfirmKind) => void;
 }) {
-  const actions = new Set<ProposalAction>(allowedProposalActions(p.status));
-  const perQuota = creditPerQuota(p.credit, p.quotaCount);
-  const hasDocument = p.status !== "DRAFT" && p.status !== "CANCELLED";
+  const [editingField, setEditingField] = useState<"credit" | "installment" | "quota" | "fee" | "term" | null>(null);
+  const [savedProposal, setSavedProposal] = useState(p);
+  const [creditInput, setCreditInput] = useState(p.credit.toFixed(2));
+  const [installmentInput, setInstallmentInput] = useState(p.installment.toFixed(2));
+  const [quotaInput, setQuotaInput] = useState(String(p.quotaCount));
+  const [feeInput, setFeeInput] = useState(p.feePercent.toFixed(2));
+  const [termInput, setTermInput] = useState(String(p.termMonths));
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savedRecently, setSavedRecently] = useState(false);
+
+  const actions = new Set<ProposalAction>(allowedProposalActions(savedProposal.status));
+  const canInlineEdit = actions.has("edit");
+  const draftCredit = Number(creditInput) || 0;
+  const draftQuota = Number(quotaInput) || 0;
+  const perQuota = creditPerQuota(draftCredit, draftQuota);
+  const hasDocument = savedProposal.status !== "DRAFT" && savedProposal.status !== "CANCELLED";
+
+  function resetField(field: NonNullable<typeof editingField>) {
+    if (field === "credit") setCreditInput(savedProposal.credit.toFixed(2));
+    if (field === "installment") setInstallmentInput(savedProposal.installment.toFixed(2));
+    if (field === "quota") setQuotaInput(String(savedProposal.quotaCount));
+    if (field === "fee") setFeeInput(savedProposal.feePercent.toFixed(2));
+    if (field === "term") setTermInput(String(savedProposal.termMonths));
+    setEditError(null);
+    setEditingField(null);
+  }
+
+  async function saveEdit(field: NonNullable<typeof editingField>) {
+    const parsed = parseProposalFields({
+      credit: creditInput,
+      installment: installmentInput,
+      quotaCount: quotaInput,
+      feePercent: feeInput,
+      termMonths: termInput,
+      description: savedProposal.description,
+      displayName: savedProposal.displayName ?? "",
+      coverIntro: savedProposal.coverIntro ?? "",
+      coverDetails: savedProposal.coverDetails ?? "",
+      coverImagePosition: savedProposal.coverImagePosition,
+    });
+    if (!parsed.ok) {
+      setEditError(parsed.error);
+      return;
+    }
+    setEditError(null);
+    const previousProposal = savedProposal;
+    setSavedProposal((current) => ({ ...current, ...parsed.value }));
+    setEditingField((current) => (current === field ? null : current));
+    const saved = await onSave(parsed.value);
+    if (saved) {
+      setSavedProposal(saved);
+      setCreditInput(saved.credit.toFixed(2));
+      setInstallmentInput(saved.installment.toFixed(2));
+      setQuotaInput(String(saved.quotaCount));
+      setFeeInput(saved.feePercent.toFixed(2));
+      setTermInput(String(saved.termMonths));
+      setSavedRecently(true);
+      window.setTimeout(() => setSavedRecently(false), 1800);
+    } else {
+      setSavedProposal(previousProposal);
+      setEditingField((current) => current ?? field);
+    }
+  }
+
+  function fieldKeyDown(event: React.KeyboardEvent<HTMLInputElement>, field: NonNullable<typeof editingField>) {
+    if (event.key === "Enter") event.currentTarget.blur();
+    if (event.key === "Escape") resetField(field);
+  }
 
   return (
     <div className="rounded-lg border border-neutral-200/90 bg-white p-3.5 dark:border-neutral-800 dark:bg-neutral-900/80 shadow-2xs">
       {/* Topo do Card */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">Revisão {p.revision}</span>
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_STYLE[p.status]}`}>
-            {PROPOSAL_STATUS_LABEL[p.status]}
+          <span className="font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">Revisão {savedProposal.revision}</span>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_STYLE[savedProposal.status]}`}>
+            {PROPOSAL_STATUS_LABEL[savedProposal.status]}
           </span>
         </div>
 
         {/* Informação de Orientação em Tooltip/Badge discreta */}
         <div className="group relative flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500 cursor-help">
-          <span>{STATUS_GUIDANCE[p.status].title}</span>
+          <span>{STATUS_GUIDANCE[savedProposal.status].title}</span>
           <HelpCircle className="h-3.5 w-3.5 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-300 transition-colors" />
           <div className="pointer-events-none absolute right-0 top-full z-10 mt-1 hidden w-56 rounded-md bg-neutral-900 p-2 text-[11px] text-neutral-200 shadow-lg group-hover:block dark:bg-neutral-800 border border-neutral-700">
-            {STATUS_GUIDANCE[p.status].detail}
+            {STATUS_GUIDANCE[savedProposal.status].detail}
           </div>
         </div>
       </div>
 
       {/* Faixa Única de Métricas (Metric Strip Horizontal) */}
       <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 rounded-md border border-neutral-200/80 bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-800/40 p-2.5 divide-y sm:divide-y-0 sm:divide-x divide-neutral-200 dark:divide-neutral-700/60">
-        <div className="p-1 sm:px-2.5">
+        <div className="min-h-[60px] p-1 sm:px-2.5">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Crédito</span>
-          <span className="font-bold text-neutral-900 dark:text-neutral-100 tabular-nums text-xs sm:text-sm">
-            {formatCurrency(p.credit)}
-          </span>
+          {editingField === "credit" ? (
+            <CurrencyInput
+              value={creditInput}
+              onChange={setCreditInput}
+              onBlur={() => saveEdit("credit")}
+              onKeyDown={(event) => fieldKeyDown(event, "credit")}
+              autoFocus
+              className="mt-1 border-brand/40 bg-sky-50/50 py-1 text-xs font-semibold tabular-nums ring-2 ring-brand/10 dark:bg-sky-950/20"
+            />
+          ) : (
+            <button type="button" disabled={!canInlineEdit || busy} onClick={() => setEditingField("credit")} className="mt-0.5 block rounded border border-sky-200/80 bg-sky-50/40 px-1.5 py-0.5 text-left font-bold text-neutral-900 transition-colors enabled:hover:border-brand/40 enabled:hover:bg-sky-50 disabled:cursor-default disabled:border-transparent disabled:bg-transparent dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-neutral-100 dark:enabled:hover:border-brand/40 tabular-nums text-xs sm:text-sm">
+              {formatCurrency(savedProposal.credit)}
+            </button>
+          )}
         </div>
-        <div className="p-1 sm:px-2.5 pt-2 sm:pt-1">
+        <div className="min-h-[60px] p-1 pt-2 sm:px-2.5 sm:pt-1">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Parcela</span>
-          <span className="font-bold text-neutral-900 dark:text-neutral-100 tabular-nums text-xs sm:text-sm">
-            {formatCurrency(p.installment)}
-          </span>
+          {editingField === "installment" ? (
+            <CurrencyInput
+              value={installmentInput}
+              onChange={setInstallmentInput}
+              onBlur={() => saveEdit("installment")}
+              onKeyDown={(event) => fieldKeyDown(event, "installment")}
+              autoFocus
+              className="mt-1 border-brand/40 bg-sky-50/50 py-1 text-xs font-semibold tabular-nums ring-2 ring-brand/10 dark:bg-sky-950/20"
+            />
+          ) : (
+            <button type="button" disabled={!canInlineEdit || busy} onClick={() => setEditingField("installment")} className="mt-0.5 block rounded border border-sky-200/80 bg-sky-50/40 px-1.5 py-0.5 text-left font-bold text-neutral-900 transition-colors enabled:hover:border-brand/40 enabled:hover:bg-sky-50 disabled:cursor-default disabled:border-transparent disabled:bg-transparent dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-neutral-100 dark:enabled:hover:border-brand/40 tabular-nums text-xs sm:text-sm">
+              {formatCurrency(savedProposal.installment)}
+            </button>
+          )}
         </div>
-        <div className="p-1 sm:px-2.5 pt-2 sm:pt-1">
+        <div className="min-h-[60px] p-1 pt-2 sm:px-2.5 sm:pt-1">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Cotas</span>
-          <span className="font-medium text-neutral-800 dark:text-neutral-200 tabular-nums text-xs sm:text-sm">
-            {p.quotaCount > 1 ? `${p.quotaCount} x ${formatCurrency(perQuota)}` : `${p.quotaCount} cota`}
-          </span>
+          {editingField === "quota" ? (
+            <div className="mt-1">
+              <input
+                inputMode="numeric"
+                value={quotaInput}
+                onChange={(event) => setQuotaInput(event.target.value.replace(/\D/g, "").slice(0, 3))}
+                onBlur={() => saveEdit("quota")}
+                onKeyDown={(event) => fieldKeyDown(event, "quota")}
+                autoFocus
+                className="field-input border-brand/40 bg-sky-50/50 py-1 text-xs font-semibold tabular-nums ring-2 ring-brand/10 dark:bg-sky-950/20"
+              />
+              {draftQuota > 0 && <span className="mt-1 block truncate text-[10px] text-neutral-400">{formatCurrency(perQuota)} por cota</span>}
+            </div>
+          ) : (
+            <button type="button" disabled={!canInlineEdit || busy} onClick={() => setEditingField("quota")} className="mt-0.5 block rounded border border-sky-200/80 bg-sky-50/40 px-1.5 py-0.5 text-left font-medium text-neutral-800 transition-colors enabled:hover:border-brand/40 enabled:hover:bg-sky-50 disabled:cursor-default disabled:border-transparent disabled:bg-transparent dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-neutral-200 dark:enabled:hover:border-brand/40 tabular-nums text-xs sm:text-sm">
+              {savedProposal.quotaCount > 1 ? `${savedProposal.quotaCount} x ${formatCurrency(perQuota)}` : `${savedProposal.quotaCount} cota`}
+            </button>
+          )}
         </div>
-        <div className="p-1 sm:px-2.5 pt-2 sm:pt-1">
+        <div className="min-h-[60px] p-1 pt-2 sm:px-2.5 sm:pt-1">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Taxa</span>
-          <span className="font-medium text-neutral-800 dark:text-neutral-200 tabular-nums text-xs sm:text-sm">
-            {formatPercent(p.feePercent)}
-          </span>
+          {editingField === "fee" ? (
+            <div className="relative mt-1">
+              <input
+                inputMode="decimal"
+                value={feeInput}
+                onChange={(event) => setFeeInput(event.target.value.replace(/[^\d,.]/g, "").slice(0, 6))}
+                onBlur={() => saveEdit("fee")}
+                onKeyDown={(event) => fieldKeyDown(event, "fee")}
+                autoFocus
+                className="field-input border-brand/40 bg-sky-50/50 py-1 pr-7 text-xs font-semibold tabular-nums ring-2 ring-brand/10 dark:bg-sky-950/20"
+              />
+              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400">%</span>
+            </div>
+          ) : (
+            <button type="button" disabled={!canInlineEdit || busy} onClick={() => setEditingField("fee")} className="mt-0.5 block rounded border border-sky-200/80 bg-sky-50/40 px-1.5 py-0.5 text-left font-medium text-neutral-800 transition-colors enabled:hover:border-brand/40 enabled:hover:bg-sky-50 disabled:cursor-default disabled:border-transparent disabled:bg-transparent dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-neutral-200 dark:enabled:hover:border-brand/40 tabular-nums text-xs sm:text-sm">
+              {formatPercent(savedProposal.feePercent)}
+            </button>
+          )}
         </div>
-        <div className="p-1 sm:px-2.5 pt-2 sm:pt-1">
+        <div className="min-h-[60px] p-1 pt-2 sm:px-2.5 sm:pt-1">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Prazo</span>
-          <span className="font-medium text-neutral-800 dark:text-neutral-200 tabular-nums text-xs sm:text-sm">
-            {p.termMonths} {p.termMonths === 1 ? "mês" : "meses"}
-          </span>
+          {editingField === "term" ? (
+            <div className="relative mt-1">
+              <input
+                inputMode="numeric"
+                value={termInput}
+                onChange={(event) => setTermInput(event.target.value.replace(/\D/g, "").slice(0, 3))}
+                onBlur={() => saveEdit("term")}
+                onKeyDown={(event) => fieldKeyDown(event, "term")}
+                autoFocus
+                className="field-input border-brand/40 bg-sky-50/50 py-1 pr-12 text-xs font-semibold tabular-nums ring-2 ring-brand/10 dark:bg-sky-950/20"
+              />
+              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400">meses</span>
+            </div>
+          ) : (
+            <button type="button" disabled={!canInlineEdit || busy} onClick={() => setEditingField("term")} className="mt-0.5 block rounded border border-sky-200/80 bg-sky-50/40 px-1.5 py-0.5 text-left font-medium text-neutral-800 transition-colors enabled:hover:border-brand/40 enabled:hover:bg-sky-50 disabled:cursor-default disabled:border-transparent disabled:bg-transparent dark:border-sky-800/50 dark:bg-sky-950/20 dark:text-neutral-200 dark:enabled:hover:border-brand/40 tabular-nums text-xs sm:text-sm">
+              {savedProposal.termMonths} {savedProposal.termMonths === 1 ? "mês" : "meses"}
+            </button>
+          )}
         </div>
       </div>
 
+      {editError && (
+        <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          {editError}
+        </p>
+      )}
+
       {/* Meta Auditoria Resumida */}
       <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-400 dark:text-neutral-500">
-        <span>Criada por {p.createdByName} em {fmtDate(p.createdAt)}</span>
-        {p.generatedAt && <span>Gerada às {fmtDateTime(p.generatedAt).split(" ")[1]}</span>}
+        <span>Criada por {savedProposal.createdByName} em {fmtDate(savedProposal.createdAt)}</span>
+        <div className="flex items-center gap-2">
+          {busy && <span>Salvando...</span>}
+          {!busy && savedRecently && <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><Check className="h-3 w-3" /> Salvo</span>}
+          {savedProposal.generatedAt && <span>Gerada às {fmtDateTime(savedProposal.generatedAt).split(" ")[1]}</span>}
+        </div>
       </div>
 
       {/* Barra de Ações Aprimorada */}
       {(actions.size > 0 || hasDocument) && (
         <div className="mt-3 pt-3 border-t border-neutral-100 dark:border-neutral-800/80 flex flex-wrap items-center justify-end gap-1.5">
           {busy && <Loader2 className="h-4 w-4 animate-spin text-neutral-400 mr-auto" strokeWidth={2.5} />}
-
-          {actions.has("generate") && p.status === "DRAFT" && (
+          {!editingField && (
+            <>
+          {actions.has("generate") && savedProposal.status === "DRAFT" && (
             <button type="button" disabled={busy} onClick={onGenerate} className="btn-primary btn-sm">
               <FileText className="h-3.5 w-3.5" strokeWidth={2} />
               Gerar documento
             </button>
           )}
           {hasDocument && (
-            <Link href={`/propostas/${p.id}`} className={p.status === "GENERATED" ? "btn-primary btn-sm" : "btn-secondary btn-sm"}>
+            <Link href={`/propostas/${savedProposal.id}`} className={savedProposal.status === "GENERATED" ? "btn-primary btn-sm" : "btn-secondary btn-sm"}>
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} />
               Abrir documento
             </Link>
@@ -451,12 +608,6 @@ function ActiveProposalCard({
               Nova a partir desta
             </button>
           )}
-          {actions.has("edit") && (
-            <button type="button" disabled={busy} onClick={onEdit} className="btn-ghost btn-sm">
-              <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-              Editar
-            </button>
-          )}
           {actions.has("cancel") && (
             <button type="button" disabled={busy} onClick={() => onConfirm("cancel")} className="btn-ghost btn-sm text-neutral-400 hover:text-red-600">
               <Ban className="h-3.5 w-3.5" strokeWidth={2} />
@@ -468,6 +619,8 @@ function ActiveProposalCard({
               <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
               Apagar
             </button>
+          )}
+            </>
           )}
         </div>
       )}

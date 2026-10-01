@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarPlus, Loader2, MessageCircle, Send, ChevronLeft, Video, Copy, Check, Bell, UserRound, MessageSquareText } from "lucide-react";
+import { CalendarPlus, Loader2, MessageCircle, Send, ChevronLeft, Video, Copy, Check, Bell, UserRound, MessageSquareText, Pencil } from "lucide-react";
 import { Modal } from "./modal";
 import { AnimatedCheck } from "./animated-check";
 import { Select } from "./select";
@@ -330,6 +330,26 @@ export function MeetingInviteDialog({
               </button>
             )}
 
+            {/* Sempre disponível — diferente do "Sim, enviar" acima, editar o
+                texto (colar o script próprio, ajustar o de sempre) não
+                depende de WhatsApp conectado nem do cliente ter número: o
+                template é salvo por CONSULTOR (ver GET/PUT
+                /api/meeting-invite-template), não por esta videochamada
+                específica, então vale personalizar mesmo sem poder enviar
+                agora. Antes só existia esse caminho junto do botão "Sim,
+                enviar" — sem WhatsApp conectado (como neste diálogo, ver
+                aviso amber acima) não tinha NENHUM jeito de chegar na tela
+                de edição, só a prévia travada (pedido explícito do
+                usuário). */}
+            <button
+              type="button"
+              onClick={() => setStep("compose")}
+              className={canSend ? "btn-ghost w-full justify-center border border-neutral-200 dark:border-neutral-700" : "btn-secondary w-full justify-center"}
+            >
+              <Pencil className="h-4 w-4" strokeWidth={2} />
+              Editar mensagem
+            </button>
+
             {/* Google Meet — só aparece se o responsável tem a conexão certa; senão fica só o link manual de sempre, mais abaixo. */}
             {task.ownerHasGoogleCalendarWriteAccess &&
               (meetLink ? (
@@ -419,10 +439,35 @@ export function MeetingInviteDialog({
 
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-          <button type="button" onClick={handleSend} disabled={sending} className="btn-primary w-full justify-center">
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
-            {sending ? "Enviando…" : "Enviar pelo WhatsApp"}
-          </button>
+          {/* canSend também guarda aqui, não só no "Sim, enviar" do passo
+              anterior — "Editar mensagem" (ver prompt acima) chega nesta
+              tela mesmo sem WhatsApp conectado/cliente sem número, então o
+              botão de enviar precisa da MESMA checagem, senão a pessoa edita
+              o texto, clica em enviar e só descobre o motivo do erro depois
+              (o servidor recusaria do mesmo jeito — POST
+              /api/tasks/[id]/send-meeting-invite reconfere isso). O texto
+              digitado continua salvo (handleTemplateChange já roda a cada
+              tecla) mesmo não podendo enviar agora. */}
+          {canSend ? (
+            <button type="button" onClick={handleSend} disabled={sending} className="btn-primary w-full justify-center">
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
+              {sending ? "Enviando…" : "Enviar pelo WhatsApp"}
+            </button>
+          ) : (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-center text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+              {!hasClientNumber ? (
+                "Esse cliente não tem WhatsApp/celular cadastrado — não dá pra mandar o convite, mas a mensagem já fica salva pra próxima."
+              ) : (
+                <>
+                  Seu WhatsApp não está conectado —{" "}
+                  <a href="/configuracoes/integracoes" className="font-medium underline underline-offset-2">
+                    conecte em Configurações
+                  </a>{" "}
+                  pra poder enviar. A mensagem já fica salva pra próxima.
+                </>
+              )}
+            </p>
+          )}
         </div>
       )}
 

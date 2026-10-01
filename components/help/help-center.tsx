@@ -12,6 +12,8 @@ import {
   Sparkles,
   X,
   Check,
+  Calculator,
+  GraduationCap,
 } from "lucide-react";
 import { HELP_CATEGORIES, HELP_TOPIC_BY_ID } from "@/lib/help/topics";
 import { isVisibleTo, searchTopics, visibleTopics, type HelpAudience } from "@/lib/help/search";
@@ -20,6 +22,7 @@ import { HELP_TOUR_BY_ID } from "@/lib/help/tours";
 import { CHECKLIST_ITEMS } from "@/lib/help/checklist";
 import { DISCOVERY_ORDER, EVERGREEN_TOPIC_IDS } from "@/lib/help/discovery";
 import type { HelpCategoryId, HelpOverview, HelpRole, HelpTopic } from "@/lib/help/types";
+import { readHelpCorner, writeHelpCorner, type HelpCorner } from "@/lib/help/corner";
 import { trackUse } from "@/lib/feature-usage/track";
 import { HELP_ICONS, HELP_FALLBACK_ICON } from "./help-icons";
 import { HelpTopicView } from "./help-topic-view";
@@ -32,6 +35,10 @@ const LAST_OPEN_DAY_KEY = "help.last-open-day";
 const MAX_SEEN_TIPS = 40;
 /** Folga acima da animação de saída mais longa (.help-panel-exit, globals.css). */
 const PANEL_EXIT_MS = 240;
+/** Quanto o ponteiro precisa andar antes de um toque no botão virar arraste
+ * de verdade — maior que o de top-nav-links.tsx (4px) porque aqui é um alvo
+ * isolado (clicar é a ação default; um tremor da mão não pode virar arraste). */
+const LAUNCHER_DRAG_THRESHOLD_PX = 6;
 
 /** Dia em Brasília, pro aviso do botão ser "uma vez por dia" de verdade. */
 function todayKey(): string {
@@ -104,10 +111,15 @@ type View = { kind: "home" } | { kind: "topic"; id: string };
 export function HelpCenterProvider({
   role,
   isAdministrativo,
+  academyHref,
   children,
 }: {
   role: HelpRole;
   isAdministrativo: boolean;
+  /** Link "Treinamento" (Reobote Academy) — calculado no servidor (ver
+   * app/(dashboard)/layout.tsx, getAcademyBaseUrl em lib/academy-oauth.ts).
+   * `null` sem ACADEMY_URL configurado — o atalho some. */
+  academyHref: string | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -121,6 +133,16 @@ export function HelpCenterProvider({
   const [seenTips, setSeenTips] = useState<string[]>([]);
   const [lastOpenDay, setLastOpenDay] = useState<string | null>(null);
   const [tourId, setTourId] = useState<string | null>(null);
+  // Canto onde o botão flutuante mora — ver lib/help/corner.ts.
+  const [corner, setCornerState] = useState<HelpCorner>("right");
+  const dragStartRef = useRef<{ x: number; pointerId: number } | null>(null);
+  // dx acompanha o dedo/ponteiro AO VIVO enquanto arrasta (transform puro,
+  // sem esperar re-render de estado "oficial" nenhum); didDrag é o que
+  // diferencia um clique de um arraste de verdade — mesmo par já usado em
+  // top-nav-links.tsx (limiar de pixels + estado que sobrevive até o
+  // onClick seguinte, que é quem decide se abre/fecha o painel ou ignora).
+  const [dragDx, setDragDx] = useState(0);
+  const [didDrag, setDidDrag] = useState(false);
   // `closing` mantém o painel montado durante a animação de saída — sem isso
   // ele simplesmente some do DOM e a saída nunca é vista.
   const [closing, setClosing] = useState(false);
@@ -140,6 +162,7 @@ export function HelpCenterProvider({
     setMounted(true);
     setSeenTips(readSeenTips());
     setLastOpenDay(readLastOpenDay());
+    setCornerState(readHelpCorner());
   }, []);
 
   // Dado personalizado: uma vez, com atraso, e só com a aba visível. Nunca em
@@ -293,6 +316,53 @@ export function HelpCenterProvider({
     };
   }, [open, tourId, closeHelp, closePanel]);
 
+  // ─── Arrastar pro outro canto ───────────────────────────────────────
+
+  function updateCorner(next: HelpCorner) {
+    setCornerState(next);
+    writeHelpCorner(next);
+  }
+
+  function handleLauncherPointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    if (e.pointerType === "mouse" && e.button !== 0) return; // só botão principal do mouse — touch/pen não têm "button"
+    dragStartRef.current = { x: e.clientX, pointerId: e.pointerId };
+  }
+
+  function handleLauncherPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    const start = dragStartRef.current;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    if (!didDrag && Math.abs(dx) > LAUNCHER_DRAG_THRESHOLD_PX) {
+      setDidDrag(true);
+      // Sem isto, o arraste quebra assim que o ponteiro sai dos 56px do
+      // botão — o alvo é pequeno, mas o arraste precisa acompanhar até o
+      // outro lado da tela inteira.
+      e.currentTarget.setPointerCapture(start.pointerId);
+    }
+    if (didDrag || Math.abs(dx) > LAUNCHER_DRAG_THRESHOLD_PX) setDragDx(dx);
+  }
+
+  function handleLauncherPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
+    dragStartRef.current = null;
+    // Onde o ponteiro SOLTOU decide o lado — metade esquerda da tela vira
+    // canto esquerdo, senão direito. Nunca uma posição livre.
+    if (didDrag) updateCorner(e.clientX < window.innerWidth / 2 ? "left" : "right");
+    setDragDx(0);
+  }
+
+  function handleLauncherClick() {
+    // didDrag continua true até aqui — só reseta DEPOIS de checado. Mesmo
+    // truque de top-nav-links.tsx: o clique que o navegador dispara junto
+    // do soltar o ponteiro não pode abrir/fechar o painel se o gesto era um
+    // arraste de verdade.
+    if (didDrag) {
+      setDidDrag(false);
+      return;
+    }
+    if (panelOpen) closeHelp();
+    else openHelp();
+  }
+
   const goTo = useCallback(
     (href: string, newTab?: boolean) => {
       trackUse("ajuda.ir");
@@ -366,21 +436,38 @@ export function HelpCenterProvider({
               ref={launcherRef}
               type="button"
               data-help="help-launcher"
-              onClick={() => (panelOpen ? closeHelp() : openHelp())}
+              onPointerDown={handleLauncherPointerDown}
+              onPointerMove={handleLauncherPointerMove}
+              onPointerUp={handleLauncherPointerUp}
+              onClick={handleLauncherClick}
               aria-expanded={panelOpen}
               aria-label={panelOpen ? "Fechar a ajuda" : "Abrir a Central de ajuda"}
-              title="Central de ajuda"
+              title="Central de ajuda — arraste pra levar pro outro canto"
               // Quadrado arredondado (não círculo) de propósito: o círculo é a
               // linguagem de AÇÃO deste app — é o "+" da barra do celular. A
               // ajuda é um lugar permanente, não uma ação, e o squircle é o
               // que a referência de widget de suporte usa.
               //
+              // touch-none: sem isto, arrastar num tablet/touch tentaria
+              // rolar a página por baixo do dedo ao mesmo tempo — o gesto de
+              // mover o botão precisa ser o único significado do toque aqui.
+              //
               // active:scale-[0.88] com --ease-spring: o afundar no toque e o
-              // repique na soltura são o que dá "tato" de iOS. Mesma curva dos
-              // botões do app (ver .btn-primary em globals.css), só com um
-              // afundar mais fundo, porque este é um alvo grande e isolado.
-              className="fixed right-4 bottom-4 z-40 hidden h-14 w-14 items-center justify-center rounded-2xl text-white shadow-lg shadow-brand/30 transition-[transform,box-shadow] duration-200 ease-spring hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.88] lg:flex dark:shadow-brand/20"
-              style={{ background: "var(--brand-gradient)" }}
+              // repique na soltura são o que dá "tato" de iOS. Some enquanto
+              // arrasta de verdade (didDrag) — a transição de 200ms brigaria
+              // com o acompanhamento 1:1 do dedo/ponteiro, deixando o botão
+              // "atrasado" atrás do cursor.
+              className={`fixed bottom-4 z-40 hidden h-14 w-14 touch-none items-center justify-center rounded-2xl text-white shadow-lg shadow-brand/30 lg:flex dark:shadow-brand/20 ${
+                corner === "left" ? "left-4" : "right-4"
+              } ${
+                didDrag
+                  ? "cursor-grabbing"
+                  : "cursor-grab transition-[transform,box-shadow] duration-200 ease-spring hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.88]"
+              }`}
+              style={{
+                background: "var(--brand-gradient)",
+                transform: dragDx ? `translateX(${dragDx}px)` : undefined,
+              }}
             >
               {/* Os dois ícones ficam empilhados e trocam por escala+giro+fade,
                   em vez de um sumir e o outro aparecer: é a mesma troca dos
@@ -404,7 +491,10 @@ export function HelpCenterProvider({
                 />
               </span>
               {hasNews && (
-                <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+                // No canto EXTERNO do botão (esquerdo quando o botão está à
+                // esquerda) — apontar pro lado de dentro ficaria estranho
+                // depois de arrastar pro outro canto.
+                <span className={`absolute -top-0.5 flex h-3.5 w-3.5 ${corner === "left" ? "-left-0.5" : "-right-0.5"}`}>
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
                   <span className="relative inline-flex h-3.5 w-3.5 rounded-full bg-amber-400 ring-2 ring-white dark:ring-neutral-950" />
                 </span>
@@ -430,9 +520,20 @@ export function HelpCenterProvider({
                   // uma folha colada na base da tela, e sem isso o último item
                   // fica embaixo da barra de gestos do iPhone. No desktop o
                   // valor é 0, então a mesma classe serve pros dois.
-                  className={`surface-glass-filter fixed inset-x-0 bottom-0 z-[45] flex max-h-[86dvh] flex-col overflow-hidden rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-2xl lg:inset-x-auto lg:right-4 lg:bottom-[5.5rem] lg:max-h-[min(38rem,calc(100dvh-9rem))] lg:w-[23.5rem] lg:rounded-2xl lg:pb-0 ${
-                    closing ? "help-panel-exit" : "help-panel-enter"
-                  }`}
+                  //
+                  // lg:left-4/lg:right-4 seguem o MESMO canto do botão — abre
+                  // sempre do lado de onde ele foi solto da última vez, não
+                  // só no primeiro clique logo depois de arrastar.
+                  className={`surface-glass-filter fixed inset-x-0 bottom-0 z-[45] flex max-h-[86dvh] flex-col overflow-hidden rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-2xl lg:inset-x-auto lg:bottom-[5.5rem] lg:max-h-[min(38rem,calc(100dvh-9rem))] lg:w-[23.5rem] lg:rounded-2xl lg:pb-0 ${
+                    corner === "left" ? "lg:left-4" : "lg:right-4"
+                  } ${closing ? "help-panel-exit" : "help-panel-enter"}`}
+                  // transform-origin via inline (não uma 2ª classe CSS): é
+                  // valor DINÂMICO (depende de onde o botão está agora), não
+                  // uma escolha fixa de design — style vence a regra "bottom
+                  // right" fixa de .help-panel-enter/-exit em globals.css.
+                  // No celular (translateY puro, sem scale/rotate) o origin
+                  // não muda nada visualmente, então é seguro nas duas larguras.
+                  style={{ transformOrigin: corner === "left" ? "bottom left" : "bottom right" }}
                 >
                   <HelpHeader onClose={closeHelp} />
 
@@ -525,6 +626,50 @@ export function HelpCenterProvider({
                             </button>
                           </section>
                         )}
+
+                        <section>
+                          <SectionLabel>Ferramentas & Acesso rápido</SectionLabel>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <a
+                              href="/api/simulador-sso"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="group flex items-center gap-2 rounded-xl border border-neutral-200/80 bg-neutral-50/70 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-100/80 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-neutral-800"
+                            >
+                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
+                                <Calculator className="h-3.5 w-3.5" strokeWidth={2.2} />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <span className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+                                  Simulador
+                                </span>
+                                <span className="block text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+                                  Cotador rápido
+                                </span>
+                              </div>
+                            </a>
+                            {academyHref && (
+                              <a
+                                href={academyHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group flex items-center gap-2 rounded-xl border border-neutral-200/80 bg-neutral-50/70 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-100/80 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-neutral-800"
+                              >
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-light text-brand">
+                                  <GraduationCap className="h-3.5 w-3.5" strokeWidth={2.2} />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <span className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+                                    Treinamento
+                                  </span>
+                                  <span className="block text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+                                    Reobote Academy
+                                  </span>
+                                </div>
+                              </a>
+                            )}
+                          </div>
+                        </section>
 
                         <section>
                           <SectionLabel>Todos os assuntos</SectionLabel>

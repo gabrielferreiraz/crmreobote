@@ -822,6 +822,36 @@ body {
   animation: tv-photo-spin 2.4s linear infinite;
 }
 
+/* Troca "Meta batida!" ↔ percentual no churrascômetro (ver tv-view.tsx) —
+   gira em volta da base, feito placar de aeroporto/elevador (split-flap)
+   virando pra mostrar a próxima letra, em vez de um fade genérico. Metade do
+   giro (rotateX -90deg) já está em opacity:0 — é o que vende a ilusão de
+   "a aba virou de costas", não só "o texto cresceu girando". perspective no
+   próprio elemento (não precisa de wrapper à parte): só este span deforma em
+   3D, o resto do card ao lado fica reto. */
+@keyframes tv-stat-flip-in {
+  0% {
+    opacity: 0;
+    transform: perspective(240px) rotateX(-85deg);
+  }
+
+  55% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: perspective(240px) rotateX(0deg);
+  }
+}
+
+.animate-tv-stat-flip {
+  animation: tv-stat-flip-in 520ms var(--ease-spring);
+  transform-origin: 50% 100%;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
 /* Barra de rolagem — fina, em forma de pílula, discreta em qualquer tema.
    Global de propósito (não só em elementos com uma classe específica) — pra
    nunca mais sobrar um cantinho do sistema com a barra branca/quadrada

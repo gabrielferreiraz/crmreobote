@@ -9,6 +9,7 @@ type TenantStore = {
   metaPageId?: string;
   tvLinkTokenHash?: string;
   cardSlug?: string;
+  academyCredentialHash?: string;
 };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:
@@ -48,6 +49,10 @@ export function getCurrentTvLinkTokenHash(): string | undefined {
 
 export function getCurrentCardSlug(): string | undefined {
   return storage.getStore()?.cardSlug;
+}
+
+export function getCurrentAcademyCredentialHash(): string | undefined {
+  return storage.getStore()?.academyCredentialHash;
 }
 
 /**
@@ -139,6 +144,21 @@ export function runWithTvLinkLookup<T>(tokenHash: string, fn: () => Promise<T>):
  */
 export function runWithCardSlugLookup<T>(slug: string, fn: () => Promise<T>): Promise<T> {
   return storage.run({ cardSlug: slug }, async () => await fn());
+}
+
+/**
+ * Mesma ideia, mas pro fluxo OAuth 2.0 (Authorization Code + PKCE) da
+ * Reobote Academy (lib/academy-oauth.ts): POST /api/academy/token só traz o
+ * `code`/`refresh_token` opaco (convertido em hash antes de chegar aqui,
+ * nunca guardamos/comparamos o valor em texto puro), o organizationId ainda
+ * precisa ser descoberto a partir dele. UMA dimensão só reaproveitada pelas
+ * TRÊS tabelas do fluxo (AcademyAuthCode/AcademyAccessToken/
+ * AcademyRefreshToken) — nunca duas são procuradas na mesma operação, e a
+ * policy de RLS de cada tabela confere seu PRÓPRIO hash contra este mesmo
+ * valor, então reaproveitar a dimensão não mistura uma tabela com a outra.
+ */
+export function runWithAcademyCredentialLookup<T>(hash: string, fn: () => Promise<T>): Promise<T> {
+  return storage.run({ academyCredentialHash: hash }, async () => await fn());
 }
 
 /**

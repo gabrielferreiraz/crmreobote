@@ -200,15 +200,22 @@ export async function POST(req: Request) {
       // meses) → nunca deixa passar direto, mesmo com claimContactId —
       // bloqueia sempre; a tela oferece "Solicitar lead" (conflict.requestable).
       // Pedido explícito do usuário: nunca passar por cima de consultor ativo.
-      if (!conflict.claimable) {
+      // ownedByMe É uma exceção de propósito (não bloqueia): não existe
+      // "passar por cima de outro consultor" quando o contato já é da MESMA
+      // pessoa — é só uma correção de dado (ex.: WhatsApp digitado errado em
+      // OUTRO contato, e o número certo já está num contato que ela mesma já
+      // tem) — pedido explícito: "Atualizar contato?" em vez de travar sem
+      // saída nenhuma.
+      if (!conflict.claimable && !conflict.ownedByMe) {
         return NextResponse.json({ error: duplicate.message, conflict }, { status: 409 });
       }
 
-      // Pode assumir sem aprovação (sem responsável, responsável desativado
-      // ou lead perdido há +3 meses — ver lib/lead-claim.ts) — sem
-      // claimContactId ainda é só um aviso (409), com a opção de assumir;
-      // com claimContactId apontando pro MESMO contato, confirma e vira
-      // UPDATE (responsável passa a ser quem está criando agora) em vez de
+      // Pode assumir sem aprovação (sem responsável, responsável desativado,
+      // lead perdido há +3 meses, ou já é dela — ver lib/lead-claim.ts e
+      // ownedByMe acima) — sem claimContactId ainda é só um aviso (409), com
+      // a opção de assumir/atualizar; com claimContactId apontando pro MESMO
+      // contato, confirma e vira UPDATE (responsável passa a ser quem está
+      // criando agora — no-op quando já era ela, ver ownedByMe) em vez de
       // tentar CREATE.
       if (!claimContactId || claimContactId !== duplicate.contactId) {
         return NextResponse.json({ error: duplicate.message, conflict }, { status: 409 });

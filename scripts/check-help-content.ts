@@ -77,6 +77,7 @@ const APP_ROUTES = new Set([
   "/configuracoes/processos", "/configuracoes/tv", "/configuracoes/proposta",
   "/configuracoes/integracoes", "/configuracoes/auditoria", "/configuracoes/uso",
   "/configuracoes/saude-do-sistema", "/configuracoes/notificacoes-email",
+  "/api/simulador-sso", "/api/academy/acesso",
 ]);
 const checkHref = (href: string, origin: string) => {
   const base = href.split(/[?#]/)[0];

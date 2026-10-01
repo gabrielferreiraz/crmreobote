@@ -99,10 +99,16 @@ export function ContactEditForm({
   const [errorData, setErrorData] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
   // 409 de telefone/WhatsApp já usado por OUTRO contato (ver PUT
   // /api/contacts/[id]) — antes caía no ErrorDialog genérico "Erro de
-  // servidor" sem nenhuma saída. Agora abre o aviso de conflito, que deixa
-  // solicitar o lead (dono ativo) ou assumir na hora (dono inativo/sem dono/
-  // lead perdido há +3 meses) — ver ContactConflictNotice.
-  const [conflictData, setConflictData] = useState<{ message: string; conflict: ContactConflict } | null>(null);
+  // servidor" sem nenhuma saída. Agora mostra o aviso de conflito (ver
+  // ContactConflictNotice) DENTRO do próprio formulário, sem empilhar um 2º
+  // Modal por cima do que já está aberto — pedido explícito: "extremamente
+  // intuitivo sem muitas falas, o próprio design deve conversar com o
+  // usuário de forma direta". Deixa solicitar o lead (dono ativo), assumir
+  // na hora (dono inativo/sem dono/lead perdido há +3 meses) ou, se o número
+  // já é de OUTRO contato seu, ir direto pra ele (antes era beco sem saída:
+  // "já é seu" e nenhum jeito de seguir em frente — relato real).
+  const [conflictData, setConflictData] = useState<ContactConflict | null>(null);
+  const [updatingExisting, setUpdatingExisting] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   // Obrigatórios validados ao enviar (botão Salvar não fica mais desabilitado em silêncio — achado M3 do QA).
   const [nameError, setNameError] = useState<string | null>(null);
@@ -138,6 +144,36 @@ export function ContactEditForm({
     setTimeout(() => setHighlightResponsavel(false), 2200);
   }
 
+  // Extraído pra ser reaproveitado por handleSubmit e handleUpdateExisting
+  // (o "Atualizar contato" da ContactConflictNotice reenvia exatamente os
+  // mesmos dados do formulário, só que pro id do contato EXISTENTE — ver
+  // handleUpdateExisting abaixo).
+  function buildPayload() {
+    return {
+      name,
+      email: email || undefined,
+      phone: phone || undefined,
+      whatsapp: whatsapp || undefined,
+      source: source || undefined,
+      company: company || undefined,
+      jobTitle: jobTitle || undefined,
+      birthDate: parseBirthDateInput(birthDate) || undefined,
+      zipCode: zipCode || undefined,
+      address: address || undefined,
+      addressNumber: addressNumber || undefined,
+      addressComplement: addressComplement || undefined,
+      neighborhood: neighborhood || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      tags: tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      responsavelId: responsavelId || null,
+      customFieldValues,
+    };
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -162,33 +198,12 @@ export function ContactEditForm({
 
     setLoading(true);
     setErrorData(null);
+    setConflictData(null);
 
     const res = await fetch(`/api/contacts/${contact.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        email: email || undefined,
-        phone: phone || undefined,
-        whatsapp: whatsapp || undefined,
-        source: source || undefined,
-        company: company || undefined,
-        jobTitle: jobTitle || undefined,
-        birthDate: parseBirthDateInput(birthDate) || undefined,
-        zipCode: zipCode || undefined,
-        address: address || undefined,
-        addressNumber: addressNumber || undefined,
-        addressComplement: addressComplement || undefined,
-        neighborhood: neighborhood || undefined,
-        city: city || undefined,
-        state: state || undefined,
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
-        responsavelId: responsavelId || null,
-        customFieldValues,
-      }),
+      body: JSON.stringify(buildPayload()),
     });
 
     setLoading(false);
@@ -196,7 +211,7 @@ export function ContactEditForm({
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (res.status === 409 && data.conflict) {
-        setConflictData({ message: data.error ?? "Este número já está cadastrado em outro contato.", conflict: data.conflict as ContactConflict });
+        setConflictData(data.conflict as ContactConflict);
         return;
       }
       setErrorData({
@@ -208,6 +223,47 @@ export function ContactEditForm({
     }
 
     trackUse("clientes.contato.editar");
+    onSaved();
+  }
+
+  // "Atualizar contato" do ContactConflictNotice quando o número já é de
+  // OUTRO contato seu (ownedByMe) — reenvia os MESMOS dados deste formulário
+  // (buildPayload), só que pro id do contato EXISTENTE, não pro id que
+  // estava sendo editado. Não precisa de nenhum endpoint novo: PUT
+  // /api/contacts/[id] já aceita qualquer id do próprio consultor, e o
+  // número que estamos mandando já é o que aquele contato tem (não muda
+  // nada nele) — só os OUTROS campos do formulário (nome, cargo, endereço,
+  // etc.) realmente se aplicam lá. Sucesso fecha a tela igual a um salvar
+  // normal (onSaved) — o contato que estava sendo editado fica como estava,
+  // intocado.
+  async function handleUpdateExisting() {
+    if (!conflictData) return;
+    setUpdatingExisting(true);
+    setErrorData(null);
+
+    const res = await fetch(`/api/contacts/${conflictData.contactId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildPayload()),
+    });
+
+    setUpdatingExisting(false);
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      // 409 aqui seria surpreendente (o próprio contato-alvo já tem esse
+      // número) — mas não impede tentar de novo, mesmo tratamento de erro
+      // genérico do resto da tela, nunca falha em silêncio.
+      setErrorData({
+        message: data.error ?? "Não foi possível atualizar o contato.",
+        type: data.type || (res.status === 403 ? "PERMISSION" : res.status === 404 ? "NOT_FOUND" : "SERVER"),
+        details: data.details,
+      });
+      return;
+    }
+
+    trackUse("clientes.contato.editar");
+    setConflictData(null);
     onSaved();
   }
 
@@ -321,6 +377,10 @@ export function ContactEditForm({
         <Field label="Tags (separadas por vírgula)" value={tags} onChange={setTags} />
         <CustomFieldsFieldset definitions={customFields} values={customFieldValues} onChange={setCustomFieldValues} />
 
+        {conflictData && (
+          <ContactConflictNotice conflict={conflictData} onUpdateExisting={handleUpdateExisting} updatingExisting={updatingExisting} />
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onCancel} className="btn-ghost">
             Cancelar
@@ -338,21 +398,6 @@ export function ContactEditForm({
           </button>
         </div>
       </form>
-
-      {conflictData && (
-        <Modal onClose={() => setConflictData(null)} maxWidth="max-w-md">
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Número já cadastrado</h2>
-          <p className="mt-1 mb-3 text-sm text-neutral-600 dark:text-neutral-300">
-            {conflictData.message} As alterações deste contato não foram salvas.
-          </p>
-          <ContactConflictNotice conflict={conflictData.conflict} />
-          <div className="mt-4 flex justify-end">
-            <button type="button" onClick={() => setConflictData(null)} className="btn-ghost">
-              Fechar
-            </button>
-          </div>
-        </Modal>
-      )}
 
       {errorData && (
         <ErrorDialog

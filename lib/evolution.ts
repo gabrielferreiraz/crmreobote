@@ -9,7 +9,7 @@
  * "use client") — ele lê EVOLUTION_API_KEY do ambiente do servidor.
  */
 
-import { maskPhone, redactForLog } from "@/lib/log-redact";
+import { maskPhone, redactForLog, redactUrl } from "@/lib/log-redact";
 
 // Lista única de eventos que o webhook assina — usada tanto ao criar quanto
 // ao reconfigurar uma instância, e comparada no diagnóstico de
@@ -55,6 +55,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { baseUrl, apiKey } = getConfig();
+  const safePath = redactUrl(path);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -75,11 +76,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // DNS, ou abort por timeout — padroniza tudo isso num EvolutionApiError,
     // pra quem chama nunca precisar tratar dois formatos de erro diferentes.
     const timedOut = err instanceof Error && err.name === "AbortError";
-    console.error(`[evolution] ${timedOut ? "timeout" : "falha de rede"} em ${path}`, err);
+    console.error(`[evolution] ${timedOut ? "timeout" : "falha de rede"} em ${safePath}`, err);
     throw new EvolutionApiError(
       timedOut
-        ? `Evolution API não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (${path})`
-        : `Falha de conexão com o Evolution API (${path})`,
+        ? `Evolution API não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (${safePath})`
+        : `Falha de conexão com o Evolution API (${safePath})`,
       0,
     );
   } finally {
@@ -93,12 +94,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // "instance not connected" etc.), sem isso o erro genérico não ajuda a
     // diagnosticar por que uma mensagem "foi enviada" mas não chegou.
     const errorBody = await res.text().catch(() => "");
-    console.error(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, maskPhone(errorBody.slice(0, 500)));
-    throw new EvolutionApiError(`Evolution API respondeu ${res.status} em ${path}`, res.status);
+    console.error(`[evolution] ${init?.method ?? "GET"} ${safePath} → ${res.status}:`, maskPhone(errorBody.slice(0, 500)));
+    throw new EvolutionApiError(`Evolution API respondeu ${res.status} em ${safePath}`, res.status);
   }
 
   if (res.status === 204) {
-    console.log(`[evolution] ${init?.method ?? "GET"} ${path} → 204 (sem corpo)`);
+    console.log(`[evolution] ${init?.method ?? "GET"} ${safePath} → 204 (sem corpo)`);
     return undefined as T;
   }
 
@@ -108,9 +109,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // conteúdo/telefone das mensagens. Pra investigar um envio específico,
   // ligar EVOLUTION_DEBUG_LOG=true temporariamente (sai redigido mesmo assim).
   if (process.env.EVOLUTION_DEBUG_LOG === "true") {
-    console.log(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}:`, redactForLog(json, 1000));
+    console.log(`[evolution] ${init?.method ?? "GET"} ${safePath} → ${res.status}:`, redactForLog(json, 1000));
   } else {
-    console.log(`[evolution] ${init?.method ?? "GET"} ${path} → ${res.status}`);
+    console.log(`[evolution] ${init?.method ?? "GET"} ${safePath} → ${res.status}`);
   }
   return json as T;
 }

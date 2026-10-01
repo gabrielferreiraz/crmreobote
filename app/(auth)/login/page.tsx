@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { PasswordInput } from "@/components/password-input";
 import { LoadingDots } from "@/components/loading-dots";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 export default function LoginPage() {
   return (
@@ -19,6 +20,13 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const deactivated = searchParams.get("deactivated") === "1";
+  // Pra onde voltar depois de logar — hoje só usado por GET /api/academy/
+  // authorize (sessão exigida, ver o comentário lá), que manda de volta
+  // pra ELE MESMO (mesma query de PKCE) depois do login. Validado por
+  // allowlist (ver lib/safe-redirect.ts — nunca um destino fora deste
+  // site) mesmo vindo só de uma rota interna nossa; é dado de URL, nunca
+  // confiável por padrão.
+  const callbackUrl = safeInternalPath(searchParams.get("callbackUrl")) ?? "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +57,7 @@ function LoginForm() {
       return;
     }
 
-    router.push("/");
+    router.push(callbackUrl);
     router.refresh();
   }
 

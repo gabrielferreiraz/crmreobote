@@ -15,7 +15,11 @@ import { trackUse } from "@/lib/feature-usage/track";
  *   regra única em lib/lead-claim.ts).
  * - requestable: dono ATIVO cuidando do lead → só dá pra SOLICITAR (o dono
  *   recebe o pedido e aprova/recusa).
- * - ownedByMe: já é seu — só informa.
+ * - ownedByMe: já é seu — nada pra assumir/solicitar, mas dá pra ATUALIZAR
+ *   direto o OUTRO contato que está com esse número com os dados que a
+ *   pessoa acabou de digitar (ver `onUpdateExisting` e o ramo isolado logo
+ *   no início da função, com uma UI bem mais enxuta que os outros dois
+ *   casos).
  *
  * Os campos além de `claimable` são opcionais só por compatibilidade com
  * respostas antigas; o servidor sempre manda todos.
@@ -45,7 +49,6 @@ function formatDate(raw: string): string {
 
 /** Frase que explica POR QUE o lead pode ser assumido (ou por que só dá pra solicitar). */
 function explanation(conflict: ContactConflict): string {
-  if (conflict.ownedByMe) return "Este contato já é seu — o número está cadastrado nele.";
   if (conflict.claimable) {
     if (conflict.claimReason === "LOST_OVER_3_MONTHS") {
       return conflict.lostAt
@@ -77,13 +80,58 @@ export function ContactConflictNotice({
   conflict,
   onClaim,
   claiming,
+  onUpdateExisting,
+  updatingExisting,
 }: {
   conflict: ContactConflict;
   onClaim?: () => void;
   claiming?: boolean;
+  /** Só usado no ramo ownedByMe (ver abaixo) — reenvia os dados que a pessoa
+   * acabou de digitar pro contato EXISTENTE (o dono do número), em vez de só
+   * apontar um link. Em telas de CADASTRO, é o MESMO handler de `onClaim`
+   * (a operação já é essa: POST com claimContactId vira UPDATE do contato
+   * existente — reivindicar ownership é só um no-op quando já é seu). Em
+   * telas de EDIÇÃO, é um handler próprio (PUT no id do contato existente
+   * com os dados do formulário, não no id que estava sendo editado). */
+  onUpdateExisting?: () => void;
+  updatingExisting?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ActionResult | null>(null);
+
+  // ownedByMe é um caso à parte, bem mais simples que os outros dois: nada
+  // pra assumir/solicitar (já é dela). Pedido explícito do usuário: em vez
+  // de só informar e deixar a pessoa se virar, oferece direto "Atualizar
+  // contato?" — reenvia o que ela digitou pro contato que JÁ tem esse
+  // número, em vez de só um link "vá lá e resolva você mesma" (beco sem
+  // saída antes: "já é seu" e nenhuma ação possível, relato real de
+  // consultora tentando corrigir um WhatsApp digitado errado). Quando o
+  // chamador não implementa onUpdateExisting ainda, cai pro link sozinho.
+  if (conflict.ownedByMe) {
+    return (
+      <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-500/20 dark:bg-amber-500/10">
+        <p className="flex items-start gap-1.5 text-sm font-medium text-amber-900 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+          Esse número já é de{" "}
+          <Link href={`/clientes/${conflict.contactId}`} className="underline">
+            {conflict.contactName}
+          </Link>
+          , outro contato seu
+        </p>
+        {onUpdateExisting ? (
+          <>
+            <p className="text-xs text-amber-800 dark:text-amber-400">Atualizar esse contato com os dados que você digitou?</p>
+            <button type="button" onClick={onUpdateExisting} disabled={!!updatingExisting} className="btn-secondary !py-1 text-xs">
+              {updatingExisting ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <UserCheck className="h-3.5 w-3.5" strokeWidth={2} />}
+              {updatingExisting ? "Atualizando…" : "Atualizar contato"}
+            </button>
+          </>
+        ) : (
+          <p className="text-xs text-amber-800 dark:text-amber-400">Já está cadastrado com esse número.</p>
+        )}
+      </div>
+    );
+  }
 
   async function callLeadRequest() {
     setBusy(true);
@@ -118,7 +166,7 @@ export function ContactConflictNotice({
   // resultado de sucesso (assumiu/pediu/já é dela) esconde as ações.
   const done = !!result && result.kind !== "error";
   const showClaim = conflict.claimable && !done;
-  const showRequest = !conflict.claimable && !conflict.ownedByMe && conflict.requestable !== false && !done;
+  const showRequest = !conflict.claimable && conflict.requestable !== false && !done;
   const claimBusy = onClaim ? !!claiming : busy;
 
   return (

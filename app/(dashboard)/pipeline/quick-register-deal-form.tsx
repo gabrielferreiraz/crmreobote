@@ -666,7 +666,15 @@ export function QuickRegisterDealForm({
         </div>
       )}
 
-      {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
+      {conflict && (
+        <ContactConflictNotice
+          conflict={conflict}
+          onClaim={conflict.claimable ? handleClaim : undefined}
+          claiming={claiming}
+          onUpdateExisting={handleClaim}
+          updatingExisting={claiming}
+        />
+      )}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <div className="flex justify-end gap-2 pt-2">

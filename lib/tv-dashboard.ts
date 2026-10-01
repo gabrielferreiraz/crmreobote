@@ -322,6 +322,15 @@ const TV_PODIUM_SIZE = 3;
  *   pelo CNPJ — fantasia, ou razão social quando a Receita não tem fantasia,
  *   ver lib/cnpj.ts), caindo pro nome pessoal quando ele não cadastrou uma.
  */
+function cleanDisplayName(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\d+/g, "")
+    .replace(/^[^a-zA-ZÀ-ÿ]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function computeMonthRanking(organizationId: string, monthStart: Date, where: "podium" | "month") {
   const eligible = await prisma.organizationUser.findMany({
     where: { organizationId, active: true, ...(where === "podium" ? { showInPodium: true } : { showInMonthRanking: true }) },
@@ -354,10 +363,11 @@ async function computeMonthRanking(organizationId: string, monthStart: Date, whe
     .flatMap((g) => {
       const user = userById.get(g.ownerId);
       if (!user) return [];
+      const rawName = where === "month" ? (user.company?.name ?? user.name) : user.name;
       return [
         {
           id: user.id,
-          name: where === "month" ? (user.company?.name ?? user.name).replace(/\d+/g, "").replace(/\s+/g, " ").trim() : user.name,
+          name: cleanDisplayName(rawName),
           image: user.image,
           total: Number(g._sum.value ?? 0),
         },

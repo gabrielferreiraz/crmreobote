@@ -9,6 +9,7 @@ import { ContactConflictNotice, type ContactConflict } from "@/components/contac
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
+import { readQuickContactDraft, writeQuickContactDraft, clearQuickContactDraft } from "@/lib/quick-contact-draft";
 
 type ContactOption = {
   id: string;
@@ -285,14 +286,19 @@ function QuickCreateContactModal({
   onCreated: (contact: ContactOption) => void;
 }) {
   const kind = detectQueryKind(initialQuery);
-  const [name, setName] = useState(kind === "name" ? initialQuery : "");
-  const [email, setEmail] = useState(kind === "email" ? initialQuery : "");
-  const [whatsapp, setWhatsapp] = useState(kind === "phone" ? initialQuery : "");
-  const [phone, setPhone] = useState("");
+  // Rascunho de um fechamento acidental anterior tem PRIORIDADE sobre o
+  // palpite inicial (kind/initialQuery) — quem já estava digitando algo
+  // quando fechou sem querer importa mais que um palpite novo a partir da
+  // busca atual. Lido uma vez só, na montagem (useState com função).
+  const [draftRestored] = useState(() => readQuickContactDraft());
+  const [name, setName] = useState(draftRestored?.name || (kind === "name" ? initialQuery : ""));
+  const [email, setEmail] = useState(draftRestored?.email || (kind === "email" ? initialQuery : ""));
+  const [whatsapp, setWhatsapp] = useState(draftRestored?.whatsapp || (kind === "phone" ? initialQuery : ""));
+  const [phone, setPhone] = useState(draftRestored?.phone ?? "");
   const [jobTitles, setJobTitles] = useState<JobTitleOption[]>([]);
-  const [jobTitle, setJobTitle] = useState("");
+  const [jobTitle, setJobTitle] = useState(draftRestored?.jobTitle ?? "");
   const [sources, setSources] = useState<LeadSourceOption[]>([]);
-  const [source, setSource] = useState("");
+  const [source, setSource] = useState(draftRestored?.source ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ContactConflict | null>(null);
@@ -321,6 +327,24 @@ function QuickCreateContactModal({
     };
   }, []);
 
+  // Salva a cada mudança — sem debounce (campos pequenos, sessionStorage é
+  // local e instantâneo). É o que sobrevive se a pessoa fechar sem querer
+  // (clique fora / Esc, ver dismissKeepingDraft abaixo).
+  useEffect(() => {
+    writeQuickContactDraft({ name, whatsapp, phone, email, jobTitle, source });
+  }, [name, whatsapp, phone, email, jobTitle, source]);
+
+  /** Fecha sem apagar o rascunho — Modal chama isto pra clique fora/Esc. */
+  function dismissKeepingDraft() {
+    onClose();
+  }
+
+  /** X e "Cancelar" — únicas ações que significam "não quero mais criar isto". */
+  function dismissClearingDraft() {
+    clearQuickContactDraft();
+    onClose();
+  }
+
   async function submitContact(claimContactId?: string) {
     const res = await fetch("/api/contacts", {
       method: "POST",
@@ -348,6 +372,8 @@ function QuickCreateContactModal({
     }
 
     setConflict(null);
+    // Contato criado de verdade — o rascunho não serve mais pra próxima vez.
+    clearQuickContactDraft();
     onCreated({ id: data.id, name: data.name, email: data.email, phone: data.phone });
   }
 
@@ -378,12 +404,12 @@ function QuickCreateContactModal({
     }
   }
 
-  // Esse modal renderiza dentro de <Modal>, que não usa portal — o DOM real
-  // fica aninhado dentro do <form> de quem abriu a busca (negócio/tarefa).
-  // Um <form> aqui dentro seria HTML inválido (form dentro de form) e o
-  // submit por Enter/clique acabava também disparando o form de fora. Por
-  // isso isto é um <div> com envio manual (clique + Enter via onKeyDown),
-  // nunca um <form onSubmit>.
+  // Modal porta pro <body> (ver components/modal.tsx), mas isso só muda o
+  // DOM — na árvore REACT este componente continua filho de quem abriu a
+  // busca (negócio/tarefa), que normalmente já é um <form onSubmit>. Um
+  // <form> aqui dentro faria o evento de submit (sintético, segue a árvore
+  // React, não o DOM) borbulhar pro form de fora também. Por isso isto é um
+  // <div> com envio manual (clique + Enter via onKeyDown), nunca um <form onSubmit>.
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -393,8 +419,21 @@ function QuickCreateContactModal({
   }
 
   return (
-    <Modal onClose={onClose}>
-      <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo contato</h2>
+    // onClose aqui é dismissKeepingDraft — clique fora/Esc mantêm o
+    // rascunho; só o X (abaixo) e "Cancelar" (no rodapé) apagam de verdade.
+    <Modal onClose={dismissKeepingDraft}>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Novo contato</h2>
+        <button
+          type="button"
+          onClick={dismissClearingDraft}
+          className="icon-btn -mt-1 -mr-1 h-8 w-8 shrink-0"
+          aria-label="Fechar e descartar"
+          title="Fechar e descartar o que foi digitado"
+        >
+          <X className="h-4 w-4" strokeWidth={2} />
+        </button>
+      </div>
       <div onKeyDown={handleKeyDown} className="space-y-3">
         <div className="space-y-1">
           <label className="field-label">Nome</label>
@@ -455,11 +494,19 @@ function QuickCreateContactModal({
           </div>
         </div>
 
-        {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
+        {conflict && (
+          <ContactConflictNotice
+            conflict={conflict}
+            onClaim={conflict.claimable ? handleClaim : undefined}
+            claiming={claiming}
+            onUpdateExisting={handleClaim}
+            updatingExisting={claiming}
+          />
+        )}
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="btn-ghost">
+          <button type="button" onClick={dismissClearingDraft} className="btn-ghost">
             Cancelar
           </button>
           <button

@@ -402,8 +402,12 @@ export async function fetchDealsList(
           where: buildDealsWhere(params),
           select: DEAL_LIST_SELECT,
           orderBy:
+            // nulls: "last" nos dois sentidos — Deal.value é opcional (negócio sem valor
+            // ainda definido), e sem isso o Postgres manda NULL pro topo em ORDER BY DESC
+            // (padrão dele), então "maior valor primeiro" mostrava puro "—" antes de
+            // qualquer negócio com valor de verdade (pedido explícito do usuário).
             sort === "value"
-              ? { value: sortDir }
+              ? { value: { sort: sortDir, nulls: "last" } }
               : sort === "date"
                 ? { createdAt: sortDir } // mesma coluna "Data" da tabela sempre mostra pra negócio aberto; ganho/perdido usa closedAt na exibição, mas ordenar por criação continua um critério estável e previsível pros dois casos
                 : sort === "stale"

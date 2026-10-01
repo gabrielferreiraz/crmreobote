@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, Download, UserPlus, Send, Clock3, RefreshCw } from "lucide-react";
+import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, Download, UserPlus, Send, Clock3, RefreshCw, Eye } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
@@ -96,8 +96,8 @@ function importHeadline(s: ImportPlanSummary, hasBlockingIssue: boolean): { icon
   return {
     icon: Sparkles,
     tone: "success",
-    title: `${s.toCreate} contato${s.toCreate === 1 ? "" : "s"} pronto${s.toCreate === 1 ? "" : "s"} pra importar`,
-    subtitle: details.length > 0 ? details.join(" · ") : "Tudo certo pra continuar.",
+    title: `${s.toCreate} contato${s.toCreate === 1 ? "" : "s"} serão importado${s.toCreate === 1 ? "" : "s"}`,
+    subtitle: details.length > 0 ? details.join(" · ") : "Confira e confirme para concluir.",
   };
 }
 
@@ -155,6 +155,7 @@ export function ContactImportDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [overrides, setOverrides] = useState<Partial<Record<ImportField, number>>>({});
@@ -204,7 +205,8 @@ export function ContactImportDialog({
     nextStep: "headers" | "details" = "headers",
     includeAllRows = false,
   ): Promise<boolean> {
-    setStep("analyzing");
+    setIsAnalyzing(true);
+    if (!preview) setStep("analyzing");
     setError(null);
     try {
       const formData = new FormData();
@@ -227,6 +229,8 @@ export function ContactImportDialog({
       setError("Falha de conexão. Tente novamente.");
       setStep(nextStep === "details" ? "details" : "pick");
       return false;
+    } finally {
+      setIsAnalyzing(false);
     }
   }
 
@@ -360,12 +364,23 @@ export function ContactImportDialog({
       if (sourceDraft) finalFieldDefaults.source = sourceDraft;
       else delete finalFieldDefaults.source;
 
-      setStep("analyzing");
       await runPreview(file, overrides, finalFieldDefaults, "details");
     } catch {
       setError("Falha de conexão. Tente novamente.");
       setStep("details");
     }
+  }
+
+  async function loadAllPreviewRows() {
+    if (!file || !preview || preview.rowsShown >= preview.summary.totalRows) return;
+
+    const finalFieldDefaults = { ...fieldDefaults };
+    if (jobTitleDraft) finalFieldDefaults.jobTitle = jobTitleDraft;
+    else delete finalFieldDefaults.jobTitle;
+    if (sourceDraft) finalFieldDefaults.source = sourceDraft;
+    else delete finalFieldDefaults.source;
+
+    await runPreview(file, overrides, finalFieldDefaults, step === "details" ? "details" : "headers", true);
   }
 
   async function handleBulkLeadAction(contactIds: string[]) {
@@ -413,7 +428,7 @@ export function ContactImportDialog({
   if (step === "done" && result) {
     return (
       <Modal onClose={onClose} maxWidth="max-w-lg">
-        <div key={step} className="animate-step-slide-in">
+        <div key={step} className="relative animate-step-slide-in">
         <div className="flex gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/15">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
@@ -521,7 +536,7 @@ export function ContactImportDialog({
       .map(({ existingContact: c }) => c.id);
 
     return (
-      <Modal onClose={onClose} maxWidth="max-w-3xl">
+      <Modal onClose={onClose} maxWidth="max-w-5xl">
         <div key={step} className="animate-step-slide-in">
         <div className="mb-4 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
           <span className={step === "headers" ? "text-brand" : ""}>1. Colunas</span>
@@ -531,9 +546,23 @@ export function ContactImportDialog({
         <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
           {step === "headers" ? "Confira as colunas" : "Revise a importação"}
         </h2>
-        <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-          {file?.name} — {s.totalRows} linha{s.totalRows === 1 ? "" : "s"} de dados. Nada foi gravado ainda.
-        </p>
+        <div className="mb-4 flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="min-w-0 truncate">{file?.name}</span>
+          <div className="flex shrink-0 items-center gap-2 tabular-nums">
+            <span>{preview.rowsShown}/{s.totalRows}</span>
+            {s.totalRows > preview.rowsShown && (
+              <button
+                type="button"
+                onClick={loadAllPreviewRows}
+                title="Carregar todas as linhas"
+                aria-label={`Carregar todas as ${s.totalRows} linhas`}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-brand/30 bg-brand/5 text-brand transition-colors hover:border-brand/50 hover:bg-brand/10"
+              >
+                <Eye className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            )}
+          </div>
+        </div>
 
         <div
           className={`mb-4 flex items-start gap-3 rounded-lg border p-3 ${
@@ -571,28 +600,23 @@ export function ContactImportDialog({
         </div>
 
         {step === "details" && s.duplicateContacts > 0 && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/40">
+          <div className="mb-4 flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/40">
             <Info className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-            <p className="text-neutral-600 dark:text-neutral-400">
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                {s.duplicateContacts} linha{s.duplicateContacts === 1 ? "" : "s"} ignorada{s.duplicateContacts === 1 ? "" : "s"}
-              </strong>{" "}
-              — já existe contato com esse telefone ou WhatsApp (nesta planilha ou já cadastrado). A importação não atualiza
-              contato existente sozinha. O que for diferente aparece abaixo, com opção de atualizar.
-              {duplicateRows.length > 0 && (
-                <>
-                  {" "}
-                  <button
-                    type="button"
-                    onClick={() => setShowDuplicateRows((v) => !v)}
-                    className="font-medium text-neutral-800 underline hover:text-neutral-900 dark:text-neutral-200 dark:hover:text-neutral-100"
-                  >
-                    {showDuplicateRows ? "Esconder" : "Ver"} de quem são ({duplicateRows.length}
-                    {duplicateRows.length < s.duplicateContacts ? `+` : ""})
-                  </button>
-                </>
-              )}
-            </p>
+            <div className="min-w-0 flex-1">
+              <strong className="block text-neutral-800 dark:text-neutral-200">
+                {s.duplicateContacts} duplicado{s.duplicateContacts === 1 ? "" : "s"} não será{s.duplicateContacts === 1 ? "" : "ão"} importado{s.duplicateContacts === 1 ? "" : "s"}
+              </strong>
+              <span className="text-neutral-500 dark:text-neutral-400">Já existe contato com este telefone ou WhatsApp.</span>
+            </div>
+            {duplicateRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDuplicateRows((v) => !v)}
+                className="shrink-0 font-medium text-brand hover:underline"
+              >
+                {showDuplicateRows ? "Fechar" : "Ver lista"}
+              </button>
+            )}
           </div>
         )}
 
@@ -607,7 +631,7 @@ export function ContactImportDialog({
                   className="btn-secondary btn-sm"
                 >
                   {bulkActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
-                  Atribuir todos os disponíveis ({bulkClaimIds.length})
+                  Atribuir disponíveis ({bulkClaimIds.length})
                 </button>
               )}
               {bulkRequestIds.length > 0 && (
@@ -618,7 +642,7 @@ export function ContactImportDialog({
                   className="btn-secondary btn-sm"
                 >
                   {bulkActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  Solicitar tudo aos consultores ({bulkRequestIds.length})
+                  Solicitar aos consultores ({bulkRequestIds.length})
                 </button>
               )}
             </div>
@@ -935,11 +959,20 @@ export function ContactImportDialog({
                 onClick={confirmFinalImport}
                 className="btn-primary"
               >
-                {s.toCreate === 0 ? "Nada pra importar" : "Confirmar Importação"}
+                {s.toCreate === 0 ? "Nada para importar" : `Importar ${s.toCreate} contato${s.toCreate === 1 ? "" : "s"}`}
               </button>
             </>
           )}
         </div>
+        {isAnalyzing && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-neutral-950/45 backdrop-blur-[2px]">
+            <div className="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-900/95 px-4 py-3 text-sm text-neutral-200 shadow-lg">
+              <Loader2 className="h-4 w-4 animate-spin text-brand" strokeWidth={2} />
+              <span>Atualizando</span>
+              <LoadingDots />
+            </div>
+          </div>
+        )}
         </div>
       </Modal>
     );

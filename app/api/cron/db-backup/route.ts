@@ -33,7 +33,11 @@ async function handleCron() {
         );
       }
     });
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json(
+      "skipped" in result
+        ? { ok: true, skipped: true }
+        : { ok: true, backup: { bytes: result.bytes } },
+    );
   } catch (err) {
     console.error("[cron:db-backup] falha", err);
     // 200 mesmo em falha de verdade (não mais 500) — cron-job.org desativa
@@ -41,7 +45,7 @@ async function handleCron() {
     // e-mail que recordCronRun já mandou é o alerta de verdade; um 500 aqui
     // só arriscaria o cron-job.org desligar o job e a gente parar de saber
     // quando o backup volta a funcionar.
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    return NextResponse.json({ ok: false, error: "Falha ao executar o cron." });
   }
 }
 

@@ -276,7 +276,15 @@ export function QuickAddDealPanel({
 
         <p className="text-xs text-neutral-400 dark:text-neutral-500">Responsável: {ownerName}</p>
 
-        {conflict && <ContactConflictNotice conflict={conflict} onClaim={conflict.claimable ? handleClaim : undefined} claiming={claiming} />}
+        {conflict && (
+          <ContactConflictNotice
+            conflict={conflict}
+            onClaim={conflict.claimable ? handleClaim : undefined}
+            claiming={claiming}
+            onUpdateExisting={handleClaim}
+            updatingExisting={claiming}
+          />
+        )}
         {(error || loadError) && (
           <p className="text-sm text-red-600 dark:text-red-400">{error ?? loadError}</p>
         )}

@@ -194,9 +194,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
         type = mediaKind;
         mediaUrl = key;
         body = media.caption ?? body;
-        console.log(
-          `[wa:webhook] mídia baixada e salva no R2: key=${key} mimetype=${media.mimetype} tamanho=${buffer.length} bytes`,
-        );
+        console.log(`[wa:webhook] mídia baixada e salva no R2: mimetype=${media.mimetype} tamanho=${buffer.length} bytes`);
       } catch (err) {
         const reason = err instanceof ChatMediaUploadError ? err.message : String(err);
         console.error(`[wa:webhook] falha ao salvar mídia recebida no R2: ${reason}`);

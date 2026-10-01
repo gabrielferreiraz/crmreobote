@@ -121,7 +121,7 @@ async function saveIncomingMetaMessage(
           type = msg.type === "image" ? "IMAGE" : msg.type === "audio" ? "AUDIO" : "STICKER";
           mediaUrl = key;
           body = msg.type === "image" ? (msg.image?.caption ?? null) : null;
-          console.log(`[wa:meta-webhook] mídia baixada e salva no R2: key=${key} mimetype=${media.mimetype} tamanho=${buffer.length} bytes`);
+          console.log(`[wa:meta-webhook] mídia baixada e salva no R2: mimetype=${media.mimetype} tamanho=${buffer.length} bytes`);
         } catch (err) {
           const reason = err instanceof ChatMediaUploadError ? err.message : String(err);
           console.error(`[wa:meta-webhook] falha ao salvar mídia recebida no R2: ${reason}`);

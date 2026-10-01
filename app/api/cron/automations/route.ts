@@ -90,7 +90,8 @@ async function handleCron() {
     // verdade, ver lib/system-alerts.ts) — um 500 aqui só arrisca o
     // cron-job.org desligar o job e a gente parar de saber quando volta a
     // funcionar, sem ganhar nada em troca.
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    console.error("[cron:automations] falha", err);
+    return NextResponse.json({ ok: false, error: "Falha ao executar o cron." });
   }
 }
 

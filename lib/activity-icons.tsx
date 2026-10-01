@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { StickyNote, Mail, Phone, FileText, Users2, MapPin } from "lucide-react";
+import { StickyNote, Mail, Phone, FileText, Users2, MapPin, CheckCircle2, UserX, CalendarClock } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 
 type IconComponent = ComponentType<{ className?: string; strokeWidth?: number }>;
@@ -61,8 +61,36 @@ export const ACTIVITY_BODY_TEMPLATES: Record<string, string> = {
  * cada botão — verde pra realizada, vermelho pra não compareceu, neutro
  * pra remarcou (não é nem bom nem ruim, só ainda não resolvido).
  */
-export const MEETING_OUTCOME_OPTIONS: { value: "ATTENDED" | "NO_SHOW" | "RESCHEDULED"; label: string; activeClass: string }[] = [
-  { value: "ATTENDED", label: "Realizada", activeClass: "bg-emerald-600 text-white" },
-  { value: "NO_SHOW", label: "Não compareceu", activeClass: "bg-red-600 text-white" },
-  { value: "RESCHEDULED", label: "Remarcou", activeClass: "bg-neutral-700 text-white dark:bg-neutral-600" },
+export const MEETING_OUTCOME_OPTIONS: {
+  value: "ATTENDED" | "NO_SHOW" | "RESCHEDULED";
+  label: string;
+  icon: IconComponent;
+  activeClass: string;
+  cardSelectedClass: string;
+  iconSelectedClass: string;
+}[] = [
+  {
+    value: "ATTENDED",
+    label: "Realizada",
+    icon: CheckCircle2,
+    activeClass: "bg-emerald-600 text-white",
+    cardSelectedClass: "border-emerald-500 bg-emerald-50/80 text-emerald-900 shadow-sm ring-2 ring-emerald-500/20 dark:border-emerald-500/80 dark:bg-emerald-950/40 dark:text-emerald-200",
+    iconSelectedClass: "text-emerald-600 dark:text-emerald-400",
+  },
+  {
+    value: "NO_SHOW",
+    label: "Não compareceu",
+    icon: UserX,
+    activeClass: "bg-red-600 text-white",
+    cardSelectedClass: "border-rose-500 bg-rose-50/80 text-rose-900 shadow-sm ring-2 ring-rose-500/20 dark:border-rose-500/80 dark:bg-rose-950/40 dark:text-rose-200",
+    iconSelectedClass: "text-rose-600 dark:text-rose-400",
+  },
+  {
+    value: "RESCHEDULED",
+    label: "Remarcou",
+    icon: CalendarClock,
+    activeClass: "bg-neutral-700 text-white dark:bg-neutral-600",
+    cardSelectedClass: "border-amber-500 bg-amber-50/80 text-amber-900 shadow-sm ring-2 ring-amber-500/20 dark:border-amber-500/80 dark:bg-amber-950/40 dark:text-amber-200",
+    iconSelectedClass: "text-amber-600 dark:text-amber-400",
+  },
 ];

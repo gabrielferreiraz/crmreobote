@@ -110,7 +110,7 @@ export async function runDbBackup(): Promise<DbBackupResult> {
       }),
     );
 
-    console.log(`[db-backup] backup salvo: ${key} (${size} bytes)`);
+    console.log(`[db-backup] backup salvo (${size} bytes)`);
     return { key, bytes: size };
   } finally {
     await fs.promises.unlink(tmpFile).catch(() => {});

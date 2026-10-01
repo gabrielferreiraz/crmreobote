@@ -166,13 +166,15 @@ function ActivityItem({
     return (
       <div
         id={`activity-${activity.id}`}
-        className={`flex items-center gap-1.5 px-1 py-0.5 text-[11px] font-medium ${
-          isProposalEvent ? "text-brand dark:text-brand-light" : "text-neutral-600 dark:text-neutral-400"
+        className={`flex items-center gap-1.5 px-1 py-0.5 text-xs font-medium ${
+          isProposalEvent
+            ? "text-indigo-600 dark:text-indigo-400 font-semibold"
+            : "text-neutral-700 dark:text-neutral-200"
         } ${highlighted ? "animate-highlight-once" : ""}`}
       >
-        {isProposalEvent && <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />}
-        {activity.user.name} {activity.body}
-        <span className="font-normal text-neutral-500 dark:text-neutral-500"> · {new Date(activity.createdAt).toLocaleString("pt-BR")}</span>
+        {isProposalEvent && <FileText className="h-3.5 w-3.5 shrink-0 text-indigo-500 dark:text-indigo-400" strokeWidth={2} />}
+        <span>{activity.user.name} {activity.body}</span>
+        <span className="font-normal text-neutral-400 dark:text-neutral-400 text-[11px]"> · {new Date(activity.createdAt).toLocaleString("pt-BR")}</span>
       </div>
     );
   }
@@ -704,6 +706,30 @@ export function DealDetail({
     }
     router.refresh();
     pushUndoToast(data.undo);
+    return { ok: true };
+  }
+
+  // "Atualizar contato" do ContactConflictNotice quando o número (Celular/
+  // WhatsApp) já é de OUTRO contato seu (ownedByMe) — PUT só no campo que
+  // estava sendo editado, no id do contato EXISTENTE (não no de
+  // deal.contact) — pedido explícito, mesma correção de
+  // components/edit-contact-dialog.tsx. Só o campo em questão (não o
+  // snapshot inteiro de deal.contact, que é de OUTRO contato) — os demais
+  // campos ficam `undefined`, e PUT /api/contacts/[id] já trata undefined
+  // como "não mexe".
+  async function updateExistingContactField(
+    field: "phone" | "whatsapp",
+    value: string,
+    existingContactId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(`/api/contacts/${existingContactId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error ?? "Erro ao atualizar" };
+    router.refresh();
     return { ok: true };
   }
 
@@ -1405,18 +1431,22 @@ export function DealDetail({
               {(activeTab === "VIDEO_CALL" || activeTab === "VISIT") && !dueDate && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-neutral-500 dark:text-neutral-400">Resultado:</span>
-                  {MEETING_OUTCOME_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setMeetingOutcome(opt.value)}
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-                        meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  {MEETING_OUTCOME_OPTIONS.map((opt) => {
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setMeetingOutcome(opt.value)}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                          meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <div className="flex items-end justify-between gap-3">
@@ -1522,7 +1552,7 @@ export function DealDetail({
                       <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Tarefas</h3>
                     </div>
                     {deal.tasks.length > 0 && (
-                      <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand dark:bg-brand/20 dark:text-brand-light">
+                      <span className="rounded-full bg-brand/10 border border-brand/20 px-2 py-0.5 text-[11px] font-bold text-brand dark:bg-brand/25 dark:border-brand/40 dark:text-brand-hover">
                         {deal.tasks.filter((t) => !t.completedAt).length} pendente(s)
                       </span>
                     )}
@@ -1672,8 +1702,8 @@ export function DealDetail({
                   </div>
                   <EditableRow label="Nome" value={deal.contact.name} editable={canEditDetails} onSave={(v) => saveContactField("name", v)} onShowFix={showResponsavelFix} />
                   <EditableRow label="E-mail" value={deal.contact.email ?? ""} type="email" editable={canEditDetails} onSave={(v) => saveContactField("email", v)} onShowFix={showResponsavelFix} />
-                  <EditableRow label="Celular" value={deal.contact.phone ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("phone", v)} onShowFix={showResponsavelFix} />
-                  <EditableRow label="WhatsApp" value={deal.contact.whatsapp ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("whatsapp", v)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="Celular" value={deal.contact.phone ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("phone", v)} onUpdateExisting={(v, id) => updateExistingContactField("phone", v, id)} onShowFix={showResponsavelFix} />
+                  <EditableRow label="WhatsApp" value={deal.contact.whatsapp ?? ""} editable={canEditDetails} onSave={(v) => saveContactField("whatsapp", v)} onUpdateExisting={(v, id) => updateExistingContactField("whatsapp", v, id)} onShowFix={showResponsavelFix} />
                   <EditableRow label="Cargo" value={deal.contact.jobTitle ?? ""} type="select" options={jobTitleOptions} editable={canEditDetails} onSave={(v) => saveContactField("jobTitle", v)} onShowFix={showResponsavelFix} />
                   <EditableRow label="Origem" value={deal.contact.source ?? ""} type="select" options={sourceOptions} editable={canEditDetails} onSave={(v) => saveContactField("source", v)} onShowFix={showResponsavelFix} />
                   <EditableRow label="Responsável" value={deal.contact.responsavelId ?? ""} displayValue={deal.contact.responsavel?.name ?? "Ninguém"} type="select" options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]} editable={canEditDetails} onSave={(v) => saveContactField("responsavelId", v)} autoEditSignal={responsavelFocusTrigger} />
@@ -1817,18 +1847,22 @@ export function DealDetail({
                 {(activeTab === "VIDEO_CALL" || activeTab === "VISIT") && !dueDate && (
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Resultado:</span>
-                    {MEETING_OUTCOME_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setMeetingOutcome(opt.value)}
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                          meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                    {MEETING_OUTCOME_OPTIONS.map((opt) => {
+                      const Icon = opt.icon;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setMeetingOutcome(opt.value)}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                            meetingOutcome === opt.value ? opt.activeClass : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          {opt.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-end sm:justify-between">
@@ -2120,6 +2154,7 @@ export function DealDetail({
                 value={deal.contact.phone ?? ""}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("phone", v)}
+                onUpdateExisting={(v, id) => updateExistingContactField("phone", v, id)}
                 onShowFix={showResponsavelFix}
               />
               <EditableRow
@@ -2127,6 +2162,7 @@ export function DealDetail({
                 value={deal.contact.whatsapp ?? ""}
                 editable={canEditDetails}
                 onSave={(v) => saveContactField("whatsapp", v)}
+                onUpdateExisting={(v, id) => updateExistingContactField("whatsapp", v, id)}
                 onShowFix={showResponsavelFix}
               />
               <EditableRow
@@ -2726,6 +2762,7 @@ function EditableRow({
   value,
   displayValue,
   onSave,
+  onUpdateExisting,
   type = "text",
   options,
   editable,
@@ -2737,6 +2774,12 @@ function EditableRow({
   /** Como mostrar o valor fora do modo edição, se diferente do value bruto (ex.: data formatada). */
   displayValue?: string;
   onSave: (value: string) => Promise<{ ok: boolean; error?: string; type?: ErrorType; details?: string; conflict?: ContactConflict }>;
+  /** Só faz sentido em campos de telefone (Celular/WhatsApp) — "Atualizar
+   * contato" do ContactConflictNotice quando o número já é de OUTRO contato
+   * seu (ownedByMe): reenvia só ESTE campo pro id do contato EXISTENTE, não
+   * o de `onSave` (que sempre mira o contato deste negócio). Ausente nos
+   * outros campos (Nome/Cargo/Origem/Responsável nunca geram esse conflito). */
+  onUpdateExisting?: (value: string, existingContactId: string) => Promise<{ ok: boolean; error?: string }>;
   type?: "text" | "email" | "textarea" | "date" | "select";
   /** Só usado quando type="select" — lista de opções fixas (ex.: cargo). */
   options?: { value: string; label: string }[];
@@ -2760,7 +2803,8 @@ function EditableRow({
   // para editar" sem explicar nada), mesmo componente/padrão que
   // components/edit-contact-dialog.tsx já usa.
   const [errorDialog, setErrorDialog] = useState<{ message: string; type?: ErrorType; details?: string } | null>(null);
-  const [conflictDialog, setConflictDialog] = useState<{ message: string; conflict: ContactConflict } | null>(null);
+  const [conflictDialog, setConflictDialog] = useState<ContactConflict | null>(null);
+  const [updatingExisting, setUpdatingExisting] = useState(false);
   const [highlight, setHighlight] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const lastSignal = useRef(autoEditSignal);
@@ -2817,12 +2861,28 @@ function EditableRow({
     setSaving(false);
     if (!result.ok) {
       if (result.conflict) {
-        setConflictDialog({ message: result.error ?? "Este número já está cadastrado em outro contato.", conflict: result.conflict });
+        setConflictDialog(result.conflict);
         return;
       }
       setErrorDialog({ message: result.error ?? "Erro ao salvar", type: result.type, details: result.details });
       return;
     }
+    setEditing(false);
+  }
+
+  // "Atualizar contato" — ver onUpdateExisting acima e updateExistingContactField
+  // no componente pai. Sucesso fecha o modal de conflito E sai do modo edição
+  // (o valor "certo" já está salvo no outro contato, nada mais pra fazer aqui).
+  async function handleUpdateExisting() {
+    if (!conflictDialog || !onUpdateExisting) return;
+    setUpdatingExisting(true);
+    const result = await onUpdateExisting(draft, conflictDialog.contactId);
+    setUpdatingExisting(false);
+    if (!result.ok) {
+      setErrorDialog({ message: result.error ?? "Não foi possível atualizar o contato." });
+      return;
+    }
+    setConflictDialog(null);
     setEditing(false);
   }
 
@@ -2881,10 +2941,13 @@ function EditableRow({
       {conflictDialog && (
         <Modal onClose={() => setConflictDialog(null)} maxWidth="max-w-md">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Número já cadastrado</h2>
-          <p className="mt-1 mb-3 text-sm text-neutral-600 dark:text-neutral-300">
-            {conflictDialog.message} A alteração não foi salva.
-          </p>
-          <ContactConflictNotice conflict={conflictDialog.conflict} />
+          <ContactConflictNotice
+            conflict={conflictDialog}
+            onUpdateExisting={
+              onUpdateExisting ? () => handleUpdateExisting() : undefined
+            }
+            updatingExisting={updatingExisting}
+          />
           <div className="mt-4 flex justify-end">
             <button type="button" onClick={() => setConflictDialog(null)} className="btn-ghost">
               Fechar

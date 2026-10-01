@@ -118,6 +118,10 @@ model Organization {
   proposals              Proposal[]
   proposalTemplates      ProposalTemplate[]
   userCompanies          UserCompany[]
+  academyProgresso       Progresso[]
+  academyAuthCodes       AcademyAuthCode[]
+  academyAccessTokens    AcademyAccessToken[]
+  academyRefreshTokens   AcademyRefreshToken[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -186,6 +190,10 @@ model User {
   proposalsSent               Proposal[]                @relation("ProposalSentBy")
   proposalTemplatesCreated   ProposalTemplate[]        @relation("ProposalTemplateCreatedBy")
   company                     UserCompany?
+  academyProgresso            Progresso[]
+  academyAuthCodes            AcademyAuthCode[]
+  academyAccessTokens         AcademyAccessToken[]
+  academyRefreshTokens        AcademyRefreshToken[]
 }
 
 // ─── Google Agenda (OAuth por usuário) ───────────────────────────────
@@ -2888,4 +2896,140 @@ model UserCompany {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+}
+
+// ─── Reobote Academy (curso em vídeo, sistema externo) ────────────────
+//
+// Progresso do curso da Academy, gravado NESTE banco (a Academy não tem
+// banco próprio). `organizationId` está aqui mesmo a Academy sendo hoje um
+// curso único pra Reobote inteira: TODA tabela deste sistema é isolada por
+// organização via RLS (ver tenant_isolation na migration), e este CRM já
+// caminha pra virar produto SaaS vendido pra fora (ver decisão registrada
+// em memória de produto) — sem a coluna, um segundo cliente usando o CRM um
+// dia veria o progresso de curso de TODAS as organizações misturado, e essa
+// tabela ficaria a única exceção ao padrão de isolamento do sistema
+// inteiro. userId aponta pro User GLOBAL (mesmo ponto de UserCompany
+// acima), mas cada LINHA de progresso pertence à organização em que a
+// pessoa estava logada quando concluiu a aula (capturado no momento da
+// troca code→token, ver lib/academy-oauth.ts, nunca um valor solto).
+model Progresso {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  // Id da aula NA ACADEMY (ex.: "introducao") — string livre validada só por
+  // formato (`^[a-z0-9-]+$`, ver app/api/academy/progresso/route.ts), não
+  // uma FK: este sistema não conhece o catálogo de aulas, quem é dono dele
+  // é a Academy.
+  aulaId         String
+  concluidaEm    DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Escopado por organização (não só userId+aulaId) — é o que faz o upsert
+  // idempotente (ver POST /api/academy/progresso) nunca colidir entre duas
+  // organizações diferentes que a mesma pessoa participe.
+  @@unique([organizationId, userId, aulaId])
+  @@index([organizationId, userId])
+}
+
+// ─── Reobote Academy — OAuth 2.0 Authorization Code + PKCE ─────────────
+//
+// Substitui o fluxo de token JWT de uso direto (não passa mais token
+// nenhum pelo navegador — só um `code` opaco de uso único). O cliente
+// "reobote-academy" em si NÃO é uma tabela: é único, fixo, e vive em
+// variável de ambiente (ACADEMY_CLIENT_ID/ACADEMY_CLIENT_SECRET_HASH — ver
+// lib/academy-oauth.ts), mesmo padrão de todo outro segredo compartilhado
+// com sistema externo deste projeto (SIMULADOR_SSO_SECRET, CRON_SECRET
+// etc.) — não é uma plataforma de terceiros com múltiplos clientes, é uma
+// integração fixa, não precisa de registro em banco.
+//
+// As 3 tabelas abaixo guardam as credenciais de CURTA duração emitidas
+// durante o fluxo — cada uma só o HASH (nunca o valor em texto puro, mesmo
+// padrão de ApiKey/TvDisplayLink), localizável por esse hash ANTES de se
+// conhecer organizationId: é o mesmo bootstrap de RLS que ApiKey/
+// TvDisplayLink já usam (ver runWithAcademyCredentialLookup em
+// lib/tenant-context.ts) — as TRÊS tabelas reaproveitam a MESMA variável de
+// sessão do Postgres (app.current_academy_credential_hash) pro bootstrap,
+// porque nunca duas são procuradas na mesma operação; cada policy de RLS
+// confere seu PRÓPRIO hash contra esse valor, então não há risco de uma
+// tabela "enxergar" o bootstrap destinado à outra.
+
+model AcademyAuthCode {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  codeHash       String    @unique
+  // Base64url do SHA-256 do code_verifier que o NAVEGADOR/backend da
+  // Academy gerou — guardado em texto puro de propósito: sozinho não abre
+  // nada (é público na própria URL de /authorize), só tem valor junto do
+  // code_verifier que nunca sai do lado da Academy. Conferido em POST
+  // /api/academy/token (grant authorization_code).
+  codeChallenge  String
+  // Null = ainda não trocado. Setado ATOMICAMENTE (uso único) no exato
+  // instante em que POST /token começa a processar a troca — mesmo se as
+  // validações seguintes (PKCE, expiração) falharem, o code já morreu.
+  usedAt         DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accessTokens  AcademyAccessToken[]
+  refreshTokens AcademyRefreshToken[]
+
+  @@index([organizationId])
+  @@index([expiresAt])
+}
+
+model AcademyAccessToken {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  tokenHash      String    @unique
+  // De qual code este token (ou a cadeia de renovações a partir dele) veio
+  // — é o que permite revogar TUDO que nasceu de um code reaproveitado
+  // (RFC 6749 §4.1.2). Propagado sem mudar através de renovações.
+  issuedFromCodeId String
+  expiresAt      DateTime
+  // Revogação explícita (ex.: code reaproveitado detectado) — além do
+  // expiresAt natural (15min).
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issuedFrom   AcademyAuthCode @relation(fields: [issuedFromCodeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([issuedFromCodeId])
+  @@index([expiresAt])
+}
+
+model AcademyRefreshToken {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  tokenHash      String    @unique
+  issuedFromCodeId String
+  // Teto ABSOLUTO da sessão — 8h da emissão do 1º refresh token (na troca do
+  // code), copiado SEM alteração a cada renovação (a renovação nunca
+  // estende a sessão, só o access token de 15min muda de validade).
+  sessionExpiresAt DateTime
+  // Quando este token foi SUBSTITUÍDO por um novo (renovação sempre gira o
+  // refresh token) — continua aceito por GRACE_WINDOW_MS depois disso
+  // (chamadas paralelas da mesma sessão podem renovar quase ao mesmo
+  // tempo), recusado depois da janela.
+  replacedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issuedFrom   AcademyAuthCode @relation(fields: [issuedFromCodeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([issuedFromCodeId])
+  @@index([sessionExpiresAt])
 }

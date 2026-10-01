@@ -9,6 +9,7 @@ import {
   getCurrentMetaPageId,
   getCurrentTvLinkTokenHash,
   getCurrentCardSlug,
+  getCurrentAcademyCredentialHash,
 } from "@/lib/tenant-context";
 
 // Tipo derivado do cliente de fato criado — carrega a config de `omit` global
@@ -76,6 +77,14 @@ function createBaseClient() {
  * por slug+active antes de conhecer o organizationId. Diferente dos outros
  * bootstraps, slug não é secreto (é feito pra ser compartilhado) — não há
  * hash aqui, só o valor puro.
+ *
+ * `app.current_academy_credential_hash` é o mesmo tipo de bootstrap, só que
+ * pro fluxo OAuth da Reobote Academy (lib/tenant-context.ts's
+ * runWithAcademyCredentialLookup): a requisição só traz o hash de um `code`/
+ * `access_token`/`refresh_token` opaco, e as policies de AcademyAuthCode/
+ * AcademyAccessToken/AcademyRefreshToken permitem achar a própria linha por
+ * ele antes de conhecer o organizationId — as três reaproveitam esta MESMA
+ * variável (nunca duas são procuradas na mesma operação).
  */
 function withTenantRls(client: BaseClient) {
   return client.$extends({
@@ -90,7 +99,8 @@ function withTenantRls(client: BaseClient) {
           const metaPageId = getCurrentMetaPageId();
           const tvLinkTokenHash = getCurrentTvLinkTokenHash();
           const cardSlug = getCurrentCardSlug();
-          if (!organizationId && !userId && !instanceName && !apiKeyHash && !metaPageId && !tvLinkTokenHash && !cardSlug) return query(args);
+          const academyCredentialHash = getCurrentAcademyCredentialHash();
+          if (!organizationId && !userId && !instanceName && !apiKeyHash && !metaPageId && !tvLinkTokenHash && !cardSlug && !academyCredentialHash) return query(args);
 
           // Importante: tem que ser a forma em array do $transaction, não
           // `$transaction(async (tx) => ...)`. Na forma de callback, `query(args)`
@@ -100,10 +110,10 @@ function withTenantRls(client: BaseClient) {
           // filtrando tudo silenciosamente (zero linhas, sem erro nenhum). A forma
           // em array agrupa todas as operações numa única transação/conexão real.
           //
-          // As 7 chamadas set_config viram uma ÚNICA consulta (uma SELECT com 7
-          // colunas, não 7 SELECTs) — banco é remoto (~40ms de ida-e-volta por
+          // As 8 chamadas set_config viram uma ÚNICA consulta (uma SELECT com 8
+          // colunas, não 8 SELECTs) — banco é remoto (~40ms de ida-e-volta por
           // consulta), e cada uma dessas era uma ida-e-volta própria. Isso corta
-          // de 9 idas-e-voltas por operação (BEGIN + 7 set_config + a consulta
+          // de 10 idas-e-voltas por operação (BEGIN + 8 set_config + a consulta
           // de verdade + COMMIT) pra 4 (BEGIN + 1 set_config combinado + a
           // consulta + COMMIT) — em TODA operação do Prisma no app inteiro, não
           // só numa tela. Continua sendo uma única query parametrizada (sem
@@ -124,7 +134,8 @@ function withTenantRls(client: BaseClient) {
                 set_config('app.current_api_key_hash', ${apiKeyHash ?? ""}, true),
                 set_config('app.current_meta_page_id', ${metaPageId ?? ""}, true),
                 set_config('app.current_tv_link_token_hash', ${tvLinkTokenHash ?? ""}, true),
-                set_config('app.current_card_slug', ${cardSlug ?? ""}, true)`,
+                set_config('app.current_card_slug', ${cardSlug ?? ""}, true),
+                set_config('app.current_academy_credential_hash', ${academyCredentialHash ?? ""}, true)`,
               query(args),
             ],
             { maxWait: 10_000, timeout: 15_000 },

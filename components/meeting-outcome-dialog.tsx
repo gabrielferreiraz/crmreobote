@@ -60,7 +60,7 @@ export function MeetingOutcomeDialog({
   const canConfirm = choice === "ATTENDED" || choice === "NO_SHOW" || (choice === "RESCHEDULED" && !!rescheduleDate);
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-sm">
+    <Modal onClose={onClose} maxWidth="max-w-md">
       <div className="flex gap-4">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
           <CalendarClock className="h-5 w-5 text-neutral-600 dark:text-neutral-400" strokeWidth={2} />
@@ -70,26 +70,41 @@ export function MeetingOutcomeDialog({
             Como foi a {typeLabel}?
           </h2>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Precisa informar o resultado antes de concluir — isso alimenta a taxa de comparecimento nos Relatórios.
+            Informe o resultado.
           </p>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {MEETING_OUTCOME_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => setChoice(opt.value)}
-            className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-              choice === opt.value
-                ? opt.activeClass
-                : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
+      <div className="mt-5 grid grid-cols-3 gap-2.5">
+        {MEETING_OUTCOME_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          const isSelected = choice === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setChoice(opt.value)}
+              className={`flex flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-all ${isSelected
+                ? opt.cardSelectedClass
+                : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-100/60 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300 dark:hover:border-neutral-700 dark:hover:bg-neutral-800"
+                }`}
+            >
+              <div
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${isSelected
+                  ? opt.value === "ATTENDED"
+                    ? "bg-emerald-100 dark:bg-emerald-900/60"
+                    : opt.value === "NO_SHOW"
+                      ? "bg-rose-100 dark:bg-rose-900/60"
+                      : "bg-amber-100 dark:bg-amber-900/60"
+                  : "bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
+                  }`}
+              >
+                <Icon className={`h-5 w-5 ${isSelected ? opt.iconSelectedClass : ""}`} strokeWidth={2.2} />
+              </div>
+              <span className="text-xs font-semibold leading-snug">{opt.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {choice === "RESCHEDULED" && (
