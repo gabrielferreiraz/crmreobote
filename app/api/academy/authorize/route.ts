@@ -76,6 +76,24 @@ function clearPendingCookie(res: NextResponse) {
  * volta aqui já logada.
  */
 export async function GET(req: NextRequest) {
+  // Rede de segurança final — o spec da Academy é explícito: "nunca 500",
+  // nem pra config faltando nem pra qualquer outra falha inesperada (o
+  // navegador está no meio de um redirecionamento, uma tela de erro do
+  // Next quebra a experiência de um jeito que esta rota pode evitar). Os
+  // 400 "normais" (parâmetro inválido etc.) continuam saindo de dentro de
+  // handleAuthorize — isto aqui só pega o que escapar disso.
+  try {
+    return await handleAuthorize(req);
+  } catch (err) {
+    // Nunca loga `err` inteiro sem pensar — mas aqui não há segredo
+    // nenhum em jogo ainda (code/token só nascem DEPOIS deste ponto), só
+    // a mensagem/stack do próprio erro de infraestrutura.
+    console.error("[academy-authorize] falha inesperada", err);
+    return badRequest("Não foi possível iniciar o acesso à Reobote Academy agora. Tente de novo em instantes.");
+  }
+}
+
+async function handleAuthorize(req: NextRequest) {
   const url = new URL(req.url);
   const hasQuery = url.search.length > 0;
 

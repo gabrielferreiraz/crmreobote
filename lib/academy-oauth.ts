@@ -105,21 +105,28 @@ export function isValidState(state: string): boolean {
 
 export type ClientAuthResult = { ok: true; clientId: string } | { ok: false; error: "invalid_client"; clientId: string | null };
 
-function getExpectedClientId(): string {
-  const id = process.env.ACADEMY_CLIENT_ID;
-  if (!id) throw new Error("ACADEMY_CLIENT_ID não configurado");
-  return id;
+// Nenhuma das duas LANÇA — devolvem null quando a env var falta. Achado em
+// produção (2026-10-01): a versão anterior lançava `Error`, e GET
+// /authorize chamava isKnownClientId ANTES de qualquer try/catch — sem
+// ACADEMY_CLIENT_ID configurado, TODA requisição de autorização batia
+// nesse throw não tratado e virava 500 genérico do Next ("Esta página não
+// está funcionando"), nunca chegando no 400 que o próprio spec da Academy
+// pede explicitamente pra "parâmetro inválido" ("nenhum undefined sem
+// tratamento"). Falta de configuração não é exceção — é um estado
+// esperado/checável, e precisa ser tratado como "cliente não confere"
+// (nunca aceitar por engano), nunca como erro de servidor opaco.
+function getExpectedClientId(): string | null {
+  return process.env.ACADEMY_CLIENT_ID || null;
 }
 
-function getExpectedClientSecretHash(): string {
-  const hash = process.env.ACADEMY_CLIENT_SECRET_HASH;
-  if (!hash) throw new Error("ACADEMY_CLIENT_SECRET_HASH não configurado");
-  return hash;
+function getExpectedClientSecretHash(): string | null {
+  return process.env.ACADEMY_CLIENT_SECRET_HASH || null;
 }
 
-/** `client_id` sozinho não é segredo (é só um identificador, tipo usuário) — usado em GET /authorize, onde não há Basic auth nenhum (a Academy ainda não "falou" com o backend do CRM nesse passo, é o navegador). */
+/** `client_id` sozinho não é segredo (é só um identificador, tipo usuário) — usado em GET /authorize, onde não há Basic auth nenhum (a Academy ainda não "falou" com o backend do CRM nesse passo, é o navegador). Sem ACADEMY_CLIENT_ID configurado, nunca bate (fail-closed), nunca lança. */
 export function isKnownClientId(clientId: string): boolean {
-  return clientId === getExpectedClientId();
+  const expected = getExpectedClientId();
+  return expected !== null && clientId === expected;
 }
 
 /**
@@ -152,8 +159,11 @@ export function verifyClientBasicAuth(req: Request): ClientAuthResult {
     return { ok: false, error: "invalid_client", clientId: null };
   }
 
-  if (clientId !== getExpectedClientId()) return { ok: false, error: "invalid_client", clientId };
-  if (!secureEqual(hashOpaque(clientSecret), getExpectedClientSecretHash())) {
+  const expectedId = getExpectedClientId();
+  const expectedSecretHash = getExpectedClientSecretHash();
+  if (expectedId === null || expectedSecretHash === null) return { ok: false, error: "invalid_client", clientId };
+  if (clientId !== expectedId) return { ok: false, error: "invalid_client", clientId };
+  if (!secureEqual(hashOpaque(clientSecret), expectedSecretHash)) {
     return { ok: false, error: "invalid_client", clientId };
   }
 
