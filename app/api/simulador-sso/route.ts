@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { buildSimuladorSsoToken } from "@/lib/simulador-sso";
+import { getCurrentMembership } from "@/lib/current-membership";
+import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,12 @@ const SSO_PATH = "/api/auth/crm-sso";
  * favor de outro mecanismo, é uma mudança só, num lugar só.
  */
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.organizationId) return NextResponse.redirect(new URL("/login", process.env.NEXTAUTH_URL ?? "http://localhost:3000"));
+  const membership = await getCurrentMembership();
+  if (!membership?.active) return NextResponse.redirect(new URL("/login", process.env.NEXTAUTH_URL ?? "http://localhost:3000"));
+  if (isCrmRestrictedByAcademy(membership.role, membership.area, membership.academyOnboardingStatus)) {
+    return NextResponse.json({ error: "Conclua o treinamento inicial para acessar o Simulador" }, { status: 403 });
+  }
+  const session = membership.session;
 
   const simuladorUrl = process.env.SIMULADOR_URL;
   if (!simuladorUrl) {
@@ -28,7 +33,7 @@ export async function GET() {
     id: session.user.id,
     email: session.user.email ?? "",
     name: session.user.name ?? "",
-    organizationId: session.user.organizationId,
+    organizationId: membership.organizationId,
   });
 
   const target = new URL(SSO_PATH, simuladorUrl);

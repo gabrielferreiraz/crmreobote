@@ -23,6 +23,9 @@ import { UndoProvider } from "@/components/undo-provider";
 import { ProductivityTipsHost } from "@/components/productivity-tips-host";
 import { HelpCenterProvider } from "@/components/help/help-center";
 import { NewDealButton, NewDealProvider } from "./new-deal-provider";
+import { AcademyOnboardingGate } from "@/components/academy/academy-onboarding-gate";
+import { AcademyShortcutHint } from "@/components/academy/academy-shortcut-hint";
+import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -66,6 +69,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
   async function handleSignOut() {
     "use server";
     await signOut({ redirectTo: "/login" });
+  }
+
+  if (isCrmRestrictedByAcademy(membership.role, membership.area, membership.academyOnboardingStatus)) {
+    return (
+      <AcademyOnboardingGate
+        status={membership.academyOnboardingStatus}
+        academyHref={academyHref}
+        name={session.user.name ?? session.user.email ?? "Consultor"}
+        signOutAction={handleSignOut}
+      />
+    );
   }
 
   return (
@@ -150,6 +164,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               {academyHref && (
                 <a
                   href={academyHref}
+                  data-help="academy"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-secondary btn-sm group overflow-hidden transition-all duration-300"
@@ -182,6 +197,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PushNotificationsPrompt />
       <CnpjPrompt />
       <ProductivityTipsHost />
+      {membership.academyOnboardingStatus === "CRM_UNLOCKED" && !membership.academyShortcutHintSeenAt && (
+        <AcademyShortcutHint />
+      )}
     </div>
     </HelpCenterProvider>
     </NewDealProvider>

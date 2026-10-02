@@ -6,6 +6,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 import { getUserOrganizationIds, EMAIL_BELONGS_TO_OTHER_ORG_MESSAGE } from "@/lib/org-membership-guard";
+import { initialAcademyOnboardingState } from "@/lib/academy-onboarding";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +26,20 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { name, email, role, area, password } = body as {
+  const access = await requireRole(["OWNER"]);
+  if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+  }
+  const { name, email, role, area, password, academyRequired } = body as {
     name?: string;
     email?: string;
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     area?: "VENDAS" | "ADMINISTRATIVO";
     password?: string;
+    academyRequired?: boolean;
   };
 
   // Só o Dono cria usuário — não é só "quem pode convidar com qual papel"
@@ -40,14 +48,23 @@ export async function POST(req: Request) {
   // pelo sistema, ver validação de `password` abaixo). Gerente não tem mais
   // esse botão na UI (ver members-table.tsx) — reforça aqui pra não
   // depender só do frontend escondendo o botão.
-  const access = await requireRole(["OWNER"]);
-  if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-
-  if (!email || !role) {
+  if (typeof email !== "string" || !email.trim() || typeof role !== "string" || !role) {
     return NextResponse.json({ error: "email e role são obrigatórios" }, { status: 400 });
+  }
+  if (!["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"].includes(role)) {
+    return NextResponse.json({ error: "role inválido" }, { status: 400 });
   }
   if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
+  }
+  if (name !== undefined && typeof name !== "string") {
+    return NextResponse.json({ error: "Nome inválido" }, { status: 400 });
+  }
+  if (password !== undefined && typeof password !== "string") {
+    return NextResponse.json({ error: "Senha inválida" }, { status: 400 });
+  }
+  if (academyRequired !== undefined && typeof academyRequired !== "boolean") {
+    return NextResponse.json({ error: "Opção da Academy inválida" }, { status: 400 });
   }
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -84,12 +101,14 @@ export async function POST(req: Request) {
       user = await prisma.user.create({ data: { name, email: normalizedEmail, password: hashedPassword } });
     }
 
+    const membershipArea = area ?? "VENDAS";
     const membership = await prisma.organizationUser.create({
       data: {
         organizationId: access.organizationId,
         userId: user.id,
         role,
-        area,
+        area: membershipArea,
+        academyOnboardingStatus: initialAcademyOnboardingState(role, membershipArea, academyRequired ?? true),
         // Consultor/Supervisor/Gerente contam pra meta por padrão (mesmo
         // @default(true) do schema); Dono é a única exceção — sócio pode
         // fechar negócio da própria Reobote, mas isso não é meta de

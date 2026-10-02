@@ -1,11 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
 
-// Script movido pra public/theme-init.js — Next.js Script com src é mais limpo
-// do que inline, evita o aviso de React sobre script tags renderizadas durante SSR
+// Aplica o tema escuro antes da primeira pintura (sem flash branco). Script
+// comum no <head> deste Server Component, não <Script> do next/script: o
+// <Script strategy="beforeInteractive"> era re-renderizado no cliente e o
+// React 19 reclamava no console ("Encountered a script tag while rendering
+// React component"). Aqui ele só é renderizado no servidor, então não há
+// aviso; inline, não precisa nem da requisição extra a /theme-init.js.
+const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem("theme");var t=s==="light"||s==="dark"?s:(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");if(t==="dark")document.documentElement.classList.add("dark");}catch(e){}})();`;
 
 // Redesign (ver new-design-for-claude/README.md) — DM Sans no lugar da Geist
 // Sans anterior, pesos 400-700 (a marcação do protótipo usa até 700 em
@@ -58,12 +62,10 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
-        {/* Inicialização do tema — carrega do arquivo público (public/theme-init.js)
-            pra evitar tentar renderizar inline scripts como JSX. strategy=
-            "beforeInteractive" garante que o Next executa isso no <head> cedo
-            o bastante pra nunca haver flash de tema errado. */}
-        <Script id="theme-init" src="/theme-init.js" strategy="beforeInteractive" />
         <Providers>{children}</Providers>
       </body>
     </html>

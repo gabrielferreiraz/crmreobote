@@ -167,6 +167,7 @@ export function MobileNav({
         <button
           type="button"
           onClick={() => setSheetOpen(true)}
+          data-help="academy"
           className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors active:bg-neutral-100 dark:active:bg-neutral-800 ${
             isOverflowActive ? "text-brand dark:text-brand" : "text-neutral-400 dark:text-neutral-500"
           }`}

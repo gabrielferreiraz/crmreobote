@@ -5,6 +5,7 @@ import { getCurrentMembership } from "@/lib/current-membership";
 import { FEATURE_KEYS } from "@/lib/feature-usage/features";
 import type { ChecklistItemId } from "@/lib/help/checklist";
 import type { HelpOverview } from "@/lib/help/types";
+import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   const membership = await getCurrentMembership();
-  if (!membership?.active) {
+  if (
+    !membership?.active ||
+    isCrmRestrictedByAcademy(membership.role, membership.area, membership.academyOnboardingStatus)
+  ) {
     return NextResponse.json({ done: [], neverUsed: [] } satisfies HelpOverview);
   }
   const { organizationId, userId, photoKey, cardShortcut } = membership;

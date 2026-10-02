@@ -64,6 +64,7 @@ export default async function UsuariosSettingsPage() {
           initialMembers={members}
           currentUserId={session.user.id}
           isOwner={session.user.role === "OWNER"}
+          previewName={session.user.name ?? "Consultor"}
         />
       </div>
     );

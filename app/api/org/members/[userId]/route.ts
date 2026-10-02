@@ -7,6 +7,11 @@ import { cleanupInstanceIfDisconnected } from "@/lib/whatsapp/instance-cleanup";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 import { countActiveMemberships, countMemberships, isUserExclusiveToOrg, SHARED_ACCOUNT_MESSAGE } from "@/lib/org-membership-guard";
+import {
+  stateAfterManualAcademyAction,
+  stateAfterMembershipChange,
+  type ManualAcademyOnboardingAction,
+} from "@/lib/academy-onboarding";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +20,14 @@ export async function PATCH(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
-  const body = await req.json();
-  const { role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal, showInPodium, showInMonthRanking } = body as {
+  const access = await requireRole(["OWNER"]);
+  if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+  }
+  const { role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal, showInPodium, showInMonthRanking, academyOnboardingAction } = body as {
     role?: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER";
     teamId?: string | null;
     active?: boolean;
@@ -31,19 +42,41 @@ export async function PATCH(
     /** Aparece no pódio (top 3) da TV principal / no Ranking do mês completo (ver schema). */
     showInPodium?: boolean;
     showInMonthRanking?: boolean;
+    /** Ação fechada: o navegador nunca escolhe diretamente um estado do banco. */
+    academyOnboardingAction?: ManualAcademyOnboardingAction;
   };
 
-  const access = await requireRole(["OWNER"]);
-  if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-
+  if (role !== undefined && !["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"].includes(role)) {
+    return NextResponse.json({ error: "role inválido" }, { status: 400 });
+  }
   if (area !== undefined && area !== "VENDAS" && area !== "ADMINISTRATIVO") {
     return NextResponse.json({ error: "area inválida" }, { status: 400 });
   }
 
-  for (const flag of [countsTowardGoal, showInPodium, showInMonthRanking]) {
+  if (teamId !== undefined && teamId !== null && typeof teamId !== "string") {
+    return NextResponse.json({ error: "Equipe inválida" }, { status: 400 });
+  }
+  if (name !== undefined && typeof name !== "string") {
+    return NextResponse.json({ error: "Nome inválido" }, { status: 400 });
+  }
+  if (email !== undefined && typeof email !== "string") {
+    return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+  }
+  if (birthDate !== undefined && birthDate !== null && typeof birthDate !== "string") {
+    return NextResponse.json({ error: "Data de nascimento inválida" }, { status: 400 });
+  }
+
+  for (const flag of [active, canManageProcesses, countsTowardGoal, showInPodium, showInMonthRanking]) {
     if (flag !== undefined && typeof flag !== "boolean") {
-      return NextResponse.json({ error: "Valor inválido pra meta/ranking" }, { status: 400 });
+      return NextResponse.json({ error: "Opção inválida" }, { status: 400 });
     }
+  }
+  if (
+    academyOnboardingAction !== undefined &&
+    academyOnboardingAction !== "REQUIRE" &&
+    academyOnboardingAction !== "EXEMPT"
+  ) {
+    return NextResponse.json({ error: "Ação da Academy inválida" }, { status: 400 });
   }
 
   if (
@@ -57,10 +90,11 @@ export async function PATCH(
     email === undefined &&
     countsTowardGoal === undefined &&
     showInPodium === undefined &&
-    showInMonthRanking === undefined
+    showInMonthRanking === undefined &&
+    academyOnboardingAction === undefined
   ) {
     return NextResponse.json(
-      { error: "role, teamId, active, name, canManageProcesses, area, birthDate, email, countsTowardGoal, showInPodium ou showInMonthRanking é obrigatório" },
+      { error: "Informe ao menos uma alteração" },
       { status: 400 },
     );
   }
@@ -140,6 +174,29 @@ export async function PATCH(
 
     const clearsLeadership = (role && role !== "SUPERVISOR") || active === false;
     const clearsManagement = (role && role !== "MANAGER") || active === false;
+    const nextRole = role ?? membership.role;
+    const nextArea = area ?? membership.area;
+    const nextActive = active ?? membership.active;
+    const manualAcademyState = academyOnboardingAction
+      ? stateAfterManualAcademyAction(
+          membership.academyOnboardingStatus,
+          nextRole,
+          nextArea,
+          nextActive,
+          academyOnboardingAction,
+        )
+      : undefined;
+    if (academyOnboardingAction && manualAcademyState === null) {
+      return NextResponse.json(
+        { error: "O treinamento obrigatório só pode ser configurado para consultores ativos da área de Vendas" },
+        { status: 409 },
+      );
+    }
+    const nextAcademyOnboardingStatus = manualAcademyState ?? stateAfterMembershipChange(
+      membership.academyOnboardingStatus,
+      nextRole,
+      nextArea,
+    );
 
     const updated = await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, access.organizationId);
@@ -162,7 +219,24 @@ export async function PATCH(
 
       const updatedMembership = await tx.organizationUser.update({
         where: { organizationId_userId: { organizationId: access.organizationId, userId } },
-        data: { role, teamId, active, canManageProcesses, area, countsTowardGoal, showInPodium, showInMonthRanking },
+        data: {
+          role,
+          teamId,
+          active,
+          canManageProcesses,
+          area,
+          countsTowardGoal,
+          showInPodium,
+          showInMonthRanking,
+          academyOnboardingStatus:
+            nextAcademyOnboardingStatus !== membership.academyOnboardingStatus
+              ? nextAcademyOnboardingStatus
+              : undefined,
+          academyShortcutHintSeenAt:
+            academyOnboardingAction && nextAcademyOnboardingStatus !== membership.academyOnboardingStatus
+              ? null
+              : undefined,
+        },
         include: { user: { select: { id: true, name: true, email: true, image: true } } },
       });
 
@@ -255,6 +329,30 @@ export async function PATCH(
         targetType: "User",
         targetId: userId,
         detail: updated.user.name,
+        ip,
+      });
+    }
+    if (academyOnboardingAction === "REQUIRE" && nextAcademyOnboardingStatus !== membership.academyOnboardingStatus) {
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName,
+        action: "ACADEMY_ONBOARDING_REQUIRED",
+        targetType: "User",
+        targetId: userId,
+        detail: `${updated.user.name}: treinamento exigido no próximo acesso`,
+        ip,
+      });
+    }
+    if (academyOnboardingAction === "EXEMPT" && nextAcademyOnboardingStatus !== membership.academyOnboardingStatus) {
+      await logAudit({
+        organizationId: access.organizationId,
+        actorUserId: access.userId,
+        actorName,
+        action: "ACADEMY_ONBOARDING_EXEMPTED",
+        targetType: "User",
+        targetId: userId,
+        detail: `${updated.user.name}: exigência de treinamento removida`,
         ip,
       });
     }

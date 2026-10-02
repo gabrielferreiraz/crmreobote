@@ -13,6 +13,8 @@ export type CurrentMembership = {
   role: $Enums.OrgRole;
   area: $Enums.UserArea;
   canManageProcesses: boolean;
+  academyOnboardingStatus: $Enums.AcademyOnboardingStatus;
+  academyShortcutHintSeenAt: Date | null;
   photoKey: string | null;
   /** Atalho "Cartão de visita" do menu do usuário (ver components/user-menu.tsx).
    * Vem junto nesta consulta (um JOIN em FK única) em vez de uma consulta
@@ -54,6 +56,8 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
         role: true,
         area: true,
         canManageProcesses: true,
+        academyOnboardingStatus: true,
+        academyShortcutHintSeenAt: true,
         user: {
           select: {
             image: true,
@@ -73,6 +77,8 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
     role: membership.role,
     area: membership.area,
     canManageProcesses: membership.canManageProcesses,
+    academyOnboardingStatus: membership.academyOnboardingStatus,
+    academyShortcutHintSeenAt: membership.academyShortcutHintSeenAt,
     photoKey: membership.user.image,
     cardShortcut: membership.user.digitalCard,
   };

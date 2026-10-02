@@ -934,6 +934,15 @@ model OrganizationUser {
   // sistema). Default true — ninguém que já recebia fica sem avisar do nada
   // só por este campo ter sido criado.
   receiveCronAlerts     Boolean   @default(true)
+  // Onboarding obrigatorio da Academy vale somente para NOVOS consultores
+  // (MEMBER + VENDAS). O default NOT_REQUIRED e intencional: a migration nao
+  // pode bloquear quem ja usa o CRM; POST /api/org/members grava REQUIRED de
+  // forma explicita apenas nas novas contas que entram nessa regra.
+  academyOnboardingStatus   AcademyOnboardingStatus @default(NOT_REQUIRED)
+  // A dica que aponta o atalho da Academy aparece uma unica vez depois que a
+  // propria Academy libera o modulo de CRM. Persistir no vinculo (e nao em
+  // localStorage) mantem o comportamento entre dispositivos e navegadores.
+  academyShortcutHintSeenAt DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -958,6 +967,13 @@ enum OrgRole {
 enum UserArea {
   VENDAS
   ADMINISTRATIVO
+}
+
+enum AcademyOnboardingStatus {
+  NOT_REQUIRED
+  REQUIRED
+  STARTED
+  CRM_UNLOCKED
 }
 
 // ─── Equipes ─────────────────────────────────────────────────────────

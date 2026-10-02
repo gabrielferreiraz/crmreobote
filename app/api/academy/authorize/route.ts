@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getCurrentMembership } from "@/lib/current-membership";
-import { prisma } from "@/lib/prisma";
-import { runWithTenant } from "@/lib/tenant-context";
+import { prismaRaw } from "@/lib/prisma";
+import { setTenantOnTx } from "@/lib/tenant-context";
 import { safeInternalPath } from "@/lib/safe-redirect";
 import {
   AUTH_CODE_TTL_MS,
@@ -165,8 +165,22 @@ async function handleAuthorize(req: NextRequest) {
   }
 
   const { value: code, hash: codeHash } = generateOpaqueSecret();
-  await runWithTenant(membership.organizationId, () =>
-    prisma.academyAuthCode.create({
+  await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, membership.organizationId);
+
+    // O retorno OAuth comprova que a Academy foi realmente aberta. Isso e
+    // mais confiavel do que marcar STARTED no clique do navegador, que pode
+    // ser cancelado antes de sair do CRM.
+    await tx.organizationUser.updateMany({
+      where: {
+        organizationId: membership.organizationId,
+        userId: membership.userId,
+        academyOnboardingStatus: "REQUIRED",
+      },
+      data: { academyOnboardingStatus: "STARTED" },
+    });
+
+    await tx.academyAuthCode.create({
       data: {
         organizationId: membership.organizationId,
         userId: membership.userId,
@@ -174,8 +188,8 @@ async function handleAuthorize(req: NextRequest) {
         codeChallenge,
         expiresAt: new Date(Date.now() + AUTH_CODE_TTL_MS),
       },
-    }),
-  );
+    });
+  });
 
   callbackUrl.searchParams.set("code", code);
   callbackUrl.searchParams.set("state", state);

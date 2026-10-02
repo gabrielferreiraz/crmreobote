@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil, History, Search, Filter, X } from "lucide-react";
+import { Plus, Loader2, KeyRound, Camera, UserX, UserCheck, Trash2, Pencil, History, Search, Filter, X, GraduationCap, Eye } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
@@ -11,6 +11,9 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PasswordInput } from "@/components/password-input";
 import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
+import { Switch } from "@/components/switch";
+import { requestJson } from "@/lib/client-request";
+import { AcademyOnboardingPreview } from "@/components/academy/academy-onboarding-preview";
 
 type Member = {
   id: string;
@@ -32,6 +35,7 @@ type Member = {
   lastActiveAt: Date | string | null;
   whatsappConnected: boolean;
   whatsappPhone: string | null;
+  academyOnboardingStatus: "NOT_REQUIRED" | "REQUIRED" | "STARTED" | "CRM_UNLOCKED";
 };
 
 /** "2026-07-12" → "12/07" (dia/mês, sem ano — pra mostrar sob o e-mail na tabela, ver aniversário). */
@@ -92,6 +96,10 @@ function isOnline(lastActiveAt: Member["lastActiveAt"]) {
   return Date.now() - new Date(lastActiveAt).getTime() < ONLINE_THRESHOLD_MS;
 }
 
+function hasAcademyRequirement(member: Member): boolean {
+  return member.academyOnboardingStatus === "REQUIRED" || member.academyOnboardingStatus === "STARTED";
+}
+
 /** "17/07/2026 14:32" — data/hora cheia do último heartbeat, pra "Acessado pela última vez em". */
 function lastSeenFull(lastActiveAt: Member["lastActiveAt"]) {
   if (!lastActiveAt) return null;
@@ -108,10 +116,12 @@ export function MembersTable({
   initialMembers,
   currentUserId,
   isOwner,
+  previewName,
 }: {
   initialMembers: Member[];
   currentUserId: string;
   isOwner: boolean;
+  previewName: string;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"active" | "inactive">("active");
@@ -119,10 +129,12 @@ export function MembersTable({
   const [filters, setFilters] = useState<MemberFilters>(EMPTY_FILTERS);
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [academyPreviewOpen, setAcademyPreviewOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Member["role"]>("MEMBER");
   const [area, setNewMemberArea] = useState<Member["area"]>("VENDAS");
+  const [newMemberAcademyRequired, setNewMemberAcademyRequired] = useState(true);
   // Só o Dono cria usuário, e SEMPRE digitando a senha aqui — nunca mais
   // gerada pelo sistema (ver POST /api/org/members). O botão "Adicionar
   // usuário" abaixo já é isOwner-only, então este campo só existe pra quem
@@ -148,6 +160,8 @@ export function MembersTable({
   // (nome "rename" ficou curto pro que o diálogo faz agora, mas não vale o
   // risco de renomear função/estado usados em vários lugares só por isso).
   const [newBirthDate, setNewBirthDate] = useState("");
+  const [academyRequired, setAcademyRequired] = useState(false);
+  const [confirmAcademyRequirement, setConfirmAcademyRequirement] = useState(false);
   const [renameLoading, setRenameLoading] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -224,7 +238,14 @@ export function MembersTable({
     const res = await fetch("/api/org/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, role, area, password: createPassword }),
+      body: JSON.stringify({
+        name,
+        email,
+        role,
+        area,
+        password: createPassword,
+        academyRequired: role === "MEMBER" && area === "VENDAS" ? newMemberAcademyRequired : undefined,
+      }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -240,6 +261,7 @@ export function MembersTable({
     setEmail("");
     setRole("MEMBER");
     setNewMemberArea("VENDAS");
+    setNewMemberAcademyRequired(true);
     setCreatePassword("");
     router.refresh();
   }
@@ -353,29 +375,52 @@ export function MembersTable({
     setNewPassword("");
   }
 
-  async function renameMember(e: React.FormEvent) {
-    e.preventDefault();
-    if (!memberToRename) return;
+  async function saveMemberProfile() {
+    if (!memberToRename) return false;
     setRenameLoading(true);
     setRenameError(null);
 
-    const res = await fetch(`/api/org/members/${memberToRename.user.id}`, {
+    const wasAcademyRequired = hasAcademyRequirement(memberToRename);
+    const academyOnboardingAction = academyRequired === wasAcademyRequired
+      ? undefined
+      : academyRequired
+        ? "REQUIRE"
+        : "EXEMPT";
+    const res = await requestJson(`/api/org/members/${memberToRename.user.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, email: newEmail, birthDate: newBirthDate || null }),
-    });
-    const data = await res.json().catch(() => ({}));
+      json: {
+        name: newName,
+        email: newEmail,
+        birthDate: newBirthDate || null,
+        academyOnboardingAction,
+      },
+    }, { silent: true });
     setRenameLoading(false);
 
     if (!res.ok) {
-      setRenameError(data.error ?? "Erro ao salvar perfil");
+      setRenameError(res.error);
+      return false;
+    }
+
+    setConfirmAcademyRequirement(false);
+    setMemberToRename(null);
+    setNewName("");
+    setNewEmail("");
+    setNewBirthDate("");
+    router.refresh();
+    return true;
+  }
+
+  async function renameMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (!memberToRename) return;
+
+    if (academyRequired && !hasAcademyRequirement(memberToRename)) {
+      setConfirmAcademyRequirement(true);
       return;
     }
 
-    setMemberToRename(null);
-    setNewName("");
-    setNewBirthDate("");
-    router.refresh();
+    await saveMemberProfile();
   }
 
   return (
@@ -387,6 +432,10 @@ export function MembersTable({
         className="hidden"
         onChange={handlePhotoSelected}
       />
+
+      {academyPreviewOpen && (
+        <AcademyOnboardingPreview name={previewName} onClose={() => setAcademyPreviewOpen(false)} />
+      )}
 
       {avatarError && (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-500/10 dark:text-red-300">
@@ -423,10 +472,16 @@ export function MembersTable({
             OWNER-only), esta checagem aqui é só pra não oferecer um botão
             que ia devolver 403. */}
         {isOwner && (
-          <button onClick={() => setOpen(true)} className="btn-primary">
-            <Plus className="h-4 w-4" strokeWidth={2.5} />
-            Adicionar usuário
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setAcademyPreviewOpen(true)} className="btn-secondary">
+              <Eye className="h-4 w-4" strokeWidth={2} />
+              Ver primeiro acesso
+            </button>
+            <button onClick={() => setOpen(true)} className="btn-primary">
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              Adicionar usuário
+            </button>
+          </div>
         )}
       </div>
 
@@ -581,6 +636,11 @@ export function MembersTable({
                           : "Ainda não acessou"}
                     </p>
                   )}
+                  {(m.academyOnboardingStatus === "REQUIRED" || m.academyOnboardingStatus === "STARTED") && (
+                    <Badge tone="warning" size="sm" className="mt-1" dot>
+                      Academy pendente
+                    </Badge>
+                  )}
                 </div>
               </div>
 
@@ -692,10 +752,11 @@ export function MembersTable({
                       setNewName(m.user.name);
                       setNewEmail(m.user.email);
                       setNewBirthDate(toDateInputValue(m.user.birthDate));
+                      setAcademyRequired(hasAcademyRequirement(m));
                     }}
                     className="icon-btn-labeled lg:!px-1.5"
-                    title="Editar perfil"
-                    aria-label={`Editar perfil de ${m.user.name}`}
+                    title="Editar usuário"
+                    aria-label={`Editar usuário ${m.user.name}`}
                   >
                     <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
                     <span className="lg:hidden">Editar</span>
@@ -799,7 +860,10 @@ export function MembersTable({
       )}
 
       {open && (
-        <Modal onClose={() => setOpen(false)}>
+        <Modal onClose={() => {
+          setOpen(false);
+          setNewMemberAcademyRequired(true);
+        }}>
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Adicionar usuário</h2>
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="space-y-1">
@@ -852,10 +916,27 @@ export function MembersTable({
               </div>
             )}
 
+            {role === "MEMBER" && area === "VENDAS" && (
+              <div className="flex items-center justify-between gap-4 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <GraduationCap className="h-4 w-4 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Exigir treinamento</span>
+                </div>
+                <Switch
+                  checked={newMemberAcademyRequired}
+                  onChange={setNewMemberAcademyRequired}
+                  label="Exigir treinamento na Academy"
+                />
+              </div>
+            )}
+
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
+              <button type="button" onClick={() => {
+                setOpen(false);
+                setNewMemberAcademyRequired(true);
+              }} className="btn-ghost">
                 Cancelar
               </button>
               <button type="submit" disabled={loading || !email.trim()} className="btn-primary">
@@ -953,6 +1034,7 @@ export function MembersTable({
       {memberToRename && (
         <Modal
           onClose={() => {
+            setConfirmAcademyRequirement(false);
             setMemberToRename(null);
             setNewName("");
             setNewEmail("");
@@ -961,7 +1043,7 @@ export function MembersTable({
           }}
         >
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Editar perfil de {memberToRename.user.name}
+            Editar usuário
           </h2>
           <form onSubmit={renameMember} className="space-y-3">
             <div className="space-y-1">
@@ -1000,12 +1082,36 @@ export function MembersTable({
               </p>
             </div>
 
+            {memberToRename.active && memberToRename.role === "MEMBER" && memberToRename.area === "VENDAS" && (
+              <div className="flex items-center justify-between gap-4 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+                <div className="flex min-w-0 items-center gap-2">
+                  <GraduationCap className="h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={2} />
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Exigir treinamento</p>
+                  {academyRequired && memberToRename.academyOnboardingStatus === "REQUIRED" && (
+                    <Badge tone="warning" size="sm">Pendente</Badge>
+                  )}
+                  {academyRequired && memberToRename.academyOnboardingStatus === "STARTED" && (
+                    <Badge tone="warning" size="sm">Em andamento</Badge>
+                  )}
+                  {!academyRequired && memberToRename.academyOnboardingStatus === "CRM_UNLOCKED" && (
+                    <Badge tone="success" size="sm">Concluído</Badge>
+                  )}
+                </div>
+                <Switch
+                  checked={academyRequired}
+                  onChange={setAcademyRequired}
+                  label="Exigir treinamento antes de liberar o CRM"
+                />
+              </div>
+            )}
+
             {renameError && <p className="text-sm text-red-600 dark:text-red-400">{renameError}</p>}
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => {
+                  setConfirmAcademyRequirement(false);
                   setMemberToRename(null);
                   setNewName("");
                   setNewEmail("");
@@ -1029,6 +1135,18 @@ export function MembersTable({
               </button>
             </div>
           </form>
+          {confirmAcademyRequirement && (
+            <ConfirmDialog
+              title={`Exigir treinamento de ${memberToRename.user.name}?`}
+              description="O CRM ficará bloqueado até a pessoa chegar ao módulo de CRM na Academy."
+              confirmLabel="Exigir treinamento"
+              danger={false}
+              onClose={() => setConfirmAcademyRequirement(false)}
+              onConfirm={async () => {
+                await saveMemberProfile();
+              }}
+            />
+          )}
         </Modal>
       )}
 

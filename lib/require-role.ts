@@ -1,8 +1,12 @@
 import { getCurrentMembership } from "@/lib/current-membership";
+import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
 
 export async function requireRole(roles: Array<"OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER">) {
   const membership = await getCurrentMembership();
-  if (!membership?.active) {
+  if (
+    !membership?.active ||
+    isCrmRestrictedByAcademy(membership.role, membership.area, membership.academyOnboardingStatus)
+  ) {
     return { ok: false as const, session: null, organizationId: null };
   }
 
