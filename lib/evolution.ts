@@ -53,12 +53,17 @@ function getConfig(): { baseUrl: string; apiKey: string } {
 // esperando uma API de terceiro que nem sempre está no ar.
 const REQUEST_TIMEOUT_MS = 15_000;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+type EvolutionRequestOptions = {
+  timeoutMs?: number;
+};
+
+async function request<T>(path: string, init?: RequestInit, options?: EvolutionRequestOptions): Promise<T> {
   const { baseUrl, apiKey } = getConfig();
   const safePath = redactUrl(path);
+  const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let res: Response;
   try {
@@ -79,7 +84,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     console.error(`[evolution] ${timedOut ? "timeout" : "falha de rede"} em ${safePath}`, err);
     throw new EvolutionApiError(
       timedOut
-        ? `Evolution API não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (${safePath})`
+        ? `Evolution API não respondeu em ${timeoutMs / 1000}s (${safePath})`
         : `Falha de conexão com o Evolution API (${safePath})`,
       0,
     );
@@ -183,20 +188,27 @@ export async function createInstance(instanceName: string, webhookUrl: string, p
           }
         : {}),
     }),
-  });
+  }, { timeoutMs: 45_000 });
 }
 
 /** Retorna o QR Code (base64 de imagem) pra parear o número no app do WhatsApp. */
-export async function getQrCode(instanceName: string): Promise<{ base64?: string; pairingCode?: string }> {
+export async function getQrCode(
+  instanceName: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<{ base64?: string; pairingCode?: string }> {
   const data = await request<{ base64?: string; pairingCode?: string }>(
     `/instance/connect/${encodeURIComponent(instanceName)}`,
+    undefined,
+    { timeoutMs },
   );
   return { base64: data.base64, pairingCode: data.pairingCode };
 }
 
-export async function getConnectionState(instanceName: string): Promise<ConnectionState> {
+export async function getConnectionState(instanceName: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<ConnectionState> {
   const data = await request<{ instance?: { state?: string } }>(
     `/instance/connectionState/${encodeURIComponent(instanceName)}`,
+    undefined,
+    { timeoutMs },
   );
   const state = data.instance?.state;
   if (state === "open" || state === "connecting") return state;

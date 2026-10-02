@@ -78,43 +78,102 @@ export function WhatsAppConnect() {
   const [error, setError] = useState<string | null>(null);
   const [importingHistory, setImportingHistory] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const qrPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectInFlightRef = useRef(false);
 
-  async function refreshStatus() {
-    const res = await fetch("/api/whatsapp/instance");
-    if (!res.ok) return;
-    const data = await res.json();
-    setPhoneNumber(data.phoneNumber ?? null);
-    setStatus(data.connected ? "connected" : data.status === "CONNECTING" ? "connecting" : "disconnected");
-    return data.connected as boolean;
-  }
-
-  useEffect(() => {
-    refreshStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const refreshStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/whatsapp/instance", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const nextStatus: EvolutionStatus = data.connected
+        ? "connected"
+        : data.status === "CONNECTING"
+          ? "connecting"
+          : "disconnected";
+      setPhoneNumber(data.phoneNumber ?? null);
+      setStatus(nextStatus);
+      if (nextStatus !== "connecting") setQrCode(null);
+      return data.connected as boolean;
+    } catch {
+      return undefined;
+    }
   }, []);
 
   useEffect(() => {
+    const initialCheck = setTimeout(() => void refreshStatus(), 0);
+    return () => clearTimeout(initialCheck);
+  }, [refreshStatus]);
+
+  useEffect(() => {
     if (status !== "connecting") {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
       return;
     }
-    pollRef.current = setInterval(async () => {
+
+    let cancelled = false;
+    const pollStatus = async () => {
       const connected = await refreshStatus();
-      if (connected && pollRef.current) {
-        clearInterval(pollRef.current);
+      if (connected) {
         setQrCode(null);
+        return;
       }
-    }, 4000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (!cancelled) pollRef.current = setTimeout(pollStatus, 4_000);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+
+    pollRef.current = setTimeout(pollStatus, 4_000);
+    return () => {
+      cancelled = true;
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, [refreshStatus, status]);
+
+  useEffect(() => {
+    if (status !== "connecting") {
+      if (qrPollRef.current) clearTimeout(qrPollRef.current);
+      return;
+    }
+
+    let cancelled = false;
+    const pollQrCode = async () => {
+      try {
+        const res = await fetch("/api/whatsapp/instance/qr", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+
+        if (data.connected) {
+          setQrCode(null);
+          setStatus("connected");
+          return;
+        }
+        if (res.ok && data.qrCode) {
+          setQrCode(data.qrCode);
+          setError(null);
+        } else if (!res.ok && res.status !== 202) {
+          setError(data.error ?? "Não foi possível preparar o QR Code.");
+          setStatus("disconnected");
+          return;
+        }
+      } catch {
+        // Falha transitória: mantém o fluxo e tenta novamente sem criar outra instância.
+      }
+
+      if (!cancelled) qrPollRef.current = setTimeout(pollQrCode, qrCode ? 15_000 : 2_000);
+    };
+
+    void pollQrCode();
+    return () => {
+      cancelled = true;
+      if (qrPollRef.current) clearTimeout(qrPollRef.current);
+    };
+  }, [qrCode, status]);
 
   async function connect() {
+    if (connectInFlightRef.current) return;
+    connectInFlightRef.current = true;
     setBusy(true);
     setError(null);
+    setQrCode(null);
     try {
       // Sem campo de proxy aqui de propósito — exigia que o próprio
       // consultor soubesse o que é proxy e já tivesse um contratado à parte,
@@ -132,11 +191,11 @@ export function WhatsAppConnect() {
         setError(data.error ?? "Erro ao conectar WhatsApp");
         return;
       }
-      setQrCode(data.qrCode ?? null);
-      setStatus("connecting");
+      setStatus(data.connected ? "connected" : "connecting");
     } catch {
       setError("Falha de conexão. Tente novamente.");
     } finally {
+      connectInFlightRef.current = false;
       setBusy(false);
     }
   }
@@ -225,15 +284,22 @@ export function WhatsAppConnect() {
                 </div>
               ) : (
                 <button onClick={connect} disabled={busy || status === "connecting"} className="btn-primary">
-                  {busy ? (
+                  {busy || status === "connecting" ? (
                     <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
                   ) : (
                     <QrCode className="h-4 w-4" strokeWidth={2} />
                   )}
-                  Conectar
+                  {status === "connecting" ? "Preparando..." : "Conectar"}
                 </button>
               )}
             </div>
+
+            {!qrCode && status === "connecting" && (
+              <div className="flex items-center justify-center gap-2 rounded-md border border-neutral-200 px-4 py-6 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                Preparando QR Code...
+              </div>
+            )}
 
             {qrCode && status === "connecting" && (
               <div className="flex flex-col items-center gap-2 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">

@@ -62,6 +62,10 @@ function createSearchClient() {
     // Busca é uma consulta curta por tecla (com debounce) — 5 conexões bastam;
     // eram 10 somando às 20 do app e às dos crons (auditoria 09/2026).
     max: 5,
+    // Devolve ao Postgres a conexão parada há 30s: a role app_search tem teto
+    // de conexões próprio (erro "too many connections for role app_search"),
+    // e com keepAlive sozinho as conexões ficavam abertas pra sempre.
+    idleTimeoutMillis: 30_000,
   });
   pool.on("error", (err) => console.error("[search pg pool error]", err));
   pool.on("connect", (client) => {
@@ -84,6 +88,8 @@ const globalForSearchDb = globalThis as unknown as GlobalSearchDb;
 
 export const searchDb = globalForSearchDb.searchDb ?? createSearchClient();
 
-if (process.env.NODE_ENV !== "production") {
-  globalForSearchDb.searchDb = searchDb;
-}
+// Também em produção (o padrão "só fora de produção" é pro hot reload do dev):
+// se este módulo for avaliado mais de uma vez no servidor (chunks de rotas
+// diferentes), cada avaliação criaria a SUA pool de 5 conexões e a soma
+// estouraria o teto da role app_search.
+globalForSearchDb.searchDb = searchDb;
