@@ -41,7 +41,8 @@ async function run(rows: string[][], label: string) {
     rawHeaderRow: rows[0],
     existingContacts: [],
     members: [],
-    fieldDefaults: {},
+    jobTitleOptions: ["Gerente", "Diretor", "Analista"],
+    sourceOptions: [],
     includeWrites: true,
   });
   console.log("resumo:", JSON.stringify(plan.summary));

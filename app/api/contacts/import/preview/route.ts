@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { parseSpreadsheet, spreadsheetParseFailure } from "@/lib/parse-spreadsheet";
 import { runWithTenant } from "@/lib/tenant-context";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { resolveImportPlan, type ContactImportField } from "@/lib/contacts/import-resolve";
+import { loadContactImportContext } from "@/lib/contacts/import-context";
 import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 import { MAX_CONTACT_IMPORT_FILE_SIZE_BYTES, MAX_CONTACT_IMPORT_ROWS } from "@/lib/contacts/import-limits";
 
@@ -19,6 +19,18 @@ const PREVIEW_LIMIT = 30;
 // o resumo agregado, que já é sobre TODAS as linhas) é suficiente pra pessoa
 // confirmar que o mapeamento está certo.
 const PREVIEW_ROWS_SHOWN = 50;
+const MAX_DUPLICATE_ROWS_SHOWN = 3_000;
+
+function columnSamples(dataRows: string[][], index: number): string[] {
+  const samples: string[] = [];
+  for (const row of dataRows) {
+    const raw = (row[index] ?? "").trim();
+    const value = raw.length > 40 ? `${raw.slice(0, 40)}…` : raw;
+    if (value && !samples.includes(value)) samples.push(value);
+    if (samples.length === 3) break;
+  }
+  return samples;
+}
 
 export async function POST(req: Request) {
   const { organizationId } = await requireSession();
@@ -39,7 +51,6 @@ export async function POST(req: Request) {
   }
   const file = formData.get("file");
   const columnOverridesRaw = formData.get("columnOverrides");
-  const fieldDefaultsRaw = formData.get("fieldDefaults");
   const includeAllRows = formData.get("includeAllRows") === "true";
 
   if (!(file instanceof File)) {
@@ -54,14 +65,6 @@ export async function POST(req: Request) {
       columnOverrides = JSON.parse(columnOverridesRaw);
     } catch {
       return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
-    }
-  }
-  let fieldDefaults: { responsavel?: string; jobTitle?: string; source?: string } | undefined;
-  if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
-    try {
-      fieldDefaults = JSON.parse(fieldDefaultsRaw);
-    } catch {
-      return NextResponse.json({ error: "fieldDefaults inválido" }, { status: 400 });
     }
   }
 
@@ -97,70 +100,46 @@ export async function POST(req: Request) {
     const dataRows = rows.slice(1, 1 + MAX_CONTACT_IMPORT_ROWS);
     const rawHeaderRow = rows[0];
 
-    // Só quem tem telefone OU whatsapp preenchido — os únicos dois campos
-    // com constraint única (ver lib/contacts/import-resolve.ts), o resto
-    // nunca colide. responsavel + nome/id do contato: pedido explícito —
-    // mostrar de quem é cada linha ignorada por duplicidade, com ação de
-    // assumir (dono inativo) ou pedir (dono ativo) direto na prévia.
-    const [existingContactsRaw, allMembers] = await Promise.all([
-      prisma.contact.findMany({
-        where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
-        select: {
-          id: true,
-          name: true,
-          phoneNormalized: true,
-          whatsappNormalized: true,
-          responsavelId: true,
-          responsavel: { select: { name: true } },
-          jobTitle: true,
-          source: true,
-          company: true,
-          email: true,
-        },
-      }),
-      // Ativos E inativos aqui — precisa saber se o dono de um contato
-      // já cadastrado está ativo (mesmo teor de allMembers, não só o
-      // `members` ativo de sempre, que continua servindo só pro
-      // mapeamento da coluna "Responsável" das linhas NOVAS).
-      prisma.organizationUser.findMany({
-        where: { organizationId },
-        orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, name: true, email: true } } },
-      }),
-    ]);
-    const members = allMembers.filter((m) => m.active);
-    const activeMemberIds = new Set(members.map((m) => m.user.id));
-    const existingContacts = existingContactsRaw.map((c) => ({
-      id: c.id,
-      name: c.name,
-      phoneNormalized: c.phoneNormalized,
-      whatsappNormalized: c.whatsappNormalized,
-      responsavelId: c.responsavelId,
-      responsavelName: c.responsavel?.name ?? null,
-      responsavelActive: !!c.responsavelId && activeMemberIds.has(c.responsavelId),
-      jobTitle: c.jobTitle,
-      source: c.source,
-      company: c.company,
-      email: c.email,
-    }));
+    const context = await loadContactImportContext(organizationId);
 
     const plan = resolveImportPlan({
       dataRows,
       rawHeaderRow,
       columnOverrides,
-      existingContacts,
-      members: members.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email })),
-      fieldDefaults,
+      ...context,
+      // Sem valueMappings de propósito: a prévia devolve os valores que não
+      // bateram com o CRM (pendingValues) e a tela aplica as escolhas.
       includeWrites: false,
     });
 
+    // Lista de duplicados SEPARADA da amostra de linhas — pedido explícito:
+    // mostrar de quem é cada contato que já existe, com ação de assumir/pedir
+    // pra quem a linha ia. Antes saía da amostra de 50 linhas, então numa
+    // planilha de 800 com 300 duplicados a lista mostrava só os que caíam nas
+    // primeiras 50. Um item por CONTATO existente (a mesma pessoa pode colidir
+    // em mais de uma linha), com teto pra não mandar megabytes ao navegador.
+    const seenContactIds = new Set<string>();
+    const duplicateRows: typeof plan.rows = [];
+    for (const r of plan.rows) {
+      if (!r.existingContact || seenContactIds.has(r.existingContact.id)) continue;
+      seenContactIds.add(r.existingContact.id);
+      duplicateRows.push(r);
+    }
+
     return NextResponse.json({
       rawHeaderRow,
+      // Até 3 valores de exemplo por coluna — na tela de colunas, ver o
+      // conteúdo ("Campo Grande", "Dourados") diz muito mais que o nome do
+      // cabeçalho sozinho pra saber se o mapeamento está certo.
+      columnSamples: rawHeaderRow.map((_, index) => columnSamples(dataRows, index)),
       columns: plan.columns,
       missingRequiredColumns: plan.missingRequiredColumns,
       summary: plan.summary,
+      pendingValues: plan.pendingValues,
       rows: includeAllRows ? plan.rows : plan.rows.slice(0, PREVIEW_ROWS_SHOWN),
       rowsShown: includeAllRows ? plan.rows.length : Math.min(PREVIEW_ROWS_SHOWN, plan.rows.length),
+      duplicateRows: duplicateRows.slice(0, MAX_DUPLICATE_ROWS_SHOWN),
+      duplicateRowsTruncated: duplicateRows.length > MAX_DUPLICATE_ROWS_SHOWN,
     });
   });
 }

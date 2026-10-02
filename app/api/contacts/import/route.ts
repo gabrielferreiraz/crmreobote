@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { prisma, prismaRaw } from "@/lib/prisma";
+import { prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { parseSpreadsheet, spreadsheetParseFailure } from "@/lib/parse-spreadsheet";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { linkOrphanThreadsForOrganization } from "@/lib/whatsapp/threads";
 import { rateLimitOrResponse, getClientIp } from "@/lib/rate-limit";
-import { resolveImportPlan, type ContactImportField } from "@/lib/contacts/import-resolve";
+import { parseValueMappings, resolveImportPlan, type ContactImportField, type ValueMappings } from "@/lib/contacts/import-resolve";
+import { loadContactImportContext } from "@/lib/contacts/import-context";
+import { sanitizeCell } from "@/lib/csv-sanitize";
 import { logAudit } from "@/lib/audit-log";
 import { readFormData, bodyErrorResponse, BODY_LIMITS } from "@/lib/read-body";
 import {
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
   }
   const file = formData.get("file");
   const columnOverridesRaw = formData.get("columnOverrides");
-  const fieldDefaultsRaw = formData.get("fieldDefaults");
+  const valueMappingsRaw = formData.get("valueMappings");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Envie um arquivo .csv ou .xlsx" }, { status: 400 });
@@ -59,13 +61,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "columnOverrides inválido" }, { status: 400 });
     }
   }
-  let fieldDefaults: { responsavel?: string; jobTitle?: string; source?: string } | undefined;
-  if (typeof fieldDefaultsRaw === "string" && fieldDefaultsRaw) {
-    try {
-      fieldDefaults = JSON.parse(fieldDefaultsRaw);
-    } catch {
-      return NextResponse.json({ error: "fieldDefaults inválido" }, { status: 400 });
-    }
+  let valueMappings: ValueMappings | undefined;
+  if (typeof valueMappingsRaw === "string" && valueMappingsRaw) {
+    valueMappings = parseValueMappings(valueMappingsRaw) ?? undefined;
+    if (!valueMappings) return NextResponse.json({ error: "valueMappings inválido" }, { status: 400 });
   }
 
   return runWithTenant(organizationId, async () => {
@@ -104,55 +103,16 @@ export async function POST(req: Request) {
     const dataRows = rows.slice(1, 1 + MAX_CONTACT_IMPORT_ROWS);
     const rawHeaderRow = rows[0];
 
-    // Mesma consulta enriquecida da prévia (ver preview/route.ts) — o
-    // commit usa a MESMA função resolveImportPlan, então precisa do mesmo
-    // formato de entrada, mesmo não usando o detalhe de dono aqui (só a
-    // prévia mostra isso na tela).
-    const [existingContactsRaw, allMembers] = await Promise.all([
-      prisma.contact.findMany({
-        where: { organizationId, OR: [{ phoneNormalized: { not: null } }, { whatsappNormalized: { not: null } }] },
-        select: {
-          id: true,
-          name: true,
-          phoneNormalized: true,
-          whatsappNormalized: true,
-          responsavelId: true,
-          responsavel: { select: { name: true } },
-          jobTitle: true,
-          source: true,
-          company: true,
-          email: true,
-        },
-      }),
-      prisma.organizationUser.findMany({
-        where: { organizationId },
-        orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, name: true, email: true } } },
-      }),
-    ]);
-    const members = allMembers.filter((m) => m.active);
-    const activeMemberIds = new Set(members.map((m) => m.user.id));
-    const existingContacts = existingContactsRaw.map((c) => ({
-      id: c.id,
-      name: c.name,
-      phoneNormalized: c.phoneNormalized,
-      whatsappNormalized: c.whatsappNormalized,
-      responsavelId: c.responsavelId,
-      responsavelName: c.responsavel?.name ?? null,
-      responsavelActive: !!c.responsavelId && activeMemberIds.has(c.responsavelId),
-      jobTitle: c.jobTitle,
-      source: c.source,
-      company: c.company,
-      email: c.email,
-    }));
+    // Mesma consulta da prévia (lib/contacts/import-context.ts) — o commit
+    // usa a MESMA função resolveImportPlan, então precisa da mesma entrada.
+    const context = await loadContactImportContext(organizationId);
 
     const plan = resolveImportPlan({
       dataRows,
       rawHeaderRow,
       columnOverrides,
-      existingContacts,
-      members: members.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email })),
-      fieldDefaults,
+      ...context,
+      valueMappings,
       includeWrites: true,
     });
 
@@ -193,16 +153,27 @@ export async function POST(req: Request) {
       const newContacts = plan.writes!.newContacts;
       for (let start = 0; start < newContacts.length; start += CONTACT_IMPORT_WRITE_CHUNK_SIZE) {
         const created = await tx.contact.createMany({
+          // sanitizeCell nos campos de texto livre — mesma proteção do
+          // cadastro manual (POST /api/contacts): uma célula "=HYPERLINK(...)"
+          // vinda da planilha não pode virar fórmula viva quando alguém
+          // exportar esses contatos e abrir no Excel.
           data: newContacts.slice(start, start + CONTACT_IMPORT_WRITE_CHUNK_SIZE).map((c) => ({
             organizationId,
-            name: c.name,
-            email: c.email,
+            name: sanitizeCell(c.name),
+            email: sanitizeCell(c.email),
             phone: c.phone,
             whatsapp: c.whatsapp,
-            source: c.source,
-            company: c.company,
-            jobTitle: c.jobTitle,
-            tags: c.tags,
+            source: sanitizeCell(c.source),
+            company: sanitizeCell(c.company),
+            jobTitle: sanitizeCell(c.jobTitle),
+            tags: c.tags.map(sanitizeCell),
+            zipCode: c.zipCode,
+            address: sanitizeCell(c.address),
+            addressNumber: sanitizeCell(c.addressNumber),
+            addressComplement: sanitizeCell(c.addressComplement),
+            neighborhood: sanitizeCell(c.neighborhood),
+            city: sanitizeCell(c.city),
+            state: c.state,
             responsavelId: c.responsavelId,
             phoneNormalized: c.phoneNormalized,
             whatsappNormalized: c.whatsappNormalized,
@@ -251,6 +222,7 @@ export async function POST(req: Request) {
       skippedInvalidPhone: plan.summary.skippedInvalidPhone,
       duplicateContacts: plan.summary.duplicateContacts,
       ownerFallbacks: plan.summary.ownerFallbacks,
+      addressWarnings: plan.summary.addressWarnings,
       importBatchId,
       // Linhas com problema, pra quem quiser conferir o que exatamente não
       // bateu — cap de 200 pra não estourar o payload numa importação de

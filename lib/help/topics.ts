@@ -244,10 +244,11 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: "Traga centenas de contatos de uma vez, conferindo a prévia antes de gravar.",
     category: "clientes",
     icon: "Upload",
-    keywords: ["importar", "planilha", "excel", "csv", "lista", "lote", "subir", "arquivo", "xlsx", "massa"],
+    keywords: ["importar", "planilha", "excel", "csv", "lista", "lote", "subir", "arquivo", "xlsx", "massa", "endereço", "cidade", "uf", "cep"],
     steps: [
       "Em Clientes, use a opção de importar planilha.",
-      "Escolha o arquivo e confira a prévia — é onde você corrige a coluna que ficou no lugar errado.",
+      "Confira qual coluna da planilha é cada campo — dá pra trocar ali. Endereço (CEP, rua, número, bairro, cidade e UF) também entra.",
+      "Na revisão, veja quem já existe no CRM: dá pra atribuir ou pedir esses contatos pra quem a linha iria.",
       "Confirme a importação. Contato repetido é identificado pelo telefone e não entra duas vezes.",
     ],
     note: {

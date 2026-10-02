@@ -17,8 +17,15 @@ const MAX_BATCHES = 100;
  * (type: "deals") apareceria aqui também, já que os dois tipos vivem na
  * mesma tabela (ver ImportBatch no schema).
  *
- * Qualquer usuário autenticado acessa, mas cada um vê APENAS os lotes que
- * ele mesmo criou (createdById = userId logado) — mesma regra de negócios.
+ * Cada usuário vê APENAS os lotes que ele mesmo criou (createdById = userId
+ * logado) — EXCETO o Dono, que vê as importações de todos os usuários da
+ * organização (pedido explícito: "o Dono deve ver todas as importações de
+ * todos os usuários"). `createdById: undefined` é ignorado pelo Prisma (sai
+ * do WHERE), não filtra por ninguém específico — é assim que a exceção do
+ * Dono vira "todo mundo da org" sem um segundo caminho de código. Mesma
+ * exceção precisa valer em GET/[id], DELETE/[id] e GET/[id]/errors, senão o
+ * Dono veria o lote de outra pessoa na lista mas bateria 404 ao abrir/
+ * desfazer/baixar erros dele.
  */
 export async function GET() {
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -29,7 +36,7 @@ export async function GET() {
       where: {
         organizationId: access.organizationId,
         type: "contacts",
-        createdById: access.userId,
+        createdById: access.role === "OWNER" ? undefined : access.userId,
       },
       orderBy: { createdAt: "desc" },
       take: MAX_BATCHES,

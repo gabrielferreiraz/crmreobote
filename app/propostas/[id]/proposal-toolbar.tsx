@@ -18,6 +18,23 @@ export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
   const canPrint = proposal.status !== "DRAFT" && proposal.status !== "CANCELLED";
   const step = proposal.status === "DRAFT" ? 1 : proposal.status === "GENERATED" ? 2 : 3;
 
+  async function printProposal() {
+    trackUse("proposta.pdf");
+    await document.fonts.ready;
+    const images = Array.from(document.querySelectorAll<HTMLImageElement>(".proposal-page img"));
+    await Promise.all(images.map(async (image) => {
+      if (!image.complete) {
+        await new Promise<void>((resolve) => {
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => resolve(), { once: true });
+        });
+      }
+      await image.decode().catch(() => undefined);
+    }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    window.print();
+  }
+
   async function run(action: "generate" | "send") {
     setBusy(true);
     setError(null);
@@ -91,10 +108,7 @@ export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
           {canPrint && (
             <button
               type="button"
-              onClick={() => {
-                trackUse("proposta.pdf");
-                window.print();
-              }}
+              onClick={printProposal}
               className={`${
                 proposal.status === "GENERATED" ? "btn-primary bg-sky-600 hover:bg-sky-700 text-white shadow-md ring-2 ring-sky-400/40" : "btn-primary"
               } w-full py-3 flex-col items-center justify-center text-center gap-0.5`}

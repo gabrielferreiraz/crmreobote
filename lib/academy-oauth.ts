@@ -16,15 +16,16 @@
  *    access_token opaco (ver lib/require-academy-token.ts), não mais JWT.
  *
  * O cliente "reobote-academy" é ÚNICO e fixo — vive em variável de
- * ambiente (ACADEMY_CLIENT_ID/ACADEMY_CLIENT_SECRET_HASH), mesmo padrão de
- * todo outro segredo compartilhado com sistema externo deste projeto
- * (SIMULADOR_SSO_SECRET, CRON_SECRET etc.): não é uma plataforma de
- * terceiros com vários clientes, não precisa de tabela de registro.
- * ACADEMY_CLIENT_SECRET_HASH é o HASH (sha256 hex) do segredo de verdade —
- * o CRM nunca guarda o segredo em texto puro em lugar nenhum, só compara
- * contra o hash (mesma lógica de nunca guardar senha em texto puro).
- * Calcular o hash uma vez, fora deste projeto:
- *   node -e "console.log(require('crypto').createHash('sha256').update('O_SEGREDO_AQUI').digest('hex'))"
+ * ambiente (ACADEMY_CLIENT_ID/ACADEMY_CLIENT_SECRET), mesmo padrão de todo
+ * outro segredo compartilhado com sistema externo deste projeto
+ * (SIMULADOR_SSO_SECRET, CRON_SECRET etc. — todos em texto puro na env var,
+ * nunca um hash pré-calculado): não é uma plataforma de terceiros com
+ * vários clientes, não precisa de tabela de registro nem do passo a mais de
+ * calcular um hash fora daqui. A comparação em si continua em tempo
+ * constante (secureEqual), só não há um HASH armazenado — "hash-only" é
+ * pro que fica gravado em BANCO (ApiKey.keyHash, TvDisplayLink.tokenHash:
+ * aí sim um vazamento do banco expõe mais gente), não pro valor de uma
+ * única env var de processo.
  *
  * MULTI-TENANT — mesma peça que o spec original da Academy não previa (ver
  * comentário em Progresso, prisma/schema.prisma): todo `code`/token carrega
@@ -119,8 +120,8 @@ function getExpectedClientId(): string | null {
   return process.env.ACADEMY_CLIENT_ID || null;
 }
 
-function getExpectedClientSecretHash(): string | null {
-  return process.env.ACADEMY_CLIENT_SECRET_HASH || null;
+function getExpectedClientSecret(): string | null {
+  return process.env.ACADEMY_CLIENT_SECRET || null;
 }
 
 /** `client_id` sozinho não é segredo (é só um identificador, tipo usuário) — usado em GET /authorize, onde não há Basic auth nenhum (a Academy ainda não "falou" com o backend do CRM nesse passo, é o navegador). Sem ACADEMY_CLIENT_ID configurado, nunca bate (fail-closed), nunca lança. */
@@ -132,9 +133,9 @@ export function isKnownClientId(clientId: string): boolean {
 /**
  * HTTP Basic (RFC 6749 §2.3.1): `Authorization: Basic base64(urlencode(id) + ":" + urlencode(secret))`.
  * client_id comparado por igualdade simples (não é segredo); client_secret
- * só por hash, em tempo constante — nunca comparamos o segredo em texto
- * puro contra nada (nem sequer o mantemos em variável de ambiente deste
- * lado, só o hash dele).
+ * comparado em TEMPO CONSTANTE (secureEqual) contra ACADEMY_CLIENT_SECRET,
+ * nunca com `===` puro — evita vazar o valor por diferença de tempo de
+ * resposta mesmo sem ser um hash guardado em banco.
  */
 export function verifyClientBasicAuth(req: Request): ClientAuthResult {
   const header = req.headers.get("authorization");
@@ -160,12 +161,10 @@ export function verifyClientBasicAuth(req: Request): ClientAuthResult {
   }
 
   const expectedId = getExpectedClientId();
-  const expectedSecretHash = getExpectedClientSecretHash();
-  if (expectedId === null || expectedSecretHash === null) return { ok: false, error: "invalid_client", clientId };
+  const expectedSecret = getExpectedClientSecret();
+  if (expectedId === null || expectedSecret === null) return { ok: false, error: "invalid_client", clientId };
   if (clientId !== expectedId) return { ok: false, error: "invalid_client", clientId };
-  if (!secureEqual(hashOpaque(clientSecret), expectedSecretHash)) {
-    return { ok: false, error: "invalid_client", clientId };
-  }
+  if (!secureEqual(clientSecret, expectedSecret)) return { ok: false, error: "invalid_client", clientId };
 
   return { ok: true, clientId };
 }

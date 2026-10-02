@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, UploadCloud, ChevronRight, Download, Trash2 } from "lucide-react";
 import { Modal } from "./modal";
 import { Avatar } from "./avatar";
@@ -137,7 +137,10 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
       });
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Busca ao montar e sempre que `kind` trocar — setState síncrono de
+  // propósito (é a própria carga inicial da lista, não uma reação a um
+  // valor externo mudando).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(loadBatches, [kind]);
 
   async function confirmDelete() {
@@ -165,7 +168,12 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
     <Modal onClose={onClose} maxWidth="max-w-4xl">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Histórico de importações</h2>
       <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-        Os arquivos que você mesmo importou, com quando e quantas linhas entraram — importação de outra pessoa não aparece aqui, mesmo pra Dono/Gerente.
+        {kind === "contacts"
+          ? // Única exceção de visibilidade por papel nesta tela: Dono vê a importação de
+            // qualquer usuário da organização (ver app/api/contacts/import/history/route.ts);
+            // os demais papéis continuam só com a própria, igual sempre foi.
+            "Os arquivos que você mesmo importou, com quando e quantas linhas entraram — o Dono também vê as importações de todos os outros usuários da organização."
+          : "Os arquivos que você mesmo importou, com quando e quantas linhas entraram — importação de outra pessoa não aparece aqui, mesmo pra Dono/Gerente."}
       </p>
 
       {loading ? (
@@ -180,92 +188,93 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
           <EmptyState icon={UploadCloud} title="Nenhuma importação ainda" description="Quando você importar uma planilha, o lote aparece aqui." />
         </div>
       ) : (
-        <div className="max-h-[65vh] overflow-y-auto overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="sticky top-0 border-b border-neutral-100 bg-white text-left text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
-                <th className="px-3 py-2.5 font-medium">Arquivo</th>
-                <th className="px-3 py-2.5 font-medium">Quem</th>
-                <th className="px-3 py-2.5 font-medium">Quando</th>
-                <th className="px-3 py-2.5 font-medium">Linhas</th>
-                <th className="px-3 py-2.5 font-medium">Criados</th>
-                <th className="px-3 py-2.5 font-medium">Não importados</th>
-                <th className="px-3 py-2.5 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {batches.map((b) => {
-                const isExpanded = expandedId === b.id;
-                const isUndone = !!b.deletedAt;
-                return (
-                  <Fragment key={b.id}>
-                    <tr className={`border-b border-neutral-50 last:border-0 dark:border-neutral-900 ${isUndone ? "opacity-50" : ""}`}>
-                      <td className="max-w-48 truncate px-3 py-2.5 font-medium text-neutral-900 dark:text-neutral-100" title={b.fileName}>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(isExpanded ? null : b.id)}
-                          className="flex w-full items-center gap-1 text-left hover:text-brand"
-                        >
-                          <ChevronRight className={`h-3 w-3 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${isExpanded ? "rotate-90" : ""}`} strokeWidth={2} />
-                          <span className="truncate">{b.fileName}</span>
-                        </button>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="flex items-center gap-1.5 text-neutral-700 dark:text-neutral-300">
-                          <Avatar name={b.createdBy.name} src={b.createdBy.photoUrl} size="xs" />
-                          {b.createdBy.name}
+        // Lista, não tabela — pedido explícito: "cheio de informações que o
+        // consultor nem vai olhar". Uma tabela de 7 colunas dava o MESMO peso
+        // visual pra arquivo/quem/quando/total/criados/erros, quando só uma
+        // coisa importa de cara: "quanto entrou" — e só quando algo ficou de
+        // fora é que vale abrir pra ver/agir. O resto (arquivo, quem, hora)
+        // vira contexto pequeno numa linha só, pra achar o lote certo sem
+        // disputar atenção com o resultado dele.
+        <div className="card max-h-[65vh] divide-y divide-neutral-100 overflow-y-auto dark:divide-neutral-800">
+          {batches.map((b) => {
+            const isExpanded = expandedId === b.id;
+            const isUndone = !!b.deletedAt;
+            const hasIssues = b.rowsSkipped > 0;
+            const date = new Date(b.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+            return (
+              <div key={b.id} className={isUndone ? "opacity-60" : ""}>
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 p-3">
+                  <div className="min-w-0">
+                    {/* Resultado primeiro e maior — a pergunta real de quem abre esta tela
+                        é "entrou tudo?", não "qual arquivo foi". Só vira botão (com seta)
+                        quando há algo pra ver; sem erro nenhum, é só texto, sem convite
+                        a clicar em nada que não leva a lugar nenhum. */}
+                    {hasIssues ? (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isExpanded ? null : b.id)}
+                        className="flex flex-wrap items-center gap-2 text-left"
+                      >
+                        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ease-smooth dark:text-neutral-500 ${isExpanded ? "rotate-90" : ""}`} strokeWidth={2.5} />
+                        <span className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                          {b.rowsCreated} de {b.rowsTotal} {ENTITY_LABEL[kind].plural}
                         </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-neutral-500 dark:text-neutral-400">
-                        {new Date(b.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                      </td>
-                      <td className="px-3 py-2.5 tabular-nums text-neutral-700 dark:text-neutral-300">{b.rowsTotal}</td>
-                      <td className="px-3 py-2.5 tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{b.rowsCreated}</td>
-                      <td className="px-3 py-2.5 tabular-nums text-neutral-500 dark:text-neutral-400">{b.rowsSkipped}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1">
-                          {isUndone ? (
-                            <Badge tone="neutral" size="sm">desfeita</Badge>
-                          ) : (
-                            <>
-                              {b.rowsSkipped > 0 && (
-                                <a
-                                  href={`/api/${kind}/import/${b.id}/errors`}
-                                  download
-                                  className="icon-btn"
-                                  title="Baixar planilha de erros"
-                                >
-                                  <Download className="h-3.5 w-3.5" strokeWidth={2} />
-                                </a>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDeleteError(null);
-                                  setBatchToDelete(b);
-                                }}
-                                className="icon-btn hover:text-red-600 dark:hover:text-red-400"
-                                title={`Desfazer importação (apaga os ${ENTITY_LABEL[kind].plural} criados por ela)`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <tr className="border-b border-neutral-50 bg-neutral-50/50 dark:border-neutral-900 dark:bg-neutral-900/30">
-                        <td colSpan={7} className="px-3">
-                          <IssueRowsPanel kind={kind} batchId={b.id} />
-                        </td>
-                      </tr>
+                        <Badge tone="warning" size="sm">
+                          {b.rowsSkipped} não {b.rowsSkipped === 1 ? "entrou" : "entraram"}
+                        </Badge>
+                        {isUndone && <Badge tone="neutral" size="sm">Desfeita</Badge>}
+                      </button>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2 pl-[1.375rem]">
+                        <span className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                          {b.rowsCreated} {ENTITY_LABEL[kind].plural}
+                        </span>
+                        {isUndone && <Badge tone="neutral" size="sm">Desfeita</Badge>}
+                      </div>
                     )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                    {/* Contexto — quem, quando, qual arquivo — pequeno e junto numa linha só,
+                        só pra achar o lote certo no meio de vários, nunca o foco da tela. */}
+                    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 pl-[1.375rem] text-xs text-neutral-500 dark:text-neutral-400">
+                      <Avatar name={b.createdBy.name} src={b.createdBy.photoUrl} size="xs" className="shrink-0" />
+                      {b.createdBy.name} <span aria-hidden="true">·</span> {date}
+                      <span aria-hidden="true">·</span>
+                      <span className="max-w-[16rem] truncate" title={b.fileName}>{b.fileName}</span>
+                    </p>
+                  </div>
+                  {!isUndone && (
+                    <div className="flex shrink-0 items-center gap-1">
+                      {hasIssues && (
+                        <a href={`/api/${kind}/import/${b.id}/errors`} download className="icon-btn-labeled">
+                          <Download className="h-3.5 w-3.5" strokeWidth={2} />
+                          Baixar erros
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeleteError(null);
+                          setBatchToDelete(b);
+                        }}
+                        className="icon-btn-labeled hover:text-red-600 dark:hover:text-red-400"
+                        title={`Apaga os ${ENTITY_LABEL[kind].plural} criados por essa importação`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                        Desfazer
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {isExpanded && (
+                  // pl-[2.125rem] = o mesmo recuo da linha de contexto acima (p-3 do
+                  // bloco + pl-[1.375rem] dela) — o painel de erros fica visualmente
+                  // "dentro" do resultado que ele detalha, não solto na margem do card.
+                  <div className="border-t border-neutral-100 bg-neutral-50/60 py-1 pr-3 pl-[2.125rem] dark:border-neutral-800 dark:bg-neutral-900/30">
+                    <IssueRowsPanel kind={kind} batchId={b.id} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

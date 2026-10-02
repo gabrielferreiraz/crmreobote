@@ -6,7 +6,7 @@ import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 export const dynamic = "force-dynamic";
 
 /** Detalhe de um lote — usado pelo "ver detalhes" do histórico (linhas que não viraram contato, com o motivo de cada uma).
- * Mesma regra da lista (GET /api/contacts/import/history): só quem criou o lote acessa, sem exceção de papel. */
+ * Mesma regra da lista (GET /api/contacts/import/history): só quem criou o lote acessa — exceto o Dono, que acessa o de qualquer um. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   return runWithTenant(access.organizationId, async () => {
     const batch = await prisma.importBatch.findFirst({
-      where: { id, organizationId: access.organizationId, createdById: access.userId },
+      where: { id, organizationId: access.organizationId, createdById: access.role === "OWNER" ? undefined : access.userId },
       include: { createdBy: { select: { name: true } } },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
@@ -45,6 +45,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  * O registro do ImportBatch em si NUNCA é apagado (só marcado deletedAt) —
  * é o próprio rastro de auditoria que essa importação existiu e foi
  * desfeita.
+ *
+ * Mesma exceção do Dono da lista/detalhe (ver GET acima): ele também pode
+ * desfazer a importação de qualquer usuário, não só a própria — coerente
+ * com o resto do sistema, onde Dono já tem autoridade sobre tudo da
+ * organização (negócios, campanhas etc., ver lib/team-scope.ts).
  */
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -53,7 +58,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   return runWithTenant(access.organizationId, async () => {
     const batch = await prisma.importBatch.findFirst({
-      where: { id, organizationId: access.organizationId, createdById: access.userId },
+      where: { id, organizationId: access.organizationId, createdById: access.role === "OWNER" ? undefined : access.userId },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     if (batch.deletedAt) return NextResponse.json({ error: "Essa importação já foi desfeita" }, { status: 409 });

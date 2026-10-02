@@ -13,7 +13,24 @@
  * português, "," é separador decimal, então um CSV separado por vírgula
  * abre tudo numa coluna só.
  */
-const TEMPLATE_HEADERS = ["nome", "cargo", "email", "celular", "whatsapp", "origem", "empresa", "responsavel", "tags"];
+const TEMPLATE_HEADERS = [
+  "nome",
+  "cargo",
+  "email",
+  "celular",
+  "whatsapp",
+  "origem",
+  "empresa",
+  "responsavel",
+  "tags",
+  "cep",
+  "rua",
+  "numero",
+  "complemento",
+  "bairro",
+  "cidade",
+  "uf",
+];
 const TEMPLATE_EXAMPLE_ROW = [
   "João da Silva",
   "Empresário",
@@ -24,6 +41,13 @@ const TEMPLATE_EXAMPLE_ROW = [
   "Empresa Exemplo Ltda",
   "",
   "cliente vip",
+  "79002-000",
+  "Rua 14 de Julho",
+  "1500",
+  "Sala 3",
+  "Centro",
+  "Campo Grande",
+  "MS",
 ];
 
 export function downloadContactImportTemplate() {

@@ -61,11 +61,13 @@ export async function POST(req: Request) {
     // pra usar em todos" na importação de contatos). Nunca confia cru no
     // que veio: precisa ser um membro de verdade da mesma organização,
     // senão qualquer um poderia tentar atribuir lead a um id qualquer.
+    // E ATIVO — atribuir a quem já saiu da empresa só recriaria o mesmo
+    // lead órfão que o "Assumir" existe pra resolver.
     let target = userId;
     let targetName = requesterName;
     if (targetUserId && targetUserId !== userId) {
       const targetMembership = await prisma.organizationUser.findFirst({
-        where: { organizationId, userId: targetUserId },
+        where: { organizationId, userId: targetUserId, active: true },
         select: { user: { select: { id: true, name: true } } },
       });
       if (!targetMembership) return NextResponse.json({ error: "Usuário de destino não encontrado" }, { status: 400 });

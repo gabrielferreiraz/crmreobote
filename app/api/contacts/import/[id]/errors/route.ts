@@ -27,8 +27,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
   return runWithTenant(access.organizationId, async () => {
+    // Mesma exceção do Dono que a lista/detalhe/desfazer (ver GET /api/contacts/import/[id]).
     const batch = await prisma.importBatch.findFirst({
-      where: { id, organizationId: access.organizationId, createdById: access.userId },
+      where: { id, organizationId: access.organizationId, createdById: access.role === "OWNER" ? undefined : access.userId },
       select: { fileName: true, issueRows: true },
     });
     if (!batch) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });

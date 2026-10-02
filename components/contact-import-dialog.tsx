@@ -1,134 +1,85 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, FileSpreadsheet, CheckCircle2, TriangleAlert, Info, Sparkles, ChevronRight, Download, UserPlus, Send, Clock3, RefreshCw, Eye } from "lucide-react";
+import { Download, FileSpreadsheet, Loader2 } from "lucide-react";
 import { Modal } from "./modal";
-import { LoadingDots } from "./loading-dots";
 import { Select } from "./select";
 import { useFileDrop } from "@/lib/use-file-drop";
 import { downloadContactImportTemplate } from "@/lib/contact-import-template";
 import { trackUse } from "@/lib/feature-usage/track";
+import { requestJson } from "@/lib/client-request";
 import { MAX_CONTACT_IMPORT_ROWS } from "@/lib/contacts/import-limits";
+import { MAPPING_NONE, MAPPING_SKIP } from "@/lib/contacts/import-mapping";
+// Só tipos — o módulo em si puxa o leitor de planilha (servidor), mas
+// `import type` some na compilação e nada dele vai pro navegador.
+import type {
+  ColumnDetection,
+  ContactImportField,
+  DecisionField,
+  DivergentField,
+  ExistingContactMatch,
+  ImportPlanSummary,
+  PendingValue,
+  ResolvedRow,
+  ValueMappings,
+} from "@/lib/contacts/import-resolve";
 
-type ImportField = "name" | "jobTitle" | "email" | "phone" | "whatsapp" | "source" | "company" | "tags" | "responsavel";
-
-type ColumnDetection = { field: ImportField; label: string; required: boolean; index: number; headerLabel: string | null };
-type RowIssue = { code: string; message: string };
-type DivergentField = { field: "jobTitle" | "source" | "company" | "email"; label: string; oldValue: string | null; newValue: string };
-type ExistingContactMatch = {
-  id: string;
-  name: string;
-  responsavelId: string | null;
-  responsavelName: string | null;
-  responsavelActive: boolean;
-  divergentFields: DivergentField[];
-};
-type ResolvedRow = {
-  rowNumber: number;
-  willImport: boolean;
-  name: string | null;
-  jobTitle: string | null;
-  source: string | null;
-  responsavelName: string | null;
-  issues: RowIssue[];
-  existingContact?: ExistingContactMatch | null;
-};
-type ImportPlanSummary = {
-  totalRows: number;
-  toCreate: number;
-  skippedNoName: number;
-  skippedNoJobTitle: number;
-  skippedInvalidPhone: number;
-  duplicateContacts: number;
-  ownerFallbacks: number;
-};
+type DuplicateRow = ResolvedRow & { existingContact: ExistingContactMatch };
 type PreviewResponse = {
   rawHeaderRow: string[];
+  columnSamples: string[][];
   columns: ColumnDetection[];
   missingRequiredColumns: ColumnDetection[];
   summary: ImportPlanSummary;
+  pendingValues: PendingValue[];
   rows: ResolvedRow[];
   rowsShown: number;
+  duplicateRows: DuplicateRow[];
+  duplicateRowsTruncated: boolean;
 };
 type ImportResult = ImportPlanSummary & { total: number; created: number; skipped: number; importBatchId: string; issueRows: ResolvedRow[] };
 
-type Step = "pick" | "analyzing" | "headers" | "details" | "importing" | "done";
+type Step = "pick" | "columns" | "review" | "done";
+type Overrides = Partial<Record<ContactImportField, number>>;
+type LeadActionResult = { kind: "claimed" | "requested" | "already-target" } | { kind: "error"; message: string };
 
-/**
- * Campo que faz sentido ter UM valor só aplicado a toda a planilha quando a
- * coluna correspondente não existe no arquivo — mesma ideia de
- * DEFAULTABLE_FIELDS em deal-import-dialog.tsx. `jobTitle` é diferente de
- * `responsavel` (opcional): Cargo é OBRIGATÓRIO (ver FIELD_META em
- * lib/contacts/import-resolve.ts) — sem coluna nem default, a linha inteira
- * é ignorada. Pedido explícito do usuário: planilha sem coluna de cargo
- * nenhuma travava a importação por completo, sem saída.
- */
-type DefaultableField = "responsavel" | "jobTitle" | "source";
-const DEFAULTABLE_FIELDS: DefaultableField[] = ["responsavel", "jobTitle", "source"];
+/** Quantos pedidos de "Atribuir/Pedir" em massa rodam ao mesmo tempo — 300
+ * de uma vez só derrubava a cota/conexões do servidor e metade voltava erro. */
+const BULK_CONCURRENCY = 5;
 
-/**
- * Resumo em uma frase do que vai acontecer — a primeira coisa que a pessoa
- * lê, antes de qualquer grade técnica de coluna/estatística. Mesmo
- * raciocínio de importHeadline em deal-import-dialog.tsx.
- */
-function importHeadline(s: ImportPlanSummary, hasBlockingIssue: boolean): { icon: typeof Sparkles; tone: "success" | "warning" | "danger"; title: string; subtitle: string } {
-  if (hasBlockingIssue) {
-    return {
-      icon: TriangleAlert,
-      tone: "danger",
-      title: "Falta indicar uma coluna obrigatória",
-      subtitle: "Sem saber qual coluna é o nome (ou o cargo) do contato, não dá pra continuar — aponte ela abaixo.",
-    };
-  }
-  if (s.toCreate === 0) {
-    return {
-      icon: Info,
-      tone: "warning",
-      title: "Nenhum contato será criado",
-      subtitle: "Confira se as colunas de nome e cargo foram reconhecidas certo, em \"Ver detalhes técnicos\" abaixo.",
-    };
-  }
-  const details = [
-    s.duplicateContacts > 0 ? `${s.duplicateContacts} duplicado${s.duplicateContacts === 1 ? "" : "s"} evitado${s.duplicateContacts === 1 ? "" : "s"}` : null,
-    s.skippedNoJobTitle > 0 ? `${s.skippedNoJobTitle} sem cargo (ignorado${s.skippedNoJobTitle === 1 ? "" : "s"})` : null,
-    s.skippedInvalidPhone > 0 ? `${s.skippedInvalidPhone} com número inválido (ignorado${s.skippedInvalidPhone === 1 ? "" : "s"})` : null,
-  ].filter((d): d is string => !!d);
-  return {
-    icon: Sparkles,
-    tone: "success",
-    title: `${s.toCreate} contato${s.toCreate === 1 ? "" : "s"} serão importado${s.toCreate === 1 ? "" : "s"}`,
-    subtitle: details.length > 0 ? details.join(" · ") : "Confira e confirme para concluir.",
-  };
+/** Texto curto da coluna "Situação" — o motivo principal de cada linha. */
+const ISSUE_LABEL: Record<string, string> = {
+  NO_NAME: "Sem nome",
+  NO_JOB_TITLE: "Sem cargo",
+  UNKNOWN_SOURCE: "Origem ignorada",
+  DUPLICATE_CONTACT: "Já existe",
+  INVALID_WHATSAPP: "WhatsApp inválido",
+  INVALID_PHONE: "Celular inválido",
+  OWNER_NOT_FOUND: "Responsável não achado",
+  INVALID_STATE: "UF ignorada",
+  INVALID_ZIP: "CEP ignorado",
+};
+
+function plural(n: number, one: string, many: string) {
+  return `${n.toLocaleString("pt-BR")} ${n === 1 ? one : many}`;
 }
 
-function StatChip({ label, value, tone }: { label: string; value: number; tone?: "warn" | "danger" }) {
-  return (
-    <div className="rounded-md border border-neutral-200 px-2.5 py-1.5 dark:border-neutral-800">
-      <div
-        className={`text-lg font-semibold tabular-nums ${
-          tone === "danger"
-            ? "text-red-600 dark:text-red-400"
-            : tone === "warn"
-              ? "text-amber-600 dark:text-amber-400"
-              : "text-neutral-900 dark:text-neutral-100"
-        }`}
-      >
-        {value}
-      </div>
-      <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{label}</div>
-    </div>
-  );
+async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  });
+  await Promise.all(workers);
 }
 
+const decisionId = (field: DecisionField, key: string) => `${field}:${key}`;
+
 /**
- * Importação de contatos com prévia de verdade — mesmo espírito/UX de
- * components/deal-import-dialog.tsx, adaptado pro conjunto mais simples de
- * campos de contato (sem etapa/negócio — Responsável é o único conceito que
- * os dois compartilham). Analisa o arquivo, mostra o que vai acontecer ANTES
- * de gravar qualquer coisa, e deixa apontar manualmente qual coluna do
- * arquivo é qual campo quando o cabeçalho não bate com nenhum sinônimo
- * conhecido — pedido explícito: "formas de localizar os cabeçalhos da
- * planilha pra não haver erros".
+ * Importação de contatos em 3 telas: Colunas (o que é cada coluna da
+ * planilha) → Revisar (o que vai acontecer, sem gravar nada ainda: só
+ * pergunta o que não bateu com o CRM, e mostra os contatos que já existem,
+ * com Atribuir/Pedir) → Resultado. A prévia e a importação usam o MESMO cálculo no servidor
+ * (lib/contacts/import-resolve.ts), então o que a revisão mostra é o que grava.
  */
 export function ContactImportDialog({
   members,
@@ -139,15 +90,11 @@ export function ContactImportDialog({
   onImported,
 }: {
   members: { id: string; name: string }[];
-  /** Lista canônica (Configurações → Cargos) — só pra sugerir no campo de texto do "cargo pra usar em todos" abaixo (ver datalist), nunca restringe o que dá pra digitar ali (cargo de contato é texto livre, não uma FK). */
+  /** Configurações → Cargos — as opções pra um cargo da planilha que não existe no CRM. */
   jobTitles: { id: string; label: string }[];
-  /** Idem, lista canônica (Configurações → Origens) — mesmo raciocínio do datalist de Cargo, pro default de Origem. */
+  /** Idem, Configurações → Origens. */
   sources: { id: string; label: string }[];
-  /** Pra saber se o Responsável padrão escolhido abaixo é a PRÓPRIA pessoa
-   * (comportamento de sempre: "Assumir"/"Solicitar" mira em quem clicou) ou
-   * OUTRA pessoa (admin/assistente importando planilha pra alguém — nesse
-   * caso o mesmo botão precisa mirar em quem foi escolhido, não em quem
-   * está com o mouse). */
+  /** Quem está importando — destino de "Atribuir" numa linha que não diz pra quem vai. */
   currentUserId?: string;
   onClose: () => void;
   onImported: () => void;
@@ -155,324 +102,228 @@ export function ContactImportDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [busy, setBusy] = useState<"analyzing" | "importing" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
-  const [overrides, setOverrides] = useState<Partial<Record<ImportField, number>>>({});
-  // Valor único pra todo mundo quando a coluna "responsavel" não existe no
-  // arquivo (ver DEFAULTABLE_FIELDS acima) — começa vazio ("Ninguém"),
-  // diferente do responsável de NEGÓCIO na importação de negócios (que já
-  // começa preenchido com quem está importando): aqui um contato sem
-  // responsável é um estado normal/esperado (mesmo padrão do cadastro
-  // manual, "Novo contato"), não faria sentido atribuir a planilha inteira
-  // a quem importou sem essa pessoa pedir.
-  const [fieldDefaults, setFieldDefaults] = useState<Partial<Record<DefaultableField, string>>>({});
-  // Rascunho separado do campo de texto do Cargo padrão — só confirma (e
-  // dispara nova prévia) no blur, não a cada tecla (diferente do Select de
-  // Responsável, que já dispara por escolha discreta). Mesmo padrão do
-  // campo "Origem" em deal-import-dialog.tsx.
-  const [jobTitleDraft, setJobTitleDraft] = useState("");
-  // Mesma ideia do rascunho de Cargo acima, pro default de Origem.
-  const [sourceDraft, setSourceDraft] = useState("");
+  const [overrides, setOverrides] = useState<Overrides>({});
+  // Resposta pra cada valor que não bateu com o CRM (ver PendingValue) —
+  // chave "campo:valor". Fica de pé entre análises: voltar pras colunas e
+  // revisar de novo não apaga o que já foi respondido.
+  const [decisions, setDecisions] = useState<Record<string, string>>({});
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [reviewTab, setReviewTab] = useState<"rows" | "duplicates">("rows");
   const [showIssueRows, setShowIssueRows] = useState(false);
-  // Ação por contato já existente (ver "linhas ignoradas" abaixo) — chave é
-  // o id do CONTATO existente (não da linha), porque a mesma pessoa pode
-  // aparecer em mais de uma linha da planilha (telefone E whatsapp
-  // duplicados, por exemplo) e as duas devem refletir a mesma ação.
-  const [showDuplicateRows, setShowDuplicateRows] = useState(false);
-  const [duplicateActionBusyId, setDuplicateActionBusyId] = useState<string | null>(null);
-  const [bulkActionBusy, setBulkActionBusy] = useState(false);
-  const [duplicateActionResult, setDuplicateActionResult] = useState<
-    Record<string, "claimed" | "requested" | "already-requested" | "already-yours" | "error">
-  >({});
-  // Mensagem de verdade do servidor quando dá "error" acima — sem isso, todo
-  // erro virava o mesmo "Erro — tente de novo" genérico, impossível de
-  // diagnosticar de longe (relatado: "cliquei e deu erro", sem detalhe
-  // nenhum pra investigar). Chave separada (não dentro do union acima) pra
-  // não precisar carregar essa string em todo outro estado que não é erro.
-  const [duplicateActionErrorMessage, setDuplicateActionErrorMessage] = useState<Record<string, string>>({});
-  // "Atualizar campos divergentes" (ver ExistingContactMatch.divergentFields)
-  // — mesma chave por CONTATO existente (não por linha) do bloco acima.
-  const [divergentUpdateBusyId, setDivergentUpdateBusyId] = useState<string | null>(null);
-  const [divergentUpdateResult, setDivergentUpdateResult] = useState<Record<string, "updated" | "error">>({});
-  const [divergentUpdateErrorMessage, setDivergentUpdateErrorMessage] = useState<Record<string, string>>({});
+  // Por id do CONTATO existente (não da linha) — a mesma pessoa pode colidir
+  // em mais de uma linha e todas refletem a mesma ação.
+  const [leadBusy, setLeadBusy] = useState<Record<string, true>>({});
+  const [leadResult, setLeadResult] = useState<Record<string, LeadActionResult>>({});
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState<Record<string, true>>({});
+  const [updateResult, setUpdateResult] = useState<Record<string, { ok: true } | { ok: false; message: string }>>({});
 
-  async function runPreview(
-    pickedFile: File,
-    currentOverrides: Partial<Record<ImportField, number>>,
-    currentFieldDefaults: Partial<Record<DefaultableField, string>>,
-    nextStep: "headers" | "details" = "headers",
-    includeAllRows = false,
-  ): Promise<boolean> {
-    setIsAnalyzing(true);
-    if (!preview) setStep("analyzing");
+  const memberName = (id: string | null | undefined) => (id ? (members.find((m) => m.id === id)?.name ?? null) : null);
+
+  async function analyze(picked: File, nextOverrides: Overrides, opts: { nextStep: Step; allRows?: boolean }) {
+    setBusy("analyzing");
     setError(null);
-    try {
-      const formData = new FormData();
-      formData.append("file", pickedFile);
-      if (Object.keys(currentOverrides).length > 0) formData.append("columnOverrides", JSON.stringify(currentOverrides));
-      if (Object.keys(currentFieldDefaults).length > 0) formData.append("fieldDefaults", JSON.stringify(currentFieldDefaults));
-      if (includeAllRows) formData.append("includeAllRows", "true");
+    const formData = new FormData();
+    formData.append("file", picked);
+    if (Object.keys(nextOverrides).length > 0) formData.append("columnOverrides", JSON.stringify(nextOverrides));
+    if (opts.allRows) formData.append("includeAllRows", "true");
 
-      const res = await fetch("/api/contacts/import/preview", { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Erro ao analisar o arquivo");
-        setStep(nextStep === "details" ? "details" : "pick");
-        return false;
-      }
-      setPreview(data);
-      setStep(nextStep);
-      return true;
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-      setStep(nextStep === "details" ? "details" : "pick");
-      return false;
-    } finally {
-      setIsAnalyzing(false);
+    const res = await requestJson<PreviewResponse>("/api/contacts/import/preview", { method: "POST", body: formData }, { silent: true, errorMessage: "Não foi possível ler o arquivo" });
+    setBusy(null);
+    if (!res.ok) {
+      setError(res.error);
+      return;
     }
+    setPreview(res.data);
+    setStep(opts.nextStep);
   }
 
   function pickFile(picked: File) {
     setFile(picked);
+    setPreview(null);
     setOverrides({});
-    setFieldDefaults({});
-    setJobTitleDraft("");
-    setSourceDraft("");
-    runPreview(picked, {}, {}, "headers");
+    setDecisions({});
+    setLeadResult({});
+    setUpdateResult({});
+    setReviewTab("rows");
+    analyze(picked, {}, { nextStep: "columns" });
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = e.target.files?.[0];
-    if (!picked) return;
-    pickFile(picked);
+  function resetFile() {
+    setStep("pick");
+    setFile(null);
+    setPreview(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // "importar contatos deve ser drag and drop" (pedido explícito) — mesmo
-  // hook usado em deal-import-dialog.tsx, ver lib/use-file-drop.ts.
-  const { isDraggingOver, dropZoneProps } = useFileDrop(pickFile, step === "analyzing");
+  const { isDraggingOver, dropZoneProps } = useFileDrop(pickFile, busy !== null);
 
-  // value === "" (opção "Não usar" da grade) vira -1, não `Number("")` (que
-  // daria 0 — a PRIMEIRA coluna do arquivo, o oposto do que a pessoa
-  // pediu). -1 explícito é o que detectColumns (lib/contacts/import-resolve.ts)
-  // entende como "vontade explícita de não usar", diferente da chave
-  // simplesmente ausente (deixa a detecção automática decidir).
-  function updateOverride(field: ImportField, value: string) {
-    const next = { ...overrides, [field]: value === "" ? -1 : Number(value) };
+  // ─── Mapeamento coluna da planilha ↔ campo do CRM ─────────────────────
+  // A detecção do servidor diz campo → coluna; a tela mostra coluna → campo
+  // (é a planilha que a pessoa tem aberta na frente). Override presente
+  // (mesmo -1) sempre vence a detecção — ver detectColumns.
+  function fieldIndex(col: ColumnDetection) {
+    const o = overrides[col.field];
+    return o !== undefined ? o : col.index;
+  }
+  function fieldForColumn(columnIndex: number): ContactImportField | "" {
+    return preview?.columns.find((c) => fieldIndex(c) === columnIndex)?.field ?? "";
+  }
+  function setColumnField(columnIndex: number, field: ContactImportField | "") {
+    if (!preview) return;
+    const next: Overrides = { ...overrides };
+    // Quem estava nesta coluna sai dela.
+    for (const c of preview.columns) {
+      if (fieldIndex(c) === columnIndex && c.field !== field) next[c.field] = -1;
+    }
+    if (field) next[field] = columnIndex;
     setOverrides(next);
-    // NÃO dispara runPreview aqui - usuário configura tudo primeiro,
-    // a análise acontece apenas ao clicar em "Importar"
   }
 
-  function updateFieldDefault(field: DefaultableField, value: string) {
-    const next = { ...fieldDefaults };
-    if (value) next[field] = value;
-    else delete next[field];
-    setFieldDefaults(next);
-    if (file) runPreview(file, overrides, next, "details");
+  // ─── Valores que não bateram com o CRM ────────────────────────────────
+  // Resposta efetiva = a escolhida, senão o palpite do sistema (visível, já
+  // selecionado), senão "Ninguém" pra responsável vazio. undefined = ainda
+  // sem resposta (bloqueia a importação se a pergunta for bloqueante).
+  function answerFor(p: PendingValue): string | undefined {
+    return decisions[decisionId(p.field, p.key)] ?? p.suggestion ?? (p.field === "responsavel" && !p.key ? MAPPING_NONE : undefined);
   }
-
-  // Não faz nada - apenas mantém os drafts locais.
-  // Os valores são aplicados apenas no momento da importação (confirmImport).
-  function syncTextFieldDefaults() {
-    // Sem ação
+  function answerByKey(field: DecisionField, key: string | undefined): string | undefined {
+    if (key === undefined || !preview) return undefined;
+    const p = preview.pendingValues.find((v) => v.field === field && v.key === key);
+    return p ? answerFor(p) : undefined;
   }
-
-  // Assumir (dono inativo/sem dono, reatribui na hora) ou solicitar (dono
-  // ativo, cria pedido — ver POST /api/lead-requests) — o mesmo endpoint
-  // decide sozinho qual dos dois caminhos vale, pelo estado ATUAL do dono
-  // no banco (nunca confia no que a prévia mostrou, que pode ter minutos).
-  // targetUserId: pra quem vai o lead — o Responsável padrão escolhido
-  // acima (quando presente), não necessariamente quem está clicando (ver
-  // comentário na prop currentUserId).
-  async function handleLeadAction(contactId: string) {
-    setDuplicateActionBusyId(contactId);
-    try {
-      const res = await fetch("/api/lead-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactId, targetUserId: fieldDefaults.responsavel || undefined }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
-        setDuplicateActionErrorMessage((prev) => ({ ...prev, [contactId]: data.error || `Erro ${res.status}` }));
-        return;
-      }
-      const result: "claimed" | "requested" | "already-requested" | "already-yours" = data.alreadyYours
-        ? "already-yours"
-        : data.alreadyRequested
-          ? "already-requested"
-          : data.claimed
-            ? "claimed"
-            : "requested";
-      setDuplicateActionResult((prev) => ({ ...prev, [contactId]: result }));
-    } catch (err) {
-      setDuplicateActionResult((prev) => ({ ...prev, [contactId]: "error" }));
-      setDuplicateActionErrorMessage((prev) => ({ ...prev, [contactId]: err instanceof Error ? err.message : "Falha de conexão" }));
-    } finally {
-      setDuplicateActionBusyId(null);
+  /** Responsável da linha já com a resposta aplicada (null = ninguém). */
+  function rowResponsavelId(row: ResolvedRow): string | null {
+    if (row.responsavelId) return row.responsavelId;
+    const answer = answerByKey("responsavel", row.pending?.responsavel);
+    return answer && answer !== MAPPING_NONE ? answer : null;
+  }
+  function valueMappings(): ValueMappings {
+    const out: ValueMappings = {};
+    for (const p of preview?.pendingValues ?? []) {
+      const answer = answerFor(p);
+      if (answer === undefined) continue;
+      (out[p.field] ??= {})[p.key] = answer;
     }
+    return out;
   }
 
-  /**
-   * "Atualizar campos divergentes" — pedido explícito: "o que for divergente
-   * ele muda" em vez de só pular a linha. Reaproveita o PUT de edição de
-   * contato de sempre (mesma validação/sanitização/undo já existentes lá) —
-   * nunca um endpoint novo. Manda só os campos QUE DIVERGEM (nunca a linha
-   * inteira): campo não incluído no corpo = "não toca" pro PUT (ver
-   * app/api/contacts/[id]/route.ts), então um campo que já bate não corre
-   * risco de ser sobrescrito por engano. A permissão de editar continua
-   * sendo decidida pelo PUT em si (MEMBER só edita contato próprio/sem dono/
-   * dono inativo) — sem checagem duplicada aqui, um 403 vira só "error" na
-   * linha, igual a qualquer outra falha.
-   */
-  async function handleUpdateDivergentFields(contactId: string, fields: DivergentField[]) {
-    setDivergentUpdateBusyId(contactId);
-    try {
-      const body: Record<string, string> = {};
-      for (const f of fields) body[f.field] = f.newValue;
-      const res = await fetch(`/api/contacts/${contactId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "error" }));
-        setDivergentUpdateErrorMessage((prev) => ({ ...prev, [contactId]: data.error || `Erro ${res.status}` }));
-        return;
-      }
-      setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "updated" }));
-    } catch (err) {
-      setDivergentUpdateResult((prev) => ({ ...prev, [contactId]: "error" }));
-      setDivergentUpdateErrorMessage((prev) => ({ ...prev, [contactId]: err instanceof Error ? err.message : "Falha de conexão" }));
-    } finally {
-      setDivergentUpdateBusyId(null);
-    }
+  // ─── Atribuir / Pedir contato que já existe ───────────────────────────
+  // O servidor decide entre assumir na hora (sem dono, dono inativo, lead
+  // perdido há tempo) e criar pedido pro dono atual — pelo estado do banco
+  // AGORA, nunca pelo que a prévia achava. O destino é o da LINHA: a coluna
+  // Responsável da planilha (ou a resposta dada pra ela), senão quem clicou.
+  // (Bug relatado: era sempre um padrão-ou-quem-clicou, então o dono
+  // importando a planilha do Vinicius, com Vinicius na coluna, recebia ele
+  // mesmo os leads ao clicar "Atribuir".)
+  function targetFor(row: DuplicateRow) {
+    return rowResponsavelId(row) ?? currentUserId ?? null;
   }
 
-  // Atualiza a prévia com os mapeamentos atualizados (botão opcional)
-  async function refreshPreview() {
+  async function leadAction(contactId: string, targetUserId: string | null) {
+    setLeadBusy((prev) => ({ ...prev, [contactId]: true }));
+    const res = await requestJson("/api/lead-requests", { method: "POST", json: { contactId, targetUserId: targetUserId ?? undefined } }, { silent: true });
+    setLeadBusy((prev) => {
+      const next = { ...prev };
+      delete next[contactId];
+      return next;
+    });
+    const outcome: LeadActionResult = !res.ok
+      ? { kind: "error", message: res.error }
+      : res.data?.alreadyYours
+        ? { kind: "already-target" }
+        : res.data?.claimed
+          ? { kind: "claimed" }
+          : { kind: "requested" };
+    setLeadResult((prev) => ({ ...prev, [contactId]: outcome }));
+  }
+
+  async function bulkLeadAction(rows: DuplicateRow[]) {
+    if (rows.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    await runPool(rows, BULK_CONCURRENCY, (r) => leadAction(r.existingContact.id, targetFor(r)));
+    setBulkBusy(false);
+  }
+
+  // Reaproveita o PUT de edição de sempre (mesma validação e permissão),
+  // mandando só os campos que divergem — o que não vai no corpo não é tocado.
+  async function updateDivergent(contactId: string, fields: { field: DivergentField; newValue: string }[]) {
+    setUpdateBusy((prev) => ({ ...prev, [contactId]: true }));
+    const body = Object.fromEntries(fields.map((f) => [f.field, f.newValue]));
+    const res = await requestJson(`/api/contacts/${contactId}`, { method: "PUT", json: body }, { silent: true });
+    setUpdateBusy((prev) => {
+      const next = { ...prev };
+      delete next[contactId];
+      return next;
+    });
+    setUpdateResult((prev) => ({ ...prev, [contactId]: res.ok ? { ok: true } : { ok: false, message: res.error } }));
+  }
+
+  async function confirmImport() {
     if (!file) return;
+    setBusy("importing");
     setError(null);
-    try {
-      const finalFieldDefaults = { ...fieldDefaults };
-      if (jobTitleDraft) finalFieldDefaults.jobTitle = jobTitleDraft;
-      else delete finalFieldDefaults.jobTitle;
-      if (sourceDraft) finalFieldDefaults.source = sourceDraft;
-      else delete finalFieldDefaults.source;
+    const formData = new FormData();
+    formData.append("file", file);
+    if (Object.keys(overrides).length > 0) formData.append("columnOverrides", JSON.stringify(overrides));
+    const mappings = valueMappings();
+    if (Object.keys(mappings).length > 0) formData.append("valueMappings", JSON.stringify(mappings));
 
-      await runPreview(file, overrides, finalFieldDefaults, "details");
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-      setStep("details");
+    const res = await requestJson<ImportResult>("/api/contacts/import", { method: "POST", body: formData }, { silent: true, errorMessage: "Erro ao importar arquivo" });
+    setBusy(null);
+    if (!res.ok) {
+      setError(res.error);
+      return;
     }
+    setResult(res.data);
+    setStep("done");
+    trackUse("clientes.importar");
+    onImported();
   }
 
-  async function loadAllPreviewRows() {
-    if (!file || !preview || preview.rowsShown >= preview.summary.totalRows) return;
-
-    const finalFieldDefaults = { ...fieldDefaults };
-    if (jobTitleDraft) finalFieldDefaults.jobTitle = jobTitleDraft;
-    else delete finalFieldDefaults.jobTitle;
-    if (sourceDraft) finalFieldDefaults.source = sourceDraft;
-    else delete finalFieldDefaults.source;
-
-    await runPreview(file, overrides, finalFieldDefaults, step === "details" ? "details" : "headers", true);
-  }
-
-  async function handleBulkLeadAction(contactIds: string[]) {
-    if (contactIds.length === 0 || bulkActionBusy) return;
-    setBulkActionBusy(true);
-    await Promise.all(contactIds.map((contactId) => handleLeadAction(contactId)));
-    setBulkActionBusy(false);
-  }
-
-  // Importação real (após revisar a prévia)
-  async function confirmFinalImport() {
-    if (!file) return;
-    setStep("importing");
-    setError(null);
-    try {
-      const finalFieldDefaults = { ...fieldDefaults };
-      if (jobTitleDraft) finalFieldDefaults.jobTitle = jobTitleDraft;
-      else delete finalFieldDefaults.jobTitle;
-      if (sourceDraft) finalFieldDefaults.source = sourceDraft;
-      else delete finalFieldDefaults.source;
-
-      const formData = new FormData();
-      formData.append("file", file);
-      if (Object.keys(overrides).length > 0) formData.append("columnOverrides", JSON.stringify(overrides));
-      if (Object.keys(finalFieldDefaults).length > 0) formData.append("fieldDefaults", JSON.stringify(finalFieldDefaults));
-
-      const res = await fetch("/api/contacts/import", { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Erro ao importar arquivo");
-        setStep("details");
-        return;
-      }
-      setResult(data);
-      setStep("done");
-      trackUse("clientes.importar");
-      onImported();
-    } catch {
-      setError("Falha de conexão. Tente novamente.");
-      setStep("details");
-    }
-  }
-
-  // ─── Passo final: resultado ───────────────────────────────────────
+  // ─── Resultado ────────────────────────────────────────────────────────
   if (step === "done" && result) {
     return (
       <Modal onClose={onClose} maxWidth="max-w-lg">
-        <div key={step} className="relative animate-step-slide-in">
-        <div className="flex gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/15">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Importação concluída</h2>
-            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-              {result.created} de {result.total} contatos criados.
-            </p>
-          </div>
-        </div>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Importação concluída</h2>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{file?.name}</p>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <StatChip label="Duplicados evitados" value={result.duplicateContacts} tone={result.duplicateContacts > 0 ? "warn" : undefined} />
-          <StatChip label="Sem nome" value={result.skippedNoName} tone={result.skippedNoName > 0 ? "warn" : undefined} />
-          <StatChip label="Sem cargo" value={result.skippedNoJobTitle} tone={result.skippedNoJobTitle > 0 ? "warn" : undefined} />
-          <StatChip label="Número inválido" value={result.skippedInvalidPhone} tone={result.skippedInvalidPhone > 0 ? "warn" : undefined} />
-          <StatChip label="Resp. não achado" value={result.ownerFallbacks} tone={result.ownerFallbacks > 0 ? "warn" : undefined} />
-        </div>
+        <p className="mt-5 text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+          {plural(result.created, "contato criado", "contatos criados")}
+        </p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">de {plural(result.total, "linha", "linhas")} na planilha</p>
+
+        <SummaryList items={summaryItems(result, result.skippedNoJobTitle, true)} className="mt-4" />
 
         {result.issueRows.length > 0 && (
-          <div className="mt-3">
+          <div className="mt-4">
             <button
               type="button"
               onClick={() => setShowIssueRows((v) => !v)}
-              className="text-xs text-neutral-500 underline hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+              className="text-sm text-neutral-600 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900 dark:text-neutral-400 dark:decoration-neutral-600 dark:hover:text-neutral-100"
             >
               {showIssueRows ? "Esconder" : "Ver"} linhas com aviso ({result.issueRows.length})
             </button>
             {showIssueRows && (
-              <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800">
+              <ul className="mt-2 max-h-56 divide-y divide-neutral-100 overflow-y-auto border-y border-neutral-200 text-xs dark:divide-neutral-800 dark:border-neutral-800">
                 {result.issueRows.map((r) => (
-                  <div key={r.rowNumber} className="text-neutral-500 dark:text-neutral-400">
-                    <span className="font-medium text-neutral-700 dark:text-neutral-300">Linha {r.rowNumber}</span>
-                    {r.name ? ` (${r.name})` : ""}: {r.issues.map((i) => i.message).join("; ")}
-                  </div>
+                  <li key={r.rowNumber} className="py-1.5 text-neutral-600 dark:text-neutral-400">
+                    <span className="tabular-nums text-neutral-400 dark:text-neutral-500">Linha {r.rowNumber}</span>
+                    {r.name ? <span className="text-neutral-800 dark:text-neutral-200"> · {r.name}</span> : null}
+                    <span> — {r.issues.map((i) => i.message).join("; ")}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         )}
 
-        <p className="mt-3 text-[11px] text-neutral-400 dark:text-neutral-500">
-          Fica salvo no botão &quot;Histórico&quot;, ao lado de Importar — dá pra ver os detalhes ou desfazer esse lote lá.
+        <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+          Dá pra ver os detalhes ou desfazer este lote em Clientes → Histórico.
         </p>
 
         <div className="mt-5 flex justify-end">
@@ -480,569 +331,549 @@ export function ContactImportDialog({
             Fechar
           </button>
         </div>
+      </Modal>
+    );
+  }
+
+  // ─── Colunas ──────────────────────────────────────────────────────────
+  if (step === "columns" && preview) {
+    const nameMapped = preview.columns.some((c) => c.field === "name" && fieldIndex(c) >= 0);
+    const fieldOptions = [
+      { value: "", label: "Ignorar" },
+      ...preview.columns.map((c) => ({ value: c.field, label: c.required ? `${c.label} *` : c.label })),
+    ];
+
+    return (
+      <Modal onClose={onClose} maxWidth="max-w-3xl">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Colunas da planilha</h2>
+        <p className="mt-1 truncate text-sm text-neutral-500 dark:text-neutral-400">
+          {file?.name} · {plural(preview.summary.totalRows, "linha", "linhas")}
+        </p>
+
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_10.5rem] items-end gap-x-4 border-b border-neutral-200 pb-1.5 text-xs font-medium text-neutral-500 sm:grid-cols-[minmax(0,1fr)_12rem] dark:border-neutral-800 dark:text-neutral-400">
+          <span>Na planilha</span>
+          <span>No CRM</span>
+        </div>
+        <div className="max-h-[50dvh] divide-y divide-neutral-100 overflow-y-auto dark:divide-neutral-800/70">
+          {preview.rawHeaderRow.map((header, index) => {
+            const field = fieldForColumn(index);
+            const samples = preview.columnSamples[index] ?? [];
+            return (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_10.5rem] items-center gap-x-4 py-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                <div className="min-w-0">
+                  <p className={`truncate text-sm ${field ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"}`}>
+                    {header || `Coluna ${index + 1}`}
+                  </p>
+                  <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{samples.length > 0 ? samples.join(", ") : "vazia"}</p>
+                </div>
+                <Select
+                  value={field}
+                  onChange={(v) => setColumnField(index, v as ContactImportField | "")}
+                  options={fieldOptions}
+                  className="w-full py-1.5 text-sm"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {!nameMapped && <p className="mt-3 text-sm text-red-600 dark:text-red-400">Diga qual coluna é o Nome.</p>}
+
+        {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="mt-6 flex items-center justify-between gap-2">
+          <button type="button" onClick={resetFile} className="btn-ghost">
+            Trocar arquivo
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn-secondary">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={!nameMapped || busy !== null}
+              onClick={() => file && analyze(file, overrides, { nextStep: "review" })}
+              className="btn-primary"
+            >
+              {busy === "analyzing" && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+              {busy === "analyzing" ? "Conferindo…" : "Revisar"}
+            </button>
+          </div>
         </div>
       </Modal>
     );
   }
 
-  // ─── Passo de prévia ────────────────────────────────────────────────
-  if ((step === "headers" || step === "details" || step === "importing") && preview) {
+  // ─── Revisar ──────────────────────────────────────────────────────────
+  if (step === "review" && preview) {
     const s = preview.summary;
-    const hasBlockingIssue = preview.missingRequiredColumns.length > 0;
-
-    const headline = importHeadline(s, hasBlockingIssue);
-    const status =
-      step === "headers"
-        ? hasBlockingIssue
-          ? {
-              icon: TriangleAlert,
-              tone: "warning" as const,
-              title: "Escolha as colunas obrigatórias",
-              subtitle: "Informe onde estão Nome e Cargo para continuar.",
-            }
-          : {
-              icon: CheckCircle2,
-              tone: "success" as const,
-              title: "Confira se as colunas estão certas",
-              subtitle: "Ajuste apenas os campos que não corresponderem à sua planilha.",
-            }
-        : headline;
-    const StatusIcon = status.icon;
-    const hasMissingDefaultableColumn = preview.columns.some(
-      (col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField),
-    );
-    const requiredColumns = preview.columns.filter((col) => col.required);
-    const optionalColumns = preview.columns.filter((col) => !col.required);
-    // Pedido explícito: mostrar quem já tem cada contato ignorado por
-    // duplicidade, com ação de assumir (dono inativo/sem dono) ou pedir
-    // (dono ativo). Uma linha por CONTATO existente (não por linha da
-    // planilha) — a mesma pessoa pode colidir em mais de uma linha.
-    const duplicateRows = (() => {
-      const seen = new Set<string>();
-      const list: (ResolvedRow & { existingContact: ExistingContactMatch })[] = [];
-      for (const r of preview.rows) {
-        if (!r.existingContact || seen.has(r.existingContact.id)) continue;
-        seen.add(r.existingContact.id);
-        list.push(r as ResolvedRow & { existingContact: ExistingContactMatch });
-      }
-      return list;
-    })();
-    const targetId = fieldDefaults.responsavel || currentUserId;
-    const bulkClaimIds = duplicateRows
-      .filter(({ existingContact: c }) => (!c.responsavelId || !c.responsavelActive) && c.responsavelId !== targetId)
-      .map(({ existingContact: c }) => c.id);
-    const bulkRequestIds = duplicateRows
-      .filter(({ existingContact: c }) => !!c.responsavelId && c.responsavelActive && c.responsavelId !== targetId)
-      .map(({ existingContact: c }) => c.id);
+    const duplicates = preview.duplicateRows;
+    const pending = (r: DuplicateRow) => {
+      const res = leadResult[r.existingContact.id];
+      return (!res || res.kind === "error") && r.existingContact.responsavelId !== targetFor(r);
+    };
+    const claimable = duplicates.filter((r) => pending(r) && (!r.existingContact.responsavelId || !r.existingContact.responsavelActive));
+    const requestable = duplicates.filter((r) => pending(r) && !!r.existingContact.responsavelId && r.existingContact.responsavelActive);
+    const showLocation = preview.rows.some((r) => r.location);
+    // Contagem final já com as respostas: linhas que esperavam cargo e
+    // ganharam um entram; "não importar" continua de fora. Calculado aqui
+    // (sem nova análise) — o servidor refaz a mesma conta ao importar.
+    const jobTitleGroups = preview.pendingValues.filter((p) => p.field === "jobTitle");
+    const rescuedByJobTitle = jobTitleGroups.reduce((sum, p) => {
+      const answer = answerFor(p);
+      return answer && answer !== MAPPING_SKIP ? sum + p.rows : sum;
+    }, 0);
+    const toCreate = s.toCreate + rescuedByJobTitle;
+    const unanswered = preview.pendingValues.filter((p) => p.blocking && answerFor(p) === undefined);
+    const responsavelColumnMapped = preview.columns.some((c) => c.field === "responsavel" && fieldIndex(c) >= 0);
 
     return (
-      <Modal onClose={onClose} maxWidth="max-w-5xl">
-        <div key={step} className="animate-step-slide-in">
-        <div className="mb-4 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
-          <span className={step === "headers" ? "text-brand" : ""}>1. Colunas</span>
-          <ChevronRight className="h-3 w-3" />
-          <span className={step === "details" ? "text-brand" : ""}>2. Revisar importação</span>
-        </div>
-        <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          {step === "headers" ? "Confira as colunas" : "Revise a importação"}
-        </h2>
-        <div className="mb-4 flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-          <span className="min-w-0 truncate">{file?.name}</span>
-          <div className="flex shrink-0 items-center gap-2 tabular-nums">
-            <span>{preview.rowsShown}/{s.totalRows}</span>
-            {s.totalRows > preview.rowsShown && (
-              <button
-                type="button"
-                onClick={loadAllPreviewRows}
-                title="Carregar todas as linhas"
-                aria-label={`Carregar todas as ${s.totalRows} linhas`}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-brand/30 bg-brand/5 text-brand transition-colors hover:border-brand/50 hover:bg-brand/10"
-              >
-                <Eye className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            )}
-          </div>
-        </div>
+      <Modal onClose={onClose} maxWidth="max-w-4xl">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Revisar importação</h2>
+        <p className="mt-1 truncate text-sm text-neutral-500 dark:text-neutral-400">
+          {file?.name} · {plural(s.totalRows, "linha", "linhas")}
+        </p>
 
-        <div
-          className={`mb-4 flex items-start gap-3 rounded-lg border p-3 ${
-            status.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"
-              : status.tone === "danger"
-                ? "border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10"
-                : "border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10"
-          }`}
-        >
-          <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-              status.tone === "success"
-                ? "bg-emerald-100 dark:bg-emerald-500/20"
-                : status.tone === "danger"
-                  ? "bg-red-100 dark:bg-red-500/20"
-                  : "bg-amber-100 dark:bg-amber-500/20"
-            }`}
-          >
-            <StatusIcon
-              className={`h-4 w-4 ${
-                status.tone === "success"
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : status.tone === "danger"
-                    ? "text-red-600 dark:text-red-400"
-                    : "text-amber-600 dark:text-amber-400"
-              }`}
-              strokeWidth={2}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{status.title}</p>
-            <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">{status.subtitle}</p>
-          </div>
-        </div>
+        <p className="mt-5 text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+          {toCreate === 0 ? "Nenhum contato novo" : plural(toCreate, "contato novo", "contatos novos")}
+        </p>
+        <SummaryList items={summaryItems(s, s.skippedNoJobTitle - rescuedByJobTitle, false)} className="mt-3" />
 
-        {step === "details" && s.duplicateContacts > 0 && (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900/40">
-            <Info className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-            <div className="min-w-0 flex-1">
-              <strong className="block text-neutral-800 dark:text-neutral-200">
-                {s.duplicateContacts} duplicado{s.duplicateContacts === 1 ? "" : "s"} não será{s.duplicateContacts === 1 ? "" : "ão"} importado{s.duplicateContacts === 1 ? "" : "s"}
-              </strong>
-              <span className="text-neutral-500 dark:text-neutral-400">Já existe contato com este telefone ou WhatsApp.</span>
-            </div>
-            {duplicateRows.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowDuplicateRows((v) => !v)}
-                className="shrink-0 font-medium text-brand hover:underline"
-              >
-                {showDuplicateRows ? "Fechar" : "Ver lista"}
-              </button>
-            )}
-          </div>
-        )}
-
-        {step === "details" && showDuplicateRows && duplicateRows.length > 0 && (
-          <div className="mb-4 max-h-56 space-y-1.5 overflow-y-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
-            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white pb-2 dark:border-neutral-800 dark:bg-neutral-950">
-              {bulkClaimIds.length > 0 && (
-                <button
-                  type="button"
-                  disabled={bulkActionBusy}
-                  onClick={() => handleBulkLeadAction(bulkClaimIds)}
-                  className="btn-secondary btn-sm"
-                >
-                  {bulkActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
-                  Atribuir disponíveis ({bulkClaimIds.length})
-                </button>
-              )}
-              {bulkRequestIds.length > 0 && (
-                <button
-                  type="button"
-                  disabled={bulkActionBusy}
-                  onClick={() => handleBulkLeadAction(bulkRequestIds)}
-                  className="btn-secondary btn-sm"
-                >
-                  {bulkActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  Solicitar aos consultores ({bulkRequestIds.length})
-                </button>
-              )}
-            </div>
-            {duplicateRows.map(({ existingContact: c }) => {
-              const busy = duplicateActionBusyId === c.id;
-              const result = duplicateActionResult[c.id];
-              // Sem responsável OU responsável inativo (saiu da empresa) =
-              // ninguém pra pedir, assume na hora. Responsável ativo =
-              // precisa pedir (ver POST /api/lead-requests, mesma regra no
-              // servidor — este botão só reflete o que a prévia já sabe).
-              const canClaimDirectly = !c.responsavelId || !c.responsavelActive;
-              // Pra quem vai o lead — o Responsável padrão escolhido acima,
-              // quando presente, senão a própria pessoa clicando (ver
-              // comentário na prop currentUserId). Rótulo do botão muda
-              // conforme isso: "Assumir"/"Solicitar" (pra mim mesmo, de
-              // sempre) vira "Atribuir a X"/"Solicitar... pra X" quando um
-              // admin/assistente está importando em nome de outra pessoa.
-              const targetIsSelf = !fieldDefaults.responsavel || fieldDefaults.responsavel === currentUserId;
-              const targetId = fieldDefaults.responsavel || currentUserId;
-              const targetName = targetIsSelf ? null : (members.find((m) => m.id === fieldDefaults.responsavel)?.name ?? "outra pessoa");
-              // Contato já é exatamente de quem receberia o lead (ex.: você
-              // escolheu "Eduardo" como Responsável padrão e este contato já
-              // é do Eduardo) — nada pra pedir/assumir, nem vale mostrar um
-              // botão "Solicitar a Eduardo" sem sentido nenhum pro próprio
-              // Eduardo. Checagem só de UI: o servidor já cobre isso sozinho
-              // (alreadyYours) se algo mudar entre a prévia e o clique.
-              const alreadyBelongsToTarget = !!targetId && c.responsavelId === targetId;
-              const divergentBusy = divergentUpdateBusyId === c.id;
-              const divergentResult = divergentUpdateResult[c.id];
-              return (
-                <div key={c.id} className="space-y-1.5 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs dark:bg-neutral-900/40">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-neutral-800 dark:text-neutral-200">{c.name}</p>
-                      <p className="truncate text-neutral-500 dark:text-neutral-400">
-                        {c.responsavelName
-                          ? `Responsável: ${c.responsavelName}${c.responsavelActive ? "" : " (inativo)"}`
-                          : "Sem responsável"}
-                      </p>
-                    </div>
-                    <div className="shrink-0">
-                      {result === "claimed" ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
-                          {targetIsSelf ? "Assumido" : `Atribuído a ${targetName}`}
-                        </span>
-                      ) : result === "requested" || result === "already-requested" ? (
-                        <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
-                          <Clock3 className="h-3 w-3" strokeWidth={2} />
-                          Solicitado
-                        </span>
-                      ) : result === "already-yours" || alreadyBelongsToTarget ? (
-                        <span className="text-neutral-400 dark:text-neutral-500">{targetIsSelf ? "Já é seu" : `Já é de ${targetName}`}</span>
-                      ) : result === "error" ? (
-                        <span className="text-red-600 dark:text-red-400" title={duplicateActionErrorMessage[c.id]}>
-                          {duplicateActionErrorMessage[c.id] ?? "Erro — tente de novo"}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => handleLeadAction(c.id)}
-                          title={!targetIsSelf ? `O lead vai pra ${targetName}, não pra você` : undefined}
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                            canClaimDirectly
-                              ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
-                              : "bg-brand-light text-brand hover:bg-brand/15 dark:bg-[var(--brand-subtle)]"
-                          }`}
-                        >
-                          {busy ? (
-                            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
-                          ) : canClaimDirectly ? (
-                            <UserPlus className="h-3 w-3" strokeWidth={2} />
-                          ) : (
-                            <Send className="h-3 w-3" strokeWidth={2} />
-                          )}
-                          {canClaimDirectly
-                            ? targetIsSelf
-                              ? "Assumir"
-                              : `Atribuir a ${targetName}`
-                            : targetIsSelf
-                              ? `Solicitar a ${c.responsavelName}`
-                              : `Solicitar a ${c.responsavelName} (pra ${targetName})`}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Campos que a planilha (ou um default acima) traz
-                      diferente do que já está salvo — pedido explícito: "o
-                      que for divergente ele muda", em vez de só pular a
-                      linha. Só oferece Atualizar quando tem alguma
-                      divergência de verdade (ver buildDivergentFields em
-                      lib/contacts/import-resolve.ts). */}
-                  {c.divergentFields.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 border-t border-neutral-200/70 pt-1.5 dark:border-neutral-800/70">
-                      {c.divergentFields.map((f) => (
-                        <span
-                          key={f.field}
-                          className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-                        >
-                          {f.label}: {f.oldValue ?? "—"} → {f.newValue}
-                        </span>
-                      ))}
-                      {divergentResult === "updated" ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
-                          Atualizado
-                        </span>
-                      ) : divergentResult === "error" ? (
-                        <span className="text-red-600 dark:text-red-400" title={divergentUpdateErrorMessage[c.id]}>
-                          {divergentUpdateErrorMessage[c.id] ?? "Sem permissão ou erro — tente de novo"}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={divergentBusy}
-                          onClick={() => handleUpdateDivergentFields(c.id, c.divergentFields)}
-                          className="inline-flex items-center gap-1 rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
-                        >
-                          {divergentBusy ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} /> : <RefreshCw className="h-3 w-3" strokeWidth={2} />}
-                          Atualizar
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Campo sem coluna correspondente na planilha — mesma ideia de
-            deal-import-dialog.tsx, sempre visível quando se aplica. Cargo
-            (obrigatório) e Responsável (opcional) podem aparecer juntos
-            aqui — 1 frase de intro só (não repetida por campo) + rótulo
-            curto por controle, mesmo padrão "field-label" do resto do
-            formulário (ver "Cargo *"/"Responsável" no cadastro manual). */}
-        {step === "details" && hasMissingDefaultableColumn && (
-          <div className="mb-4 space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Não veio na planilha. Valor pra aplicar em <strong>todos</strong> os contatos:
-            </p>
-            {preview.columns
-              .filter((col) => col.index === -1 && DEFAULTABLE_FIELDS.includes(col.field as DefaultableField))
-              .map((col) => {
-                const field = col.field as DefaultableField;
-                const fieldLabel = field === "jobTitle" ? "Cargo *" : field === "source" ? "Origem" : "Responsável";
-                return (
-                  <div key={field} className="space-y-1">
-                    <label className="field-label">{fieldLabel}</label>
-                    {field === "responsavel" ? (
-                      <Select
-                        value={fieldDefaults.responsavel ?? ""}
-                        onChange={(v) => updateFieldDefault("responsavel", v)}
-                        className="w-full py-1.5 text-sm"
-                        options={[{ value: "", label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.name }))]}
-                      />
-                    ) : (
-                      // Texto livre (não Select) — Cargo/Origem de contato não
-                      // são lista fechada (ver comentário nas props jobTitles/
-                      // sources acima), a pessoa pode digitar um valor novo
-                      // que ainda não existe em Configurações. O datalist só
-                      // SUGERE os já cadastrados, sem restringir o que dá pra
-                      // escrever — pedido explícito ("um campo de escrever...
-                      // que dá pra escolher").
-                      <>
-                        <input
-                          value={field === "jobTitle" ? jobTitleDraft : sourceDraft}
-                          onChange={(e) => {
-                            if (field === "jobTitle") {
-                              setJobTitleDraft(e.target.value);
-                            } else {
-                              setSourceDraft(e.target.value);
-                            }
-                          }}
-                          onBlur={() => {
-                            syncTextFieldDefaults();
-                          }}
-                          list={field === "jobTitle" ? "contact-import-job-titles" : "contact-import-sources"}
-                          placeholder={field === "jobTitle" ? "Ex.: Produtor rural" : "Ex.: Indicação"}
-                          className="field-input w-full py-1.5 text-sm"
-                        />
-                        {field === "jobTitle" ? (
-                          <datalist id="contact-import-job-titles">
-                            {jobTitles.map((j) => (
-                              <option key={j.id} value={j.label} />
-                            ))}
-                          </datalist>
-                        ) : (
-                          <datalist id="contact-import-sources">
-                            {sources.map((s) => (
-                              <option key={s.id} value={s.label} />
-                            ))}
-                          </datalist>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        )}
-
-        {step === "headers" && (
-          <section className="mb-4 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Colunas da planilha</h3>
-                <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Nome e Cargo são obrigatórios. Os demais campos são opcionais.</p>
-              </div>
-              <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{preview.rawHeaderRow.length} colunas</span>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              {[...requiredColumns, ...optionalColumns].map((col) => {
-                const override = overrides[col.field];
-                const selectedIndex = override === -1 ? -1 : (override ?? col.index);
-                const isMapped = selectedIndex >= 0;
-
-                return (
-                  <div
-                    key={col.field}
-                    className={`rounded-md border p-2.5 ${
-                      col.required
-                        ? isMapped
-                          ? "border-brand/25 bg-brand/5 dark:bg-[var(--brand-subtle)]"
-                          : "border-amber-300 bg-amber-50/60 dark:border-amber-500/35 dark:bg-amber-500/10"
-                        : "border-neutral-200 dark:border-neutral-800"
-                    }`}
-                  >
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-neutral-800 dark:text-neutral-200">
-                        {col.label}
-                        {col.required && <span className="text-red-500"> *</span>}
-                      </span>
-                      {col.required && (
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${isMapped ? "text-emerald-600 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                          {isMapped ? <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} /> : <TriangleAlert className="h-3.5 w-3.5" strokeWidth={2} />}
-                          {isMapped ? "Pronto" : "Escolha uma coluna"}
-                        </span>
-                      )}
-                    </div>
-                    <Select
-                      value={selectedIndex === -1 ? "" : String(selectedIndex)}
-                      onChange={(v) => updateOverride(col.field, v)}
-                      className="w-full py-1.5 text-sm"
-                      placeholder="Não usar"
-                      options={[
-                        ...(col.required ? [] : [{ value: "", label: "Não usar" }]),
-                        ...preview.rawHeaderRow.map((header, index) => ({ value: String(index), label: header || `Coluna ${index + 1}` })),
-                      ]}
-                    />
-                  </div>
-                );
-              })}
+        {preview.pendingValues.length > 0 && (
+          <section className="mt-6">
+            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Não encontrado no CRM</h3>
+            <div className="mt-1 max-h-[32dvh] divide-y divide-neutral-100 overflow-y-auto dark:divide-neutral-800/70">
+              {preview.pendingValues.map((p) => (
+                <PendingValueRow
+                  key={decisionId(p.field, p.key)}
+                  pending={p}
+                  answer={answerFor(p)}
+                  suggested={decisions[decisionId(p.field, p.key)] === undefined && !!p.suggestion}
+                  columnMissing={p.field === "responsavel" && !p.key && !responsavelColumnMapped}
+                  onAnswer={(v) => setDecisions((prev) => ({ ...prev, [decisionId(p.field, p.key)]: v }))}
+                  members={members}
+                  currentUserId={currentUserId}
+                  jobTitles={jobTitles}
+                  sources={sources}
+                />
+              ))}
             </div>
           </section>
         )}
 
-        {error && <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="btn-ghost">
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStep("pick");
-              setFile(null);
-              setPreview(null);
-              if (fileInputRef.current) fileInputRef.current.value = "";
-            }}
-            className="btn-secondary"
-          >
-            Trocar arquivo
-          </button>
-          {step === "importing" ? (
-            <button type="button" disabled className="btn-primary">
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
-              <span className="inline-flex items-center gap-1">
-                Importando
-                <LoadingDots />
-              </span>
-            </button>
-          ) : step === "headers" ? (
-            <button
-              type="button"
-              disabled={hasBlockingIssue}
-              onClick={refreshPreview}
-              className="btn-primary"
-            >
-              Avançar
-              <ChevronRight className="h-4 w-4" strokeWidth={2} />
-            </button>
-          ) : (
-            <>
-              <button type="button" onClick={() => setStep("headers")} className="btn-secondary">
-                Voltar
-              </button>
-              {Object.keys(overrides).length > 0 && (
-              <button
-                type="button"
-                onClick={refreshPreview}
-                className="btn-secondary"
-              >
-                Atualizar Prévia
-              </button>
-              )}
-              <button
-                type="button"
-                disabled={hasBlockingIssue || s.toCreate === 0}
-                onClick={confirmFinalImport}
-                className="btn-primary"
-              >
-                {s.toCreate === 0 ? "Nada para importar" : `Importar ${s.toCreate} contato${s.toCreate === 1 ? "" : "s"}`}
-              </button>
-            </>
+        <div className="mt-6 flex gap-5 border-b border-neutral-200 text-sm dark:border-neutral-800">
+          <TabButton active={reviewTab === "rows"} onClick={() => setReviewTab("rows")}>
+            Linhas
+          </TabButton>
+          {duplicates.length > 0 && (
+            <TabButton active={reviewTab === "duplicates"} onClick={() => setReviewTab("duplicates")}>
+              Já existem no CRM <span className="tabular-nums text-neutral-400 dark:text-neutral-500">{duplicates.length}</span>
+            </TabButton>
           )}
         </div>
-        {isAnalyzing && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-neutral-950/45 backdrop-blur-[2px]">
-            <div className="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-900/95 px-4 py-3 text-sm text-neutral-200 shadow-lg">
-              <Loader2 className="h-4 w-4 animate-spin text-brand" strokeWidth={2} />
-              <span>Atualizando</span>
-              <LoadingDots />
+
+        {reviewTab === "rows" ? (
+          <>
+            <div className="max-h-[40dvh] overflow-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-white text-xs text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">Linha</th>
+                    <th className="py-2 pr-3 font-medium">Nome</th>
+                    <th className="py-2 pr-3 font-medium">Cargo</th>
+                    <th className="hidden py-2 pr-3 font-medium sm:table-cell">Responsável</th>
+                    {showLocation && <th className="hidden py-2 pr-3 font-medium md:table-cell">Cidade</th>}
+                    <th className="py-2 font-medium">Situação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
+                  {preview.rows.map((r) => {
+                    // Linha que só esperava o cargo: mostra já com a resposta.
+                    const jobTitleAnswer = answerByKey("jobTitle", r.pending?.jobTitle);
+                    const rescued = !r.willImport && r.issues[0]?.code === "NO_JOB_TITLE" && !!jobTitleAnswer && jobTitleAnswer !== MAPPING_SKIP;
+                    const willImport = r.willImport || rescued;
+                    const mainIssue = rescued ? undefined : r.issues[0];
+                    const jobTitle = r.jobTitle ?? (jobTitleAnswer && jobTitleAnswer !== MAPPING_SKIP ? jobTitleAnswer : null);
+                    const responsavelName = r.responsavelName ?? memberName(rowResponsavelId(r));
+                    const status = mainIssue
+                      ? mainIssue.code === "NO_JOB_TITLE" && jobTitleAnswer === MAPPING_SKIP
+                        ? "Não importar"
+                        : (ISSUE_LABEL[mainIssue.code] ?? mainIssue.message)
+                      : "Novo";
+                    return (
+                      <tr key={r.rowNumber} className={willImport ? "" : "text-neutral-400 dark:text-neutral-500"}>
+                        <td className="py-1.5 pr-3 tabular-nums text-neutral-400 dark:text-neutral-500">{r.rowNumber}</td>
+                        <td className={`max-w-[12rem] truncate py-1.5 pr-3 ${willImport ? "text-neutral-900 dark:text-neutral-100" : ""}`}>{r.name ?? "—"}</td>
+                        <td className="max-w-[10rem] truncate py-1.5 pr-3">{jobTitle ?? "—"}</td>
+                        <td className="hidden max-w-[10rem] truncate py-1.5 pr-3 sm:table-cell">{responsavelName ?? "—"}</td>
+                        {showLocation && <td className="hidden max-w-[10rem] truncate py-1.5 pr-3 md:table-cell">{r.location ?? "—"}</td>}
+                        <td
+                          className={`py-1.5 whitespace-nowrap ${willImport && mainIssue ? "text-amber-700 dark:text-amber-400" : ""}`}
+                          title={rescued ? undefined : r.issues.map((i) => i.message).join("\n") || undefined}
+                        >
+                          {status}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
+            {preview.rowsShown < s.totalRows && (
+              <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                Mostrando as primeiras {preview.rowsShown} de {s.totalRows.toLocaleString("pt-BR")}.{" "}
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => file && analyze(file, overrides, { nextStep: "review", allRows: true })}
+                  className="text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900 dark:text-neutral-300 dark:decoration-neutral-600"
+                >
+                  {busy === "analyzing" ? "Carregando…" : "Mostrar todas"}
+                </button>
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 py-3">
+              <p className="mr-auto text-xs text-neutral-500 dark:text-neutral-400">
+                Não serão criados de novo. Dá pra trazer para quem a linha iria.
+              </p>
+              {claimable.length > 0 && (
+                <button type="button" disabled={bulkBusy} onClick={() => bulkLeadAction(claimable)} className="btn-secondary btn-sm">
+                  {bulkBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Atribuir {claimable.length} sem dono ativo
+                </button>
+              )}
+              {requestable.length > 0 && (
+                <button type="button" disabled={bulkBusy} onClick={() => bulkLeadAction(requestable)} className="btn-secondary btn-sm">
+                  {bulkBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Pedir {requestable.length} aos donos atuais
+                </button>
+              )}
+            </div>
+            <div className="max-h-[40dvh] overflow-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-white text-xs text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">Contato</th>
+                    <th className="py-2 pr-3 font-medium">Dono atual</th>
+                    <th className="hidden py-2 pr-3 font-medium sm:table-cell">Iria para</th>
+                    <th className="py-2 text-right font-medium" />
+                  </tr>
+                </thead>
+                {duplicates.map((r) => (
+                    <DuplicateTableRow
+                      key={r.existingContact.id}
+                      row={r}
+                      targetId={targetFor(r)}
+                      targetName={targetFor(r) === currentUserId ? "Você" : (memberName(targetFor(r)) ?? "—")}
+                      busy={!!leadBusy[r.existingContact.id]}
+                      result={leadResult[r.existingContact.id]}
+                      onAction={() => leadAction(r.existingContact.id, targetFor(r))}
+                      updateBusy={!!updateBusy[r.existingContact.id]}
+                      updateResult={updateResult[r.existingContact.id]}
+                      onUpdate={() => updateDivergent(r.existingContact.id, r.existingContact.divergentFields)}
+                    />
+                ))}
+              </table>
+            </div>
+            {preview.duplicateRowsTruncated && (
+              <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                Lista cortada nos primeiros {duplicates.length.toLocaleString("pt-BR")}. Importe o resto em outra planilha para ver os demais.
+              </p>
+            )}
+          </>
         )}
+
+        {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="mt-6 flex items-center justify-between gap-2">
+          <button type="button" onClick={resetFile} className="btn-ghost">
+            Trocar arquivo
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setStep("columns")} disabled={busy !== null} className="btn-secondary">
+              Voltar
+            </button>
+            <button type="button" disabled={toCreate === 0 || unanswered.length > 0 || busy !== null} onClick={confirmImport} className="btn-primary">
+              {busy === "importing" && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+              {busy === "importing"
+                ? "Importando…"
+                : unanswered.length > 0
+                  ? `Falta responder ${unanswered.length}`
+                  : toCreate === 0
+                    ? "Nada para importar"
+                    : `Importar ${plural(toCreate, "contato", "contatos")}`}
+            </button>
+          </div>
         </div>
       </Modal>
     );
   }
 
-  // ─── Passo inicial: escolher arquivo ────────────────────────────────
+  // ─── Escolher arquivo ─────────────────────────────────────────────────
   return (
     <Modal onClose={onClose}>
-      <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Importar contatos</h2>
-      <p className="mb-2 text-sm text-neutral-500 dark:text-neutral-400">
-        Arquivo .csv ou .xlsx com colunas: nome (obrigatório), cargo (obrigatório), email, whatsapp, celular, origem,
-        empresa, responsável, tags. O nome da coluna pode variar — se não reconhecermos, você aponta manualmente na
-        próxima tela.
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Importar contatos</h2>
+      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+        Planilha .csv ou .xlsx. Nome e cargo são obrigatórios; telefone, e-mail, empresa, responsável e endereço (CEP, rua,
+        número, bairro, cidade, UF) entram se estiverem lá. Na próxima tela você confere qual coluna é o quê.
       </p>
-      {/* Pedido explícito: "vamos adicionar para baixar uma planilha
-          MODELO" — gera o CSV no próprio navegador (sem round-trip com o
-          servidor, é só um arquivo estático) já com os cabeçalhos exatos
-          que o detector reconhece de cara, mais uma linha de exemplo. */}
-      <button
-        type="button"
-        onClick={downloadContactImportTemplate}
-        className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:underline"
-      >
-        <Download className="h-3.5 w-3.5" strokeWidth={2} />
-        Baixar planilha modelo
-      </button>
-      <div className="mb-4 flex items-start gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-        <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        Só cria contato novo. Se já existir contato com o mesmo telefone ou WhatsApp, a linha é pulada — nenhum campo é
-        atualizado no contato existente.
-      </div>
+
       <label
         {...dropZoneProps}
-        className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center transition-colors ${
+        className={`mt-4 flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-8 text-center transition-colors ${
           isDraggingOver
             ? "border-brand bg-brand-light dark:bg-[var(--brand-subtle)]"
-            : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/60"
+            : "border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-600"
         }`}
       >
-        {step === "analyzing" ? (
+        {busy === "analyzing" ? (
           <>
-            <Loader2 className="h-6 w-6 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={1.5} />
-            <span className="inline-flex items-center gap-1 text-sm text-neutral-600 dark:text-neutral-400">
-              Analisando
-              <LoadingDots />
-            </span>
+            <Loader2 className="h-5 w-5 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+            <span className="text-sm text-neutral-600 dark:text-neutral-400">Lendo {file?.name}…</span>
           </>
         ) : (
           <>
-            <FileSpreadsheet className={`h-6 w-6 ${isDraggingOver ? "text-brand" : "text-neutral-400 dark:text-neutral-500"}`} strokeWidth={1.5} />
-            <span className="text-sm text-neutral-600 dark:text-neutral-400">
-              {isDraggingOver ? "Solte o arquivo aqui" : (file?.name ?? "Clique ou arraste um arquivo aqui")}
+            <FileSpreadsheet className="h-5 w-5 text-neutral-400 dark:text-neutral-500" strokeWidth={1.75} />
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">{isDraggingOver ? "Pode soltar" : "Escolher arquivo ou arrastar aqui"}</span>
+            <span className="text-xs text-neutral-400 dark:text-neutral-500">
+              Até {MAX_CONTACT_IMPORT_ROWS.toLocaleString("pt-BR")} linhas, 5 MB
             </span>
           </>
         )}
-        <input ref={fileInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleFileChange} disabled={step === "analyzing"} />
+        <input ref={fileInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])} disabled={busy !== null} />
       </label>
 
       {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-      <div className="mt-3 flex items-start gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-        <Info className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        Até {MAX_CONTACT_IMPORT_ROWS.toLocaleString("pt-BR")} linhas por arquivo, 5MB.
-      </div>
+      <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
+        Quem já está no CRM (mesmo telefone ou WhatsApp) não é criado de novo — você vê essas pessoas antes de confirmar.
+      </p>
 
-      <div className="flex justify-end gap-2 pt-4">
-        <button type="button" onClick={onClose} className="btn-ghost">
+      <div className="mt-5 flex items-center justify-between gap-2">
+        <button type="button" onClick={downloadContactImportTemplate} className="btn-ghost">
+          <Download className="h-4 w-4" strokeWidth={2} />
+          Planilha modelo
+        </button>
+        <button type="button" onClick={onClose} className="btn-secondary">
           Cancelar
         </button>
       </div>
     </Modal>
+  );
+}
+
+function PendingValueRow({
+  pending: p,
+  answer,
+  suggested,
+  columnMissing,
+  onAnswer,
+  members,
+  currentUserId,
+  jobTitles,
+  sources,
+}: {
+  pending: PendingValue;
+  answer: string | undefined;
+  suggested: boolean;
+  columnMissing: boolean;
+  onAnswer: (value: string) => void;
+  members: { id: string; name: string }[];
+  currentUserId?: string;
+  jobTitles: { id: string; label: string }[];
+  sources: { id: string; label: string }[];
+}) {
+  const count = p.field === "responsavel" ? p.rows + p.duplicateRows : p.rows;
+  const raw = <span className="font-medium text-neutral-900 dark:text-neutral-100">“{p.raw}”</span>;
+  const text =
+    p.field === "responsavel" ? (
+      !p.key ? (
+        columnMissing ? "A planilha não diz o responsável" : "Sem responsável na planilha"
+      ) : p.inactiveMember ? (
+        <>Responsável {raw} está inativo</>
+      ) : (
+        <>Responsável {raw} não está na equipe</>
+      )
+    ) : p.field === "jobTitle" ? (
+      !p.key ? "Sem cargo" : <>Cargo {raw} não existe</>
+    ) : (
+      <>Origem {raw} não existe</>
+    );
+
+  const options =
+    p.field === "responsavel"
+      ? [{ value: MAPPING_NONE, label: "Ninguém" }, ...members.map((m) => ({ value: m.id, label: m.id === currentUserId ? `${m.name} (você)` : m.name }))]
+      : p.field === "jobTitle"
+        ? [...jobTitles.map((j) => ({ value: j.label, label: j.label })), { value: MAPPING_SKIP, label: "Não importar essas linhas" }]
+        : [...sources.map((o) => ({ value: o.label, label: o.label })), { value: MAPPING_NONE, label: "Deixar sem origem" }];
+
+  return (
+    <div className="grid items-center gap-x-4 gap-y-1 py-2 sm:grid-cols-[minmax(0,1fr)_14rem]">
+      <p className="min-w-0 text-sm text-neutral-600 dark:text-neutral-400">
+        {text}
+        <span className="text-neutral-400 dark:text-neutral-500"> · {plural(count, "linha", "linhas")}</span>
+        {suggested && <span className="text-neutral-400 dark:text-neutral-500"> · sugerido</span>}
+      </p>
+      <Select
+        value={answer ?? ""}
+        onChange={onAnswer}
+        options={options}
+        placeholder="Escolher…"
+        invalid={p.blocking && answer === undefined}
+        className="w-full py-1.5 text-sm"
+      />
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px border-b-2 pb-2 transition-colors ${
+        active
+          ? "border-neutral-900 font-medium text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
+          : "border-transparent text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+type SummaryItem = { count: number; text: string; warn?: boolean };
+
+/**
+ * Contagens do que NÃO entra (ou entra com ressalva) — só as que não são
+ * zero. Na revisão, "sem cargo" já vem descontado das linhas que ganharam
+ * cargo nas respostas, e responsável não encontrado fica de fora (é uma
+ * pergunta logo abaixo, não um aviso).
+ */
+function summaryItems(s: ImportPlanSummary, skippedNoJobTitle: number, final: boolean): SummaryItem[] {
+  return [
+    { count: s.duplicateContacts, text: "já existem no CRM (mesmo telefone ou WhatsApp)" },
+    { count: skippedNoJobTitle, text: final ? "sem cargo — ignoradas" : "esperando cargo ou fora da importação" },
+    { count: s.skippedInvalidPhone, text: "com telefone inválido — ignoradas" },
+    { count: s.skippedNoName, text: "sem nome — ignoradas" },
+    ...(final ? [{ count: s.ownerFallbacks, text: "ficaram sem responsável (nome não encontrado)", warn: true }] : []),
+    { count: s.addressWarnings, text: "com UF ou CEP não reconhecido — entram sem esse dado", warn: true },
+  ].filter((i) => i.count > 0);
+}
+
+function SummaryList({ items, className = "" }: { items: SummaryItem[]; className?: string }) {
+  if (items.length === 0) return null;
+  return (
+    <ul className={`space-y-0.5 text-sm ${className}`}>
+      {items.map((i) => (
+        <li key={i.text} className="flex gap-2 text-neutral-600 dark:text-neutral-400">
+          <span className={`w-12 shrink-0 text-right tabular-nums ${i.warn ? "text-amber-700 dark:text-amber-400" : "text-neutral-900 dark:text-neutral-100"}`}>
+            {i.count.toLocaleString("pt-BR")}
+          </span>
+          <span>{i.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DuplicateTableRow({
+  row,
+  targetId,
+  targetName,
+  busy,
+  result,
+  onAction,
+  updateBusy,
+  updateResult,
+  onUpdate,
+}: {
+  row: DuplicateRow;
+  targetId: string | null;
+  targetName: string;
+  busy: boolean;
+  result: LeadActionResult | undefined;
+  onAction: () => void;
+  updateBusy: boolean;
+  updateResult: { ok: true } | { ok: false; message: string } | undefined;
+  onUpdate: () => void;
+}) {
+  const c = row.existingContact;
+  // Sem dono ou dono que saiu da empresa = assume na hora; dono ativo = vira
+  // pedido pra ele aprovar. É só o rótulo — quem decide é o servidor.
+  const canClaim = !c.responsavelId || !c.responsavelActive;
+  const alreadyTarget = !!targetId && c.responsavelId === targetId;
+
+  let action: React.ReactNode;
+  if (result?.kind === "claimed") action = <span className="text-emerald-700 dark:text-emerald-400">Atribuído</span>;
+  else if (result?.kind === "requested") action = <span className="text-neutral-500 dark:text-neutral-400">Pedido enviado</span>;
+  else if (result?.kind === "already-target" || alreadyTarget)
+    action = <span className="text-neutral-400 dark:text-neutral-500">{targetName === "Você" ? "Já é seu" : `Já é de ${targetName}`}</span>;
+  else
+    action = (
+      <span className="inline-flex items-center gap-2">
+        {result?.kind === "error" && (
+          <span className="max-w-[12rem] truncate text-xs text-red-600 dark:text-red-400" title={result.message}>
+            {result.message}
+          </span>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onAction}
+          className="font-medium text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="inline h-3.5 w-3.5 animate-spin" /> : canClaim ? "Atribuir" : "Pedir"}
+        </button>
+      </span>
+    );
+
+  return (
+    <tbody className="border-t border-neutral-100 dark:border-neutral-800/70">
+      <tr className={c.divergentFields.length > 0 ? "[&>td]:pb-0.5" : ""}>
+        <td className="max-w-[14rem] py-1.5 pr-3">
+          <p className="truncate text-neutral-900 dark:text-neutral-100">{c.name}</p>
+          <p className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">linha {row.rowNumber}</p>
+        </td>
+        <td className="max-w-[12rem] truncate py-1.5 pr-3 text-neutral-600 dark:text-neutral-400">
+          {c.responsavelName ?? "—"}
+          {c.responsavelName && !c.responsavelActive && <span className="text-neutral-400 dark:text-neutral-500"> (inativo)</span>}
+        </td>
+        <td className="hidden max-w-[10rem] truncate py-1.5 pr-3 text-neutral-600 sm:table-cell dark:text-neutral-400">{targetName}</td>
+        <td className="py-1.5 text-right whitespace-nowrap">{action}</td>
+      </tr>
+      {c.divergentFields.length > 0 && (
+        <tr>
+          <td colSpan={4} className="pb-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <span>Na planilha está diferente: </span>
+            {c.divergentFields.map((f, i) => (
+              <span key={f.field}>
+                {i > 0 && " · "}
+                {f.label} <span className="text-neutral-400 line-through dark:text-neutral-500">{f.oldValue || "vazio"}</span>{" "}
+                <span className="text-neutral-800 dark:text-neutral-200">{f.newValue}</span>
+              </span>
+            ))}{" "}
+            {updateResult?.ok ? (
+              <span className="text-emerald-700 dark:text-emerald-400">· atualizado</span>
+            ) : (
+              <>
+                {updateResult && !updateResult.ok && <span className="text-red-600 dark:text-red-400">· {updateResult.message} </span>}
+                <button
+                  type="button"
+                  disabled={updateBusy}
+                  onClick={onUpdate}
+                  className="font-medium text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {updateBusy ? "Atualizando…" : "Atualizar contato"}
+                </button>
+              </>
+            )}
+          </td>
+        </tr>
+      )}
+    </tbody>
   );
 }

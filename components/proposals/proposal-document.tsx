@@ -120,12 +120,16 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
       <style>{`
         @page {
           size: 210mm 297mm;
-          margin: 0mm;
+          margin: 0;
         }
 
+        .proposal-container {
+          width: 100%;
+          max-width: 209mm;
+        }
         .proposal-page {
           width: 100%;
-          max-width: 210mm;
+          max-width: 209mm;
           height: 296mm;
           min-height: 296mm;
           max-height: 296mm;
@@ -191,25 +195,25 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             display: block !important;
             flex: none !important;
             align-self: flex-start !important;
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
+            width: 209mm !important;
+            min-width: 209mm !important;
+            max-width: 209mm !important;
             gap: 0 !important;
             padding: 0 !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
           }
           .proposal-page {
             display: block !important;
             position: relative !important;
             box-shadow: none !important;
             border-radius: 0 !important;
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
+            width: 209mm !important;
+            min-width: 209mm !important;
+            max-width: 209mm !important;
             height: 296mm !important;
             min-height: 296mm !important;
             max-height: 296mm !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             padding: 0 !important;
             overflow: hidden !important;
             box-sizing: border-box !important;
@@ -225,12 +229,19 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
             width: 100% !important;
             height: 100% !important;
             min-height: 0 !important;
+            padding: 12mm !important;
             box-sizing: border-box !important;
+          }
+          .proposal-page-inner--cover {
+            padding-bottom: 10mm !important;
+          }
+          .proposal-detail-header {
+            padding: 12mm 12mm 5mm !important;
           }
           .proposal-detail-body {
             display: block !important;
             height: auto !important;
-            padding-bottom: 24mm !important;
+            padding: 7mm 12mm 24mm !important;
           }
           .proposal-footer {
             position: absolute !important;
