@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/app/generated/prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getCurrentMembership } from "@/lib/current-membership";
@@ -9,7 +9,7 @@ import { isValidBirthDateIso } from "@/lib/birth-date";
 import { findDuplicateContact, buildConflictPayload, isConflictLookupThrottled, CONFLICT_THROTTLED_MESSAGE } from "@/lib/contact-duplicate";
 import { isValidEmail } from "@/lib/email-format";
 import { sanitizeCell } from "@/lib/csv-sanitize";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
@@ -292,8 +292,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   });
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // "Apagar mesmo assim" (ver contacts-table.tsx): leva os negócios do
+  // contato junto. Sem este parâmetro, negócio vinculado continua barrando.
+  const withDeals = new URL(req.url).searchParams.get("withDeals") === "1";
 
   const access = await requireRole(["OWNER", "MANAGER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
@@ -308,8 +311,38 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     // acontecer, é porque não sobrou Deal nenhum apontando pra cá).
     const cascadedCampaignRecipients = await prisma.campaignRecipient.findMany({ where: { contactId: id } });
 
+    let deletedDeals = 0;
     try {
-      await prisma.contact.delete({ where: { id } });
+      if (withDeals) {
+        // Mesma regra de DELETE /api/deals/[id]: proposta gerada/enviada é
+        // histórico comercial e só o Dono apaga junto com o negócio — senão
+        // este caminho viraria um jeito de gerente sumir com negócio ruim.
+        if (access.role !== "OWNER") {
+          const keptProposals = await prisma.proposal.count({
+            where: { status: { not: "DRAFT" }, deal: { contactId: id } },
+          });
+          if (keptProposals > 0) {
+            return NextResponse.json(
+              {
+                error:
+                  "Algum negócio deste contato tem propostas geradas ou enviadas, que ficam no histórico comercial — só o Dono pode apagá-lo junto.",
+              },
+              { status: 409 },
+            );
+          }
+        }
+        // Atômico (prismaRaw + setTenantOnTx, ver lib/prisma.ts): ou os
+        // negócios E o contato somem, ou nada some — nunca fica contato sem
+        // os negócios (ou o contrário) se algo falhar no meio.
+        deletedDeals = await prismaRaw.$transaction(async (tx) => {
+          await setTenantOnTx(tx, access.organizationId);
+          const removed = await tx.deal.deleteMany({ where: { contactId: id, organizationId: access.organizationId } });
+          await tx.contact.delete({ where: { id } });
+          return removed.count;
+        });
+      } else {
+        await prisma.contact.delete({ where: { id } });
+      }
     } catch (err) {
       // Deal.contactId não tem onDelete: Cascade (de propósito — apagar um
       // cliente não deveria conseguir levar negócio nenhum junto sem querer
@@ -331,6 +364,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     recordUserChange(access.organizationId, access.userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
+
+    // Com negócios apagados junto não há Ctrl+Z: o snapshot só restauraria o
+    // contato, e um "desfazer" que devolve o cliente sem os negócios seria
+    // pior que não oferecer (a tela avisa isso antes de confirmar).
+    if (deletedDeals > 0) return NextResponse.json({ ok: true, deletedDeals });
 
     const undo = await recordUndoableAction({
       organizationId: access.organizationId,

@@ -22,6 +22,7 @@ import {
   Send,
   History,
   Filter,
+  AlertTriangle,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge, type BadgeTone } from "@/components/badge";
@@ -51,6 +52,7 @@ import { ContactConflictNotice, type ContactConflict } from "@/components/contac
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 import { countBulkFailures } from "@/lib/bulk-fetch";
+import { requestJson } from "@/lib/client-request";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, ESTADOS_BR, type EnrichedContact } from "@/lib/contacts/constants";
@@ -228,6 +230,10 @@ export function ContactsTable({
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [sendLeadsOpen, setSendLeadsOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  // Contatos selecionados que ainda têm negócio (ver POST
+  // /api/contacts/deals-check) — não-null abre o modal de aviso com o
+  // "Apagar mesmo assim". Resposta da checagem, nunca do que a lista achava.
+  const [dealsBlock, setDealsBlock] = useState<ContactsWithDeals[] | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
@@ -525,15 +531,40 @@ export function ContactsTable({
     }
   }
 
-  async function bulkDelete() {
+  // Antes de confirmar qualquer coisa: algum selecionado tem negócio? O
+  // DELETE recusa contato com negócio, e a tela antes só dizia "alguns não
+  // puderam ser apagados" (numa linha fora de vista) — agora a pessoa vê
+  // quais e de quem são, e decide.
+  async function startBulkDelete() {
+    setBulkBusy(true);
+    setBulkError(null);
+    const res = await requestJson<{ contacts: ContactsWithDeals[] }>(
+      "/api/contacts/deals-check",
+      { method: "POST", json: { ids: selectedContactIds } },
+      { silent: true, errorMessage: "Não foi possível conferir os negócios desses contatos." },
+    );
+    setBulkBusy(false);
+    if (!res.ok) {
+      setBulkError(res.error);
+      return;
+    }
+    if (res.data.contacts.length > 0) setDealsBlock(res.data.contacts);
+    else setConfirmBulkDelete(true);
+  }
+
+  async function bulkDelete(withDeals = false) {
     setBulkBusy(true);
     setBulkError(null);
     try {
       const failures = await countBulkFailures(
-        selectedContactIds.map((id) => fetch(`/api/contacts/${id}`, { method: "DELETE" })),
+        selectedContactIds.map((id) => fetch(`/api/contacts/${id}${withDeals ? "?withDeals=1" : ""}`, { method: "DELETE" })),
       );
       if (failures > 0) {
-        setBulkError("Alguns contatos não puderam ser apagados.");
+        setBulkError(
+          failures === selectedContactIds.length
+            ? "Nenhum contato foi apagado. Atualize a página e tente de novo."
+            : `${failures} contato${failures === 1 ? "" : "s"} não pôde${failures === 1 ? "" : "ram"} ser apagado${failures === 1 ? "" : "s"}.`,
+        );
       }
       if (failures < selectedContactIds.length) trackUse("clientes.massa.apagar");
       clearSelection();
@@ -986,7 +1017,7 @@ export function ContactsTable({
               {isManager && (
                 <button
                   type="button"
-                  onClick={() => setConfirmBulkDelete(true)}
+                  onClick={startBulkDelete}
                   disabled={bulkBusy}
                   className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
                 >
@@ -1365,6 +1396,19 @@ export function ContactsTable({
         />
       )}
 
+      {dealsBlock && (
+        <DealsBlockDialog
+          contacts={dealsBlock}
+          selectedCount={selectedContactIds.length}
+          isOwner={isOwner}
+          onClose={() => setDealsBlock(null)}
+          onConfirm={async () => {
+            await bulkDelete(true);
+            setDealsBlock(null);
+          }}
+        />
+      )}
+
       {dateFilterOpen && (
         <Modal onClose={() => setDateFilterOpen(false)} maxWidth="max-w-2xl">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Filtrar por data de cadastro</h2>
@@ -1642,5 +1686,113 @@ function TagPopoverBody({ busy, onApply }: { busy: boolean; onApply: (value: str
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : "Aplicar"}
       </button>
     </div>
+  );
+}
+
+type ContactsWithDeals = {
+  id: string;
+  name: string;
+  deals: {
+    id: string;
+    name: string;
+    status: "OPEN" | "WON" | "LOST";
+    stageName: string;
+    pipelineName: string;
+    ownerName: string;
+    hasKeptProposals: boolean;
+  }[];
+};
+
+const DEAL_STATUS_LABEL = { OPEN: "Em andamento", WON: "Ganho", LOST: "Perdido" } as const;
+
+/**
+ * Aviso de "esses contatos têm negócio" antes de apagar em massa — lista
+ * cada contato com seus negócios, etapa e responsável, e oferece "Apagar
+ * mesmo assim" (apaga os negócios junto, sem Ctrl+Z). Negócio com proposta
+ * gerada/enviada só o Dono apaga (mesma regra de DELETE /api/deals/[id]):
+ * para os demais o botão fica desligado em vez de falhar depois.
+ */
+function DealsBlockDialog({
+  contacts,
+  selectedCount,
+  isOwner,
+  onConfirm,
+  onClose,
+}: {
+  contacts: ContactsWithDeals[];
+  selectedCount: number;
+  isOwner: boolean;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const dealCount = contacts.reduce((sum, c) => sum + c.deals.length, 0);
+  const openCount = contacts.reduce((sum, c) => sum + c.deals.filter((d) => d.status === "OPEN").length, 0);
+  const blockedByProposals = !isOwner && contacts.some((c) => c.deals.some((d) => d.hasKeptProposals));
+  const withoutDeals = selectedCount - contacts.length;
+
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-xl">
+      <div className="flex gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-500/15">
+          <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" strokeWidth={2} />
+        </div>
+        <div className="mt-0.5 min-w-0 flex-1">
+          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+            {contacts.length === 1 ? "Este contato tem" : `${contacts.length} contatos têm`} negócio vinculado
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
+            {openCount > 0 ? `${openCount} negócio${openCount === 1 ? " está" : "s estão"} em andamento. ` : ""}
+            Apagar mesmo assim remove {dealCount === 1 ? "o negócio" : `os ${dealCount} negócios`} abaixo junto com{" "}
+            {contacts.length === 1 ? "o contato" : "os contatos"}
+            {withoutDeals > 0 ? `, além de ${withoutDeals} contato${withoutDeals === 1 ? "" : "s"} sem negócio` : ""}. Não dá para desfazer.
+          </p>
+        </div>
+      </div>
+
+      <ul className="mt-4 max-h-[40dvh] divide-y divide-neutral-100 overflow-y-auto border-y border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+        {contacts.map((c) => (
+          <li key={c.id} className="py-2.5">
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{c.name}</p>
+            <ul className="mt-1 space-y-0.5">
+              {c.deals.map((d) => (
+                <li key={d.id} className="flex flex-wrap items-baseline gap-x-2 text-xs text-neutral-600 dark:text-neutral-400">
+                  <span className="text-neutral-800 dark:text-neutral-200">{d.name}</span>
+                  <span>
+                    {DEAL_STATUS_LABEL[d.status]} · {d.pipelineName} › {d.stageName}
+                  </span>
+                  <span>Responsável: {d.ownerName}</span>
+                  {d.hasKeptProposals && <span className="text-amber-700 dark:text-amber-400">tem proposta enviada</span>}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+
+      {blockedByProposals && (
+        <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          Há negócios com proposta gerada ou enviada — ficam no histórico comercial e só o Dono pode apagá-los. Tire esses contatos da seleção ou peça ao Dono.
+        </p>
+      )}
+
+      <div className="mt-5 flex justify-end gap-3">
+        <button type="button" onClick={onClose} className="btn-secondary">
+          Cancelar
+        </button>
+        <button
+          type="button"
+          disabled={loading || blockedByProposals}
+          onClick={async () => {
+            setLoading(true);
+            await onConfirm();
+            setLoading(false);
+          }}
+          className="btn-primary bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+        >
+          {loading ? "Apagando…" : "Apagar mesmo assim"}
+        </button>
+      </div>
+    </Modal>
   );
 }
