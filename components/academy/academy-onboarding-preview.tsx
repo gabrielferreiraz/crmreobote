@@ -23,8 +23,8 @@ export function AcademyOnboardingPreview({ name, onClose }: { name: string; onCl
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex min-h-dvh flex-col overflow-y-auto bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100" role="dialog" aria-modal="true" aria-label="Prévia do primeiro acesso">
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950 sm:px-8">
+    <div className="academy-page-enter fixed inset-0 z-[200] flex min-h-dvh flex-col overflow-y-auto bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100" role="dialog" aria-modal="true" aria-label="Prévia do primeiro acesso">
+      <header className="academy-header-enter flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950 sm:px-8">
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-sm font-bold text-white">C</span>
           <span className="text-sm font-semibold">CRM Reobote</span>
@@ -52,7 +52,7 @@ export function AcademyOnboardingPreview({ name, onClose }: { name: string; onCl
             <Eye className="h-3.5 w-3.5" strokeWidth={2} />
             Visualização apenas. Nenhum acesso será alterado.
           </p>
-          <AcademyOnboardingCard status={status} academyHref={null} name={name} preview />
+          <AcademyOnboardingCard key={status} status={status} academyHref={null} name={name} preview />
         </div>
       </main>
     </div>,

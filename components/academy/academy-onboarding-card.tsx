@@ -16,7 +16,7 @@ export function AcademyOnboardingCard({
   const firstName = name.trim().split(/\s+/)[0] || "Consultor";
 
   return (
-    <section className="mx-auto w-full max-w-[560px] rounded-lg border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 sm:p-9">
+    <section className="academy-card-enter mx-auto w-full max-w-[560px] rounded-lg border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 sm:p-9">
       <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-light text-brand">
         <GraduationCap className="h-5 w-5" strokeWidth={2} />
       </div>

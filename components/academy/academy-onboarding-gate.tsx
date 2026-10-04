@@ -14,8 +14,8 @@ export function AcademyOnboardingGate({
   signOutAction: () => Promise<void>;
 }) {
   return (
-    <div className="flex min-h-dvh flex-col bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-5 dark:border-neutral-800 dark:bg-neutral-950 sm:px-8">
+    <div className="academy-page-enter flex min-h-dvh flex-col bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <header className="academy-header-enter flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-5 dark:border-neutral-800 dark:bg-neutral-950 sm:px-8">
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-sm font-bold text-white">C</span>
           <span className="text-sm font-semibold">CRM Reobote</span>

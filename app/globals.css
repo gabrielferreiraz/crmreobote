@@ -176,6 +176,7 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
@@ -245,6 +246,96 @@ body {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+@keyframes academy-page-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes academy-header-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes academy-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes academy-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.academy-page-enter {
+  animation: academy-page-in 360ms var(--ease-smooth) both;
+}
+
+.academy-header-enter {
+  animation: academy-header-in 420ms var(--ease-smooth) 60ms both;
+}
+
+.academy-card-enter {
+  animation: academy-card-in 520ms var(--ease-smooth) 90ms both;
+}
+
+.academy-card-enter > * {
+  animation: academy-content-in 420ms var(--ease-smooth) both;
+}
+
+.academy-card-enter > :nth-child(1) {
+  animation-delay: 170ms;
+}
+
+.academy-card-enter > :nth-child(2) {
+  animation-delay: 210ms;
+}
+
+.academy-card-enter > :nth-child(3) {
+  animation-delay: 250ms;
+}
+
+.academy-card-enter > :nth-child(4) {
+  animation-delay: 290ms;
+}
+
+.academy-card-enter > :nth-child(5) {
+  animation-delay: 320ms;
+}
+
+.academy-card-enter > :nth-child(6) {
+  animation-delay: 350ms;
+}
+
+.academy-card-enter > :nth-child(n + 7) {
+  animation-delay: 380ms;
 }
 
 /* Entrada padrão de qualquer menu/dropdown/popover pequeno (Select,
