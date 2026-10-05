@@ -1,76 +1,64 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, X, Camera, Trash2, Copy, Check, ExternalLink, Maximize2, ChevronLeft, ChevronRight, GripVertical, Power, Users, Save } from "lucide-react";
-import { Select } from "@/components/select";
+import {
+  Loader2,
+  Plus,
+  X,
+  Camera,
+  Trash2,
+  Copy,
+  Check,
+  ExternalLink,
+  Maximize2,
+  ChevronUp,
+  ChevronDown,
+  Users,
+  Eye,
+  Share2,
+  UserRound,
+  Phone,
+  Images,
+  Palette,
+  Building2,
+  Link2,
+  Award,
+} from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { DigitalCardView, type DigitalCardData } from "@/components/digital-card/digital-card-view";
 import { PhonePreviewFrame } from "@/components/digital-card/phone-preview-frame";
-import { displayPhone } from "@/lib/phone-normalize";
+import { displayPhone, isValidPhoneInput } from "@/lib/phone-normalize";
 import { AVAILABLE_PARTNER_LOGOS, DEFAULT_SELECTED_LOGOS } from "@/lib/digital-cards/logos";
-import { CARD_THEMES, CARD_THEME_LABELS, type CardTheme } from "@/lib/digital-cards/themes";
+import { CARD_THEMES, type CardTheme } from "@/lib/digital-cards/themes";
 import { ImageCropModal } from "@/components/image-crop-modal";
 import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
+import { requestJson } from "@/lib/client-request";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
 import { REOBOTE_CARD_ADDRESS } from "@/lib/digital-cards/config";
+import { EditorSection, Switch, LINK_TYPES, LINK_TYPE_ORDER, normalizeLinkUrl, isValidLinkUrl } from "./editor-ui";
 
 type Card = Awaited<ReturnType<typeof getOrCreateOwnCard>>;
 type LinkRow = { id: string; type: string; label: string; url: string };
+type PhotoKind = "photo" | "cover" | "background";
 
-const LINK_TYPE_OPTIONS = [
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "LINKEDIN", label: "LinkedIn" },
-  { value: "WEBSITE", label: "Site" },
-  { value: "FACEBOOK", label: "Facebook" },
-  { value: "YOUTUBE", label: "YouTube" },
-  { value: "OTHER", label: "Outro" },
-];
-
-/**
- * Formulário + preview ao vivo (pedido explícito: "o usuário deve
- * conseguir visualizar como o cartão ficará antes de publicar") — a
- * pré-visualização usa DigitalCardView com `interactive={false}` (editar o
- * próprio cartão nunca conta como visita/clique de verdade).
- *
- * Redesenhado a pedido explícito: "muito mais intuitiva e com foco em
- * mensagens diretas, campos mais diretos pro consultor ler e entender na
- * hora". Passou por 2 rodadas:
- *
- * 1. "Ativo/inativo" virou uma ação IMEDIATA (PATCH próprio + router.refresh,
- *    igual às fotos), não mais um checkbox que só vale depois de rolar até
- *    o fim e clicar "Salvar" — é a decisão de maior consequência da página
- *    (se o cartão existe pro mundo ou não) e não devia ficar misturada com
- *    "salvei o cargo errado por engano".
- * 2. O botão "Salvar" mostra se há algo pendente (hasUnsavedChanges) —
- *    antes ficava sempre clicável, sem dar nenhum sinal de "isso aqui já
- *    foi salvo" ou "isso aqui ainda não".
- *
- * Primeira rodada também tinha adicionado uma legenda embaixo de CADA
- * campo explicando onde ele aparece no cartão ("Vira o botão verde de
- * destaque", "Aparece embaixo do seu nome"...) — pedido explícito de
- * volta atrás: "não precisa de tantas descrições para os campos, só o
- * nome dos campos mesmo". Removidas: o rótulo do campo + a pré-visualização
- * ao vivo (sempre visível ao lado) já bastam. Ficaram só as explicações que
- * NÃO são sobre "onde aparece" (arrastar pra reordenar logo, o que salva
- * sozinho vs. o que precisa do botão Salvar).
- *
- * Seções em cards (mesmo padrão de configuracoes/perfil/page.tsx).
- */
 const DEFAULT_BIO = "Inteligência em Consórcios";
 const DEFAULT_COMPANY = "Reobote Consórcios";
 const DEFAULT_JOB_TITLE = "Consultor de Vendas";
+const JOB_TITLE_OPTIONS = ["Consultor de Vendas", "Supervisor de Vendas", "Gerente de Vendas"];
+const MAX_COVERS = 4;
+const MAX_LINKS = 12;
+const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
 
-const JOB_TITLE_OPTIONS = [
-  "Consultor de Vendas",
-  "Supervisor de Vendas",
-  "Gerente de Vendas",
-];
+const THEME_NAMES: Record<CardTheme, string> = { DARK: "Escuro", LIGHT: "Claro", PHOTO: "Foto" };
 
-/** Payload "normalizado" pro Salvar em lote — usado tanto pra montar o body
- * do PATCH quanto (via JSON.stringify comparado) pra saber se há algo
- * pendente de salvar. `active` fica de FORA de propósito (ver comentário
- * acima do componente — agora é uma ação própria, imediata). */
+const CROP: Record<PhotoKind, { aspect: number; title: string }> = {
+  photo: { aspect: 1, title: "Sua foto" },
+  cover: { aspect: 1.6, title: "Capa" },
+  background: { aspect: 9 / 16, title: "Foto do fundo" },
+};
+
+/** Tudo que vai no botão Salvar (fotos e "no ar" salvam sozinhos, na hora). */
 type SavedFields = {
   jobTitle: string | null;
   bio: string | null;
@@ -86,71 +74,85 @@ type SavedFields = {
   theme: CardTheme | null;
 };
 
+const noopSubscribe = () => () => {};
+
+/** Botões do "no ar" (QR, Copiar, Enviar, Abrir) — nunca sobra um sozinho numa linha. */
+const ACTION_GRID: Record<number, string> = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-2 sm:grid-cols-4" };
+
+/**
+ * Edição do Cartão Digital — formulário + prévia ao vivo (a prévia usa o
+ * MESMO DigitalCardView da página pública, com `interactive={false}`: editar
+ * nunca conta como visita/clique).
+ *
+ * Redesenhado (10/2026) pra quem não é de tecnologia, celular primeiro:
+ * - títulos de uma palavra, sem frase explicando campo — a prévia mostra;
+ * - no celular a prévia sai da lateral (ficava no FIM da página, depois de
+ *   tudo) e vira o botão "Ver" da barra de baixo, junto do Salvar;
+ * - link aceita do jeito que a pessoa anota ("@perfil", "site.com.br");
+ * - toque em vez de arrastar (logos) e botões sempre visíveis (a lixeira da
+ *   capa só aparecia no hover — no celular não existia).
+ */
 export function CardEditor({
   card,
   publicUrl,
   isOwner,
   orgDefaultsSet,
+  qrButton,
 }: {
   card: NonNullable<Card>;
   publicUrl: string;
-  /** Identifica o dono para sinalizar capa e fundo como padrão automático da equipe. */
+  /** Dono: capa, fundo e estilo dele valem pra equipe toda (ver org-defaults). */
   isOwner: boolean;
-  /** O tema continua sendo uma escolha explícita do dono; as imagens são sincronizadas no upload. */
   orgDefaultsSet: { theme?: CardTheme | null };
+  /** Botão do QR Code (ver qr-code-panel.tsx) — só existe com o cartão no ar. */
+  qrButton?: React.ReactNode;
 }) {
   const router = useRouter();
   const [active, setActive] = useState(card.active);
   const [activeSaving, setActiveSaving] = useState(false);
-  const [activeError, setActiveError] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState(card.jobTitle ?? DEFAULT_JOB_TITLE);
   const [bio, setBio] = useState(card.bio ?? DEFAULT_BIO);
   const companyName = card.companyName ?? DEFAULT_COMPANY;
   const [displayNameOverride, setDisplayNameOverride] = useState(card.displayNameOverride ?? "");
-  // Vazio por padrão (não pré-preenchido com card.user.email) de propósito:
-  // salvar com o campo assim intocado NÃO deve gravar um override — e-mail
-  // é o único campo aqui com fonte de verdade externa (User.email, ver
-  // comentário em lib/digital-cards/queries.ts), então precisa continuar
-  // acompanhando a pessoa trocar de e-mail no perfil até que ela digite
-  // algo diferente aqui de propósito. O e-mail real aparece só como
-  // placeholder (ver input abaixo), nunca como valor pré-preenchido.
+  // Vazio = segue o e-mail do perfil (User.email). O e-mail real aparece só
+  // como placeholder — pré-preencher gravaria um override sem querer.
   const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? "");
   const phone = card.phone ?? "";
   const [whatsapp, setWhatsapp] = useState(card.whatsapp ?? "");
   const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
   const [portfolioValueDisplay, setPortfolioValueDisplay] = useState(card.portfolioValueDisplay ?? "");
-  // card.selectedLogos vazio = nunca configurado (ou usuário escolheu
-  // "todas, ordem padrão" — ver comentário em getActivePartnerLogos,
-  // lib/digital-cards/logos.ts, que trata [] do mesmo jeito) — mesmo
-  // fallback usado na renderização pública.
+  // [] = nunca configurado — mesmo fallback da página pública (getActivePartnerLogos).
   const [selectedLogos, setSelectedLogos] = useState<string[]>(
     card.selectedLogos.length > 0 ? card.selectedLogos : DEFAULT_SELECTED_LOGOS,
   );
   const [links, setLinks] = useState<LinkRow[]>(card.links.map((l) => ({ id: l.id, type: l.type, label: l.label, url: l.url })));
+  const [themeChoice, setThemeChoice] = useState<CardTheme | null>(card.theme ?? null);
+
   const [photoUrl, setPhotoUrl] = useState<string | null>(card.photoUrl);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [coverPhotoUrl, setCoverPhotoUrl] = useState<string | null>(card.coverPhotoUrl);
   const [coverPhotoUrls, setCoverPhotoUrls] = useState<string[]>(card.coverPhotoUrls ?? (card.coverPhotoUrl ? [card.coverPhotoUrl] : []));
-  const [ownCoverPhotoUrls, setOwnCoverPhotoUrls] = useState<string[]>(card.coverPhotoKey ? card.coverPhotoUrls ?? [] : []);
-  const [isAppendingCover, setIsAppendingCover] = useState(false);
-  const [uploadingCover, setUploadingCover] = useState(false);
+  const [ownCoverPhotoUrls, setOwnCoverPhotoUrls] = useState<string[]>(card.coverPhotoKey ? (card.coverPhotoUrls ?? []) : []);
   const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState<string | null>(card.backgroundPhotoUrl);
   const [hasOwnBackgroundPhoto, setHasOwnBackgroundPhoto] = useState(!!card.backgroundPhotoKey);
-  const [uploadingBackground, setUploadingBackground] = useState(false);
-  // Tema do cartão: card.theme é o valor PRÓPRIO salvo no banco (null = segue
-  // a empresa/fábrica); effectiveTheme é o que de fato renderiza agora.
-  const [themeChoice, setThemeChoice] = useState<CardTheme | null>(card.theme ?? null);
-  // O tema padrão é uma ação própria e imediata; capa e fundo do OWNER são
-  // sincronizados automaticamente pelas rotas de upload.
+  const [uploading, setUploading] = useState<PhotoKind | null>(null);
+  const [crop, setCrop] = useState<{ kind: PhotoKind; src: string; append: boolean } | null>(null);
+
   const [orgDefaultTheme, setOrgDefaultTheme] = useState<CardTheme | null>(orgDefaultsSet.theme ?? null);
-  const [settingDefaultField, setSettingDefaultField] = useState<"theme" | null>(null);
-  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const [teamThemeSaving, setTeamThemeSaving] = useState(false);
+
   const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showFullscreenPreview, setShowFullscreenPreview] = useState(false);
-  useLockBodyScroll(showFullscreenPreview);
+  const [showPreview, setShowPreview] = useState(false);
+  useLockBodyScroll(showPreview);
+
+  const canShare = useSyncExternalStore(
+    noopSubscribe,
+    () => typeof navigator !== "undefined" && typeof navigator.share === "function",
+    () => false,
+  );
 
   function buildSavedFields(): SavedFields {
     return {
@@ -164,341 +166,198 @@ export function CardEditor({
       showPortfolioValue,
       portfolioValueDisplay: portfolioValueDisplay.trim() || null,
       selectedLogos,
-      links: links.filter((l) => l.label.trim() && l.url.trim()).map((l) => ({ type: l.type, label: l.label.trim(), url: l.url.trim() })),
+      // Linha sem link é ignorada (antes ia pro servidor e travava o Salvar
+      // inteiro com "cada link precisa de título e URL"); sem nome, o botão
+      // leva o nome do tipo ("Instagram").
+      links: links
+        .filter((l) => l.url.trim())
+        .map((l) => ({
+          type: l.type,
+          label: l.label.trim() || LINK_TYPES[l.type]?.label || "Link",
+          url: normalizeLinkUrl(l.type, l.url),
+        })),
       theme: themeChoice,
     };
   }
 
-  // Snapshot do que já está salvo de verdade no banco — computado uma vez
-  // (a partir do próprio `card`, então bate exatamente com buildSavedFields()
-  // no primeiro render) e atualizado de novo só depois de um Salvar bem
-  // sucedido. `hasUnsavedChanges` é só comparar os dois — mais simples e
-  // menos propenso a erro do que rastrear "sujeira" campo por campo.
-  const [savedSnapshot, setSavedSnapshot] = useState<string>(() => JSON.stringify(buildSavedFields()));
-  const hasUnsavedChanges = JSON.stringify(buildSavedFields()) !== savedSnapshot;
+  // O que está salvo no banco — comparado com o formulário pra saber se há
+  // algo pendente, e usado pelo "Desfazer" pra voltar tudo de uma vez.
+  const [savedFields, setSavedFields] = useState<SavedFields>(() => buildSavedFields());
+  const current = buildSavedFields();
+  const dirty = JSON.stringify(current) !== JSON.stringify(savedFields);
 
-  /**
-   * Ativar/desativar é uma ação PRÓPRIA e imediata (mesmo espírito das
-   * fotos abaixo) — não fica esperando o consultor lembrar de rolar até o
-   * fim e clicar "Salvar". router.refresh() reflete a mudança nas seções
-   * que só aparecem com o cartão ativo (QR Code/Estatísticas, ver page.tsx
-   * — Server Component, não sabe sozinho que o PATCH abaixo aconteceu).
-   */
-  async function handleToggleActive() {
-    const next = !active;
+  const whatsappInvalid = !!whatsapp.trim() && !isValidPhoneInput(whatsapp);
+  const invalidLinkIds = new Set(
+    links.filter((l) => l.url.trim() && !isValidLinkUrl(normalizeLinkUrl(l.type, l.url))).map((l) => l.id),
+  );
+
+  // Sair da página (fechar aba, recarregar) com alteração não salva pergunta antes.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  function restoreSaved() {
+    setJobTitle(savedFields.jobTitle ?? "");
+    setBio(savedFields.bio ?? "");
+    setDisplayNameOverride(savedFields.displayNameOverride ?? "");
+    setEmailOverride(savedFields.emailOverride ?? "");
+    setWhatsapp(savedFields.whatsapp ?? "");
+    setShowPortfolioValue(savedFields.showPortfolioValue);
+    setPortfolioValueDisplay(savedFields.portfolioValueDisplay ?? "");
+    setSelectedLogos(savedFields.selectedLogos);
+    setLinks(savedFields.links.map((l, i) => ({ id: `saved-${i}`, ...l })));
+    setThemeChoice(savedFields.theme);
+    setError(null);
+    setShowErrors(false);
+  }
+
+  async function handleSave() {
+    if (whatsappInvalid || invalidLinkIds.size > 0) {
+      setShowErrors(true);
+      setError(whatsappInvalid ? "Confira o número do WhatsApp." : "Confira o link marcado em vermelho.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const fields = current;
+    const res = await requestJson(
+      `/api/digital-cards/${card.id}`,
+      { method: "PATCH", json: { ...fields, links: fields.links.map((l, i) => ({ ...l, order: i })) } },
+      { silent: true, errorMessage: "Não deu pra salvar. Tente de novo." },
+    );
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setSavedFields(fields);
+    setShowErrors(false);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2200);
+  }
+
+  // No ar / fora do ar salva NA HORA — é a decisão de maior consequência da
+  // página e não pode depender de lembrar do Salvar. router.refresh() faz o
+  // servidor mostrar (ou esconder) o QR Code e os Resultados.
+  async function handleToggleActive(next: boolean) {
     setActiveSaving(true);
-    setActiveError(null);
     setActive(next);
-    const res = await fetch(`/api/digital-cards/${card.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ active: next }),
-    });
+    const res = await requestJson(`/api/digital-cards/${card.id}`, { method: "PATCH", json: { active: next } }, { errorMessage: "Não deu pra mudar agora. Tente de novo." });
     setActiveSaving(false);
     if (!res.ok) {
       setActive(!next);
-      const data = await res.json().catch(() => ({}));
-      setActiveError(data.error ?? "Não deu pra mudar agora — tenta de novo.");
       return;
     }
     router.refresh();
   }
 
-  function moveLogoLeft(index: number) {
-    if (index <= 0) return;
-    setSelectedLogos((prev) => {
-      const next = [...prev];
-      const temp = next[index - 1];
-      next[index - 1] = next[index];
-      next[index] = temp;
-      return next;
-    });
-  }
-
-  function moveLogoRight(index: number) {
-    if (index >= selectedLogos.length - 1) return;
-    setSelectedLogos((prev) => {
-      const next = [...prev];
-      const temp = next[index + 1];
-      next[index + 1] = next[index];
-      next[index] = temp;
-      return next;
-    });
-  }
-
-  function toggleLogo(key: string) {
-    if (key === "reobote") return; // Logo da Reobote é obrigatória e sempre fixa
-    setSelectedLogos((prev) => {
-      if (prev.includes(key)) {
-        return prev.filter((k) => k !== key);
-      } else {
-        return [...prev, key];
-      }
-    });
-  }
-
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-
-  function handleDragStart(index: number) {
-    setDraggedIndex(index);
-  }
-
-  function handleDragOver(e: React.DragEvent, targetIndex: number) {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === targetIndex) return;
-
-    setSelectedLogos((prev) => {
-      const next = [...prev];
-      const draggedItem = next[draggedIndex];
-      next.splice(draggedIndex, 1);
-      next.splice(targetIndex, 0, draggedItem);
-      return next;
-    });
-    setDraggedIndex(targetIndex);
-  }
-
-  function handleDragEnd() {
-    setDraggedIndex(null);
-  }
-
-  function handleTouchStart(index: number) {
-    setDraggedIndex(index);
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    if (draggedIndex === null) return;
-    const touch = e.touches[0];
-    if (!touch) return;
-
-    const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
-    const itemCard = targetElement?.closest("[data-logo-index]") as HTMLElement | null;
-
-    if (itemCard) {
-      const targetIndex = Number(itemCard.getAttribute("data-logo-index"));
-      if (!isNaN(targetIndex) && targetIndex !== draggedIndex) {
-        setSelectedLogos((prev) => {
-          const next = [...prev];
-          const draggedItem = next[draggedIndex];
-          next.splice(draggedIndex, 1);
-          next.splice(targetIndex, 0, draggedItem);
-          return next;
-        });
-        setDraggedIndex(targetIndex);
-      }
-    }
-  }
-
-  function handleTouchEnd() {
-    setDraggedIndex(null);
-  }
-
-  function addLink() {
-    setLinks((prev) => [...prev, { id: `new-${Date.now()}`, type: "INSTAGRAM", label: "", url: "" }]);
-  }
-  function updateLink(id: string, patch: Partial<LinkRow>) {
-    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  }
-  function removeLink(id: string) {
-    setLinks((prev) => prev.filter((l) => l.id !== id));
-  }
-
-  // Estado do Modal de Corte Profissional
-  const [cropModal, setCropModal] = useState<{
-    open: boolean;
-    type: "photo" | "cover" | "background" | null;
-    imageSrc: string | null;
-    aspectRatio: number;
-    title: string;
-  }>({
-    open: false,
-    type: null,
-    imageSrc: null,
-    aspectRatio: 2.5,
-    title: "Ajustar Foto",
-  });
-
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>, type: "photo" | "cover" | "background") {
+  // ─── Fotos (salvam sozinhas, logo depois do recorte) ──────────────────
+  function pickPhoto(e: React.ChangeEvent<HTMLInputElement>, kind: PhotoKind, append = false) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setCropModal({
-          open: true,
-          type,
-          imageSrc: reader.result,
-          aspectRatio: type === "photo" ? 1 : type === "cover" ? 1.6 : 9 / 16,
-          title:
-            type === "photo"
-              ? "Corte Profissional — Foto de Perfil"
-              : type === "cover"
-              ? "Corte Profissional — Foto de Capa"
-              : "Corte Profissional — Foto de Fundo",
-        });
-      }
+      if (typeof reader.result === "string") setCrop({ kind, src: reader.result, append });
     };
     reader.readAsDataURL(file);
   }
 
-  async function handleCroppedUpload(blob: Blob) {
-    if (!cropModal.type) return;
-    const type = cropModal.type;
-    setCropModal((prev) => ({ ...prev, open: false }));
-
-    const file = new File([blob], `${type}-cropped.jpg`, { type: "image/jpeg" });
+  async function uploadCropped(blob: Blob) {
+    if (!crop) return;
+    const { kind, append } = crop;
+    setCrop(null);
     const formData = new FormData();
-    formData.append("file", file);
-
-    if (type === "photo") {
-      setUploadingPhoto(true);
-      setError(null);
-      const res = await fetch(`/api/digital-cards/${card.id}/photo`, { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      setUploadingPhoto(false);
-      if (!res.ok) setError(data.error ?? "Erro ao enviar foto de perfil");
-      else setPhotoUrl(data.photoUrl);
-    } else if (type === "cover") {
-      setUploadingCover(true);
-      setError(null);
-      const appendQuery = isAppendingCover ? "?append=true" : "";
-      const res = await fetch(`/api/digital-cards/${card.id}/cover${appendQuery}`, { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      setUploadingCover(false);
-      setIsAppendingCover(false);
-      if (!res.ok) setError(data.error ?? "Erro ao enviar foto de capa");
-      else {
-        setCoverPhotoUrl(data.coverPhotoUrl ?? null);
-        setCoverPhotoUrls(data.coverPhotoUrls ?? []);
-        setOwnCoverPhotoUrls(data.ownCoverPhotoUrls ?? data.coverPhotoUrls ?? []);
-      }
-    } else if (type === "background") {
-      setUploadingBackground(true);
-      setError(null);
-      const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      setUploadingBackground(false);
-      if (!res.ok) setError(data.error ?? "Erro ao enviar foto de fundo");
-      else {
-        setBackgroundPhotoUrl(data.backgroundPhotoUrl ?? null);
-        setHasOwnBackgroundPhoto(true);
-      }
+    formData.append("file", new File([blob], `${kind}.jpg`, { type: "image/jpeg" }));
+    setUploading(kind);
+    const path = kind === "photo" ? "photo" : kind === "cover" ? `cover${append ? "?append=true" : ""}` : "background";
+    const res = await requestJson(`/api/digital-cards/${card.id}/${path}`, { method: "POST", body: formData }, { errorMessage: "Não deu pra enviar a foto. Tente outra." });
+    setUploading(null);
+    if (!res.ok) return;
+    if (kind === "photo") setPhotoUrl(res.data.photoUrl);
+    if (kind === "cover") applyCoverResponse(res.data);
+    if (kind === "background") {
+      setBackgroundPhotoUrl(res.data.backgroundPhotoUrl ?? null);
+      setHasOwnBackgroundPhoto(true);
     }
   }
 
-  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    handleFileSelect(e, "photo");
+  function applyCoverResponse(data: { coverPhotoUrl?: string | null; coverPhotoUrls?: string[]; ownCoverPhotoUrls?: string[] }) {
+    setCoverPhotoUrl(data.coverPhotoUrl ?? null);
+    setCoverPhotoUrls(data.coverPhotoUrls ?? []);
+    setOwnCoverPhotoUrls(data.ownCoverPhotoUrls ?? data.coverPhotoUrls ?? []);
   }
 
-  async function handleRemovePhoto() {
-    setUploadingPhoto(true);
-    setError(null);
-    const res = await fetch(`/api/digital-cards/${card.id}/photo`, { method: "DELETE" });
-    setUploadingPhoto(false);
-    if (res.ok) setPhotoUrl(null);
-  }
-
-  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>, append = false) {
-    setIsAppendingCover(append);
-    handleFileSelect(e, "cover");
-  }
-
-  async function handleRemoveCoverIndex(index: number) {
-    setUploadingCover(true);
-    setError(null);
-    const res = await fetch(`/api/digital-cards/${card.id}/cover?index=${index}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
-    setUploadingCover(false);
-    if (res.ok) {
-      setCoverPhotoUrl(data.coverPhotoUrl ?? null);
-      setCoverPhotoUrls(data.coverPhotoUrls ?? []);
-      setOwnCoverPhotoUrls(data.ownCoverPhotoUrls ?? []);
-    } else setError(data.error ?? "Erro ao remover foto de capa");
-  }
-
-  async function handleRemoveCover() {
-    setUploadingCover(true);
-    setError(null);
-    const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
-    setUploadingCover(false);
-    if (res.ok) {
-      setCoverPhotoUrl(data.coverPhotoUrl ?? null);
-      setCoverPhotoUrls(data.coverPhotoUrls ?? []);
-      setOwnCoverPhotoUrls([]);
-    } else setError(data.error ?? "Erro ao remover fotos de capa");
-  }
-
-  function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
-    handleFileSelect(e, "background");
-  }
-
-  async function handleRemoveBackground() {
-    setUploadingBackground(true);
-    setError(null);
-    const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
-    setUploadingBackground(false);
-    if (res.ok) {
-      setBackgroundPhotoUrl(data.backgroundPhotoUrl ?? null);
+  async function removePhoto(kind: PhotoKind, coverIndex?: number) {
+    setUploading(kind);
+    const path =
+      kind === "photo" ? "photo" : kind === "cover" ? `cover${coverIndex !== undefined ? `?index=${coverIndex}` : ""}` : "background";
+    const res = await requestJson(`/api/digital-cards/${card.id}/${path}`, { method: "DELETE" }, { errorMessage: "Não deu pra remover. Tente de novo." });
+    setUploading(null);
+    if (!res.ok) return;
+    if (kind === "photo") setPhotoUrl(null);
+    if (kind === "cover") {
+      setCoverPhotoUrl(res.data?.coverPhotoUrl ?? null);
+      setCoverPhotoUrls(res.data?.coverPhotoUrls ?? []);
+      setOwnCoverPhotoUrls(res.data?.ownCoverPhotoUrls ?? []);
+    }
+    if (kind === "background") {
+      setBackgroundPhotoUrl(res.data?.backgroundPhotoUrl ?? null);
       setHasOwnBackgroundPhoto(false);
-    } else setError(data.error ?? "Erro ao remover foto de fundo");
+    }
   }
 
-  /** Promove o TEMA escolhido no preview/editor como padrão para toda a equipe que ainda não escolheu um tema próprio. */
-  async function handleSetOrgDefaultTheme(themeToSet: CardTheme) {
-    setSettingDefaultField("theme");
-    setDefaultError(null);
-    const res = await fetch("/api/digital-cards/org-defaults/theme", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ theme: themeToSet }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setSettingDefaultField(null);
-    if (!res.ok) {
-      setDefaultError(data.error ?? "Não foi possível definir o tema padrão agora.");
-      return;
-    }
-    setOrgDefaultTheme(themeToSet);
+  // ─── Estilo da equipe (só o Dono) ──────────────────────────────────────
+  async function setTeamTheme(theme: CardTheme | null) {
+    setTeamThemeSaving(true);
+    const res = await requestJson(
+      "/api/digital-cards/org-defaults/theme",
+      theme ? { method: "POST", json: { theme } } : { method: "DELETE" },
+      { errorMessage: "Não deu pra mudar o estilo da equipe agora." },
+    );
+    setTeamThemeSaving(false);
+    if (res.ok) setOrgDefaultTheme(theme);
   }
 
-  /** Remove o tema padrão da equipe — volta ao tema escuro de fábrica para quem não escolheu um próprio. */
-  async function handleClearOrgDefaultTheme() {
-    setSettingDefaultField("theme");
-    setDefaultError(null);
-    const res = await fetch("/api/digital-cards/org-defaults/theme", { method: "DELETE" });
-    setSettingDefaultField(null);
-    if (!res.ok) {
-      setDefaultError("Não foi possível remover o padrão agora.");
-      return;
-    }
-    setOrgDefaultTheme(null);
+  // ─── Administradoras ──────────────────────────────────────────────────
+  // A Reobote é fixa (sempre aparece, sempre primeiro) — a lista daqui é só
+  // das parceiras. Antes as setas usavam a posição na lista SEM a Reobote
+  // pra mexer na lista COM ela, e trocavam a logo errada.
+  const partnerLogos = selectedLogos.filter((k) => k !== "reobote");
+  function setPartners(next: string[]) {
+    setSelectedLogos((prev) => [...(prev.includes("reobote") ? ["reobote"] : []), ...next]);
   }
+  function movePartner(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (target < 0 || target >= partnerLogos.length) return;
+    const next = [...partnerLogos];
+    [next[index], next[target]] = [next[target], next[index]];
+    setPartners(next);
+  }
+  function togglePartner(key: string, on: boolean) {
+    setPartners(on ? [...partnerLogos, key] : partnerLogos.filter((k) => k !== key));
+  }
+  const partnerRows = [
+    ...partnerLogos.map((key) => AVAILABLE_PARTNER_LOGOS.find((l) => l.key === key)).filter((l) => !!l),
+    ...AVAILABLE_PARTNER_LOGOS.filter((l) => l.key !== "reobote" && !partnerLogos.includes(l.key)),
+  ];
 
-
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-
-    const fields = buildSavedFields();
-    const res = await fetch(`/api/digital-cards/${card.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...fields, links: links.map((l, i) => ({ type: l.type, label: l.label, url: l.url, order: i })) }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setSaving(false);
-
-    if (!res.ok) {
-      setError(data.error ?? "Erro ao salvar");
-      return;
-    }
-    setSavedSnapshot(JSON.stringify(fields));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  // ─── Links ─────────────────────────────────────────────────────────────
+  const newLinkSeq = useRef(0);
+  function addLink(type: string) {
+    const id = `new-${++newLinkSeq.current}`;
+    setLinks((prev) => [...prev, { id, type, label: "", url: "" }]);
+    // Já abre o teclado no campo novo — um toque a menos no celular.
+    requestAnimationFrame(() => document.getElementById(`link-url-${id}`)?.focus());
+  }
+  function updateLink(id: string, patch: Partial<LinkRow>) {
+    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
 
   async function handleCopyLink() {
@@ -507,15 +366,24 @@ export function CardEditor({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // sem fallback melhor sem um input visível
+      // Sem permissão de área de transferência — o link continua visível pra copiar à mão.
+    }
+  }
+
+  async function handleShare() {
+    try {
+      await navigator.share({ title: displayNameOverride.trim() || card.displayName, url: publicUrl });
+    } catch {
+      // Cancelado pela pessoa — nada a fazer.
     }
   }
 
   const previewTheme = themeChoice ?? orgDefaultTheme ?? "DARK";
+  const displayName = displayNameOverride.trim() || card.displayName;
 
   const previewData: DigitalCardData = {
     slug: card.slug,
-    displayName: displayNameOverride.trim() || card.displayName,
+    displayName,
     jobTitle: jobTitle.trim() || null,
     companyName: null,
     bio: bio.trim() || null,
@@ -530,643 +398,491 @@ export function CardEditor({
     showPortfolioValue,
     portfolioValueDisplay: portfolioValueDisplay.trim() || null,
     selectedLogos,
-    links: links.filter((l) => l.label.trim() && l.url.trim()),
+    links: current.links.map((l, i) => ({ id: `preview-${i}`, ...l })),
     publicUrl,
     theme: previewTheme,
   };
 
+  const companyCovers = ownCoverPhotoUrls.length === 0 ? coverPhotoUrls : [];
+  const busyCover = uploading === "cover";
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_345px] lg:items-start">
-      <div className="space-y-4">
-        {/* Status do cartão — a decisão mais importante da página, por isso
-            fica sozinha no topo, com linguagem direta ("está no ar" / "não
-            está visível") em vez de um checkbox técnico "ativo". Ação
-            imediata (ver handleToggleActive) — nunca depende do botão
-            Salvar lá embaixo. */}
-        <div className="card p-4">
-          <div className="flex items-start gap-3">
-            <span className="relative mt-0.5 flex h-2.5 w-2.5 shrink-0">
-              {active && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
-              <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${active ? "bg-emerald-500" : "bg-neutral-300 dark:bg-neutral-600"}`} />
-            </span>
+    <div className="grid grid-cols-1 gap-5 pb-24 lg:grid-cols-[minmax(0,1fr)_345px] lg:items-start lg:pb-0">
+      <div className="min-w-0 space-y-4">
+        {/* ─── No ar ─────────────────────────────────────────────── */}
+        <section
+          className={`rounded-2xl border p-4 sm:p-5 ${
+            active
+              ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+              : "border-white/70 bg-white/75 shadow-[0_1px_3px_rgba(20,24,50,0.06)] dark:border-white/10 dark:bg-neutral-900/60"
+          }`}
+        >
+          <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                {active ? "Seu cartão está no ar" : "Seu cartão ainda não está visível"}
-              </p>
-              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
-                {active
-                  ? "Qualquer pessoa com o link ou o QR Code consegue ver — desative se precisar tirar do ar."
-                  : "Ninguém consegue acessar ainda, nem quem já tem o link. Ative quando estiver pronto pra mostrar."}
-              </p>
-              {activeError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{activeError}</p>}
+              <p className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{active ? "Cartão no ar" : "Cartão fora do ar"}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{active ? "Quem tem o link consegue ver." : "Ninguém consegue ver ainda."}</p>
             </div>
-            <button
-              type="button"
-              onClick={handleToggleActive}
-              disabled={activeSaving}
-              className={active ? "btn-secondary btn-sm shrink-0" : "btn-primary btn-sm shrink-0"}
-            >
-              {activeSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Power className="h-3.5 w-3.5" strokeWidth={2.5} />}
-              {active ? "Desativar" : "Ativar cartão"}
-            </button>
+            {active ? (
+              <>
+                {activeSaving && <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />}
+                <Switch checked onChange={handleToggleActive} disabled={activeSaving} label="Cartão no ar" />
+              </>
+            ) : (
+              // Primeira vez: um interruptor desligado não diz "toque aqui" — botão diz.
+              <button type="button" onClick={() => handleToggleActive(true)} disabled={activeSaving} className="btn-primary h-11 shrink-0 px-5">
+                {activeSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Pôr no ar
+              </button>
+            )}
           </div>
 
           {active && (
-            <div className="mt-3 flex items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-400">
-              <span className="min-w-0 flex-1 truncate">{publicUrl}</span>
-              <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={handleCopyLink} title="Copiar link" className="icon-btn h-6 w-6">
-                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+            <>
+              <p className="mt-4 truncate rounded-lg bg-white/80 px-3 py-2 text-sm text-neutral-600 dark:bg-neutral-900/60 dark:text-neutral-300">
+                {publicUrl.replace(/^https?:\/\//, "")}
+              </p>
+              <div className={`mt-3 grid gap-2 ${ACTION_GRID[(qrButton ? 1 : 0) + (canShare ? 1 : 0) + 2]}`}>
+                {qrButton}
+                <button type="button" onClick={handleCopyLink} className="btn-secondary h-11 justify-center">
+                  {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "Copiado" : "Copiar"}
                 </button>
-                <a
-                  href={publicUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Abrir cartão"
-                  className="icon-btn flex h-6 w-6 items-center justify-center text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
+                {canShare && (
+                  <button type="button" onClick={handleShare} className="btn-secondary h-11 justify-center">
+                    <Share2 className="h-4 w-4" />
+                    Enviar
+                  </button>
+                )}
+                <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary h-11 justify-center">
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir
                 </a>
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* ─── Você ──────────────────────────────────────────────── */}
+        <EditorSection icon={UserRound} title="Você">
+          <div className="flex items-center gap-4">
+            <label className="relative shrink-0 cursor-pointer" aria-label={photoUrl ? "Trocar foto" : "Pôr foto"}>
+              <Avatar name={displayName} src={photoUrl} size="xl" />
+              <span className="absolute -right-0.5 -bottom-0.5 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-brand text-white dark:border-neutral-900">
+                {uploading === "photo" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              </span>
+              <input type="file" accept={IMAGE_ACCEPT} className="hidden" disabled={!!uploading} onChange={(e) => pickPhoto(e, "photo")} />
+            </label>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Sua foto</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Toque na foto pra trocar.</p>
+              {photoUrl && (
+                <button
+                  type="button"
+                  onClick={() => removePhoto("photo")}
+                  disabled={!!uploading}
+                  className="mt-1 text-sm text-neutral-500 underline-offset-2 hover:text-red-600 hover:underline dark:text-neutral-400"
+                >
+                  Remover
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            <Field label="Nome" htmlFor="card-name">
+              <input
+                id="card-name"
+                value={displayNameOverride}
+                onChange={(e) => setDisplayNameOverride(e.target.value)}
+                placeholder={card.user.name}
+                maxLength={120}
+                autoComplete="name"
+                className="field-input"
+              />
+            </Field>
+
+            <Field label="Cargo" htmlFor="card-job">
+              <div className="mb-2 flex flex-wrap gap-2">
+                {JOB_TITLE_OPTIONS.map((title) => (
+                  <button
+                    key={title}
+                    type="button"
+                    onClick={() => setJobTitle(title)}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                      jobTitle === title
+                        ? "border-brand bg-brand-light font-medium text-brand dark:bg-[var(--brand-subtle)]"
+                        : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
+                    }`}
+                  >
+                    {title.replace(" de Vendas", "")}
+                  </button>
+                ))}
+              </div>
+              <input id="card-job" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder={DEFAULT_JOB_TITLE} className="field-input" />
+            </Field>
+
+            <Field label="Frase" htmlFor="card-bio" optional>
+              <input id="card-bio" value={bio} onChange={(e) => setBio(e.target.value)} placeholder={DEFAULT_BIO} maxLength={140} className="field-input" />
+            </Field>
+          </div>
+        </EditorSection>
+
+        {/* ─── Contato ───────────────────────────────────────────── */}
+        <EditorSection icon={Phone} title="Contato">
+          <div className="space-y-4">
+            <Field label="WhatsApp" htmlFor="card-whatsapp" error={showErrors && whatsappInvalid ? "Número incompleto. Use DDD + número." : undefined}>
+              <input
+                id="card-whatsapp"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(e.target.value)}
+                placeholder="(67) 99999-9999"
+                aria-invalid={showErrors && whatsappInvalid ? true : undefined}
+                className="field-input"
+              />
+            </Field>
+            <Field label="E-mail" htmlFor="card-email">
+              <input
+                id="card-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={emailOverride}
+                onChange={(e) => setEmailOverride(e.target.value)}
+                placeholder={card.user.email}
+                className="field-input"
+              />
+            </Field>
+          </div>
+        </EditorSection>
+
+        {/* ─── Capa ──────────────────────────────────────────────── */}
+        <EditorSection
+          icon={Images}
+          title="Capa"
+          aside={
+            <span className="text-sm tabular-nums text-neutral-400 dark:text-neutral-500">
+              {ownCoverPhotoUrls.length}/{MAX_COVERS}
+            </span>
+          }
+        >
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {ownCoverPhotoUrls.map((url, idx) => (
+              <div key={url} className="relative aspect-[1.6] overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`Capa ${idx + 1}`} className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removePhoto("cover", idx)}
+                  disabled={busyCover}
+                  aria-label={`Tirar capa ${idx + 1}`}
+                  className="absolute top-1.5 right-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-red-600 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" strokeWidth={2.5} />
+                </button>
+              </div>
+            ))}
+            {companyCovers.map((url) => (
+              <div key={url} className="relative aspect-[1.6] overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="Capa da empresa" className="h-full w-full object-cover opacity-80" />
+                <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">Da empresa</span>
+              </div>
+            ))}
+            {ownCoverPhotoUrls.length < MAX_COVERS && (
+              <label className="flex aspect-[1.6] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-neutral-300 text-neutral-500 transition-colors hover:border-brand hover:text-brand dark:border-neutral-700 dark:text-neutral-400">
+                {busyCover ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" strokeWidth={2.2} />}
+                <span className="text-sm font-medium">{busyCover ? "Enviando" : "Foto"}</span>
+                <input
+                  type="file"
+                  accept={IMAGE_ACCEPT}
+                  className="hidden"
+                  disabled={!!uploading}
+                  onChange={(e) => pickPhoto(e, "cover", ownCoverPhotoUrls.length > 0)}
+                />
+              </label>
+            )}
+          </div>
+          {(ownCoverPhotoUrls.length > 1 || (isOwner && ownCoverPhotoUrls.length > 0)) && (
+            <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+              {ownCoverPhotoUrls.length > 1 && <span>As fotos passam sozinhas.</span>}
+              {isOwner && ownCoverPhotoUrls.length > 0 && <TeamTag />}
+            </p>
+          )}
+        </EditorSection>
+
+        {/* ─── Estilo ────────────────────────────────────────────── */}
+        <EditorSection icon={Palette} title="Estilo">
+          <div className="grid grid-cols-3 gap-2.5">
+            {CARD_THEMES.map((theme) => (
+              <ThemeTile
+                key={theme}
+                theme={theme}
+                selected={previewTheme === theme}
+                photo={backgroundPhotoUrl ?? coverPhotoUrl}
+                onClick={() => setThemeChoice(theme)}
+              />
+            ))}
+          </div>
+
+          {previewTheme !== "LIGHT" && (
+            <div className="mt-4 flex items-center gap-3 rounded-xl bg-neutral-50 p-3 dark:bg-neutral-800/50">
+              <div className="relative h-16 w-10 shrink-0 overflow-hidden rounded-lg bg-neutral-200 dark:bg-neutral-700">
+                {backgroundPhotoUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={backgroundPhotoUrl} alt="Foto do fundo" className="h-full w-full object-cover" />
+                )}
+                {uploading === "background" && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/50">
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                  </span>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Foto do fundo</p>
+                {previewTheme === "PHOTO" && !backgroundPhotoUrl ? (
+                  <p className="text-sm text-amber-700 dark:text-amber-400">Escolha uma foto.</p>
+                ) : (
+                  isOwner && hasOwnBackgroundPhoto && <TeamTag />
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <label className="btn-secondary btn-sm cursor-pointer">
+                  <Camera className="h-4 w-4" />
+                  {hasOwnBackgroundPhoto ? "Trocar" : "Pôr"}
+                  <input type="file" accept={IMAGE_ACCEPT} className="hidden" disabled={!!uploading} onChange={(e) => pickPhoto(e, "background")} />
+                </label>
+                {hasOwnBackgroundPhoto && (
+                  <button
+                    type="button"
+                    onClick={() => removePhoto("background")}
+                    disabled={!!uploading}
+                    aria-label="Tirar foto do fundo"
+                    className="icon-btn h-9 w-9"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
           )}
-        </div>
 
-        {/* Fotos — as 3 juntas num único bloco (antes eram 3 cards
-            separados, ocupando a tela toda de rolagem) com o que cada uma
-            faz explicado de cara. Sobem na hora do upload — nenhuma delas
-            depende do botão "Salvar" lá embaixo. */}
-        <div className="card p-4 space-y-4">
-          <p className="field-label text-sm font-semibold">Fotos do cartão</p>
-
-          <div className="flex items-center gap-3">
-            <div className="relative shrink-0">
-              <Avatar name={displayNameOverride.trim() || card.displayName} src={photoUrl} size="lg" />
-              {uploadingPhoto && (
-                <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
-                  <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
-                </span>
-              )}
-            </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Sua foto</p>
-              <div className="space-y-1">
-                <label htmlFor="digital-card-display-name" className="field-label">Nome no cartão</label>
-                <input
-                  id="digital-card-display-name"
-                  value={displayNameOverride}
-                  onChange={(e) => setDisplayNameOverride(e.target.value)}
-                  placeholder={card.user.name}
-                  maxLength={120}
-                  className="field-input"
-                />
-              </div>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                <label className="btn-secondary btn-sm cursor-pointer">
-                  <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                  {photoUrl ? "Trocar" : "Adicionar"}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingPhoto} onChange={handlePhotoChange} />
-                </label>
-                {photoUrl && (
-                  <button type="button" onClick={handleRemovePhoto} disabled={uploadingPhoto} className="btn-ghost btn-sm">
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    Remover
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-neutral-100 dark:border-neutral-800" />
-
-          <div className="space-y-3">
-            <div className="flex items-[#10151d] flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                  Capa {ownCoverPhotoUrls.length > 1 ? `— Carrossel (${ownCoverPhotoUrls.length}/4 fotos)` : ""}
-                </p>
-                <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                  Adicione até 4 fotos (1.6:1). Se houver mais de uma, elas alternam em carrossel dinâmico.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {ownCoverPhotoUrls.length < 4 && (
-                  <label className="btn-secondary btn-sm cursor-pointer shrink-0">
-                    <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                    {ownCoverPhotoUrls.length > 0 ? "Adicionar foto" : "Nova capa"}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      className="hidden"
-                      disabled={uploadingCover}
-                      onChange={(e) => handleCoverChange(e, ownCoverPhotoUrls.length > 0)}
-                    />
-                  </label>
-                )}
-                {ownCoverPhotoUrls.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveCover}
-                    disabled={uploadingCover}
-                    className="btn-ghost btn-sm shrink-0"
-                    title="Remover todas as fotos de capa"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    Limpar
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Lista de miniaturas da capa */}
-            {ownCoverPhotoUrls.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                {ownCoverPhotoUrls.map((url, idx) => (
-                  <div key={url} className="group relative h-16 w-24 overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="" className="h-full w-full object-cover" />
-                    <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[9px] font-bold text-white backdrop-blur-sm">
-                      #{idx + 1}
-                    </span>
+          {(isOwner || themeChoice !== null) && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              {isOwner &&
+                (orgDefaultTheme === previewTheme ? (
+                  <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                    <Check className="h-4 w-4" />
+                    Estilo da equipe
                     <button
                       type="button"
-                      onClick={() => handleRemoveCoverIndex(idx)}
-                      disabled={uploadingCover}
-                      title="Remover esta foto"
-                      className="absolute top-1 right-1 rounded bg-black/70 p-1 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                      onClick={() => setTeamTheme(null)}
+                      disabled={teamThemeSaving}
+                      className="ml-1 text-neutral-400 underline-offset-2 hover:text-neutral-700 hover:underline dark:hover:text-neutral-200"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      tirar
                     </button>
-                  </div>
-                ))}
-                {uploadingCover && (
-                  <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/40">
-                    <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-neutral-200 bg-neutral-50/50 p-2.5 text-xs text-neutral-400 dark:border-neutral-800 dark:bg-neutral-900/40">
-                <Camera className="h-4 w-4 shrink-0 opacity-50" />
-                <span>{coverPhotoUrls.length > 0 ? "Usando a capa padrão da empresa." : "Nenhuma foto de capa disponível."}</span>
-              </div>
-            )}
-
-            {isOwner && ownCoverPhotoUrls.length > 0 && (
-              <div className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                <Users className="h-3.5 w-3.5" strokeWidth={2} />
-                Padrão da equipe
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-neutral-100 dark:border-neutral-800" />
-
-          <div className="flex items-center gap-3">
-            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
-              {backgroundPhotoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={backgroundPhotoUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full items-center justify-center text-[10px] text-neutral-400 dark:text-neutral-500">Sem fundo</div>
-              )}
-              {uploadingBackground && (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2} />
-                </span>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Fundo</p>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                <label className="btn-secondary btn-sm cursor-pointer">
-                  <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                  {hasOwnBackgroundPhoto ? "Trocar" : "Adicionar"}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingBackground} onChange={handleBackgroundChange} />
-                </label>
-                {hasOwnBackgroundPhoto && (
-                  <button type="button" onClick={handleRemoveBackground} disabled={uploadingBackground} className="btn-ghost btn-sm">
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    Remover
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setTeamTheme(previewTheme)}
+                    disabled={teamThemeSaving}
+                    className="inline-flex items-center gap-1.5 font-medium text-brand hover:underline"
+                  >
+                    {teamThemeSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                    Usar na equipe toda
                   </button>
-                )}
-              </div>
-              {isOwner && hasOwnBackgroundPhoto && (
-                <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  <Users className="h-3.5 w-3.5" strokeWidth={2} />
-                  Padrão da equipe
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Tema e foto de fundo formam uma única escolha visual do cartão. */}
-          <div className="border-t border-neutral-100 pt-4 dark:border-neutral-800">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="field-label text-sm font-semibold">Tema do cartão</p>
-                <p className="text-xs text-neutral-400 dark:text-neutral-500">Escolha como o fundo aparece.</p>
-              </div>
-              {themeChoice !== null && (
+                ))}
+              {!isOwner && themeChoice !== null && orgDefaultTheme && orgDefaultTheme !== themeChoice && (
                 <button
                   type="button"
                   onClick={() => setThemeChoice(null)}
-                  className="text-[11px] font-medium text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                  className="text-neutral-500 underline-offset-2 hover:text-neutral-800 hover:underline dark:text-neutral-400"
                 >
-                  Seguir padrão da empresa
+                  Voltar ao da empresa
                 </button>
               )}
             </div>
+          )}
+        </EditorSection>
 
-            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-              {CARD_THEMES.map((themeKey) => {
-                const isSelected = previewTheme === themeKey;
-                const isExplicitChoice = themeChoice === themeKey;
-                return (
-                  <button
-                    key={themeKey}
-                    type="button"
-                    onClick={() => setThemeChoice(themeKey)}
-                    className={`group relative flex flex-col items-start rounded-xl border p-3 text-left transition-all ${
-                      isSelected
-                        ? "border-[#00aeee] bg-[#00aeee]/5 shadow-sm ring-1 ring-[#00aeee]"
-                        : "border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
-                    }`}
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                        {CARD_THEME_LABELS[themeKey]}
-                      </span>
-                      <span
-                        className={`h-3 w-3 rounded-full border ${
-                          isSelected
-                            ? "border-[#00aeee] bg-[#00aeee]"
-                            : "border-neutral-300 bg-transparent dark:border-neutral-600"
-                        }`}
-                      />
-                    </div>
-
-                    <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                      {themeKey === "DARK" && "Fundo escuro premium Reobote"}
-                      {themeKey === "LIGHT" && "Azul claro translúcido"}
-                      {themeKey === "PHOTO" && "Foto cobrindo o corpo inteiro"}
-                    </p>
-
-                    {isSelected && (
-                      <span className="mt-2 inline-flex items-center text-[10px] font-medium text-[#00aeee]">
-                        {isExplicitChoice
-                          ? "Sua escolha"
-                          : orgDefaultTheme
-                          ? "Padrão da empresa"
-                          : "Padrão de fábrica"}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {themeChoice === "PHOTO" && !backgroundPhotoUrl && (
-              <p className="mt-3 rounded-lg border border-amber-200/60 bg-amber-50/70 p-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
-                Adicione uma foto de fundo para usar este tema.
-              </p>
-            )}
-
-            {isOwner && (
-              <div className="pt-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={settingDefaultField === "theme"}
-                    onClick={() => handleSetOrgDefaultTheme(previewTheme)}
-                    className="btn-ghost btn-sm text-xs font-semibold text-[#00aeee] hover:text-[#0095cc]"
-                  >
-                    {settingDefaultField === "theme" ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Users className="h-3 w-3" />
-                    )}
-                    {orgDefaultTheme === previewTheme
-                      ? "Tema já é o padrão da equipe"
-                      : `Tornar "${CARD_THEME_LABELS[previewTheme]}" padrão para todos`}
-                  </button>
-
-                  {orgDefaultTheme && (
-                    <button
-                      type="button"
-                      disabled={settingDefaultField === "theme"}
-                      onClick={handleClearOrgDefaultTheme}
-                      className="btn-ghost btn-sm text-xs text-neutral-400 hover:text-red-500 dark:text-neutral-500"
-                    >
-                      Remover padrão da equipe
-                    </button>
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                  {orgDefaultTheme
-                    ? `Atualmente o padrão da equipe é "${CARD_THEME_LABELS[orgDefaultTheme]}".`
-                    : "Consultores sem escolha usam o tema Escuro."}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {isOwner && defaultError && <p className="text-xs text-red-600 dark:text-red-400">{defaultError}</p>}
-        </div>
-
-        {/* Como você aparece — cargo/empresa/bio. Pedido explícito: "não
-            precisa de tantas descrições para os campos, só o nome dos
-            campos mesmo" — a pré-visualização ao vivo ao lado já mostra
-            onde cada campo aparece, sem precisar de legenda explicando. */}
-        <div className="card space-y-4 p-4">
-          <p className="field-label text-sm font-semibold">Como você aparece</p>
-          <div className="space-y-1.5">
-            <label className="field-label">Seu cargo</label>
-            <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Consultor de Vendas" className="field-input" />
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {JOB_TITLE_OPTIONS.map((title) => (
-                <button
-                  key={title}
-                  type="button"
-                  onClick={() => setJobTitle(title)}
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
-                    jobTitle === title
-                      ? "bg-[#00aeee]/15 border-[#00aeee] text-[#00aeee]"
-                      : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                  }`}
-                >
-                  {title}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="field-label">Uma frase sua (opcional)</label>
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              rows={2}
-              className="field-input italic"
-              placeholder="Inteligência em Consórcios"
-            />
-          </div>
-        </div>
-
-        {/* Logos parceiras (Administradoras) */}
-        <div className="card space-y-4 p-4">
-          <div>
-            <p className="field-label text-sm font-semibold">Logos das administradoras</p>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Toque numa marca pra ligar/desligar. Arraste (ou use as setas) pra mudar a ordem que elas aparecem no cartão.
-            </p>
-          </div>
-
-          {/* Lista ordenada atual (apenas administradoras parceiras) */}
-          <div className="space-y-2">
-            {(() => {
-              const adminLogos = selectedLogos.filter((k) => k !== "reobote");
+        {/* ─── Administradoras ───────────────────────────────────── */}
+        <EditorSection icon={Building2} title="Administradoras">
+          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {partnerRows.map((logo) => {
+              const position = partnerLogos.indexOf(logo.key);
+              const on = position >= 0;
               return (
-                <>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-                    Aparecem no cartão, nesta ordem ({adminLogos.length})
-                  </p>
-                  {adminLogos.length === 0 ? (
-                    <p className="text-xs text-neutral-400 italic py-2">Nenhuma administradora selecionada — escolha abaixo pra mostrar no cartão.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {adminLogos.map((key, index) => {
-                        const logoInfo = AVAILABLE_PARTNER_LOGOS.find((l) => l.key === key);
-                        if (!logoInfo) return null;
-                        const isDragging = draggedIndex === index;
-                        return (
-                          <div
-                            key={key}
-                            data-logo-index={index}
-                            draggable
-                            onDragStart={() => handleDragStart(index)}
-                            onDragOver={(e) => handleDragOver(e, index)}
-                            onDragEnd={handleDragEnd}
-                            onTouchStart={() => handleTouchStart(index)}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                            className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium cursor-grab active:cursor-grabbing transition-all select-none ${
-                              isDragging
-                                ? "border-[#00aeee] bg-[#00aeee]/20 shadow-lg ring-2 ring-[#00aeee]/40 scale-[1.02]"
-                                : "border-neutral-200 bg-neutral-50 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-800/60 dark:hover:border-neutral-700"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <GripVertical className="h-4 w-4 shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-grab active:cursor-grabbing" />
-                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00aeee]/15 text-[10px] font-bold text-[#00aeee]">
-                                {index + 1}
-                              </span>
-                              <span className="font-semibold text-neutral-800 dark:text-neutral-200 truncate">{logoInfo.label}</span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => moveLogoLeft(index)}
-                                disabled={index === 0}
-                                title="Mover para frente"
-                                className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-                              >
-                                <ChevronLeft className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveLogoRight(index)}
-                                disabled={index === adminLogos.length - 1}
-                                title="Mover para trás"
-                                className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-30 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-                              >
-                                <ChevronRight className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => toggleLogo(key)}
-                                title="Remover logo do cartão"
-                                className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                <li key={logo.key} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <span className={`w-5 shrink-0 text-center text-sm font-semibold tabular-nums ${on ? "text-brand" : "text-transparent"}`}>
+                    {on ? position + 1 : "·"}
+                  </span>
+                  <span className={`flex h-10 w-20 shrink-0 items-center justify-center rounded-lg bg-white px-2 ring-1 ring-neutral-200 dark:ring-neutral-700 ${on ? "" : "opacity-50"}`}>
+                    {typeof logo.src === "string" && logo.src.startsWith("/") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={logo.src} alt="" className="max-h-6 max-w-full object-contain" />
+                    ) : (
+                      <span className="text-xs font-semibold text-neutral-600">{logo.label}</span>
+                    )}
+                  </span>
+                  <span className={`min-w-0 flex-1 truncate text-sm ${on ? "font-medium text-neutral-900 dark:text-neutral-100" : "text-neutral-500"}`}>
+                    {logo.label}
+                  </span>
+                  {on && partnerLogos.length > 1 && (
+                    <span className="flex shrink-0 items-center">
+                      <button
+                        type="button"
+                        onClick={() => movePartner(position, -1)}
+                        disabled={position === 0}
+                        aria-label={`Subir ${logo.label}`}
+                        className="icon-btn h-9 w-9 disabled:opacity-25"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => movePartner(position, 1)}
+                        disabled={position === partnerLogos.length - 1}
+                        aria-label={`Descer ${logo.label}`}
+                        className="icon-btn h-9 w-9 disabled:opacity-25"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                    </span>
                   )}
-                </>
+                  <Switch checked={on} onChange={(next) => togglePartner(logo.key, next)} label={`Mostrar ${logo.label}`} />
+                </li>
               );
-            })()}
-          </div>
+            })}
+          </ul>
+        </EditorSection>
 
-          {/* Seletor de logos disponíveis (apenas administradoras) */}
-          <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
-            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Todas as marcas disponíveis</p>
-            <div className="flex flex-wrap gap-1.5">
-              {AVAILABLE_PARTNER_LOGOS.filter((l) => l.key !== "reobote").map((logo) => {
-                const isSelected = selectedLogos.includes(logo.key);
+        {/* ─── Links ─────────────────────────────────────────────── */}
+        <EditorSection icon={Link2} title="Redes e links">
+          {links.length > 0 && (
+            <ul className="mb-4 space-y-3">
+              {links.map((link) => {
+                const meta = LINK_TYPES[link.type] ?? LINK_TYPES.OTHER;
+                const Icon = meta.icon;
+                const invalid = showErrors && invalidLinkIds.has(link.id);
+                return (
+                  <li key={link.id} className="rounded-xl bg-neutral-50 p-3 dark:bg-neutral-800/50">
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 shrink-0 text-neutral-600 dark:text-neutral-300" />
+                      <span className="min-w-0 flex-1 text-sm font-medium text-neutral-800 dark:text-neutral-200">{meta.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => setLinks((prev) => prev.filter((l) => l.id !== link.id))}
+                        aria-label={`Tirar ${meta.label}`}
+                        className="icon-btn h-9 w-9"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {meta.needsName && (
+                        <input
+                          value={link.label}
+                          onChange={(e) => updateLink(link.id, { label: e.target.value })}
+                          placeholder={link.type === "WEBSITE" ? "Nome do botão. Ex.: Site Reobote" : "Nome do botão"}
+                          aria-label="Nome do botão"
+                          className="field-input"
+                        />
+                      )}
+                      <input
+                        id={`link-url-${link.id}`}
+                        value={link.url}
+                        onChange={(e) => updateLink(link.id, { url: e.target.value })}
+                        placeholder={meta.placeholder}
+                        inputMode="url"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        aria-label={`Link do ${meta.label}`}
+                        aria-invalid={invalid ? true : undefined}
+                        className="field-input"
+                      />
+                      {invalid && <p className="field-error">Esse link não parece certo.</p>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {links.length < MAX_LINKS && (
+            <div className="flex flex-wrap gap-2">
+              {LINK_TYPE_ORDER.map((type) => {
+                const meta = LINK_TYPES[type];
+                const Icon = meta.icon;
                 return (
                   <button
-                    key={logo.key}
+                    key={type}
                     type="button"
-                    onClick={() => toggleLogo(logo.key)}
-                    className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-all ${
-                      isSelected
-                        ? "border-[#00aeee] bg-[#00aeee]/15 text-[#00aeee] font-semibold"
-                        : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:border-neutral-600"
-                    }`}
+                    onClick={() => addLink(type)}
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3.5 text-sm text-neutral-700 transition-colors hover:border-brand hover:text-brand dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
                   >
-                    <span>{logo.label}</span>
-                    {isSelected ? <Check className="h-3 w-3 text-[#00aeee]" /> : <Plus className="h-3 w-3 text-neutral-400" />}
+                    <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    <Icon className="h-3.5 w-3.5" />
+                    {meta.label}
                   </button>
                 );
               })}
             </div>
-          </div>
-        </div>
+          )}
+        </EditorSection>
 
-        {/* Como o cliente fala com você */}
-        <div className="card space-y-4 p-4">
-          <p className="field-label text-sm font-semibold">Como o cliente fala com você</p>
-          <div className="space-y-1.5">
-            <label className="field-label">WhatsApp</label>
-            <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(67) 99999-9999" className="field-input" />
-          </div>
-
-
-
-          <div className="space-y-1.5">
-            <label className="field-label">E-mail</label>
-            <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
-          </div>
-
-        </div>
-
-        {/* Valor em carteira */}
-        <div className="card space-y-2 p-4">
-          <p className="field-label text-sm font-semibold">Carteira sob gestão (opcional)</p>
-          <label className="flex items-center gap-2 pt-1 text-sm text-neutral-700 dark:text-neutral-300">
-            <input
-              type="checkbox"
-              checked={showPortfolioValue}
-              onChange={(e) => setShowPortfolioValue(e.target.checked)}
-              className="accent-neutral-900 dark:accent-white"
-            />
-            Mostrar esse destaque no cartão
-          </label>
-          {showPortfolioValue && (
+        {/* ─── Carteira ──────────────────────────────────────────── */}
+        <EditorSection
+          icon={Award}
+          title="Carteira"
+          aside={<Switch checked={showPortfolioValue} onChange={setShowPortfolioValue} label="Mostrar carteira no cartão" />}
+        >
+          {showPortfolioValue ? (
             <input
               value={portfolioValueDisplay}
               onChange={(e) => setPortfolioValueDisplay(e.target.value)}
-              placeholder="+R$ 5 milhões"
+              placeholder="Ex.: +R$ 5 milhões"
+              aria-label="Valor da carteira"
               className="field-input"
             />
+          ) : (
+            <p className="-mt-2 text-sm text-neutral-500 dark:text-neutral-400">Mostre quanto você já tem sob gestão.</p>
           )}
-        </div>
+        </EditorSection>
 
-        {/* Links adicionais */}
-        <div className="card space-y-2 p-4">
-          <p className="field-label text-sm font-semibold">Redes sociais e outros links</p>
-          {links.map((link) => (
-            <div key={link.id} className="flex items-center gap-2 pt-1">
-              <Select
-                value={link.type}
-                onChange={(v) => updateLink(link.id, { type: v })}
-                options={LINK_TYPE_OPTIONS}
-                className="w-32 shrink-0 py-1.5 text-sm"
-              />
-              <input
-                value={link.label}
-                onChange={(e) => updateLink(link.id, { label: e.target.value })}
-                placeholder="Nome do botão"
-                className="field-input min-w-0 flex-1 px-2 py-1.5 text-sm"
-              />
-              <input
-                value={link.url}
-                onChange={(e) => updateLink(link.id, { url: e.target.value })}
-                placeholder="https://..."
-                className="field-input min-w-0 flex-[1.5] px-2 py-1.5 text-sm"
-              />
-              <button type="button" onClick={() => removeLink(link.id)} className="icon-btn h-7 w-7 shrink-0" aria-label="Remover link">
-                <X className="h-3.5 w-3.5" strokeWidth={2} />
+        {/* Barra de salvar — computador (no celular é a barra fixa de baixo). */}
+        {(dirty || justSaved || saving) && (
+          <div className="sticky bottom-4 z-30 hidden items-center gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-3 pl-4 shadow-xl backdrop-blur-md lg:flex dark:border-neutral-700 dark:bg-neutral-900/95">
+            <p className={`min-w-0 flex-1 text-sm ${error ? "text-red-600 dark:text-red-400" : "text-neutral-700 dark:text-neutral-300"}`}>
+              {error ?? (justSaved && !dirty ? "Tudo salvo." : "Você mudou o cartão.")}
+            </p>
+            {dirty && !saving && (
+              <button type="button" onClick={restoreSaved} className="btn-ghost">
+                Desfazer
               </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={addLink}
-            className="inline-flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-          >
-            <Plus className="h-3 w-3" strokeWidth={2.5} />
-            Adicionar link
-          </button>
-        </div>
-
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-        {/* Barra fixa/sticky para o botão de salvar aparecer apenas quando
-            houver alterações que precisam de salvamento (ou enquanto estiver salvando/recém-salvo). */}
-        {(hasUnsavedChanges || saving || saved) && (
-          <div className="sticky bottom-3 z-30 rounded-2xl border border-neutral-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                  {saved ? "Alterações salvas com sucesso!" : "Você tem alterações pendentes"}
-                </p>
-                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                  {saved
-                    ? "Seu cartão de visita público foi atualizado."
-                    : "Clique para salvar o que você alterou nesta seção."}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="btn-primary shadow-md transition-all ring-2 ring-[#00aeee]/40"
-              >
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
-                ) : saved ? (
-                  <Check className="h-4 w-4 text-emerald-300" strokeWidth={2.5} />
-                ) : (
-                  <Save className="h-4 w-4" strokeWidth={2.2} />
-                )}
-                <span>{saved ? "Salvo!" : saving ? "Salvando..." : "Salvar alterações"}</span>
-              </button>
-            </div>
+            )}
+            <SaveButton dirty={dirty} saving={saving} justSaved={justSaved} onClick={handleSave} />
           </div>
         )}
-
-        <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          As fotos (acima) e o botão &quot;Ativar cartão&quot; (no topo) já salvam sozinhos, na hora — o botão Salvar é pro restante: tema, cargo, contato, logos, carteira e links.
-        </p>
       </div>
 
-      <div className="lg:sticky lg:top-4">
-        <div className="mx-auto mb-3 flex w-fit items-center justify-center gap-2">
-          <div className="flex items-center justify-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 backdrop-blur-md shadow-xs">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            <span>Pré-visualização ao vivo</span>
-          </div>
-
+      {/* ─── Prévia (computador) ─────────────────────────────────── */}
+      <div className="hidden lg:sticky lg:top-4 lg:block">
+        <div className="mb-3 flex items-center justify-between px-1">
+          <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Como fica</span>
           <button
             type="button"
-            onClick={() => setShowFullscreenPreview(true)}
-            className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-semibold text-neutral-700 shadow-xs hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 transition-colors"
-            title="Expandir pré-visualização em tela cheia"
+            onClick={() => setShowPreview(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
           >
-            <Maximize2 className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
-            <span>Tela Cheia</span>
+            <Maximize2 className="h-3.5 w-3.5" />
+            Ampliar
           </button>
         </div>
-
         <div className="select-none">
           <PhonePreviewFrame>
             <DigitalCardView data={previewData} interactive={false} />
@@ -1174,26 +890,53 @@ export function CardEditor({
         </div>
       </div>
 
-      {/* Modal de Pré-visualização em Tela Cheia */}
-      {showFullscreenPreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
-          <div className="relative my-auto flex w-full max-w-sm flex-col items-center py-4">
+      {/* ─── Barra fixa (celular): Ver + Salvar ──────────────────────
+          Acima da navegação de baixo (mesma altura do botão "+" das outras
+          telas). Sempre visível: a prévia no celular é por aqui. */}
+      <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 lg:hidden">
+        {error && (
+          <p className="mb-2 rounded-xl bg-red-600 px-3 py-2 text-sm text-white shadow-lg">{error}</p>
+        )}
+        <div className="flex gap-2 rounded-2xl border border-neutral-200 bg-white/95 p-2 shadow-xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95">
+          <button
+            type="button"
+            onClick={() => setShowPreview(true)}
+            className={`btn-secondary h-12 justify-center ${dirty || saving || justSaved ? "px-4" : "flex-1"}`}
+          >
+            <Eye className="h-5 w-5" />
+            {dirty || saving || justSaved ? "Ver" : "Ver como fica"}
+          </button>
+          {dirty && !saving && (
+            <button type="button" onClick={restoreSaved} aria-label="Desfazer alterações" className="btn-ghost h-12 px-3">
+              Desfazer
+            </button>
+          )}
+          {(dirty || saving || justSaved) && (
+            <SaveButton dirty={dirty} saving={saving} justSaved={justSaved} onClick={handleSave} className="h-12 flex-1 justify-center" />
+          )}
+        </div>
+      </div>
+
+      {/* ─── Prévia em tela cheia ───────────────────────────────── */}
+      {showPreview && (
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/90 p-4 backdrop-blur-md"
+          onClick={() => setShowPreview(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Como fica o cartão"
+        >
+          <div className="mx-auto flex min-h-full w-full max-w-sm flex-col items-center justify-center gap-3 py-2" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => setShowFullscreenPreview(false)}
-              className="mb-3 flex items-center gap-1.5 rounded-full bg-white/20 px-4 py-1.5 text-xs font-bold text-white hover:bg-white/30 transition-colors shadow-lg backdrop-blur-md"
+              onClick={() => setShowPreview(false)}
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-white/15 px-5 text-sm font-semibold text-white hover:bg-white/25"
             >
               <X className="h-4 w-4" />
-              <span>Fechar Tela Cheia</span>
+              Fechar
             </button>
+            {/* interactive=false: tocar num botão aqui não abre WhatsApp nem conta visita. */}
             <div className="w-full">
-              {/* interactive=false — igual ao preview pequeno ao lado (é o
-                  MESMO objetivo, só maior). Corrigido: estava true aqui,
-                  então abrir "Tela Cheia" e tocar em qualquer botão navegava
-                  de verdade pro vCard/WhatsApp/e-mail/mapa (perdendo edição
-                  não salva) e gravava DigitalCardEvent reais contra o
-                  próprio cartão — poluindo as estatísticas que deveriam
-                  refletir só visitante de verdade. */}
               <PhonePreviewFrame>
                 <DigitalCardView data={previewData} interactive={false} />
               </PhonePreviewFrame>
@@ -1202,15 +945,108 @@ export function CardEditor({
         </div>
       )}
 
-      {/* Modal de Recorte Profissional de Imagem */}
       <ImageCropModal
-        isOpen={cropModal.open}
-        imageSrc={cropModal.imageSrc}
-        title={cropModal.title}
-        aspectRatio={cropModal.aspectRatio}
-        onClose={() => setCropModal((prev) => ({ ...prev, open: false }))}
-        onCropComplete={handleCroppedUpload}
+        isOpen={!!crop}
+        imageSrc={crop?.src ?? null}
+        title={crop ? CROP[crop.kind].title : ""}
+        aspectRatio={crop ? CROP[crop.kind].aspect : 1}
+        onClose={() => setCrop(null)}
+        onCropComplete={uploadCropped}
       />
     </div>
+  );
+}
+
+function Field({
+  label,
+  htmlFor,
+  optional,
+  error,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  optional?: boolean;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={htmlFor} className="field-label mb-1.5">
+        {label}
+        {optional && <span className="ml-1.5 font-normal text-neutral-400 dark:text-neutral-500">opcional</span>}
+      </label>
+      {children}
+      {error && <p className="field-error mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
+function TeamTag() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+      <Users className="h-4 w-4" />
+      Vale pra equipe toda
+    </span>
+  );
+}
+
+function SaveButton({
+  dirty,
+  saving,
+  justSaved,
+  onClick,
+  className = "",
+}: {
+  dirty: boolean;
+  saving: boolean;
+  justSaved: boolean;
+  onClick: () => void;
+  className?: string;
+}) {
+  const done = justSaved && !dirty;
+  return (
+    <button type="button" onClick={onClick} disabled={saving || done} className={`btn-primary ${className}`}>
+      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <Check className="h-4 w-4" /> : null}
+      {saving ? "Salvando" : done ? "Salvo" : "Salvar"}
+    </button>
+  );
+}
+
+/** Miniatura do estilo — um cartãozinho de verdade nas cores do tema, não só o nome. */
+function ThemeTile({ theme, selected, photo, onClick }: { theme: CardTheme; selected: boolean; photo: string | null; onClick: () => void }) {
+  const light = theme === "LIGHT";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`overflow-hidden rounded-xl border-2 text-left transition-colors ${
+        selected ? "border-brand" : "border-transparent ring-1 ring-neutral-200 hover:ring-neutral-300 dark:ring-neutral-700"
+      }`}
+    >
+      <div className={`relative flex h-24 flex-col items-center gap-1.5 overflow-hidden pt-3 ${light ? "bg-[#e8eef4]" : "bg-[#151a22]"}`}>
+        {theme === "PHOTO" &&
+          (photo ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photo} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <span className="absolute inset-0 bg-black/40" />
+            </>
+          ) : (
+            <span className="absolute inset-0 bg-gradient-to-br from-slate-500 to-slate-800" />
+          ))}
+        <span className={`relative h-7 w-7 rounded-full ${light ? "bg-slate-300" : "bg-white/30"}`} />
+        <span className={`relative h-1.5 w-12 rounded-full ${light ? "bg-slate-500/60" : "bg-white/70"}`} />
+        <span className={`relative h-1 w-8 rounded-full ${light ? "bg-slate-400/50" : "bg-white/40"}`} />
+        <span className="relative mt-1 h-3 w-14 rounded-md bg-emerald-500" />
+      </div>
+      <div className="flex items-center justify-between gap-1 bg-white px-2.5 py-2 dark:bg-neutral-900">
+        <span className={`text-sm ${selected ? "font-semibold text-neutral-900 dark:text-neutral-100" : "text-neutral-600 dark:text-neutral-400"}`}>
+          {THEME_NAMES[theme]}
+        </span>
+        {selected && <Check className="h-4 w-4 text-brand" strokeWidth={2.5} />}
+      </div>
+    </button>
   );
 }
