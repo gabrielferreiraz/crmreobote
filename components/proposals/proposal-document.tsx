@@ -474,7 +474,7 @@ function ProposalSocialLinks() {
       <a href="https://instagram.com/reoboteconsorcios" target="_blank" rel="noopener noreferrer" aria-label="Instagram da Reobote" className="text-neutral-500">
         <InstagramIcon className="h-3.5 w-3.5" />
       </a>
-      <a href="https://reobote.com.br" target="_blank" rel="noopener noreferrer" aria-label="Site da Reobote" className="text-neutral-500">
+      <a href="https://reoboteconsorcios.com.br" target="_blank" rel="noopener noreferrer" aria-label="Site da Reobote" className="text-neutral-500">
         <WebsiteIcon className="h-3.5 w-3.5" />
       </a>
       <a href="https://www.youtube.com/@reoboteconsorcios" target="_blank" rel="noopener noreferrer" aria-label="YouTube da Reobote" className="text-neutral-500">

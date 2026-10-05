@@ -2632,7 +2632,7 @@ model TvDisplayLink {
 // pra ele" foi pedido, não uma lista de cartões por pessoa.
 //
 // slug é ÚNICO GLOBAL (não por organização) — a URL pública
-// (cartao.reobote.com.br/c/marcelo-souza) não carrega segmento de
+// (cartao.reoboteconsorcios.com.br/c/marcelo-souza) não carrega segmento de
 // organização nenhum, mesmo formato já usado por Organization.slug (também
 // global neste projeto). Se outra organização um dia usar o mesmo sistema,
 // dois slugs iguais colidiriam — aceito conscientemente, é o formato de URL
