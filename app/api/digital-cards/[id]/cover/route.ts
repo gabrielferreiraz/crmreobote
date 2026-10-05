@@ -12,6 +12,9 @@ import {
   resizeCoverPhoto,
   AvatarUploadError,
 } from "@/lib/r2";
+import { clearOrgCardDefault, setOrgCardDefault } from "@/lib/digital-cards/org-defaults";
+import { MAX_CARD_COVER_PHOTOS, parseCardCoverPhotoKeys } from "@/lib/digital-cards/cover-photos";
+import { getCardDetails } from "@/lib/digital-cards/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -62,8 +65,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
-    const existingKeys = card.coverPhotoKey ? card.coverPhotoKey.split(",").filter(Boolean) : [];
-    if (isAppend && existingKeys.length >= 4) {
+    const existingKeys = parseCardCoverPhotoKeys(card.coverPhotoKey);
+    if (isAppend && existingKeys.length >= MAX_CARD_COVER_PHOTOS) {
       return NextResponse.json({ error: "Você pode enviar no máximo 4 fotos de capa." }, { status: 400 });
     }
 
@@ -76,18 +79,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       updatedKeys = [...existingKeys, key];
     } else {
       updatedKeys = [key];
-      // Apaga as chaves antigas do R2
+    }
+
+    const newKeyStr = updatedKeys.join(",");
+    await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: newKeyStr } });
+    const isOwnerCard = role === "OWNER" && card.userId === userId;
+    if (isOwnerCard) await setOrgCardDefault(organizationId, "cover", newKeyStr);
+
+    if (!isAppend) {
       for (const oldKey of existingKeys) {
         await deleteAvatar(oldKey).catch(() => {});
       }
     }
 
-    const newKeyStr = updatedKeys.join(",");
-    await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: newKeyStr } });
-
     const coverPhotoUrls = await Promise.all(updatedKeys.map((k) => resolveAvatarUrl(k)));
     const validUrls = coverPhotoUrls.filter((u): u is string => !!u);
-    return NextResponse.json({ coverPhotoUrl: validUrls[0] ?? null, coverPhotoUrls: validUrls });
+    return NextResponse.json({
+      coverPhotoUrl: validUrls[0] ?? null,
+      coverPhotoUrls: validUrls,
+      ownCoverPhotoUrls: validUrls,
+      organizationDefault: isOwnerCard,
+    });
   });
 }
 
@@ -110,7 +122,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 
-    const existingKeys = card.coverPhotoKey ? card.coverPhotoKey.split(",").filter(Boolean) : [];
+    const existingKeys = parseCardCoverPhotoKeys(card.coverPhotoKey);
+    const isOwnerCard = role === "OWNER" && card.userId === userId;
 
     if (indexParam !== null) {
       const idx = parseInt(indexParam, 10);
@@ -122,18 +135,35 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       const newKeyStr = remainingKeys.length > 0 ? remainingKeys.join(",") : null;
 
       await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: newKeyStr } });
+      if (isOwnerCard) {
+        if (newKeyStr) await setOrgCardDefault(organizationId, "cover", newKeyStr);
+        else await clearOrgCardDefault(organizationId, "cover");
+      }
       await deleteAvatar(keyToRemove).catch(() => {});
 
-      const coverPhotoUrls = await Promise.all(remainingKeys.map((k) => resolveAvatarUrl(k)));
-      const validUrls = coverPhotoUrls.filter((u): u is string => !!u);
-      return NextResponse.json({ ok: true, coverPhotoUrl: validUrls[0] ?? null, coverPhotoUrls: validUrls });
+      const updated = await getCardDetails(id);
+      return NextResponse.json({
+        ok: true,
+        coverPhotoUrl: updated?.coverPhotoUrl ?? null,
+        coverPhotoUrls: updated?.coverPhotoUrls ?? [],
+        ownCoverPhotoUrls: remainingKeys.length > 0 ? updated?.coverPhotoUrls ?? [] : [],
+        organizationDefault: isOwnerCard && remainingKeys.length > 0,
+      });
     }
 
     await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: null } });
+    if (isOwnerCard) await clearOrgCardDefault(organizationId, "cover");
     for (const key of existingKeys) {
       await deleteAvatar(key).catch(() => {});
     }
 
-    return NextResponse.json({ ok: true, coverPhotoUrl: null, coverPhotoUrls: [] });
+    const updated = await getCardDetails(id);
+    return NextResponse.json({
+      ok: true,
+      coverPhotoUrl: updated?.coverPhotoUrl ?? null,
+      coverPhotoUrls: updated?.coverPhotoUrls ?? [],
+      ownCoverPhotoUrls: [],
+      organizationDefault: false,
+    });
   });
 }

@@ -1,4 +1,5 @@
 import { Globe2, MapPin } from "lucide-react";
+import { REOBOTE_WEBSITE_URL } from "@/lib/digital-cards/config";
 
 type Props = {
   address: string | null;
@@ -73,7 +74,7 @@ export function DigitalCardContactActions({ address, instagram, onTrack, light =
         <IconAction
           icon={Globe2}
           label="Site Reobote"
-          href="https://reobote.com.br"
+          href={REOBOTE_WEBSITE_URL}
           onClick={() => onTrack("LINK_CLICK")}
           accentClass={
             light

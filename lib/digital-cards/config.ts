@@ -1,9 +1,8 @@
 /**
  * Padrão "DE FÁBRICA" do Cartão Digital — hardcoded, só muda com deploy.
  * Usado quando o cartão não tem foto própria NEM a organização configurou
- * um padrão pelo botão "Manter padrão para todos" (ver
- * lib/digital-cards/org-defaults.ts — camada acima desta, editável em
- * produção pelo OWNER, sem precisar de deploy).
+ * um padrão (ver lib/digital-cards/org-defaults.ts — camada acima desta,
+ * sincronizada pelo OWNER sem precisar de deploy).
  *
  * Ordem de fallback SEMPRE (ver lib/digital-cards/queries.ts, enrichCard):
  * override do próprio cartão → padrão escolhido pelo dono (org-defaults) →
@@ -49,3 +48,7 @@ export const DEFAULT_BACKGROUND_PHOTO_URL: string | null = null;
  * pessoa.
  */
 export const DEFAULT_AVATAR_URL: string | null = null;
+
+/** Dados institucionais fixos em todos os cartoes digitais. */
+export const REOBOTE_CARD_ADDRESS = "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030";
+export const REOBOTE_WEBSITE_URL = "https://reobote.com.br";

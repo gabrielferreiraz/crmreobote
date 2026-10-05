@@ -13,6 +13,7 @@ import { CARD_THEMES, CARD_THEME_LABELS, type CardTheme } from "@/lib/digital-ca
 import { ImageCropModal } from "@/components/image-crop-modal";
 import { useLockBodyScroll } from "@/lib/use-lock-body-scroll";
 import type { getOrCreateOwnCard } from "@/lib/digital-cards/queries";
+import { REOBOTE_CARD_ADDRESS } from "@/lib/digital-cards/config";
 
 type Card = Awaited<ReturnType<typeof getOrCreateOwnCard>>;
 type LinkRow = { id: string; type: string; label: string; url: string };
@@ -56,7 +57,6 @@ const LINK_TYPE_OPTIONS = [
  *
  * Seções em cards (mesmo padrão de configuracoes/perfil/page.tsx).
  */
-const DEFAULT_ADDRESS = "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030";
 const DEFAULT_BIO = "Inteligência em Consórcios";
 const DEFAULT_COMPANY = "Reobote Consórcios";
 const DEFAULT_JOB_TITLE = "Consultor de Vendas";
@@ -79,7 +79,6 @@ type SavedFields = {
   emailOverride: string | null;
   phone: string | null;
   whatsapp: string | null;
-  address: string | null;
   showPortfolioValue: boolean;
   portfolioValueDisplay: string | null;
   selectedLogos: string[];
@@ -95,10 +94,10 @@ export function CardEditor({
 }: {
   card: NonNullable<Card>;
   publicUrl: string;
-  /** Controla o botão "Manter padrão para todos" (capa/fundo — nunca a foto de perfil, ver lib/digital-cards/config.ts) — OWNER-only, mesmo motivo de qualquer configuração que afeta o cartão de todo mundo de uma vez. */
+  /** Identifica o dono para sinalizar capa e fundo como padrão automático da equipe. */
   isOwner: boolean;
-  /** Se capa/fundo/tema da ORGANIZAÇÃO já têm um padrão definido agora (ver lib/digital-cards/org-defaults.ts) — decide "Manter padrão" vs. "Remover padrão da equipe". */
-  orgDefaultsSet: { cover: boolean; background: boolean; theme?: CardTheme | null };
+  /** O tema continua sendo uma escolha explícita do dono; as imagens são sincronizadas no upload. */
+  orgDefaultsSet: { theme?: CardTheme | null };
 }) {
   const router = useRouter();
   const [active, setActive] = useState(card.active);
@@ -118,7 +117,6 @@ export function CardEditor({
   const [emailOverride, setEmailOverride] = useState(card.emailOverride ?? "");
   const phone = card.phone ?? "";
   const [whatsapp, setWhatsapp] = useState(card.whatsapp ?? "");
-  const [address, setAddress] = useState(card.address ?? DEFAULT_ADDRESS);
   const [showPortfolioValue, setShowPortfolioValue] = useState(card.showPortfolioValue);
   const [portfolioValueDisplay, setPortfolioValueDisplay] = useState(card.portfolioValueDisplay ?? "");
   // card.selectedLogos vazio = nunca configurado (ou usuário escolheu
@@ -133,19 +131,19 @@ export function CardEditor({
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [coverPhotoUrl, setCoverPhotoUrl] = useState<string | null>(card.coverPhotoUrl);
   const [coverPhotoUrls, setCoverPhotoUrls] = useState<string[]>(card.coverPhotoUrls ?? (card.coverPhotoUrl ? [card.coverPhotoUrl] : []));
+  const [ownCoverPhotoUrls, setOwnCoverPhotoUrls] = useState<string[]>(card.coverPhotoKey ? card.coverPhotoUrls ?? [] : []);
   const [isAppendingCover, setIsAppendingCover] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [backgroundPhotoUrl, setBackgroundPhotoUrl] = useState<string | null>(card.backgroundPhotoUrl);
+  const [hasOwnBackgroundPhoto, setHasOwnBackgroundPhoto] = useState(!!card.backgroundPhotoKey);
   const [uploadingBackground, setUploadingBackground] = useState(false);
   // Tema do cartão: card.theme é o valor PRÓPRIO salvo no banco (null = segue
   // a empresa/fábrica); effectiveTheme é o que de fato renderiza agora.
   const [themeChoice, setThemeChoice] = useState<CardTheme | null>(card.theme ?? null);
-  // "Manter padrão para todos" (só OWNER: capa/fundo/tema) — ação PRÓPRIA
-  // e imediata, não depende do botão "Salvar alterações" lá embaixo.
-  const [orgDefaultCover, setOrgDefaultCover] = useState(orgDefaultsSet.cover);
-  const [orgDefaultBackground, setOrgDefaultBackground] = useState(orgDefaultsSet.background);
+  // O tema padrão é uma ação própria e imediata; capa e fundo do OWNER são
+  // sincronizados automaticamente pelas rotas de upload.
   const [orgDefaultTheme, setOrgDefaultTheme] = useState<CardTheme | null>(orgDefaultsSet.theme ?? null);
-  const [settingDefaultField, setSettingDefaultField] = useState<"cover" | "background" | "theme" | null>(null);
+  const [settingDefaultField, setSettingDefaultField] = useState<"theme" | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +161,6 @@ export function CardEditor({
       emailOverride: emailOverride.trim() || null,
       phone: phone.trim() || null,
       whatsapp: whatsapp.trim() || null,
-      address: address.trim() || null,
       showPortfolioValue,
       portfolioValueDisplay: portfolioValueDisplay.trim() || null,
       selectedLogos,
@@ -374,6 +371,7 @@ export function CardEditor({
       else {
         setCoverPhotoUrl(data.coverPhotoUrl ?? null);
         setCoverPhotoUrls(data.coverPhotoUrls ?? []);
+        setOwnCoverPhotoUrls(data.ownCoverPhotoUrls ?? data.coverPhotoUrls ?? []);
       }
     } else if (type === "background") {
       setUploadingBackground(true);
@@ -382,7 +380,10 @@ export function CardEditor({
       const data = await res.json().catch(() => ({}));
       setUploadingBackground(false);
       if (!res.ok) setError(data.error ?? "Erro ao enviar foto de fundo");
-      else setBackgroundPhotoUrl(data.backgroundPhotoUrl);
+      else {
+        setBackgroundPhotoUrl(data.backgroundPhotoUrl ?? null);
+        setHasOwnBackgroundPhoto(true);
+      }
     }
   }
 
@@ -412,18 +413,21 @@ export function CardEditor({
     if (res.ok) {
       setCoverPhotoUrl(data.coverPhotoUrl ?? null);
       setCoverPhotoUrls(data.coverPhotoUrls ?? []);
-    }
+      setOwnCoverPhotoUrls(data.ownCoverPhotoUrls ?? []);
+    } else setError(data.error ?? "Erro ao remover foto de capa");
   }
 
   async function handleRemoveCover() {
     setUploadingCover(true);
     setError(null);
     const res = await fetch(`/api/digital-cards/${card.id}/cover`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
     setUploadingCover(false);
     if (res.ok) {
-      setCoverPhotoUrl(null);
-      setCoverPhotoUrls([]);
-    }
+      setCoverPhotoUrl(data.coverPhotoUrl ?? null);
+      setCoverPhotoUrls(data.coverPhotoUrls ?? []);
+      setOwnCoverPhotoUrls([]);
+    } else setError(data.error ?? "Erro ao remover fotos de capa");
   }
 
   function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -434,23 +438,12 @@ export function CardEditor({
     setUploadingBackground(true);
     setError(null);
     const res = await fetch(`/api/digital-cards/${card.id}/background`, { method: "DELETE" });
-    setUploadingBackground(false);
-    if (res.ok) setBackgroundPhotoUrl(null);
-  }
-
-  /** Promove a foto ATUAL de capa/fundo deste cartão a padrão de quem ainda não subiu uma própria (ver POST em app/api/digital-cards/org-defaults/[field]/route.ts). */
-  async function handleSetOrgDefault(field: "cover" | "background") {
-    setSettingDefaultField(field);
-    setDefaultError(null);
-    const res = await fetch(`/api/digital-cards/org-defaults/${field}`, { method: "POST" });
     const data = await res.json().catch(() => ({}));
-    setSettingDefaultField(null);
-    if (!res.ok) {
-      setDefaultError(data.error ?? "Não foi possível definir como padrão agora.");
-      return;
-    }
-    if (field === "cover") setOrgDefaultCover(true);
-    else setOrgDefaultBackground(true);
+    setUploadingBackground(false);
+    if (res.ok) {
+      setBackgroundPhotoUrl(data.backgroundPhotoUrl ?? null);
+      setHasOwnBackgroundPhoto(false);
+    } else setError(data.error ?? "Erro ao remover foto de fundo");
   }
 
   /** Promove o TEMA escolhido no preview/editor como padrão para toda a equipe que ainda não escolheu um tema próprio. */
@@ -484,19 +477,6 @@ export function CardEditor({
     setOrgDefaultTheme(null);
   }
 
-  /** Deixa de ser o padrão da equipe — não apaga a foto do SEU cartão, só o compartilhamento com quem ainda não subiu uma própria. */
-  async function handleClearOrgDefault(field: "cover" | "background") {
-    setSettingDefaultField(field);
-    setDefaultError(null);
-    const res = await fetch(`/api/digital-cards/org-defaults/${field}`, { method: "DELETE" });
-    setSettingDefaultField(null);
-    if (!res.ok) {
-      setDefaultError("Não foi possível remover o padrão agora.");
-      return;
-    }
-    if (field === "cover") setOrgDefaultCover(false);
-    else setOrgDefaultBackground(false);
-  }
 
   async function handleSave() {
     setSaving(true);
@@ -546,7 +526,7 @@ export function CardEditor({
     phone: displayPhone(phone.trim() || null),
     whatsapp: displayPhone(whatsapp.trim() || null),
     displayEmail: emailOverride.trim() || card.user.email,
-    address: address.trim() || null,
+    address: REOBOTE_CARD_ADDRESS,
     showPortfolioValue,
     portfolioValueDisplay: portfolioValueDisplay.trim() || null,
     selectedLogos,
@@ -663,27 +643,27 @@ export function CardEditor({
             <div className="flex items-[#10151d] flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                  Capa {coverPhotoUrls.length > 1 ? `— Carrossel (${coverPhotoUrls.length}/4 fotos)` : ""}
+                  Capa {ownCoverPhotoUrls.length > 1 ? `— Carrossel (${ownCoverPhotoUrls.length}/4 fotos)` : ""}
                 </p>
                 <p className="text-xs text-neutral-400 dark:text-neutral-500">
                   Adicione até 4 fotos (1.6:1). Se houver mais de uma, elas alternam em carrossel dinâmico.
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {coverPhotoUrls.length < 4 && (
+                {ownCoverPhotoUrls.length < 4 && (
                   <label className="btn-secondary btn-sm cursor-pointer shrink-0">
                     <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                    {coverPhotoUrls.length > 0 ? "Adicionar foto" : "Nova capa"}
+                    {ownCoverPhotoUrls.length > 0 ? "Adicionar foto" : "Nova capa"}
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       className="hidden"
                       disabled={uploadingCover}
-                      onChange={(e) => handleCoverChange(e, coverPhotoUrls.length > 0)}
+                      onChange={(e) => handleCoverChange(e, ownCoverPhotoUrls.length > 0)}
                     />
                   </label>
                 )}
-                {coverPhotoUrls.length > 0 && (
+                {ownCoverPhotoUrls.length > 0 && (
                   <button
                     type="button"
                     onClick={handleRemoveCover}
@@ -699,9 +679,9 @@ export function CardEditor({
             </div>
 
             {/* Lista de miniaturas da capa */}
-            {coverPhotoUrls.length > 0 ? (
+            {ownCoverPhotoUrls.length > 0 ? (
               <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                {coverPhotoUrls.map((url, idx) => (
+                {ownCoverPhotoUrls.map((url, idx) => (
                   <div key={url} className="group relative h-16 w-24 overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={url} alt="" className="h-full w-full object-cover" />
@@ -728,19 +708,15 @@ export function CardEditor({
             ) : (
               <div className="flex items-center gap-2 rounded-lg border border-dashed border-neutral-200 bg-neutral-50/50 p-2.5 text-xs text-neutral-400 dark:border-neutral-800 dark:bg-neutral-900/40">
                 <Camera className="h-4 w-4 shrink-0 opacity-50" />
-                <span>Nenhuma foto de capa enviada — o cartão usa o fundo/gradiente padrão.</span>
+                <span>{coverPhotoUrls.length > 0 ? "Usando a capa padrão da empresa." : "Nenhuma foto de capa disponível."}</span>
               </div>
             )}
 
-            {isOwner && (
-              <OrgDefaultControl
-                field="cover"
-                hasOwnPhoto={coverPhotoUrls.length > 0}
-                isDefault={orgDefaultCover}
-                busy={settingDefaultField === "cover"}
-                onSet={() => handleSetOrgDefault("cover")}
-                onClear={() => handleClearOrgDefault("cover")}
-              />
+            {isOwner && ownCoverPhotoUrls.length > 0 && (
+              <div className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <Users className="h-3.5 w-3.5" strokeWidth={2} />
+                Padrão da equipe
+              </div>
             )}
           </div>
 
@@ -765,25 +741,21 @@ export function CardEditor({
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <label className="btn-secondary btn-sm cursor-pointer">
                   <Camera className="h-3.5 w-3.5" strokeWidth={2} />
-                  {backgroundPhotoUrl ? "Trocar" : "Adicionar"}
+                  {hasOwnBackgroundPhoto ? "Trocar" : "Adicionar"}
                   <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingBackground} onChange={handleBackgroundChange} />
                 </label>
-                {backgroundPhotoUrl && (
+                {hasOwnBackgroundPhoto && (
                   <button type="button" onClick={handleRemoveBackground} disabled={uploadingBackground} className="btn-ghost btn-sm">
                     <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                     Remover
                   </button>
                 )}
               </div>
-              {isOwner && (
-                <OrgDefaultControl
-                  field="background"
-                  hasOwnPhoto={!!backgroundPhotoUrl}
-                  isDefault={orgDefaultBackground}
-                  busy={settingDefaultField === "background"}
-                  onSet={() => handleSetOrgDefault("background")}
-                  onClear={() => handleClearOrgDefault("background")}
-                />
+              {isOwner && hasOwnBackgroundPhoto && (
+                <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  <Users className="h-3.5 w-3.5" strokeWidth={2} />
+                  Padrão da equipe
+                </div>
               )}
             </div>
           </div>
@@ -1070,10 +1042,6 @@ export function CardEditor({
             <input value={emailOverride} onChange={(e) => setEmailOverride(e.target.value)} placeholder={card.user.email} className="field-input" />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="field-label">Endereço</label>
-            <input value={address} onChange={(e) => setAddress(e.target.value)} className="field-input" />
-          </div>
         </div>
 
         {/* Valor em carteira */}
@@ -1244,60 +1212,5 @@ export function CardEditor({
         onCropComplete={handleCroppedUpload}
       />
     </div>
-  );
-}
-
-/**
- * "Manter padrão para todos" — só OWNER (ver isOwner em CardEditor), só
- * capa/fundo (nunca a foto de perfil, ver lib/digital-cards/config.ts).
- * Duas linhas de texto pra deixar bem claro o que o botão faz antes de
- * clicar: quem ainda não subiu uma foto própria nesse campo passa a ver
- * ESTA aqui, no lugar do gradiente abstrato — pedido explícito: "a imagem
- * que eu escolher vira padrão".
- */
-function OrgDefaultControl({
-  field,
-  hasOwnPhoto,
-  isDefault,
-  busy,
-  onSet,
-  onClear,
-}: {
-  field: "cover" | "background";
-  hasOwnPhoto: boolean;
-  isDefault: boolean;
-  busy: boolean;
-  onSet: () => void;
-  onClear: () => void;
-}) {
-  if (isDefault) {
-    return (
-      <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-        <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        <span className="min-w-0 flex-1">É o padrão de quem ainda não subiu {field === "cover" ? "capa" : "fundo"} própria.</span>
-        <button
-          type="button"
-          onClick={onClear}
-          disabled={busy}
-          className="shrink-0 font-medium text-neutral-400 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-500 dark:hover:text-neutral-200"
-        >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} /> : "Remover"}
-        </button>
-      </div>
-    );
-  }
-
-  if (!hasOwnPhoto) return null; // nada pra promover ainda — botão volta quando subir uma foto (ver hasOwnPhoto)
-
-  return (
-    <button
-      type="button"
-      onClick={onSet}
-      disabled={busy}
-      className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:text-neutral-100"
-    >
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <Users className="h-3.5 w-3.5" strokeWidth={2} />}
-      Manter padrão para todos
-    </button>
   );
 }

@@ -12,6 +12,8 @@ import {
   resizeBackgroundPhoto,
   AvatarUploadError,
 } from "@/lib/r2";
+import { clearOrgCardDefault, setOrgCardDefault } from "@/lib/digital-cards/org-defaults";
+import { getCardDetails } from "@/lib/digital-cards/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -67,10 +69,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const previousKey = card.backgroundPhotoKey;
     await prisma.digitalCard.update({ where: { id }, data: { backgroundPhotoKey: key } });
+    const isOwnerCard = role === "OWNER" && card.userId === userId;
+    if (isOwnerCard) await setOrgCardDefault(organizationId, "background", key);
     if (previousKey) await deleteAvatar(previousKey).catch(() => {});
 
     const backgroundPhotoUrl = await resolveAvatarUrl(key);
-    return NextResponse.json({ backgroundPhotoUrl });
+    return NextResponse.json({ backgroundPhotoUrl, ownBackgroundPhotoUrl: backgroundPhotoUrl, organizationDefault: isOwnerCard });
   });
 }
 
@@ -92,8 +96,16 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     }
 
     await prisma.digitalCard.update({ where: { id }, data: { backgroundPhotoKey: null } });
+    const isOwnerCard = role === "OWNER" && card.userId === userId;
+    if (isOwnerCard) await clearOrgCardDefault(organizationId, "background");
     if (card.backgroundPhotoKey) await deleteAvatar(card.backgroundPhotoKey).catch(() => {});
 
-    return NextResponse.json({ ok: true });
+    const updated = await getCardDetails(id);
+    return NextResponse.json({
+      ok: true,
+      backgroundPhotoUrl: updated?.backgroundPhotoUrl ?? null,
+      ownBackgroundPhotoUrl: null,
+      organizationDefault: false,
+    });
   });
 }

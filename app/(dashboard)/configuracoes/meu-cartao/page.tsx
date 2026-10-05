@@ -1,8 +1,8 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getOrCreateOwnCard, getCardStats } from "@/lib/digital-cards/queries";
-import { getOrgCardDefaults } from "@/lib/digital-cards/org-defaults";
+import { getOrCreateOwnCard, getCardStats, getOwnCard } from "@/lib/digital-cards/queries";
+import { syncOrgCardMediaDefaults, type OrgCardDefaults } from "@/lib/digital-cards/org-defaults";
 import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { CardEditor } from "./card-editor";
 import { QrCodePanel } from "./qr-code-panel";
@@ -32,19 +32,25 @@ export default async function MeuCartaoPage() {
   const hdrs = await headers();
 
   const { card, stats, publicUrl, orgDefaultsSet } = await runWithTenant(organizationId, async () => {
-    const card = await getOrCreateOwnCard(organizationId, userId);
+    let card = await getOrCreateOwnCard(organizationId, userId);
+    let orgDefaults: OrgCardDefaults | null = null;
+    if (isOwner) {
+      const synced = await syncOrgCardMediaDefaults(organizationId, {
+        coverPhotoKey: card.coverPhotoKey,
+        backgroundPhotoKey: card.backgroundPhotoKey,
+      });
+      orgDefaults = synced.defaults;
+
+      // Se um padrão antigo estava quebrado ou ausente, recarrega as URLs
+      // assinadas já usando a configuração reconciliada neste mesmo acesso.
+      if (synced.changed) card = (await getOwnCard(userId)) ?? card;
+    }
     const stats = await getCardStats(card.id);
-    // Só busca se a pessoa vai de fato ver o botão "Manter padrão para
-    // todos" (ver card-editor.tsx) — consulta a mais à toa pra quem não é
-    // OWNER, que nunca renderiza esse bloco.
-    const orgDefaults = isOwner ? await getOrgCardDefaults(organizationId) : null;
     return {
       card,
       stats,
       publicUrl: publicCardUrlFromHeaders(card.slug, hdrs),
       orgDefaultsSet: {
-        cover: !!orgDefaults?.coverPhotoKey,
-        background: !!orgDefaults?.backgroundPhotoKey,
         theme: orgDefaults?.theme ?? null,
       },
     };

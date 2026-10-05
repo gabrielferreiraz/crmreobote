@@ -4,10 +4,9 @@ import { isCardTheme, type CardTheme } from "@/lib/digital-cards/themes";
 /**
  * Padrão do Cartão Digital ESCOLHIDO PELO DONO — camada acima do padrão "de
  * fábrica" hardcoded (ver lib/digital-cards/config.ts). Lido a cada cartão
- * renderizado (lib/digital-cards/queries.ts, enrichCard) e escrito só pela
- * rota OWNER-only app/api/digital-cards/org-defaults/[field]/route.ts —
- * pedido explícito: "eu posso adicionar com um botão (apenas o dono) de
- * 'manter padrão para todos', aí a imagem que eu escolher vira padrão".
+ * renderizado (lib/digital-cards/queries.ts, enrichCard). Capa e fundo do
+ * cartão do OWNER são sincronizados automaticamente pelas rotas de upload;
+ * o tema continua sendo uma escolha explícita.
  *
  * Guardado em Organization.digitalCardDefaults (Json?, ver schema) com as
  * MESMAS chaves R2 de DigitalCard.photoKey/coverPhotoKey/backgroundPhotoKey
@@ -58,6 +57,38 @@ export async function clearOrgCardDefault(organizationId: string, field: Exclude
 }
 
 /**
+ * Faz a configuração atual do dono virar a fonte de verdade da equipe.
+ * Também corrige organizações que já tinham imagens no cartão do dono antes
+ * de a sincronização automática existir.
+ */
+export async function syncOrgCardMediaDefaults(
+  organizationId: string,
+  media: { coverPhotoKey: string | null; backgroundPhotoKey: string | null },
+): Promise<{ defaults: OrgCardDefaults; changed: boolean }> {
+  const current = await getOrgCardDefaults(organizationId);
+  const next: OrgCardDefaults = { ...current };
+
+  if (media.coverPhotoKey) next.coverPhotoKey = media.coverPhotoKey;
+  else delete next.coverPhotoKey;
+
+  if (media.backgroundPhotoKey) next.backgroundPhotoKey = media.backgroundPhotoKey;
+  else delete next.backgroundPhotoKey;
+
+  const changed =
+    current.coverPhotoKey !== next.coverPhotoKey ||
+    current.backgroundPhotoKey !== next.backgroundPhotoKey;
+
+  if (changed) {
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { digitalCardDefaults: next },
+    });
+  }
+
+  return { defaults: next, changed };
+}
+
+/**
  * TEMA padrão da equipe ("Manter este tema padrão para todos", OWNER-only,
  * ver card-editor.tsx) — não mexe em DigitalCardTheme nenhum, só define qual
  * tema vale pra quem ainda nunca escolheu (DigitalCard.theme null).
@@ -79,4 +110,3 @@ export async function clearOrgCardTheme(organizationId: string): Promise<void> {
 export function normalizeOrgCardTheme(defaults: OrgCardDefaults): CardTheme | null {
   return isCardTheme(defaults.theme) ? defaults.theme : null;
 }
-

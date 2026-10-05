@@ -58,7 +58,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       emailOverride,
       phone,
       whatsapp,
-      address,
       showPortfolioValue,
       portfolioValueDisplay,
       selectedLogos,
@@ -74,7 +73,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       emailOverride?: string | null;
       phone?: string | null;
       whatsapp?: string | null;
-      address?: string | null;
       showPortfolioValue?: boolean;
       portfolioValueDisplay?: string | null;
       selectedLogos?: string[];
@@ -151,7 +149,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           ...(emailOverride !== undefined ? { emailOverride } : {}),
           ...(phone !== undefined ? { phone } : {}),
           ...(whatsapp !== undefined ? { whatsapp } : {}),
-          ...(address !== undefined ? { address } : {}),
           ...(showPortfolioValue !== undefined ? { showPortfolioValue } : {}),
           ...(portfolioValueDisplay !== undefined ? { portfolioValueDisplay } : {}),
           ...(selectedLogos !== undefined ? { selectedLogos } : {}),

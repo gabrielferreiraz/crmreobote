@@ -3,9 +3,15 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { slugify, ensureUniqueSlug } from "@/lib/digital-cards/slug";
-import { DEFAULT_COVER_PHOTO_URL, DEFAULT_BACKGROUND_PHOTO_URL, DEFAULT_AVATAR_URL } from "@/lib/digital-cards/config";
+import {
+  DEFAULT_COVER_PHOTO_URL,
+  DEFAULT_BACKGROUND_PHOTO_URL,
+  DEFAULT_AVATAR_URL,
+  REOBOTE_CARD_ADDRESS,
+} from "@/lib/digital-cards/config";
 import { getOrgCardDefaults, normalizeOrgCardTheme } from "@/lib/digital-cards/org-defaults";
 import { resolveCardTheme, type CardTheme } from "@/lib/digital-cards/themes";
+import { MAX_CARD_COVER_PHOTOS, parseCardCoverPhotoKeys } from "@/lib/digital-cards/cover-photos";
 // Reexportado por compatibilidade com quem já importava daqui — mas
 // componente "use client" deve importar de @/lib/phone-normalize
 // diretamente (ver comentário lá: importar deste arquivo no cliente arrasta
@@ -39,7 +45,7 @@ async function enrichCard<
     user: { name: string; email: string; image: string | null };
   },
 >(card: T) {
-  const coverPhotoKeys = card.coverPhotoKey ? card.coverPhotoKey.split(",").filter(Boolean) : [];
+  const coverPhotoKeys = parseCardCoverPhotoKeys(card.coverPhotoKey).slice(0, MAX_CARD_COVER_PHOTOS);
   const [ownPhotoUrl, ownCoverUrls, ownBackgroundUrl, orgDefaults] = await Promise.all([
     resolveAvatarUrl(card.photoKey ?? card.user.image),
     Promise.all(coverPhotoKeys.map((k) => resolveAvatarUrl(k))),
@@ -47,13 +53,13 @@ async function enrichCard<
     getOrgCardDefaults(card.organizationId),
   ]);
   const validOwnCoverUrls = ownCoverUrls.filter((u): u is string => !!u);
-  const ownCoverUrl = validOwnCoverUrls[0] ?? null;
 
-  const [orgPhotoUrl, orgCoverUrl, orgBackgroundUrl] = await Promise.all([
-    resolveAvatarUrl(orgDefaults.photoKey ?? null),
-    resolveAvatarUrl(orgDefaults.coverPhotoKey ?? null),
+  const orgCoverPhotoKeys = parseCardCoverPhotoKeys(orgDefaults.coverPhotoKey).slice(0, MAX_CARD_COVER_PHOTOS);
+  const [orgCoverUrls, orgBackgroundUrl] = await Promise.all([
+    Promise.all(orgCoverPhotoKeys.map((key) => resolveAvatarUrl(key))),
     resolveAvatarUrl(orgDefaults.backgroundPhotoKey ?? null),
   ]);
+  const validOrgCoverUrls = orgCoverUrls.filter((url): url is string => !!url);
   // Ordem de fallback SEMPRE: override do próprio cartão → foto real do
   // perfil (só pro avatar, ver photoUrl) → padrão ESCOLHIDO PELO DONO (ver
   // lib/digital-cards/org-defaults.ts, "Manter padrão para todos" em Meu
@@ -62,11 +68,15 @@ async function enrichCard<
   // gradiente/ícone genérico) — pedido explícito: "todos podem remover e
   // colocar uma nova foto, mas pode voltar ao padrão" — remover a própria
   // SEMPRE cai num dos padrões, nunca pula direto pro fallback final.
-  const photoUrl = ownPhotoUrl ?? orgPhotoUrl ?? DEFAULT_AVATAR_URL;
-  const coverPhotoUrl = ownCoverUrl ?? orgCoverUrl ?? DEFAULT_COVER_PHOTO_URL;
+  const photoUrl = ownPhotoUrl ?? DEFAULT_AVATAR_URL;
   const coverPhotoUrls = validOwnCoverUrls.length > 0
     ? validOwnCoverUrls
-    : (coverPhotoUrl ? [coverPhotoUrl] : []);
+    : validOrgCoverUrls.length > 0
+      ? validOrgCoverUrls
+      : DEFAULT_COVER_PHOTO_URL
+        ? [DEFAULT_COVER_PHOTO_URL]
+        : [];
+  const coverPhotoUrl = coverPhotoUrls[0] ?? null;
   const backgroundPhotoUrl = ownBackgroundUrl ?? orgBackgroundUrl ?? DEFAULT_BACKGROUND_PHOTO_URL;
   const orgDefaultTheme = normalizeOrgCardTheme(orgDefaults);
   const effectiveTheme = resolveCardTheme(card.theme, orgDefaultTheme);
@@ -74,6 +84,7 @@ async function enrichCard<
     ...card,
     displayName: card.displayNameOverride || card.user.name,
     displayEmail: card.emailOverride || card.user.email,
+    address: REOBOTE_CARD_ADDRESS,
     photoUrl,
     coverPhotoUrl,
     coverPhotoUrls,
@@ -153,7 +164,7 @@ export async function getOrCreateOwnCard(organizationId: string, userId: string)
         slug,
         active: true,
         whatsapp: instance?.phoneNumber ?? null,
-        address: "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030",
+        address: REOBOTE_CARD_ADDRESS,
         companyName: null,
         jobTitle: "Consultor de Vendas",
         bio: "Inteligência em Consórcios",

@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { resolveAvatarUrl } from "@/lib/r2";
 import { setOrgCardDefault, clearOrgCardDefault, setOrgCardTheme, clearOrgCardTheme, type DigitalCardDefaultsField } from "@/lib/digital-cards/org-defaults";
 import { isCardTheme, CARD_THEME_LABELS } from "@/lib/digital-cards/themes";
+import { MAX_CARD_COVER_PHOTOS, parseCardCoverPhotoKeys } from "@/lib/digital-cards/cover-photos";
 
 export const dynamic = "force-dynamic";
 
@@ -67,8 +68,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ field: 
     }
 
     await setOrgCardDefault(organizationId, field, key);
-    const url = await resolveAvatarUrl(key);
-    return NextResponse.json({ url });
+    const keys = field === "cover" ? parseCardCoverPhotoKeys(key).slice(0, MAX_CARD_COVER_PHOTOS) : [key];
+    const urls = (await Promise.all(keys.map((item) => resolveAvatarUrl(item)))).filter((url): url is string => !!url);
+    return NextResponse.json({ url: urls[0] ?? null, urls });
   });
 }
 
