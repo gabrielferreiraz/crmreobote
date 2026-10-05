@@ -711,49 +711,73 @@ export function CardEditor({
 
         {/* ─── Administradoras ───────────────────────────────────── */}
         <EditorSection icon={Building2} title="Administradoras">
-          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          <ul className="space-y-2.5">
             {partnerRows.map((logo) => {
               const position = partnerLogos.indexOf(logo.key);
               const on = position >= 0;
               return (
-                <li key={logo.key} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <span className={`w-5 shrink-0 text-center text-sm font-semibold tabular-nums ${on ? "text-brand" : "text-transparent"}`}>
-                    {on ? position + 1 : "·"}
-                  </span>
-                  <span className={`flex h-10 w-20 shrink-0 items-center justify-center rounded-lg bg-white px-2 ring-1 ring-neutral-200 dark:ring-neutral-700 ${on ? "" : "opacity-50"}`}>
-                    {typeof logo.src === "string" && logo.src.startsWith("/") ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={logo.src} alt="" className="max-h-6 max-w-full object-contain" />
-                    ) : (
-                      <span className="text-xs font-semibold text-neutral-600">{logo.label}</span>
-                    )}
-                  </span>
-                  <span className={`min-w-0 flex-1 truncate text-sm ${on ? "font-medium text-neutral-900 dark:text-neutral-100" : "text-neutral-500"}`}>
-                    {logo.label}
-                  </span>
-                  {on && partnerLogos.length > 1 && (
-                    <span className="flex shrink-0 items-center">
-                      <button
-                        type="button"
-                        onClick={() => movePartner(position, -1)}
-                        disabled={position === 0}
-                        aria-label={`Subir ${logo.label}`}
-                        className="icon-btn h-9 w-9 disabled:opacity-25"
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => movePartner(position, 1)}
-                        disabled={position === partnerLogos.length - 1}
-                        aria-label={`Descer ${logo.label}`}
-                        className="icon-btn h-9 w-9 disabled:opacity-25"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
+                <li
+                  key={logo.key}
+                  className={`rounded-xl border p-3 transition-colors ${
+                    on
+                      ? "border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
+                      : "border-neutral-200/70 bg-neutral-50/70 dark:border-neutral-800 dark:bg-neutral-900/30"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-white px-2.5 shadow-sm ring-1 ring-neutral-200 dark:ring-neutral-700 ${
+                        on ? "" : "opacity-45 grayscale"
+                      }`}
+                    >
+                      {typeof logo.src === "string" && logo.src.startsWith("/") ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={logo.src} alt={`Logo ${logo.label}`} className="max-h-9 max-w-full object-contain" />
+                      ) : (
+                        <span className="text-xs font-semibold text-neutral-600">{logo.label}</span>
+                      )}
                     </span>
-                  )}
-                  <Switch checked={on} onChange={(next) => togglePartner(logo.key, next)} label={`Mostrar ${logo.label}`} />
+
+                    <div className="min-w-0 flex-1 self-stretch">
+                      <p
+                        className={`break-words text-sm leading-5 ${
+                          on ? "font-semibold text-neutral-900 dark:text-neutral-100" : "font-medium text-neutral-500"
+                        }`}
+                      >
+                        {logo.label}
+                      </p>
+
+                      {on && (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <span className="mr-1 text-xs font-medium tabular-nums text-brand">{position + 1}ª</span>
+                          {partnerLogos.length > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => movePartner(position, -1)}
+                                disabled={position === 0}
+                                aria-label={`Subir ${logo.label}`}
+                                className="icon-btn h-8 w-8 disabled:opacity-25"
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => movePartner(position, 1)}
+                                disabled={position === partnerLogos.length - 1}
+                                aria-label={`Descer ${logo.label}`}
+                                className="icon-btn h-8 w-8 disabled:opacity-25"
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <Switch checked={on} onChange={(next) => togglePartner(logo.key, next)} label={`Mostrar ${logo.label}`} />
+                  </div>
                 </li>
               );
             })}
