@@ -38,16 +38,16 @@ export type DigitalCardData = {
   theme?: CardTheme;
 };
 
-function CoverCarousel({ urls, isLight }: { urls: string[]; isLight: boolean }) {
+function CoverCarousel({ urls, isLight, autoRotate }: { urls: string[]; isLight: boolean; autoRotate: boolean }) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    if (urls.length <= 1) return;
+    if (!autoRotate || urls.length <= 1) return;
     const interval = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % urls.length);
     }, 4500);
     return () => clearInterval(interval);
-  }, [urls.length]);
+  }, [autoRotate, urls.length]);
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -190,7 +190,12 @@ export function DigitalCardView({
           } ${data.coverPhotoUrl ? "w-full aspect-[1.6/1] min-h-[200px]" : "h-40"}`}
         >
           {data.coverPhotoUrls && data.coverPhotoUrls.length > 0 ? (
-            <CoverCarousel urls={data.coverPhotoUrls} isLight={isLight} />
+            <CoverCarousel
+              key={data.coverPhotoUrls.join("|")}
+              urls={data.coverPhotoUrls}
+              isLight={isLight}
+              autoRotate={interactive}
+            />
           ) : data.coverPhotoUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}

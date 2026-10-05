@@ -63,6 +63,7 @@ export default async function MeuCartaoPage() {
       </div>
 
       <CardEditor
+        key={card.id}
         card={card}
         publicUrl={publicUrl}
         isOwner={isOwner}
