@@ -12,7 +12,7 @@ import {
   resizeBackgroundPhoto,
   AvatarUploadError,
 } from "@/lib/r2";
-import { clearOrgCardDefault, setOrgCardDefault } from "@/lib/digital-cards/org-defaults";
+import { clearOrgCardDefault, getOrgCardDefaults, setOrgCardDefault } from "@/lib/digital-cards/org-defaults";
 import { getCardDetails } from "@/lib/digital-cards/queries";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +97,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
     await prisma.digitalCard.update({ where: { id }, data: { backgroundPhotoKey: null } });
     const isOwnerCard = role === "OWNER" && card.userId === userId;
-    if (isOwnerCard) await clearOrgCardDefault(organizationId, "background");
+    const orgDefaults = isOwnerCard ? await getOrgCardDefaults(organizationId) : null;
+    const ownsOrganizationDefault = !!card.backgroundPhotoKey && orgDefaults?.backgroundPhotoKey === card.backgroundPhotoKey;
+    if (ownsOrganizationDefault) await clearOrgCardDefault(organizationId, "background");
     if (card.backgroundPhotoKey) await deleteAvatar(card.backgroundPhotoKey).catch(() => {});
 
     const updated = await getCardDetails(id);

@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getOrCreateOwnCard, getCardStats, getOwnCard } from "@/lib/digital-cards/queries";
-import { syncOrgCardMediaDefaults, type OrgCardDefaults } from "@/lib/digital-cards/org-defaults";
+import { initializeMissingOrgCardMediaDefaults, type OrgCardDefaults } from "@/lib/digital-cards/org-defaults";
 import { publicCardUrlFromHeaders } from "@/lib/digital-cards/public-url";
 import { CardEditor } from "./card-editor";
 import { QrCodePanel } from "./qr-code-panel";
@@ -33,7 +33,7 @@ export default async function MeuCartaoPage() {
     let card = await getOrCreateOwnCard(organizationId, userId);
     let orgDefaults: OrgCardDefaults | null = null;
     if (isOwner) {
-      const synced = await syncOrgCardMediaDefaults(organizationId, {
+      const synced = await initializeMissingOrgCardMediaDefaults(organizationId, {
         coverPhotoKey: card.coverPhotoKey,
         backgroundPhotoKey: card.backgroundPhotoKey,
       });

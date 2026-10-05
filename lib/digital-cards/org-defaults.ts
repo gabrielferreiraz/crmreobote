@@ -57,22 +57,59 @@ export async function clearOrgCardDefault(organizationId: string, field: Exclude
 }
 
 /**
- * Faz a configuração atual do dono virar a fonte de verdade da equipe.
- * Também corrige organizações que já tinham imagens no cartão do dono antes
- * de a sincronização automática existir.
+ * Preenche somente padrões ainda ausentes usando as imagens do dono que
+ * abriu o editor ou, se ele não tiver, de outro OWNER com imagem própria.
+ * Nunca apaga nem substitui um padrão já definido: isso é responsabilidade
+ * exclusiva das rotas de upload/remoção.
+ *
+ * Essa distinção é importante em organizações com mais de um OWNER. Um dono
+ * sem capa própria não pode apagar a capa institucional ao abrir a página.
  */
-export async function syncOrgCardMediaDefaults(
+export async function initializeMissingOrgCardMediaDefaults(
   organizationId: string,
   media: { coverPhotoKey: string | null; backgroundPhotoKey: string | null },
 ): Promise<{ defaults: OrgCardDefaults; changed: boolean }> {
   const current = await getOrgCardDefaults(organizationId);
   const next: OrgCardDefaults = { ...current };
 
-  if (media.coverPhotoKey) next.coverPhotoKey = media.coverPhotoKey;
-  else delete next.coverPhotoKey;
+  if (!current.coverPhotoKey && media.coverPhotoKey) next.coverPhotoKey = media.coverPhotoKey;
+  if (!current.backgroundPhotoKey && media.backgroundPhotoKey) next.backgroundPhotoKey = media.backgroundPhotoKey;
 
-  if (media.backgroundPhotoKey) next.backgroundPhotoKey = media.backgroundPhotoKey;
-  else delete next.backgroundPhotoKey;
+  // Se este dono não tem imagem própria, recupera o padrão a partir de
+  // outro cartão de OWNER. Isso repara automaticamente organizações cujo
+  // padrão foi apagado pelo comportamento antigo, sem depender de abrir
+  // primeiro a conta específica que fez o upload.
+  const needsCoverRecovery = !next.coverPhotoKey;
+  const needsBackgroundRecovery = !next.backgroundPhotoKey;
+  if (needsCoverRecovery || needsBackgroundRecovery) {
+    const owners = await prisma.organizationUser.findMany({
+      where: { organizationId, role: "OWNER", active: true },
+      select: { userId: true },
+    });
+    const ownerIds = owners.map((owner) => owner.userId);
+
+    if (ownerIds.length > 0) {
+      const [coverCard, backgroundCard] = await Promise.all([
+        needsCoverRecovery
+          ? prisma.digitalCard.findFirst({
+              where: { organizationId, userId: { in: ownerIds }, coverPhotoKey: { not: null } },
+              orderBy: { updatedAt: "desc" },
+              select: { coverPhotoKey: true },
+            })
+          : null,
+        needsBackgroundRecovery
+          ? prisma.digitalCard.findFirst({
+              where: { organizationId, userId: { in: ownerIds }, backgroundPhotoKey: { not: null } },
+              orderBy: { updatedAt: "desc" },
+              select: { backgroundPhotoKey: true },
+            })
+          : null,
+      ]);
+
+      if (coverCard?.coverPhotoKey) next.coverPhotoKey = coverCard.coverPhotoKey;
+      if (backgroundCard?.backgroundPhotoKey) next.backgroundPhotoKey = backgroundCard.backgroundPhotoKey;
+    }
+  }
 
   const changed =
     current.coverPhotoKey !== next.coverPhotoKey ||

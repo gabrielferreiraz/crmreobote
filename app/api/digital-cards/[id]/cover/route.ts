@@ -12,7 +12,7 @@ import {
   resizeCoverPhoto,
   AvatarUploadError,
 } from "@/lib/r2";
-import { clearOrgCardDefault, setOrgCardDefault } from "@/lib/digital-cards/org-defaults";
+import { clearOrgCardDefault, getOrgCardDefaults, setOrgCardDefault } from "@/lib/digital-cards/org-defaults";
 import { MAX_CARD_COVER_PHOTOS, parseCardCoverPhotoKeys } from "@/lib/digital-cards/cover-photos";
 import { getCardDetails } from "@/lib/digital-cards/queries";
 
@@ -124,6 +124,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
     const existingKeys = parseCardCoverPhotoKeys(card.coverPhotoKey);
     const isOwnerCard = role === "OWNER" && card.userId === userId;
+    const orgDefaults = isOwnerCard ? await getOrgCardDefaults(organizationId) : null;
+    const ownsOrganizationDefault = !!card.coverPhotoKey && orgDefaults?.coverPhotoKey === card.coverPhotoKey;
 
     if (indexParam !== null) {
       const idx = parseInt(indexParam, 10);
@@ -135,7 +137,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       const newKeyStr = remainingKeys.length > 0 ? remainingKeys.join(",") : null;
 
       await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: newKeyStr } });
-      if (isOwnerCard) {
+      if (ownsOrganizationDefault) {
         if (newKeyStr) await setOrgCardDefault(organizationId, "cover", newKeyStr);
         else await clearOrgCardDefault(organizationId, "cover");
       }
@@ -147,12 +149,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
         coverPhotoUrl: updated?.coverPhotoUrl ?? null,
         coverPhotoUrls: updated?.coverPhotoUrls ?? [],
         ownCoverPhotoUrls: remainingKeys.length > 0 ? updated?.coverPhotoUrls ?? [] : [],
-        organizationDefault: isOwnerCard && remainingKeys.length > 0,
+        organizationDefault: ownsOrganizationDefault && remainingKeys.length > 0,
       });
     }
 
     await prisma.digitalCard.update({ where: { id }, data: { coverPhotoKey: null } });
-    if (isOwnerCard) await clearOrgCardDefault(organizationId, "cover");
+    if (ownsOrganizationDefault) await clearOrgCardDefault(organizationId, "cover");
     for (const key of existingKeys) {
       await deleteAvatar(key).catch(() => {});
     }
