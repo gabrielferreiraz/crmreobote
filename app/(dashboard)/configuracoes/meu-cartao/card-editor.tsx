@@ -58,6 +58,28 @@ const CROP: Record<PhotoKind, { aspect: number; title: string }> = {
   background: { aspect: 9 / 16, title: "Foto do fundo" },
 };
 
+function PartnerLogoPreview({ logoKey, label, src, enabled }: { logoKey: string; label: string; src: string | null; enabled: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const needsLightBackgroundContrast = logoKey === "rodobens" || logoKey === "yamaha";
+
+  return (
+    <span className={`flex h-12 w-24 shrink-0 items-center justify-center ${enabled ? "" : "opacity-40 grayscale"}`}>
+      {src?.startsWith("/") && !failed ? (
+        // Rodobens e Yamaha usam SVGs brancos; no editor claro precisam do filtro escuro.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`Logo ${label}`}
+          onError={() => setFailed(true)}
+          className={`max-h-9 w-full object-contain ${needsLightBackgroundContrast ? "brightness-0 dark:invert" : ""}`}
+        />
+      ) : (
+        <span className="text-center text-xs font-semibold leading-4 text-neutral-600 dark:text-neutral-300">{label}</span>
+      )}
+    </span>
+  );
+}
+
 /** Tudo que vai no botão Salvar (fotos e "no ar" salvam sozinhos, na hora). */
 type SavedFields = {
   jobTitle: string | null;
@@ -711,32 +733,14 @@ export function CardEditor({
 
         {/* ─── Administradoras ───────────────────────────────────── */}
         <EditorSection icon={Building2} title="Administradoras">
-          <ul className="space-y-2.5">
+          <ul className="divide-y divide-neutral-200/80 dark:divide-neutral-800">
             {partnerRows.map((logo) => {
               const position = partnerLogos.indexOf(logo.key);
               const on = position >= 0;
               return (
-                <li
-                  key={logo.key}
-                  className={`rounded-xl border p-3 transition-colors ${
-                    on
-                      ? "border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
-                      : "border-neutral-200/70 bg-neutral-50/70 dark:border-neutral-800 dark:bg-neutral-900/30"
-                  }`}
-                >
+                <li key={logo.key} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-start gap-3">
-                    <span
-                      className={`flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-white px-2.5 shadow-sm ring-1 ring-neutral-200 dark:ring-neutral-700 ${
-                        on ? "" : "opacity-45 grayscale"
-                      }`}
-                    >
-                      {typeof logo.src === "string" && logo.src.startsWith("/") ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={logo.src} alt={`Logo ${logo.label}`} className="max-h-9 max-w-full object-contain" />
-                      ) : (
-                        <span className="text-xs font-semibold text-neutral-600">{logo.label}</span>
-                      )}
-                    </span>
+                    <PartnerLogoPreview logoKey={logo.key} label={logo.label} src={logo.src} enabled={on} />
 
                     <div className="min-w-0 flex-1 self-stretch">
                       <p

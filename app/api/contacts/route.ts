@@ -238,34 +238,87 @@ export async function POST(req: Request) {
       // (senão os dois passariam pela checagem de "claimable" e o segundo
       // update pisaria no primeiro, exatamente o tipo de "contato foi
       // parar com outra pessoa" que essa funcionalidade existe pra evitar).
-      const claimResult = await prisma.contact.updateMany({
-        where: { id: duplicate.contactId, responsavelId: duplicate.responsavelId },
-        data: {
-          name: sanitizeCell(name),
-          email: sanitizeCell(email),
-          phone: phones.phone,
-          whatsapp: phones.whatsapp,
-          source: sanitizeCell(source),
-          company: sanitizeCell(company),
-          jobTitle: sanitizeCell(jobTitle),
-          birthDate: birthDate ? new Date(birthDate) : undefined,
-          address: sanitizeCell(address),
-          addressNumber: sanitizeCell(addressNumber),
-          addressComplement: sanitizeCell(addressComplement),
-          neighborhood: sanitizeCell(neighborhood),
-          city: sanitizeCell(city),
-          state: sanitizeCell(state),
-          zipCode: sanitizeCell(zipCode),
-          tags: cleanTags,
-          // Sempre quem está criando agora — não o que veio no formulário
-          // (ver comentário no claimContactId acima: reivindicar É a
-          // atribuição, não uma escolha separada de responsável).
-          responsavelId: userId,
-          phoneNormalized,
-          whatsappNormalized,
-          customFieldValues: claimCustomFieldValues,
-        },
-      });
+      let claimResult;
+      try {
+        claimResult = await prisma.contact.updateMany({
+          where: { id: duplicate.contactId, responsavelId: duplicate.responsavelId },
+          data: {
+            name: sanitizeCell(name),
+            email: sanitizeCell(email),
+            phone: phones.phone,
+            whatsapp: phones.whatsapp,
+            source: sanitizeCell(source),
+            company: sanitizeCell(company),
+            jobTitle: sanitizeCell(jobTitle),
+            birthDate: birthDate ? new Date(birthDate) : undefined,
+            address: sanitizeCell(address),
+            addressNumber: sanitizeCell(addressNumber),
+            addressComplement: sanitizeCell(addressComplement),
+            neighborhood: sanitizeCell(neighborhood),
+            city: sanitizeCell(city),
+            state: sanitizeCell(state),
+            zipCode: sanitizeCell(zipCode),
+            tags: cleanTags,
+            // Sempre quem está criando agora — não o que veio no formulário
+            // (ver comentário no claimContactId acima: reivindicar É a
+            // atribuição, não uma escolha separada de responsável).
+            responsavelId: userId,
+            phoneNormalized,
+            whatsappNormalized,
+            customFieldValues: claimCustomFieldValues,
+          },
+        });
+      } catch (err) {
+        // Achado em produção: "Assumir este lead" batendo erro genérico toda
+        // vez. Causa real — telefone/WhatsApp com variante (9º dígito):
+        // findDuplicateContact acha o duplicado por VARIANTE (ver
+        // brazilianMobileVariants em lib/contact-duplicate.ts), então o
+        // contato achado pode ter a chave ANTIGA (10 dígitos) enquanto o que
+        // a pessoa digitou normaliza pra NOVA (11 dígitos) — e essa chave
+        // nova já pode pertencer a um TERCEIRO contato (resíduo conhecido da
+        // limpeza de telefones de 2026-09: números legados ficaram com a
+        // chave de 10 dígitos justamente porque a de 11 já existia em outro
+        // cadastro, duplicatas nunca unificadas). O updateMany acima bate
+        // então no @@unique([organizationId, phoneNormalized]) ou
+        // ([organizationId, whatsappNormalized]) de ESSE terceiro contato —
+        // nada a ver com o duplicado que a tela avisou, por isso o erro
+        // genérico não fazia sentido nenhum pra quem via. Aqui identifica
+        // QUAL contato já segura a chave e avisa — vira trabalho de
+        // unificação manual (Dono/TI), não dá pra resolver sozinho sem
+        // decidir qual dos dois cadastros é o de verdade.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          // err.meta.target (a forma "de catálogo" do Prisma, com os nomes de coluna)
+          // vem VAZIO neste setup (Prisma 7 + @prisma/adapter-pg) — confirmado contra o
+          // banco real. O nome da constraint só aparece dentro do erro bruto do driver
+          // (err.meta.driverAdapterError.cause.originalMessage, formato interno/não
+          // documentado — por isso tudo aqui é opcional-encadeado e cai no genérico
+          // abaixo se o formato mudar numa atualização futura do Prisma).
+          const driverMessage =
+            typeof err.meta?.driverAdapterError === "object" && err.meta.driverAdapterError !== null && "cause" in err.meta.driverAdapterError
+              ? ((err.meta.driverAdapterError as { cause?: { originalMessage?: unknown } }).cause?.originalMessage ?? "")
+              : "";
+          const haystack = typeof driverMessage === "string" ? driverMessage : "";
+          const field: "whatsappNormalized" | "phoneNormalized" | null = haystack.includes("whatsappNormalized")
+            ? "whatsappNormalized"
+            : haystack.includes("phoneNormalized")
+              ? "phoneNormalized"
+              : null;
+          const fieldLabel = field === "whatsappNormalized" ? "WhatsApp" : "celular";
+          const collidingValue = field === "whatsappNormalized" ? whatsappNormalized : field === "phoneNormalized" ? phoneNormalized : null;
+          const collidingContact = field && collidingValue
+            ? await prisma.contact.findFirst({ where: { organizationId, [field]: collidingValue }, select: { name: true } })
+            : null;
+          return NextResponse.json(
+            {
+              error: collidingContact
+                ? `Não foi possível assumir — esse ${fieldLabel} já pertence a outro contato diferente deste ("${collidingContact.name}"), provavelmente o mesmo número cadastrado duas vezes no sistema (com e sem o 9º dígito). Peça pro Dono/TI unificar os dois cadastros antes de tentar de novo.`
+                : `Não foi possível assumir — esse ${fieldLabel} já está em uso por outro contato. Peça pro Dono/TI verificar cadastros duplicados antes de tentar de novo.`,
+            },
+            { status: 409 },
+          );
+        }
+        throw err;
+      }
 
       if (claimResult.count === 0) {
         return NextResponse.json(
