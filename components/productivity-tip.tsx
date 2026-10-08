@@ -1,7 +1,6 @@
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { X, Lightbulb, AlertTriangle, MessageCircle, Zap, ChevronRight, CheckCircle2 } from "lucide-react";
-import { Loader2 } from "lucide-react";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { EvaluatedTip, TipPayload } from "@/lib/productivity-tips/types";
@@ -42,7 +41,7 @@ export function ProductivityTipShell({
     <div
       role="dialog"
       aria-live="polite"
-      className="surface-glass-panel fixed bottom-4 right-4 z-40 w-full max-w-md rounded-2xl p-4 shadow-2xl ring-1 ring-black/5 lg:bottom-[5.5rem] dark:ring-white/10"
+      className="surface-glass-panel fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 w-[calc(100%-2rem)] max-w-md rounded-2xl p-4 shadow-2xl ring-1 ring-black/5 lg:bottom-[5.5rem] lg:w-full dark:ring-white/10"
       style={{ animation: "panel-pop-in 380ms var(--ease-spring)" }}
     >
       <div className="flex items-start justify-between gap-3">

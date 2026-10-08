@@ -173,24 +173,32 @@ export function MembersTable({
   // Atualiza os pontinhos de "online" sozinho, sem re-render da página
   // inteira (router.refresh() re-buscaria tudo do servidor à toa).
   useEffect(() => {
-    let cancelled = false;
+    // Um controller pro ciclo inteiro: sair da tela derruba o poll em voo
+    // (antes a resposta só era descartada, mas a consulta terminava).
+    const controller = new AbortController();
 
     async function poll() {
-      const res = await fetch("/api/presence/status");
-      if (!res.ok) return;
-      const data = await res.json().catch(() => null);
-      if (cancelled || !data?.members) return;
-      const next: Record<string, string | null> = {};
-      for (const m of data.members as { userId: string; lastActiveAt: string | null }[]) {
-        next[m.userId] = m.lastActiveAt;
+      try {
+        const res = await fetch("/api/presence/status", { signal: controller.signal });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data?.members) return;
+        const next: Record<string, string | null> = {};
+        for (const m of data.members as { userId: string; lastActiveAt: string | null }[]) {
+          next[m.userId] = m.lastActiveAt;
+        }
+        setPresence(next);
+      } catch {
+        // Abort ao sair da tela, ou rede oscilando: os pontinhos ficam como
+        // estão e o próximo ciclo corrige. Antes um erro de rede aqui virava
+        // promessa rejeitada sem tratamento nenhum.
       }
-      setPresence(next);
     }
 
     poll();
     const interval = setInterval(poll, 20_000);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearInterval(interval);
     };
   }, []);

@@ -96,17 +96,16 @@ export function SendLeadsDialog({
   const [confirmingBulkSend, setConfirmingBulkSend] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
         const [scriptsRes, pipelinesRes] = await Promise.all([
-          fetch("/api/message-scripts?mine=true"),
-          fetch("/api/pipelines"),
+          fetch("/api/message-scripts?mine=true", { signal: controller.signal }),
+          fetch("/api/pipelines", { signal: controller.signal }),
         ]);
         if (!scriptsRes.ok || !pipelinesRes.ok) throw new Error();
         const scriptsData: ScriptOption[] = await scriptsRes.json();
         const pipelinesData: PipelineOption[] = await pipelinesRes.json();
-        if (cancelled) return;
         setScripts(scriptsData);
         setPipelines(pipelinesData);
         if (pipelinesData.length > 0) {
@@ -115,12 +114,11 @@ export function SendLeadsDialog({
           if (firstStage) setStageId(firstStage.id);
         }
       } catch {
-        if (!cancelled) setLoadError("Não foi possível carregar os dados do formulário.");
+        // Fechar o diálogo antes de carregar não é falha — sem mensagem.
+        if (!controller.signal.aborted) setLoadError("Não foi possível carregar os dados do formulário.");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, []);
 
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId) ?? null;

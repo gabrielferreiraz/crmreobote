@@ -35,6 +35,21 @@ export function showErrorToast(message: string) {
 
 export const NETWORK_ERROR_MESSAGE = "Sem conexão com o servidor — confira a internet e tente de novo.";
 
+/**
+ * Cancelamento NÃO é erro. Quando a tela é desmontada no meio de uma busca
+ * (clicou em Clientes, não esperou carregar e foi pra Pipeline), o
+ * AbortController derruba a requisição e o `fetch` rejeita com AbortError —
+ * que, sem este reconhecimento, cairia no catch genérico e mostraria
+ * "Sem conexão com o servidor" em vermelho pra quem só trocou de página.
+ *
+ * Checa pelo `name` em vez de `instanceof DOMException`: o motivo do abort
+ * pode vir como DOMException (navegador), como Error comum (polyfill/jsdom)
+ * ou como o `reason` passado pra abort(), e todos carregam name "AbortError".
+ */
+export function isAbortError(err: unknown): boolean {
+  return !!err && typeof err === "object" && "name" in err && (err as { name?: unknown }).name === "AbortError";
+}
+
 function messageForStatus(status: number): string {
   if (status === 401) return "Sua sessão expirou — entre de novo.";
   if (status === 403) return "Você não tem permissão para fazer isso.";
@@ -50,8 +65,11 @@ function messageForStatus(status: number): string {
 // formato e os chamadores já tratavam `await res.json()` como `any`.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type RequestResult<T = any> =
-  | { ok: true; status: number; data: T }
-  | { ok: false; status: number; data: any; error: string };
+  | { ok: true; status: number; data: T; aborted?: false }
+  // `aborted: true` = a própria tela cancelou (trocou de página, mudou o
+  // filtro antes de a busca anterior voltar) — não é erro, e nunca vira aviso
+  // vermelho. Ver isAbortError acima.
+  | { ok: false; status: number; data: any; error: string; aborted?: boolean };
 
 export async function requestJson<T = any>(
   url: string,
@@ -72,12 +90,21 @@ export async function requestJson<T = any>(
   let res: Response;
   try {
     res = await fetch(url, requestInit);
-  } catch {
+  } catch (err) {
+    // Cancelado pela própria tela (ver isAbortError) — devolve calado, sem
+    // aviso vermelho: quem cancelou foi o usuário trocando de página, não a
+    // internet caindo.
+    if (isAbortError(err)) return { ok: false, status: 0, data: null, error: "cancelado", aborted: true };
     if (!opts?.silent) showErrorToast(NETWORK_ERROR_MESSAGE);
     return { ok: false, status: 0, data: null, error: NETWORK_ERROR_MESSAGE };
   }
 
   const data: any = res.status === 204 ? null : await res.json().catch(() => null);
+  // O corpo também pode ser cortado no meio da leitura quando o abort chega
+  // depois dos headers — aí o .catch acima devolve null e, sem esta
+  // checagem, a tela receberia `{ ok: true, data: null }` e trataria o
+  // cancelamento como "o servidor respondeu vazio".
+  if (requestInit.signal?.aborted) return { ok: false, status: res.status, data: null, error: "cancelado", aborted: true };
   if (res.ok) return { ok: true, status: res.status, data: data as T };
 
   const serverError = data && typeof data.error === "string" && data.error.trim() ? data.error : null;

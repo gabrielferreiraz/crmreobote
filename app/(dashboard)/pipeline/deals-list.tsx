@@ -342,11 +342,15 @@ export function DealsList({
   // ficava com as linhas apagadas/desatualizadas até o usuário mexer em
   // algum filtro (o que dispara o efeito principal) ou navegar pra outro
   // lugar e voltar.
-  async function fetchCurrentPage(): Promise<{ deals: Deal[]; totalCount: number; sums: Sums } | null> {
+  // `signal` só vem do efeito de busca abaixo (trocar de página/filtro ou
+  // sair da tela derruba a requisição anterior em vez de só ignorar a
+  // resposta). As ações em massa chamam sem signal: ali a busca é
+  // consequência de um clique que acabou de acontecer, não há o que cancelar.
+  async function fetchCurrentPage(signal?: AbortSignal): Promise<{ deals: Deal[]; totalCount: number; sums: Sums } | null> {
     const params = buildFilterParams();
     params.set("skip", String((page - 1) * pageSize));
     params.set("limit", String(pageSize));
-    const res = await fetch(`/api/deals?${params.toString()}`);
+    const res = await fetch(`/api/deals?${params.toString()}`, { signal });
     if (!res.ok) return null;
     const data: Deal[] = await res.json();
     return {
@@ -390,24 +394,25 @@ export function DealsList({
         return;
       }
     }
-    let cancelled = false;
+    // Ver o comentário de `signal` em fetchCurrentPage: o cancelamento
+    // precisa chegar no servidor (esta rota faz 3 consultas — lista,
+    // contagem e somas), não só na tela.
+    const controller = new AbortController();
     setLoading(true);
-    fetchCurrentPage()
+    fetchCurrentPage(controller.signal)
       .then((result) => {
-        if (cancelled || !result) return;
+        if (!result) return;
         setDeals(result.deals);
         setTotalCount(result.totalCount);
         setSums(result.sums);
       })
+      .catch(() => {}) // abort (ou falha de rede) — mantém a última lista boa na tela
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-          setFiltersReady(true);
-        }
+        if (controller.signal.aborted) return;
+        setLoading(false);
+        setFiltersReady(true);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hydrated,
@@ -946,18 +951,9 @@ export function DealsList({
         <span className="font-medium text-neutral-600 dark:text-neutral-300">{formatCurrency(sums.lostSum)}</span>
       </p>
 
-      {/* pb-24 no celular: essa região preenche a caixa inteira até o fundo
-          (h-full/min-h-0, mesma estratégia do Kanban ao lado — ver
-          kanban-board.tsx), mas a barra de navegação inferior é
-          `position:fixed` e fica POR CIMA do conteúdo sem entrar no fluxo —
-          sem esse respiro, rolar até o fim escondia os últimos negócios
-          atrás da barra, inalcançáveis mesmo rolando até o limite. O Kanban
-          resolve isso medindo a altura real da barra (getBoundingClientRect,
-          pensado pra coluna de altura fixa); aqui, lista vertical simples,
-          um respiro generoso de sobra já garante o mesmo resultado sem
-          precisar de medição em JS. lg:pb-3: sem barra fixa no desktop, só
-          uma margem de segurança pequena mesmo. */}
-      <div className="min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-3">
+      {/* A lista rola dentro do painel; o menu mobile já ocupa espaço próprio
+          no shell, então este padding é apenas o respiro da última linha. */}
+      <div className="min-h-0 flex-1 overflow-y-auto pb-4 lg:pb-3">
       {!filtersReady ? (
         // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
         // filtersReady acima) — evita piscar `initialDeals` (sem o filtro

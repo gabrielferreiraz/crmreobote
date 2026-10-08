@@ -65,61 +65,55 @@ export function QuickAddDealPanel({
   const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    // Fechar o painel antes das listas chegarem cancela as buscas (mesmo
+    // padrão do resto do app) — e abort nunca vira mensagem de erro.
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/pipelines");
+        const res = await fetch("/api/pipelines", { signal: controller.signal });
         if (!res.ok) throw new Error();
         const data: Pipeline[] = await res.json();
-        if (cancelled) return;
         setPipelines(data);
         const preferred = data.find((p) => p.isDefault) ?? data[0];
         if (preferred) setPipelineId(preferred.id);
       } catch {
-        if (!cancelled) setLoadError("Não foi possível carregar os funis.");
+        if (!controller.signal.aborted) setLoadError("Não foi possível carregar os funis.");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/credit-types");
+        const res = await fetch("/api/credit-types", { signal: controller.signal });
         if (!res.ok) return;
-        const data: CreditTypeOption[] = await res.json();
-        if (!cancelled) setCreditTypes(data);
+        setCreditTypes((await res.json()) as CreditTypeOption[]);
       } catch {
         // lista vazia é um degrau aceitável aqui — o campo continua opcional
+        // (vale também pro abort, quando o painel fecha antes de carregar)
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
     // Contato já existe (existingContactId) = já tem cargo cadastrado, esse
     // campo nem aparece no formulário — não precisa buscar a lista.
     if (existingContactId) return;
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/job-titles");
+        const res = await fetch("/api/job-titles", { signal: controller.signal });
         if (!res.ok) return;
-        const data: JobTitleOption[] = await res.json();
-        if (!cancelled) setJobTitles(data);
+        setJobTitles((await res.json()) as JobTitleOption[]);
       } catch {
         // sem lista carregada, o Select some vazio — POST /api/contacts ainda
         // barra no servidor se o cargo não vier preenchido
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [existingContactId]);
 
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId) ?? null;

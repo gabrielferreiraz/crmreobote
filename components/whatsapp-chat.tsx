@@ -400,9 +400,20 @@ export function ChatWindow({
     bottomRef.current?.scrollIntoView({ block: "end", behavior });
   }
 
+  /** Carga de mensagens ainda em voo — ver load() abaixo. */
+  const inFlightRef = useRef<AbortController | null>(null);
+
   async function load() {
+    // Uma carga por vez: trocar de conversa (ou fechar o chat) derruba a
+    // anterior em vez de deixá-la terminar e, pior, chegar DEPOIS da nova e
+    // pintar a tela com as mensagens da conversa errada. Esta rota também
+    // marca as mensagens como lidas (ver GET /api/whatsapp/messages/[threadId]),
+    // então uma resposta atrasada não é só desperdício.
+    inFlightRef.current?.abort();
+    const controller = new AbortController();
+    inFlightRef.current = controller;
     try {
-      const res = await fetch(`/api/whatsapp/messages/${activeThreadId}`);
+      const res = await fetch(`/api/whatsapp/messages/${activeThreadId}`, { signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages);
@@ -410,12 +421,17 @@ export function ChatWindow({
         setPresence(data.presence);
       }
     } catch {
-      // Silencioso: se a conversa não carregar, o componente simplesmente não aparece.
+      // Silencioso: se a conversa não carregar, o componente simplesmente não
+      // aparece — vale também pro abort, que não é erro.
+    } finally {
+      if (inFlightRef.current === controller) inFlightRef.current = null;
     }
   }
 
   useEffect(() => {
     load();
+    // Trocar de conversa/desmontar cancela a carga da anterior (ver load()).
+    return () => inFlightRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
 
@@ -442,18 +458,18 @@ export function ChatWindow({
     // Só uma vez por troca de conversa (não entra no polling de 4s) — a rota
     // já cacheia no banco, mas evita repetir a requisição HTTP toda hora.
     setContactPhotoUrl(null);
-    let cancelled = false;
-    fetch(`/api/whatsapp/threads/${activeThreadId}/photo`)
+    const controller = new AbortController();
+    fetch(`/api/whatsapp/threads/${activeThreadId}/photo`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled && data?.url) setContactPhotoUrl(data.url);
+        if (data?.url) setContactPhotoUrl(data.url);
       })
       .catch(() => {
-        // Silencioso: sem foto, o Avatar cai pras iniciais normalmente.
+        // Silencioso: sem foto, o Avatar cai pras iniciais normalmente — e
+        // trocar de conversa cancela a busca da foto anterior (esta rota
+        // pode bater no Evolution quando o cache está frio).
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [activeThreadId]);
 
   useEffect(() => {
@@ -461,11 +477,11 @@ export function ChatWindow({
       setContactOrigin(null);
       return;
     }
-    let cancelled = false;
-    fetch(`/api/contacts/${contactId}`)
+    const controller = new AbortController();
+    fetch(`/api/contacts/${contactId}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled && data) {
+        if (data) {
           setContactOrigin({
             metaCampaignName: data.metaCampaignName ?? null,
             source: data.source ?? null,
@@ -473,9 +489,7 @@ export function ChatWindow({
         }
       })
       .catch(() => { });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [contactId]);
 
   useEffect(() => {

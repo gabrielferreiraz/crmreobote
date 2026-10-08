@@ -110,19 +110,26 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     // conexão/consulta atrasar ele fica visível o tempo todo, em vez de a
     // tela ficar "parada" sem indicar que algo está acontecendo.
     setSearching(true);
-    let cancelled = false;
+    // AbortController além do debounce: digitar continua enquanto a busca
+    // anterior está no ar, e sem cancelar (a) a consulta antiga segue
+    // custando banco à toa e (b) uma resposta atrasada da busca ANTERIOR
+    // pode chegar depois da nova e repintar a lista com o resultado errado.
+    const controller = new AbortController();
     const timeout = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        if (!res.ok || cancelled) return;
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setResults(data);
+        setResults(data);
+      } catch {
+        // Abort (trocou o termo/fechou a busca) ou falha de rede — mantém o
+        // último resultado bom; o spinner é desligado no finally abaixo.
       } finally {
-        if (!cancelled) setSearching(false);
+        if (!controller.signal.aborted) setSearching(false);
       }
     }, 200);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timeout);
     };
   }, [query]);

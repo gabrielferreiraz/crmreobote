@@ -3,6 +3,7 @@ import { pickOwnerId } from "@/lib/auto-assign";
 import { buildDealName } from "@/lib/deal-name";
 import { sendPushToUser } from "@/lib/push";
 import { publishDealsEvent } from "@/lib/deals/live-events";
+import { resolveAutomationActions } from "@/lib/automations/actions";
 
 /**
  * Dono do negócio criado por resposta de campanha quando NÃO existe um dono
@@ -158,12 +159,15 @@ export async function handleCampaignReply(
   // responsável (com contexto melhor: qual campanha, quem respondeu); sem
   // isso, o próximo tick do cron de automações (lib/automations/engine.ts)
   // via esse mesmo negócio "criado" e mandava um SEGUNDO push genérico sobre
-  // a mesma coisa. Só suprime a ação SEND_PUSH especificamente — se a regra
-  // também criar tarefa/nota/etc., isso é outra AutomationRule (ação
-  // diferente) e continua rodando normalmente.
-  const dealCreatedPushRules = await prisma.automationRule.findMany({
-    where: { organizationId, trigger: "DEAL_CREATED", action: "SEND_PUSH", enabled: true },
-    select: { id: true },
+  // a mesma coisa. Só regras cuja ÚNICA ação é SEND_PUSH são suprimidas;
+  // uma regra com outras ações ainda precisa rodar por inteiro.
+  const dealCreatedRules = await prisma.automationRule.findMany({
+    where: { organizationId, trigger: "DEAL_CREATED", enabled: true },
+    select: { id: true, action: true, actionConfig: true, actions: true },
+  });
+  const dealCreatedPushRules = dealCreatedRules.filter((rule) => {
+    const actions = resolveAutomationActions(rule.actions, rule);
+    return actions.length === 1 && actions[0].type === "SEND_PUSH";
   });
   if (dealCreatedPushRules.length > 0) {
     await prisma.automationExecution.createMany({

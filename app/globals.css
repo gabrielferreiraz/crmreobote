@@ -385,6 +385,16 @@ body {
   animation: sheet-up-in 200ms var(--ease-sheet);
 }
 
+.modal-panel-mobile-sheet {
+  animation: sheet-up-in 200ms var(--ease-sheet);
+}
+
+@media (min-width: 1024px) {
+  .modal-panel-mobile-sheet {
+    animation: modal-panel-in 280ms var(--ease-spring);
+  }
+}
+
 @keyframes sheet-right-in {
   from {
     transform: translateX(100%);
@@ -1017,6 +1027,22 @@ input[type="radio"] {
 
   .btn-primary:active {
     filter: brightness(0.9);
+  }
+
+  /* Ação destrutiva confirmada (apagar, desfazer importação, marcar perdido).
+     Existe como classe própria porque `btn-primary bg-red-600` NÃO funcionava:
+     .btn-primary pinta `background: var(--brand-gradient)` — um background-IMAGE
+     — e a utilitária `bg-red-600` só troca o background-COLOR, que fica
+     inteiro escondido atrás do gradiente. Na prática todo botão de confirmação
+     destrutiva do sistema aparecia azul da marca, com só o ícone de alerta em
+     vermelho: o ícone dizia "cuidado" e o botão dizia "ação normal". */
+  .btn-danger {
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:-translate-y-px hover:bg-red-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 active:translate-y-0 active:scale-[0.98] active:shadow-sm;
+    /* Mesma curva do .btn-primary — o "tato" do botão não muda por ser destrutivo. */
+    transition:
+      background-color 200ms var(--ease-smooth),
+      box-shadow 200ms var(--ease-smooth),
+      transform 200ms var(--ease-spring);
   }
 
   .btn-secondary {
@@ -1698,5 +1724,163 @@ input[type="radio"] {
 
   .icon-btn-labeled {
     min-height: 2.75rem;
+  }
+}
+
+/* Ficha do negócio no celular: o histórico é uma lista de trabalho contínua,
+   não uma pilha de cartões independentes. A separação por linha reduz ruído e
+   deixa mais texto útil visível entre o cabeçalho e a navegação inferior. */
+@media (max-width: 1023.98px) {
+  .dark .deal-detail {
+    color-scheme: dark;
+  }
+
+  .deal-detail .deal-mobile-stage-select,
+  .deal-detail .deal-mobile-status-select {
+    border-radius: 0;
+  }
+
+  .deal-detail .deal-mobile-timeline > [id^="activity-"] {
+    border-bottom: 1px solid rgba(163, 163, 163, 0.2);
+  }
+
+  .deal-detail .deal-mobile-timeline > .card {
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid rgba(163, 163, 163, 0.2);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0.75rem 0;
+  }
+
+  .deal-detail .deal-mobile-timeline > .card:hover {
+    border-color: rgba(163, 163, 163, 0.2);
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .deal-detail .deal-mobile-timeline .activity-item__content-row {
+    display: block;
+  }
+
+  .deal-detail .deal-mobile-timeline > .card > div:first-child {
+    width: 1.75rem;
+    height: 1.75rem;
+    justify-content: flex-start;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .dark .deal-detail .deal-mobile-timeline > [id^="activity-"] {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .deal-detail .deal-mobile-details > .card {
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid rgba(163, 163, 163, 0.2);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 1rem 0;
+  }
+
+  .deal-detail .deal-mobile-details > .card:hover {
+    border-color: rgba(163, 163, 163, 0.2);
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .dark .deal-detail .deal-mobile-details > .card {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    background: transparent;
+  }
+}
+
+/* Detalhe do cliente no celular segue a mesma linguagem operacional da ficha
+   do negócio: superfícies contínuas, ações discretas e separação por linhas. */
+@media (max-width: 1023.98px) {
+  .contact-detail .contact-mobile-summary {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .contact-detail .contact-mobile-summary:hover {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .contact-detail .contact-quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.25rem;
+    border-bottom: 1px solid rgb(229 229 229);
+    padding: 0.25rem 0;
+  }
+
+  .dark .contact-detail .contact-quick-actions {
+    border-color: rgb(38 38 38);
+  }
+
+  .contact-detail .contact-quick-action {
+    min-height: 2.75rem;
+    justify-content: flex-start;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+
+  .contact-detail .contact-quick-action:hover {
+    background: transparent;
+  }
+
+  .contact-detail .contact-deal-card,
+  .contact-detail .contact-info-card {
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid rgb(229 229 229);
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .contact-detail .contact-deal-card:hover,
+  .contact-detail .contact-info-card:hover {
+    border-color: rgb(229 229 229);
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .dark .contact-detail .contact-deal-card,
+  .dark .contact-detail .contact-info-card {
+    border-bottom-color: rgb(38 38 38);
+    background: transparent;
+  }
+
+  .dark .contact-detail .contact-deal-card:hover,
+  .dark .contact-detail .contact-info-card:hover {
+    border-color: rgb(38 38 38);
+    background: transparent;
+  }
+
+  .contact-detail .contact-deal-status {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
   }
 }

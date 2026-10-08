@@ -41,6 +41,7 @@ export function Select({
   disabled = false,
   autoFocus = false,
   id,
+  ariaLabel,
   invalid = false,
   describedBy,
   /** Força mostrar (true) ou esconder (false) o campo de busca — sem
@@ -56,6 +57,8 @@ export function Select({
   autoFocus?: boolean;
   /** id do botão — pra `focusField` levar o foco até aqui quando o campo estiver inválido. */
   id?: string;
+  /** Nome acessível quando o contexto do campo não possui um <label> visível. */
+  ariaLabel?: string;
   /** Marca o campo como inválido (aria-invalid + borda vermelha via .field-input[aria-invalid]). */
   invalid?: boolean;
   /** id da mensagem de erro (ver FieldError) — o leitor de tela lê junto com o campo. */
@@ -217,6 +220,7 @@ export function Select({
         id={id}
         type="button"
         role="combobox"
+        aria-label={ariaLabel}
         disabled={disabled}
         autoFocus={autoFocus}
         aria-invalid={invalid ? true : undefined}

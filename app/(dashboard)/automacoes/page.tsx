@@ -73,6 +73,7 @@ export default async function AutomacoesPage() {
       ...r,
       triggerConfig: r.triggerConfig as Record<string, unknown> | null,
       actionConfig: r.actionConfig as Record<string, unknown> | null,
+      actions: r.actions as Array<{ type: typeof r.action; config: Record<string, unknown> }> | null,
       lastRunAt: r.lastRunAt ? r.lastRunAt.toISOString() : null,
       createdAt: r.createdAt.toISOString(),
       // Só faz diferença pra quem vê regra de mais de uma pessoa (OWNER/
@@ -103,6 +104,7 @@ export default async function AutomacoesPage() {
           pipelines={pipelines.map((p) => ({ id: p.id, name: p.name, stages: p.stages }))}
           lossReasons={lossReasons}
           members={membersRaw.map((m) => ({ id: m.user.id, name: m.user.name, role: m.role }))}
+          currentUserId={userId}
           teams={teams}
           whatsappInstances={whatsappInstances}
           customFields={customFields}

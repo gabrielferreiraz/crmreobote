@@ -249,10 +249,14 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
   const endpoint = `/api/campaigns/${campaignId}/queue`;
 
   const fetchQueue = useCallback(
-    async (wantedLimit: number): Promise<CampaignQueueData | null> => {
+    // `signal` vem do polling abaixo: sair da tela (ou começar a editar a
+    // ordem) derruba a consulta em voo em vez de só descartar a resposta.
+    // O seq acima continua necessário mesmo assim — ele resolve "resposta
+    // velha chegou depois da nova" entre ciclos que NÃO foram cancelados.
+    async (wantedLimit: number, signal?: AbortSignal): Promise<CampaignQueueData | null> => {
       const seq = ++requestSeq.current;
       try {
-        const res = await fetch(`${endpoint}?offset=0&limit=${wantedLimit}`, { cache: "no-store" });
+        const res = await fetch(`${endpoint}?offset=0&limit=${wantedLimit}`, { cache: "no-store", signal });
         if (!res.ok) return null;
         const data = (await res.json()) as CampaignQueueData;
         if (seq < appliedSeq.current) return null; // já chegou uma resposta mais nova — esta ficou velha
@@ -278,16 +282,16 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
   // Resposta que chega depois de a edição começar é descartada: a lista que a pessoa está arrastando não pode mudar por baixo dela.
   useEffect(() => {
     if (editing) return;
-    let cancelled = false;
+    const controller = new AbortController();
     const tick = async () => {
       if (document.visibilityState !== "visible") return;
-      const data = await fetchQueue(limitRef.current);
-      if (data && !cancelled) setView(data);
+      const data = await fetchQueue(limitRef.current, controller.signal);
+      if (data && !controller.signal.aborted) setView(data);
     };
     const interval = setInterval(tick, POLL_MS);
     document.addEventListener("visibilitychange", tick);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearInterval(interval);
       document.removeEventListener("visibilitychange", tick);
     };
@@ -300,19 +304,21 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
   const searching = searchActive && results === null;
   useEffect(() => {
     if (term.length < 2) return;
-    let cancelled = false;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       let items: QueueItemView[] = [];
       try {
-        const res = await fetch(`${endpoint}?q=${encodeURIComponent(term)}`, { cache: "no-store" });
+        const res = await fetch(`${endpoint}?q=${encodeURIComponent(term)}`, { cache: "no-store", signal: controller.signal });
         if (res.ok) items = ((await res.json()) as { results?: QueueItemView[] }).results ?? [];
       } catch {
         // sem rede: cai em "ninguém encontrado" — a pessoa refaz a busca
       }
-      if (!cancelled) setFound({ term, items });
+      // Num abort (termo mudou/saiu da tela) nem grava o resultado vazio: a
+      // busca seguinte é quem manda agora.
+      if (!controller.signal.aborted) setFound({ term, items });
     }, 300);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [term, endpoint]);

@@ -69,5 +69,9 @@ export type EnrichedContact = {
   responsavelId: string | null;
   responsavel: { id: string; name: string } | null;
   createdAt: Date;
+  /** Última alteração de qualquer campo (ver Contact.updatedAt no schema) —
+   * mostrado na coluna "Cadastrado" quando difere da data de criação, pra
+   * conferir de relance o que uma importação acabou de atualizar. */
+  updatedAt: Date;
   _count: { deals: number };
 };

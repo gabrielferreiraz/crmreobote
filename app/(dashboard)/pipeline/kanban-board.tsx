@@ -587,7 +587,11 @@ export function KanbanBoard({
         return;
       }
     }
-    let cancelled = false;
+    // Sair da tela (ou trocar de filtro) derruba as DUAS consultas, não só
+    // ignora a resposta — as duas varrem o funil inteiro (ver o comentário
+    // logo abaixo sobre o pool de conexões, que é justamente o recurso que
+    // uma busca abandonada continuaria ocupando).
+    const controller = new AbortController();
     setStagesLoading(true);
     const filters = {
       debouncedSearch,
@@ -608,8 +612,10 @@ export function KanbanBoard({
     const countsParams = buildFilterParams(filters);
 
     Promise.all([
-      fetch(`/api/deals?${dealsParams.toString()}`).then(async (res) => (res.ok ? ((await res.json()) as Deal[]) : [])),
-      fetch(`/api/deals/stage-counts?${countsParams.toString()}`).then(async (res) =>
+      fetch(`/api/deals?${dealsParams.toString()}`, { signal: controller.signal }).then(async (res) =>
+        res.ok ? ((await res.json()) as Deal[]) : [],
+      ),
+      fetch(`/api/deals/stage-counts?${countsParams.toString()}`, { signal: controller.signal }).then(async (res) =>
         res.ok
           ? ((await res.json()) as {
               counts: Record<string, { count: number; sumValue: number }>;
@@ -619,7 +625,6 @@ export function KanbanBoard({
       ),
     ])
       .then(([deals, stageStats]) => {
-        if (cancelled) return;
         const byStage: Record<string, Deal[]> = {};
         for (const deal of deals) (byStage[deal.stageId] ??= []).push(deal);
         setDealsByStage(byStage);
@@ -633,16 +638,14 @@ export function KanbanBoard({
         setSumByStage(sums);
         setWithTaskByStage(stageStats.withTaskCounts);
       })
+      .catch(() => {}) // abort (ou falha de rede) — mantém o board anterior na tela
       .finally(() => {
-        if (!cancelled) {
-          setStagesLoading(false);
-          setFiltersReady(true);
-        }
+        if (controller.signal.aborted) return;
+        setStagesLoading(false);
+        setFiltersReady(true);
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hydrated,
@@ -686,22 +689,9 @@ export function KanbanBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipelineId]);
 
-  // Backstop robusto: em vez de confiar só em h-full/flex-1/min-h-0 se
-  // propagando certo por 4-5 níveis de container até aqui (page → PipelineView
-  // → KanbanBoard → fileira de colunas), mede a distância real até o fim da
-  // janela e fixa essa altura por CSS — assim a fileira (e cada coluna
-  // esticada dentro dela) sempre termina exatamente onde a tela do usuário
-  // termina, não importa o que aconteça acima na árvore. Recalcula ao
-  // redimensionar a janela.
-  //
-  // Desconta também a barra de navegação inferior do celular (#mobile-bottom-nav,
-  // ver mobile-nav.tsx) — ela é `position:fixed`, fica POR CIMA do conteúdo
-  // em vez de empurrá-lo (não entra no fluxo normal), então window.innerHeight
-  // sozinho não sabe que aquela faixa de baixo está coberta. Sem descontar
-  // isso, a fileira calculava altura demais, e o fim de cada coluna
-  // (últimos cartões) ficava escondido atrás da barra, inalcançável mesmo
-  // rolando. Em telas lg+ a barra some (lg:hidden) e getBoundingClientRect
-  // já retorna altura 0 sozinho, sem precisar de tratamento especial aqui.
+  // Mede até o limite real do próprio painel. Usar window.innerHeight aqui
+  // incluía áreas externas ao <main> (como a navegação mobile e seus
+  // paddings), fazendo a última borda da coluna terminar fora da área útil.
   const rowRef = useRef<HTMLDivElement>(null);
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
@@ -709,9 +699,8 @@ export function KanbanBoard({
     if (!el) return;
     function measure() {
       const top = el!.getBoundingClientRect().top;
-      const mobileNav = document.getElementById("mobile-bottom-nav");
-      const bottomReserved = mobileNav ? mobileNav.getBoundingClientRect().height : 0;
-      setRowHeight(Math.max(240, window.innerHeight - top - bottomReserved - 4));
+      const containerBottom = el!.parentElement?.getBoundingClientRect().bottom ?? window.innerHeight;
+      setRowHeight(Math.max(240, containerBottom - top - 4));
     }
     measure();
     window.addEventListener("resize", measure);

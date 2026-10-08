@@ -19,7 +19,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getBrazilParts, brazilDateKey } from "@/lib/timezone";
-import { performAction, recordExecution, matchesTarget, type TriggerConfig } from "@/lib/automations/engine";
+import { performActions, recordExecution, matchesTarget, type TriggerConfig } from "@/lib/automations/engine";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
@@ -187,7 +187,7 @@ export type IncomingMessageRef = {
 export async function dispatchMessageReceivedAutomations(
   organizationId: string,
   instance: { id: string; userId: string },
-  thread: { id: string; contactId: string | null; phoneNormalized: string },
+  thread: { id: string; contactId: string | null; phoneNormalized: string; customName?: string | null; whatsappName?: string | null },
   message: IncomingMessageRef,
 ): Promise<void> {
   // Áudio/figurinha/imagem sem legenda etc. — não tem palavra-chave pra
@@ -219,6 +219,8 @@ export async function dispatchMessageReceivedAutomations(
     // lib/automations/recipients.ts) — número de quem mandou ESTA mensagem,
     // já conhecido pela conversa mesmo sem Contact cadastrado ainda.
     clientPhoneNormalized: thread.phoneNormalized,
+    clientName: thread.customName ?? thread.whatsappName ?? undefined,
+    threadId: thread.id,
   };
 
   for (const rule of rules) {
@@ -237,7 +239,7 @@ export async function dispatchMessageReceivedAutomations(
 
     let result;
     try {
-      result = await performAction(rule, entity);
+      result = await performActions(rule, entity);
     } catch (err) {
       console.error(`[automations] erro inesperado ao executar ação (regra "${rule.name}", MESSAGE_RECEIVED)`, err);
       result = { success: false, detail: `Erro inesperado: ${err instanceof Error ? err.message : String(err)}` };

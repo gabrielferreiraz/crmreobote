@@ -171,13 +171,14 @@ export function HelpCenterProvider({
   // polling — é ajuda, não monitoramento, e não pode disputar banco com a
   // tela que a pessoa está usando.
   useEffect(() => {
-    let cancelled = false;
+    // Fechar a ajuda antes de a parte personalizada chegar cancela a busca.
+    const controller = new AbortController();
     const timeout = setTimeout(() => {
       if (document.visibilityState !== "visible") return;
-      fetch("/api/help/overview", { cache: "no-store" })
+      fetch("/api/help/overview", { cache: "no-store", signal: controller.signal })
         .then((res) => (res.ok ? res.json() : null))
         .then((data: HelpOverview | null) => {
-          if (!cancelled && data) setOverview(data);
+          if (data) setOverview(data);
         })
         .catch(() => {
           // Silencioso de propósito: a ajuda continua inteira sem a parte
@@ -186,7 +187,7 @@ export function HelpCenterProvider({
         });
     }, OVERVIEW_DELAY_MS);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timeout);
     };
   }, []);

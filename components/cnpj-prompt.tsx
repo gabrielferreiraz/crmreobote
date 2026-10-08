@@ -5,6 +5,7 @@ import { Building2, CheckCircle2 } from "lucide-react";
 import { Modal } from "./modal";
 import { LoadingDots } from "./loading-dots";
 import { readHelpCorner } from "@/lib/help/corner";
+import { brazilDateKey } from "@/lib/timezone";
 
 /** Mesma chave/estratégia do aviso de notificações (push-notifications-prompt.tsx):
  * sessionStorage, não localStorage — "configurar depois" vale pra esta sessão,
@@ -12,6 +13,20 @@ import { readHelpCorner } from "@/lib/help/corner";
  * cadastrado, e quem dispensa uma vez não deveria sumir do radar pra sempre.
  * Quem cadastra de verdade nunca mais vê (o GET passa a devolver a PJ). */
 const DISMISS_KEY = "cnpj_prompt_dismissed";
+
+/** "Mostrar depois": guarda o DIA (fuso de Campo Grande) em que foi adiado.
+ * Nada aparece pelo resto desse dia; no primeiro acesso do dia seguinte o
+ * modal volta. localStorage (não sessionStorage) porque o adiamento precisa
+ * sobreviver a fechar e reabrir o navegador. */
+const SNOOZE_KEY = "cnpj_prompt_snoozed_on";
+
+function isSnoozedToday(): boolean {
+  try {
+    return localStorage.getItem(SNOOZE_KEY) === brazilDateKey();
+  } catch {
+    return false;
+  }
+}
 
 /** 00.000.000/0000-00 conforme digita — só visual, o que vai pra API é
  * sempre só dígito (a rota normaliza de novo do lado de lá). */
@@ -55,36 +70,48 @@ export function CnpjPrompt() {
   }, []);
 
   useEffect(() => {
-    if (sessionStorage.getItem(DISMISS_KEY)) return;
+    if (sessionStorage.getItem(DISMISS_KEY) || isSnoozedToday()) return;
 
-    let cancelled = false;
+    // `aborted` do próprio controller substitui a flag `cancelled`: serve
+    // tanto pra cancelar a requisição quanto pra barrar o setTimeout abaixo
+    // depois que o componente saiu.
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/cnpj");
+        const res = await fetch("/api/cnpj", { signal: controller.signal });
         if (!res.ok) return; // sem PJ cadastrada não é erro; erro de verdade = fica quieto
         const data = await res.json();
         // Já tem PJ: nada a pedir.
         if (data.company) return;
-        if (!cancelled) {
-          // Mesmo respiro do aviso de notificações — abrir junto com a página
-          // atropela quem só queria abrir o CRM e olhar uma coisa.
-          setTimeout(() => !cancelled && setOpen(true), 1500);
-        }
+        // Mesmo respiro do aviso de notificações — abrir junto com a página
+        // atropela quem só queria abrir o CRM e olhar uma coisa.
+        setTimeout(() => !controller.signal.aborted && setOpen(true), 1500);
       } catch {
         // Rede fora, rota com problema: este aviso é secundário, nunca deve
         // virar um erro na cara de quem só queria usar o CRM.
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, []);
 
   function dismiss() {
     sessionStorage.setItem(DISMISS_KEY, "true");
     setOpen(false);
     setReminder(true);
+  }
+
+  /** Adia pro dia seguinte: some o modal E o lembrete do canto até o primeiro
+   * acesso de amanhã (a checagem acima, no mount, é quem traz de volta). */
+  function snoozeUntilTomorrow() {
+    try {
+      localStorage.setItem(SNOOZE_KEY, brazilDateKey());
+    } catch {
+      // Sem localStorage (navegação privada): cai no comportamento da sessão.
+      sessionStorage.setItem(DISMISS_KEY, "true");
+    }
+    setOpen(false);
+    setReminder(false);
   }
 
   /** Volta do lembrete pro modal já no campo de digitar — quem clicou ali já
@@ -164,7 +191,7 @@ export function CnpjPrompt() {
         // botão flutuante da ajuda nunca aparece (é hidden lg:flex) e não
         // há nada ali pra evitar; o lembrete continua sempre à esquerda
         // abaixo do breakpoint lg.
-        className={`surface-glass-panel fixed bottom-20 left-4 z-40 w-[calc(100%-2rem)] max-w-xs rounded-2xl p-3 shadow-2xl ring-1 ring-black/5 sm:bottom-4 dark:ring-white/10 ${avoidLeft ? "lg:right-4 lg:left-auto" : ""}`}
+        className={`surface-glass-panel fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-40 w-[calc(100%-2rem)] max-w-xs rounded-2xl p-3 shadow-2xl ring-1 ring-black/5 lg:bottom-4 dark:ring-white/10 ${avoidLeft ? "lg:right-4 lg:left-auto" : ""}`}
         style={{ animation: "panel-pop-in 380ms var(--ease-spring)" }}
       >
         <div className="flex items-start gap-2.5">
@@ -176,9 +203,14 @@ export function CnpjPrompt() {
             <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
               Na TV você ainda aparece com seu nome pessoal.
             </p>
-            <button type="button" onClick={reopen} className="btn-primary mt-2 w-full text-xs">
-              Cadastrar agora
-            </button>
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={reopen} className="btn-primary flex-1 text-xs">
+                Cadastrar agora
+              </button>
+              <button type="button" onClick={snoozeUntilTomorrow} className="btn-ghost text-xs">
+                Mostrar depois
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -246,8 +278,8 @@ export function CnpjPrompt() {
       {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" onClick={dismiss} className="btn-ghost text-xs">
-          Configurar depois
+        <button type="button" onClick={snoozeUntilTomorrow} className="btn-ghost text-xs">
+          Mostrar depois
         </button>
         {step === "ask" ? (
           <button type="button" onClick={() => setStep("typing")} className="btn-primary text-xs">

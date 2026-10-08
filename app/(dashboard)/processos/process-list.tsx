@@ -122,12 +122,8 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
         />
       </div>
 
-      {/* pb-24 no celular / lg:pb-3 no desktop — mesmo motivo de
-          deals-list.tsx: a barra de navegação inferior do celular é fixa,
-          fica por cima do conteúdo sem entrar no fluxo, e sem esse respiro
-          os últimos processos ficavam escondidos atrás dela mesmo rolando
-          até o fim. */}
-      <div className={`flex-1 space-y-2 overflow-y-auto pb-24 scrollbar-thin lg:pb-3 ${loading ? "opacity-60" : ""}`}>
+      {/* A lista rola dentro do painel; o rodapé mobile fica fora desta área. */}
+      <div className={`scrollbar-thin flex-1 space-y-2 overflow-y-auto pb-4 lg:pb-3 ${loading ? "opacity-60" : ""}`}>
         {processes.length === 0 ? (
           <p className="py-10 text-center text-sm text-neutral-400 dark:text-neutral-500">
             Nenhum processo encontrado.

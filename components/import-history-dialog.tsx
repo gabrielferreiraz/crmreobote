@@ -46,11 +46,11 @@ function IssueRowsPanel({ kind, batchId }: { kind: ImportKind; batchId: string }
   const [rows, setRows] = useState<IssueRow[] | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/${kind}/import/${batchId}`)
+    // Fechar o histórico (ou recolher a linha) cancela a busca do detalhe.
+    const controller = new AbortController();
+    fetch(`/api/${kind}/import/${batchId}`, { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
         if (!res.ok) {
           setError(data.error ?? "Erro ao carregar detalhe");
           setLoading(false);
@@ -60,14 +60,13 @@ function IssueRowsPanel({ kind, batchId }: { kind: ImportKind; batchId: string }
         setLoading(false);
       })
       .catch(() => {
-        if (!cancelled) {
-          setError("Falha de conexão.");
-          setLoading(false);
-        }
+        // Abort não é falha de conexão — não mostra erro nem desliga o
+        // "carregando" (o componente já está saindo da tela).
+        if (controller.signal.aborted) return;
+        setError("Falha de conexão.");
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [kind, batchId]);
 
   if (loading) {
@@ -114,7 +113,14 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
   const [batches, setBatches] = useState<ImportBatch[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [batchToDelete, setBatchToDelete] = useState<ImportBatch | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // `retryable: false` = o servidor recusou por um motivo que NÃO muda
+  // tentando de novo (contato do lote já usado em negócio/tarefa/conversa,
+  // lote já desfeito, lote de outra pessoa) — nesse caso o botão de
+  // confirmar some em vez de ficar ali repetindo o mesmo erro. Era o bug
+  // relatado: a recusa caía no lugar da DESCRIÇÃO do diálogo, em cinza, com
+  // o botão intacto — clicar de novo repetia a mesma mensagem, então parecia
+  // que o botão não fazia nada.
+  const [deleteError, setDeleteError] = useState<{ message: string; retryable: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   function loadBatches() {
@@ -151,7 +157,12 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
       const res = await fetch(`/api/${kind}/import/${batchToDelete.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setDeleteError(data.error ?? "Erro ao desfazer importação");
+        // 409 = recusa de regra (algum registro do lote já foi usado, ou o
+        // lote já tinha sido desfeito); 403/404 = não é seu pra desfazer.
+        // Nenhum desses muda clicando de novo. Qualquer outro (500, etc.) é
+        // falha momentânea e vale deixar tentar.
+        const retryable = ![403, 404, 409].includes(res.status);
+        setDeleteError({ message: data.error ?? "Erro ao desfazer importação", retryable });
         setDeleting(false);
         return;
       }
@@ -159,7 +170,7 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
       setDeleting(false);
       loadBatches();
     } catch {
-      setDeleteError("Falha de conexão. Tente novamente.");
+      setDeleteError({ message: "Falha de conexão. Tente novamente.", retryable: true });
       setDeleting(false);
     }
   }
@@ -287,12 +298,17 @@ export function ImportHistoryDialog({ kind, onClose }: { kind: ImportKind; onClo
       {batchToDelete && (
         <ConfirmDialog
           title={`Desfazer a importação de "${batchToDelete.fileName}"?`}
+          // A explicação da regra fica SEMPRE aqui; a recusa do servidor vai
+          // pro `error` abaixo (vermelho, destacado) — ver comentário em
+          // deleteError acima.
           description={
-            deleteError ??
-            (kind === "deals"
+            kind === "deals"
               ? `Apaga os ${batchToDelete.rowsCreated} negócio${batchToDelete.rowsCreated === 1 ? "" : "s"} criados por esse arquivo — só funciona se nenhum deles tiver sido alterado desde então (movido, ganho/perdido, ou já ter atividade registrada). O contato criado junto só é apagado se não tiver ganhado mais nada desde a importação. Essa ação não pode ser desfeita.`
-              : `Apaga os ${batchToDelete.rowsCreated} contato${batchToDelete.rowsCreated === 1 ? "" : "s"} criados por esse arquivo — só funciona se nenhum deles tiver ganho negócio, tarefa, conversa de WhatsApp, campanha ou processo desde então. Essa ação não pode ser desfeita.`)
+              : `Apaga os ${batchToDelete.rowsCreated} contato${batchToDelete.rowsCreated === 1 ? "" : "s"} criados por esse arquivo — só funciona se nenhum deles tiver ganho negócio, tarefa, conversa de WhatsApp, campanha ou processo desde então. Essa ação não pode ser desfeita.`
           }
+          error={deleteError?.message}
+          hideConfirm={deleteError?.retryable === false}
+          closeLabel={deleteError?.retryable === false ? "Fechar" : "Cancelar"}
           confirmLabel={deleting ? "Desfazendo…" : "Desfazer importação"}
           onClose={() => {
             setBatchToDelete(null);

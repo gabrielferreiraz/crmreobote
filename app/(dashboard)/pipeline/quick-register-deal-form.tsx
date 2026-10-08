@@ -117,21 +117,18 @@ export function QuickRegisterDealForm({
 
   useEffect(() => {
     if (initialJobTitles !== undefined) return;
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/job-titles");
+        const res = await fetch("/api/job-titles", { signal: controller.signal });
         if (!res.ok) return;
-        const data: JobTitleOption[] = await res.json();
-        if (!cancelled) setJobTitles(data);
+        setJobTitles((await res.json()) as JobTitleOption[]);
       } catch {
         // sem lista carregada, o Select fica vazio — POST /api/contacts ainda
         // barra no servidor se o cargo não vier preenchido.
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [initialJobTitles]);
 
   function applyParsed(parsed: ParsedLeadFields) {

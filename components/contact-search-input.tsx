@@ -69,7 +69,10 @@ export function ContactSearchInput({
 
   useEffect(() => {
     if (!query.trim()) return;
-    let cancelled = false;
+    // Mesmo raciocínio do command-palette: cancela a busca anterior ao
+    // digitar de novo — economiza a consulta e evita a resposta atrasada de
+    // um termo antigo sobrescrever o resultado do termo atual.
+    const controller = new AbortController();
     setLoading(true);
     const timeout = setTimeout(async () => {
       try {
@@ -78,18 +81,20 @@ export function ContactSearchInput({
         // select() abaixo). Só tem efeito de verdade pra quem já é limitado
         // aos próprios contatos (MEMBER); OWNER/MANAGER não mudam de
         // comportamento (ver app/api/contacts/route.ts).
-        const res = await fetch(`/api/contacts?q=${encodeURIComponent(query)}&includeOrphans=1`);
-        if (res.ok && !cancelled) setResults(await res.json());
+        const res = await fetch(`/api/contacts?q=${encodeURIComponent(query)}&includeOrphans=1`, { signal: controller.signal });
+        if (res.ok) setResults(await res.json());
       } catch {
         // Falha de rede: cai no estado "nenhum contato encontrado" em vez de
-        // travar em "Buscando..." pra sempre.
-        if (!cancelled) setResults([]);
+        // travar em "Buscando..." pra sempre. Cancelamento NÃO entra aqui —
+        // limpar a lista por causa de um abort apagaria o resultado que a
+        // busca seguinte ainda vai preencher.
+        if (!controller.signal.aborted) setResults([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 200);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timeout);
     };
   }, [query]);
@@ -305,26 +310,22 @@ function QuickCreateContactModal({
   const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const [jobTitlesRes, sourcesRes] = await Promise.all([fetch("/api/job-titles"), fetch("/api/lead-sources")]);
-        if (jobTitlesRes.ok) {
-          const data: JobTitleOption[] = await jobTitlesRes.json();
-          if (!cancelled) setJobTitles(data);
-        }
-        if (sourcesRes.ok) {
-          const data: LeadSourceOption[] = await sourcesRes.json();
-          if (!cancelled) setSources(data);
-        }
+        const [jobTitlesRes, sourcesRes] = await Promise.all([
+          fetch("/api/job-titles", { signal: controller.signal }),
+          fetch("/api/lead-sources", { signal: controller.signal }),
+        ]);
+        if (jobTitlesRes.ok) setJobTitles((await jobTitlesRes.json()) as JobTitleOption[]);
+        if (sourcesRes.ok) setSources((await sourcesRes.json()) as LeadSourceOption[]);
       } catch {
         // sem lista carregada, os Select somem vazios — POST /api/contacts ainda
-        // barra no servidor se o cargo não vier preenchido (origem é opcional)
+        // barra no servidor se o cargo não vier preenchido (origem é opcional).
+        // Vale também pro abort (fechou antes de carregar), que não é erro.
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, []);
 
   // Salva a cada mudança — sem debounce (campos pequenos, sessionStorage é

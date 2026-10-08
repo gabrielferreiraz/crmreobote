@@ -1198,6 +1198,17 @@ model Contact {
   // null pra contato criado manualmente/por API/webhook de anúncio/etc.
   importBatchId       String?
   createdAt           DateTime                  @default(now())
+  // Última vez que QUALQUER campo deste contato mudou — @updatedAt, então o
+  // Prisma carimba sozinho em todo update/updateMany (edição manual, ação em
+  // massa, assumir lead, atualização vinda de importação de planilha…).
+  // Pedido explícito: filtro "Última atualização" na página de Clientes, pra
+  // conferir o que uma importação acabou de mexer (ver
+  // app/(dashboard)/clientes/contacts-table.tsx). Linhas antigas foram
+  // preenchidas com o próprio createdAt na migração — "nunca mudou desde que
+  // entrou" é mais honesto que carimbar todo mundo com a data do deploy.
+  // SQL cru não passa por @updatedAt: quem escrever assim precisa setar o
+  // campo na mão (hoje nenhum caminho de escrita de Contact faz isso).
+  updatedAt           DateTime                  @updatedAt @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   responsavel        User?               @relation("ContactResponsavel", fields: [responsavelId], references: [id])
@@ -1226,6 +1237,10 @@ model Contact {
   // take/skip (o problema não é só "sem paginação", é paginação sem índice
   // pra ordenação nunca ser realmente barata em escala).
   @@index([organizationId, createdAt])
+  // Mesmo raciocínio do createdAt acima, pro filtro "Última atualização" da
+  // página de Clientes (ver updatedAt no campo): intervalo de data sobre a
+  // carteira inteira, que sem índice vira varredura + ordenação em memória.
+  @@index([organizationId, updatedAt])
   // Filtro de Estado (lista fechada de 27 UFs, sempre igualdade exata) — city
   // usa índice trigram à parte (ver migration 20260731 — GIN não é
   // declarável aqui, o gerador não modela esse tipo de índice) porque é
@@ -2307,6 +2322,9 @@ model AutomationRule {
   triggerConfig  Json?
   action         AutomationAction
   actionConfig   Json?
+  // Sequência ordenada de ações. Null nas regras antigas: o motor usa
+  // action/actionConfig como fallback, sem exigir migração de dados.
+  actions        Json?
   enabled        Boolean              @default(true)
   runCount       Int                  @default(0)
   lastRunAt      DateTime?
@@ -2411,6 +2429,7 @@ enum AutomationTrigger {
 
 enum AutomationAction {
   CREATE_TASK
+  CREATE_DEAL
   ADD_NOTE
   MARK_LOST
   SEND_PUSH

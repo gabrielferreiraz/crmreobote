@@ -195,7 +195,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />
-      <CnpjPrompt />
+      {/* Aviso de cadastro de CNPJ (nome da empresa no Ranking da TV): só pros
+          consultores — o Dono não precisa ser cobrado por ele. */}
+      {membership.role !== "OWNER" && <CnpjPrompt />}
       <ProductivityTipsHost />
       {membership.academyOnboardingStatus === "CRM_UNLOCKED" && !membership.academyShortcutHintSeenAt && (
         <AcademyShortcutHint />

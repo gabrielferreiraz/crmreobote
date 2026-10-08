@@ -72,20 +72,20 @@ export function ContactInfoPanel({
   const [creatingTask, setCreatingTask] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    // Trocar de conversa rápido (ou sair da tela) cancela a busca do painel
+    // anterior — sem isso, cada conversa aberta na varredura deixava uma
+    // consulta de contato correndo até o fim.
+    const controller = new AbortController();
     setLoading(true);
     setContact(null);
-    fetch(`/api/contacts/${contactId}`)
+    fetch(`/api/contacts/${contactId}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled) setContact(data);
-      })
+      .then((data) => setContact(data))
+      .catch(() => {}) // abort/rede: o painel fica no estado vazio de sempre
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [contactId]);
 
   return (

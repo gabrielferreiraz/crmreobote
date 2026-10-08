@@ -92,37 +92,32 @@ export function BulkSendMessageDialog({
   const [confirmingBulkSend, setConfirmingBulkSend] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/message-scripts?mine=true");
+        const res = await fetch("/api/message-scripts?mine=true", { signal: controller.signal });
         if (!res.ok) throw new Error();
-        const data: ScriptOption[] = await res.json();
-        if (!cancelled) setScripts(data);
+        setScripts((await res.json()) as ScriptOption[]);
       } catch {
-        if (!cancelled) setLoadError("Não foi possível carregar seus scripts.");
+        // Abort (diálogo fechado) não vira erro na tela.
+        if (!controller.signal.aborted) setLoadError("Não foi possível carregar seus scripts.");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     fetch("/api/deals/bulk-send-message/check-provider", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dealIds }),
+      signal: controller.signal,
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { hasEvolutionInstance?: boolean } | null) => {
-        if (!cancelled) setHasEvolutionInstance(data?.hasEvolutionInstance ?? false);
-      })
+      .then((data: { hasEvolutionInstance?: boolean } | null) => setHasEvolutionInstance(data?.hasEvolutionInstance ?? false))
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

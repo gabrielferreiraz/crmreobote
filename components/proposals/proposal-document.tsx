@@ -169,6 +169,25 @@ export function ProposalDocument({ data }: { data: ProposalPrintData }) {
           box-sizing: border-box;
         }
 
+        html.proposal-pdf-export .proposal-container {
+          width: 209mm !important;
+          min-width: 209mm !important;
+          max-width: 209mm !important;
+        }
+        html.proposal-pdf-export .proposal-page {
+          width: 209mm !important;
+          min-width: 209mm !important;
+          max-width: 209mm !important;
+          height: 296mm !important;
+          min-height: 296mm !important;
+          max-height: 296mm !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+        html.proposal-pdf-export .no-print {
+          display: none !important;
+        }
+
         @media screen {
           .proposal-page {
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);

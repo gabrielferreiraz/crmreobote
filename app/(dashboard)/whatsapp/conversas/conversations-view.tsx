@@ -309,13 +309,23 @@ export function ConversationsView({
   const unreadByThreadRef = useRef<Map<string, number>>(
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
+  /** Busca de conversas ainda em voo — ver refreshConversations abaixo. */
+  const inFlightRef = useRef<AbortController | null>(null);
 
   // Reaproveitado pelo polling de segurança E pelo evento ao vivo (useWhatsAppLive
   // abaixo) — os dois só decidem QUANDO buscar de novo, a lógica de "o que
   // fazer com a resposta" é uma só.
   async function refreshConversations() {
+    // Uma busca por vez: a anterior ainda em voo é DERRUBADA quando chega
+    // uma nova (SSE pode disparar várias seguidas numa conversa movimentada,
+    // e o poll ainda pode cair em cima) — só a última interessa, e esta é
+    // uma das consultas mais caras do sistema. Também é o que permite
+    // cancelar ao sair da tela (ver o efeito de desmontagem abaixo).
+    inFlightRef.current?.abort();
+    const controller = new AbortController();
+    inFlightRef.current = controller;
     try {
-      const res = await fetch("/api/whatsapp/conversations");
+      const res = await fetch("/api/whatsapp/conversations", { signal: controller.signal });
       if (!res.ok) return;
       const next: Conversation[] = await res.json();
 
@@ -335,9 +345,16 @@ export function ConversationsView({
         setTimeout(() => setJustArrived(new Set()), 1400);
       }
     } catch {
-      // Silencioso: mantém a última lista boa em caso de falha temporária de rede.
+      // Silencioso: mantém a última lista boa em caso de falha temporária de
+      // rede — e também quando a própria tela cancelou (abort), que não é erro.
+    } finally {
+      if (inFlightRef.current === controller) inFlightRef.current = null;
     }
   }
+
+  // Sair de Conversas no meio do carregamento derruba a requisição em vez de
+  // deixar o Postgres terminando uma lista que ninguém mais vai ver.
+  useEffect(() => () => inFlightRef.current?.abort(), []);
 
   // Rede de segurança, não o mecanismo principal — ver comentário análogo
   // em components/whatsapp-chat.tsx. Cobre só a conexão SSE cair sem o

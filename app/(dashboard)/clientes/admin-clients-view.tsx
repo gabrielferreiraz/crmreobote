@@ -50,7 +50,7 @@ export async function AdminClientsView() {
             {clients.length} cliente{clients.length === 1 ? "" : "s"} com negócio ganho
           </p>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-3">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-4 lg:pb-3">
           <AdminClientsTable clients={clients} />
         </div>
       </div>

@@ -84,6 +84,8 @@ const CLIENTES_DEFAULT_FILTERS_JSON = JSON.stringify({
   hasWhatsappFilter: "",
   registeredFrom: "",
   registeredTo: "",
+  updatedFrom: "",
+  updatedTo: "",
   pageSize: DEFAULT_PAGE_SIZE,
 });
 
@@ -216,6 +218,12 @@ export function ContactsTable({
   const [hasWhatsappFilter, setHasWhatsappFilter] = useState<"" | "yes" | "no">("");
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
+  // "Última atualização" (Contact.updatedAt) — separado de "Cadastrado em" de
+  // propósito: pedido pra conferir o que uma importação acabou de mexer, e
+  // esses contatos são justamente ANTIGOS (entraram há meses) que acabaram de
+  // ser atualizados com os dados da planilha nova.
+  const [updatedFrom, setUpdatedFrom] = useState("");
+  const [updatedTo, setUpdatedTo] = useState("");
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -242,7 +250,7 @@ export function ContactsTable({
 
   // Lembra o filtro usado da última vez nesta tela (F5, fechar a aba e
   // voltar, ou navegar pra outra tela e voltar) — ver lib/use-persisted-filters.ts.
-  const persistedFilterValues = { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, pageSize };
+  const persistedFilterValues = { search, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, updatedFrom, updatedTo, pageSize };
   const { hydrated } = usePersistedFilters(
     "clientes",
     persistedFilterValues,
@@ -259,6 +267,8 @@ export function ContactsTable({
       if (saved.hasWhatsappFilter !== undefined) setHasWhatsappFilter(saved.hasWhatsappFilter);
       if (saved.registeredFrom !== undefined) setRegisteredFrom(saved.registeredFrom);
       if (saved.registeredTo !== undefined) setRegisteredTo(saved.registeredTo);
+      if (saved.updatedFrom !== undefined) setUpdatedFrom(saved.updatedFrom);
+      if (saved.updatedTo !== undefined) setUpdatedTo(saved.updatedTo);
       if (saved.pageSize !== undefined) setPageSize(saved.pageSize);
     },
   );
@@ -289,6 +299,8 @@ export function ContactsTable({
     if (hasWhatsappFilter) params.set("hasWhatsapp", hasWhatsappFilter);
     if (registeredFrom) params.set("registeredFrom", brazilDateStringToUTC(registeredFrom).toISOString());
     if (registeredTo) params.set("registeredTo", brazilEndOfDayUTC(registeredTo).toISOString());
+    if (updatedFrom) params.set("updatedFrom", brazilDateStringToUTC(updatedFrom).toISOString());
+    if (updatedTo) params.set("updatedTo", brazilEndOfDayUTC(updatedTo).toISOString());
     return params;
   };
 
@@ -312,31 +324,39 @@ export function ContactsTable({
         return;
       }
     }
-    let cancelled = false;
+    // AbortController (não só uma flag `cancelled`): sair da tela no meio do
+    // carregamento precisa DERRUBAR a requisição, não apenas ignorar a
+    // resposta. Esta é a consulta mais cara do sistema (ver
+    // lib/contacts/list-query.ts); sem o abort, clicar em Clientes e trocar
+    // pra Pipeline antes de carregar deixava o Postgres terminando uma
+    // consulta que ninguém mais ia olhar, disputando o mesmo pool com a tela
+    // que a pessoa realmente quer ver. A navegação do Next já é
+    // interrompível (ver app/(dashboard)/loading.tsx); isto faz o
+    // cancelamento valer no fio também.
+    const controller = new AbortController();
     setLoading(true);
     const params = buildFilterParams();
     params.set("skip", String((page - 1) * pageSize));
     params.set("limit", String(pageSize));
 
-    fetch(`/api/contacts?${params.toString()}`)
+    fetch(`/api/contacts?${params.toString()}`, { signal: controller.signal })
       .then(async (res) => {
-        if (!res.ok || cancelled) return;
+        if (!res.ok) return;
         const data: Contact[] = await res.json();
-        if (cancelled) return;
         setContacts(data);
         setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
       })
+      // Abort não é erro (ver isAbortError) — e qualquer outra falha já era
+      // silenciosa aqui antes, mantendo a última lista boa na tela.
+      .catch(() => {})
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-          setFiltersReady(true);
-        }
+        if (controller.signal.aborted) return;
+        setLoading(false);
+        setFiltersReady(true);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, initialContacts]);
+  }, [hydrated, page, pageSize, debouncedSearch, sourceFilter, jobTitleFilter, tagFilter, responsavelFilter, stateFilter, cityFilter, onlyWithDeals, hasEmailFilter, hasWhatsappFilter, registeredFrom, registeredTo, updatedFrom, updatedTo, initialContacts]);
 
   // Junta a lista editável (Configurações → Origens) com qualquer valor
   // visto na página atual — cobre valor "antigo" que só apareceria depois de
@@ -383,7 +403,9 @@ export function ContactsTable({
     !!hasEmailFilter ||
     !!hasWhatsappFilter ||
     !!registeredFrom ||
-    !!registeredTo;
+    !!registeredTo ||
+    !!updatedFrom ||
+    !!updatedTo;
   // Busca por texto também "filtra" pra fins de mostrar a contagem certa no
   // cabeçalho — sem isso, digitar algo na busca não bastava pra trocar "na
   // sua carteira" (o total INTEIRO da organização) por "encontrada(s)" (o
@@ -402,6 +424,8 @@ export function ContactsTable({
     setHasWhatsappFilter("");
     setRegisteredFrom("");
     setRegisteredTo("");
+    setUpdatedFrom("");
+    setUpdatedTo("");
     setPage(1);
   }
 
@@ -956,6 +980,23 @@ export function ContactsTable({
               }}
             />
           </div>
+          <div className="space-y-1.5">
+            <label className="field-label">Última atualização</label>
+            <DateRangeField
+              from={updatedFrom}
+              to={updatedTo}
+              className="w-full py-1.5 text-sm"
+              quickRanges={QUICK_RANGES}
+              onSelect={(r) => {
+                setUpdatedFrom(r.from);
+                setUpdatedTo(r.to);
+                setPage(1);
+              }}
+            />
+            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+              Qualquer alteração no contato — inclusive a que a importação de planilha faz num contato que já existia.
+            </p>
+          </div>
         </FilterPopover>
         {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400 dark:text-neutral-500" strokeWidth={2.5} />}
         {selectedIds.size > 0 && (
@@ -1032,11 +1073,9 @@ export function ContactsTable({
       {bulkError && <p className="shrink-0 text-sm text-red-600 dark:text-red-400">{bulkError}</p>}
       {bulkNotice && <p className="shrink-0 text-sm text-neutral-500 dark:text-neutral-400">{bulkNotice}</p>}
 
-      {/* min-h-0 flex-1 overflow-y-auto: só ESTE bloco rola (cabeçalho de
-          cima e paginação de baixo ficam sempre à vista, fora do scroll).
-          pb-24 lg:pb-3 dá espaço pra última linha não ficar embaixo da barra
-          inferior fixa do celular (MobileNav) — mesmo valor de deals-list.tsx. */}
-      <div className="min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-3">
+      {/* Só este bloco rola; cabeçalho e paginação ficam sempre à vista. A
+          navegação mobile já ocupa espaço próprio no shell. */}
+      <div className="min-h-0 flex-1 overflow-y-auto pb-4 lg:pb-3">
       {!filtersReady ? (
         // Ainda esperando a 1ª busca pós-restauração do localStorage (ver
         // filtersReady acima) — evita piscar `initialContacts` (sem o filtro
@@ -1352,6 +1391,16 @@ export function ContactsTable({
                     </td>
                     <td className="border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 text-xs font-mono text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
                       {new Date(c.createdAt).toLocaleDateString("pt-BR")}
+                      {/* Segunda linha só quando o contato MUDOU depois de
+                          entrar — é o que responde "o que a importação
+                          acabou de atualizar?" sem precisar de uma coluna
+                          nova (a tabela já é larga). Contato nunca editado
+                          tem updatedAt == createdAt e não mostra nada. */}
+                      {new Date(c.updatedAt).toLocaleDateString("pt-BR") !== new Date(c.createdAt).toLocaleDateString("pt-BR") && (
+                        <span className="block text-[11px] text-neutral-400 dark:text-neutral-500" title="Última atualização">
+                          ed. {new Date(c.updatedAt).toLocaleDateString("pt-BR")}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <EditContactDialog contact={c} sources={sources} jobTitles={jobTitles} members={members} customFields={customFields} />
@@ -1788,7 +1837,7 @@ function DealsBlockDialog({
             await onConfirm();
             setLoading(false);
           }}
-          className="btn-primary bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+          className="btn-danger"
         >
           {loading ? "Apagando…" : "Apagar mesmo assim"}
         </button>

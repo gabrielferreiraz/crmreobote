@@ -35,12 +35,14 @@ export function CreateDealForContactDialog({
   members,
   creditTypes,
   onCreated,
+  triggerClassName,
 }: {
   contactId: string;
   pipelines: PipelineOption[];
   members: MemberOption[];
   creditTypes: CreditTypeOption[];
   onCreated: (deal: CreatedDeal) => void;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pipelineId, setPipelineId] = useState(pipelines[0]?.id ?? "");
@@ -101,7 +103,7 @@ export function CreateDealForContactDialog({
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="btn-primary btn-sm">
+      <button type="button" onClick={() => setOpen(true)} className={triggerClassName ?? "btn-primary btn-sm"}>
         <Plus className="h-4 w-4" strokeWidth={2.5} />
         Novo negócio
       </button>

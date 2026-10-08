@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Inbox, Trash2, AlertCircle, Briefcase, UserCheck, ChevronRight } from "lucide-react";
+import { Inbox, Trash2, AlertCircle, Briefcase, UserCheck } from "lucide-react";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -142,7 +142,33 @@ export function ContactTabs({
 
   return (
     <div>
-      <div className="relative mb-5 flex w-full max-w-[340px] rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-950/80 p-1">
+      <div className="mb-4 grid grid-cols-2 border-b border-neutral-200 dark:border-neutral-800 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setTab("deals")}
+          className={`relative flex h-12 items-center justify-center gap-2 text-sm font-medium transition-colors ${
+            tab === "deals" ? "text-brand" : "text-neutral-500 dark:text-neutral-400"
+          }`}
+        >
+          <Briefcase className="h-4 w-4" strokeWidth={2} />
+          Negócios
+          {deals.length > 0 && <span className="text-xs tabular-nums text-neutral-400">{deals.length}</span>}
+          {tab === "deals" && <span className="absolute inset-x-3 -bottom-px h-0.5 bg-brand" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("info")}
+          className={`relative flex h-12 items-center justify-center gap-2 text-sm font-medium transition-colors ${
+            tab === "info" ? "text-brand" : "text-neutral-500 dark:text-neutral-400"
+          }`}
+        >
+          <UserCheck className="h-4 w-4" strokeWidth={2} />
+          Dados
+          {tab === "info" && <span className="absolute inset-x-3 -bottom-px h-0.5 bg-brand" />}
+        </button>
+      </div>
+
+      <div className="relative mb-5 hidden w-full max-w-[340px] rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-950/80 lg:flex">
         <div
           className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-lg bg-gradient-to-r from-brand to-brand-dark shadow-md shadow-brand/20 transition-transform duration-200 ease-spring"
           style={{ transform: tab === "info" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
@@ -179,11 +205,11 @@ export function ContactTabs({
       </div>
 
       {tab === "deals" ? (
-        <div className="animate-bubble-in space-y-2.5">
+        <div className="animate-bubble-in space-y-0 lg:space-y-2.5">
           {deleteError && <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>}
 
           {deals.length === 0 ? (
-            <div className="card border border-neutral-200 dark:border-neutral-800">
+            <div className="contact-info-card card border border-neutral-200 dark:border-neutral-800">
               <EmptyState
                 icon={Inbox}
                 title="Nenhum negócio vinculado"
@@ -200,9 +226,9 @@ export function ContactTabs({
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-2 px-1">
+              <div className="block lg:flex lg:items-center lg:justify-between lg:gap-2 lg:px-1">
                 {deals.length > 1 ? (
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
+                  <p className="hidden text-xs font-medium text-neutral-500 dark:text-neutral-400 lg:block">
                     {deals.length} negócios · {deals.filter((d) => d.status === "OPEN").length} em andamento
                     {deals.some((d) => d.status === "OPEN") && (
                       <> · <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{formatCurrency(deals.filter((d) => d.status === "OPEN").reduce((sum, d) => sum + (d.value ?? 0), 0))}</span> em aberto</>
@@ -217,6 +243,7 @@ export function ContactTabs({
                   members={members}
                   creditTypes={creditTypes}
                   onCreated={(deal: CreatedDeal) => setDeals((prev) => [deal, ...prev])}
+                  triggerClassName="flex h-12 w-full items-center gap-2 border-b border-neutral-200 px-1 text-sm font-medium text-brand transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900 lg:h-8 lg:w-auto lg:justify-center lg:rounded-md lg:border-0 lg:bg-brand lg:px-3 lg:text-xs lg:font-semibold lg:text-white lg:hover:bg-brand-dark"
                 />
               </div>
               {deals.map((deal) => {
@@ -229,17 +256,17 @@ export function ContactTabs({
                 return (
                   <div
                     key={deal.id}
-                    className="card group relative border border-neutral-200 dark:border-neutral-800/80 transition-all duration-200 hover:border-brand/40 hover:bg-neutral-50 dark:hover:bg-neutral-900/90 shadow-sm"
+                    className="contact-deal-card card group relative border border-neutral-200 shadow-sm transition-all duration-200 hover:border-brand/40 hover:bg-neutral-50 dark:border-neutral-800/80 dark:hover:bg-neutral-900/90"
                   >
                     <Link
                       href={`/negocios/${deal.id}`}
                       className="block p-4 text-sm"
                     >
-                      <div className="flex items-center justify-between gap-2 pr-8">
-                        <span className="min-w-0 truncate font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-brand transition-colors">
+                      <div className="flex items-center justify-between gap-2 pr-11 lg:pr-8">
+                        <span className="min-w-0 break-words font-semibold text-neutral-900 transition-colors group-hover:text-brand dark:text-neutral-100 lg:truncate">
                           {deal.name}
                         </span>
-                        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusBadgeStyle}`}>
+                        <span className={`contact-deal-status shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusBadgeStyle}`}>
                           {STATUS_LABEL[deal.status].label}
                         </span>
                       </div>
@@ -279,7 +306,7 @@ export function ContactTabs({
         </div>
       ) : (
         <div className="animate-bubble-in max-w-xl space-y-3">
-          <div className="card space-y-2 p-4 text-sm">
+          <div className="contact-info-card card space-y-2 p-4 text-sm">
             {infoRows.map((row) => (
               <Row key={row.label} label={row.label} value={row.value} />
             ))}

@@ -263,19 +263,24 @@ function DeliveryHistoryModal({ webhook, onClose }: { webhook: WebhookSubscripti
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    // Fechar o modal cancela a busca do histórico.
+    const controller = new AbortController();
     (async () => {
-      const res = await fetch(`/api/webhook-subscriptions/${webhook.id}/deliveries`);
-      if (cancelled) return;
-      if (!res.ok) {
-        setError("Não foi possível carregar o histórico.");
-        return;
+      try {
+        const res = await fetch(`/api/webhook-subscriptions/${webhook.id}/deliveries`, { signal: controller.signal });
+        if (!res.ok) {
+          setError("Não foi possível carregar o histórico.");
+          return;
+        }
+        setDeliveries(await res.json());
+      } catch {
+        // Abort (modal fechado) não mostra erro; falha de rede sim — antes
+        // essa promessa rejeitava sem tratamento nenhum e o modal ficava
+        // "carregando" pra sempre, sem explicação.
+        if (!controller.signal.aborted) setError("Não foi possível carregar o histórico.");
       }
-      setDeliveries(await res.json());
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [webhook.id]);
 
   return (

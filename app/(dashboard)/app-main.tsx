@@ -45,25 +45,22 @@ export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAppShell = APP_SHELL_ROUTES.some((route) => pathname === route);
   const isFullWidth = FULL_WIDTH_ROUTES.some((route) => pathname === route);
+  const hasFlushMobileStickyHeader = pathname.startsWith("/negocios/");
 
   return (
     <main
-      className={`flex-1 overflow-x-hidden px-4 pt-4 lg:px-8 lg:pt-8 ${
+      className={`min-h-0 flex-1 overflow-x-hidden px-4 lg:px-8 lg:pt-8 ${
+        hasFlushMobileStickyHeader ? "pt-0" : "pt-4"
+      } ${
         isAppShell
           ? // Sem overflow-y-auto NEM scrollbar-gutter aqui — não tem scroll
             // nenhum pra reservar espaço, então reservar só criava uma faixa
             // vazia do lado (ver mesma conversa) sem nunca ter conteúdo pra
             // rolar de verdade.
             //
-            // pb pequeno (não o pb-28 de baixo) — o motivo do pb-28 nas
-            // páginas normais é sobrar rodapé visível numa página que ROLA
-            // (ver comentário abaixo); aqui o painel é de altura fixa
-            // (h-full até aqui em cima), então aquele respiro gigante só
-            // cortava a parte de baixo do painel à toa, sem servir pra nada
-            // — pb pequeno é só a moldura/respiro visual mesmo. Subiu um
-            // pouco (pb-3→4, pb-4→6) — pedido explícito de dar mais respiro
-            // embaixo "em toda tela"; continua bem menor que o pb-28 de
-            // baixo, então não cria scroll novo nem esconde nada do painel.
+            // O menu mobile agora participa do fluxo do shell. Este padding
+            // é apenas a moldura visual do painel, não uma compensação pela
+            // navegação inferior.
             "overflow-y-hidden pb-4 lg:pb-6"
           : // scrollbar-gutter reserva o espaço da barra de rolagem o tempo
             // todo — sem isso, trocar o filtro de período no Relatórios (ou
@@ -71,19 +68,18 @@ export function AppMain({ children }: { children: React.ReactNode }) {
             // barra aparecer/sumir e o conteúdo inteiro "pular" alguns
             // pixels pro lado.
             //
-            // pb-28 (96px+) sempre, em qualquer tamanho de tela — já
-            // tentamos um `lg:pb-8` (32px) menor no desktop pra "economizar"
-            // espaço, mas isso fazia toda página comum (Relatórios,
-            // Configurações, Início) voltar a ficar com o último elemento
-            // colado na borda da janela — o problema real e recorrente.
-            // Nunca reduza esse valor no desktop de novo sem confirmar que o
-            // rodapé de uma página comprida (ex.: Configurações) sobra
-            // visível. Clientes saiu da lista de exemplos (virou app-shell
-            // acima, com o próprio pb interno — ver contacts-table.tsx).
-            "overflow-y-auto pb-28 [scrollbar-gutter:stable] lg:pb-24"
+            // No mobile basta um respiro curto porque a navegação já ocupa
+            // espaço real. O desktop mantém a folga maior das páginas longas.
+            "overflow-y-auto pb-6 [scrollbar-gutter:stable] lg:pb-24"
       }`}
     >
-      <div className={`mx-auto h-full w-full ${isFullWidth ? "" : "max-w-[1500px]"}`}>{children}</div>
+      <div
+        className={`mx-auto w-full ${isAppShell ? "h-full min-h-0" : "min-h-full"} ${
+          isFullWidth ? "" : "max-w-[1500px]"
+        }`}
+      >
+        {children}
+      </div>
     </main>
   );
 }

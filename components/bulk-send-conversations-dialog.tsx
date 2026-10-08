@@ -97,29 +97,26 @@ export function BulkSendConversationsDialog({
 
   useEffect(() => {
     if (!hasDeals) return;
-    let cancelled = false;
+    const controller = new AbortController();
     fetch("/api/deals/bulk-send-message/check-provider", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dealIds }),
+      signal: controller.signal,
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { hasEvolutionInstance?: boolean } | null) => {
-        if (!cancelled) setHasEvolutionInstance(data?.hasEvolutionInstance ?? false);
-      })
+      .then((data: { hasEvolutionInstance?: boolean } | null) => setHasEvolutionInstance(data?.hasEvolutionInstance ?? false))
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
-        const fetches: Promise<Response>[] = [fetch("/api/message-scripts?mine=true")];
-        if (hasLeads) fetches.push(fetch("/api/pipelines"));
+        const fetches: Promise<Response>[] = [fetch("/api/message-scripts?mine=true", { signal: controller.signal })];
+        if (hasLeads) fetches.push(fetch("/api/pipelines", { signal: controller.signal }));
 
         const results = await Promise.all(fetches);
         if (results.some((r) => !r.ok)) throw new Error();
@@ -127,7 +124,6 @@ export function BulkSendConversationsDialog({
         const scriptsData: ScriptOption[] = await results[0].json();
         const pipelinesData: PipelineOption[] = hasLeads ? await results[1].json() : [];
 
-        if (cancelled) return;
         setScripts(scriptsData);
         setPipelines(pipelinesData);
         if (pipelinesData.length > 0) {
@@ -136,12 +132,11 @@ export function BulkSendConversationsDialog({
           if (firstStage) setStageId(firstStage.id);
         }
       } catch {
-        if (!cancelled) setLoadError("Não foi possível carregar os dados do formulário.");
+        // Abort (diálogo fechado) não vira erro na tela.
+        if (!controller.signal.aborted) setLoadError("Não foi possível carregar os dados do formulário.");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

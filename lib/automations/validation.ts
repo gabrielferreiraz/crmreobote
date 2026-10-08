@@ -45,6 +45,7 @@ const MAX_KEYWORD_LENGTH = 100;
 
 export const VALID_ACTIONS: $Enums.AutomationAction[] = [
   "CREATE_TASK",
+  "CREATE_DEAL",
   "ADD_NOTE",
   "MARK_LOST",
   "SEND_PUSH",
@@ -210,6 +211,16 @@ export async function validateTriggerConfig(
  */
 export type AutomationActor = { userId: string; role: string | undefined; previousActionConfig?: unknown };
 
+export function validateActionTriggerCompatibility(
+  trigger: $Enums.AutomationTrigger,
+  action: $Enums.AutomationAction,
+): string | null {
+  if (action === "CREATE_DEAL" && trigger !== "CONTACT_NO_DEAL" && trigger !== "MESSAGE_RECEIVED") {
+    return "Criar negócio só pode ser usado com Contato sem negócio ou Mensagem recebida";
+  }
+  return null;
+}
+
 function canUseSender(senderId: string, key: "whatsappSenderId" | "scriptSenderId", actor: AutomationActor): boolean {
   if (actor.role === "OWNER" || actor.role === "MANAGER" || senderId === actor.userId) return true;
   const previous = actor.previousActionConfig as Record<string, unknown> | null | undefined;
@@ -224,6 +235,28 @@ export async function validateActionConfig(
   actionConfig: Record<string, unknown> | undefined,
   actor: AutomationActor,
 ): Promise<string | null> {
+  if (action === "CREATE_DEAL") {
+    const ownerId = actionConfig?.dealOwnerId as string | undefined;
+    const pipelineId = actionConfig?.dealPipelineId as string | undefined;
+    const stageId = actionConfig?.dealStageId as string | undefined;
+    const dealName = actionConfig?.dealName as string | undefined;
+    if (!ownerId) return "Selecione o responsável pelo novo negócio";
+    if (!pipelineId || !stageId) return "Selecione o funil e a etapa do novo negócio";
+    if (dealName && dealName.trim().length > 200) return "O nome do negócio deve ter no máximo 200 caracteres";
+    if (actor.role !== "OWNER" && actor.role !== "MANAGER" && ownerId !== actor.userId) {
+      return "Você só pode criar negócios para si mesmo nesta automação";
+    }
+
+    const [member, stage] = await Promise.all([
+      prisma.organizationUser.findFirst({ where: { organizationId, userId: ownerId, active: true }, select: { userId: true } }),
+      prisma.pipelineStage.findFirst({
+        where: { id: stageId, pipelineId, pipeline: { organizationId } },
+        select: { id: true },
+      }),
+    ]);
+    if (!member) return "Responsável inválido ou inativo";
+    if (!stage) return "Funil ou etapa inválida";
+  }
   if (action === "MARK_LOST") {
     const lossReasonId = actionConfig?.lossReasonId as string | undefined;
     if (!lossReasonId) return "Selecione o motivo de perda";

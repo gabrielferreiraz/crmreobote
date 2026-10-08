@@ -47,6 +47,15 @@ export type ContactsFilterParams = {
   hasWhatsapp?: "yes" | "no";
   registeredFrom?: Date;
   registeredTo?: Date;
+  /** Filtro "Última atualização" (Contact.updatedAt) — pedido pra conferir o
+   * que uma importação acabou de mexer: a importação atualiza contato que já
+   * existe com o que a planilha traz de diferente (ver
+   * app/api/contacts/import/route.ts), e sem isto não havia como achar quem
+   * mudou. Separado de registeredFrom/To de propósito: "entrou no CRM" e
+   * "mudou pela última vez" são perguntas diferentes, e o caso de uso aqui é
+   * justamente contato ANTIGO que acabou de ser atualizado. */
+  updatedFrom?: Date;
+  updatedTo?: Date;
 };
 
 /**
@@ -55,7 +64,7 @@ export type ContactsFilterParams = {
  * paginação mostra um total que a busca não confirma.
  */
 export function buildContactsWhere(params: ContactsFilterParams): Prisma.ContactWhereInput {
-  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, tag, hasEmail, hasWhatsapp, registeredFrom, registeredTo } = params;
+  const { organizationId, q, source, jobTitle, responsavelId, includeUnassigned, state, city, onlyWithDeals, tag, hasEmail, hasWhatsapp, registeredFrom, registeredTo, updatedFrom, updatedTo } = params;
   const digits = q ? (normalizePhoneNumber(q) ?? "") : "";
 
   const where: Prisma.ContactWhereInput = {
@@ -124,6 +133,13 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
     where.createdAt = {
       ...(registeredFrom ? { gte: registeredFrom } : {}),
       ...(registeredTo ? { lte: registeredTo } : {}),
+    };
+  }
+
+  if (updatedFrom || updatedTo) {
+    where.updatedAt = {
+      ...(updatedFrom ? { gte: updatedFrom } : {}),
+      ...(updatedTo ? { lte: updatedTo } : {}),
     };
   }
 
@@ -222,6 +238,7 @@ export async function fetchContactsList(params: ContactsFilterParams & { skip?: 
       responsavelId: true,
       responsavel: { select: { id: true, name: true } },
       createdAt: true,
+      updatedAt: true,
       _count: { select: { deals: true } },
     },
     skip,

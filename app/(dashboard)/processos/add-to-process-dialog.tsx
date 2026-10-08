@@ -54,20 +54,23 @@ export function AddToProcessDialog({
       setResults([]);
       return;
     }
-    let cancelled = false;
+    // Cancela a busca anterior ao digitar de novo — mesmo raciocínio de
+    // components/contact-search-input.tsx: economiza a consulta e impede
+    // que a resposta de um termo antigo sobrescreva a do termo atual.
+    const controller = new AbortController();
     setLoading(true);
     const timeout = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/processes/available-deals?q=${encodeURIComponent(query)}`);
-        if (res.ok && !cancelled) setResults(await res.json());
+        const res = await fetch(`/api/processes/available-deals?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        if (res.ok) setResults(await res.json());
       } catch {
-        if (!cancelled) setResults([]);
+        if (!controller.signal.aborted) setResults([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 250);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timeout);
     };
   }, [query]);

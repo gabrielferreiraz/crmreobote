@@ -49,7 +49,10 @@ export function StaleDealsList({
       skipNextFetch.current = false;
       return;
     }
-    let cancelled = false;
+    // Sair do Início antes de a lista chegar derruba a consulta (ver o mesmo
+    // padrão em clientes/contacts-table.tsx) — é a mesma rota pesada de
+    // /api/deals, que ainda faz contagem e somas junto.
+    const controller = new AbortController();
     setLoading(true);
     const params = new URLSearchParams({
       status: "OPEN",
@@ -58,21 +61,21 @@ export function StaleDealsList({
       skip: String((page - 1) * pageSize),
       limit: String(pageSize),
     });
-    fetch(`/api/deals?${params}`)
+    fetch(`/api/deals?${params}`, { signal: controller.signal })
       .then(async (res) => {
-        if (cancelled) return;
         if (!res.ok) { setDeals([]); return; }
         const data = (await res.json()) as StaleDeal[];
         setDeals(Array.isArray(data) ? data : []);
         setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
       })
-      .catch(() => { if (!cancelled) setDeals([]); })
+      // Esvaziar a lista só faz sentido em falha de verdade — num abort a
+      // tela está saindo (ou já vai recarregar), e limpar aqui causaria um
+      // pisca de "nenhum negócio parado" sem motivo.
+      .catch(() => { if (!controller.signal.aborted) setDeals([]); })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [page, pageSize, staleBefore]);
 
   if (totalCount === 0) return null;

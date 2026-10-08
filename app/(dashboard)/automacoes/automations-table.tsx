@@ -5,7 +5,7 @@ import { requestJson } from "@/lib/client-request";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Zap, Plus, Loader2, Trash2, Play, Pause, History, Pencil, ChevronDown, CheckCircle2, XCircle } from "lucide-react";
+import { Zap, Plus, Loader2, Trash2, Play, Pause, History, Pencil, ChevronDown, ChevronUp, CheckCircle2, XCircle } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -72,7 +72,8 @@ const CONTACT_CONTEXT_LABELS: Record<ContactContext, string> = {
   NEW_LEAD: "Só lead novo (nunca teve negócio)",
   HAS_OPEN_DEAL: "Só quem já tem negócio em aberto",
 };
-type Action = "CREATE_TASK" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL" | "SET_CUSTOM_FIELD" | "SEND_SCRIPT";
+type Action = "CREATE_TASK" | "CREATE_DEAL" | "ADD_NOTE" | "MARK_LOST" | "SEND_PUSH" | "SEND_WHATSAPP" | "SEND_EMAIL" | "SET_CUSTOM_FIELD" | "SEND_SCRIPT";
+type ActionDraft = { id: string; type: Action; config: Record<string, unknown> };
 
 const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -85,6 +86,7 @@ type Rule = {
   triggerConfig: Record<string, unknown> | null;
   action: Action;
   actionConfig: Record<string, unknown> | null;
+  actions: Array<{ type: Action; config: Record<string, unknown> }> | null;
   enabled: boolean;
   runCount: number;
   lastRunAt: string | null;
@@ -140,6 +142,7 @@ const TRIGGER_DESCRIPTIONS: Record<Trigger, string> = {
 
 const ACTION_LABELS: Record<Action, string> = {
   CREATE_TASK: "Criar tarefa",
+  CREATE_DEAL: "Criar negócio",
   ADD_NOTE: "Registrar nota",
   MARK_LOST: "Marcar como perdido",
   SEND_PUSH: "Enviar notificação push",
@@ -157,6 +160,7 @@ export function AutomationsTable({
   pipelines,
   lossReasons,
   members,
+  currentUserId,
   teams,
   whatsappInstances,
   customFields,
@@ -171,6 +175,7 @@ export function AutomationsTable({
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  currentUserId: string;
   teams: TeamOption[];
   whatsappInstances: WhatsappInstanceOption[];
   customFields: CustomFieldOption[];
@@ -270,29 +275,33 @@ export function AutomationsTable({
       .join(" e ");
   }
 
-  function describeAction(rule: Rule): string | null {
-    const config = rule.actionConfig ?? {};
-    if (rule.action === "MARK_LOST") {
+  function describeAction(type: Action, config: Record<string, unknown>): string | null {
+    if (type === "CREATE_DEAL") {
+      const owner = memberById.get(config.dealOwnerId as string);
+      const stage = stageById.get(config.dealStageId as string);
+      return [owner, stage].filter(Boolean).join(" · ") || null;
+    }
+    if (type === "MARK_LOST") {
       const lossReasonId = config.lossReasonId as string | undefined;
       return lossReasonId ? (lossReasonById.get(lossReasonId) ?? "motivo removido") : null;
     }
-    if (rule.action === "SEND_PUSH") {
+    if (type === "SEND_PUSH") {
       return (config.pushTitle as string | undefined) || null;
     }
-    if (rule.action === "SEND_WHATSAPP") {
+    if (type === "SEND_WHATSAPP") {
       const text = config.whatsappMessage as string | undefined;
       return text ? (text.length > 40 ? `${text.slice(0, 40)}…` : text) : null;
     }
-    if (rule.action === "SEND_EMAIL") {
+    if (type === "SEND_EMAIL") {
       return (config.emailSubject as string | undefined) || null;
     }
-    if (rule.action === "SET_CUSTOM_FIELD") {
+    if (type === "SET_CUSTOM_FIELD") {
       const fieldId = config.customFieldId as string | undefined;
       const def = fieldId ? customFieldById.get(fieldId) : undefined;
       const value = config.customFieldValue as string | undefined;
       return def ? `${def.label} = "${value}"` : null;
     }
-    if (rule.action === "SEND_SCRIPT") {
+    if (type === "SEND_SCRIPT") {
       const scriptId = config.scriptId as string | undefined;
       return scriptId ? (scriptById.get(scriptId)?.name ?? "script removido") : null;
     }
@@ -307,10 +316,15 @@ export function AutomationsTable({
   function describeRule(rule: Rule): string {
     const triggerDetail = describeTrigger(rule);
     const conditionsDetail = describeConditions(rule);
-    const actionDetail = describeAction(rule);
     const triggerBits = [triggerDetail, conditionsDetail].filter(Boolean);
     const triggerPart = `${lowerFirst(TRIGGER_LABELS[rule.trigger])}${triggerBits.length ? ` (${triggerBits.join(" · ")})` : ""}`;
-    const actionPart = `${lowerFirst(ACTION_LABELS[rule.action])}${actionDetail ? ` (${actionDetail})` : ""}`;
+    const entries = rule.actions?.length ? rule.actions : [{ type: rule.action, config: rule.actionConfig ?? {} }];
+    const actionPart = entries
+      .map((entry) => {
+        const detail = describeAction(entry.type, entry.config);
+        return `${lowerFirst(ACTION_LABELS[entry.type])}${detail ? ` (${detail})` : ""}`;
+      })
+      .join(" + ");
     return `Quando ${triggerPart} → ${actionPart}.`;
   }
 
@@ -354,7 +368,7 @@ export function AutomationsTable({
           <EmptyState
             icon={Zap}
             title="Nenhuma automação configurada ainda"
-            description="Crie regras como 'negócio entrou em Proposta enviada → criar tarefa de cobrança em 2 dias' ou 'negócio parado 15 dias → marcar como perdido'."
+            description="Crie um gatilho e combine ações como criar um negócio, avisar o consultor e agendar uma tarefa."
           />
         </div>
       ) : (
@@ -507,6 +521,7 @@ export function AutomationsTable({
           pipelines={pipelines}
           lossReasons={lossReasons}
           members={members}
+          currentUserId={currentUserId}
           teams={teams}
           canTargetOthers={canTargetOthers}
           whatsappInstances={whatsappInstances}
@@ -600,7 +615,7 @@ function AutomationExecutionDetailModal({
         {entry.detail && (
           <div>
             <p className="field-label">O que aconteceu</p>
-            <p className="text-neutral-800 dark:text-neutral-200">{entry.detail}</p>
+            <p className="whitespace-pre-line text-neutral-800 dark:text-neutral-200">{entry.detail}</p>
           </div>
         )}
       </div>
@@ -618,6 +633,7 @@ function AutomationDialog({
   pipelines,
   lossReasons,
   members,
+  currentUserId,
   teams,
   canTargetOthers,
   whatsappInstances,
@@ -630,6 +646,7 @@ function AutomationDialog({
   pipelines: PipelineOption[];
   lossReasons: LossReasonOption[];
   members: MemberOption[];
+  currentUserId: string;
   teams: TeamOption[];
   /** Só OWNER/MANAGER escolhem em quem a automação age — Supervisor/Consultor sempre cria restrita a si mesmo, sem esse seletor. */
   canTargetOthers: boolean;
@@ -642,7 +659,26 @@ function AutomationDialog({
 }) {
   const isEdit = !!editRule;
   const tc = editRule?.triggerConfig ?? {};
-  const ac = editRule?.actionConfig ?? {};
+  const savedActions = editRule?.actions?.length
+    ? editRule.actions
+    : [{ type: editRule?.action ?? "CREATE_TASK", config: editRule?.actionConfig ?? {} }];
+
+  function defaultActionConfig(type: Action): Record<string, unknown> {
+    if (type === "CREATE_TASK") return { dueInDays: 1 };
+    if (type === "CREATE_DEAL") {
+      return {
+        dealPipelineId: pipelines[0]?.id ?? "",
+        dealStageId: pipelines[0]?.stages[0]?.id ?? "",
+        dealOwnerId: currentUserId,
+        skipIfOpenDealExists: true,
+      };
+    }
+    if (type === "MARK_LOST") return { lossReasonId: lossReasons[0]?.id ?? "" };
+    if (type === "SEND_WHATSAPP") return { whatsappRecipients: [{ type: "CLIENT" }] };
+    if (type === "SEND_SCRIPT") return { scriptId: scripts[0]?.id ?? "", scriptRecipients: [{ type: "CLIENT" }] };
+    if (type === "SEND_EMAIL") return { emailRecipients: [{ type: "RESPONSIBLE" }] };
+    return {};
+  }
 
   const [name, setName] = useState(editRule?.name ?? "");
   const [targetType, setTargetType] = useState<TargetType>(
@@ -651,7 +687,13 @@ function AutomationDialog({
   const [targetUserIds, setTargetUserIds] = useState<string[]>(editRule?.targetUserIds ?? []);
   const [targetTeamId, setTargetTeamId] = useState((editRule?.targetTeamId as string | null | undefined) ?? teams[0]?.id ?? "");
   const [trigger, setTrigger] = useState<Trigger>(editRule?.trigger ?? "DEAL_STALE");
-  const [action, setAction] = useState<Action>(editRule?.action ?? "CREATE_TASK");
+  const [actions, setActions] = useState<ActionDraft[]>(
+    savedActions.map((entry, index) => ({
+      id: `${entry.type}-${index}`,
+      type: entry.type,
+      config: { ...defaultActionConfig(entry.type), ...entry.config },
+    })),
+  );
   const [staleDays, setStaleDays] = useState(String((tc.days as number | undefined) ?? 3));
   const [stageId, setStageId] = useState((tc.stageId as string | undefined) ?? pipelines[0]?.stages[0]?.id ?? "");
   const [minHours, setMinHours] = useState(String((tc.minHours as number | undefined) ?? 24));
@@ -684,46 +726,67 @@ function AutomationDialog({
   );
   const [stopOnMatch, setStopOnMatch] = useState((tc.stopOnMatch as boolean | undefined) ?? false);
   const [ignoreIfHumanActive, setIgnoreIfHumanActive] = useState((tc.ignoreIfHumanActive as boolean | undefined) ?? true);
-  const [taskTitle, setTaskTitle] = useState((ac.title as string | undefined) ?? "");
-  const [taskDueInDays, setTaskDueInDays] = useState(String((ac.dueInDays as number | undefined) ?? 1));
-  const [note, setNote] = useState((ac.note as string | undefined) ?? "");
-  const [lossReasonId, setLossReasonId] = useState((ac.lossReasonId as string | undefined) ?? lossReasons[0]?.id ?? "");
-  const [pushTitle, setPushTitle] = useState((ac.pushTitle as string | undefined) ?? "");
-  const [pushBody, setPushBody] = useState((ac.pushBody as string | undefined) ?? "");
-  const [whatsappMessage, setWhatsappMessage] = useState((ac.whatsappMessage as string | undefined) ?? "");
-  const [whatsappRecipients, setWhatsappRecipients] = useState<RecipientEntry[]>(
-    (ac.whatsappRecipients as RecipientEntry[] | undefined) ?? [{ type: "CLIENT" }],
-  );
-  const [whatsappSenderId, setWhatsappSenderId] = useState(
-    (ac.whatsappSenderId as string | undefined) ?? "",
-  );
-  const [scriptId, setScriptId] = useState((ac.scriptId as string | undefined) ?? scripts[0]?.id ?? "");
-  const [scriptRecipients, setScriptRecipients] = useState<RecipientEntry[]>(
-    (ac.scriptRecipients as RecipientEntry[] | undefined) ?? [{ type: "CLIENT" }],
-  );
-  const [scriptSenderId, setScriptSenderId] = useState((ac.scriptSenderId as string | undefined) ?? "");
-  const [emailSubject, setEmailSubject] = useState((ac.emailSubject as string | undefined) ?? "");
-  const [emailBody, setEmailBody] = useState((ac.emailBody as string | undefined) ?? "");
-  const [emailRecipients, setEmailRecipients] = useState<RecipientEntry[]>(
-    (ac.emailRecipients as RecipientEntry[] | undefined) ?? [{ type: "RESPONSIBLE" }],
-  );
   const [customFieldConditions, setCustomFieldConditions] = useState<CustomFieldConditionDraft[]>(
     (tc.customFieldConditions as CustomFieldConditionDraft[] | undefined) ?? [],
   );
-  const [setFieldId, setSetFieldId] = useState((ac.customFieldId as string | undefined) ?? "");
-  const [setFieldValue, setSetFieldValue] = useState((ac.customFieldValue as string | undefined) ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const noStages = pipelines.every((p) => p.stages.length === 0);
   const conditionEntityType = CUSTOM_FIELD_CONDITION_TRIGGERS[trigger];
   const conditionEligibleFields = customFields.filter((f) => f.entityType === conditionEntityType);
-  const setFieldDef = customFields.find((f) => f.id === setFieldId);
   // O recipient-picker mantém o tipo interno "ADMIN" (compatível com regras já
   // salvas), mas quem hoje ocupa esse papel na organização é o Gerente.
   const admins = members.filter((m) => m.role === "MANAGER");
   const owners = members.filter((m) => m.role === "OWNER");
   const memberById = new Map(members.map((m) => [m.id, m.name]));
+  const assignableMembers = canTargetOthers ? members : members.filter((member) => member.id === currentUserId);
+
+  function updateActionConfig(id: string, patch: Record<string, unknown>) {
+    setActions((current) => current.map((item) => (item.id === id ? { ...item, config: { ...item.config, ...patch } } : item)));
+  }
+
+  function changeActionType(id: string, type: Action) {
+    setActions((current) => current.map((item) => (item.id === id ? { ...item, type, config: defaultActionConfig(type) } : item)));
+  }
+
+  function moveAction(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (target < 0 || target >= actions.length) return;
+    setActions((current) => {
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function addAction() {
+    if (actions.length >= 8) return;
+    const used = new Set(actions.map((item) => item.type));
+    const preferred: Action[] = trigger === "CONTACT_NO_DEAL" || trigger === "MESSAGE_RECEIVED"
+      ? ["CREATE_DEAL", "SEND_PUSH"]
+      : ["SEND_PUSH", "CREATE_TASK"];
+    const type = [...preferred, ...(Object.keys(ACTION_LABELS) as Action[])].find((candidate) => !used.has(candidate));
+    if (!type) return;
+    setActions((current) => [...current, { id: `action-${Date.now()}`, type, config: defaultActionConfig(type) }]);
+  }
+
+  function serializeAction(item: ActionDraft) {
+    const config = item.config;
+    if (item.type === "CREATE_TASK") {
+      return { title: (config.title as string | undefined)?.trim() || undefined, dueInDays: Number(config.dueInDays) || 1 };
+    }
+    if (item.type === "CREATE_DEAL") {
+      return {
+        dealPipelineId: config.dealPipelineId,
+        dealStageId: config.dealStageId,
+        dealOwnerId: config.dealOwnerId,
+        dealName: (config.dealName as string | undefined)?.trim() || undefined,
+        skipIfOpenDealExists: config.skipIfOpenDealExists !== false,
+      };
+    }
+    return config;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -768,22 +831,7 @@ function AutomationDialog({
       ? { ...triggerConfigBase, customFieldConditions }
       : triggerConfigBase;
 
-    const actionConfig =
-      action === "CREATE_TASK"
-        ? { title: taskTitle || undefined, dueInDays: Number(taskDueInDays) || 1 }
-        : action === "ADD_NOTE"
-          ? { note: note || undefined }
-          : action === "MARK_LOST"
-            ? { lossReasonId }
-            : action === "SEND_PUSH"
-              ? { pushTitle: pushTitle || undefined, pushBody: pushBody || undefined }
-              : action === "SEND_WHATSAPP"
-                ? { whatsappMessage, whatsappRecipients, whatsappSenderId: whatsappSenderId || undefined }
-                : action === "SEND_EMAIL"
-                  ? { emailSubject: emailSubject || undefined, emailBody, emailRecipients }
-                  : action === "SEND_SCRIPT"
-                    ? { scriptId, scriptRecipients, scriptSenderId: scriptSenderId || undefined }
-                    : { customFieldId: setFieldId, customFieldValue: setFieldValue };
+    const serializedActions = actions.map((item) => ({ type: item.type, config: serializeAction(item) }));
 
     const res = await fetch(isEdit ? `/api/automations/${editRule!.id}` : "/api/automations", {
       method: isEdit ? "PATCH" : "POST",
@@ -792,8 +840,9 @@ function AutomationDialog({
         name,
         trigger,
         triggerConfig,
-        action,
-        actionConfig,
+        action: serializedActions[0]?.type,
+        actionConfig: serializedActions[0]?.config,
+        actions: serializedActions,
         // Só tem efeito se o servidor confirmar que quem está salvando é
         // OWNER/MANAGER (ver resolveTargetConfig em lib/automations/validation.ts)
         // — pra Supervisor/Consultor, o servidor ignora isso e força SELF de
@@ -820,13 +869,321 @@ function AutomationDialog({
     (trigger !== "DEAL_STAGE_ENTERED" || !!stageId) &&
     (trigger !== "SCHEDULED" || !!assigneeId) &&
     customFieldConditions.every((c) => !!c.fieldId && (c.operator === "is_set" || c.operator === "is_not_set" || !!c.value)) &&
-    (action !== "MARK_LOST" || !!lossReasonId) &&
-    (action !== "SEND_WHATSAPP" || (!!whatsappMessage.trim() && whatsappRecipients.length > 0)) &&
-    (action !== "SEND_EMAIL" || (!!emailBody.trim() && emailRecipients.length > 0)) &&
-    (action !== "SEND_SCRIPT" || (!!scriptId && scriptRecipients.length > 0)) &&
-    (action !== "SET_CUSTOM_FIELD" || (!!setFieldId && !!setFieldValue)) &&
+    actions.length > 0 &&
+    actions.every((item) => {
+      const config = item.config;
+      if (item.type === "CREATE_DEAL") {
+        return (
+          (trigger === "CONTACT_NO_DEAL" || trigger === "MESSAGE_RECEIVED") &&
+          !!config.dealPipelineId &&
+          !!config.dealStageId &&
+          !!config.dealOwnerId
+        );
+      }
+      if (item.type === "MARK_LOST") return !!config.lossReasonId;
+      if (item.type === "SEND_WHATSAPP") {
+        return !!(config.whatsappMessage as string | undefined)?.trim() && !!(config.whatsappRecipients as unknown[] | undefined)?.length;
+      }
+      if (item.type === "SEND_EMAIL") {
+        return !!(config.emailBody as string | undefined)?.trim() && !!(config.emailRecipients as unknown[] | undefined)?.length;
+      }
+      if (item.type === "SEND_SCRIPT") return !!config.scriptId && !!(config.scriptRecipients as unknown[] | undefined)?.length;
+      if (item.type === "SET_CUSTOM_FIELD") return !!config.customFieldId && config.customFieldValue !== undefined && config.customFieldValue !== "";
+      return true;
+    }) &&
     (targetType !== "USERS" || targetUserIds.length > 0) &&
     (targetType !== "TEAM" || !!targetTeamId);
+
+  function renderActionFields(item: ActionDraft) {
+    const config = item.config;
+    const setConfig = (patch: Record<string, unknown>) => updateActionConfig(item.id, patch);
+
+    if (item.type === "CREATE_TASK") {
+      return (
+        <>
+          <div className="space-y-1">
+            <label className="field-label">Título da tarefa</label>
+            <input
+              value={(config.title as string | undefined) ?? ""}
+              onChange={(event) => setConfig({ title: event.target.value })}
+              placeholder={`Automação: ${name || "..."}`}
+              className="field-input"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Prazo em dias</label>
+            <input
+              type="number"
+              min={0}
+              value={String(config.dueInDays ?? 1)}
+              onChange={(event) => setConfig({ dueInDays: event.target.value })}
+              className="field-input"
+            />
+          </div>
+        </>
+      );
+    }
+
+    if (item.type === "CREATE_DEAL") {
+      const pipelineId = (config.dealPipelineId as string | undefined) ?? "";
+      const selectedPipeline = pipelines.find((pipeline) => pipeline.id === pipelineId);
+      const compatible = trigger === "CONTACT_NO_DEAL" || trigger === "MESSAGE_RECEIVED";
+      return (
+        <>
+          {!compatible && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-300">
+              Use esta ação com “Contato sem negócio” ou “Mensagem recebida”.
+            </p>
+          )}
+          <div className="space-y-1">
+            <label className="field-label">Responsável</label>
+            <Select
+              value={(config.dealOwnerId as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ dealOwnerId: value })}
+              options={assignableMembers.map((member) => ({ value: member.id, label: member.name }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Funil</label>
+            <Select
+              value={pipelineId}
+              onChange={(value) => {
+                const pipeline = pipelines.find((candidate) => candidate.id === value);
+                setConfig({ dealPipelineId: value, dealStageId: pipeline?.stages[0]?.id ?? "" });
+              }}
+              options={pipelines.map((pipeline) => ({ value: pipeline.id, label: pipeline.name }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Etapa</label>
+            <Select
+              value={(config.dealStageId as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ dealStageId: value })}
+              options={(selectedPipeline?.stages ?? []).map((stage) => ({ value: stage.id, label: stage.name }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Nome do negócio</label>
+            <VariableInput
+              value={(config.dealName as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ dealName: value })}
+              placeholder="Gerado automaticamente"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 sm:col-span-2">
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">Evitar negócio duplicado</span>
+            <Switch
+              checked={config.skipIfOpenDealExists !== false}
+              onChange={(value) => setConfig({ skipIfOpenDealExists: value })}
+              label="Evitar negócio duplicado"
+            />
+          </div>
+        </>
+      );
+    }
+
+    if (item.type === "ADD_NOTE") {
+      return (
+        <div className="space-y-1 sm:col-span-2">
+          <label className="field-label">Texto da nota</label>
+          <textarea
+            value={(config.note as string | undefined) ?? ""}
+            onChange={(event) => setConfig({ note: event.target.value })}
+            rows={2}
+            className="field-input"
+          />
+        </div>
+      );
+    }
+
+    if (item.type === "MARK_LOST") {
+      return (
+        <div className="space-y-1">
+          <label className="field-label">Motivo de perda</label>
+          {lossReasons.length === 0 ? (
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">Cadastre um motivo de perda em Configurações.</p>
+          ) : (
+            <Select
+              value={(config.lossReasonId as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ lossReasonId: value })}
+              options={lossReasons.map((reason) => ({ value: reason.id, label: reason.label }))}
+            />
+          )}
+        </div>
+      );
+    }
+
+    if (item.type === "SEND_PUSH") {
+      return (
+        <>
+          <div className="space-y-1">
+            <label className="field-label">Título</label>
+            <input
+              value={(config.pushTitle as string | undefined) ?? ""}
+              onChange={(event) => setConfig({ pushTitle: event.target.value })}
+              placeholder={`Automação: ${name || "..."}`}
+              className="field-input"
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="field-label">Texto</label>
+            <textarea
+              value={(config.pushBody as string | undefined) ?? ""}
+              onChange={(event) => setConfig({ pushBody: event.target.value })}
+              rows={2}
+              className="field-input"
+            />
+          </div>
+        </>
+      );
+    }
+
+    if (item.type === "SEND_WHATSAPP") {
+      return (
+        <>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="field-label">Mensagem</label>
+            <VariableInput
+              value={(config.whatsappMessage as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ whatsappMessage: value })}
+              multiline
+              rows={3}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Enviar de</label>
+            <Select
+              value={(config.whatsappSenderId as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ whatsappSenderId: value || undefined })}
+              options={[
+                { value: "", label: "Responsável pelo negócio" },
+                ...whatsappInstances.map((instance) => ({ value: instance.userId, label: instance.label })),
+              ]}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <RecipientPicker
+              recipients={(config.whatsappRecipients as RecipientEntry[] | undefined) ?? []}
+              onChange={(value) => setConfig({ whatsappRecipients: value })}
+              availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+              admins={admins}
+              owners={owners}
+              memberById={memberById}
+              customLabel="Número personalizado"
+              customPlaceholder="Ex.: 67991234567"
+            />
+          </div>
+        </>
+      );
+    }
+
+    if (item.type === "SEND_SCRIPT") {
+      return (
+        <>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="field-label">Script</label>
+            {scripts.length === 0 ? (
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Crie um script no WhatsApp antes de usar esta ação.</p>
+            ) : (
+              <Select
+                value={(config.scriptId as string | undefined) ?? ""}
+                onChange={(value) => setConfig({ scriptId: value })}
+                options={scripts.map((script) => ({ value: script.id, label: script.name }))}
+              />
+            )}
+          </div>
+          <div className="space-y-1">
+            <label className="field-label">Enviar de</label>
+            <Select
+              value={(config.scriptSenderId as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ scriptSenderId: value || undefined })}
+              options={[
+                { value: "", label: "Responsável pelo negócio" },
+                ...whatsappInstances.map((instance) => ({ value: instance.userId, label: instance.label })),
+              ]}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <RecipientPicker
+              recipients={(config.scriptRecipients as RecipientEntry[] | undefined) ?? []}
+              onChange={(value) => setConfig({ scriptRecipients: value })}
+              availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+              admins={admins}
+              owners={owners}
+              memberById={memberById}
+              customLabel="Número personalizado"
+              customPlaceholder="Ex.: 67991234567"
+            />
+          </div>
+        </>
+      );
+    }
+
+    if (item.type === "SEND_EMAIL") {
+      return (
+        <>
+          <div className="space-y-1">
+            <label className="field-label">Assunto</label>
+            <VariableInput
+              value={(config.emailSubject as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ emailSubject: value })}
+              placeholder={`Automação: ${name || "..."}`}
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="field-label">Texto</label>
+            <VariableInput
+              value={(config.emailBody as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ emailBody: value })}
+              multiline
+              rows={3}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <RecipientPicker
+              recipients={(config.emailRecipients as RecipientEntry[] | undefined) ?? []}
+              onChange={(value) => setConfig({ emailRecipients: value })}
+              availableTypes={["CLIENT", "RESPONSIBLE", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
+              admins={admins}
+              owners={owners}
+              memberById={memberById}
+              customLabel="E-mail personalizado"
+              customPlaceholder="Ex.: alguem@empresa.com"
+            />
+          </div>
+        </>
+      );
+    }
+
+    const fieldId = (config.customFieldId as string | undefined) ?? "";
+    const field = customFields.find((candidate) => candidate.id === fieldId);
+    return (
+      <>
+        <div className="space-y-1">
+          <label className="field-label">Campo</label>
+          <Select
+            value={fieldId}
+            onChange={(value) => setConfig({ customFieldId: value, customFieldValue: "" })}
+            options={customFields.map((candidate) => ({
+              value: candidate.id,
+              label: `${candidate.label} (${CUSTOM_FIELD_ENTITY_LABELS[candidate.entityType]})`,
+            }))}
+          />
+        </div>
+        {field && (
+          <div className="space-y-1">
+            <label className="field-label">Valor</label>
+            <TypedValueInput
+              type={field.type}
+              options={field.options}
+              value={(config.customFieldValue as string | undefined) ?? ""}
+              onChange={(value) => setConfig({ customFieldValue: value })}
+            />
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-3xl">
@@ -1210,250 +1567,74 @@ function AutomationDialog({
           <div className="h-px bg-neutral-100 dark:bg-neutral-800" />
         </div>
 
-        <div className="space-y-1">
-          <label className="field-label">Fazer</label>
-          <Select
-            value={action}
-            onChange={(v) => setAction(v as Action)}
-            options={Object.entries(ACTION_LABELS).map(([value, label]) => ({ value, label }))}
-          />
+        <div className="space-y-3 sm:col-span-2">
+          <div className="flex items-center justify-between gap-3">
+            <label className="field-label">Ações</label>
+            <span className="text-xs text-neutral-400">Executadas de cima para baixo</span>
+          </div>
+
+          {actions.map((item, index) => {
+            const selectedElsewhere = new Set(actions.filter((candidate) => candidate.id !== item.id).map((candidate) => candidate.type));
+            return (
+              <section key={item.id} className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700 sm:p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white dark:bg-white dark:text-neutral-900">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      value={item.type}
+                      onChange={(value) => changeActionType(item.id, value as Action)}
+                      options={(Object.entries(ACTION_LABELS) as Array<[Action, string]>)
+                        .filter(([value]) => !selectedElsewhere.has(value))
+                        .map(([value, label]) => ({ value, label }))}
+                    />
+                  </div>
+                  <div className="flex shrink-0 items-center">
+                    <button
+                      type="button"
+                      onClick={() => moveAction(index, -1)}
+                      disabled={index === 0}
+                      className="icon-btn h-8 w-8 disabled:opacity-25"
+                      aria-label="Mover ação para cima"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveAction(index, 1)}
+                      disabled={index === actions.length - 1}
+                      className="icon-btn h-8 w-8 disabled:opacity-25"
+                      aria-label="Mover ação para baixo"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActions((current) => current.filter((candidate) => candidate.id !== item.id))}
+                      disabled={actions.length === 1}
+                      className="icon-btn h-8 w-8 text-red-500 disabled:opacity-25"
+                      aria-label="Remover ação"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{renderActionFields(item)}</div>
+              </section>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={addAction}
+            disabled={actions.length >= 8 || actions.length >= Object.keys(ACTION_LABELS).length}
+            className="btn-ghost btn-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Adicionar ação
+          </button>
         </div>
-
-        {action === "CREATE_TASK" && (
-          <>
-            <div className="space-y-1">
-              <label className="field-label">Título da tarefa</label>
-              <input
-                value={taskTitle}
-                onChange={(e) => setTaskTitle(e.target.value)}
-                placeholder={`Automação: ${name || "..."}`}
-                className="field-input"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Prazo (dias a partir de agora)</label>
-              <input
-                type="number"
-                min={0}
-                value={taskDueInDays}
-                onChange={(e) => setTaskDueInDays(e.target.value)}
-                className="field-input"
-              />
-            </div>
-          </>
-        )}
-
-        {action === "ADD_NOTE" && (
-          <div className="space-y-1 sm:col-span-2">
-            <label className="field-label">Texto da nota</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              className="field-input"
-            />
-          </div>
-        )}
-
-        {action === "MARK_LOST" && (
-          <div className="space-y-1">
-            <label className="field-label">Motivo de perda</label>
-            {lossReasons.length === 0 ? (
-              <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                Cadastre motivos de perda em Configurações antes de usar essa ação.
-              </p>
-            ) : (
-              <Select
-                value={lossReasonId}
-                onChange={setLossReasonId}
-                options={lossReasons.map((r) => ({ value: r.id, label: r.label }))}
-              />
-            )}
-          </div>
-        )}
-
-        {action === "SEND_PUSH" && (
-          <>
-            <div className="space-y-1">
-              <label className="field-label">Título da notificação</label>
-              <input
-                value={pushTitle}
-                onChange={(e) => setPushTitle(e.target.value)}
-                placeholder={`Automação: ${name || "..."}`}
-                className="field-input"
-              />
-            </div>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="field-label">Texto</label>
-              <textarea
-                value={pushBody}
-                onChange={(e) => setPushBody(e.target.value)}
-                rows={2}
-                className="field-input"
-              />
-            </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 sm:col-span-2">
-              Só chega em quem ativou notificações push no navegador (Configurações → Perfil). Quem não ativou
-              simplesmente não recebe nada.
-            </p>
-          </>
-        )}
-
-        {action === "SEND_WHATSAPP" && (
-          <>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="field-label">Mensagem</label>
-              <VariableInput
-                value={whatsappMessage}
-                onChange={setWhatsappMessage}
-                multiline
-                rows={3}
-                placeholder="Ex.: Olá! Vi que você se interessou pelo nosso consórcio, posso te ajudar com alguma dúvida?"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="field-label">Enviar de</label>
-              {whatsappInstances.length === 0 ? (
-                <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400">
-                  Nenhum WhatsApp conectado. Conecte um número em Configurações → Perfil.
-                </p>
-              ) : (
-                <Select
-                  value={whatsappSenderId}
-                  onChange={setWhatsappSenderId}
-                  options={[
-                    { value: "", label: "Responsável pelo negócio (padrão)" },
-                    ...whatsappInstances.map((inst) => ({ value: inst.userId, label: inst.label })),
-                  ]}
-                />
-              )}
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Escolha um número fixo para enviar todas as mensagens desta automação. Deixe em branco para usar o número do responsável pelo negócio.
-              </p>
-            </div>
-
-            <div className="sm:col-span-2">
-              <RecipientPicker
-                recipients={whatsappRecipients}
-                onChange={setWhatsappRecipients}
-                availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
-                admins={admins}
-                owners={owners}
-                memberById={memberById}
-                customLabel="Número personalizado"
-                customPlaceholder="Ex.: 67991234567"
-              />
-            </div>
-          </>
-        )}
-
-        {action === "SEND_SCRIPT" && (
-          <>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="field-label">Script</label>
-              {scripts.length === 0 ? (
-                <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400">
-                  Nenhum script salvo ainda. Crie um em WhatsApp → Scripts antes de usar essa ação.
-                </p>
-              ) : (
-                <Select value={scriptId} onChange={setScriptId} options={scripts.map((s) => ({ value: s.id, label: s.name }))} />
-              )}
-            </div>
-
-            <div className="space-y-1">
-              <label className="field-label">Enviar de</label>
-              {whatsappInstances.length === 0 ? (
-                <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400">
-                  Nenhum WhatsApp conectado. Conecte um número em Configurações → Perfil.
-                </p>
-              ) : (
-                <Select
-                  value={scriptSenderId}
-                  onChange={setScriptSenderId}
-                  options={[
-                    { value: "", label: "Responsável pelo negócio (padrão)" },
-                    ...whatsappInstances.map((inst) => ({ value: inst.userId, label: inst.label })),
-                  ]}
-                />
-              )}
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Escolha um número fixo para enviar o script desta automação. Deixe em branco para usar o número do responsável pelo negócio.
-              </p>
-            </div>
-
-            <div className="sm:col-span-2">
-              <RecipientPicker
-                recipients={scriptRecipients}
-                onChange={setScriptRecipients}
-                availableTypes={["CLIENT", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
-                admins={admins}
-                owners={owners}
-                memberById={memberById}
-                customLabel="Número personalizado"
-                customPlaceholder="Ex.: 67991234567"
-              />
-            </div>
-          </>
-        )}
-
-        {action === "SEND_EMAIL" && (
-          <>
-            <div className="space-y-1">
-              <label className="field-label">Assunto</label>
-              <VariableInput value={emailSubject} onChange={setEmailSubject} placeholder={`Automação: ${name || "..."}`} />
-            </div>
-            <div className="space-y-1 sm:col-span-2">
-              <label className="field-label">Texto</label>
-              <VariableInput value={emailBody} onChange={setEmailBody} multiline rows={3} />
-            </div>
-            <div className="sm:col-span-2">
-              <RecipientPicker
-                recipients={emailRecipients}
-                onChange={setEmailRecipients}
-                availableTypes={["CLIENT", "RESPONSIBLE", "SUPERVISOR", "ADMIN", "OWNER", "CUSTOM"]}
-                admins={admins}
-                owners={owners}
-                memberById={memberById}
-                customLabel="E-mail personalizado"
-                customPlaceholder="Ex.: alguem@empresa.com"
-              />
-            </div>
-          </>
-        )}
-
-        {action === "SET_CUSTOM_FIELD" && (
-          <>
-            <div className="space-y-1">
-              <label className="field-label">Campo</label>
-              {customFields.length === 0 ? (
-                <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                  Cadastre campos personalizados em Configurações antes de usar essa ação.
-                </p>
-              ) : (
-                <Select
-                  value={setFieldId}
-                  onChange={(v) => {
-                    setSetFieldId(v);
-                    setSetFieldValue("");
-                  }}
-                  options={customFields.map((f) => ({ value: f.id, label: `${f.label} (${CUSTOM_FIELD_ENTITY_LABELS[f.entityType]})` }))}
-                />
-              )}
-            </div>
-            {setFieldDef && (
-              <div className="space-y-1">
-                <label className="field-label">Valor</label>
-                <TypedValueInput
-                  type={setFieldDef.type}
-                  options={setFieldDef.options}
-                  value={setFieldValue}
-                  onChange={setSetFieldValue}
-                />
-              </div>
-            )}
-          </>
-        )}
 
         {error && <p className="text-sm text-red-600 dark:text-red-400 sm:col-span-2">{error}</p>}
 

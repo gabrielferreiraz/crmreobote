@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Briefcase, BriefcaseBusiness, MessageCircle, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -8,6 +8,8 @@ import { Select } from "@/components/select";
 import { ChatWindow } from "@/components/whatsapp-chat";
 import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
+import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 import { useSearchParams } from "next/navigation";
 import {
   ConversationRow,
@@ -109,31 +111,60 @@ export function ConversationsMobile({
     new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
   );
 
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/whatsapp/conversations");
-        if (!res.ok) return;
-        const next: Conversation[] = await res.json();
+  /** Busca ainda em voo — ver refreshConversations abaixo. */
+  const inFlightRef = useRef<AbortController | null>(null);
 
-        const arrived = new Set<string>();
-        for (const c of next) {
-          const prevCount = unreadByThreadRef.current.get(c.threadId) ?? 0;
-          if (c.unreadCount > prevCount) arrived.add(c.threadId);
-        }
-        unreadByThreadRef.current = new Map(next.map((c) => [c.threadId, c.unreadCount]));
+  // Mesmo mecanismo do desktop (ver conversations-view.tsx): uma busca por
+  // vez, a anterior é derrubada quando chega outra, e sair da tela cancela.
+  async function refreshConversations() {
+    inFlightRef.current?.abort();
+    const controller = new AbortController();
+    inFlightRef.current = controller;
+    try {
+      const res = await fetch("/api/whatsapp/conversations", { signal: controller.signal });
+      if (!res.ok) return;
+      const next: Conversation[] = await res.json();
 
-        setConversations(next);
-        if (arrived.size > 0) {
-          setJustArrived(arrived);
-          setTimeout(() => setJustArrived(new Set()), 1400);
-        }
-      } catch {
-        // Silencioso: mantém a última lista boa em caso de falha temporária de rede.
+      const arrived = new Set<string>();
+      for (const c of next) {
+        const prevCount = unreadByThreadRef.current.get(c.threadId) ?? 0;
+        if (c.unreadCount > prevCount) arrived.add(c.threadId);
       }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+      unreadByThreadRef.current = new Map(next.map((c) => [c.threadId, c.unreadCount]));
+
+      setConversations(next);
+      if (arrived.size > 0) {
+        setJustArrived(arrived);
+        setTimeout(() => setJustArrived(new Set()), 1400);
+      }
+    } catch {
+      // Silencioso: mantém a última lista boa tanto em falha de rede quanto
+      // quando a própria tela cancelou (abort não é erro).
+    } finally {
+      if (inFlightRef.current === controller) inFlightRef.current = null;
+    }
+  }
+
+  useEffect(() => () => inFlightRef.current?.abort(), []);
+
+  // Era `setInterval(…, 5000)` cru. Três problemas, todos corrigidos aqui ao
+  // adotar o MESMO mecanismo do desktop:
+  //  1. Esta tela fica montada SEMPRE, inclusive no desktop (page.tsx só a
+  //     esconde com `lg:hidden`) — então todo mundo, em qualquer tela,
+  //     batia na consulta mais cara do sistema a cada 5 segundos, pra
+  //     atualizar um painel invisível.
+  //  2. setInterval não liga pra aba estar em segundo plano; useVisiblePoll
+  //     para quando ninguém está olhando e recarrega ao voltar.
+  //  3. Sem SSE, o polling era o ÚNICO jeito de a lista se atualizar — por
+  //     isso o intervalo curto. Com useWhatsAppLive, a atualização chega na
+  //     hora pelo evento e o poll vira só rede de segurança, igual desktop.
+  useVisiblePoll(() => {
+    refreshConversations();
+  }, 45_000);
+
+  useWhatsAppLive(() => {
+    refreshConversations();
+  });
 
   const tabCounts = useMemo(
     () => ({
@@ -185,26 +216,6 @@ export function ConversationsMobile({
     return groupByOwner(filteredConversations);
   }, [showOwnerInfo, ownerFilter, filteredConversations]);
 
-  // Reserva a altura real do menu inferior do celular (#mobile-bottom-nav,
-  // ver mobile-nav.tsx) quando uma conversa está aberta — ele é
-  // `position:fixed`, fica POR CIMA do conteúdo em vez de empurrá-lo
-  // (não entra no fluxo normal), então h-full/flex-1 sozinhos não sabem que
-  // aquela faixa de baixo está coberta (mesmo ajuste já feito na fileira do
-  // Kanban, ver kanban-board.tsx). Sem isso, a caixa "Digite uma mensagem"
-  // do ChatWindow ficava atrás do menu, inalcançável (relatado com print).
-  // Em telas lg+ o menu some (lg:hidden) e getBoundingClientRect já retorna
-  // altura 0 sozinho, sem precisar de tratamento especial aqui.
-  const [bottomNavHeight, setBottomNavHeight] = useState(0);
-  useLayoutEffect(() => {
-    function measure() {
-      const nav = document.getElementById("mobile-bottom-nav");
-      setBottomNavHeight(nav ? nav.getBoundingClientRect().height : 0);
-    }
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
-
   const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
 
   function handleDealAdded(threadId: string, result: { contactId: string; deal: { id: string; name: string } }) {
@@ -217,7 +228,7 @@ export function ConversationsMobile({
 
   if (selected) {
     return (
-      <div className="flex h-full flex-col" style={{ paddingBottom: bottomNavHeight }}>
+      <div className="flex h-full min-h-0 flex-col">
         {/* As duas linhas abaixo NÃO são mais um "ou" — antes, ter negócio
             escondia por completo a opção de criar outro, e um cliente que já
             tinha negócio aberto ficava sem jeito de registrar uma NOVA venda
@@ -351,13 +362,7 @@ export function ConversationsMobile({
         />
       )}
 
-      {/* pb-24, não pb-4: esse componente só existe em telas lg:hidden (só
-          celular, ver conversas/page.tsx), onde a barra de navegação
-          inferior é fixa e fica por cima do conteúdo — pb-4 não bastava pra
-          limpar a altura real dela, e as últimas conversas ficavam
-          escondidas atrás mesmo rolando até o fim (mesmo ajuste em
-          deals-list.tsx/process-list.tsx). */}
-      <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-24">
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4">
         {tabConversations.length === 0 ? (
           <div className="flex h-full items-center justify-center p-6">
             <EmptyState

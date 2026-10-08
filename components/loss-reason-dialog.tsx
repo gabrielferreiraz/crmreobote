@@ -106,7 +106,7 @@ export function LossReasonDialog({
           <button type="button" onClick={onClose} className="btn-ghost">
             Cancelar
           </button>
-          <button type="submit" disabled={loading} className="btn-primary bg-red-600 hover:bg-red-700 focus-visible:ring-red-500">
+          <button type="submit" disabled={loading} className="btn-danger">
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
             {loading ? (
               <span className="inline-flex items-center gap-1">

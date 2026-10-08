@@ -449,7 +449,7 @@ export function EditContactDialog({
         aria-label="Editar contato"
       >
         <Pencil className="h-4 w-4" strokeWidth={2} />
-        Editar
+        <span>Editar</span>
       </button>
 
       {open && (

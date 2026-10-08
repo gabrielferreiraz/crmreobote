@@ -114,27 +114,28 @@ function WonDealsPanel({
   }
 
   useEffect(() => {
-    let cancelled = false;
+    // Fechar o painel no meio do carregamento cancela a consulta (ela varre
+    // os negócios ganhos do período inteiro).
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
-    fetch(buildUrl(0))
+    fetch(buildUrl(0), { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? `Erro ${res.status}`);
-        if (cancelled) return;
         setItems((data as WonDealsResult).items);
         setSummary({ total: data.total, sumValue: data.sumValue, sumGrossValue: data.sumGrossValue });
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Não deu pra carregar os negócios.");
+        // Cancelamento não vira mensagem de erro — o painel já está fechando.
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Não deu pra carregar os negócios.");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // buildUrl só depende das props (estáveis enquanto o painel está aberto)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt]);

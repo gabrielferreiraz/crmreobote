@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText } from "lucide-react";
+import { ArrowLeft, StickyNote, CircleDot, CheckCircle2, XCircle, Clock, Loader2, Pencil, Check, X, ThumbsUp, ThumbsDown, Trash2, User, Phone, MessageSquare, Mic, ChevronRight, Briefcase, CalendarCheck, UserCheck, Mail, ExternalLink, FileText, ListTodo, Plus, MoreHorizontal } from "lucide-react";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { isStale } from "@/lib/stale";
 import { normalizePhoneNumber, toDialNumber } from "@/lib/phone-normalize";
@@ -55,6 +55,133 @@ function missingFinancialValues(value: number | null, grossValue: number | null)
 // áudio, canvas de confete, Web Speech API) que a maioria das visitas a esta
 // página nunca aciona. `ssr: false` porque todos são só client-side de
 // qualquer forma (efeito visual, gravação de mídia, WebSpeech).
+const MOBILE_EDITOR_SELECTOR = [
+  'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]):not([disabled]):not([readonly])',
+  "textarea:not([disabled]):not([readonly])",
+  "select:not([disabled])",
+  '[contenteditable="true"]',
+].join(",");
+
+function findVerticalScroller(element: HTMLElement): HTMLElement {
+  let parent = element.parentElement;
+  while (parent && parent !== document.body) {
+    const overflowY = window.getComputedStyle(parent).overflowY;
+    if (/auto|scroll|overlay/.test(overflowY)) return parent;
+    parent = parent.parentElement;
+  }
+  return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : document.documentElement;
+}
+
+function centerEditorInMobileViewport(element: HTMLElement, behavior: ScrollBehavior) {
+  if (!element.isConnected || window.matchMedia("(min-width: 1024px)").matches) return;
+
+  const viewport = window.visualViewport;
+  let visibleTop = viewport?.offsetTop ?? 0;
+  let visibleBottom = visibleTop + (viewport?.height ?? window.innerHeight);
+  const scroller = findVerticalScroller(element);
+  const isDocumentScroller = scroller === document.documentElement || scroller === document.body;
+
+  if (!isDocumentScroller) {
+    const scrollerRect = scroller.getBoundingClientRect();
+    visibleTop = Math.max(visibleTop, scrollerRect.top);
+    visibleBottom = Math.min(visibleBottom, scrollerRect.bottom);
+  }
+
+  // Alguns navegadores posicionam a barra inferior acima do teclado. Se ela
+  // estiver dentro da viewport visível, esse espaço não pode contar no centro.
+  const bottomNav = document.getElementById("mobile-bottom-nav");
+  if (bottomNav && window.getComputedStyle(bottomNav).display !== "none") {
+    const navRect = bottomNav.getBoundingClientRect();
+    if (navRect.top > visibleTop && navRect.top < visibleBottom) visibleBottom = navRect.top;
+  }
+
+  visibleTop += 12;
+  visibleBottom -= 12;
+  if (visibleBottom <= visibleTop) return;
+
+  const fieldRect = element.getBoundingClientRect();
+  const fieldCenter = fieldRect.top + Math.min(fieldRect.height, visibleBottom - visibleTop) / 2;
+  const targetCenter = visibleTop + (visibleBottom - visibleTop) / 2;
+  const delta = fieldCenter - targetCenter;
+  if (Math.abs(delta) < 4) return;
+
+  scroller.scrollBy({ top: delta, behavior });
+}
+
+function useMobileEditorCentering() {
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 1023.98px)").matches) return;
+
+    const viewport = window.visualViewport;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const smoothBehavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
+    let activeEditor: HTMLElement | null = null;
+    let animationFrame = 0;
+    let settleTimer = 0;
+    const focusTimers = new Set<number>();
+
+    function isEditor(target: EventTarget | null): target is HTMLElement {
+      return target instanceof HTMLElement && target.matches(MOBILE_EDITOR_SELECTOR);
+    }
+
+    function centerActive(behavior: ScrollBehavior) {
+      if (!activeEditor || document.activeElement !== activeEditor) return;
+      centerEditorInMobileViewport(activeEditor, behavior);
+    }
+
+    function scheduleFocusCentering(editor: HTMLElement) {
+      activeEditor = editor;
+      for (const timer of focusTimers) window.clearTimeout(timer);
+      focusTimers.clear();
+
+      // Android e iOS terminam a animação do teclado em tempos diferentes.
+      // As passagens finais usam a viewport já reduzida pelo teclado aberto.
+      for (const delay of [40, 180, 360, 520]) {
+        const timer = window.setTimeout(() => {
+          focusTimers.delete(timer);
+          centerActive(delay === 520 ? smoothBehavior : "auto");
+        }, delay);
+        focusTimers.add(timer);
+      }
+    }
+
+    function handleFocusIn(event: FocusEvent) {
+      if (isEditor(event.target)) scheduleFocusCentering(event.target);
+    }
+
+    function handleFocusOut() {
+      window.setTimeout(() => {
+        if (!isEditor(document.activeElement)) activeEditor = null;
+      }, 0);
+    }
+
+    function handleViewportChange() {
+      if (!activeEditor || document.activeElement !== activeEditor) return;
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => centerActive("auto"));
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => centerActive(smoothBehavior), 120);
+    }
+
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("focusout", handleFocusOut, true);
+    viewport?.addEventListener("resize", handleViewportChange);
+    viewport?.addEventListener("scroll", handleViewportChange);
+    if (!viewport) window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn, true);
+      document.removeEventListener("focusout", handleFocusOut, true);
+      viewport?.removeEventListener("resize", handleViewportChange);
+      viewport?.removeEventListener("scroll", handleViewportChange);
+      if (!viewport) window.removeEventListener("resize", handleViewportChange);
+      window.cancelAnimationFrame(animationFrame);
+      window.clearTimeout(settleTimer);
+      for (const timer of focusTimers) window.clearTimeout(timer);
+    };
+  }, []);
+}
+
 const WhatsAppPanel = dynamic(() => import("@/components/whatsapp-chat").then((m) => m.WhatsAppPanel), { ssr: false });
 const ChatWindow = dynamic(() => import("@/components/whatsapp-chat").then((m) => m.ChatWindow), { ssr: false });
 const ConfettiBurst = dynamic(() => import("@/components/confetti-burst").then((m) => m.ConfettiBurst), { ssr: false });
@@ -84,6 +211,7 @@ type DealTask = {
   type: string;
   dueAt: string | Date | null;
   completedAt: string | Date | null;
+  activityId: string | null;
 };
 
 type ContactLeadQualification = "QUALIFIED" | "UNQUALIFIED";
@@ -160,13 +288,14 @@ function ActivityItem({
   const [meetingOutcome, setMeetingOutcome] = useState<"ATTENDED" | "NO_SHOW" | "RESCHEDULED" | "PENDING" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   if (activity.type === "SYSTEM") {
     const isProposalEvent = activity.body?.toLocaleLowerCase("pt-BR").includes("proposta");
     return (
       <div
         id={`activity-${activity.id}`}
-        className={`flex items-center gap-1.5 px-1 py-0.5 text-xs font-medium ${
+        className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1 py-1 text-xs font-medium ${
           isProposalEvent
             ? "text-indigo-600 dark:text-indigo-400 font-semibold"
             : "text-neutral-700 dark:text-neutral-200"
@@ -220,6 +349,17 @@ function ActivityItem({
     NOTE: "bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 ring-1 ring-amber-500/30",
   };
   const iconColorClass = activityTypeColors[activity.type] ?? "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400";
+  const editableMeetingOutcomes = [
+    { value: "PENDING" as const, label: "Aguardando", icon: Clock },
+    ...MEETING_OUTCOME_OPTIONS,
+  ];
+
+  function mobileOutcomeSelectedClass(value: (typeof editableMeetingOutcomes)[number]["value"]) {
+    if (value === "ATTENDED") return "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
+    if (value === "NO_SHOW") return "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300";
+    if (value === "RESCHEDULED") return "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
+    return "bg-brand/10 text-brand dark:bg-brand/15 dark:text-brand-hover";
+  }
 
   return (
     <div
@@ -241,11 +381,39 @@ function ActivityItem({
               placeholder="O que foi feito e qual o próximo passo?"
             />
             {isMeetingOrVisit && (
-              <div className="flex flex-wrap gap-1.5">
-                {([
-                  { value: "PENDING", label: "Aguardando" },
-                  ...MEETING_OUTCOME_OPTIONS,
-                ] as const).map((opt) => (
+              <>
+                <fieldset className="space-y-1.5 lg:hidden">
+                  <legend className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                    Resultado da atividade
+                  </legend>
+                  <div className="grid grid-cols-2 overflow-hidden rounded-md border border-neutral-200 bg-neutral-50/60 dark:border-white/10 dark:bg-white/[0.025]">
+                    {editableMeetingOutcomes.map((opt, index) => {
+                      const OutcomeIcon = opt.icon;
+                      const selected = meetingOutcome === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setMeetingOutcome(opt.value)}
+                          aria-pressed={selected}
+                          className={`flex min-h-11 items-center justify-center gap-2 px-2 py-2 text-center text-xs font-medium transition-colors ${
+                            index % 2 === 0 ? "border-r border-neutral-200 dark:border-white/10" : ""
+                          } ${index < 2 ? "border-b border-neutral-200 dark:border-white/10" : ""} ${
+                            selected
+                              ? mobileOutcomeSelectedClass(opt.value)
+                              : "bg-transparent text-neutral-500 active:bg-neutral-100 dark:text-neutral-400 dark:active:bg-white/[0.05]"
+                          }`}
+                        >
+                          <OutcomeIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                          <span>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+
+                <div className="hidden flex-wrap gap-1.5 lg:flex">
+                  {editableMeetingOutcomes.map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
@@ -259,8 +427,9 @@ function ActivityItem({
                   >
                     {opt.label}
                   </button>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
             {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
             <div className="flex items-center justify-end gap-2">
@@ -284,11 +453,11 @@ function ActivityItem({
           </form>
         ) : (
           <>
-            <div className="flex items-start justify-between gap-2">
+            <div className="activity-item__content-row flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                {activity.body && <p className="text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap break-words">{activity.body}</p>}
+                {activity.body && <p className="whitespace-pre-wrap break-words text-neutral-700 dark:text-neutral-200 lg:dark:text-neutral-300">{activity.body}</p>}
               </div>
-              <div className="flex shrink-0 items-start gap-1">
+              <div className="activity-item__actions hidden shrink-0 items-start gap-1 lg:flex">
                 {/* PENDING = aguardando a Task ligada concluir (ver
                     ActivityMeetingOutcome no schema) — rótulo próprio, não vem de
                     MEETING_OUTCOME_OPTIONS (esse só tem os 3 resultados finais). */}
@@ -334,10 +503,74 @@ function ActivityItem({
                 )}
               </div>
             </div>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+            <div className="mt-1 hidden min-w-0 items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500 lg:flex">
               <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
-              {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
-            </p>
+              <span className="min-w-0 truncate">
+                {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
+              </span>
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-400 lg:hidden">
+              <Avatar name={activity.user.name} src={activity.user.photoUrl} size="xs" />
+              <span className="min-w-0 flex-1 truncate">
+                {activity.user.name} · {new Date(activity.createdAt).toLocaleString("pt-BR")}
+              </span>
+              <div className="flex shrink-0 items-center gap-0.5">
+                {activity.meetingOutcome && (
+                  <span
+                    className={`text-[10px] font-medium ${
+                      activity.meetingOutcome === "ATTENDED"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : activity.meetingOutcome === "NO_SHOW"
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-neutral-500 dark:text-neutral-400"
+                    }`}
+                  >
+                    {activity.meetingOutcome === "PENDING"
+                      ? "Aguardando"
+                      : MEETING_OUTCOME_OPTIONS.find((option) => option.value === activity.meetingOutcome)?.label}
+                  </span>
+                )}
+                {canEdit && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setMobileMenuOpen((open) => !open)}
+                      className="icon-btn !min-h-8 !min-w-8 text-neutral-400 dark:text-neutral-500 dark:active:text-neutral-300"
+                      aria-label="Ações da atividade"
+                      aria-expanded={mobileMenuOpen}
+                    >
+                      <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
+                    </button>
+                    {mobileMenuOpen && (
+                      <div className="surface-glass-panel absolute right-0 bottom-9 z-20 min-w-32 overflow-hidden rounded-md py-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            startEdit();
+                          }}
+                          className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-xs text-neutral-700 dark:text-neutral-200"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            onConfirmDelete(activity);
+                          }}
+                          className="flex min-h-10 w-full items-center gap-2 px-3 text-left text-xs text-red-600 dark:text-red-400"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Excluir
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -392,6 +625,7 @@ export function DealDetail({
   const router = useRouter();
   const pushUndoToast = useUndoToast();
   const searchParams = useSearchParams();
+  useMobileEditorCentering();
   const canDeleteTask = currentUserRole === "OWNER";
   const [activeTab, setActiveTab] = useState("NOTE");
   const [sidebarTab, setSidebarTab] = useState<"general" | "contact">("general");
@@ -449,6 +683,8 @@ export function DealDetail({
   const [scheduleWhatsApp, setScheduleWhatsApp] = useState<ScheduleWhatsAppValue>({ enabled: false, message: "" });
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"activities" | "details">("activities");
+  const [mobileComposerOpen, setMobileComposerOpen] = useState(false);
+  const [showAllActivities, setShowAllActivities] = useState(() => !!searchParams.get("highlightActivity"));
   const [showConfetti, setShowConfetti] = useState(false);
   const [leadQualStatus, setLeadQualStatus] = useState<{ saving: boolean; error: string | null }>({ saving: false, error: null });
   // Usado pra UI refletir a mudança imediata sem esperar router.refresh()
@@ -464,30 +700,40 @@ export function DealDetail({
   const whatsappDigits = normalizePhoneNumber(deal.contact.whatsapp) ?? phoneDigits;
   const directPhoneUrl = phoneDigits ? `tel:+${toDialNumber(phoneDigits)}` : null;
   const directWhatsAppUrl = whatsappDigits ? `https://wa.me/${toDialNumber(whatsappDigits)}` : null;
-  const pendingTasksCount = deal.tasks.filter((t) => !t.completedAt).length;
+  const pendingTasks = deal.tasks.filter((task) => !task.completedAt);
+  const pendingTasksCount = pendingTasks.length;
+  const pendingActivityIds = new Set(
+    pendingTasks.flatMap((task) => (task.activityId ? [task.activityId] : [])),
+  );
+  const activityRecords = deal.activities.filter((activity) => !pendingActivityIds.has(activity.id));
+  const visibleActivities = showAllActivities ? activityRecords : activityRecords.slice(0, 5);
 
   useEffect(() => {
     const taskId = searchParams.get("highlightTask");
     const activityId = searchParams.get("highlightActivity");
     if (!taskId && !activityId) return;
-    // No mobile a tarefa mora na aba "Detalhes" — troca antes de procurar o
-    // elemento, senão ele nem existe no DOM ainda (a outra aba não é montada).
-    if (taskId) setMobileTab("details");
-
-    // Espera o próximo tick pra garantir que a troca de aba acima (se houve)
-    // já renderizou antes de procurar o elemento. Desktop e mobile também
+    // No mobile, pendências e registros ficam juntos em "Atividades".
+    // Espera o próximo tick para o elemento estar disponível. Desktop e mobile
     // renderizam a mesma tarefa/atividade em blocos diferentes (um deles
     // sempre `display:none`) — busca todas as ocorrências do id e pega a
     // que estiver realmente visível na tela.
     const timeout1 = setTimeout(() => {
-      const matches = document.querySelectorAll(`[id="${taskId ? `task-${taskId}` : `activity-${activityId}`}"]`);
+      const linkedPendingTask = activityId
+        ? pendingTasks.find((task) => task.activityId === activityId)
+        : undefined;
+      const targetId = taskId
+        ? `task-${taskId}`
+        : linkedPendingTask
+          ? `task-${linkedPendingTask.id}`
+          : `activity-${activityId}`;
+      const matches = document.querySelectorAll(`[id="${targetId}"]`);
       const el = Array.from(matches).find((node) => (node as HTMLElement).offsetParent !== null) as
         | HTMLElement
         | undefined;
       if (!el) return;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (taskId) setHighlightedTaskId(taskId);
-      if (activityId) setHighlightedActivityId(activityId);
+      if (taskId || linkedPendingTask) setHighlightedTaskId(taskId ?? linkedPendingTask?.id ?? null);
+      if (activityId && !linkedPendingTask) setHighlightedActivityId(activityId);
     }, 50);
     router.replace(`/negocios/${deal.id}`);
     const timeout2 = setTimeout(() => {
@@ -1024,30 +1270,141 @@ export function DealDetail({
     setMeetingOutcome(null);
     setScheduleWhatsApp({ enabled: false, message: "" });
     setSaving(false);
+    setMobileComposerOpen(false);
     router.refresh();
   }
 
   return (
-    <div className="deal-detail flex items-start gap-4">
+    <div className="deal-detail flex w-full min-w-0 max-w-full items-start gap-4 overflow-x-clip lg:overflow-visible">
       {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
-      <div className="min-w-0 flex-1 space-y-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0 flex-1 space-y-0 lg:space-y-6">
+      <div className="hidden items-center justify-between gap-2 lg:flex">
         <Link
           href="/pipeline"
-          className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+          className="inline-flex min-h-11 items-center gap-2 text-xs font-medium text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 lg:min-h-0 lg:text-sm"
         >
-          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
+          <ArrowLeft className="h-4 w-4" strokeWidth={2} />
           Pipeline
         </Link>
         {deal.value != null && (
-          <span className="inline-flex items-center rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand dark:bg-brand/20 dark:text-brand-light lg:hidden">
+          <span className="hidden items-center rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand dark:bg-brand/20 dark:text-brand-light">
             {formatCurrency(deal.value)}
           </span>
         )}
       </div>
 
       {/* Mobile Header Ultra Clean */}
-      <div className="space-y-3 lg:hidden">
+      <section className="pt-4 pb-1 lg:hidden">
+        <div className="min-w-0">
+          <div className="min-w-0">
+            <div className="min-w-0">
+              <h1 className="break-words text-[19px] font-bold leading-6 text-neutral-950 dark:text-white">{deal.name}</h1>
+              {deal.value != null && (
+                <span className="mt-1 block text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                  {formatCurrency(deal.value)}
+                </span>
+              )}
+            </div>
+            <Link
+              href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+              className="mt-1 block truncate text-xs font-medium text-neutral-600 transition-colors hover:text-brand dark:text-neutral-300"
+            >
+              {deal.contact.name}
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-3 flex min-h-11 items-center gap-4 border-y border-neutral-200/80 dark:border-white/[0.08]">
+          <div className="relative w-[8.25rem] shrink-0">
+            <CircleDot
+              className={`pointer-events-none absolute top-1/2 left-0 z-10 h-3 w-3 -translate-y-1/2 ${
+                deal.status === "OPEN"
+                  ? "text-brand"
+                  : deal.status === "WON"
+                    ? "text-emerald-700 dark:text-emerald-400"
+                    : "text-red-700 dark:text-red-400"
+              }`}
+            />
+            <Select
+              value={deal.status}
+              onChange={(status) => {
+                if (status !== deal.status) void updateStatus(status as Deal["status"]);
+              }}
+              options={[
+                { value: "OPEN", label: "Em andamento" },
+                { value: "WON", label: "Ganho" },
+                { value: "LOST", label: "Perdido" },
+              ]}
+              ariaLabel="Alterar status do negócio"
+              className={`deal-mobile-status-select !min-h-11 !border-0 !bg-transparent !py-0 !pr-0 !pl-5 !text-xs !font-medium !shadow-none !ring-0 ${
+                deal.status === "OPEN"
+                  ? "text-brand"
+                  : deal.status === "WON"
+                    ? "text-emerald-700 dark:text-emerald-400"
+                    : "text-red-700 dark:text-red-400"
+              }`}
+            />
+          </div>
+
+          <div className="relative min-w-0 flex-1 border-l border-neutral-200 pl-4 dark:border-white/[0.08]">
+            <span
+              className="pointer-events-none absolute top-1/2 left-4 z-10 h-2 w-2 -translate-y-1/2 rounded-full"
+              style={{ backgroundColor: deal.stage.color ?? "#999" }}
+            />
+            <Select
+              value={deal.stageId}
+              onChange={moveToStage}
+              options={deal.pipeline.stages.map((stage) => ({ value: stage.id, label: stage.name }))}
+              disabled={movingStage !== null}
+              ariaLabel="Alterar etapa do negócio"
+              className="deal-mobile-stage-select !min-h-11 !border-0 !bg-transparent !py-0 !pr-0 !pl-4 !text-xs !font-semibold !shadow-none !ring-0"
+            />
+          </div>
+        </div>
+
+        <div className="flex min-h-11 items-center gap-5 border-b border-neutral-200/80 dark:border-white/[0.08]">
+          {directPhoneUrl && (
+            <a
+              href={directPhoneUrl}
+              className="inline-flex min-h-11 items-center gap-1.5 text-[12px] font-medium text-neutral-500 transition-colors active:text-brand dark:text-neutral-400"
+            >
+              <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+              Ligar
+            </a>
+          )}
+
+          {whatsappThreadId ? (
+            <button
+              type="button"
+              onClick={() => setChatOpen(true)}
+              className="inline-flex min-h-11 items-center gap-1.5 text-[12px] font-medium text-neutral-500 transition-colors active:text-emerald-700 dark:text-neutral-400 dark:active:text-emerald-400"
+            >
+              <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+              WhatsApp
+            </button>
+          ) : directWhatsAppUrl ? (
+            <a
+              href={directWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center gap-1.5 text-[12px] font-medium text-neutral-500 transition-colors active:text-emerald-700 dark:text-neutral-400 dark:active:text-emerald-400"
+            >
+              <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+              WhatsApp
+            </a>
+          ) : null}
+
+          <Link
+            href={`/clientes/${deal.contact.id}?fromDeal=${deal.id}`}
+            className="inline-flex min-h-11 items-center gap-1.5 text-[12px] font-medium text-neutral-500 transition-colors active:text-brand dark:text-neutral-400"
+          >
+            <User className="h-3.5 w-3.5" strokeWidth={2} />
+            Cliente
+          </Link>
+        </div>
+      </section>
+
+      <div className="hidden">
         {/* Nome do Negócio & Valor */}
         <div className="space-y-1">
           <div className="flex items-start justify-between gap-2">
@@ -1760,50 +2117,104 @@ export function DealDetail({
       {/* Mobile — abas em vez de grade lado a lado; reaproveita os mesmos
           handlers/estado de cima, só reorganiza a apresentação. */}
       <div className="lg:hidden">
-        <div className="relative mb-3 flex w-full rounded-lg border border-neutral-200 bg-neutral-100 p-0.5 dark:border-neutral-800 dark:bg-neutral-800">
-          <div
-            className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-white shadow-sm transition-transform duration-200 ease-spring dark:bg-neutral-900"
-            style={{ transform: mobileTab === "details" ? "translateX(calc(100% + 4px))" : "translateX(0)" }}
-          />
+        <nav className="sticky top-0 z-20 -mx-4 grid grid-cols-2 border-b border-neutral-200/80 bg-white px-4 dark:border-white/[0.08] dark:bg-neutral-950">
           <button
+            type="button"
             onClick={() => setMobileTab("activities")}
-            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors active:scale-[0.97] ${
-              mobileTab === "activities"
-                ? "text-neutral-900 dark:text-neutral-100"
-                : "text-neutral-500 dark:text-neutral-400"
+            className={`relative flex min-h-12 items-center justify-center gap-1.5 text-xs font-semibold transition-colors ${
+              mobileTab === "activities" ? "text-brand" : "text-neutral-400 dark:text-neutral-400"
             }`}
           >
-            <span>Atividades</span>
-            {deal.activities.length > 0 && (
-              <span className="rounded-full bg-neutral-200/80 px-1.5 py-0.2 text-[10px] text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300">
-                {deal.activities.length}
-              </span>
-            )}
+            Atividades
+            {mobileTab === "activities" && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand" />}
           </button>
           <button
+            type="button"
             onClick={() => setMobileTab("details")}
-            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors active:scale-[0.97] ${
-              mobileTab === "details"
-                ? "text-neutral-900 dark:text-neutral-100"
-                : "text-neutral-500 dark:text-neutral-400"
+            className={`relative flex min-h-12 items-center justify-center gap-1.5 text-xs font-semibold transition-colors ${
+              mobileTab === "details" ? "text-brand" : "text-neutral-400 dark:text-neutral-400"
             }`}
           >
-            <span>Detalhes & Tarefas</span>
-            {pendingTasksCount > 0 ? (
-              <span className="rounded-full bg-amber-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-                {pendingTasksCount}
-              </span>
-            ) : deal.tasks.length > 0 ? (
-              <span className="rounded-full bg-neutral-200/80 px-1.5 py-0.2 text-[10px] text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300">
-                {deal.tasks.length}
-              </span>
-            ) : null}
+            Dados
+            {mobileTab === "details" && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand" />}
           </button>
-        </div>
+        </nav>
 
         {mobileTab === "activities" ? (
-          <div className="animate-bubble-in space-y-4">
-            <div className="card p-3.5">
+          <div className="animate-bubble-in">
+            {pendingTasksCount > 0 && (
+              <section className="border-b border-neutral-200/80 dark:border-white/[0.08]">
+                <div className="flex min-h-10 items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                  <ListTodo className="h-4 w-4 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+                  <span className="flex-1">Pendentes</span>
+                  <span className="text-[11px] font-medium tabular-nums text-neutral-400 dark:text-neutral-500">
+                    {pendingTasksCount}
+                  </span>
+                </div>
+                <div className="divide-y divide-neutral-100 dark:divide-white/[0.06]">
+                  {pendingTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      id={`task-${task.id}`}
+                      className={`group flex min-h-16 items-start gap-3 py-3 ${
+                        highlightedTaskId === task.id ? "animate-highlight-once" : ""
+                      }`}
+                    >
+                      <label className="flex min-w-0 flex-1 items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={() => toggleTask(task.id, true)}
+                          className="mt-0.5 h-5 w-5 shrink-0 accent-brand"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium leading-snug text-neutral-800 dark:text-neutral-100">
+                            {task.title}
+                          </span>
+                          <span className="mt-1 flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                            <Clock className="h-3 w-3" />
+                            {task.dueAt
+                              ? new Date(task.dueAt).toLocaleString("pt-BR", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : "Sem prazo"}
+                          </span>
+                        </span>
+                      </label>
+                      {canEditDetails && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingTask(task)}
+                          className="icon-btn shrink-0 text-neutral-400 dark:text-neutral-500"
+                          aria-label="Editar atividade pendente"
+                        >
+                          <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setMobileComposerOpen((open) => !open)}
+              aria-expanded={mobileComposerOpen}
+              className="flex min-h-12 w-full items-center justify-between border-b border-neutral-200/80 text-sm font-semibold text-brand transition-colors active:text-brand-active dark:border-white/[0.08]"
+            >
+              <span className="inline-flex items-center gap-2">
+                {mobileComposerOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                {mobileComposerOpen ? "Fechar" : "Nova atividade"}
+              </span>
+              {!mobileComposerOpen && <ChevronRight className="h-4 w-4" />}
+            </button>
+
+            {mobileComposerOpen && (
+            <div className="deal-mobile-composer border-b border-neutral-200/80 py-3 dark:border-white/[0.08]">
               <div className="scrollbar-none mb-3 flex gap-1.5 overflow-x-auto pb-0.5">
                 {COMPOSER_TABS.map((tab) => (
                   <button
@@ -1812,8 +2223,8 @@ export function DealDetail({
                     className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
                       activeTab === tab.type
                         ? tab.type === "PROPOSAL"
-                          ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                          : "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                          ? "bg-neutral-900 text-white dark:bg-brand/20 dark:text-brand-hover dark:ring-1 dark:ring-brand/30"
+                          : "bg-neutral-900 text-white dark:bg-brand/20 dark:text-brand-hover dark:ring-1 dark:ring-brand/30"
                         : tab.type === "PROPOSAL"
                           ? "bg-neutral-100 text-neutral-700 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:active:bg-neutral-700"
                           : "bg-neutral-100 text-neutral-600 active:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:active:bg-neutral-700"
@@ -1898,12 +2309,13 @@ export function DealDetail({
               </form>
               )}
             </div>
+            )}
 
-            <div className="space-y-2">
-              {deal.activities.length === 0 && (
-                <p className="text-sm text-neutral-500 dark:text-neutral-400">Nenhuma atividade registrada.</p>
+            <div className="deal-mobile-timeline space-y-0">
+              {activityRecords.length === 0 && pendingTasks.length === 0 && (
+                <p className="py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">Nenhuma atividade registrada.</p>
               )}
-              {deal.activities.map((activity) => (
+              {visibleActivities.map((activity) => (
                 <ActivityItem
                   key={activity.id}
                   activity={activity}
@@ -1913,10 +2325,46 @@ export function DealDetail({
                   onSave={saveActivityEdit}
                 />
               ))}
+              {activityRecords.length > 5 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllActivities((showAll) => !showAll)}
+                  className="min-h-12 w-full border-b border-neutral-200/80 text-left text-xs font-semibold text-neutral-500 dark:border-white/[0.08] dark:text-neutral-400"
+                >
+                  {showAllActivities ? "Mostrar menos" : `Ver todas as atividades (${activityRecords.length})`}
+                </button>
+              )}
             </div>
           </div>
         ) : (
-          <div className="animate-bubble-in space-y-4">
+          <div className="deal-mobile-details animate-bubble-in">
+            <section className="card space-y-3 p-4">
+              <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Status do negócio</h2>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { status: "LOST" as const, label: "Perdido", icon: XCircle, active: "bg-red-600 text-white" },
+                    { status: "OPEN" as const, label: "Em aberto", icon: CircleDot, active: "bg-brand text-white" },
+                    { status: "WON" as const, label: "Ganho", icon: CheckCircle2, active: "bg-emerald-600 text-white" },
+                  ]
+                ).map(({ status, label, icon: Icon, active }) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => updateStatus(status)}
+                    className={`flex min-h-11 flex-col items-center justify-center gap-1 rounded-md px-2 text-[11px] font-semibold transition-colors ${
+                      deal.status === status
+                        ? active
+                        : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" strokeWidth={2.2} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
             <FinancialValuesCard
               value={deal.value}
               grossValue={deal.grossValue}
@@ -1925,11 +2373,7 @@ export function DealDetail({
               onSaveGrossValue={saveDealGrossValue}
             />
 
-            {!chatOpen && whatsappThreadId && (
-              <WhatsAppPanelTrigger onOpen={() => setChatOpen(true)} hasUnread={hasUnreadWhatsApp} />
-            )}
-
-            <div className="card space-y-2 p-4 text-sm">
+            <div className="hidden">
               <h3 className="font-medium text-neutral-800 dark:text-neutral-200">Tarefas</h3>
               <div className="space-y-1.5">
                 {deal.tasks.length === 0 && (

@@ -225,6 +225,11 @@ export type ResolvedRow = {
 export type ImportPlanSummary = {
   totalRows: number;
   toCreate: number;
+  /** Contatos que JÁ existem e vão ser atualizados com o que a planilha traz
+   * de diferente (ver contactUpdates em ImportPlan.writes). Conta CONTATO,
+   * não linha: a mesma pessoa repetida em duas linhas do arquivo é uma
+   * atualização só. */
+  contactsToUpdate: number;
   skippedNoName: number;
   /** Sem cargo que exista no CRM (nem escolhido na revisão) ou "não importar" escolhido. */
   skippedNoJobTitle: number;
@@ -250,6 +255,22 @@ export type NewContactWrite = {
   phoneNormalized: string | null;
   whatsappNormalized: string | null;
 } & Partial<Record<AddressField, string>>;
+
+/**
+ * Contato que já existe e ganha os dados novos da planilha — pedido
+ * explícito: "se tem um número com cargo MEDICO e na lista o cargo é MEDICO
+ * MS, deve atualizar para MEDICO MS; outras informações também devem
+ * atualizar automaticamente". Antes a linha duplicada só era ignorada e a
+ * atualização dependia de clicar "Atualizar contato" linha por linha na
+ * prévia.
+ *
+ * `data` traz SÓ o que de fato diverge (ver buildDivergentFields) — campo
+ * vazio na planilha nunca apaga o que já está salvo, e campo igual nem entra.
+ * Telefone/WhatsApp nunca aparecem aqui: são a própria chave que identificou
+ * a duplicidade. Responsável também não — tem o fluxo próprio de
+ * Atribuir/Pedir, que é uma decisão de dono de lead, não de dado cadastral.
+ */
+export type ContactUpdateWrite = { id: string; data: Partial<Record<DivergentField, string>> };
 
 export type MemberInput = { userId: string; name: string; email: string };
 
@@ -320,7 +341,7 @@ export type ImportPlan = {
   rows: ResolvedRow[];
   pendingValues: PendingValue[];
   /** Preenchido só na resolução de commit (includeWrites:true) — ausente na prévia. */
-  writes?: { newContacts: NewContactWrite[] };
+  writes?: { newContacts: NewContactWrite[]; contactUpdates: ContactUpdateWrite[] };
 };
 
 export type ExistingContactInput = {
@@ -541,6 +562,13 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   }
 
   const newContacts: NewContactWrite[] = [];
+  // Por CONTATO, não por linha: o mesmo número repetido em duas linhas do
+  // arquivo colide com o mesmo contato existente, e atualizar duas vezes
+  // seria trabalho repetido (e com valores possivelmente conflitantes entre
+  // as duas linhas). A PRIMEIRA linha que encostou no contato manda — mesma
+  // regra que a dedup dentro do arquivo já usa ("quem reivindicou primeiro"),
+  // pra prévia e commit nunca discordarem sobre qual linha venceu.
+  const updatesByContactId = new Map<string, ContactUpdateWrite>();
   const rows: ResolvedRow[] = [];
 
   let toCreate = 0;
@@ -655,6 +683,12 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
               responsavelActive: claimant.responsavelActive,
               divergentFields: buildDivergentFields(claimant, { jobTitle: jobTitle.value, source: source.value, company, email, ...address }),
             };
+      if (existingContact && existingContact.divergentFields.length > 0 && !updatesByContactId.has(existingContact.id)) {
+        updatesByContactId.set(existingContact.id, {
+          id: existingContact.id,
+          data: Object.fromEntries(existingContact.divergentFields.map((f) => [f.field, f.newValue])),
+        });
+      }
       rows.push({ ...resolvedRow, willImport: false, issues, existingContact });
       continue;
     }
@@ -727,6 +761,7 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
   const summary: ImportPlanSummary = {
     totalRows: input.dataRows.length,
     toCreate,
+    contactsToUpdate: updatesByContactId.size,
     skippedNoName,
     skippedNoJobTitle,
     skippedInvalidPhone,
@@ -747,6 +782,6 @@ export function resolveImportPlan(input: ResolveImportInput): ImportPlan {
     summary,
     rows,
     pendingValues,
-    writes: input.includeWrites ? { newContacts } : undefined,
+    writes: input.includeWrites ? { newContacts, contactUpdates: [...updatesByContactId.values()] } : undefined,
   };
 }

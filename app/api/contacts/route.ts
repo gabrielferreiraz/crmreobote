@@ -62,6 +62,9 @@ export async function GET(req: Request) {
   const hasWhatsapp = asPresenceFilter(searchParams.get("hasWhatsapp"));
   const registeredFrom = parseDate(searchParams.get("registeredFrom"));
   const registeredTo = parseDate(searchParams.get("registeredTo"));
+  // Filtro "Última atualização" (ver updatedFrom/updatedTo em lib/contacts/list-query.ts).
+  const updatedFrom = parseDate(searchParams.get("updatedFrom"));
+  const updatedTo = parseDate(searchParams.get("updatedTo"));
 
   const { organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -93,6 +96,8 @@ export async function GET(req: Request) {
       hasWhatsapp,
       registeredFrom,
       registeredTo,
+      updatedFrom,
+      updatedTo,
     };
 
     const [contacts, totalCount] = await Promise.all([

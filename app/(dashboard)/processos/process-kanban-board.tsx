@@ -225,7 +225,9 @@ export function ProcessKanbanBoard({
       skipNextFetch.current = false;
       return;
     }
-    let cancelled = false;
+    // Sair da tela/trocar de filtro derruba as duas consultas em vez de só
+    // ignorar a resposta — mesmo padrão de pipeline/kanban-board.tsx.
+    const controller = new AbortController();
     setStagesLoading(true);
     const filters = { debouncedSearch, documentFilter };
 
@@ -234,32 +236,31 @@ export function ProcessKanbanBoard({
     const countsParams = buildFilterParams(filters);
 
     Promise.all([
-      fetch(`/api/processes?${dealsParams.toString()}`).then(async (res) =>
+      fetch(`/api/processes?${dealsParams.toString()}`, { signal: controller.signal }).then(async (res) =>
         res.ok ? ((await res.json()) as ProcessItem[]) : [],
       ),
-      fetch(`/api/processes/stage-counts?${countsParams.toString()}`).then(async (res) =>
+      fetch(`/api/processes/stage-counts?${countsParams.toString()}`, { signal: controller.signal }).then(async (res) =>
         res.ok ? ((await res.json()) as Record<string, number>) : {},
       ),
     ])
       .then(([items, counts]) => {
-        if (cancelled) return;
         const byStage: Record<string, ProcessItem[]> = {};
         for (const p of items) (byStage[p.stageId] ??= []).push(p);
         setProcessesByStage(byStage);
         setCountByStage(counts);
       })
       .catch(() => {
-        if (cancelled) return;
+        // Esvaziar o board é reação a falha de verdade; num abort a tela
+        // está saindo ou já vai recarregar com o filtro novo.
+        if (controller.signal.aborted) return;
         setProcessesByStage({});
         setCountByStage({});
       })
       .finally(() => {
-        if (!cancelled) setStagesLoading(false);
+        if (!controller.signal.aborted) setStagesLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, documentFilter, pipelineId]);
 
@@ -356,19 +357,8 @@ export function ProcessKanbanBoard({
     router.refresh();
   }
 
-  // Mede a distância real até o fim da janela e trava a altura da fileira
-  // nesse valor — mesmo motivo/mesmo padrão de kanban-board.tsx: não dá pra
-  // confiar só em h-full/flex-1 se propagando certo por vários containers, e
-  // sem isso as colunas cresciam pra caber o conteúdo em vez de rolar sozinhas.
-  //
-  // Desconta também a barra de navegação inferior do celular
-  // (#mobile-bottom-nav, ver mobile-nav.tsx) — ela é `position:fixed`, fica
-  // POR CIMA do conteúdo em vez de empurrá-lo, então window.innerHeight
-  // sozinho não sabe que aquela faixa de baixo está coberta. Esse desconto
-  // já existia em kanban-board.tsx mas nunca tinha sido replicado aqui —
-  // sem ele, o fim de cada coluna (últimos cartões) ficava escondido atrás
-  // da barra, inalcançável mesmo rolando até o limite. Em telas lg+ a barra
-  // some (lg:hidden) e getBoundingClientRect já retorna altura 0 sozinho.
+  // Mede até o limite real do painel para as colunas rolarem internamente
+  // sem avançar sobre paddings ou elementos externos ao <main>.
   const rowRef = useRef<HTMLDivElement>(null);
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
@@ -376,9 +366,8 @@ export function ProcessKanbanBoard({
     if (!el) return;
     function measure() {
       const top = el!.getBoundingClientRect().top;
-      const mobileNav = document.getElementById("mobile-bottom-nav");
-      const bottomReserved = mobileNav ? mobileNav.getBoundingClientRect().height : 0;
-      setRowHeight(Math.max(240, window.innerHeight - top - bottomReserved - 4));
+      const containerBottom = el!.parentElement?.getBoundingClientRect().bottom ?? window.innerHeight;
+      setRowHeight(Math.max(240, containerBottom - top - 4));
     }
     measure();
     window.addEventListener("resize", measure);

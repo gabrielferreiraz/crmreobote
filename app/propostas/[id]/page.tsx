@@ -24,8 +24,10 @@ export const dynamic = "force-dynamic";
  * "membro ainda ativo" (que lá derruba sessão de quem foi desativado) precisa
  * ser refeita aqui.
  *
- * PDF sem servidor: window.print() + "Salvar como PDF" do próprio navegador
- * do consultor — nenhum Chromium/Gotenberg na VPS.
+ * PDF sem servidor: as duas folhas do preview são renderizadas no navegador e
+ * gravadas diretamente em um arquivo A4. Isso evita que escala, margens e
+ * cabeçalhos do diálogo de impressão alterem a paginação; nenhum Chromium ou
+ * Gotenberg é necessário na VPS.
  */
 
 type Loaded =

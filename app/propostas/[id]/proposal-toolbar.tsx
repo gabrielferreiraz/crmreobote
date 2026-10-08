@@ -3,36 +3,34 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, FileText, Loader2, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, FileText, Loader2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { proposalApi } from "@/lib/proposals/client";
+import { downloadProposalPdf } from "@/lib/proposals/export-pdf";
 import { PROPOSAL_STATUS_LABEL, type ProposalDTO } from "@/lib/proposals/types";
 import { trackUse } from "@/lib/feature-usage/track";
 
 export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
 
   const canPrint = proposal.status !== "DRAFT" && proposal.status !== "CANCELLED";
   const step = proposal.status === "DRAFT" ? 1 : proposal.status === "GENERATED" ? 2 : 3;
 
-  async function printProposal() {
+  async function downloadPdf() {
+    setPrinting(true);
+    setError(null);
     trackUse("proposta.pdf");
-    await document.fonts.ready;
-    const images = Array.from(document.querySelectorAll<HTMLImageElement>(".proposal-page img"));
-    await Promise.all(images.map(async (image) => {
-      if (!image.complete) {
-        await new Promise<void>((resolve) => {
-          image.addEventListener("load", () => resolve(), { once: true });
-          image.addEventListener("error", () => resolve(), { once: true });
-        });
-      }
-      await image.decode().catch(() => undefined);
-    }));
-    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    window.print();
+    try {
+      await downloadProposalPdf();
+    } catch {
+      setError("Não foi possível gerar o PDF. Tente novamente.");
+    } finally {
+      setPrinting(false);
+    }
   }
 
   async function run(action: "generate" | "send") {
@@ -108,14 +106,15 @@ export function ProposalToolbar({ proposal }: { proposal: ProposalDTO }) {
           {canPrint && (
             <button
               type="button"
-              onClick={printProposal}
+              onClick={downloadPdf}
+              disabled={printing}
               className={`${
                 proposal.status === "GENERATED" ? "btn-primary bg-sky-600 hover:bg-sky-700 text-white shadow-md ring-2 ring-sky-400/40" : "btn-primary"
               } w-full py-3 flex-col items-center justify-center text-center gap-0.5`}
             >
               <div className="flex items-center gap-2 font-extrabold text-sm">
-                <Printer className="h-4 w-4" strokeWidth={2.5} />
-                <span>{proposal.status === "GENERATED" ? "2. Baixar / Salvar PDF" : "Baixar / Imprimir PDF"}</span>
+                {printing ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Download className="h-4 w-4" strokeWidth={2.5} />}
+                <span>{printing ? "Gerando PDF..." : proposal.status === "GENERATED" ? "2. Baixar / Salvar PDF" : "Baixar PDF"}</span>
               </div>
               <span className="text-[11px] font-normal opacity-90">Salva o PDF no celular ou PC</span>
             </button>

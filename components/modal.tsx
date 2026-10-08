@@ -48,10 +48,13 @@ export function Modal({
   onClose,
   children,
   maxWidth = "max-w-sm",
+  mobileSheet = false,
 }: {
   onClose: () => void;
   children: React.ReactNode;
   maxWidth?: string;
+  /** No mobile, ancora o painel na base; em lg+ mantém o modal central. */
+  mobileSheet?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const idRef = useRef<symbol | null>(null);
@@ -125,7 +128,9 @@ export function Modal({
           // CHAPADO (sem blur) resolve isso sem reintroduzir o artefato
           // antigo — o que somava mal era blur-sobre-blur, não tinta lisa
           // por cima de algo já borrado uma vez.
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
+          className={`fixed inset-0 z-50 flex justify-center ${
+            mobileSheet ? "items-end p-0 lg:items-center lg:p-4" : "items-center p-4"
+          } ${
             isNested ? "bg-neutral-900/30 dark:bg-neutral-950/45" : "bg-neutral-900/40 backdrop-blur-lg dark:bg-neutral-950/60"
           }`}
           style={{ animation: "modal-backdrop-in 180ms var(--ease-smooth)" }}
@@ -142,8 +147,12 @@ export function Modal({
             // acima: o painel é o que "chega" na tela, o fundo só esmaece —
             // dar um pouco de "estica além e volta" nele é o que lê como
             // apresentação nativa (iOS/macOS), não como um <div> aparecendo.
-            style={{ animation: "modal-panel-in 280ms var(--ease-spring)" }}
-            className={`surface-glass-panel scrollbar-thin w-full outline-none ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl p-5 pb-7 ${
+            style={mobileSheet ? undefined : { animation: "modal-panel-in 280ms var(--ease-spring)" }}
+            className={`surface-glass-panel scrollbar-thin w-full outline-none ${maxWidth} overflow-y-auto p-5 ${
+              mobileSheet
+                ? "modal-panel-mobile-sheet max-h-[88dvh] rounded-t-xl rounded-b-none border-b-0 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] lg:max-h-[90vh] lg:rounded-xl lg:border-b lg:pb-7"
+                : "max-h-[90vh] rounded-xl pb-7"
+            } ${
               isNested ? "shadow-2xl ring-1 ring-black/5 dark:ring-white/10" : ""
             }`}
           >

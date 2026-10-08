@@ -37,7 +37,23 @@ type PreviewResponse = {
   duplicateRows: DuplicateRow[];
   duplicateRowsTruncated: boolean;
 };
-type ImportResult = ImportPlanSummary & { total: number; created: number; skipped: number; importBatchId: string; issueRows: ResolvedRow[] };
+type ImportResult = ImportPlanSummary & {
+  total: number;
+  created: number;
+  /** Contatos que já existiam e foram atualizados com o que a planilha trazia
+   * de diferente (ver POST /api/contacts/import) — pode ser menor que
+   * `contactsToUpdate` se alguém apagou/mexeu no contato no meio do caminho. */
+  updatedExisting: number;
+  /** Divergência detectada mas NÃO aplicada por estar fora do escopo de quem
+   * importou (lead de outro consultor) — não é erro, é a regra de permissão. */
+  updateBlocked: number;
+  /** Preenchido só quando a etapa de atualização quebrou de verdade — os
+   * contatos novos entraram do mesmo jeito. */
+  updateFailed: string | null;
+  skipped: number;
+  importBatchId: string;
+  issueRows: ResolvedRow[];
+};
 
 type Step = "pick" | "columns" | "review" | "done";
 type Overrides = Partial<Record<ContactImportField, number>>;
@@ -297,7 +313,16 @@ export function ContactImportDialog({
         </p>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">de {plural(result.total, "linha", "linhas")} na planilha</p>
 
-        <SummaryList items={summaryItems(result, result.skippedNoJobTitle, true)} className="mt-4" />
+        <SummaryList
+          items={summaryItems(result, result.skippedNoJobTitle, true, result.updatedExisting, result.updateBlocked)}
+          className="mt-4"
+        />
+
+        {result.updateFailed && (
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+            {result.updateFailed}
+          </p>
+        )}
 
         {result.issueRows.length > 0 && (
           <div className="mt-4">
@@ -537,7 +562,8 @@ export function ContactImportDialog({
           <>
             <div className="flex flex-wrap items-center gap-2 py-3">
               <p className="mr-auto text-xs text-neutral-500 dark:text-neutral-400">
-                Não serão criados de novo. Dá pra trazer para quem a linha iria.
+                Não serão criados de novo — o que a planilha traz de diferente é atualizado no contato que já existe ao
+                importar. Dá pra trazer para quem a linha iria.
               </p>
               {claimable.length > 0 && (
                 <button type="button" disabled={bulkBusy} onClick={() => bulkLeadAction(claimable)} className="btn-secondary btn-sm">
@@ -753,9 +779,32 @@ type SummaryItem = { count: number; text: string; warn?: boolean };
  * cargo nas respostas, e responsável não encontrado fica de fora (é uma
  * pergunta logo abaixo, não um aviso).
  */
-function summaryItems(s: ImportPlanSummary, skippedNoJobTitle: number, final: boolean): SummaryItem[] {
+function summaryItems(
+  s: ImportPlanSummary,
+  skippedNoJobTitle: number,
+  final: boolean,
+  updatedExisting?: number,
+  blocked?: number,
+): SummaryItem[] {
   return [
     { count: s.duplicateContacts, text: "já existem no CRM (mesmo telefone ou WhatsApp)" },
+    // Contato existente que ganha dado novo da planilha (cargo, origem,
+    // endereço…) — acontece sozinho na importação, não é mais um clique
+    // "Atualizar contato" por linha. No fim mostra o que o servidor DE FATO
+    // aplicou (updatedExisting), não o que estava planejado.
+    {
+      count: final ? (updatedExisting ?? 0) : s.contactsToUpdate,
+      text: final
+        ? "desses, foram atualizados com os dados da planilha"
+        : "desses, serão atualizados com os dados da planilha",
+    },
+    // Só no fim: divergência que existia mas não pôde ser aplicada porque o
+    // contato é de outro consultor (ver updateBlocked em POST
+    // /api/contacts/import). Em âmbar — não é falha, mas a pessoa precisa
+    // saber que aqueles ficaram como estavam.
+    ...(final && (blocked ?? 0) > 0
+      ? [{ count: blocked!, text: "não foram atualizados — contato de outro consultor", warn: true }]
+      : []),
     { count: skippedNoJobTitle, text: final ? "sem cargo — ignoradas" : "esperando cargo ou fora da importação" },
     { count: s.skippedInvalidPhone, text: "com telefone inválido — ignoradas" },
     { count: s.skippedNoName, text: "sem nome — ignoradas" },

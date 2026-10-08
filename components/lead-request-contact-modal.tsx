@@ -99,18 +99,15 @@ export function LeadRequestContactModal({
   // — contactId nunca muda "vivo" durante o ciclo de vida deste componente,
   // então useState(null) como valor inicial já é o reset que precisaria.
   useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/contacts/${contactId}`)
+    const controller = new AbortController();
+    fetch(`/api/contacts/${contactId}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-      .then((data) => {
-        if (!cancelled) setContact(data);
-      })
+      .then((data) => setContact(data))
       .catch(() => {
-        if (!cancelled) setError("Não foi possível carregar os dados desse cliente.");
+        // Fechar o modal antes de carregar não é erro — não mostra mensagem.
+        if (!controller.signal.aborted) setError("Não foi possível carregar os dados desse cliente.");
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [contactId]);
 
   const canResolve = !!(onApprove && onDecline);

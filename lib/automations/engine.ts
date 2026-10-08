@@ -18,9 +18,16 @@ import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enq
 import { matchesCustomFieldConditions, type CustomFieldCondition } from "@/lib/automations/custom-field-conditions";
 import { coerceCustomFieldValue, stringifyCustomFieldValue, type CustomFieldDefinitionLike } from "@/lib/custom-fields";
 import { maskPhone } from "@/lib/log-redact";
+import { buildDealName } from "@/lib/deal-name";
+import { publishDealsEvent } from "@/lib/deals/live-events";
+import { resolveAutomationActions, type AutomationActionEntry } from "@/lib/automations/actions";
 
 /** Resultado de uma ação executada — vira o `success`/`detail` gravados em AutomationExecution, exibidos no "Ver detalhes" do histórico. */
-export type ActionResult = { success: boolean; detail: string };
+export type ActionResult = {
+  success: boolean;
+  detail: string;
+  entityPatch?: Partial<Pick<Entity, "dealId" | "contactId" | "ownerId">>;
+};
 
 export type TriggerConfig = {
   days?: number;
@@ -75,6 +82,12 @@ export type ActionConfig = {
   scriptRecipients?: RecipientEntry[];
   /** userId do remetente fixo — mesmo raciocínio de whatsappSenderId acima. */
   scriptSenderId?: string;
+  /** CREATE_DEAL: destino e responsável do novo negócio. */
+  dealPipelineId?: string;
+  dealStageId?: string;
+  dealOwnerId?: string;
+  dealName?: string;
+  skipIfOpenDealExists?: boolean;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -89,6 +102,9 @@ export type Entity = {
   ownerId: string;
   /** Só preenchido pelo MESSAGE_RECEIVED — ver EntityRef.clientPhoneNormalized em lib/automations/recipients.ts. */
   clientPhoneNormalized?: string;
+  /** Contexto do WhatsApp para transformar uma conversa ainda não vinculada em contato. */
+  clientName?: string;
+  threadId?: string;
 };
 
 export type RuleWithOrg = {
@@ -99,6 +115,7 @@ export type RuleWithOrg = {
   triggerConfig: Prisma.JsonValue;
   action: $Enums.AutomationAction;
   actionConfig: Prisma.JsonValue;
+  actions: Prisma.JsonValue;
   createdAt: Date;
   /** Null nas regras criadas antes desta coluna existir (só OWNER/MANAGER tinham acesso então) — ver findMatches abaixo. */
   createdById: string | null;
@@ -194,10 +211,125 @@ export async function resolveTemplateValues(entity: Entity): Promise<Record<stri
   return values;
 }
 
-export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<ActionResult> {
-  const actionConfig = (rule.actionConfig ?? {}) as ActionConfig;
+export async function performAction(
+  rule: RuleWithOrg,
+  entity: Entity,
+  entry?: AutomationActionEntry,
+): Promise<ActionResult> {
+  const action = entry?.type ?? rule.action;
+  const actionConfig = (entry?.config ?? rule.actionConfig ?? {}) as ActionConfig;
 
-  if (rule.action === "CREATE_TASK") {
+  if (action === "CREATE_DEAL") {
+    if (!actionConfig.dealPipelineId || !actionConfig.dealStageId || !actionConfig.dealOwnerId) {
+      return { success: false, detail: "Funil, etapa ou responsável indisponível para criar o negócio." };
+    }
+
+    const [stage, owner] = await Promise.all([
+      prisma.pipelineStage.findFirst({
+        where: {
+          id: actionConfig.dealStageId,
+          pipelineId: actionConfig.dealPipelineId,
+          pipeline: { organizationId: entity.organizationId },
+        },
+        select: { id: true },
+      }),
+      prisma.organizationUser.findFirst({
+        where: { organizationId: entity.organizationId, userId: actionConfig.dealOwnerId, active: true },
+        select: { userId: true },
+      }),
+    ]);
+    if (!stage) return { success: false, detail: "Funil ou etapa não existe mais — negócio não criado." };
+    if (!owner) return { success: false, detail: "Responsável está inativo — negócio não criado." };
+
+    let contact = entity.contactId
+      ? await prisma.contact.findFirst({
+          where: { id: entity.contactId, organizationId: entity.organizationId },
+          select: { id: true, name: true, source: true },
+        })
+      : null;
+
+    if (!contact && entity.clientPhoneNormalized) {
+      const variants = brazilianMobileVariants(entity.clientPhoneNormalized);
+      contact = await prisma.contact.findFirst({
+        where: {
+          organizationId: entity.organizationId,
+          OR: [{ whatsappNormalized: { in: variants } }, { phoneNormalized: { in: variants } }],
+        },
+        select: { id: true, name: true, source: true },
+      });
+
+      if (!contact) {
+        try {
+          contact = await prisma.contact.create({
+            data: {
+              organizationId: entity.organizationId,
+              name: entity.clientName?.trim() || entity.clientPhoneNormalized,
+              whatsapp: entity.clientPhoneNormalized,
+              whatsappNormalized: entity.clientPhoneNormalized,
+              source: "WhatsApp",
+              responsavelId: actionConfig.dealOwnerId,
+            },
+            select: { id: true, name: true, source: true },
+          });
+        } catch (err) {
+          if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") throw err;
+          contact = await prisma.contact.findFirst({
+            where: {
+              organizationId: entity.organizationId,
+              OR: [{ whatsappNormalized: { in: variants } }, { phoneNormalized: { in: variants } }],
+            },
+            select: { id: true, name: true, source: true },
+          });
+        }
+      }
+    }
+    if (!contact) return { success: false, detail: "Contato não encontrado — negócio não criado." };
+
+    if (entity.threadId) {
+      await prisma.whatsAppThread.updateMany({
+        where: { id: entity.threadId, organizationId: entity.organizationId },
+        data: { contactId: contact.id },
+      });
+    }
+
+    if (actionConfig.skipIfOpenDealExists ?? true) {
+      const existing = await prisma.deal.findFirst({
+        where: { organizationId: entity.organizationId, contactId: contact.id, status: "OPEN" },
+        select: { id: true, ownerId: true },
+      });
+      if (existing) {
+        return {
+          success: true,
+          detail: "O contato já tinha um negócio aberto; nenhum duplicado foi criado.",
+          entityPatch: { dealId: existing.id, ownerId: existing.ownerId },
+        };
+      }
+    }
+
+    const templateValues = await resolveTemplateValues({ ...entity, contactId: contact.id });
+    const configuredName = actionConfig.dealName?.trim()
+      ? interpolateAutomationTemplate(actionConfig.dealName.trim(), templateValues).slice(0, 200)
+      : null;
+    const deal = await prisma.deal.create({
+      data: {
+        organizationId: entity.organizationId,
+        pipelineId: actionConfig.dealPipelineId,
+        stageId: actionConfig.dealStageId,
+        contactId: contact.id,
+        ownerId: actionConfig.dealOwnerId,
+        name: configuredName || buildDealName(contact.name, contact.source),
+      },
+      select: { id: true, ownerId: true },
+    });
+    publishDealsEvent(entity.organizationId, { type: "deal-created", pipelineId: actionConfig.dealPipelineId });
+    return {
+      success: true,
+      detail: `Negócio criado para ${contact.name}.`,
+      entityPatch: { dealId: deal.id, contactId: contact.id, ownerId: deal.ownerId },
+    };
+  }
+
+  if (action === "CREATE_TASK") {
     const dueInDays = actionConfig.dueInDays ?? 1;
     const title = actionConfig.title?.trim() || `Automação: ${rule.name}`;
     await prisma.task.create({
@@ -214,7 +346,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     return { success: true, detail: `Tarefa criada: "${title}".` };
   }
 
-  if (rule.action === "ADD_NOTE") {
+  if (action === "ADD_NOTE") {
     await prisma.activity.create({
       data: {
         organizationId: entity.organizationId,
@@ -228,7 +360,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     return { success: true, detail: "Nota registrada." };
   }
 
-  if (rule.action === "MARK_LOST") {
+  if (action === "MARK_LOST") {
     if (!entity.dealId || !actionConfig.lossReasonId) {
       return { success: false, detail: "Configuração inválida: falta negócio ou motivo de perda." };
     }
@@ -263,7 +395,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     return { success: true, detail: "Negócio marcado como perdido." };
   }
 
-  if (rule.action === "SEND_PUSH") {
+  if (action === "SEND_PUSH") {
     const url = entity.dealId
       ? `/negocios/${entity.dealId}`
       : entity.contactId
@@ -282,7 +414,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     };
   }
 
-  if (rule.action === "SEND_WHATSAPP") {
+  if (action === "SEND_WHATSAPP") {
     const rawMessage = actionConfig.whatsappMessage?.trim();
     if (!rawMessage) return { success: false, detail: "Mensagem vazia — nada foi enviado." };
     const templateValues = await resolveTemplateValues(entity);
@@ -338,7 +470,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     };
   }
 
-  if (rule.action === "SEND_SCRIPT") {
+  if (action === "SEND_SCRIPT") {
     const scriptId = actionConfig.scriptId;
     if (!scriptId) return { success: false, detail: "Nenhum script selecionado." };
     const script = await prisma.messageScript.findFirst({
@@ -468,7 +600,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     };
   }
 
-  if (rule.action === "SEND_EMAIL") {
+  if (action === "SEND_EMAIL") {
     const rawBody = actionConfig.emailBody?.trim() ?? "";
     if (!rawBody) return { success: false, detail: "Corpo do e-mail vazio — nada foi enviado." };
 
@@ -505,7 +637,7 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
     return { success: true, detail: `E-mail enviado para ${addresses.size} destinatário(s).` };
   }
 
-  if (rule.action === "SET_CUSTOM_FIELD") {
+  if (action === "SET_CUSTOM_FIELD") {
     if (!actionConfig.customFieldId) return { success: false, detail: "Nenhum campo selecionado." };
     const def = await prisma.customFieldDefinition.findFirst({
       where: { id: actionConfig.customFieldId, organizationId: entity.organizationId },
@@ -544,6 +676,45 @@ export async function performAction(rule: RuleWithOrg, entity: Entity): Promise<
   }
 
   return { success: false, detail: "Ação desconhecida." };
+}
+
+const ACTION_RESULT_LABELS: Record<$Enums.AutomationAction, string> = {
+  CREATE_TASK: "Criar tarefa",
+  CREATE_DEAL: "Criar negócio",
+  ADD_NOTE: "Registrar nota",
+  MARK_LOST: "Marcar como perdido",
+  SEND_PUSH: "Enviar push",
+  SEND_WHATSAPP: "Enviar WhatsApp",
+  SEND_EMAIL: "Enviar e-mail",
+  SET_CUSTOM_FIELD: "Definir campo",
+  SEND_SCRIPT: "Enviar script",
+};
+
+/** Executa em ordem e não abandona as ações seguintes quando uma delas falha. */
+export async function performActions(rule: RuleWithOrg, entity: Entity): Promise<ActionResult> {
+  const entries = resolveAutomationActions(rule.actions, rule);
+  const currentEntity = { ...entity };
+  const results: Array<{ entry: AutomationActionEntry; result: ActionResult }> = [];
+
+  for (const entry of entries) {
+    let result: ActionResult;
+    try {
+      result = await performAction(rule, currentEntity, entry);
+    } catch (err) {
+      console.error(`[automations] erro ao executar ${entry.type} (regra "${rule.name}")`, err);
+      result = { success: false, detail: `Erro inesperado: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    if (result.entityPatch) Object.assign(currentEntity, result.entityPatch);
+    results.push({ entry, result });
+  }
+
+  if (results.length === 1) return results[0].result;
+  return {
+    success: results.every(({ result }) => result.success),
+    detail: results
+      .map(({ entry, result }, index) => `${index + 1}. ${ACTION_RESULT_LABELS[entry.type]}: ${result.detail}`)
+      .join("\n"),
+  };
 }
 
 async function findMatchesRaw(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinitionLike[]): Promise<Entity[]> {
@@ -859,7 +1030,7 @@ async function runRule(rule: RuleWithOrg, customFieldDefs: CustomFieldDefinition
 
     let result: ActionResult;
     try {
-      result = await performAction(rule, entity);
+      result = await performActions(rule, entity);
     } catch (err) {
       console.error(`[automations] erro inesperado ao executar ação (regra "${rule.name}")`, err);
       result = { success: false, detail: `Erro inesperado: ${err instanceof Error ? err.message : String(err)}` };
