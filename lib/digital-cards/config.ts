@@ -50,5 +50,5 @@ export const DEFAULT_BACKGROUND_PHOTO_URL: string | null = null;
 export const DEFAULT_AVATAR_URL: string | null = null;
 
 /** Dados institucionais fixos em todos os cartoes digitais. */
-export const REOBOTE_CARD_ADDRESS = "Av. Toros Puxian, 1019 - Vila Morumbi, Campo Grande - MS, 79052-030";
-export const REOBOTE_WEBSITE_URL = "https://reobote.com.br";
+export const REOBOTE_CARD_ADDRESS = "Rua Marco Túlio Murano Garcia, 81 - Chácara Cachoeira, Campo Grande - MS, 79040-045";
+export const REOBOTE_WEBSITE_URL = "https://reoboteconsorcios.com.br";

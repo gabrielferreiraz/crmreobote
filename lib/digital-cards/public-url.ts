@@ -1,6 +1,6 @@
 /**
  * Monta a URL pública permanente do cartão (/c/[slug]) — usa
- * CARD_PUBLIC_BASE_URL (ex.: "https://cartao.reobote.com.br") quando
+ * CARD_PUBLIC_BASE_URL (ex.: "https://cartao.reoboteconsorcios.com.br") quando
  * configurado; sem essa env var, cai pro `origin` passado por quem chama
  * (Route Handler: `new URL(req.url).origin`; Server Component: montado a
  * partir dos headers x-forwarded-proto/host, ver publicCardUrlFromHeaders

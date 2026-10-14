@@ -118,7 +118,7 @@ export const LINK_TYPE_ORDER = ["INSTAGRAM", "WEBSITE", "LINKEDIN", "FACEBOOK", 
 
 /**
  * O que a pessoa digitou → link de verdade. Quem não é de tecnologia anota
- * "@joao.consorcio" ou "reobote.com.br", nunca "https://..."; antes isso
+ * "@joao.consorcio" ou "reoboteconsorcios.com.br", nunca "https://..."; antes isso
  * voltava do servidor como "URL inválida". Link que já começa com http(s)
  * passa intacto.
  */
