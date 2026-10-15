@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -11,12 +20,16 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 export type PushStatus = "checking" | "subscribed" | "unsubscribed" | "unsupported";
 
-/**
- * Manda o endpoint/chaves pro servidor associar (ou REASSOCIAR) à sessão
- * atual — POST /api/push/subscribe faz upsert por endpoint, sempre gravando
- * o userId de quem chamou. Chamado tanto ao ativar quanto (crucial) toda
- * vez que o hook monta e já encontra uma inscrição existente no navegador.
- */
+type PushSubscriptionState = {
+  status: PushStatus;
+  loading: boolean;
+  error: string | null;
+  subscribe: () => Promise<void>;
+  unsubscribe: () => Promise<void>;
+};
+
+const PushSubscriptionContext = createContext<PushSubscriptionState | null>(null);
+
 async function claimSubscription(subscription: PushSubscriptionJSON): Promise<boolean> {
   const res = await fetch("/api/push/subscribe", {
     method: "POST",
@@ -26,47 +39,50 @@ async function claimSubscription(subscription: PushSubscriptionJSON): Promise<bo
   return res.ok;
 }
 
-export function usePushSubscription() {
+/**
+ * Mantem uma unica verificacao de Service Worker e uma unica reafirmacao da
+ * inscricao push por dashboard. Antes cada menu, sino e aviso repetia esse
+ * trabalho ao montar.
+ */
+export function PushSubscriptionProvider({ children }: { children: ReactNode }) {
   const isSupported =
     typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
-
   const [status, setStatus] = useState<PushStatus>(isSupported ? "checking" : "unsupported");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupported) return;
-    (async () => {
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      const existing = await registration.pushManager.getSubscription();
-      if (existing) {
-        // Reafirma no servidor que este endpoint é da sessão ATUAL — sem
-        // isso, um aparelho compartilhado (loja/computador de equipe) em
-        // que a pessoa A ativou push e depois deslogou continuava com a
-        // linha no banco apontando pra A; quando B loga no mesmo aparelho,
-        // o navegador já está "inscrito" (é o mesmo Service Worker) e B
-        // via de fato as notificações de A, sem nunca ter clicado em nada.
-        // O upsert do servidor é por endpoint (nunca cria duplicata), então
-        // isso só corrige a titularidade — reafirmar de novo pro mesmo
-        // usuário de sempre é inofensivo.
-        await claimSubscription(existing.toJSON()).catch(() => {});
+
+    let active = true;
+    void (async () => {
+      try {
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        const existing = await registration.pushManager.getSubscription();
+        if (existing) await claimSubscription(existing.toJSON()).catch(() => false);
+        if (active) setStatus(existing ? "subscribed" : "unsubscribed");
+      } catch {
+        if (active) setStatus("unsubscribed");
       }
-      setStatus(existing ? "subscribed" : "unsubscribed");
     })();
+
+    return () => {
+      active = false;
+    };
   }, [isSupported]);
 
-  async function subscribe() {
+  const subscribe = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!publicKey) {
-        setError("Notificações push não configuradas no servidor.");
+        setError("Notificacoes push nao configuradas no servidor.");
         return;
       }
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        setError("Permissão negada no navegador.");
+        setError("Permissao negada no navegador.");
         return;
       }
       const registration = await navigator.serviceWorker.ready;
@@ -75,24 +91,19 @@ export function usePushSubscription() {
         applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
       });
       const ok = await claimSubscription(subscription.toJSON());
-      if (!ok) { setError("Erro ao salvar inscrição no servidor."); return; }
+      if (!ok) {
+        setError("Erro ao salvar inscricao no servidor.");
+        return;
+      }
       setStatus("subscribed");
     } catch {
-      setError("Não foi possível ativar as notificações.");
+      setError("Nao foi possivel ativar as notificacoes.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function unsubscribe() {
-    // Sem suporte (ex.: Safari/macOS em versão sem PushManager) — nenhum
-    // Service Worker nunca chegou a ser registrado (ver efeito acima, que só
-    // registra quando isSupported), então `navigator.serviceWorker.ready`
-    // NUNCA resolveria (não é um erro pro catch pegar, é uma Promise que
-    // fica pendurada pra sempre). Relatado direto: usuário de MacBook clicava
-    // em "Sair" e nada acontecia — o logout (ver handleSignOut em
-    // components/user-menu.tsx) espera unsubscribe() terminar antes de
-    // deslogar de verdade.
+  const unsubscribe = useCallback(async () => {
     if (!isSupported) {
       setStatus("unsupported");
       return;
@@ -112,11 +123,22 @@ export function usePushSubscription() {
       }
       setStatus("unsubscribed");
     } catch {
-      setError("Não foi possível desativar as notificações.");
+      setError("Nao foi possivel desativar as notificacoes.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [isSupported]);
 
-  return { status, loading, error, subscribe, unsubscribe };
+  const value = useMemo(
+    () => ({ status, loading, error, subscribe, unsubscribe }),
+    [status, loading, error, subscribe, unsubscribe],
+  );
+
+  return createElement(PushSubscriptionContext.Provider, { value }, children);
+}
+
+export function usePushSubscription(): PushSubscriptionState {
+  const context = useContext(PushSubscriptionContext);
+  if (!context) throw new Error("usePushSubscription requer PushSubscriptionProvider");
+  return context;
 }

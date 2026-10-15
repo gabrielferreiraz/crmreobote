@@ -50,15 +50,11 @@ export function AddToProcessDialog({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
+    if (!query.trim()) return;
     // Cancela a busca anterior ao digitar de novo — mesmo raciocínio de
     // components/contact-search-input.tsx: economiza a consulta e impede
     // que a resposta de um termo antigo sobrescreva a do termo atual.
     const controller = new AbortController();
-    setLoading(true);
     const timeout = setTimeout(async () => {
       try {
         const res = await fetch(`/api/processes/available-deals?q=${encodeURIComponent(query)}`, { signal: controller.signal });
@@ -74,6 +70,16 @@ export function AddToProcessDialog({
       clearTimeout(timeout);
     };
   }, [query]);
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    if (value.trim()) {
+      setLoading(true);
+    } else {
+      setResults([]);
+      setLoading(false);
+    }
+  }
 
   const pipelineOptions = categories.find((c) => c.id === categoryId)?.pipelines ?? [];
 
@@ -122,7 +128,7 @@ export function AddToProcessDialog({
             <input
               autoFocus
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => handleQueryChange(e.target.value)}
               placeholder="Nome do cliente ou do responsável"
               className="field-input pl-8"
             />

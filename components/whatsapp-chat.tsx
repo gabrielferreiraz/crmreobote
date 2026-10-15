@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Loader2,
@@ -339,8 +339,14 @@ export function ChatWindow({
   // thread, e o dono de cada thread é uma pessoa diferente).
   const [threadOwner, setThreadOwner] = useState<SenderInfo | null>(null);
   const [presence, setPresence] = useState<ThreadPresence | null>(null);
-  const [contactPhotoUrl, setContactPhotoUrl] = useState<string | null>(null);
-  const [contactOrigin, setContactOrigin] = useState<ContactOriginInfo | null>(null);
+  const [loadedContactPhoto, setLoadedContactPhoto] = useState<{
+    threadId: string;
+    url: string | null;
+  } | null>(null);
+  const [loadedContactOrigin, setLoadedContactOrigin] = useState<{
+    contactId: string;
+    data: ContactOriginInfo | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
@@ -367,6 +373,12 @@ export function ChatWindow({
   // trocar de conversa.
   const [usingAlternate, setUsingAlternate] = useState(false);
   const activeThreadId = usingAlternate && sendAsAlternate ? sendAsAlternate.threadId : threadId;
+  const contactPhotoUrl = loadedContactPhoto?.threadId === activeThreadId
+    ? loadedContactPhoto.url
+    : null;
+  const contactOrigin = contactId && loadedContactOrigin?.contactId === contactId
+    ? loadedContactOrigin.data
+    : null;
 
   // Reset do estado do botão ao trocar de conversa — ajuste de estado durante
   // a renderização (padrão recomendado pelo React pra "resetar estado quando
@@ -402,6 +414,7 @@ export function ChatWindow({
 
   /** Carga de mensagens ainda em voo — ver load() abaixo. */
   const inFlightRef = useRef<AbortController | null>(null);
+  const liveLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
     // Uma carga por vez: trocar de conversa (ou fechar o chat) derruba a
@@ -429,9 +442,13 @@ export function ChatWindow({
   }
 
   useEffect(() => {
-    load();
+    const frame = requestAnimationFrame(() => void load());
     // Trocar de conversa/desmontar cancela a carga da anterior (ver load()).
-    return () => inFlightRef.current?.abort();
+    return () => {
+      cancelAnimationFrame(frame);
+      inFlightRef.current?.abort();
+      if (liveLoadTimerRef.current) clearTimeout(liveLoadTimerRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
 
@@ -444,25 +461,29 @@ export function ChatWindow({
   // tela, e ao voltar pra aba recarrega na hora — mais fresco que esperar
   // o próximo tique. Separado do efeito de troca de thread acima de
   // propósito: aquele PRECISA recarregar na hora que a conversa muda.
-  useVisiblePoll(() => {
-    load();
-  }, 45_000);
+  useVisiblePoll(() => load(), 45_000, { immediate: false });
 
   // Só recarrega quando o evento é da conversa aberta agora — um evento de
   // OUTRA thread não deveria fazer esta janela específica refazer o fetch.
   useWhatsAppLive((event) => {
-    if (event.threadId === activeThreadId) load();
+    if (event.threadId !== activeThreadId || event.type === "read") return;
+    if (liveLoadTimerRef.current) clearTimeout(liveLoadTimerRef.current);
+    liveLoadTimerRef.current = setTimeout(() => {
+      liveLoadTimerRef.current = null;
+      void load();
+    }, 120);
   });
 
   useEffect(() => {
     // Só uma vez por troca de conversa (não entra no polling de 4s) — a rota
     // já cacheia no banco, mas evita repetir a requisição HTTP toda hora.
-    setContactPhotoUrl(null);
     const controller = new AbortController();
     fetch(`/api/whatsapp/threads/${activeThreadId}/photo`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.url) setContactPhotoUrl(data.url);
+        if (!controller.signal.aborted) {
+          setLoadedContactPhoto({ threadId: activeThreadId, url: data?.url ?? null });
+        }
       })
       .catch(() => {
         // Silencioso: sem foto, o Avatar cai pras iniciais normalmente — e
@@ -473,20 +494,21 @@ export function ChatWindow({
   }, [activeThreadId]);
 
   useEffect(() => {
-    if (!contactId) {
-      setContactOrigin(null);
-      return;
-    }
+    if (!contactId) return;
     const controller = new AbortController();
     fetch(`/api/contacts/${contactId}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data) {
-          setContactOrigin({
-            metaCampaignName: data.metaCampaignName ?? null,
-            source: data.source ?? null,
-          });
-        }
+        if (controller.signal.aborted) return;
+        setLoadedContactOrigin({
+          contactId,
+          data: data
+            ? {
+                metaCampaignName: data.metaCampaignName ?? null,
+                source: data.source ?? null,
+              }
+            : null,
+        });
       })
       .catch(() => { });
     return () => controller.abort();
@@ -1633,7 +1655,7 @@ function TextComposer({
   onToggleMenu: () => void;
   onPick: (mode: AttachMode) => void;
   onPasteImage: (file: File) => void;
-  focusTrigger?: any;
+  focusTrigger?: Message | null;
 }) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1859,8 +1881,16 @@ function ImageForm({
   // Chega já preenchido quando o usuário colou (Ctrl+V) uma imagem em vez de
   // usar o seletor de arquivo — não precisa mais salvar no PC pra anexar.
   useEffect(() => {
-    if (initialFile) pickFile(initialFile);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!initialFile) return;
+    const frame = requestAnimationFrame(() => {
+      setError(null);
+      setFile(initialFile);
+      setPreview((previous) => {
+        if (previous) URL.revokeObjectURL(previous);
+        return URL.createObjectURL(initialFile);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [initialFile]);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -1973,6 +2003,13 @@ function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  const stopVisualizer = useCallback(() => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    audioCtxRef.current?.close().catch(() => { });
+    audioCtxRef.current = null;
+  }, []);
+
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   useEffect(() => {
@@ -1990,15 +2027,7 @@ function AudioForm({ sending, onSend }: { sending: boolean; onSend: (payload: Re
       }
       stopVisualizer();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function stopVisualizer() {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    audioCtxRef.current?.close().catch(() => { });
-    audioCtxRef.current = null;
-  }
+  }, [stopVisualizer]);
 
   async function startRecording() {
     setError(null);

@@ -113,6 +113,7 @@ type RawCampaign = {
 
 type InstanceOption = { id: string; label: string };
 type ScriptOption = { id: string; name: string; steps: ScriptStep[] };
+type CampaignSetup = { scripts: ScriptOption[]; audienceOptions: AudienceOptions };
 type PreviewPosition = { top: number; left: number; maxHeight: number };
 type ScriptPreview = { script: BulkScriptOption; messages: string[] } & PreviewPosition;
 
@@ -289,18 +290,20 @@ function StatCard({
 export function CampaignsTable({
   initialCampaigns,
   instances,
-  scripts,
-  audienceOptions,
 }: {
   initialCampaigns: Campaign[];
   instances: InstanceOption[];
-  scripts: ScriptOption[];
-  audienceOptions: AudienceOptions;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [editCampaign, setEditCampaign] = useState<RawCampaign | null>(null);
   const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+  const [preparingEdit, setPreparingEdit] = useState(false);
+  const [setup, setSetup] = useState<CampaignSetup | null>(null);
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const setupRef = useRef<CampaignSetup | null>(null);
+  const setupPromiseRef = useRef<Promise<CampaignSetup> | null>(null);
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   // "Parar" (vira DONE de vez) é diferente de "Pausar" (PAUSED, reversível
   // com "Retomar") — precisa de confirmação porque, ao contrário de pausar,
@@ -389,14 +392,60 @@ export function CampaignsTable({
     router.refresh();
   }
 
+  async function loadSetup(): Promise<CampaignSetup | null> {
+    if (setupRef.current) return setupRef.current;
+    if (!setupPromiseRef.current) {
+      setSetupLoading(true);
+      setSetupError(null);
+      setupPromiseRef.current = fetch("/api/campaigns/setup")
+        .then(async (res) => {
+          if (!res.ok) throw new Error("setup");
+          return (await res.json()) as CampaignSetup;
+        });
+    }
+
+    try {
+      const loaded = await setupPromiseRef.current;
+      setupRef.current = loaded;
+      setSetup(loaded);
+      return loaded;
+    } catch {
+      setSetupError("Nao foi possivel carregar as opcoes da campanha.");
+      return null;
+    } finally {
+      setupPromiseRef.current = null;
+      setSetupLoading(false);
+    }
+  }
+
+  function openCreate() {
+    setEditCampaign(null);
+    setPreparingEdit(false);
+    setOpen(true);
+    void loadSetup();
+  }
+
   async function openEdit(id: string) {
     setLoadingEditId(id);
-    const res = await fetch(`/api/campaigns/${id}`);
-    setLoadingEditId(null);
-    if (!res.ok) return;
-    const raw: RawCampaign = await res.json();
-    setEditCampaign(raw);
+    setPreparingEdit(true);
+    setEditCampaign(null);
     setOpen(true);
+    try {
+      const [res, loadedSetup] = await Promise.all([fetch(`/api/campaigns/${id}`), loadSetup()]);
+      if (!res.ok) {
+        setActionError("Nao foi possivel abrir esta campanha.");
+        setOpen(false);
+        return;
+      }
+      if (!loadedSetup) return;
+      setEditCampaign((await res.json()) as RawCampaign);
+    } catch {
+      setActionError("Nao foi possivel abrir esta campanha.");
+      setOpen(false);
+    } finally {
+      setLoadingEditId(null);
+      setPreparingEdit(false);
+    }
   }
 
   const doneCount = useMemo(() => rows.filter((c) => c.status === "DONE").length, [rows]);
@@ -485,10 +534,7 @@ export function CampaignsTable({
           ))}
         </div>
         <button
-          onClick={() => {
-            setEditCampaign(null);
-            setOpen(true);
-          }}
+          onClick={openCreate}
           className="btn-primary"
           disabled={instances.length === 0}
         >
@@ -571,10 +617,7 @@ export function CampaignsTable({
                 type="button"
                 className="btn-primary btn-sm"
                 disabled={instances.length === 0}
-                onClick={() => {
-                  setEditCampaign(null);
-                  setOpen(true);
-                }}
+                onClick={openCreate}
               >
                 <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
                 Criar primeira campanha
@@ -849,13 +892,46 @@ export function CampaignsTable({
         </>
       )}
 
-      {open && (
+      {open && (!setup || preparingEdit) && (
+        <Modal
+          onClose={() => {
+            setOpen(false);
+            setPreparingEdit(false);
+          }}
+          maxWidth="max-w-sm"
+        >
+          <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
+            {setupLoading || preparingEdit ? (
+              <Loader2 className="h-5 w-5 animate-spin text-brand" aria-hidden="true" />
+            ) : (
+              <TriangleAlert className="h-5 w-5 text-amber-500" aria-hidden="true" />
+            )}
+            <div>
+              <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
+                {preparingEdit ? "Abrindo campanha" : setupError ? "Nao foi possivel abrir" : "Preparando campanha"}
+              </h2>
+              {setupError && <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{setupError}</p>}
+            </div>
+            {setupError && !setupLoading && !preparingEdit && (
+              <button type="button" className="btn-secondary btn-sm" onClick={() => void loadSetup()}>
+                <RefreshCw className="h-3.5 w-3.5" />
+                Tentar novamente
+              </button>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {open && setup && !preparingEdit && (
         <CampaignDialog
           instances={instances}
-          scripts={scripts}
-          audienceOptions={audienceOptions}
+          scripts={setup.scripts}
+          audienceOptions={setup.audienceOptions}
           editCampaign={editCampaign}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            setPreparingEdit(false);
+          }}
           onSaved={() => {
             setOpen(false);
             router.refresh();

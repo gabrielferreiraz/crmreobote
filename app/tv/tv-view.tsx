@@ -10,6 +10,7 @@ import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
 import { TvClock } from "./tv-clock";
 import { CountUpValue } from "@/components/count-up-value";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 
 type Metrics = Awaited<ReturnType<typeof fetchTvMetrics>>;
 type WinSale = { id: string; name: string; image: string | null; value: number };
@@ -269,6 +270,10 @@ export function TvView({
   // métricas conseguir responder mesmo assim.
   const serverInstanceIdRef = useRef(initialMetrics.serverInstanceId);
 
+  useEffect(() => {
+    lastFetchOkAt.current = Date.now();
+  }, []);
+
   // Auto-refresh das métricas — fetchTvMetrics não recebe organizationId
   // daqui (ver app/tv/actions.ts): a action descobre sozinha a organização
   // pela sessão de quem está logado nesta TV. Isso também é o que faz um
@@ -276,49 +281,37 @@ export function TvView({
   // venda/Ranking/Vendas do mês) rapidinho — cada busca é sempre fresca no
   // banco, sem cache no meio, então o próximo refresh já reflete a reversão
   // sozinho, sem precisar de nenhuma lógica extra pra "esconder" nada.
-  useEffect(() => {
-    // Marca "agora" como o último sucesso conhecido assim que monta — sem
-    // isso, lastFetchOkAt ficaria no placeholder (0) até o 1º fetch bem-
-    // sucedido de verdade, e uma falha logo cedo (antes do 1º sucesso)
-    // calcularia "desde 1970" pro aviso de stale.
-    lastFetchOkAt.current = Date.now();
-    const interval = setInterval(async () => {
-      try {
-        const updated = await fetchTvMetrics(publicCode);
-        // Checa deploy novo ANTES de qualquer outra coisa — se mudou, só
-        // recarrega e para por aqui; não faz sentido atualizar state pra
-        // uma tela que já vai ser substituída pelo reload no instante
-        // seguinte.
-        if (updated.serverInstanceId !== serverInstanceIdRef.current) {
-          window.location.reload();
-          return;
-        }
-        if (updated.lastSale) {
-          const closedAtMs = updated.lastSale.date.getTime();
-          if (closedAtMs > lastSeenClosedAtMs.current) {
-            setCelebration({
-              id: updated.lastSale.id,
-              name: updated.lastSale.name,
-              image: updated.lastSale.image,
-              value: updated.lastSale.value,
-            });
-            lastSeenClosedAtMs.current = closedAtMs;
-          }
-        }
-        setMetrics(updated);
-        lastFetchOkAt.current = Date.now();
-        setStale(false);
-      } catch (err) {
-        console.error("Failed to fetch TV metrics", err);
-        if (Date.now() - lastFetchOkAt.current > STALE_AFTER_MS) setStale(true);
+  useVisiblePoll(async () => {
+    try {
+      const updated = await fetchTvMetrics(publicCode);
+      // Checa deploy novo ANTES de qualquer outra coisa — se mudou, só
+      // recarrega e para por aqui; não faz sentido atualizar state pra
+      // uma tela que já vai ser substituída pelo reload no instante
+      // seguinte.
+      if (updated.serverInstanceId !== serverInstanceIdRef.current) {
+        window.location.reload();
+        return;
       }
-    }, METRICS_POLL_MS);
-    return () => clearInterval(interval);
-    // publicCode nunca muda depois de montado (vem fixo da página, ver
-    // app/t/[code]/page.tsx) — não precisa recriar o interval por causa
-    // dele.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      if (updated.lastSale) {
+        const closedAtMs = updated.lastSale.date.getTime();
+        if (closedAtMs > lastSeenClosedAtMs.current) {
+          setCelebration({
+            id: updated.lastSale.id,
+            name: updated.lastSale.name,
+            image: updated.lastSale.image,
+            value: updated.lastSale.value,
+          });
+          lastSeenClosedAtMs.current = closedAtMs;
+        }
+      }
+      setMetrics(updated);
+      lastFetchOkAt.current = Date.now();
+      setStale(false);
+    } catch (err) {
+      console.error("Failed to fetch TV metrics", err);
+      if (Date.now() - lastFetchOkAt.current > STALE_AFTER_MS) setStale(true);
+    }
+  }, METRICS_POLL_MS, { immediate: false });
 
   // 2º polling de detecção de deploy — ver o comentário longo em
   // serverInstanceIdRef acima pra entender POR QUE precisa dos dois. Este
@@ -328,25 +321,22 @@ export function TvView({
   // continua funcionando quando o outro falha. Roda num intervalo próprio
   // (não precisa ser tão frequente quanto o de métricas — detectar um
   // deploy em até 1 minuto já é rápido o bastante pra uma tela na parede).
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/tv/build-id", { cache: "no-store" });
-        if (!res.ok) return;
-        const data: { serverInstanceId: string } = await res.json();
-        if (data.serverInstanceId !== serverInstanceIdRef.current) {
-          window.location.reload();
-        }
-      } catch (err) {
-        // Silencioso de propósito — isto é só um "ainda é o mesmo
-        // deploy?", não uma busca de dado nenhuma; uma falha aqui não deve
-        // acender o aviso "stale" (esse já é tratado pelo polling de
-        // métricas acima).
-        console.error("Failed to check TV build id", err);
+  useVisiblePoll(async () => {
+    try {
+      const res = await fetch("/api/tv/build-id", { cache: "no-store" });
+      if (!res.ok) return;
+      const data: { serverInstanceId: string } = await res.json();
+      if (data.serverInstanceId !== serverInstanceIdRef.current) {
+        window.location.reload();
       }
-    }, 60_000);
-    return () => clearInterval(interval);
-  }, []);
+    } catch (err) {
+      // Silencioso de propósito — isto é só um "ainda é o mesmo
+      // deploy?", não uma busca de dado nenhuma; uma falha aqui não deve
+      // acender o aviso "stale" (esse já é tratado pelo polling de
+      // métricas acima).
+      console.error("Failed to check TV build id", err);
+    }
+  }, 60_000, { immediate: false });
 
   // Giro nas fotos do pódio do Ranking a cada 5min (ver RANKING_SPIN_*
   // acima) — sem cleanup do setTimeout interno de propósito: mesmo se o

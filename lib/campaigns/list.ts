@@ -1,7 +1,7 @@
-import { prisma } from "@/lib/prisma";
-import type { $Enums } from "@/app/generated/prisma/client";
+import { Prisma, type $Enums } from "@/app/generated/prisma/client";
+import { prisma, prismaRaw } from "@/lib/prisma";
+import { setTenantOnTx } from "@/lib/tenant-context";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
-import { brazilDateKey } from "@/lib/timezone";
 import { estimateCampaignCompletion, nextAllowedSendWindow, type CompletionEstimate } from "@/lib/campaigns/estimate";
 import {
   campaignVisibilityWhere,
@@ -86,20 +86,24 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
   });
 
   const campaignIds = campaigns.map((c) => c.id);
-  const statusCounts = await prisma.campaignRecipient.groupBy({
-    by: ["campaignId", "status"],
-    where: { campaignId: { in: campaignIds }, ...recipientVisibility },
-    _count: true,
-  });
-  // Contagem de respondidos, não a lista deles: antes isto era um findMany que
-  // trazia UMA LINHA POR RESPOSTA (só o campaignId era lido) — uma campanha
-  // com 5.000 respostas transferia 5.000 linhas pra depois contar de um em um.
-  // O banco já devolve o número pronto.
-  const repliedCounts = await prisma.campaignRecipient.groupBy({
-    by: ["campaignId"],
-    where: { campaignId: { in: campaignIds }, repliedAt: { not: null }, ...recipientVisibility },
-    _count: true,
-  });
+  const [statusCounts, repliedCounts] = campaignIds.length
+    ? await Promise.all([
+        prisma.campaignRecipient.groupBy({
+          by: ["campaignId", "status"],
+          where: { campaignId: { in: campaignIds }, ...recipientVisibility },
+          _count: true,
+        }),
+        // Contagem de respondidos, não a lista deles: antes isto era um findMany que
+        // trazia UMA LINHA POR RESPOSTA (só o campaignId era lido) — uma campanha
+        // com 5.000 respostas transferia 5.000 linhas pra depois contar de um em um.
+        // O banco já devolve o número pronto.
+        prisma.campaignRecipient.groupBy({
+          by: ["campaignId"],
+          where: { campaignId: { in: campaignIds }, repliedAt: { not: null }, ...recipientVisibility },
+          _count: true,
+        }),
+      ])
+    : [[], []];
 
   const countsByCampaign = new Map<string, CampaignSummary["counts"]>();
   for (const row of statusCounts) {
@@ -228,7 +232,6 @@ export type CampaignDetail = CampaignSummary & {
    * meio-tempo. Só campanha de UM WhatsApp (no envio em massa do Pipeline cada destinatário tem o seu).
    */
   whatsappOffline: { ownerName: string; disconnectedAt: Date | null } | null;
-  recipients: CampaignRecipientRow[];
   /** Scripts em uso e se a cópia da campanha está igual à biblioteca. */
   scripts: CampaignScriptRow[];
   /** A campanha ainda pode receber alteração de script (rascunho/rodando/pausada). */
@@ -261,6 +264,77 @@ export type CampaignDetail = CampaignSummary & {
 };
 
 /**
+ * Agrupa os eventos por dia dentro do Postgres. Uma campanha pode ter dezenas
+ * de milhares de destinatarios; transferir sentAt/repliedAt de todos eles so
+ * para somar no Node anulava a paginacao da tabela da mesma tela.
+ */
+async function getCampaignDailyMetrics(
+  organizationId: string,
+  campaignId: string,
+  visibleInstanceOwnerIds: string[] | null,
+): Promise<CampaignDailyMetric[]> {
+  const recipientScopeSql =
+    visibleInstanceOwnerIds === null
+      ? Prisma.empty
+      : visibleInstanceOwnerIds.length > 0
+        ? Prisma.sql`AND EXISTS (
+            SELECT 1
+            FROM "WhatsAppInstance" i
+            WHERE i.id = r."instanceId"
+              AND i."userId" IN (${Prisma.join(visibleInstanceOwnerIds)})
+          )`
+        : Prisma.sql`AND false`;
+
+  const rows = await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    return tx.$queryRaw<{ date: string; sent: number; replied: number }[]>`
+      WITH events AS (
+        SELECT
+          ((r."sentAt" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Campo_Grande')::date AS day,
+          1::int AS sent,
+          0::int AS replied
+        FROM "CampaignRecipient" r
+        WHERE r."campaignId" = ${campaignId}
+          AND r."sentAt" IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM "Campaign" c
+            WHERE c.id = r."campaignId" AND c."organizationId" = ${organizationId}
+          )
+          ${recipientScopeSql}
+
+        UNION ALL
+
+        SELECT
+          ((r."repliedAt" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Campo_Grande')::date AS day,
+          0::int AS sent,
+          1::int AS replied
+        FROM "CampaignRecipient" r
+        WHERE r."campaignId" = ${campaignId}
+          AND r."repliedAt" IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM "Campaign" c
+            WHERE c.id = r."campaignId" AND c."organizationId" = ${organizationId}
+          )
+          ${recipientScopeSql}
+      )
+      SELECT
+        to_char(day, 'YYYY-MM-DD') AS date,
+        SUM(sent)::int AS sent,
+        SUM(replied)::int AS replied
+      FROM events
+      GROUP BY day
+      ORDER BY day
+    `;
+  });
+
+  return rows.map((row) => ({
+    date: row.date,
+    sent: Number(row.sent),
+    replied: Number(row.replied),
+  }));
+}
+
+/**
  * Usado pela tela de destinatários — uma linha por contato (nome/telefone
  * incluídos), com status individual, mais a série diária pro painel de
  * métricas. `scope` obrigatório pelo mesmo motivo de listCampaigns acima —
@@ -279,20 +353,12 @@ export async function getCampaignDetail(
   organizationId: string,
   campaignId: string,
   scope: DealScope,
-  dealScope: DealScope,
 ): Promise<CampaignDetail | null> {
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, organizationId, ...campaignVisibilityWhere(scope) },
     include: {
       instance: { include: { user: { select: { name: true } } } },
       createdBy: { select: { name: true } },
-      recipients: {
-        // Quem só enxerga um envio em massa (por ter o WhatsApp usado) vê só os
-        // destinatários que saíram do WhatsApp dele — ver campaignRecipientVisibilityWhere.
-        where: campaignRecipientVisibilityWhere(scope),
-        orderBy: { createdAt: "asc" },
-        include: { contact: { select: { name: true, whatsapp: true, phone: true, jobTitle: true } } },
-      },
     },
   });
   if (!campaign) return null;
@@ -303,16 +369,82 @@ export async function getCampaignDetail(
   });
 
   const templateEntries = listCampaignScriptEntries(campaign);
-  const scriptIds = Array.from(
-    new Set([
-      ...campaign.recipients.flatMap((r) => [r.scriptId, r.followUpScriptId]).filter((id): id is string => !!id),
-      ...templateEntries.map((e) => e.scriptId),
-    ]),
-  );
-  const scripts = scriptIds.length
-    ? await prisma.messageScript.findMany({ where: { id: { in: scriptIds } }, select: { id: true, name: true, version: true, steps: true } })
-    : [];
-  const scriptNameById = new Map(scripts.map((s) => [s.id, s.name]));
+  const scriptIds = Array.from(new Set(templateEntries.map((entry) => entry.scriptId)));
+  const recipientWhere: Prisma.CampaignRecipientWhereInput = {
+    campaignId,
+    ...campaignRecipientVisibilityWhere(scope),
+  };
+  const visibleInstanceOwnerIds = !canManage && scope.type === "owners" ? scope.ownerIds : null;
+  const rmktWaves = Array.isArray(campaign.rmktWaves) ? (campaign.rmktWaves as { dayOffset: number }[]) : [];
+
+  const followUpSummaryPromise = (async (): Promise<{ count: number; nextAt: Date | null }> => {
+    if (campaign.followUpEnabled) {
+      const summary = await prisma.campaignRecipient.aggregate({
+        where: {
+          ...recipientWhere,
+          status: "SENT",
+          repliedAt: null,
+          followUpSentAt: null,
+          sentAt: { not: null },
+        },
+        _count: { _all: true },
+        _min: { sentAt: true },
+      });
+      return {
+        count: summary._count._all,
+        nextAt: summary._min.sentAt
+          ? new Date(summary._min.sentAt.getTime() + campaign.followUpDelayHours * 60 * 60 * 1000)
+          : null,
+      };
+    }
+
+    if (rmktWaves.length === 0) return { count: 0, nextAt: null };
+
+    const groups = await prisma.campaignRecipient.groupBy({
+      by: ["nextWaveIndex"],
+      where: {
+        ...recipientWhere,
+        status: "SENT",
+        repliedAt: null,
+        sentAt: { not: null },
+        nextWaveIndex: { lt: rmktWaves.length },
+      },
+      _count: { _all: true },
+      _min: { sentAt: true },
+    });
+
+    let count = 0;
+    let nextAt: Date | null = null;
+    for (const group of groups) {
+      const wave = rmktWaves[group.nextWaveIndex];
+      if (!wave || !group._min.sentAt) continue;
+      count += group._count._all;
+      const candidate = new Date(group._min.sentAt.getTime() + wave.dayOffset * 24 * 60 * 60 * 1000);
+      if (!nextAt || candidate < nextAt) nextAt = candidate;
+    }
+    return { count, nextAt };
+  })();
+
+  const [scripts, statusCounts, repliedCount, lastEvents, dailyMetrics, followUpSummary] = await Promise.all([
+    scriptIds.length
+      ? prisma.messageScript.findMany({
+          where: { id: { in: scriptIds } },
+          select: { id: true, name: true, version: true, steps: true },
+        })
+      : Promise.resolve([]),
+    prisma.campaignRecipient.groupBy({
+      by: ["status"],
+      where: recipientWhere,
+      _count: { _all: true },
+    }),
+    prisma.campaignRecipient.count({ where: { ...recipientWhere, repliedAt: { not: null } } }),
+    prisma.campaignRecipient.aggregate({
+      where: recipientWhere,
+      _max: { sentAt: true, followUpSentAt: true },
+    }),
+    getCampaignDailyMetrics(organizationId, campaignId, visibleInstanceOwnerIds),
+    followUpSummaryPromise,
+  ]);
   const libraryById = new Map(scripts.map((s) => [s.id, s]));
 
   const firstStepText = (steps: unknown): string | null => {
@@ -352,52 +484,17 @@ export async function getCampaignDetail(
     };
   });
 
-  // Negócio de quem respondeu. recipient.dealId sozinho não basta: reply.ts
-  // só o grava quando CRIA um negócio novo — se o contato já tinha um
-  // negócio aberto na hora da resposta, sai sem gravar nada, então esse caso
-  // (o mais comum) chega aqui com dealId null. Por isso busca pelo contato,
-  // já filtrando pelo que quem está olhando consegue abrir.
-  const repliedContactIds = Array.from(new Set(campaign.recipients.filter((r) => r.repliedAt).map((r) => r.contactId)));
-  const visibleDeals = repliedContactIds.length
-    ? await prisma.deal.findMany({
-        where: { organizationId, contactId: { in: repliedContactIds }, ...scopeWhere(dealScope) },
-        select: { id: true, contactId: true, status: true },
-        orderBy: { createdAt: "desc" },
-      })
-    : [];
-  const dealsByContact = new Map<string, typeof visibleDeals>();
-  for (const d of visibleDeals) {
-    const list = dealsByContact.get(d.contactId);
-    if (list) list.push(d);
-    else dealsByContact.set(d.contactId, [d]);
+  const counts = { pending: 0, sent: 0, failed: 0, skipped: 0, replied: repliedCount };
+  for (const row of statusCounts) {
+    if (row.status === "PENDING") counts.pending = row._count._all;
+    if (row.status === "SENT") counts.sent = row._count._all;
+    if (row.status === "FAILED") counts.failed = row._count._all;
+    if (row.status === "SKIPPED") counts.skipped = row._count._all;
   }
-  // Preferência: o negócio que a própria campanha ligou a este destinatário
-  // (dealId) → o mais recente ainda aberto → o mais recente de qualquer
-  // status (ex.: já ganho/perdido, ainda vale abrir pra ver o histórico).
-  const pickDealId = (r: { dealId: string | null; contactId: string; repliedAt: Date | null }): string | null => {
-    if (!r.repliedAt) return null;
-    const deals = dealsByContact.get(r.contactId);
-    if (!deals || deals.length === 0) return null;
-    return (
-      deals.find((d) => d.id === r.dealId)?.id ?? deals.find((d) => d.status === "OPEN")?.id ?? deals[0].id
-    );
-  };
 
-  const counts = { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 };
-  let lastAt: Date | null = null;
-  const metricsByDay = new Map<string, CampaignDailyMetric>();
-  const bump = (date: Date, field: "sent" | "replied") => {
-    const key = brazilDateKey(date);
-    const entry = metricsByDay.get(key) ?? { date: key, sent: 0, replied: 0 };
-    entry[field] += 1;
-    metricsByDay.set(key, entry);
-  };
-
-  // Ondas de RMKT (Campaign.rmktWaves) — mesmo parse trivial (sem validação,
-  // o formato já foi validado na criação) de parseRmktWaves em
-  // lib/campaigns/engine.ts, não exportado de lá pra não criar acoplamento
-  // com um arquivo de motor só por causa de uma linha.
-  const rmktWaves = Array.isArray(campaign.rmktWaves) ? (campaign.rmktWaves as { dayOffset: number }[]) : [];
+  const lastAt = [lastEvents._max.sentAt, lastEvents._max.followUpSentAt]
+    .filter((value): value is Date => value !== null)
+    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
   // Previsão de reenvio por destinatário — cobre os DOIS mecanismos que a
   // engine (lib/campaigns/engine.ts) sabe processar, cada campanha usa só
@@ -416,36 +513,8 @@ export async function getCampaignDetail(
   // verdade sozinha (relatado: "verifique se está sendo enviado o rmkt
   // porque foi programado e não foi ainda parece" — a engine estava
   // funcionando certo, só a tela não sabia mostrar esse tipo de campanha).
-  const nextFollowUpAtByRecipient = new Map<string, Date>();
-  let pendingFollowUpCount = 0;
-  let nextFollowUpEstimateAt: Date | null = null;
-
-  for (const r of campaign.recipients) {
-    if (r.status === "PENDING") counts.pending += 1;
-    if (r.status === "SENT") counts.sent += 1;
-    if (r.status === "FAILED") counts.failed += 1;
-    if (r.status === "SKIPPED") counts.skipped += 1;
-    if (r.repliedAt) counts.replied += 1;
-    if (r.sentAt) bump(r.sentAt, "sent");
-    if (r.repliedAt) bump(r.repliedAt, "replied");
-    // Mesmo "último evento" que shouldSendNow usa em engine.ts — precisa do
-    // maior timestamp entre envio inicial e reenvio, não só um dos dois.
-    if (r.sentAt && (!lastAt || r.sentAt > lastAt)) lastAt = r.sentAt;
-    if (r.followUpSentAt && (!lastAt || r.followUpSentAt > lastAt)) lastAt = r.followUpSentAt;
-
-    let at: Date | null = null;
-    if (campaign.followUpEnabled && r.status === "SENT" && !r.repliedAt && !r.followUpSentAt && r.sentAt) {
-      at = new Date(r.sentAt.getTime() + campaign.followUpDelayHours * 60 * 60 * 1000);
-    } else if (rmktWaves.length > 0 && r.status === "SENT" && !r.repliedAt && r.nextWaveIndex < rmktWaves.length && r.sentAt) {
-      const wave = rmktWaves[r.nextWaveIndex];
-      if (wave) at = new Date(r.sentAt.getTime() + wave.dayOffset * 24 * 60 * 60 * 1000);
-    }
-    if (at) {
-      nextFollowUpAtByRecipient.set(r.id, at);
-      pendingFollowUpCount += 1;
-      if (!nextFollowUpEstimateAt || at < nextFollowUpEstimateAt) nextFollowUpEstimateAt = at;
-    }
-  }
+  const pendingFollowUpCount = followUpSummary.count;
+  const nextFollowUpEstimateAt = followUpSummary.nextAt;
 
   const audienceFilter = parseAudienceFilter(campaign.audienceFilter);
   const completionEstimate = estimateCampaignCompletion(
@@ -526,33 +595,167 @@ export async function getCampaignDetail(
     // Trocar o script mexe na campanha — só quem pode gerenciá-la (as rotas de
     // edição/sync usam o escopo de criador e recusariam).
     scriptsEditable: canManage && ACTIVE_CAMPAIGN_STATUSES.includes(campaign.status),
-    recipients: campaign.recipients.map((r) => ({
-      id: r.id,
-      contactName: r.contact.name,
-      contactPhone: r.contact.whatsapp || r.contact.phone,
-      contactJobTitle: r.contact.jobTitle,
-      status: r.status,
-      threadId: r.threadId,
-      dealId: pickDealId(r),
-      sentAt: r.sentAt,
-      repliedAt: r.repliedAt,
-      followUpSentAt: r.followUpSentAt,
-      lastWaveSentAt: r.lastWaveSentAt,
-      // nextWaveIndex já avançou pra depois da onda enviada quando
-      // lastWaveSentAt existe (ver claimRecipient em lib/campaigns/engine.ts:
-      // os dois são gravados juntos, no mesmo updateMany) — nextWaveIndex
-      // (1-based) É o número da onda que acabou de sair.
-      lastWaveNumber: r.lastWaveSentAt ? r.nextWaveIndex : null,
-      nextFollowUpAt: nextFollowUpAtByRecipient.get(r.id) ?? null,
-      scriptName: r.scriptId ? (scriptNameById.get(r.scriptId) ?? "Script removido") : null,
-      followUpScriptName: r.followUpScriptId ? (scriptNameById.get(r.followUpScriptId) ?? "Script removido") : null,
-      error: r.error ?? r.followUpError,
-    })),
-    dailyMetrics: Array.from(metricsByDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    dailyMetrics,
     completionEstimate,
     nextSendEstimateAt,
     pendingFollowUpCount,
     nextFollowUpEstimateAt: nextFollowUpEstimateAtInWindow,
     hasRmktWaves: rmktWaves.length > 0,
   };
+}
+
+export type CampaignRecipientsPage = {
+  items: CampaignRecipientRow[];
+  total: number;
+  offset: number;
+  limit: number;
+};
+
+export type CampaignRecipientFilters = {
+  offset?: number;
+  limit?: number;
+  q?: string;
+  status?: $Enums.CampaignRecipientStatus;
+  onlyReplied?: boolean;
+};
+
+/**
+ * Carrega apenas a janela de destinatarios que a tela consegue exibir. A
+ * autorizacao da campanha e o recorte dos destinatarios sao independentes:
+ * quem apenas enxerga um envio compartilhado continua vendo somente as linhas
+ * do proprio WhatsApp.
+ */
+export async function getCampaignRecipientsPage(
+  organizationId: string,
+  campaignId: string,
+  scope: DealScope,
+  dealScope: DealScope,
+  filters: CampaignRecipientFilters = {},
+): Promise<CampaignRecipientsPage | null> {
+  const offset = Math.max(0, Math.floor(filters.offset ?? 0));
+  const limit = Math.min(100, Math.max(1, Math.floor(filters.limit ?? 50)));
+  const q = filters.q?.trim().slice(0, 100) ?? "";
+
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, organizationId, ...campaignVisibilityWhere(scope) },
+    select: {
+      id: true,
+      followUpEnabled: true,
+      followUpDelayHours: true,
+      rmktWaves: true,
+    },
+  });
+  if (!campaign) return null;
+
+  const where: Prisma.CampaignRecipientWhereInput = {
+    campaignId,
+    ...campaignRecipientVisibilityWhere(scope),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.onlyReplied ? { repliedAt: { not: null } } : {}),
+    ...(q
+      ? {
+          contact: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { phone: { contains: q } },
+              { whatsapp: { contains: q } },
+            ],
+          },
+        }
+      : {}),
+  };
+
+  const [total, rows] = await Promise.all([
+    prisma.campaignRecipient.count({ where }),
+    prisma.campaignRecipient.findMany({
+      where,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      skip: offset,
+      take: limit,
+      select: {
+        id: true,
+        contactId: true,
+        status: true,
+        threadId: true,
+        dealId: true,
+        sentAt: true,
+        repliedAt: true,
+        followUpSentAt: true,
+        lastWaveSentAt: true,
+        nextWaveIndex: true,
+        scriptId: true,
+        followUpScriptId: true,
+        error: true,
+        followUpError: true,
+        contact: { select: { name: true, whatsapp: true, phone: true, jobTitle: true } },
+      },
+    }),
+  ]);
+
+  const scriptIds = Array.from(
+    new Set(rows.flatMap((row) => [row.scriptId, row.followUpScriptId]).filter((id): id is string => !!id)),
+  );
+  const repliedContactIds = Array.from(new Set(rows.filter((row) => row.repliedAt).map((row) => row.contactId)));
+  const scriptsPromise: Promise<{ id: string; name: string }[]> = scriptIds.length
+    ? prisma.messageScript.findMany({ where: { id: { in: scriptIds } }, select: { id: true, name: true } })
+    : Promise.resolve([]);
+  const dealsPromise: Promise<{ id: string; contactId: string; status: $Enums.DealStatus }[]> = repliedContactIds.length
+    ? prisma.deal.findMany({
+        where: { organizationId, contactId: { in: repliedContactIds }, ...scopeWhere(dealScope) },
+        select: { id: true, contactId: true, status: true },
+        orderBy: { createdAt: "desc" },
+      })
+    : Promise.resolve([]);
+  const [scripts, visibleDeals] = await Promise.all([scriptsPromise, dealsPromise]);
+
+  const scriptNameById = new Map(scripts.map((script) => [script.id, script.name]));
+  const dealsByContact = new Map<string, typeof visibleDeals>();
+  for (const deal of visibleDeals) {
+    const list = dealsByContact.get(deal.contactId);
+    if (list) list.push(deal);
+    else dealsByContact.set(deal.contactId, [deal]);
+  }
+
+  const waves = Array.isArray(campaign.rmktWaves) ? (campaign.rmktWaves as { dayOffset: number }[]) : [];
+
+  const items = rows.map((row): CampaignRecipientRow => {
+    let nextFollowUpAt: Date | null = null;
+    if (campaign.followUpEnabled && row.status === "SENT" && !row.repliedAt && !row.followUpSentAt && row.sentAt) {
+      nextFollowUpAt = new Date(row.sentAt.getTime() + campaign.followUpDelayHours * 60 * 60 * 1000);
+    } else if (waves.length > 0 && row.status === "SENT" && !row.repliedAt && row.nextWaveIndex < waves.length && row.sentAt) {
+      const wave = waves[row.nextWaveIndex];
+      if (wave) nextFollowUpAt = new Date(row.sentAt.getTime() + wave.dayOffset * 24 * 60 * 60 * 1000);
+    }
+
+    const deals = row.repliedAt ? dealsByContact.get(row.contactId) : undefined;
+    const dealId = deals
+      ? deals.find((deal) => deal.id === row.dealId)?.id ??
+        deals.find((deal) => deal.status === "OPEN")?.id ??
+        deals[0]?.id ??
+        null
+      : null;
+
+    return {
+      id: row.id,
+      contactName: row.contact.name,
+      contactPhone: row.contact.whatsapp || row.contact.phone,
+      contactJobTitle: row.contact.jobTitle,
+      status: row.status,
+      threadId: row.threadId,
+      dealId,
+      sentAt: row.sentAt,
+      repliedAt: row.repliedAt,
+      followUpSentAt: row.followUpSentAt,
+      lastWaveSentAt: row.lastWaveSentAt,
+      lastWaveNumber: row.lastWaveSentAt ? row.nextWaveIndex : null,
+      nextFollowUpAt,
+      scriptName: row.scriptId ? (scriptNameById.get(row.scriptId) ?? "Script removido") : null,
+      followUpScriptName: row.followUpScriptId
+        ? (scriptNameById.get(row.followUpScriptId) ?? "Script removido")
+        : null,
+      error: row.error ?? row.followUpError,
+    };
+  });
+
+  return { items, total, offset, limit };
 }

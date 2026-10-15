@@ -12,6 +12,36 @@ function toISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+const DATE_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Valida um dia civil no formato usado pelos filtros (`YYYY-MM-DD`).
+ * A comparacao dos componentes impede que o Date normalize silenciosamente
+ * entradas como 2026-02-31 para 2026-03-03.
+ */
+export function isValidDateKey(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = DATE_KEY_RE.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1000 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+/** Aceita o intervalo somente quando as duas pontas existem, sao validas e estao em ordem. */
+export function normalizeDateKeyRange(
+  from: unknown,
+  to: unknown,
+): { from: string; to: string } | null {
+  if (!isValidDateKey(from) || !isValidDateKey(to) || from > to) return null;
+  return { from, to };
+}
+
 export type QuickRange = { key: string; label: string; range: () => { from: string; to: string } };
 
 /** Primeiro/último dia do mês que é `monthsAgo` meses antes de hoje (0 = mês atual). */

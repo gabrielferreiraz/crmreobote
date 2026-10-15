@@ -163,17 +163,18 @@ export function TaskCalendar({
   gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
   const gridEnd = new Date(monthEnd);
   gridEnd.setDate(monthEnd.getDate() + (7 - ((monthEnd.getDay() + 6) % 7) - 1));
+  const gridStartTime = gridStart.getTime();
+  const gridEndTime = gridEnd.getTime();
 
   const days = useMemo(() => {
     const arr: Date[] = [];
-    const d = new Date(gridStart);
-    while (d <= gridEnd) {
+    const d = new Date(gridStartTime);
+    while (d.getTime() <= gridEndTime) {
       arr.push(new Date(d));
       d.setDate(d.getDate() + 1);
     }
     return arr;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gridStart.getTime(), gridEnd.getTime()]);
+  }, [gridStartTime, gridEndTime]);
 
   const tasksByDay = useMemo(() => {
     const map = new Map<string, Task[]>();

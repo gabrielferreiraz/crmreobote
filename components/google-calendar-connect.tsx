@@ -25,26 +25,30 @@ export function GoogleCalendarConnect({ initialGoogleParam }: { initialGooglePar
   const [hasWriteScope, setHasWriteScope] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [googleParam, setGoogleParam] = useState(initialGoogleParam);
-
-  async function refreshStatus() {
-    const res = await fetch("/api/google-calendar/status");
-    if (!res.ok) return;
-    const data = await res.json();
-    setEmail(data.email ?? null);
-    setStatus(data.connected ? "connected" : "disconnected");
-    setHasWriteScope(data.hasWriteScope ?? null);
-  }
+  const [googleParam] = useState(initialGoogleParam);
 
   useEffect(() => {
-    refreshStatus();
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch("/api/google-calendar/status", { signal: controller.signal });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+        setEmail(data.email ?? null);
+        setStatus(data.connected ? "connected" : "disconnected");
+        setHasWriteScope(data.hasWriteScope ?? null);
+      } catch {
+        if (!controller.signal.aborted) setStatus("disconnected");
+      }
+    })();
     if (googleParam) {
       // Limpa o parâmetro da URL depois de ler — evita mostrar a mesma
       // mensagem de novo se a pessoa atualizar a página.
       router.replace("/configuracoes/perfil");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => controller.abort();
+  }, [googleParam, router]);
 
   async function disconnect() {
     setBusy(true);

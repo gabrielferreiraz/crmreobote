@@ -45,14 +45,73 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         activities: { orderBy: { createdAt: "desc" }, include: { user: { select: USER_PUBLIC_SELECT } }, take: 200 },
         tasks: { orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }] },
         lossReason: true,
+        // Administradora escolhida no "Marcar como ganho" (Comissões) —
+        // mostrada só pra leitura nos Dados do negócio.
+        administrator: { select: { name: true } },
       },
     });
 
     if (!dealRaw) notFound();
 
-    const avatarMap = await resolveAvatarUrlMap([
-      ...dealRaw.activities.map((a) => a.user.image),
-      dealRaw.owner.image,
+    const canSendAsSelf =
+      ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
+      dealRaw.ownerId !== session!.user.id;
+
+    // Fotos, metadados dos formularios e conexoes do WhatsApp nao dependem
+    // entre si. Comecam juntas depois que o negocio e a permissao existem.
+    const [
+      avatarMap,
+      [membersRaw, lossReasons, customFields, creditTypes, jobTitles, sources, unreadCount, proposals, orgProposalSettings],
+      ownerInstance,
+      myInstance,
+    ] = await Promise.all([
+      resolveAvatarUrlMap([
+        ...dealRaw.activities.map((a) => a.user.image),
+        dealRaw.owner.image,
+      ]),
+      Promise.all([
+        prisma.organizationUser.findMany({
+          where: { organizationId, active: true },
+          orderBy: { createdAt: "asc" },
+          select: { user: { select: { id: true, name: true } } },
+        }),
+        prisma.lossReason.findMany({
+          where: { organizationId, selectable: true },
+          orderBy: { order: "asc" },
+          select: { id: true, label: true },
+        }),
+        prisma.customFieldDefinition.findMany({
+          where: { organizationId, entityType: "DEAL" },
+          orderBy: { order: "asc" },
+        }),
+        prisma.creditType.findMany({
+          where: { organizationId },
+          orderBy: { order: "asc" },
+          select: { id: true, label: true },
+        }),
+        prisma.jobTitle.findMany({
+          where: { organizationId },
+          orderBy: { order: "asc" },
+          select: { id: true, label: true },
+        }),
+        prisma.leadSource.findMany({
+          where: { organizationId },
+          orderBy: { order: "asc" },
+          select: { id: true, label: true },
+        }),
+        prisma.whatsAppMessage.count({
+          where: { organizationId, thread: { contactId: dealRaw.contactId }, direction: "INBOUND", read: false },
+        }),
+        listProposalsForDeal(organizationId, dealRaw.id),
+        prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { defaultProposalDescription: true },
+        }),
+      ]),
+      resolveConnectedInstance(organizationId, dealRaw.ownerId),
+      canSendAsSelf
+        ? resolveConnectedInstance(organizationId, session!.user.id)
+        : Promise.resolve(null),
     ]);
 
     const deal = {
@@ -74,63 +133,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       })),
     };
 
-    // Nenhuma das 6 depende do resultado de outra nem de nada que só exista
-    // depois de `dealRaw` (as 5 primeiras usam só organizationId; o count de
-    // não lidas usa deal.contactId, já resolvido acima) — rodar sequencial
-    // era só ordem de código, não dependência real (medido: Fase 7 da
-    // auditoria de performance, ganho real de ~60% nesse bloco). A cadeia de
-    // WhatsApp (resolveConnectedInstance/getOrCreateThreadForContact), logo
-    // abaixo, continua de fora de propósito — depende de dealRaw.ownerId e
-    // tem efeito colateral (pode criar/atualizar WhatsAppThread).
-    const [membersRaw, lossReasons, customFields, creditTypes, jobTitles, sources, unreadCount, proposals, orgProposalSettings] = await Promise.all([
-      prisma.organizationUser.findMany({
-        where: { organizationId, active: true },
-        orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, name: true } } },
-      }),
-      // selectable: true — exclui os motivos só-histórico migrados do
-      // Agendor ("... (CRM anterior)", ver scripts/backfill-legacy-loss-reasons.ts).
-      // Continuam existindo pra relatório/filtro (ver pipeline/page.tsx, que
-      // busca sem esse filtro de propósito), só não podem ser escolhidos de
-      // novo daqui pra frente.
-      prisma.lossReason.findMany({
-        where: { organizationId, selectable: true },
-        orderBy: { order: "asc" },
-      }),
-      prisma.customFieldDefinition.findMany({
-        where: { organizationId, entityType: "DEAL" },
-        orderBy: { order: "asc" },
-      }),
-      prisma.creditType.findMany({
-        where: { organizationId },
-        orderBy: { order: "asc" },
-      }),
-      prisma.jobTitle.findMany({
-        where: { organizationId },
-        orderBy: { order: "asc" },
-      }),
-      // Mesma lista que Clientes já usa (ver app/(dashboard)/clientes/page.tsx)
-      // — pedido explícito: editar a Origem direto no card "Dados do
-      // contato" do negócio, mesmo padrão de Select com opção "(antigo)"
-      // que Cargo já tem logo abaixo (ver sourceOptions em deal-detail.tsx).
-      prisma.leadSource.findMany({
-        where: { organizationId },
-        orderBy: { order: "asc" },
-      }),
-      // Não lida: soma de qualquer conversa deste contato, não só a de quem
-      // está vendo a página agora (o lead pode ter respondido pra outro
-      // vendedor que já trocou mensagem com ele antes).
-      prisma.whatsAppMessage.count({
-        where: { organizationId, thread: { contactId: deal.contactId }, direction: "INBOUND", read: false },
-      }),
-      // Propostas do negócio (o negócio já foi confirmado no escopo de quem
-      // pede acima — proposta herda essa visibilidade, ver
-      // lib/proposals/queries.ts) + o texto padrão da descrição que
-      // pré-preenche uma proposta nova. Mesmo lote paralelo, sem degrau extra.
-      listProposalsForDeal(organizationId, deal.id),
-      prisma.organization.findUnique({ where: { id: organizationId }, select: { defaultProposalDescription: true } }),
-    ]);
-
     const members = membersRaw.map((m) => m.user);
     // Garante que o responsável atual apareça no seletor mesmo se tiver sido
     // desativado depois de ser atribuído ao negócio.
@@ -147,7 +149,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // mesmo contato). Pedido explícito: o conteúdo mostrado é sempre "o
     // mesmo do celular do dono do lead". Sem instância conectada, não tem
     // como abrir chat aqui.
-    const ownerInstance = await resolveConnectedInstance(organizationId, dealRaw.ownerId);
     const dealOwnerThread =
       ownerInstance?.status === "CONNECTED"
         ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
@@ -167,11 +168,9 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // padrão.
     let sendAsAlternate: { threadId: string; label: string; defaultLabel: string } | null = null;
     if (
-      ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
-      dealRaw.ownerId !== session!.user.id &&
+      canSendAsSelf &&
       dealOwnerThread
     ) {
-      const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
       const myThread =
         myInstance?.status === "CONNECTED"
           ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact: dealRaw.contact })

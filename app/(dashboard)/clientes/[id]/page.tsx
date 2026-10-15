@@ -60,26 +60,57 @@ export default async function ContactPage({
 
   if (!contact) notFound();
 
-  const [sources, jobTitles, customFields, membersRaw, pipelinesRaw, creditTypes] = await Promise.all([
-    prisma.leadSource.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
-    prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
-    prisma.customFieldDefinition.findMany({
-      where: { organizationId, entityType: "CONTACT" },
-      orderBy: { order: "asc" },
-    }),
-    prisma.organizationUser.findMany({
-      where: { organizationId, active: true },
-      orderBy: { createdAt: "asc" },
-      include: { user: { select: { id: true, name: true } } },
-    }),
-    // Pra "Novo negócio" direto desta tela (ver create-deal-for-contact-dialog.tsx)
-    // — mesmo formato mínimo (id/nome + etapas em ordem) que pipeline/page.tsx já busca.
-    prisma.pipeline.findMany({
-      where: { organizationId },
-      orderBy: { order: "asc" },
-      include: { stages: { orderBy: { order: "asc" }, select: { id: true, name: true } } },
-    }),
-    prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" } }),
+  const responsibleUserId = contact.responsavelId ?? session!.user.id;
+  const canSendAsSelf =
+    ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
+    !!contact.responsavelId &&
+    contact.responsavelId !== session!.user.id &&
+    !!contact.responsavel;
+
+  const [
+    [sources, jobTitles, customFields, membersRaw, pipelinesRaw, creditTypes],
+    responsibleInstance,
+    myInstance,
+  ] = await Promise.all([
+    Promise.all([
+      prisma.leadSource.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        select: { id: true, label: true },
+      }),
+      prisma.jobTitle.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        select: { id: true, label: true },
+      }),
+      prisma.customFieldDefinition.findMany({
+        where: { organizationId, entityType: "CONTACT" },
+        orderBy: { order: "asc" },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        select: { user: { select: { id: true, name: true } } },
+      }),
+      prisma.pipeline.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        select: {
+          id: true,
+          name: true,
+          stages: { orderBy: { order: "asc" }, select: { id: true, name: true } },
+        },
+      }),
+      prisma.creditType.findMany({
+        where: { organizationId },
+        orderBy: { order: "asc" },
+        select: { id: true, label: true },
+      }),
+    ]),
+    resolveConnectedInstance(organizationId, responsibleUserId),
+    canSendAsSelf
+      ? resolveConnectedInstance(organizationId, session!.user.id)
+      : Promise.resolve(null),
   ]);
   const members = membersRaw.map((m) => m.user);
   const pipelines = pipelinesRaw.map((p) => ({ id: p.id, name: p.name, stages: p.stages }));
@@ -93,8 +124,6 @@ export default async function ContactPage({
   // — quase sempre vazia — que por acaso exista com o mesmo contato. Pedido
   // explícito: o conteúdo mostrado é sempre "o mesmo do celular do dono do
   // lead".
-  const responsibleUserId = contact.responsavelId ?? session!.user.id;
-  const responsibleInstance = await resolveConnectedInstance(organizationId, responsibleUserId);
   const whatsappThread =
     responsibleInstance?.status === "CONNECTED"
       ? await getOrCreateThreadForContact({ organizationId, instance: responsibleInstance, contact })
@@ -110,12 +139,9 @@ export default async function ContactPage({
   let sendAsAlternate: { threadId: string; label: string; defaultLabel: string } | null = null;
   if (
     whatsappThread &&
-    ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
-    contact.responsavelId &&
-    contact.responsavelId !== session!.user.id &&
+    canSendAsSelf &&
     contact.responsavel
   ) {
-    const myInstance = await resolveConnectedInstance(organizationId, session!.user.id);
     const myThread =
       myInstance?.status === "CONNECTED"
         ? await getOrCreateThreadForContact({ organizationId, instance: myInstance, contact })

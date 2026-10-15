@@ -224,6 +224,10 @@ type Deal = {
   grossValue: number | null;
   description: string | null;
   creditType: string | null;
+  /** Administradora do consórcio (Comissões) — pré-seleciona o "Marcar como ganho". */
+  administratorId?: string | null;
+  /** Nome dela, pra mostrar nos Dados do negócio depois do ganho (só leitura — quem corrige é o Financeiro, na venda). */
+  administrator?: { name: string } | null;
   createdAt: string | Date;
   startedAt: string | Date;
   closedAt: string | Date | null;
@@ -771,11 +775,11 @@ export function DealDetail({
     if (res.ok) pushUndoToast(res.data?.undo);
   }
 
-  async function confirmWon(closedAt: string) {
+  async function confirmWon(closedAt: string, extra: { administratorId: string | null }) {
     const wasWon = deal.status === "WON";
     const res = await requestJson(
       `/api/deals/${deal.id}`,
-      { method: "PUT", json: { status: "WON", closedAt } },
+      { method: "PUT", json: { status: "WON", closedAt, ...(extra.administratorId ? { administratorId: extra.administratorId } : {}) } },
       { silent: true, errorMessage: "Não foi possível marcar o negócio como ganho" },
     );
     const data = res.data ?? {};
@@ -2016,6 +2020,12 @@ export function DealDetail({
                       ]}
                     />
                   </div>
+                  {deal.administrator && (
+                    <div className="flex items-center justify-between gap-2" title="Escolhida ao marcar como ganho. Para corrigir, fale com quem cuida das comissões.">
+                      <span className="text-neutral-500 dark:text-neutral-400">Administradora</span>
+                      <span className="font-medium text-neutral-900 dark:text-neutral-100">{deal.administrator.name}</span>
+                    </div>
+                  )}
                   <EditableRow
                     label="Descrição"
                     value={deal.description ?? ""}
@@ -2452,6 +2462,7 @@ export function DealDetail({
                   ]}
                 />
               </div>
+              {deal.administrator && <Row label="Administradora" value={deal.administrator.name} />}
               <EditableRow
               label="Descrição"
               value={deal.description ?? ""}
@@ -2696,6 +2707,9 @@ export function DealDetail({
           confirmClassName="btn-primary"
           onClose={() => setWonDialogOpen(false)}
           onConfirm={confirmWon}
+          askAdministrator
+          initialAdministratorId={deal.administratorId ?? null}
+          previewDealId={deal.id}
         />
       )}
 
@@ -2995,12 +3009,6 @@ function ValueItem({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!editing) {
-      setDraft(value != null ? String(value) : "");
-    }
-  }, [value, editing]);
-
   async function handleSave() {
     if (saving) return;
 
@@ -3257,14 +3265,19 @@ function EditableRow({
     if (autoEditSignal === undefined || autoEditSignal === lastSignal.current) return;
     lastSignal.current = autoEditSignal;
     if (!editable) return; // nada pra "mostrar" se esta linha nem é editável por quem está vendo
-    setDraft(value);
-    setEditing(true);
-    setHighlight(true);
-    rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const timer = setTimeout(() => setHighlight(false), 2200);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoEditSignal]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      setDraft(value);
+      setEditing(true);
+      setHighlight(true);
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      timer = setTimeout(() => setHighlight(false), 2200);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }, [autoEditSignal, editable, value]);
 
   const highlightClass = highlight
     ? "bg-brand/10 ring-2 ring-brand/40 dark:bg-brand/15"

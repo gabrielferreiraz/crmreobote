@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Clock3, TriangleAlert } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getCampaignDetail } from "@/lib/campaigns/list";
+import { getCampaignDetail, getCampaignRecipientsPage } from "@/lib/campaigns/list";
 import { QUEUE_EDITABLE_STATUSES, getCampaignQueue } from "@/lib/campaigns/queue";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
 import { getDealScope } from "@/lib/team-scope";
@@ -40,12 +40,17 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     // abrindo a URL de uma campanha alheia via a lista de leads (nome/
     // telefone) de outro consultor. Fora do escopo cai no mesmo 404 de "id
     // não existe" — nunca revela que a campanha existe pra quem não pode vê-la.
-    const scope = await getDealScope(organizationId, session!.user.id, session!.user.role);
+    const [scope, dealScope] = await Promise.all([
+      getDealScope(organizationId, session!.user.id, session!.user.role),
+      getSharedScope(organizationId, session!.user.id, session!.user.role, "shareDeals"),
+    ]);
     // Mesmo escopo de /negocios/[id] (com grupos de compartilhamento) — o
     // "Ver negócio" da tabela só aparece pra negócio que essa pessoa abre.
-    const dealScope = await getSharedScope(organizationId, session!.user.id, session!.user.role, "shareDeals");
-    const campaign = await getCampaignDetail(organizationId, id, scope, dealScope);
-    if (!campaign) notFound();
+    const [campaign, initialRecipients] = await Promise.all([
+      getCampaignDetail(organizationId, id, scope),
+      getCampaignRecipientsPage(organizationId, id, scope, dealScope, { limit: 50 }),
+    ]);
+    if (!campaign || !initialRecipients) notFound();
 
     const total = campaign.counts.pending + campaign.counts.sent + campaign.counts.failed + campaign.counts.skipped;
     const notSent = campaign.counts.pending + campaign.counts.failed + campaign.counts.skipped;
@@ -64,24 +69,28 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     // mandar e-mail de alerta pro Dono — quem está aqui olhando o painel
     // também precisa saber.
     const showAutoSendInfo = campaign.status === "RUNNING" && (campaign.counts.pending > 0 || campaign.pendingFollowUpCount > 0);
-    const cronStatus = showAutoSendInfo
-      ? await getCronStaleness(CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES)
-      : null;
+    const cronStatusPromise = showAutoSendInfo
+      ? getCronStaleness(CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES)
+      : Promise.resolve(null);
 
     // Fila de disparo (quem sai em qual horário, quem sai na próxima hora, reordenar): só pra quem
     // GERENCIA a campanha — a fila lista e reordena a campanha INTEIRA, inclusive os leads de
     // outros consultores, então quem apenas enxerga o envio (parte dos destinatários no próprio
     // WhatsApp) não recebe nem os dados. É um extra: se falhar, a página (que tem pausar/retomar)
     // abre normalmente sem ele.
-    let queue: CampaignQueueData | null = null;
-    if (campaign.canManage && campaign.counts.pending > 0 && campaign.status !== "DONE") {
-      try {
-        const view = await getCampaignQueue(organizationId, campaign.id, { offset: 0, limit: 30 });
-        if (view) queue = { ...view, canEdit: QUEUE_EDITABLE_STATUSES.includes(view.status) };
-      } catch (err) {
-        console.error("[campanhas] falha ao montar a fila de disparo", err);
-      }
-    }
+    const queuePromise: Promise<CampaignQueueData | null> =
+      campaign.canManage && campaign.counts.pending > 0 && campaign.status !== "DONE"
+        ? getCampaignQueue(organizationId, campaign.id, { offset: 0, limit: 30 })
+            .then((view) =>
+              view ? { ...view, canEdit: QUEUE_EDITABLE_STATUSES.includes(view.status) } : null,
+            )
+            .catch((err) => {
+              console.error("[campanhas] falha ao montar a fila de disparo", err);
+              return null;
+            })
+        : Promise.resolve(null);
+
+    const [cronStatus, queue] = await Promise.all([cronStatusPromise, queuePromise]);
 
     return (
       <div className="space-y-4">
@@ -236,7 +245,11 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <CampaignMetricsChart data={campaign.dailyMetrics} />
 
         <RecipientsTable
-          recipients={campaign.recipients.map((r) => ({
+          campaignId={campaign.id}
+          repliedTotal={campaign.counts.replied}
+          initialPage={{
+            ...initialRecipients,
+            items: initialRecipients.items.map((r) => ({
             ...r,
             sentAt: r.sentAt?.toISOString() ?? null,
             repliedAt: r.repliedAt?.toISOString() ?? null,
@@ -244,7 +257,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             lastWaveSentAt: r.lastWaveSentAt?.toISOString() ?? null,
             lastWaveNumber: r.lastWaveNumber,
             nextFollowUpAt: r.nextFollowUpAt?.toISOString() ?? null,
-          }))}
+            })),
+          }}
         />
       </div>
     );

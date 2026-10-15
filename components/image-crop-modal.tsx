@@ -80,7 +80,8 @@ export function ImageCropModal({
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    setCurrentAspect(aspectRatio);
+    const frame = requestAnimationFrame(() => setCurrentAspect(aspectRatio));
+    return () => cancelAnimationFrame(frame);
   }, [aspectRatio, isOpen]);
 
   const handleCropComplete = useCallback(

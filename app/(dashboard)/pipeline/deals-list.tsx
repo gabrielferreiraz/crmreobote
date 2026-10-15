@@ -29,6 +29,7 @@ import { saveBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-
 import { ESTADOS_BR } from "@/lib/contacts/constants";
 import type { Deal } from "./kanban-board";
 import { trackUse } from "@/lib/feature-usage/track";
+import { useDesktopViewport } from "@/lib/use-desktop-viewport";
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -84,6 +85,7 @@ export function DealsList({
   initialDeals,
   initialTotalCount,
   initialSums,
+  initialDataLoaded,
   reloadToken,
   members,
   teams,
@@ -103,12 +105,14 @@ export function DealsList({
   onTotalCountChange,
   initialFilterOverride,
   applyWonFilterToken,
-  creditTypes,
 }: {
   initialDeals: Deal[];
   /** Total do pipeline inteiro (sem filtro nenhum) na 1ª carga — depois disso, `totalCount` no state reflete o filtro atual. */
   initialTotalCount: number;
   initialSums: Sums;
+  /** False quando o servidor priorizou o Kanban; a Lista busca sua primeira
+   * pagina somente quando for aberta. */
+  initialDataLoaded: boolean;
   /** Incrementado pelo componente pai (novo negócio criado, importação concluída) pra forçar buscar de novo a página/filtro atual. */
   reloadToken: number;
   members: MemberOption[];
@@ -156,9 +160,9 @@ export function DealsList({
    * de initialFilterOverride (só a 1ª carga), isto reage a QUALQUER
    * momento, com a Lista já montada ou não. */
   applyWonFilterToken?: number;
-  creditTypes: { id: string; label: string }[];
 }) {
   const router = useRouter();
+  const desktop = useDesktopViewport();
 
   const [deals, setDeals] = useState(initialDeals);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
@@ -260,7 +264,10 @@ export function DealsList({
   // 1ª renderização já tem os dados certos (vieram prontos do servidor,
   // página 1, sem nenhum destes filtros locais aplicado) — sem essa guarda,
   // esse efeito dispararia uma busca redundante assim que montasse.
-  const skipNextFetch = useRef(true);
+  const skipNextFetch = useRef(initialDataLoaded);
+  const summaryFilterKeyRef = useRef<string | null>(null);
+  const initialPayloadRef = useRef(initialDeals);
+  const lastReloadTokenRef = useRef(reloadToken);
 
   // Monta só os parâmetros de FILTRO (sem paginação) — reaproveitado tanto
   // pelo fetch da página quanto pelo link de exportar, pra exportar sempre
@@ -346,27 +353,40 @@ export function DealsList({
   // sair da tela derruba a requisição anterior em vez de só ignorar a
   // resposta). As ações em massa chamam sem signal: ali a busca é
   // consequência de um clique que acabou de acontecer, não há o que cancelar.
-  async function fetchCurrentPage(signal?: AbortSignal): Promise<{ deals: Deal[]; totalCount: number; sums: Sums } | null> {
+  async function fetchCurrentPage(
+    signal?: AbortSignal,
+    forceSummary = false,
+  ): Promise<{ deals: Deal[]; totalCount: number; sums: Sums } | null> {
     const params = buildFilterParams();
+    const summaryFilterKey = params.toString();
+    const serverPayloadChanged = initialPayloadRef.current !== initialDeals;
+    initialPayloadRef.current = initialDeals;
+    const includeSummary =
+      forceSummary || serverPayloadChanged || summaryFilterKeyRef.current !== summaryFilterKey;
+    if (!includeSummary) params.set("includeSummary", "0");
     params.set("skip", String((page - 1) * pageSize));
     params.set("limit", String(pageSize));
     const res = await fetch(`/api/deals?${params.toString()}`, { signal });
     if (!res.ok) return null;
     const data: Deal[] = await res.json();
+    const totalHeader = res.headers.get("X-Total-Count");
+    const wonHeader = res.headers.get("X-Won-Sum");
+    const lostHeader = res.headers.get("X-Lost-Sum");
+    const sumHeader = res.headers.get("X-Total-Sum");
+    if (totalHeader !== null) summaryFilterKeyRef.current = summaryFilterKey;
     return {
       deals: data,
-      totalCount: Number(res.headers.get("X-Total-Count") ?? data.length),
-      sums: {
-        wonSum: Number(res.headers.get("X-Won-Sum") ?? 0),
-        lostSum: Number(res.headers.get("X-Lost-Sum") ?? 0),
-        totalSum: Number(res.headers.get("X-Total-Sum") ?? 0),
-      },
+      totalCount: totalHeader !== null ? Number(totalHeader) : totalCount,
+      sums:
+        wonHeader !== null && lostHeader !== null && sumHeader !== null
+          ? { wonSum: Number(wonHeader), lostSum: Number(lostHeader), totalSum: Number(sumHeader) }
+          : sums,
     };
   }
 
   /** Busca de novo e aplica ao state — usado pelas 4 ações em massa abaixo depois de completar. */
   async function refreshCurrentPage() {
-    const result = await fetchCurrentPage();
+    const result = await fetchCurrentPage(undefined, true);
     if (result) {
       setDeals(result.deals);
       setTotalCount(result.totalCount);
@@ -389,6 +409,7 @@ export function DealsList({
       // pra montar initialDeals — senão os dados iniciais (sem filtro local
       // nenhum) ficam desatualizados pra sempre.
       if (JSON.stringify(persistedFilterValues) === LISTA_DEFAULT_FILTERS_JSON) {
+        summaryFilterKeyRef.current = buildFilterParams().toString();
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setFiltersReady(true);
         return;
@@ -398,8 +419,10 @@ export function DealsList({
     // precisa chegar no servidor (esta rota faz 3 consultas — lista,
     // contagem e somas), não só na tela.
     const controller = new AbortController();
+    const forceSummary = lastReloadTokenRef.current !== reloadToken;
+    lastReloadTokenRef.current = reloadToken;
     setLoading(true);
-    fetchCurrentPage(controller.signal)
+    fetchCurrentPage(controller.signal, forceSummary)
       .then((result) => {
         if (!result) return;
         setDeals(result.deals);
@@ -631,7 +654,7 @@ export function DealsList({
     setBulkError(null);
     try {
       const failures = await countBulkFailures(
-        Array.from(selectedIds).map((id) => fetch(`/api/deals/${id}`, { method: "DELETE" })),
+        Array.from(selectedIds).map((id) => () => fetch(`/api/deals/${id}`, { method: "DELETE" })),
       );
       if (failures > 0) {
         // Um motivo conhecido: negócio com proposta gerada/enviada não pode
@@ -971,6 +994,9 @@ export function DealsList({
         </div>
       ) : (
         <>
+          {desktop === null && (
+            <div className="card min-h-64 animate-pulse bg-neutral-100 dark:bg-neutral-900" />
+          )}
           {/* Mobile: cards — a tabela de 9 colunas força rolagem horizontal
               por cima de tudo num celular; aqui cada negócio vira um cartão
               com só o essencial, mesmo padrão de clientes/contacts-table.tsx.
@@ -979,7 +1005,9 @@ export function DealsList({
               nunca teve nenhum jeito de marcar todos de uma vez (pedido
               explícito) — mesmo estado/função de sempre (allSelected/
               toggleSelectAll), só uma UI nova pra chegar nele aqui. */}
-          <label className="mb-1 flex w-fit items-center gap-2 px-1 lg:hidden">
+          {desktop === false && (
+          <>
+          <label className="mb-1 flex w-fit items-center gap-2 px-1">
             <input
               type="checkbox"
               checked={allSelected}
@@ -988,7 +1016,7 @@ export function DealsList({
             />
             <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Selecionar todos</span>
           </label>
-          <div className="space-y-2 lg:hidden">
+          <div className="space-y-2">
             {deals.map((deal) => (
               <div key={deal.id} className="group card p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1060,6 +1088,8 @@ export function DealsList({
               </div>
             ))}
           </div>
+          </>
+          )}
 
           {/* Desktop: tabela */}
           {/* overflow-y-hidden explícito (não só "sem overflow-x-auto do
@@ -1070,7 +1100,8 @@ export function DealsList({
               colava nele (que nunca rola de verdade sozinho) em vez de
               colar no wrapper de fora que realmente rola a lista inteira —
               o cabeçalho ficava "preso" fora do lugar ao rolar. */}
-          <div className="card hidden overflow-x-auto overflow-y-hidden lg:block">
+          {desktop === true && (
+          <div className="card overflow-x-auto overflow-y-hidden">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-white dark:bg-neutral-900">
                 <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
@@ -1249,6 +1280,7 @@ export function DealsList({
               </tfoot>
             </table>
           </div>
+          )}
         </>
       )}
       </div>

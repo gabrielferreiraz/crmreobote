@@ -16,7 +16,7 @@ import {
 import Link from "next/link";
 import { Search, AlertTriangle, Loader2, CheckSquare, Square, MousePointerClick } from "lucide-react";
 import { ErrorDialog, type ErrorType } from "@/components/error-dialog";
-import { CompleteRequiredFieldsDialog, type RequirableFieldValues } from "@/components/complete-required-fields-dialog";
+import { CompleteRequiredFieldsDialog } from "@/components/complete-required-fields-dialog";
 import { DealBulkActions } from "@/components/deal-bulk-actions";
 import { trackUse } from "@/lib/feature-usage/track";
 import type { LossReasonOption } from "@/components/loss-reason-dialog";
@@ -35,6 +35,7 @@ import { classifyTaskUrgency, type TaskUrgency } from "@/lib/task-urgency";
 import type { PipelineQuickFilter } from "./pipeline-filters";
 import { PipelineQuickFilterNotice } from "./pipeline-quick-filter-buttons";
 import { useUndoToast } from "@/components/undo-provider";
+import { sanitizeRequiredFields, type RequirableDealField } from "@/lib/deal-required-fields";
 
 type Stage = { id: string; name: string; color: string | null; order: number };
 
@@ -123,6 +124,7 @@ export function KanbanBoard({
   initialCountByStage,
   initialSumByStage,
   initialWithTaskByStage,
+  initialDataLoaded,
   members,
   /** "Equipe: <nome>" no filtro de Responsável — já vem vazio de page.tsx pra quem não é Supervisor/Gerente/Dono. */
   teams,
@@ -152,6 +154,9 @@ export function KanbanBoard({
   /** Quantos negócios de cada etapa têm ao menos uma tarefa pendente —
    * "saúde da etapa" (barra no cabeçalho da coluna). */
   initialWithTaskByStage: Record<string, number>;
+  /** False quando o servidor priorizou a Lista; o Kanban carrega somente
+   * quando o usuario abrir esta visualizacao. */
+  initialDataLoaded: boolean;
   members: MemberOption[];
   teams: TeamOption[];
   currentUserId?: string;
@@ -210,7 +215,8 @@ export function KanbanBoard({
   const [requiredFieldsPrompt, setRequiredFieldsPrompt] = useState<{
     dealIds: string[];
     targetStageId: string;
-    missingFields: any[]; // RequirableDealField
+    missingFields: RequirableDealField[];
+    submitting: boolean;
   } | null>(null);
   const pushUndoToast = useUndoToast();
   // false só durante a janela entre montar e a 1ª busca pós-restauração do
@@ -565,7 +571,7 @@ export function KanbanBoard({
   // 1ª renderização já tem os dados certos (vieram prontos do servidor, sem
   // nenhum destes filtros locais aplicado) — sem essa guarda, esse efeito
   // dispararia uma busca redundante assim que montasse.
-  const skipNextFetch = useRef(true);
+  const skipNextFetch = useRef(initialDataLoaded);
 
   useEffect(() => {
     // Espera a restauração do localStorage terminar (ver usePersistedFilters
@@ -608,7 +614,8 @@ export function KanbanBoard({
     // page.tsx: N consultas em paralelo (uma por etapa) chegou a estourar o
     // timeout de transação por operação com o pool de conexões sobrecarregado.
     const dealsParams = buildFilterParams(filters);
-    dealsParams.set("take", String(KANBAN_INITIAL_CAP));
+    dealsParams.set("limit", String(KANBAN_INITIAL_CAP));
+    dealsParams.set("includeSummary", "0");
     const countsParams = buildFilterParams(filters);
 
     Promise.all([
@@ -672,13 +679,12 @@ export function KanbanBoard({
       params.set("stageId", stageId);
       const currentLength = dealsByStageRef.current[stageId]?.length ?? 0;
       params.set("skip", String(currentLength));
-      params.set("take", String(KANBAN_STAGE_PAGE_SIZE));
+      params.set("limit", String(KANBAN_STAGE_PAGE_SIZE));
+      params.set("includeSummary", "0");
       const res = await fetch(`/api/deals?${params.toString()}`);
       if (!res.ok) return;
       const more: Deal[] = await res.json();
-      const total = Number(res.headers.get("X-Total-Count") ?? currentLength + more.length);
       setDealsByStage((prev) => ({ ...prev, [stageId]: [...(prev[stageId] ?? []), ...more] }));
-      setCountByStage((prev) => ({ ...prev, [stageId]: total }));
     } finally {
       setLoadingMoreStages((prev) => {
         const next = new Set(prev);
@@ -813,11 +819,13 @@ export function KanbanBoard({
         return;
       }
 
-      if (data.missingFields && data.missingFields.length > 0) {
+      const missingFields = sanitizeRequiredFields(data.missingFields);
+      if (missingFields.length > 0) {
         setRequiredFieldsPrompt({
           dealIds: Array.from(selectedIds),
           targetStageId,
-          missingFields: data.missingFields,
+          missingFields,
+          submitting: false,
         });
         return; // não limpa a seleção ainda, espera o usuário preencher
       }
@@ -905,11 +913,13 @@ export function KanbanBoard({
         [previousStageId]: (prev[previousStageId] ?? 0) + 1,
       }));
 
-      if (data.type === "VALIDATION" && data.missingFields?.length > 0) {
+      const missingFields = sanitizeRequiredFields(data.missingFields);
+      if (data.type === "VALIDATION" && missingFields.length > 0) {
         setRequiredFieldsPrompt({
           dealIds: [dealId],
           targetStageId,
-          missingFields: data.missingFields,
+          missingFields,
+          submitting: false,
         });
       } else {
         setMoveError(describeMoveFailure(res, data, "Não foi possível mover o negócio"));
@@ -1132,12 +1142,11 @@ export function KanbanBoard({
           })}
           onSubmit={async (values) => {
             const { dealIds, targetStageId } = requiredFieldsPrompt;
-            setRequiredFieldsPrompt({ ...requiredFieldsPrompt, submitting: true } as any);
+            setRequiredFieldsPrompt({ ...requiredFieldsPrompt, submitting: true });
             
             try {
               if (dealIds.length === 1) {
                 const dealId = dealIds[0];
-                const previousStageId = Object.entries(dealsByStage).find(([_, list]) => list.some((d) => d.id === dealId))?.[0];
                 
                 const res = await fetch(`/api/deals/${dealId}/move`, {
                   method: "PATCH",
@@ -1177,7 +1186,7 @@ export function KanbanBoard({
               setMoveError({ message: "Falha de conexão", type: "SERVER" });
             }
           }}
-          submitting={(requiredFieldsPrompt as any).submitting}
+          submitting={requiredFieldsPrompt.submitting}
         />
       )}
 

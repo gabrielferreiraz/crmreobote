@@ -5,7 +5,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { GitCompareArrows, Check, ChevronDown, ChevronLeft, X } from "lucide-react";
 import { DateRangeCalendar } from "@/components/date-range-calendar";
 import { COMPARE_MODES, isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildQuickRanges, normalizeDateKeyRange } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
 
 function optionClass(active: boolean) {
@@ -55,16 +55,18 @@ export function ComparePeriodFilter() {
   const isAllTime = searchParams.get("range") === "all";
   const activeCompareRaw = searchParams.get("compare") ?? undefined;
   const activeCompare = isCompareMode(activeCompareRaw) ? activeCompareRaw : null;
-  const activeCompareFrom = searchParams.get("compareFrom") ?? "";
-  const activeCompareTo = searchParams.get("compareTo") ?? "";
+  const activeCompareRange = normalizeDateKeyRange(searchParams.get("compareFrom"), searchParams.get("compareTo"));
+  const activeCompareFrom = activeCompareRange?.from ?? "";
+  const activeCompareTo = activeCompareRange?.to ?? "";
 
   // Mesma resolução de rangeFrom/rangeTo que o servidor faz em
   // getCommercialReportData (ver lib/reports/commercial-data.ts) — repetida
   // aqui só pra CALCULAR o rótulo (nunca pra decidir o que a página busca,
   // isso continua 100% do servidor). Sem from/to na URL, cai no mesmo
   // padrão "Este mês" que o servidor usa como default.
-  const fromParam = searchParams.get("from") ?? "";
-  const toParam = searchParams.get("to") ?? "";
+  const selectedRange = normalizeDateKeyRange(searchParams.get("from"), searchParams.get("to"));
+  const fromParam = selectedRange?.from ?? "";
+  const toParam = selectedRange?.to ?? "";
   const defaultRange =
     isAllTime || fromParam || toParam ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
   const rangeFrom = isAllTime

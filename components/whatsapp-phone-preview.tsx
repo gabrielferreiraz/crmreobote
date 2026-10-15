@@ -32,18 +32,19 @@ export function WhatsAppPhonePreview({
   const [sentCount, setSentCount] = useState(0);
 
   const filledSteps = steps.filter((s) => s.text.trim().length > 0);
+  const filledStepCount = filledSteps.length;
   const contentKey = filledSteps.map((s) => `${s.type ?? "TEXT"}:${s.imagePreviewUrl ?? ""}:${s.text}`).join(" ");
 
   useEffect(() => {
-    setSentCount(0);
-    if (filledSteps.length === 0) return;
+    const resetFrame = requestAnimationFrame(() => setSentCount(0));
+    if (filledStepCount === 0) return () => cancelAnimationFrame(resetFrame);
 
     const signal = { cancelled: false };
 
     (async () => {
       await wait(FIRST_MESSAGE_DELAY_MS);
       while (!signal.cancelled) {
-        for (let i = 0; i < filledSteps.length; i++) {
+        for (let i = 0; i < filledStepCount; i++) {
           if (signal.cancelled) return;
           setSentCount(i + 1);
           await wait(GAP_MS);
@@ -56,10 +57,10 @@ export function WhatsAppPhonePreview({
     })();
 
     return () => {
+      cancelAnimationFrame(resetFrame);
       signal.cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentKey]);
+  }, [contentKey, filledStepCount]);
 
   return (
     <div className="animate-phone-in mx-auto w-[260px]">

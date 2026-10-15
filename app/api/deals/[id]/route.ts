@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
@@ -15,6 +15,7 @@ import { recordUserChange } from "@/lib/user-activity";
 import { brazilDateStringWithNowTimeToUTC, brazilDateKey } from "@/lib/timezone";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload, FieldUpdateTarget } from "@/lib/undo/types";
+import { syncCommissionSalesInBackground } from "@/lib/commissions/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     closedAt: closedAtInput,
     ownerId,
     customFieldValues,
+    administratorId,
   } = body as {
     name?: string;
     status?: "OPEN" | "WON" | "LOST";
@@ -76,6 +78,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     closedAt?: string;
     ownerId?: string;
     customFieldValues?: Record<string, unknown>;
+    /** Administradora do consórcio (ver Deal.administratorId) — pedida no "Marcar como ganho". */
+    administratorId?: string | null;
   };
 
   if ((value != null && value < 0) || (grossValue != null && grossValue < 0)) {
@@ -93,6 +97,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
+    // Administradora (módulo de Comissões): só aceita uma ATIVA desta
+    // organização; "" / null limpa.
+    let administratorIdUpdate: string | null | undefined;
+    if (administratorId !== undefined) {
+      if (administratorId === null || administratorId === "") {
+        administratorIdUpdate = null;
+      } else if (typeof administratorId !== "string") {
+        return NextResponse.json({ error: "Administradora inválida" }, { status: 400 });
+      } else {
+        const administrator = await prisma.consortiumAdministrator.findFirst({
+          where: { id: administratorId, organizationId, active: true },
+          select: { id: true },
+        });
+        if (!administrator) return NextResponse.json({ error: "Administradora inválida" }, { status: 400 });
+        administratorIdUpdate = administratorId;
+      }
+    }
+
     if (status === "WON" && status !== existing.status) {
       const contact = await prisma.contact.findUnique({ where: { id: existing.contactId }, select: { jobTitle: true } });
       const jobTitle = contact?.jobTitle?.trim();
@@ -104,6 +126,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const grossDealValue = grossValue !== undefined ? grossValue : existing.grossValue;
       if (netValue == null || grossDealValue == null) {
         return NextResponse.json({ error: "Informe o valor líquido e o valor bruto antes de marcar o negócio como ganho" }, { status: 400 });
+      }
+
+      // Obrigatória só quando a corretora usa o módulo de Comissões (tem
+      // alguma administradora ativa cadastrada) — quem não usa nunca é
+      // cobrado por um campo que não serve pra nada pra ela.
+      const finalAdministratorId = administratorIdUpdate !== undefined ? administratorIdUpdate : existing.administratorId;
+      if (!finalAdministratorId) {
+        const activeAdministrators = await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } });
+        if (activeAdministrators > 0) {
+          return NextResponse.json({ error: "Escolha a administradora antes de marcar o negócio como ganho" }, { status: 400 });
+        }
       }
     }
 
@@ -222,6 +255,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : undefined,
       ...(closedAt ? { closedAt } : {}),
       customFieldValues: cleanCustomFieldValues,
+      administratorId: administratorIdUpdate !== undefined && administratorIdUpdate !== existing.administratorId ? administratorIdUpdate : undefined,
     };
 
     const deal = await prisma.deal.update({
@@ -315,6 +349,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     recordUserChange(organizationId, userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
+
+    // Comissões: ganho vira venda de comissão; sair do ganho cancela; trocar
+    // a administradora de um negócio ganho preenche a venda que estava sem.
+    // Depois da resposta (after) — nunca atrasa nem derruba o "Ganho"; se
+    // falhar, a tela de Comissões refaz na próxima abertura.
+    const statusChanged = !!status && status !== existing.status;
+    if (statusChanged || (updateData.administratorId !== undefined && deal.status === "WON")) {
+      after(() => syncCommissionSalesInBackground(organizationId, [id]));
+    }
 
     // Ctrl+Z (ver lib/undo/) — mesma lógica de "só o que mudou" de
     // Contact/Task PUT; junto do contato se o dono foi reatribuído (ver

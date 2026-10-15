@@ -2,20 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { Kanban, List, Upload, History } from "lucide-react";
-import { DealImportDialog } from "@/components/deal-import-dialog";
-import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { KanbanBoard, type Deal } from "./kanban-board";
 import { DealsList } from "./deals-list";
 import { popBulkSendDraft, type BulkSendDraft } from "@/lib/pipeline-bulk-send-draft";
 import { isPipelineQuickFilter, type PipelineQuickFilter } from "./pipeline-filters";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
-import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
+import { PIPELINE_LAST_ID_COOKIE, PIPELINE_LAST_VIEW_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineTitleSelect } from "./pipeline-title-select";
 import { useDealsLive } from "@/lib/use-deals-live";
 import { trackUse } from "@/lib/feature-usage/track";
 import { useNewDeal } from "@/components/deals/new-deal-context";
 import { DEAL_CREATED_EVENT } from "@/lib/deals/client-events";
+import { LazyDialogLoading } from "@/components/lazy-dialog-loading";
+
+const DealImportDialog = dynamic(
+  () => import("@/components/deal-import-dialog").then((mod) => mod.DealImportDialog),
+  { loading: LazyDialogLoading },
+);
+const ImportHistoryDialog = dynamic(
+  () => import("@/components/import-history-dialog").then((mod) => mod.ImportHistoryDialog),
+  { loading: LazyDialogLoading },
+);
 
 type MemberOption = { id: string; name: string };
 /** teamId: null = sem equipe atribuída — nunca bate com nenhum "team:<id>" do filtro de Responsável (ver ./owner-filter.ts). */
@@ -36,9 +45,12 @@ export function PipelineView({
   initialKanbanCountByStage,
   initialKanbanSumByStage,
   initialKanbanWithTaskByStage,
+  initialKanbanLoaded,
   initialListaDeals,
   listaTotalCount,
   listaSums,
+  initialListaLoaded,
+  initialView,
   currentUserId,
   members,
   allMembers,
@@ -66,11 +78,14 @@ export function PipelineView({
   initialKanbanSumByStage: Record<string, number>;
   /** Quantos negócios OPEN de cada etapa têm ao menos uma tarefa pendente — "saúde da etapa" (ver kanban-board.tsx). */
   initialKanbanWithTaskByStage: Record<string, number>;
+  initialKanbanLoaded: boolean;
   initialListaDeals: Deal[];
   /** Total de negócios do pipeline (todos os status, sem filtro) no banco — pode ser bem maior que initialListaDeals.length (só a 1ª página vem carregada, ver deals-list.tsx). */
   listaTotalCount: number;
   /** Somas de Ganhos/Perdidos/Total sem filtro nenhum — ver aggregateDealValues em lib/deals/list-query.ts. */
   listaSums: Sums;
+  initialListaLoaded: boolean;
+  initialView: "kanban" | "lista";
   /** Pra "Eu" aparecer sempre em primeiro nos filtros de Responsável (Kanban/Lista, ver lib/sort-self-first.ts). */
   currentUserId: string;
   members: MemberOption[];
@@ -109,7 +124,12 @@ export function PipelineView({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { openNewDeal: openGlobalNewDeal } = useNewDeal();
-  const [view, setView] = useState<"kanban" | "lista">("kanban");
+  const [view, setView] = useState<"kanban" | "lista">(initialView);
+
+  function changeView(next: "kanban" | "lista") {
+    document.cookie = `${PIPELINE_LAST_VIEW_COOKIE}=${next}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    setView(next);
+  }
 
   // Lembra a última visão usada (Kanban/Lista) nesta tela, neste navegador —
   // sem isso, o link "Pipeline" de volta em negócios/[id]/clientes/etc. é um
@@ -120,7 +140,7 @@ export function PipelineView({
   // usado pelos filtros do Kanban/Lista (ver kanban-board.tsx/deals-list.tsx)
   // — só que aqui é a visão em si, não um filtro dentro dela.
   usePersistedFilters("pipeline-view", { view }, (saved) => {
-    if (saved.view) setView(saved.view);
+    if (saved.view === "kanban" || saved.view === "lista") changeView(saved.view);
   });
 
   // Filtro rápido único (Ação hoje/Sem tarefa/Parados +14d) — sincronizado com
@@ -138,7 +158,9 @@ export function PipelineView({
       params.set("filter", next);
     }
     const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname);
+    // O filtro ja e buscado pelo Kanban/Lista. Atualizar apenas o historico
+    // evita uma segunda renderizacao do Server Component para a mesma acao.
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   }
 
   function changePipeline(id: string) {
@@ -202,7 +224,7 @@ export function PipelineView({
   const [wonFilterToken, setWonFilterToken] = useState(0);
 
   function showWonDeals() {
-    setView("lista");
+    changeView("lista");
     setWonFilterToken((t) => t + 1);
   }
 
@@ -212,7 +234,7 @@ export function PipelineView({
       const params = new URLSearchParams(searchParams.toString());
       params.delete("novo");
       const query = params.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname);
+      window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openNewDeal]);
@@ -241,10 +263,9 @@ export function PipelineView({
   useEffect(() => {
     if (openLista) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setView("lista");
-      router.replace("/pipeline");
+      changeView("lista");
+      window.history.replaceState(null, "", "/pipeline");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openLista]);
 
   // Atualização ao vivo (SSE, ver lib/deals/live-events.ts) — negócio novo
@@ -296,7 +317,7 @@ export function PipelineView({
     const draft = popBulkSendDraft();
     if (draft) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setView("lista");
+      changeView("lista");
       setRestoredDraft(draft);
     }
   }, []);
@@ -328,7 +349,7 @@ export function PipelineView({
             sem navegar ou esperar os dados pesados desta tela. */}
         <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <button
-            onClick={() => setView("kanban")}
+            onClick={() => changeView("kanban")}
             className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "kanban"
                 ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
                 : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
@@ -340,7 +361,7 @@ export function PipelineView({
           <button
             onClick={() => {
               trackUse("pipeline.visao.lista");
-              setView("lista");
+              changeView("lista");
             }}
             className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${view === "lista"
                 ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
@@ -404,6 +425,7 @@ export function PipelineView({
           initialCountByStage={initialKanbanCountByStage}
           initialSumByStage={initialKanbanSumByStage}
           initialWithTaskByStage={initialKanbanWithTaskByStage}
+          initialDataLoaded={initialKanbanLoaded}
           // allMembers (não `members`, que fica só ativos — o formulário
           // global usa a lista ativa): o filtro "Status do consultor" do próprio
           // Kanban (ver kanban-board.tsx) precisa enxergar os inativos
@@ -432,6 +454,7 @@ export function PipelineView({
           initialDeals={initialListaDeals}
           initialTotalCount={listaTotalCount}
           initialSums={listaSums}
+          initialDataLoaded={initialListaLoaded}
           reloadToken={listaReloadToken}
           members={allMembers}
           teams={teams}
@@ -451,7 +474,6 @@ export function PipelineView({
           onTotalCountChange={setListaTotalCountLive}
           initialFilterOverride={initialListaFilter}
           applyWonFilterToken={wonFilterToken}
-          creditTypes={creditTypes}
         />
       )}
 

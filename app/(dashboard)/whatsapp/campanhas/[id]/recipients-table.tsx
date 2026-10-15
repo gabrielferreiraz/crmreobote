@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Briefcase, MessageCircle } from "lucide-react";
+import { Briefcase, Loader2, MessageCircle } from "lucide-react";
+import { useDesktopViewport } from "@/lib/use-desktop-viewport";
 
 type RecipientStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
 
@@ -29,6 +30,13 @@ type Recipient = {
   scriptName: string | null;
   followUpScriptName: string | null;
   error: string | null;
+};
+
+type RecipientPage = {
+  items: Recipient[];
+  total: number;
+  offset: number;
+  limit: number;
 };
 
 const STATUS_LABELS: Record<RecipientStatus, string> = {
@@ -134,22 +142,95 @@ function FollowUpCell({
   return <>—</>;
 }
 
-export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
+export function RecipientsTable({
+  campaignId,
+  initialPage,
+  repliedTotal,
+}: {
+  campaignId: string;
+  initialPage: RecipientPage;
+  repliedTotal: number;
+}) {
+  const desktop = useDesktopViewport();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RecipientStatus | "ALL">("ALL");
   const [onlyReplied, setOnlyReplied] = useState(false);
+  const [recipients, setRecipients] = useState(initialPage.items);
+  const [total, setTotal] = useState(initialPage.total);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const firstQuery = useRef(true);
+  const activeQuery = useRef("");
 
-  const repliedCount = useMemo(() => recipients.filter((r) => r.repliedAt).length, [recipients]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return recipients.filter((r) => {
-      if (onlyReplied && !r.repliedAt) return false;
-      if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
-      if (term && !r.contactName.toLowerCase().includes(term) && !(r.contactPhone ?? "").includes(term)) return false;
-      return true;
-    });
-  }, [recipients, search, statusFilter, onlyReplied]);
+  const queryKey = `${debouncedSearch}\n${statusFilter}\n${onlyReplied ? "1" : "0"}`;
+
+  useEffect(() => {
+    activeQuery.current = queryKey;
+    if (firstQuery.current) {
+      firstQuery.current = false;
+      return;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({ offset: "0", limit: String(initialPage.limit) });
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (statusFilter !== "ALL") params.set("status", statusFilter);
+    if (onlyReplied) params.set("replied", "1");
+
+    setLoading(true);
+    setError(null);
+    fetch(`/api/campaigns/${campaignId}/recipients?${params.toString()}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("recipients");
+        return (await res.json()) as RecipientPage;
+      })
+      .then((page) => {
+        setRecipients(page.items);
+        setTotal(page.total);
+      })
+      .catch((requestError) => {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") return;
+        setError("Nao foi possivel carregar os destinatarios.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [campaignId, debouncedSearch, initialPage.limit, onlyReplied, queryKey, statusFilter]);
+
+  async function loadMore() {
+    const key = queryKey;
+    const params = new URLSearchParams({ offset: String(recipients.length), limit: String(initialPage.limit) });
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (statusFilter !== "ALL") params.set("status", statusFilter);
+    if (onlyReplied) params.set("replied", "1");
+
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/recipients?${params.toString()}`);
+      if (!res.ok) throw new Error("recipients");
+      const page = (await res.json()) as RecipientPage;
+      if (activeQuery.current !== key) return;
+      setRecipients((current) => [...current, ...page.items]);
+      setTotal(page.total);
+    } catch {
+      if (activeQuery.current === key) setError("Nao foi possivel carregar mais destinatarios.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const filtered = recipients;
+  const repliedCount = repliedTotal;
 
   return (
     <div className="space-y-3">
@@ -185,14 +266,27 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
         </button>
       </div>
 
-      {filtered.length === 0 ? (
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          Atualizando destinatarios
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading ? (
         <div className="card px-4 py-6 text-center text-neutral-400 dark:text-neutral-500">
           Nenhum destinatário encontrado.
         </div>
       ) : (
         <>
+          {desktop === null && (
+            <div className="card min-h-48 animate-pulse bg-neutral-100 dark:bg-neutral-900" />
+          )}
           {/* Mobile: cards */}
-          <div className="space-y-2 lg:hidden">
+          {desktop === false && (
+          <div className="space-y-2">
             {filtered.map((r) => (
               <div key={r.id} className="card p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -228,9 +322,11 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
               </div>
             ))}
           </div>
+          )}
 
           {/* Desktop: table */}
-          <div className="card hidden overflow-x-auto lg:block">
+          {desktop === true && (
+          <div className="card overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
@@ -279,7 +375,22 @@ export function RecipientsTable({ recipients }: { recipients: Recipient[] }) {
               </tbody>
             </table>
           </div>
+          )}
         </>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+          <span>
+            Exibindo {filtered.length} de {total}
+          </span>
+          {filtered.length < total && (
+            <button type="button" className="btn-secondary btn-sm" onClick={() => void loadMore()} disabled={loadingMore || loading}>
+              {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+              Mostrar mais
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

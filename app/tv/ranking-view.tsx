@@ -6,6 +6,7 @@ import { fetchTvRanking } from "./actions";
 import { TvClock } from "./tv-clock";
 import { TvRankingScroll } from "./tv-ranking-scroll";
 import { getBrazilParts } from "@/lib/timezone";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 
 type RankingData = Awaited<ReturnType<typeof fetchTvRanking>>;
 
@@ -64,42 +65,37 @@ export function TvRankingView({
 
   useEffect(() => {
     lastFetchOkAt.current = Date.now();
-    const interval = setInterval(async () => {
-      try {
-        const updated = await fetchTvRanking(publicCode);
-        if (updated.serverInstanceId !== serverInstanceIdRef.current) {
-          window.location.reload();
-          return;
-        }
-        setData(updated);
-        lastFetchOkAt.current = Date.now();
-        setStale(false);
-      } catch (err) {
-        console.error("Failed to fetch TV ranking", err);
-        if (Date.now() - lastFetchOkAt.current > STALE_AFTER_MS) setStale(true);
-      }
-    }, POLL_MS);
-    return () => clearInterval(interval);
-    // publicCode nunca muda depois de montado (vem fixo da página).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useVisiblePoll(async () => {
+    try {
+      const updated = await fetchTvRanking(publicCode);
+      if (updated.serverInstanceId !== serverInstanceIdRef.current) {
+        window.location.reload();
+        return;
+      }
+      setData(updated);
+      lastFetchOkAt.current = Date.now();
+      setStale(false);
+    } catch (err) {
+      console.error("Failed to fetch TV ranking", err);
+      if (Date.now() - lastFetchOkAt.current > STALE_AFTER_MS) setStale(true);
+    }
+  }, POLL_MS, { immediate: false });
 
   // 2º caminho de detecção de deploy: rota HTTP comum, que continua
   // respondendo mesmo quando o ID da Server Action acima já mudou (ver
   // /api/tv/build-id e o comentário em tv-view.tsx).
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/tv/build-id", { cache: "no-store" });
-        if (!res.ok) return;
-        const body: { serverInstanceId: string } = await res.json();
-        if (body.serverInstanceId !== serverInstanceIdRef.current) window.location.reload();
-      } catch (err) {
-        console.error("Failed to check TV build id", err);
-      }
-    }, BUILD_POLL_MS);
-    return () => clearInterval(interval);
-  }, []);
+  useVisiblePoll(async () => {
+    try {
+      const res = await fetch("/api/tv/build-id", { cache: "no-store" });
+      if (!res.ok) return;
+      const body: { serverInstanceId: string } = await res.json();
+      if (body.serverInstanceId !== serverInstanceIdRef.current) window.location.reload();
+    } catch (err) {
+      console.error("Failed to check TV build id", err);
+    }
+  }, BUILD_POLL_MS, { immediate: false });
 
   // Recarga diária de madrugada (ver DAILY_RELOAD_HOUR).
   useEffect(() => {

@@ -10,7 +10,7 @@ import { getAcademyBaseUrl } from "@/lib/academy-oauth";
 import { TopNavLinks } from "./top-nav-links";
 import { AdaptiveHeaderRow } from "./adaptive-header-row";
 import { AppMain } from "./app-main";
-import { NotificationBell } from "@/components/notification-bell";
+import { NotificationBell, NotificationBellProvider } from "@/components/notification-bell";
 import { CommandPalette, CommandPaletteProvider } from "@/components/command-palette";
 import { UserMenu } from "@/components/user-menu";
 import { MobileHeader } from "./mobile-header";
@@ -26,6 +26,7 @@ import { NewDealButton, NewDealProvider } from "./new-deal-provider";
 import { AcademyOnboardingGate } from "@/components/academy/academy-onboarding-gate";
 import { AcademyShortcutHint } from "@/components/academy/academy-shortcut-hint";
 import { isCrmRestrictedByAcademy } from "@/lib/academy-onboarding";
+import { PushSubscriptionProvider } from "@/lib/use-push-subscription";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -40,8 +41,25 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const membership = await getCurrentMembership();
   if (!membership?.active) redirect("/api/auth/deactivated");
 
-  const photoUrl = await resolveAvatarUrl(membership.photoKey);
+  const photoUrlPromise = resolveAvatarUrl(membership.photoKey);
   const isAdministrativo = membership.area === "ADMINISTRATIVO";
+  // Comissões: quem cuida delas sempre vê (pra montar o módulo antes de
+  // ligar); quem vende, só depois de ligado (Organization.commissionStartDate).
+  // Administrativo comum não recebe comissão de venda — não vê.
+  const showCommissions =
+    membership.role === "OWNER" ||
+    membership.canManageCommissions ||
+    (membership.commissionsActive && !isAdministrativo);
+  // ONDE aparece: na fileira de cima só pra quem trabalha com isso todo dia
+  // (o Financeiro — marcado em "Cuida das comissões" e não Dono). A fileira
+  // já não cabia inteira em notebook com o item a mais; pra consultor e Dono
+  // comissão é consulta de vez em quando, então mora no menu da foto
+  // (UserMenu), junto de perfil e cartão. No celular segue na folha "Mais".
+  const commissionsInTopNav = membership.canManageCommissions && membership.role !== "OWNER";
+  const commissionsMenuLink =
+    showCommissions && !commissionsInTopNav
+      ? { label: membership.role === "OWNER" || membership.canManageCommissions ? "Comissões" : "Minha comissão" }
+      : null;
 
   // Atalho "Cartão de visita" do menu do usuário (ver components/
   // user-menu.tsx) — pedido explícito: ir DIRETO pra Landing Page pública
@@ -55,7 +73,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // navegação do dashboard, era uma ida-e-volta inteira ao Postgres por
   // página só pra montar um href (cada operação do Prisma custa ~4,7
   // idas-e-voltas por causa da transação de RLS — medido).
-  const hdrs = await headers();
+  const [photoUrl, hdrs] = await Promise.all([photoUrlPromise, headers()]);
   const cardShortcut = membership.cardShortcut;
   const cardShowUrl = cardShortcut?.active ? `${publicCardUrlFromHeaders(cardShortcut.slug, hdrs)}?qr=1` : null;
 
@@ -96,6 +114,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // é o que torna seguro o `position:absolute + z-index:-1` do `::before`
     // dessa classe: nada dentro desta div tem z-index negativo pra furar
     // por baixo, e overflow-hidden (já existia) contém a malha nos cantos.
+    <PushSubscriptionProvider>
+    <NotificationBellProvider key={session.user.id}>
     <UndoProvider>
     {/* Estado da busca (Cmd+K) montado 1x aqui — os botões <CommandPalette>
         abaixo (desktop cheio/compacto + cabeçalho mobile, este último
@@ -130,7 +150,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </Link>
 
         <AdaptiveHeaderRow
-          nav={<TopNavLinks isAdministrativo={isAdministrativo} />}
+          nav={<TopNavLinks isAdministrativo={isAdministrativo} showCommissions={commissionsInTopNav} />}
           fullActions={
             <>
               <CommandPalette />
@@ -183,6 +203,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 photoUrl={photoUrl}
                 signOutAction={handleSignOut}
                 cardShowUrl={cardShowUrl}
+                commissionsLink={commissionsMenuLink}
               />
             </>
           }
@@ -191,7 +212,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <AppMain>{children}</AppMain>
 
-      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} />
+      <MobileNav signOutAction={handleSignOut} isAdministrativo={isAdministrativo} academyHref={academyHref} showCommissions={showCommissions} />
       <InstallPwaPrompt />
       <PresenceHeartbeat />
       <PushNotificationsPrompt />
@@ -207,5 +228,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     </NewDealProvider>
     </CommandPaletteProvider>
     </UndoProvider>
+    </NotificationBellProvider>
+    </PushSubscriptionProvider>
   );
 }

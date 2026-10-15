@@ -16,6 +16,7 @@ export async function GET() {
     const requests = await prisma.leadRequest.findMany({
       where: { organizationId, ownerId: userId, status: "PENDING" },
       orderBy: { createdAt: "asc" },
+      take: 100,
       select: {
         id: true,
         createdAt: true,

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   Plus,
@@ -28,8 +29,6 @@ import { Avatar } from "@/components/avatar";
 import { Badge, type BadgeTone } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
-import { ContactImportDialog } from "@/components/contact-import-dialog";
-import { ImportHistoryDialog } from "@/components/import-history-dialog";
 import { EditContactDialog } from "@/components/edit-contact-dialog";
 import { FilterPopover } from "@/components/filter-popover";
 import { ColumnFilter } from "@/components/column-filter";
@@ -45,13 +44,12 @@ import { Pagination } from "@/components/pagination";
 import { CustomFieldsFieldset, type CustomFieldDefinitionInput, type CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
-import { SendLeadsDialog } from "@/components/send-leads-dialog";
 import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ContactConflictNotice, type ContactConflict } from "@/components/contact-conflict-notice";
 import { buildListQuickRanges } from "@/lib/date-ranges";
 import { brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
-import { countBulkFailures } from "@/lib/bulk-fetch";
+import { countBulkFailures, settleBulkRequests } from "@/lib/bulk-fetch";
 import { requestJson } from "@/lib/client-request";
 import { sortSelfFirst } from "@/lib/sort-self-first";
 import { usePersistedFilters } from "@/lib/use-persisted-filters";
@@ -60,6 +58,21 @@ import { validatePhoneField } from "@/lib/phone-normalize";
 import { birthDateInputError, parseBirthDateInput } from "@/lib/birth-date";
 import { useCepAutofill } from "@/lib/use-cep-autofill";
 import { trackUse } from "@/lib/feature-usage/track";
+import { useDesktopViewport } from "@/lib/use-desktop-viewport";
+import { LazyDialogLoading } from "@/components/lazy-dialog-loading";
+
+const ContactImportDialog = dynamic(
+  () => import("@/components/contact-import-dialog").then((mod) => mod.ContactImportDialog),
+  { loading: LazyDialogLoading },
+);
+const ImportHistoryDialog = dynamic(
+  () => import("@/components/import-history-dialog").then((mod) => mod.ImportHistoryDialog),
+  { loading: LazyDialogLoading },
+);
+const SendLeadsDialog = dynamic(
+  () => import("@/components/send-leads-dialog").then((mod) => mod.SendLeadsDialog),
+  { loading: LazyDialogLoading },
+);
 
 const QUICK_RANGES = buildListQuickRanges();
 const SEARCH_DEBOUNCE_MS = 300;
@@ -134,10 +147,17 @@ export function ContactsTable({
   customFields: CustomFieldDefinitionInput[];
 }) {
   const router = useRouter();
+  const desktop = useDesktopViewport();
 
   const [contacts, setContacts] = useState(initialContacts);
   const [totalCount, setTotalCount] = useState(initialTotalCount);
   const [loading, setLoading] = useState(false);
+  const [loadedAvailableTags, setLoadedAvailableTags] = useState<string[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const tagsLoadedRef = useRef(false);
+  const tagsRequestRef = useRef<Promise<void> | null>(null);
+  const tagsAbortRef = useRef<AbortController | null>(null);
+  const tagsMountedRef = useRef(true);
   // false só durante a janela entre montar e a 1ª busca pós-restauração do
   // localStorage terminar (ver usePersistedFilters abaixo) — sem isso, quem
   // volta pra esta tela com um filtro salvo via localStorage via TODOS os
@@ -186,6 +206,13 @@ export function ContactsTable({
   useEffect(() => {
     if (conflict || error) feedbackRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [conflict, error]);
+  useEffect(() => {
+    tagsMountedRef.current = true;
+    return () => {
+      tagsMountedRef.current = false;
+      tagsAbortRef.current?.abort();
+    };
+  }, []);
   const [claiming, setClaiming] = useState(false);
   const cepAutofillFields = useMemo(
     () => ({
@@ -280,6 +307,8 @@ export function ContactsTable({
   // (novo contato criado, ação em massa, importação) — funciona como sinal
   // de "algo mudou, busque a página/filtro atual de novo".
   const skipNextFetch = useRef(true);
+  const totalFilterKeyRef = useRef("");
+  const initialPayloadRef = useRef(initialContacts);
 
   // Monta só os parâmetros de FILTRO (sem paginação) — reaproveitado tanto
   // pelo fetch da página quanto pelo link de exportar, pra exportar sempre
@@ -336,6 +365,11 @@ export function ContactsTable({
     const controller = new AbortController();
     setLoading(true);
     const params = buildFilterParams();
+    const totalFilterKey = params.toString();
+    const serverPayloadChanged = initialPayloadRef.current !== initialContacts;
+    initialPayloadRef.current = initialContacts;
+    const includeTotal = serverPayloadChanged || totalFilterKeyRef.current !== totalFilterKey;
+    if (!includeTotal) params.set("includeTotal", "0");
     params.set("skip", String((page - 1) * pageSize));
     params.set("limit", String(pageSize));
 
@@ -344,7 +378,11 @@ export function ContactsTable({
         if (!res.ok) return;
         const data: Contact[] = await res.json();
         setContacts(data);
-        setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
+        const totalHeader = res.headers.get("X-Total-Count");
+        if (totalHeader !== null) {
+          setTotalCount(Number(totalHeader));
+          totalFilterKeyRef.current = totalFilterKey;
+        }
       })
       // Abort não é erro (ver isAbortError) — e qualquer outra falha já era
       // silenciosa aqui antes, mantendo a última lista boa na tela.
@@ -381,10 +419,32 @@ export function ContactsTable({
   // está carregado agora por segurança: cobre uma tag criada agora mesmo
   // (bulk "Etiquetar") que ainda não voltou nesse array do servidor.
   const tagOptions = useMemo(() => {
-    const set = new Set(availableTags);
+    const set = new Set([...availableTags, ...loadedAvailableTags]);
     for (const c of contacts) for (const t of c.tags) set.add(t);
     return sortAlpha(Array.from(set), (t) => t);
-  }, [contacts, availableTags]);
+  }, [contacts, availableTags, loadedAvailableTags]);
+
+  function loadAvailableTags() {
+    if (tagsLoadedRef.current || tagsRequestRef.current) return;
+    const controller = new AbortController();
+    tagsAbortRef.current = controller;
+    setTagsLoading(true);
+    tagsRequestRef.current = fetch("/api/contacts/tag-options", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("tags");
+        const data = (await res.json()) as { tags?: string[] };
+        if (!tagsMountedRef.current) return;
+        setLoadedAvailableTags(Array.isArray(data.tags) ? data.tags : []);
+        tagsLoadedRef.current = true;
+      })
+      .catch(() => {
+        // O filtro continua com as tags da pagina atual e tenta de novo ao abrir.
+      })
+      .finally(() => {
+        tagsRequestRef.current = null;
+        if (tagsMountedRef.current) setTagsLoading(false);
+      });
+  }
 
   // "Eu" sempre em primeiro no filtro de Responsável; o resto em ordem alfabética.
   const orderedMembers = useMemo(
@@ -510,7 +570,7 @@ export function ContactsTable({
     setBulkError(null);
     try {
       const failures = await countBulkFailures(
-        selectedContactIds.map((id) =>
+        selectedContactIds.map((id) => () =>
           fetch(`/api/contacts/${id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -537,7 +597,7 @@ export function ContactsTable({
       const failures = await countBulkFailures(
         contacts
           .filter((c) => selectedIds.has(c.id))
-          .map((c) =>
+          .map((c) => () =>
             fetch(`/api/contacts/${c.id}`, {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -581,7 +641,9 @@ export function ContactsTable({
     setBulkError(null);
     try {
       const failures = await countBulkFailures(
-        selectedContactIds.map((id) => fetch(`/api/contacts/${id}${withDeals ? "?withDeals=1" : ""}`, { method: "DELETE" })),
+        selectedContactIds.map((id) => () =>
+          fetch(`/api/contacts/${id}${withDeals ? "?withDeals=1" : ""}`, { method: "DELETE" }),
+        ),
       );
       if (failures > 0) {
         setBulkError(
@@ -618,8 +680,8 @@ export function ContactsTable({
     setBulkError(null);
     setBulkNotice(null);
     try {
-      const results = await Promise.allSettled(
-        selectedContactIds.map(async (id) => {
+      const results = await settleBulkRequests(
+        selectedContactIds.map((id) => async () => {
           const res = await fetch("/api/deals", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -851,7 +913,7 @@ export function ContactsTable({
             className="field-input w-full py-1.5 pl-8 text-sm"
           />
         </div>
-        <FilterPopover active={hasFilters} onClear={clearFilters}>
+        <FilterPopover active={hasFilters} onClear={clearFilters} onOpen={loadAvailableTags}>
           {sourceOptions.length > 0 && (
             <div className="space-y-1">
               <label className="field-label">Origem</label>
@@ -885,9 +947,14 @@ export function ContactsTable({
               ]}
             />
           </div>
-          {tagOptions.length > 0 && (
-            <div className="space-y-1">
-              <label className="field-label">Tag</label>
+          <div className="space-y-1">
+            <label className="field-label">Tag</label>
+            {tagsLoading ? (
+              <div className="flex h-9 items-center gap-2 text-xs text-neutral-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Carregando tags...
+              </div>
+            ) : (
               <Select
                 value={tagFilter}
                 onChange={(v) => {
@@ -900,8 +967,8 @@ export function ContactsTable({
                   ...tagOptions.map((t) => ({ value: t, label: t })),
                 ]}
               />
-            </div>
-          )}
+            )}
+          </div>
           <div className="space-y-1">
             <label className="field-label">Responsável</label>
             <Select
@@ -1101,8 +1168,12 @@ export function ContactsTable({
         </div>
       ) : (
         <>
+          {desktop === null && (
+            <div className="card min-h-64 animate-pulse bg-neutral-100 dark:bg-neutral-900" />
+          )}
           {/* Mobile: cards */}
-          <div className="space-y-2 lg:hidden">
+          {desktop === false && (
+          <div className="space-y-2">
             {contacts.map((c) => (
               <div key={c.id} className="group card p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1162,6 +1233,7 @@ export function ContactsTable({
               </div>
             ))}
           </div>
+          )}
 
           {/* Desktop: table */}
           {/* overflow-y-hidden explícito — sem isso o eixo Y deste wrapper
@@ -1171,7 +1243,8 @@ export function ContactsTable({
               sticky abaixo (que gruda nesse ancestral errado, que nunca rola
               de verdade, em vez de no wrapper externo que rola a lista
               inteira). Mesma armadilha já documentada em deals-list.tsx. */}
-          <div className="card hidden overflow-x-auto overflow-y-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm lg:block">
+          {desktop === true && (
+          <div className="card overflow-x-auto overflow-y-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm">
             <table className="w-full text-sm">
               {/* sticky top-0: "Selecionar todos" continua à vista rolando a
                   lista inteira — antes só aparecia no topo da tabela, e
@@ -1279,14 +1352,13 @@ export function ContactsTable({
                         <Tags className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                         Tag
                       </span>
-                      {availableTags.length > 0 && (
-                        <ColumnFilter
-                          value={tagFilter}
-                          onChange={(v) => { setTagFilter(v); setPage(1); }}
-                          allLabel="Todas as tags"
-                          options={tagOptions.map((t) => ({ value: t, label: t }))}
-                        />
-                      )}
+                      <ColumnFilter
+                        value={tagFilter}
+                        onChange={(v) => { setTagFilter(v); setPage(1); }}
+                        allLabel={tagsLoading ? "Carregando tags..." : "Todas as tags"}
+                        options={tagOptions.map((t) => ({ value: t, label: t }))}
+                        onOpen={loadAvailableTags}
+                      />
                     </span>
                   </th>
                   <th className="group/th border-r border-neutral-200 dark:border-neutral-800/60 px-4 py-3 whitespace-nowrap">
@@ -1410,6 +1482,7 @@ export function ContactsTable({
               </tbody>
             </table>
           </div>
+          )}
         </>
       )}
       </div>

@@ -17,25 +17,6 @@ export async function cleanupExpiredDismissals(userId: string, todayStart: Date)
   });
 }
 
-export async function isTipDismissed(params: {
-  userId: string;
-  tipType: ProductivityTipType;
-  scope: string;
-  todayStart: Date;
-}): Promise<boolean> {
-  const { userId, tipType, scope, todayStart } = params;
-  const row = await prisma.productivityTipDismissal.findFirst({
-    where: {
-      dismissedBy: userId,
-      tipType,
-      scope,
-      OR: [{ forever: true }, { dismissDate: { gte: todayStart } }],
-    },
-    select: { id: true },
-  });
-  return !!row;
-}
-
 export async function markTipDismissed(params: {
   organizationId: string;
   userId: string;
@@ -83,11 +64,11 @@ async function evaluateWhatsAppDisconnected(
   organizationId: string,
   userId: string,
 ): Promise<EvaluatedTip | null> {
-  const instances = await prisma.whatsAppInstance.findMany({
+  const instance = await prisma.whatsAppInstance.findFirst({
     where: { organizationId, userId, status: "CONNECTED" },
     select: { id: true },
   });
-  if (instances.length > 0) return null;
+  if (instance) return null;
   const now = brazilNow();
   const hour = now.getHours();
   // Só dispara "primeiro horário do dia" — até 11h. Depois disso, a dica de
@@ -264,26 +245,26 @@ export async function evaluateAllTips(params: {
   );
 
   const applicable = results.filter((r): r is EvaluatedTip => !!r);
+  if (applicable.length === 0) return null;
 
-  // Filtra por dismissed — em paralelo (eram sequenciais, uma ida-e-volta
-  // ao banco de cada vez, quando às vezes há mais de um tipo aplicável ao
-  // mesmo tempo, ex.: WHATSAPP_DISCONNECTED é GLOBAL e pode coexistir com
-  // MANY_WHATSAPP_TASKS na Home).
-  const dismissChecks = await Promise.all(
-    applicable.map(async (tip) => {
-      try {
-        const dismissed = await runWithTenant(organizationId, () =>
-          isTipDismissed({ userId, tipType: tip.tipType, scope: tip.scope, todayStart }),
-        );
-        return dismissed ? null : tip;
-      } catch (err) {
-        console.error("[productivity-tips] dismiss check error", err);
-        // Em dúvida, não mostra (evita spam de popup bugado).
-        return null;
-      }
-    }),
-  );
-  const notDismissed = dismissChecks.filter((t): t is EvaluatedTip => !!t);
+  let notDismissed: EvaluatedTip[];
+  try {
+    const dismissals = await runWithTenant(organizationId, () =>
+      prisma.productivityTipDismissal.findMany({
+        where: {
+          dismissedBy: userId,
+          OR: applicable.map((tip) => ({ tipType: tip.tipType, scope: tip.scope })),
+          AND: [{ OR: [{ forever: true }, { dismissDate: { gte: todayStart } }] }],
+        },
+        select: { tipType: true, scope: true },
+      }),
+    );
+    const dismissedKeys = new Set(dismissals.map((row) => `${row.tipType}:${row.scope}`));
+    notDismissed = applicable.filter((tip) => !dismissedKeys.has(`${tip.tipType}:${tip.scope}`));
+  } catch (err) {
+    console.error("[productivity-tips] dismiss check error", err);
+    return null;
+  }
 
   if (notDismissed.length === 0) return null;
   notDismissed.sort((a, b) => b.priority - a.priority);

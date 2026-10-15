@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 /**
  * Lembra o último filtro usado nesta tela, neste navegador — sobrevive a F5,
@@ -36,22 +36,21 @@ export function usePersistedFilters<T extends Record<string, unknown>>(
   // ser lido do localStorage. Com estado, o efeito de baixo só "vê"
   // hydrated=true depois que React realmente re-renderizou com os valores
   // já restaurados — a gravação prematura não acontece mais.
-  const [hydrated, setHydrated] = useState(false);
-  const restoreRef = useRef(restore);
-  restoreRef.current = restore;
+  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
+  const hydrated = hydratedKey === storageKey;
+  const restoreSaved = useEffectEvent((saved: Partial<T>) => restore(saved));
 
   // Só na montagem: aplica o que estiver salvo, se houver.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (raw) restoreRef.current(JSON.parse(raw));
+      if (raw) restoreSaved(JSON.parse(raw));
     } catch {
       // localStorage indisponível (modo privado, quota, etc.) — segue com o
       // padrão da tela, sem filtro nenhum lembrado.
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHydrated(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const frame = requestAnimationFrame(() => setHydratedKey(storageKey));
+    return () => cancelAnimationFrame(frame);
   }, [storageKey]);
 
   const serialized = JSON.stringify(values);
@@ -66,7 +65,6 @@ export function usePersistedFilters<T extends Record<string, unknown>>(
       // Idem — silencioso de propósito, filtro não persistir não pode
       // quebrar a tela.
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey, serialized, hydrated]);
 
   return { hydrated };

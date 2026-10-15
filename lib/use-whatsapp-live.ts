@@ -5,42 +5,64 @@ import { useEffect, useRef } from "react";
 export type WhatsAppLiveEvent =
   | { type: "message"; threadId: string }
   | { type: "status"; threadId: string }
+  | { type: "read"; threadId: string }
   | { type: "presence"; threadId: string };
 
+type WhatsAppLiveListener = (event: WhatsAppLiveEvent) => void;
+
+const listeners = new Set<WhatsAppLiveListener>();
+let source: EventSource | null = null;
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function ensureSource() {
+  if (source || typeof EventSource === "undefined") return;
+
+  source = new EventSource("/api/whatsapp/live");
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data) as WhatsAppLiveEvent;
+      for (const listener of Array.from(listeners)) listener(payload);
+    } catch {
+      // O polling de seguranca dos consumidores cobre payloads inesperados.
+    }
+  };
+}
+
+function subscribe(listener: WhatsAppLiveListener) {
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+
+  listeners.add(listener);
+  ensureSource();
+
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size > 0) return;
+
+    // Evita abrir outra conexao durante remontagens rapidas do React.
+    closeTimer = setTimeout(() => {
+      if (listeners.size === 0) {
+        source?.close();
+        source = null;
+      }
+      closeTimer = null;
+    }, 1_000);
+  };
+}
+
 /**
- * Assina o canal de eventos ao vivo de WhatsApp (SSE, ver
- * app/api/whatsapp/live/route.ts) — o sinal "algo mudou" que substitui
- * polling de poucos segundos como mecanismo PRINCIPAL de atualização do
- * chat/lista de conversas. `onEvent` decide o que fazer (normalmente:
- * refazer o mesmo fetch que já existia no polling de sempre) — este hook só
- * entrega o aviso, nunca o dado em si (ver lib/whatsapp/live-events.ts).
- *
- * Reconecta sozinho se a conexão cair (comportamento nativo do
- * EventSource — não precisa de lógica de retry aqui). `onEvent` vive numa
- * ref pra não reabrir a conexão a cada re-render do componente que chama
- * isso (uma função inline nova a cada render não deve custar uma conexão
- * SSE nova).
+ * Assina os eventos ao vivo do WhatsApp. Todos os consumidores da mesma aba
+ * compartilham um unico EventSource; lista e chat recebem o mesmo sinal sem
+ * manter duas conexoes persistentes com o servidor.
  */
 export function useWhatsAppLive(onEvent: (event: WhatsAppLiveEvent) => void): void {
   const onEventRef = useRef(onEvent);
-  // Atualiza a ref DEPOIS do render (nunca durante — mutar ref.current no
-  // corpo do componente quebra a regra de pureza do React/React Compiler),
-  // mas em todo render (sem array de dependências), pra sempre pegar a
-  // closure mais recente de `onEvent` sem precisar reabrir a conexão SSE.
+
   useEffect(() => {
     onEventRef.current = onEvent;
   });
 
-  useEffect(() => {
-    if (typeof EventSource === "undefined") return; // SSR/ambiente sem suporte — o polling de segurança cobre
-    const source = new EventSource("/api/whatsapp/live");
-    source.onmessage = (e) => {
-      try {
-        onEventRef.current(JSON.parse(e.data) as WhatsAppLiveEvent);
-      } catch {
-        // Payload inesperado — ignora; o polling de segurança do chamador cobre o resto.
-      }
-    };
-    return () => source.close();
-  }, []);
+  useEffect(() => subscribe((event) => onEventRef.current(event)), []);
 }

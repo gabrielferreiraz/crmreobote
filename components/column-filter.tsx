@@ -41,6 +41,7 @@ export function ColumnFilter({
   options,
   allLabel = "Todos",
   align = "left",
+  onOpen,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -50,6 +51,7 @@ export function ColumnFilter({
    * senão o painel (que sempre abre pra baixo alinhado pela esquerda por
    * padrão) pode estourar pra fora da tela num viewport estreito. */
   align?: "left" | "right";
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -97,7 +99,10 @@ export function ColumnFilter({
         ref={triggerRef}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((v) => !v);
+          setOpen((current) => {
+            if (!current) onOpen?.();
+            return !current;
+          });
         }}
         aria-label="Filtrar coluna"
         className={`shrink-0 rounded p-0.5 transition-colors ${

@@ -67,8 +67,10 @@ export function InstallPwaPrompt() {
     if (Date.now() < nextShowAt) return;
 
     if (isIos()) {
-      setPlatform("ios");
-      const timeout = setTimeout(() => setVisible(true), 1500);
+      const timeout = setTimeout(() => {
+        setPlatform("ios");
+        setVisible(true);
+      }, 1500);
       return () => clearTimeout(timeout);
     }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckSquare, Search, SearchX } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -74,6 +74,7 @@ export function TasksListMobile({
   // escopo real, isto aqui só decide se o botão aparece).
   const canDelete = true;
   const [open, setOpen] = useState(false);
+  const taskDialogOpen = open || !!openNewTask;
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -81,14 +82,6 @@ export function TasksListMobile({
   // concluir uma tarefa some ela da tela sem precisar mexer em filtro.
   const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const showOwner = members.length > 1;
-
-  useEffect(() => {
-    if (openNewTask) {
-      setOpen(true);
-      router.replace("/agenda");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openNewTask]);
 
   const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending";
 
@@ -299,13 +292,17 @@ export function TasksListMobile({
         </div>
       )}
 
-      {open && (
+      {taskDialogOpen && (
         <NewTaskDialog
           deals={deals}
           isWhatsAppConnected={isWhatsAppConnected}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            if (openNewTask) router.replace("/agenda");
+          }}
           onCreated={() => {
             setOpen(false);
+            if (openNewTask) router.replace("/agenda");
             router.refresh();
           }}
         />

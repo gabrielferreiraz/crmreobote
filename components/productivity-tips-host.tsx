@@ -19,19 +19,14 @@ export function ProductivityTipsHost() {
   if (loading) return null;
   if (!tip) return null;
 
-  try {
-    switch (tip.tipType) {
-      case "WHATSAPP_DISCONNECTED":
-        return <WhatsAppDisconnectedTip tip={tip} onDismiss={dismiss} />;
-      case "NOSHOW_DEALS":
-        return <NoShowDealsTip tip={tip} onDismiss={dismiss} onPickBatch={onNoShowPickBatch} />;
-      case "MANY_WHATSAPP_TASKS":
-        return <ManyWhatsAppTasksTip tip={tip} onDismiss={dismiss} onScheduleAll={onScheduleTasks} />;
-      default:
-        return null;
-    }
-  } catch (err) {
-    console.error("[productivity-tips] host render error", err);
-    return null;
+  switch (tip.tipType) {
+    case "WHATSAPP_DISCONNECTED":
+      return <WhatsAppDisconnectedTip tip={tip} onDismiss={dismiss} />;
+    case "NOSHOW_DEALS":
+      return <NoShowDealsTip tip={tip} onDismiss={dismiss} onPickBatch={onNoShowPickBatch} />;
+    case "MANY_WHATSAPP_TASKS":
+      return <ManyWhatsAppTasksTip tip={tip} onDismiss={dismiss} onScheduleAll={onScheduleTasks} />;
+    default:
+      return null;
   }
 }

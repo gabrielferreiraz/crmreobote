@@ -3,8 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
 import { listConversations } from "@/lib/whatsapp/conversations";
-import { ConversationsView } from "./conversations-view";
-import { ConversationsMobile } from "./conversations-view-mobile";
+import { ResponsiveConversations } from "./responsive-conversations";
 
 export default async function ConversasPage() {
   const session = await auth();
@@ -12,8 +11,16 @@ export default async function ConversasPage() {
   const userId = session!.user.id;
 
   return runWithTenant(organizationId, async () => {
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
-    const conversations = await listConversations(organizationId, scope);
+    const scopePromise = getDealScope(organizationId, userId, session!.user.role);
+    const instancesPromise = prisma.whatsAppInstance.findMany({
+      where: { organizationId, userId },
+      select: { provider: true, notifyOnCrmMessage: true, notifyOnGeralMessage: true, status: true },
+    });
+    const scope = await scopePromise;
+    const [conversations, myInstances] = await Promise.all([
+      listConversations(organizationId, scope),
+      instancesPromise,
+    ]);
 
     // Preferência de notificação é por instância (cada um só recebe push das
     // próprias mensagens) — mostrada mesmo se a instância estiver
@@ -21,10 +28,6 @@ export default async function ConversasPage() {
     // existe enquanto conectado). Pode ter até duas linhas agora (uma por
     // provider — ver WhatsAppInstance.provider); prefere a Meta pra exibir
     // se as duas existirem.
-    const myInstances = await prisma.whatsAppInstance.findMany({
-      where: { organizationId, userId },
-      select: { provider: true, notifyOnCrmMessage: true, notifyOnGeralMessage: true, status: true },
-    });
     const myInstance =
       myInstances.find((i) => i.provider === "META_CLOUD") ?? myInstances.find((i) => i.provider === "EVOLUTION");
     const notificationPrefs = myInstance ?? { notifyOnCrmMessage: true, notifyOnGeralMessage: true };
@@ -35,19 +38,12 @@ export default async function ConversasPage() {
 
     return (
       <div className="flex h-full min-h-0 flex-col gap-4">
-        <ConversationsView
+        <ResponsiveConversations
           initialConversations={conversations}
           currentUserId={userId}
           notificationPrefs={notificationPrefs}
           whatsappConnected={myWhatsappConnected}
         />
-        <div className="min-h-0 flex-1 lg:hidden">
-          <ConversationsMobile
-            initialConversations={conversations}
-            currentUserId={userId}
-            notificationPrefs={notificationPrefs}
-          />
-        </div>
       </div>
     );
   });

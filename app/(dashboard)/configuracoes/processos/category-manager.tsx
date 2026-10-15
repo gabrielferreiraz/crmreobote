@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -285,12 +285,11 @@ function CategoryRow({
   sensors: ReturnType<typeof useSensors>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
-  const [name, setName] = useState(category.name);
+  const [nameDraft, setNameDraft] = useState({ source: category.name, value: category.name });
+  const name = nameDraft.source === category.name ? nameDraft.value : category.name;
   const [newPipelineName, setNewPipelineName] = useState("");
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
   const totalProcesses = category.pipelines.reduce((sum, p) => sum + p._count.processes, 0);
-
-  useEffect(() => setName(category.name), [category.name]);
 
   return (
     <div ref={setNodeRef} style={style} className="card overflow-hidden">
@@ -310,7 +309,7 @@ function CategoryRow({
 
         <input
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => setNameDraft({ source: category.name, value: e.target.value })}
           onBlur={() => {
             if (name.trim() && name !== category.name) onRename(name.trim());
           }}
@@ -389,10 +388,9 @@ function PipelineRow({
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: pipeline.id });
-  const [name, setName] = useState(pipeline.name);
+  const [nameDraft, setNameDraft] = useState({ source: pipeline.name, value: pipeline.name });
+  const name = nameDraft.source === pipeline.name ? nameDraft.value : pipeline.name;
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
-
-  useEffect(() => setName(pipeline.name), [pipeline.name]);
 
   return (
     <div ref={setNodeRef} style={style} className="card overflow-hidden">
@@ -412,7 +410,7 @@ function PipelineRow({
 
         <input
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => setNameDraft({ source: pipeline.name, value: e.target.value })}
           onBlur={() => {
             if (name.trim() && name !== pipeline.name) onRename(name.trim());
           }}

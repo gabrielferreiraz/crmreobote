@@ -222,8 +222,12 @@ export function DealBulkActions({
           confirmLabel="Marcar como ganho"
           confirmClassName="btn-primary bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-500"
           onClose={() => setWonOpen(false)}
-          onConfirm={async (closedAt) => {
-            await apply({ action: "status", status: "WON", closedAt }, "pipeline.massa.ganho");
+          askAdministrator
+          onConfirm={async (closedAt, extra) => {
+            await apply(
+              { action: "status", status: "WON", closedAt, ...(extra.administratorId ? { administratorId: extra.administratorId } : {}) },
+              "pipeline.massa.ganho",
+            );
             setWonOpen(false);
           }}
         />

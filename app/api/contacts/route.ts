@@ -46,6 +46,7 @@ export async function GET(req: Request) {
   const limitParam = Number(searchParams.get("limit"));
   const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : null;
   const take = Math.min(requestedLimit ?? (q ? DEFAULT_SEARCH_LIMIT : DEFAULT_LIST_LIMIT), MAX_LIMIT);
+  const includeTotal = searchParams.get("includeTotal") !== "0";
 
   // Filtros que hoje só existiam client-side em contacts-table.tsx.
   const source = searchParams.get("source") ?? undefined;
@@ -102,10 +103,12 @@ export async function GET(req: Request) {
 
     const [contacts, totalCount] = await Promise.all([
       fetchContactsList({ ...filterParams, skip, take }),
-      countContacts(filterParams),
+      includeTotal ? countContacts(filterParams) : Promise.resolve(null),
     ]);
 
-    return NextResponse.json(contacts, { headers: { "X-Total-Count": String(totalCount) } });
+    const headers = new Headers();
+    if (totalCount !== null) headers.set("X-Total-Count", String(totalCount));
+    return NextResponse.json(contacts, { headers });
   });
 }
 

@@ -24,6 +24,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const activities = await prisma.activity.findMany({
       where: { dealId: id },
       orderBy: { createdAt: "desc" },
+      // Mesmo limite usado na carga inicial do detalhe do negocio.
+      take: 200,
       include: { user: { select: USER_PUBLIC_SELECT } },
     });
 

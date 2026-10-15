@@ -67,8 +67,13 @@ export function ContactInfoPanel({
    * esse passo não oferece a opção de mandar o convite por WhatsApp. */
   whatsappConnected?: boolean;
 }) {
-  const [contact, setContact] = useState<ContactDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadedContact, setLoadedContact] = useState<{
+    contactId: string;
+    data: ContactDetail | null;
+  } | null>(null);
+  const currentContact = loadedContact?.contactId === contactId ? loadedContact : null;
+  const contact = currentContact?.data ?? null;
+  const loading = currentContact === null;
   const [creatingTask, setCreatingTask] = useState(false);
 
   useEffect(() => {
@@ -76,14 +81,13 @@ export function ContactInfoPanel({
     // anterior — sem isso, cada conversa aberta na varredura deixava uma
     // consulta de contato correndo até o fim.
     const controller = new AbortController();
-    setLoading(true);
-    setContact(null);
     fetch(`/api/contacts/${contactId}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setContact(data))
-      .catch(() => {}) // abort/rede: o painel fica no estado vazio de sempre
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+      .then((data) => {
+        if (!controller.signal.aborted) setLoadedContact({ contactId, data });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLoadedContact({ contactId, data: null });
       });
     return () => controller.abort();
   }, [contactId]);

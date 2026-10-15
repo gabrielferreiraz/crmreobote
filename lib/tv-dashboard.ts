@@ -101,21 +101,14 @@ export async function getTvMetrics(organizationId: string) {
       const activeOwnerIds = activeMembers.map((m) => m.userId);
 
       // 1. Vendas ganhas do mês — pros TOTAIS (Vendas do mês e valor bruto).
-      const wonDealsThisMonth = await prisma.deal.findMany({
+      const monthSalesPromise = prisma.deal.aggregate({
         where: {
           organizationId,
           status: "WON",
           closedAt: { gte: monthStart },
           ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
         },
-        select: {
-          value: true,
-          // Valor bruto (ver Deal.grossValue no schema) — só pro card
-          // "Vendas do mês" (fileira Anuais/Cotas, ver vendasBrutoMes
-          // abaixo), nunca pra Última venda/hero, que continuam 100%
-          // líquido (`value`) de propósito.
-          grossValue: true,
-        },
+        _sum: { value: true, grossValue: true },
       });
 
       // Ranking (pódio) — SÓ os 3 primeiros vão pro payload desta TV, que fica à
@@ -124,17 +117,7 @@ export async function getTvMetrics(organizationId: string) {
       // getTvRanking, servido só na TV interna (app/r/[code]). O corte é AQUI,
       // no servidor — mandar todo mundo e só esconder na tela deixaria o resto
       // do time no navegador da TV.
-      const rankingRaw = (await computeMonthRanking(organizationId, monthStart, "podium")).slice(0, TV_PODIUM_SIZE);
-
-      const totalVendasMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.value || 0), 0);
-      // Bruto do MÊS (não do ano) — mesmo filtro `closedAt >= monthStart` de
-      // totalVendasMes acima (zera sozinho na virada do mês, meia-noite de
-      // Brasília), só somando grossValue em vez de value. Reaproveita
-      // wonDealsThisMonth já buscado ali em cima (mesmas linhas, sem 2ª
-      // consulta) — grossValue é nullable (Deal antigo, de antes de
-      // 08/2026, ou preenchido sem valor bruto) e simplesmente não entra na
-      // soma, igual `value` ausente já era tratado.
-      const vendasBrutoMes = wonDealsThisMonth.reduce((acc, curr) => acc + Number(curr.grossValue || 0), 0);
+      const rankingPromise = computeMonthRanking(organizationId, monthStart, "podium");
 
       // 2. Última venda — só de consultor ATIVO (pula pra próxima venda mais
       // recente se a última registrada for de quem já saiu). id e closedAt junto pra
@@ -153,7 +136,7 @@ export async function getTvMetrics(organizationId: string) {
       // "ficar alternando" entre dois consultores sozinha. id é cuid
       // (cresce com a ordem de inserção) e nunca empata, então desempata
       // sempre pro mesmo lado — resultado estável entre polls.
-      const lastSale = await prisma.deal.findFirst({
+      const lastSalePromise = prisma.deal.findFirst({
         where: {
           organizationId,
           status: "WON",
@@ -171,18 +154,8 @@ export async function getTvMetrics(organizationId: string) {
         },
       });
 
-      // `image` de User guarda ou uma chave privada do R2 ("avatars/...",
-      // precisa virar URL assinada) ou uma URL externa já pronta (foto de
-      // conta Google) — sem esse resolve, uma chave R2 crua ia pro cliente
-      // como está, e um <img src="avatars/xxx.jpg"> vira um caminho relativo
-      // quebrado (foto sempre em branco no Ranking/Última Venda da TV). Um
-      // resolve só, batendo os dois widgets de uma vez (nunca resolve a
-      // mesma chave duas vezes, ver resolveAvatarUrlMap em lib/r2.ts).
-      const avatarMap = await resolveAvatarUrlMap([...rankingRaw.map((r) => r.image), lastSale?.owner?.image]);
-      const ranking = rankingRaw.map((r) => ({ ...r, image: r.image ? (avatarMap.get(r.image) ?? null) : null }));
-
       // 3. Vendas Anuais
-      const wonDealsThisYear = await prisma.deal.aggregate({
+      const wonDealsThisYearPromise = prisma.deal.aggregate({
         where: {
           organizationId,
           status: "WON",
@@ -191,22 +164,26 @@ export async function getTvMetrics(organizationId: string) {
         },
         _sum: { value: true },
       });
-      const vendasAnuais = Number(wonDealsThisYear._sum.value || 0);
-
       // 4. Leads no Funil — só de consultor ATIVO (activeOwnerIds já
       // calculado lá em cima, reaproveitado do Ranking/Última venda).
-      const leadsInFunnels = await Promise.all(
-        selectedStageIds.map(async (stageId) => {
-          const stage = await prisma.pipelineStage.findUnique({
-            where: { id: stageId },
-            select: { name: true },
-          });
-          const count = await prisma.deal.count({
-            where: { organizationId, stageId, status: "OPEN", ownerId: { in: activeOwnerIds } },
-          });
-          return { id: stageId, name: stage?.name || "Desconhecido", count };
-        })
-      );
+      const selectedStagesPromise = selectedStageIds.length
+        ? prisma.pipelineStage.findMany({
+            where: { id: { in: selectedStageIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]);
+      const leadCountsPromise = selectedStageIds.length
+        ? prisma.deal.groupBy({
+            by: ["stageId"],
+            where: {
+              organizationId,
+              stageId: { in: selectedStageIds },
+              status: "OPEN",
+              ownerId: { in: activeOwnerIds },
+            },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]);
 
       // 6b. Aniversariantes do mês — alimenta o carrossel do card Ranking (ver
       // tv-view.tsx: depois de alguns minutos mostrando o pódio, gira pra
@@ -221,34 +198,78 @@ export async function getTvMetrics(organizationId: string) {
       // lib/timezone.ts já resolve pra Deal.closedAt, só que aqui não tem
       // conversão de fuso nenhuma a fazer, é literalmente ler os componentes
       // UTC do valor já gravado como estão.
-      const membersWithBirthday = await prisma.organizationUser.findMany({
+      const membersWithBirthdayPromise = prisma.organizationUser.findMany({
         where: { organizationId, active: true, user: { birthDate: { not: null } } },
         select: { user: { select: { id: true, name: true, image: true, birthDate: true } } },
       });
-      const birthdaysThisMonthRaw = membersWithBirthday
-        .map((m) => m.user)
-        .filter((u): u is typeof u & { birthDate: Date } => u.birthDate !== null && u.birthDate.getUTCMonth() === nowParts.month)
-        .sort((a, b) => a.birthDate.getUTCDate() - b.birthDate.getUTCDate());
-      const birthdayAvatarMap = await resolveAvatarUrlMap(birthdaysThisMonthRaw.map((u) => u.image));
-      const birthdaysThisMonth = birthdaysThisMonthRaw.map((u) => ({
-        id: u.id,
-        name: u.name,
-        image: u.image ? (birthdayAvatarMap.get(u.image) ?? null) : null,
-        day: u.birthDate.getUTCDate(),
-        isToday: u.birthDate.getUTCDate() === nowParts.day,
-      }));
 
       // 6. Meta do mês (Churrascômetro) — year/month de getBrazilParts, não
       // now.getFullYear()/getMonth() nativos (mesmo motivo do comentário lá
       // em cima): perto da virada do mês, o servidor (UTC) já podia estar
       // num mês diferente do de Brasília e buscar a meta do mês errado.
-      const monthlyGoal = await prisma.monthlyGoal.findFirst({
+      const monthlyGoalPromise = prisma.monthlyGoal.findFirst({
         where: {
           organizationId,
           year: nowParts.year,
           month: nowParts.month + 1,
         }
       });
+
+      const [
+        monthSales,
+        rankingRows,
+        lastSale,
+        wonDealsThisYear,
+        selectedStages,
+        leadCounts,
+        membersWithBirthday,
+        monthlyGoal,
+      ] = await Promise.all([
+        monthSalesPromise,
+        rankingPromise,
+        lastSalePromise,
+        wonDealsThisYearPromise,
+        selectedStagesPromise,
+        leadCountsPromise,
+        membersWithBirthdayPromise,
+        monthlyGoalPromise,
+      ]);
+
+      const totalVendasMes = Number(monthSales._sum.value ?? 0);
+      const vendasBrutoMes = Number(monthSales._sum.grossValue ?? 0);
+      const vendasAnuais = Number(wonDealsThisYear._sum.value ?? 0);
+      const stageNameById = new Map(selectedStages.map((stage) => [stage.id, stage.name]));
+      const leadCountByStage = new Map(leadCounts.map((row) => [row.stageId, row._count._all]));
+      const leadsInFunnels = selectedStageIds.map((stageId) => ({
+        id: stageId,
+        name: stageNameById.get(stageId) ?? "Desconhecido",
+        count: leadCountByStage.get(stageId) ?? 0,
+      }));
+
+      const rankingRaw = rankingRows.slice(0, TV_PODIUM_SIZE);
+      const birthdaysThisMonthRaw = membersWithBirthday
+        .map((member) => member.user)
+        .filter(
+          (user): user is typeof user & { birthDate: Date } =>
+            user.birthDate !== null && user.birthDate.getUTCMonth() === nowParts.month,
+        )
+        .sort((a, b) => a.birthDate.getUTCDate() - b.birthDate.getUTCDate());
+      const avatarMap = await resolveAvatarUrlMap([
+        ...rankingRaw.map((row) => row.image),
+        lastSale?.owner?.image,
+        ...birthdaysThisMonthRaw.map((user) => user.image),
+      ]);
+      const ranking = rankingRaw.map((row) => ({
+        ...row,
+        image: row.image ? (avatarMap.get(row.image) ?? null) : null,
+      }));
+      const birthdaysThisMonth = birthdaysThisMonthRaw.map((user) => ({
+        id: user.id,
+        name: user.name,
+        image: user.image ? (avatarMap.get(user.image) ?? null) : null,
+        day: user.birthDate.getUTCDate(),
+        isToday: user.birthDate.getUTCDate() === nowParts.day,
+      }));
       const churrascometroTarget = monthlyGoal ? Number(monthlyGoal.value) : 0;
 
       return {

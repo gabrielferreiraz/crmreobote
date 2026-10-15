@@ -80,7 +80,9 @@ export default async function HomePage() {
 
   return runWithTenant(organizationId, async () => {
   const scope = await getDealScope(organizationId, userId, session!.user.role);
-  const staleBefore = new Date(Date.now() - STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line react-hooks/purity -- Server Component executado por requisiÃ§Ã£o
+  const nowMs = Date.now();
+  const staleBefore = new Date(nowMs - STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
   const startOfMonth = brazilStartOfMonth();
 
   const staleDealsParams = { organizationId, scope, status: "OPEN" as const, stageEnteredBefore: staleBefore };
@@ -91,7 +93,7 @@ export default async function HomePage() {
   // Pipeline, ver pipeline/page.tsx).
   const isOwnerForGoal = session!.user.role === "OWNER";
   const seesAllBirthdays = session!.user.role === "OWNER";
-  const alertBefore = new Date(Date.now() - STALE_DEAL_ALERT_DAYS * 24 * 60 * 60 * 1000);
+  const alertBefore = new Date(nowMs - STALE_DEAL_ALERT_DAYS * 24 * 60 * 60 * 1000);
 
   // TUDO num lote paralelo só. O funil padrão (`pipeline`) era buscado ANTES
   // deste lote, só porque a agregação por etapa filtrava por pipelineId —
@@ -102,9 +104,7 @@ export default async function HomePage() {
   // simplesmente ignorada — mesmo número no fim, um degrau a menos.
   const [
     pipeline,
-    openDeals,
-    pipelineValue,
-    wonThisMonth,
+    dealKpis,
     activeClients,
     staleDeals,
     staleDealsCount,
@@ -122,15 +122,15 @@ export default async function HomePage() {
       where: { organizationId, isDefault: true },
       include: { stages: { orderBy: { order: "asc" } } },
     }),
-    prisma.deal.count({ where: { organizationId, status: "OPEN", ...scopeWhere(scope) } }),
-    prisma.deal.aggregate({
-      where: { organizationId, status: "OPEN", ...scopeWhere(scope) },
+    prisma.deal.groupBy({
+      by: ["status"],
+      where: {
+        organizationId,
+        ...scopeWhere(scope),
+        OR: [{ status: "OPEN" }, { status: "WON", closedAt: { gte: startOfMonth } }],
+      },
       _sum: { value: true },
-    }),
-    prisma.deal.aggregate({
-      where: { organizationId, status: "WON", closedAt: { gte: startOfMonth }, ...scopeWhere(scope) },
-      _sum: { value: true },
-      _count: true,
+      _count: { _all: true },
     }),
     // Antes hardcoded pro usuário logado (responsavelId: userId) — não
     // respeitava escopo de equipe. contactScopeWhere (ver lib/team-scope.ts)
@@ -196,6 +196,13 @@ export default async function HomePage() {
     prisma.task.count({ where: { organizationId, ownerId: userId, completedAt: null, dueAt: { lt: new Date() } } }),
   ]);
 
+  const openKpi = dealKpis.find((row) => row.status === "OPEN");
+  const wonKpi = dealKpis.find((row) => row.status === "WON");
+  const openDeals = openKpi?._count._all ?? 0;
+  const pipelineValue = openKpi?._sum.value ? Number(openKpi._sum.value) : 0;
+  const wonThisMonthCount = wonKpi?._count._all ?? 0;
+  const wonThisMonthValue = wonKpi?._sum.value ? Number(wonKpi._sum.value) : 0;
+
   const stageData = (pipeline?.stages ?? []).map((stage) => ({
     id: stage.id,
     name: stage.name,
@@ -216,7 +223,7 @@ export default async function HomePage() {
   const wonHint =
     goalPct !== null
       ? `${goalPct}% da meta de ${formatCurrencyCompact(goalProgress!.goalValue)}`
-      : `${wonThisMonth._count} negócio${wonThisMonth._count === 1 ? "" : "s"}`;
+      : `${wonThisMonthCount} negócio${wonThisMonthCount === 1 ? "" : "s"}`;
   // "Fechado no mês" clicável → Pipeline em Lista, já filtrado pros mesmos
   // negócios que o card soma: status Ganho + fechado a partir do início do
   // mês (mesmo startOfMonth da consulta acima, sem limite superior — igual
@@ -245,14 +252,14 @@ export default async function HomePage() {
         <StatTile
           icon={ArrowUpRight}
           label="Pipeline aberto"
-          value={pipelineValue._sum.value ? Number(pipelineValue._sum.value) : 0}
+          value={pipelineValue}
           format="currency"
           colorSet={STAT_COLORS.value}
         />
         <StatTile
           icon={TrendingUp}
           label="Fechado no mês"
-          value={wonThisMonth._sum.value ? Number(wonThisMonth._sum.value) : 0}
+          value={wonThisMonthValue}
           format="currency"
           hint={wonHint}
           colorSet={STAT_COLORS.won}
@@ -349,7 +356,6 @@ export default async function HomePage() {
           ) : (
             <div className="space-y-1">
               {upcomingTasks.map((task) => {
-                const colors = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
                 return (
                   <Link
                     key={task.id}

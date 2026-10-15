@@ -19,7 +19,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getBrazilParts, brazilDateKey } from "@/lib/timezone";
-import { performActions, recordExecution, matchesTarget, type TriggerConfig } from "@/lib/automations/engine";
+import { performActions, recordExecution, type TriggerConfig } from "@/lib/automations/engine";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
@@ -123,29 +123,6 @@ async function isOptedOut(contactId: string | null): Promise<boolean> {
 }
 
 /**
- * OUTBOUND sem campaignId e sem automationRuleId = mandada por um atendente
- * de verdade (nem campanha, nem automação) — WhatsAppMessage.sentByUserId
- * NÃO serve pra essa checagem (só é preenchido no caso raro de "enviar como
- * outro consultor", fica nulo na esmagadora maioria das mensagens humanas
- * normais também).
- */
-async function hasRecentHumanMessage(threadId: string): Promise<boolean> {
-  const since = new Date(Date.now() - HUMAN_ACTIVITY_WINDOW_MINUTES * 60 * 1000);
-  const recent = await prisma.whatsAppMessage.findFirst({
-    where: { threadId, direction: "OUTBOUND", campaignId: null, automationRuleId: null, createdAt: { gte: since } },
-    select: { id: true },
-  });
-  return !!recent;
-}
-
-/** Quantas vezes essa regra já disparou pra essa conversa nos últimos 5 minutos — 3+ bloqueia (anti-loop/anti-spam). */
-async function isRateLimited(ruleId: string, threadId: string): Promise<boolean> {
-  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
-  const count = await prisma.automationExecution.count({ where: { ruleId, threadId, createdAt: { gte: since } } });
-  return count >= RATE_LIMIT_MAX_FIRES;
-}
-
-/**
  * Sem Contact vinculado (thread em "WhatsApp Geral") conta como lead novo —
  * nunca teve negócio, literalmente. Quando existe negócio aberto, o dono
  * dele vira o "responsável" da entidade (pro {{responsavel.*}} e pro filtro
@@ -160,16 +137,25 @@ async function resolveContactContext(
 ): Promise<{ totalDeals: number; openDeals: number; ownerId: string }> {
   if (!contactId) return { totalDeals: 0, openDeals: 0, ownerId: fallbackOwnerId };
 
-  const [totalDeals, openDeal] = await Promise.all([
-    prisma.deal.count({ where: { organizationId, contactId } }),
-    prisma.deal.findFirst({
-      where: { organizationId, contactId, status: "OPEN" },
-      select: { ownerId: true },
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, organizationId },
+    select: {
+      _count: { select: { deals: true } },
+      deals: {
+        where: { status: "OPEN" },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { ownerId: true },
+      },
+    },
+  });
+  const openDeal = contact?.deals[0];
 
-  return { totalDeals, openDeals: openDeal ? 1 : 0, ownerId: openDeal?.ownerId ?? fallbackOwnerId };
+  return {
+    totalDeals: contact?._count.deals ?? 0,
+    openDeals: openDeal ? 1 : 0,
+    ownerId: openDeal?.ownerId ?? fallbackOwnerId,
+  };
 }
 
 export type IncomingMessageRef = {
@@ -223,16 +209,60 @@ export async function dispatchMessageReceivedAutomations(
     threadId: thread.id,
   };
 
-  for (const rule of rules) {
-    const config = (rule.triggerConfig ?? {}) as TriggerConfig;
+  const candidates = rules
+    .map((rule) => ({ rule, config: (rule.triggerConfig ?? {}) as TriggerConfig }))
+    .filter(({ rule, config }) => {
+      if (!matchesMessageInstance(config, instance.userId)) return false;
+      if (!matchesBusinessHours(organization?.businessHours, config.businessHoursMode)) return false;
+      if (!matchesContactContext(config.contactContext, contactContext)) return false;
+      if (!matchesKeyword(config, message.body)) return false;
+      if (rule.targetType === "SELF") return !rule.createdById || rule.createdById === entity.ownerId;
+      if (rule.targetType === "USERS") return rule.targetUserIds.includes(entity.ownerId);
+      return true;
+    });
+  if (candidates.length === 0) return;
 
-    if (await isRateLimited(rule.id, thread.id)) continue;
-    if (!matchesMessageInstance(config, instance.userId)) continue;
-    if (!matchesBusinessHours(organization?.businessHours, config.businessHoursMode)) continue;
-    if (!matchesContactContext(config.contactContext, contactContext)) continue;
-    if ((config.ignoreIfHumanActive ?? true) && (await hasRecentHumanMessage(thread.id))) continue;
-    if (!matchesKeyword(config, message.body)) continue;
-    if (!(await matchesTarget(rule, entity.ownerId))) continue;
+  const now = Date.now();
+  const teamIds = Array.from(
+    new Set(candidates.filter(({ rule }) => rule.targetType === "TEAM" && rule.targetTeamId).map(({ rule }) => rule.targetTeamId!)),
+  );
+  const needsHumanCheck = candidates.some(({ config }) => config.ignoreIfHumanActive ?? true);
+  const [recentExecutions, recentHumanMessage, ownerTeams] = await Promise.all([
+    prisma.automationExecution.groupBy({
+      by: ["ruleId"],
+      where: {
+        ruleId: { in: candidates.map(({ rule }) => rule.id) },
+        threadId: thread.id,
+        createdAt: { gte: new Date(now - RATE_LIMIT_WINDOW_MS) },
+      },
+      _count: { _all: true },
+    }),
+    needsHumanCheck
+      ? prisma.whatsAppMessage.findFirst({
+          where: {
+            threadId: thread.id,
+            direction: "OUTBOUND",
+            campaignId: null,
+            automationRuleId: null,
+            createdAt: { gte: new Date(now - HUMAN_ACTIVITY_WINDOW_MINUTES * 60 * 1000) },
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    teamIds.length > 0
+      ? prisma.organizationUser.findMany({
+          where: { organizationId, userId: entity.ownerId, teamId: { in: teamIds } },
+          select: { teamId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const recentCountByRule = new Map(recentExecutions.map((row) => [row.ruleId, row._count._all]));
+  const ownerTeamIds = new Set(ownerTeams.map((row) => row.teamId).filter((id): id is string => !!id));
+
+  for (const { rule, config } of candidates) {
+    if ((recentCountByRule.get(rule.id) ?? 0) >= RATE_LIMIT_MAX_FIRES) continue;
+    if ((config.ignoreIfHumanActive ?? true) && recentHumanMessage) continue;
+    if (rule.targetType === "TEAM" && (!rule.targetTeamId || !ownerTeamIds.has(rule.targetTeamId))) continue;
 
     const executionId = await recordExecution(rule.id, entity.entityId, thread.id);
     if (!executionId) continue; // P2002: outro processo concorrente já reivindicou essa (rule, message)

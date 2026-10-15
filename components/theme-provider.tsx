@@ -10,7 +10,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+    const frame = requestAnimationFrame(() => {
+      setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   function toggle() {

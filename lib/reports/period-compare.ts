@@ -34,6 +34,7 @@
  */
 
 import { BRAZIL_UTC_OFFSET_HOURS, getBrazilParts, brazilDateStringToUTC, brazilEndOfDayUTC } from "@/lib/timezone";
+import { normalizeDateKeyRange } from "@/lib/date-ranges";
 
 export type CompareMode = "mirror" | "month" | "last3" | "year" | "custom";
 
@@ -117,8 +118,6 @@ function rangeLabel(from: Date, to: Date): string {
   return fromParts.year === toParts.year ? `${shortDate(from)} – ${fullDate(to)}` : `${fullDate(from)} – ${fullDate(to)}`;
 }
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
  * Resolve o período de comparação pro modo escolhido, a partir do período
  * ATUAL do relatório (rangeFrom/rangeTo — os mesmos limites já calculados
@@ -140,12 +139,10 @@ export function resolveComparePeriod(
   customRange?: { from?: string; to?: string } | null,
 ): ComparePeriod | null {
   if (mode === "custom") {
-    const fromStr = customRange?.from;
-    const toStr = customRange?.to;
-    if (!fromStr || !toStr || !ISO_DATE_RE.test(fromStr) || !ISO_DATE_RE.test(toStr)) return null;
-    const from = brazilDateStringToUTC(fromStr);
-    const to = brazilEndOfDayUTC(toStr);
-    if (from.getTime() > to.getTime()) return null;
+    const normalized = normalizeDateKeyRange(customRange?.from, customRange?.to);
+    if (!normalized) return null;
+    const from = brazilDateStringToUTC(normalized.from);
+    const to = brazilEndOfDayUTC(normalized.to);
     return { from, to, rangeLabel: rangeLabel(from, to) };
   }
 

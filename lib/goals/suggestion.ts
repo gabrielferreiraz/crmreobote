@@ -41,6 +41,30 @@ export async function getGoalExcludedOwnerIds(organizationId: string): Promise<s
 }
 
 /**
+ * Le a configuracao do time uma unica vez quando a tela precisa tanto da
+ * quantidade de consultores quanto das exclusoes da meta.
+ */
+export async function getGoalTeamSnapshot(
+  organizationId: string,
+): Promise<{ activeSellerCount: number; excludedOwnerIds: string[] }> {
+  const members = await prisma.organizationUser.findMany({
+    where: {
+      organizationId,
+      OR: [
+        { countsTowardGoal: false },
+        { active: true, role: "MEMBER", area: "VENDAS" },
+      ],
+    },
+    select: { userId: true, active: true, role: true, area: true, countsTowardGoal: true },
+  });
+
+  return {
+    activeSellerCount: members.filter((m) => m.active && m.role === "MEMBER" && m.area === "VENDAS").length,
+    excludedOwnerIds: members.filter((m) => !m.countsTowardGoal).map((m) => m.userId),
+  };
+}
+
+/**
  * Meta do mês corrente + quanto já foi Ganho — sempre organização inteira
  * (não respeita escopo de equipe/responsável, é uma meta só do time todo) e
  * sempre o mês civil de Brasília atual, igual ao GoalCard de Relatórios (ver

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3 } from "lucide-react";
+import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
 
 // Configurações saiu daqui — mora no menu do usuário agora (ver
@@ -17,6 +17,8 @@ const NAV_ITEMS = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/processos", label: "Processos", icon: ClipboardList },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  // Só aparece pra quem tem o que ver (ver showCommissions em layout.tsx).
+  { href: "/comissoes", label: "Comissões", icon: Wallet, commissionsOnly: true },
 ];
 
 /**
@@ -46,9 +48,9 @@ function NavLinkContent({ icon: Icon, label, isActive }: { icon: typeof Home; la
 const DRAG_THRESHOLD_PX = 4;
 
 /** Administrativo (pós-venda) não vê Pipeline/Negócios — não é o CRM de vendas que ele opera. */
-export function TopNavLinks({ isAdministrativo }: { isAdministrativo: boolean }) {
+export function TopNavLinks({ isAdministrativo, showCommissions = false }: { isAdministrativo: boolean; showCommissions?: boolean }) {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter((item) => !(isAdministrativo && item.salesOnly));
+  const items = NAV_ITEMS.filter((item) => !(isAdministrativo && item.salesOnly) && !(item.commissionsOnly && !showCommissions));
 
   const scrollRef = useRef<HTMLElement>(null);
   // dragState só existe enquanto o botão está pressionado (null fora

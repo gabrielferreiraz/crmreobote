@@ -167,32 +167,34 @@ function resolveState(campaign: CampaignForQueue, now: Date, sentToday: number, 
 
 const contactSelect = { select: { name: true, whatsapp: true, phone: true, jobTitle: true } } as const;
 
-async function queueRankOf(input: {
-  campaignId: string;
-  id: string;
-  queuePosition: number | null;
-  createdAt: Date;
-}): Promise<number> {
-  const { campaignId, id, queuePosition, createdAt } = input;
-  const before = await prisma.campaignRecipient.count({
-    where: {
-      campaignId,
-      status: "PENDING",
-      OR:
-        queuePosition === null
-          ? [
-              { queuePosition: { not: null } },
-              { queuePosition: null, createdAt: { lt: createdAt } },
-              { queuePosition: null, createdAt, id: { lt: id } },
-            ]
-          : [
-              { queuePosition: { lt: queuePosition } },
-              { queuePosition, createdAt: { lt: createdAt } },
-              { queuePosition, createdAt, id: { lt: id } },
-            ],
-    },
+async function queueRanksOf(
+  organizationId: string,
+  campaignId: string,
+  recipientIds: string[],
+): Promise<Map<string, number>> {
+  if (recipientIds.length === 0) return new Map();
+
+  const rows = await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    return tx.$queryRaw<Array<{ id: string; rank: bigint | number }>>`
+      WITH ranked AS (
+        SELECT
+          r.id,
+          row_number() OVER (
+            ORDER BY r."queuePosition" ASC NULLS LAST, r."createdAt" ASC, r.id ASC
+          ) AS rank
+        FROM "CampaignRecipient" r
+        WHERE r."campaignId" = ${campaignId}
+          AND r."organizationId" = ${organizationId}
+          AND r.status = 'PENDING'
+      )
+      SELECT id, rank
+      FROM ranked
+      WHERE id = ANY(${recipientIds}::text[])
+    `;
   });
-  return before + 1;
+
+  return new Map(rows.map((row) => [row.id, Number(row.rank)]));
 }
 
 /**
@@ -211,18 +213,17 @@ export async function getCampaignQueue(
   if (!campaign) return null;
 
   const now = new Date();
-  const [total, pacing] = await Promise.all([
+  const [total, pacing, rows] = await Promise.all([
     prisma.campaignRecipient.count({ where: { campaignId, status: "PENDING" } }),
     loadPacing(campaign, now),
+    prisma.campaignRecipient.findMany({
+      where: { campaignId, status: "PENDING" },
+      orderBy: CAMPAIGN_QUEUE_ORDER_BY,
+      skip: offset,
+      take: limit,
+      select: { id: true, queuePosition: true, createdAt: true, contact: contactSelect },
+    }),
   ]);
-
-  const rows = await prisma.campaignRecipient.findMany({
-    where: { campaignId, status: "PENDING" },
-    orderBy: CAMPAIGN_QUEUE_ORDER_BY,
-    skip: offset,
-    take: limit,
-    select: { id: true, queuePosition: true, createdAt: true, contact: contactSelect },
-  });
 
   // A i-ésima posição da fila SEMPRE recebe o i-ésimo horário (ver estimateQueueSlots) — pra ter o
   // horário de quem está na página é preciso gerar do começo da fila até o fim dela; e a CONTAGEM da
@@ -308,15 +309,12 @@ export async function searchCampaignQueue(organizationId: string, campaignId: st
       contact: { OR: [{ name: { contains: term, mode: "insensitive" } }, ...phoneFilters] },
     },
     take: SEARCH_LIMIT,
-    select: { id: true, queuePosition: true, createdAt: true, contact: contactSelect },
+    select: { id: true, contact: contactSelect },
   });
   if (matches.length === 0) return [];
 
   // Posição real de cada um: índice na fila inteira (só os ids — barato mesmo com dezenas de milhares).
-  const ranks = await Promise.all(
-    matches.map(async (m) => [m.id, await queueRankOf({ campaignId, id: m.id, queuePosition: m.queuePosition, createdAt: m.createdAt })] as const),
-  );
-  const rankById = new Map(ranks);
+  const rankById = await queueRanksOf(organizationId, campaignId, matches.map((match) => match.id));
 
   const now = new Date();
   const pacing = await loadPacing(campaign, now);

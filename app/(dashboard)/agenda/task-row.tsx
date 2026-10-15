@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CircleAlert, ChevronRight, CalendarPlus, MessageCircle } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
@@ -96,7 +96,14 @@ export function TaskRow({
   deals?: Option[];
 }) {
   const [modalOpen, setModalOpen] = useState(false);
-  const [completed, setCompleted] = useState(!!task.completedAt);
+  const completedFromTask = !!task.completedAt;
+  const [completionOverride, setCompletionOverride] = useState<{
+    source: boolean;
+    value: boolean;
+  } | null>(null);
+  const completed = completionOverride?.source === completedFromTask
+    ? completionOverride.value
+    : completedFromTask;
   const [justCompleted, setJustCompleted] = useState(false);
   const { requestComplete, dialog: outcomeDialog } = useMeetingOutcomeGate(onToggle);
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
@@ -134,17 +141,13 @@ export function TaskRow({
   const primaryLabel = identity ?? task.title;
   const noteLine = identity && !isRedundantTitle ? task.title : null;
 
-  useEffect(() => {
-    setCompleted(!!task.completedAt);
-  }, [task.completedAt]);
-
   function handleToggle(e?: React.MouseEvent) {
     e?.stopPropagation();
     const next = !completed;
     // Concluindo (não desmarcando) uma Videochamada/Visita — precisa do
     // resultado antes de seguir (ver use-meeting-outcome-gate.tsx).
     if (next && requestComplete(task)) return;
-    setCompleted(next);
+    setCompletionOverride({ source: completedFromTask, value: next });
     if (next) {
       setJustCompleted(true);
       setTimeout(() => setJustCompleted(false), 500);

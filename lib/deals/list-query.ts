@@ -426,14 +426,13 @@ export async function fetchDealsList(
       orderBy: { dueAt: "asc" },
       select: { dealId: true, title: true, type: true, dueAt: true },
     }),
-    prisma.whatsAppMessage.findMany({
+    prisma.whatsAppThread.findMany({
       where: {
         organizationId,
-        direction: "INBOUND",
-        read: false,
-        thread: { contactId: { in: dealsRaw.map((d) => d.contactId) } },
+        contactId: { in: dealsRaw.map((d) => d.contactId) },
+        messages: { some: { direction: "INBOUND", read: false } },
       },
-      select: { thread: { select: { contactId: true } } },
+      select: { contactId: true },
     }),
     resolveAvatarUrlMap(dealsRaw.map((d) => d.owner.image)),
   ]);
@@ -456,7 +455,7 @@ export async function fetchDealsList(
   }
 
   const unreadContactIds = new Set(
-    unreadMessages.map((m) => m.thread.contactId).filter((id): id is string => !!id),
+    unreadMessages.map((thread) => thread.contactId).filter((id): id is string => !!id),
   );
 
   return dealsRaw.map((deal) => ({

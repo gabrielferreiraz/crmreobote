@@ -25,8 +25,14 @@ async function callDismiss(tipType: ProductivityTipType, scope: string, forever:
 export function useProductivityTips() {
   const pathname = usePathname();
   const router = useRouter();
-  const [tip, setTip] = useState<EvaluatedTip | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [evaluation, setEvaluation] = useState<{
+    pathname: string;
+    tip: EvaluatedTip | null;
+    loading: boolean;
+  }>({ pathname, tip: null, loading: true });
+  const isCurrentPath = evaluation.pathname === pathname;
+  const tip = isCurrentPath ? evaluation.tip : null;
+  const loading = !isCurrentPath || evaluation.loading;
   const dismissed = useRef(false);
   const consumed = useRef(false);
 
@@ -37,19 +43,19 @@ export function useProductivityTips() {
         `/api/productivity-tips/evaluate?pathname=${encodeURIComponent(pathname)}`,
         { cache: "no-store" },
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        setEvaluation({ pathname, tip: null, loading: false });
+        return;
+      }
       const data = await res.json().catch(() => ({ tip: null }));
-      setTip(data.tip ?? null);
+      setEvaluation({ pathname, tip: data.tip ?? null, loading: false });
     } catch {
-      setTip(null);
-    } finally {
-      setLoading(false);
+      setEvaluation({ pathname, tip: null, loading: false });
     }
   }, [pathname]);
 
   // Montagem + navegação com debounce
   useEffect(() => {
-    setLoading(true);
     dismissed.current = false;
     consumed.current = false;
     const t = setTimeout(() => revaluate(), NAV_DEBOUNCE_MS);
@@ -70,7 +76,7 @@ export function useProductivityTips() {
       skipFirstRun.current = false;
       return;
     }
-    void revaluate();
+    return revaluate();
   }, REVAL_INTERVAL_MS);
 
   // Quando o tip mudar, reseta os flags
@@ -83,10 +89,10 @@ export function useProductivityTips() {
     async (mode: "today" | "forever") => {
       if (!tip) return;
       dismissed.current = true;
-      setTip(null);
+      setEvaluation({ pathname, tip: null, loading: false });
       await callDismiss(tip.tipType, tip.scope, mode === "forever");
     },
-    [tip],
+    [pathname, tip],
   );
 
   // ─ Ações específicas por tipo ──────────────────────────────────────
@@ -102,10 +108,10 @@ export function useProductivityTips() {
         selectedIds: ids,
       });
       router.push("/pipeline");
-      setTip(null);
+      setEvaluation({ pathname, tip: null, loading: false });
       callDismiss(tip.tipType, tip.scope, false);
     },
-    [tip, router],
+    [pathname, tip, router],
   );
 
   const onScheduleTasks = useCallback(
@@ -114,10 +120,10 @@ export function useProductivityTips() {
       consumed.current = true;
       saveTasksScheduleDraft({ taskIds });
       router.push("/agenda");
-      setTip(null);
+      setEvaluation({ pathname, tip: null, loading: false });
       callDismiss(tip.tipType, tip.scope, false);
     },
-    [tip, router],
+    [pathname, tip, router],
   );
 
   return {

@@ -9,6 +9,7 @@ import { ArrowDownToLine, ArrowUpToLine, CalendarClock, Check, Clock3, GripVerti
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { trackUse } from "@/lib/feature-usage/track";
 import { requestJson } from "@/lib/client-request";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import type { CampaignQueueView, QueueItemView, QueueState } from "@/lib/campaigns/queue";
 
 export type CampaignQueueData = CampaignQueueView & { canEdit: boolean };
@@ -231,6 +232,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
   const [found, setFound] = useState<{ term: string; items: QueueItemView[] } | null>(null);
   const limitRef = useRef(Math.max(PAGE_SIZE, initial.items.length));
   const mounted = useRef(true);
+  const pollRequestRef = useRef<AbortController | null>(null);
   // Numeração das buscas da fila: a rede pode entregar fora de ordem, e a resposta mais VELHA nunca pode sobrescrever a mais nova.
   const requestSeq = useRef(0);
   const appliedSeq = useRef(0);
@@ -243,6 +245,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
     mounted.current = true;
     return () => {
       mounted.current = false;
+      pollRequestRef.current?.abort();
     };
   }, []);
 
@@ -280,22 +283,23 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
 
   // Atualiza sozinha (a fila anda enquanto a campanha envia) — só quando NÃO está editando e a aba está à vista.
   // Resposta que chega depois de a edição começar é descartada: a lista que a pessoa está arrastando não pode mudar por baixo dela.
-  useEffect(() => {
+  useVisiblePoll(async () => {
     if (editing) return;
     const controller = new AbortController();
-    const tick = async () => {
-      if (document.visibilityState !== "visible") return;
+    pollRequestRef.current = controller;
+    try {
       const data = await fetchQueue(limitRef.current, controller.signal);
       if (data && !controller.signal.aborted) setView(data);
-    };
-    const interval = setInterval(tick, POLL_MS);
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      controller.abort();
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, [editing, fetchQueue]);
+    } finally {
+      if (pollRequestRef.current === controller) pollRequestRef.current = null;
+    }
+  }, POLL_MS, { immediate: false });
+
+  // Comecou a arrastar: a resposta automatica em voo nao pode trocar a lista
+  // por baixo do ponteiro.
+  useEffect(() => {
+    if (editing) pollRequestRef.current?.abort();
+  }, [editing]);
 
   // Busca, com pausa de 300ms pra não consultar a cada tecla; a resposta de uma busca antiga (termo já trocado) é descartada.
   const term = query.trim();

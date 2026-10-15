@@ -68,7 +68,7 @@ export default async function ProcessosPage({
       ownerId: access.isAdmin ? undefined : access.userId,
     };
 
-    const [processCountByStage, processesFlat, orgStats] = await Promise.all([
+    const [processCountByStage, processesFlat, orgStats, pendingCount, dealValueSum] = await Promise.all([
       countProcessesByStage(kanbanFilterParams),
       fetchProcessList({ ...kanbanFilterParams, take: PROCESS_INITIAL_CAP }),
       // Estatísticas do topo são visão geral (todas Categorias/Subcategorias
@@ -78,9 +78,6 @@ export default async function ProcessosPage({
         where: { organizationId: access.organizationId, ...processScopeWhere(access) },
         _count: true,
       }),
-    ]);
-
-    const [pendingCount, dealValueSum] = await Promise.all([
       prisma.process.count({
         where: {
           organizationId: access.organizationId,

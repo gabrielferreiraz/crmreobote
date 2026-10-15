@@ -27,6 +27,7 @@ import { TeamOwnerFilter } from "./team-owner-filter";
 import { ProcessPipelineFilter } from "./process-pipeline-filter";
 import { defaultTrendWindow, buildMonthlyBuckets, findBucket } from "@/lib/reports/trend";
 import { summarizeDurations as stats } from "@/lib/reports/stats";
+import { normalizeDateKeyRange } from "@/lib/date-ranges";
 
 /**
  * Relatório do Administrativo (pós-venda) — substitui o dashboard de
@@ -77,23 +78,30 @@ export async function AdminReportsView({
   // fromParam/toParam são dias civis de Brasília (mesma UI/convenção do
   // relatório comercial) — servidor roda em UTC, então usa os mesmos
   // helpers Brasília-aware pra não deslocar o filtro em 3h.
-  const rangeFrom = from ? brazilDateStringToUTC(from) : null;
-  const rangeTo = to ? brazilEndOfDayUTC(to) : null;
+  const selectedRange = normalizeDateKeyRange(from, to);
+  const rangeFrom = selectedRange ? brazilDateStringToUTC(selectedRange.from) : null;
+  const rangeTo = selectedRange ? brazilEndOfDayUTC(selectedRange.to) : null;
 
-  const [processes, documentPendingCount, categoriesRaw, stageHistory, processRequests, ownerRows] =
+  const [processes, categoriesRaw, stageHistory, processRequests, ownerRows] =
     await Promise.all([
       prisma.process.findMany({
         where: { organizationId: access.organizationId, ...ownerFilter },
-        include: {
-          stage: true,
+        select: {
+          id: true,
+          stageId: true,
+          pipelineId: true,
+          ownerId: true,
+          contactId: true,
+          quotaNumber: true,
+          documentStatus: true,
+          stageEnteredAt: true,
+          createdAt: true,
+          stage: { select: { name: true, color: true, isFinal: true } },
           contact: { select: { id: true, name: true } },
           owner: { select: { id: true, name: true } },
           deal: { select: { value: true } },
           pipeline: { select: { id: true, name: true, categoryId: true, category: { select: { name: true } } } },
         },
-      }),
-      prisma.process.count({
-        where: { organizationId: access.organizationId, ...ownerFilter, documentStatus: { not: "DELIVERED" } },
       }),
       // Árvore inteira (Categoria → Subcategoria → Etapa) — alimenta o
       // filtro de Categoria/Subcategoria E os rótulos com contexto de cada
@@ -127,6 +135,11 @@ export async function AdminReportsView({
         distinct: ["ownerId"],
       }),
     ]);
+
+  const documentPendingCount = processes.reduce(
+    (count, process) => count + (process.documentStatus === "DELIVERED" ? 0 : 1),
+    0,
+  );
 
   const ownerOptions = ownerRows
     .map((o) => ({ id: o.ownerId, name: o.owner.name }))

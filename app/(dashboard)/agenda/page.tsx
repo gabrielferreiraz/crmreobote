@@ -46,7 +46,19 @@ export default async function AgendaPage({
         },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
         take: TASKS_FETCH_CAP,
-        include: {
+        // Task has large automation fields that this screen never reads.
+        // Keep the RSC payload bounded when the agenda contains many rows.
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          description: true,
+          dueAt: true,
+          completedAt: true,
+          createdAt: true,
+          scheduledMessageText: true,
+          scheduledMessageSentAt: true,
+          scheduledMessageFailedAt: true,
           deal: {
             select: { id: true, name: true, value: true, stage: { select: { name: true } } },
           },
@@ -64,7 +76,7 @@ export default async function AgendaPage({
       prisma.organizationUser.findMany({
         where: { organizationId, active: true },
         orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, name: true } } },
+        select: { userId: true, user: { select: { id: true, name: true } } },
       }),
       // Escopado igual as tarefas (mesmo `scope`, "shareAgenda") — antes
       // buscava TODO negócio OPEN da organização inteira, sem escopo nenhum

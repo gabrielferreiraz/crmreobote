@@ -4,17 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   X,
-  CalendarPlus,
   CircleAlert,
-  CheckCircle2,
   Clock,
   Briefcase,
   User,
   Phone,
-  Tag,
-  FileText,
-  ExternalLink,
-  CircleDot,
   Mail,
   MessageSquare,
   Calendar,
@@ -22,7 +16,7 @@ import {
   Trash2,
   Pencil,
 } from "lucide-react";
-import { TASK_TYPE_LABELS, TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
+import { TASK_TYPE_ICON, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import { Avatar } from "@/components/avatar";
 import { AnimatedCheck } from "@/components/animated-check";
 import { buildGoogleCalendarUrl } from "@/lib/google-calendar";

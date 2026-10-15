@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, BellOff, Loader2, UserPlus, Check, X as XIcon, Eye } from "lucide-react";
 import { TASK_TYPE_LABELS, TASK_TYPE_ICON } from "@/lib/task-icons";
@@ -32,9 +32,45 @@ type LeadRequestNotification = {
 
 const POLL_INTERVAL_MS = 60_000;
 
-export function NotificationBell() {
+type NotificationBellContextValue = {
+  tasks: NotificationTask[];
+  leadRequests: LeadRequestNotification[];
+  removeLeadRequest: (id: string) => void;
+};
+
+const NotificationBellContext = createContext<NotificationBellContextValue | null>(null);
+
+/** Share one polling loop between the desktop and mobile header triggers. */
+export function NotificationBellProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<NotificationTask[]>([]);
   const [leadRequests, setLeadRequests] = useState<LeadRequestNotification[]>([]);
+
+  useVisiblePoll(async () => {
+    const [tasksRes, leadRequestsRes] = await Promise.all([
+      fetch("/api/tasks/notifications"),
+      fetch("/api/lead-requests"),
+    ]);
+    await Promise.all([
+      tasksRes.ok ? tasksRes.json().then(setTasks) : Promise.resolve(),
+      leadRequestsRes.ok ? leadRequestsRes.json().then(setLeadRequests) : Promise.resolve(),
+    ]);
+  }, POLL_INTERVAL_MS);
+
+  function removeLeadRequest(id: string) {
+    setLeadRequests((current) => current.filter((request) => request.id !== id));
+  }
+
+  return (
+    <NotificationBellContext.Provider value={{ tasks, leadRequests, removeLeadRequest }}>
+      {children}
+    </NotificationBellContext.Provider>
+  );
+}
+
+export function NotificationBell() {
+  const notifications = useContext(NotificationBellContext);
+  if (!notifications) throw new Error("NotificationBell must be rendered inside NotificationBellProvider");
+  const { tasks, leadRequests, removeLeadRequest } = notifications;
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // Pedido de lead que está aberto no popup "Ver cliente" (ver
@@ -44,25 +80,6 @@ export function NotificationBell() {
   const [previewRequest, setPreviewRequest] = useState<LeadRequestNotification | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { status: pushStatus, loading: pushLoading, subscribe, unsubscribe } = usePushSubscription();
-
-  // useVisiblePoll (não setInterval cru): o sino está no layout, ou seja,
-  // existe em TODA página — sem checar visibilidade, uma aba esquecida
-  // aberta continuava disparando estas 2 consultas por minuto pra sempre.
-  // Também busca na hora ao voltar pra aba, então o dado fica MAIS fresco
-  // do que era antes (não espera até um minuto inteiro pra atualizar).
-  useVisiblePoll(() => {
-    void (async () => {
-      const [tasksRes, leadRequestsRes] = await Promise.all([
-        fetch("/api/tasks/notifications"),
-        fetch("/api/lead-requests"),
-      ]);
-      if (tasksRes.ok) setTasks(await tasksRes.json());
-      if (leadRequestsRes.ok) setLeadRequests(await leadRequestsRes.json());
-    })().catch(() => {
-      // Rede caiu/offline — mantém o que já estava na tela em vez de
-      // quebrar o sino; o próximo tique (ou a volta pra aba) tenta de novo.
-    });
-  }, POLL_INTERVAL_MS);
 
   // Aprovar/recusar direto do sino — sem sair da tela nem abrir mais nada
   // (pedido explícito: "mostra um modal pequeno logo abaixo do sino"; este
@@ -76,7 +93,7 @@ export function NotificationBell() {
         body: JSON.stringify({ action }),
       });
       if (res.ok) {
-        setLeadRequests((prev) => prev.filter((r) => r.id !== id));
+        removeLeadRequest(id);
         // Resolveu pelo popup "Ver cliente" — fecha junto, o pedido nem
         // existe mais pra continuar mostrando.
         setPreviewRequest((prev) => (prev?.id === id ? null : prev));

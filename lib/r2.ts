@@ -19,6 +19,27 @@ const client = new S3Client({
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
+const SIGNED_URL_CACHE_MS = 50 * 60 * 1000;
+const SIGNED_URL_CACHE_MAX = 5_000;
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+async function resolvePrivateObjectUrl(key: string): Promise<string> {
+  const now = Date.now();
+  const cached = signedUrlCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.url;
+  if (cached) signedUrlCache.delete(key);
+
+  const url = await getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }), {
+    expiresIn: SIGNED_URL_TTL_SECONDS,
+  });
+
+  if (signedUrlCache.size >= SIGNED_URL_CACHE_MAX) {
+    const oldestKey = signedUrlCache.keys().next().value as string | undefined;
+    if (oldestKey) signedUrlCache.delete(oldestKey);
+  }
+  signedUrlCache.set(key, { url, expiresAt: now + SIGNED_URL_CACHE_MS });
+  return url;
+}
 
 export class AvatarUploadError extends Error {}
 
@@ -143,6 +164,7 @@ export async function uploadAvatar(key: string, body: Buffer, contentType: strin
 
 export async function deleteAvatar(key: string) {
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+  signedUrlCache.delete(key);
 }
 
 /**
@@ -167,9 +189,7 @@ export async function resolveAvatarUrl(image: string | null | undefined): Promis
   )
     return image;
 
-  return getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: image }), {
-    expiresIn: SIGNED_URL_TTL_SECONDS,
-  });
+  return resolvePrivateObjectUrl(image);
 }
 
 /** Resolve várias imagens de uma vez, sem assinar a mesma chave repetida. */
@@ -254,9 +274,7 @@ export async function resolveChatMediaUrl(mediaUrl: string | null | undefined): 
   if (!mediaUrl) return null;
   if (!mediaUrl.startsWith("whatsapp-media/")) return mediaUrl;
 
-  return getSignedUrl(client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: mediaUrl }), {
-    expiresIn: SIGNED_URL_TTL_SECONDS,
-  });
+  return resolvePrivateObjectUrl(mediaUrl);
 }
 
 /**

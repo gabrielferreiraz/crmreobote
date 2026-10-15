@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildQuickRanges, normalizeDateKeyRange } from "@/lib/date-ranges";
 import { PIPELINE_FILTER_KEY, WHO_FILTER_KEY, DATE_RANGE_FILTER_KEY, PROCESS_PIPELINE_FILTER_KEY } from "./filters-storage";
 
 /**
@@ -72,17 +72,21 @@ export function FiltersUrlRestore() {
             params.set("range", "all");
             changed = true;
           } else {
-            if (saved.from) {
-              params.set("from", saved.from);
+            const savedRange = normalizeDateKeyRange(saved.from, saved.to);
+            if (savedRange) {
+              params.set("from", savedRange.from);
+              params.set("to", savedRange.to);
               changed = true;
-            }
-            if (saved.to) {
-              params.set("to", saved.to);
-              changed = true;
+            } else {
+              localStorage.removeItem(DATE_RANGE_FILTER_KEY);
+              hasStoredChoice = false;
             }
           }
         }
-      } catch {}
+      } catch {
+        localStorage.removeItem(DATE_RANGE_FILTER_KEY);
+        hasStoredChoice = false;
+      }
 
       // Ninguém nunca escolheu nada aqui (1ª visita, ou localStorage vazio) —
       // cai no atalho "Este mês" em vez de ficar sem filtro de data nenhum

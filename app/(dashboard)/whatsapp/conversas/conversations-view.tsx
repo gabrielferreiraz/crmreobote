@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff, WifiOff, CheckSquare, Square } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -47,12 +47,6 @@ const SIDEBAR_WIDTH_KEY = "wa-conversations-sidebar-width";
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 480;
 const SIDEBAR_DEFAULT_WIDTH = 320;
-
-const RELATIVE_UNITS: { limitMs: number; divisorMs: number; suffix: string }[] = [
-  { limitMs: 60_000, divisorMs: 1, suffix: "agora" },
-  { limitMs: 60 * 60_000, divisorMs: 60_000, suffix: "min" },
-  { limitMs: 24 * 60 * 60_000, divisorMs: 60 * 60_000, suffix: "h" },
-];
 
 /**
  * Agrupa por responsável preservando a ordem de primeira aparição — como a
@@ -192,13 +186,16 @@ export function ConversationsView({
     return null;
   }, [paramThreadId, paramContactId, conversations]);
 
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialSelectedId);
+  const selectionSource = `${paramThreadId ?? ""}:${paramContactId ?? ""}:${initialSelectedId ?? ""}`;
+  const [selection, setSelection] = useState({
+    source: selectionSource,
+    threadId: initialSelectedId as string | null,
+  });
+  const selectedThreadId = selection.source === selectionSource ? selection.threadId : initialSelectedId;
 
-  useEffect(() => {
-    if (initialSelectedId) {
-      setSelectedThreadId(initialSelectedId);
-    }
-  }, [initialSelectedId]);
+  const setSelectedThreadId = useCallback((threadId: string | null) => {
+    setSelection({ source: selectionSource, threadId });
+  }, [selectionSource]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -208,7 +205,7 @@ export function ConversationsView({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [setSelectedThreadId]);
 
   const [tab, setTab] = useState<ConversationTab>(() => {
     if (paramContactId) return "crm";
@@ -233,22 +230,24 @@ export function ConversationsView({
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [bulkSendOpen, setBulkSendOpen] = useState(false);
 
-  // Sair do modo seleção ao trocar de aba.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  function changeTab(nextTab: ConversationTab) {
+    setTab(nextTab);
     setSelectMode(false);
     setSelectedThreadIds(new Set());
-  }, [tab]);
+  }
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
 
   useEffect(() => {
-    try {
-      const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
-      if (saved >= SIDEBAR_MIN_WIDTH && saved <= SIDEBAR_MAX_WIDTH) setSidebarWidth(saved);
-    } catch {
-      // localStorage indisponível (modo privado etc.) — mantém a largura padrão.
-    }
+    const frame = requestAnimationFrame(() => {
+      try {
+        const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+        if (saved >= SIDEBAR_MIN_WIDTH && saved <= SIDEBAR_MAX_WIDTH) setSidebarWidth(saved);
+      } catch {
+        // localStorage indisponível (modo privado etc.) — mantém a largura padrão.
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   function startSidebarResize(e: React.MouseEvent) {
@@ -311,6 +310,7 @@ export function ConversationsView({
   );
   /** Busca de conversas ainda em voo — ver refreshConversations abaixo. */
   const inFlightRef = useRef<AbortController | null>(null);
+  const liveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reaproveitado pelo polling de segurança E pelo evento ao vivo (useWhatsAppLive
   // abaixo) — os dois só decidem QUANDO buscar de novo, a lógica de "o que
@@ -354,7 +354,21 @@ export function ConversationsView({
 
   // Sair de Conversas no meio do carregamento derruba a requisição em vez de
   // deixar o Postgres terminando uma lista que ninguém mais vai ver.
-  useEffect(() => () => inFlightRef.current?.abort(), []);
+  function scheduleLiveRefresh() {
+    if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+    liveRefreshTimerRef.current = setTimeout(() => {
+      liveRefreshTimerRef.current = null;
+      void refreshConversations();
+    }, 180);
+  }
+
+  useEffect(
+    () => () => {
+      inFlightRef.current?.abort();
+      if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+    },
+    [],
+  );
 
   // Rede de segurança, não o mecanismo principal — ver comentário análogo
   // em components/whatsapp-chat.tsx. Cobre só a conexão SSE cair sem o
@@ -365,16 +379,14 @@ export function ConversationsView({
   // uma das consultas mais caras do sistema. Parado, deixa de custar; e ao
   // voltar pra aba recarrega na hora, então a lista fica mais fresca do que
   // ficava esperando o próximo tique de 45s.
-  useVisiblePoll(() => {
-    refreshConversations();
-  }, 45_000);
+  useVisiblePoll(() => refreshConversations(), 45_000, { immediate: false });
 
   // Qualquer evento (de qualquer thread) pode mudar esta lista — uma
   // conversa nova, reordenação por "mensagem mais recente", contador de não
   // lida — então, diferente do chat (que só recarrega a própria thread
   // aberta), aqui não filtra por threadId.
   useWhatsAppLive(() => {
-    refreshConversations();
+    scheduleLiveRefresh();
   });
 
   const tabCounts = useMemo(
@@ -459,7 +471,7 @@ export function ConversationsView({
       prev.map((c) => (c.threadId === threadId ? { ...c, contactId: result.contactId, deal: result.deal } : c)),
     );
     setQuickAddOpen(false);
-    setTab("crm");
+    changeTab("crm");
   }
 
   return (
@@ -472,7 +484,7 @@ export function ConversationsView({
       <div className="surface-glass-panel flex min-h-0 shrink-0 flex-col overflow-hidden rounded-3xl" style={{ width: sidebarWidth }}>
         <TabSwitcher
           tab={tab}
-          onChange={setTab}
+          onChange={changeTab}
           counts={tabCounts}
           notificationPrefs={notificationPrefs}
           onToggleNotifications={toggleNotifications}

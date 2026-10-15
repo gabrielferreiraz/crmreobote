@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { scopeWhere } from "@/lib/team-scope";
@@ -9,6 +9,7 @@ import { brazilDateStringWithNowTimeToUTC, brazilDateKey } from "@/lib/timezone"
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { BulkUpdateGroup, BulkUpdatePayload } from "@/lib/undo/types";
+import { syncCommissionSalesInBackground } from "@/lib/commissions/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,8 @@ type Body = {
   lossReasonId?: string;
   /** Observação livre do motivo de perda (o mesmo campo do negócio individual) — aplicada igual em todos os selecionados. */
   lostReason?: string;
+  /** Administradora (módulo de Comissões) — mesma pra todos os selecionados, obrigatória no Ganho quando a organização tem alguma ativa (igual ao Ganho individual). */
+  administratorId?: string | null;
   /** action "owner" */
   ownerId?: string;
   /** action "source" — mora em Contact.source, não no negócio (ver abaixo) */
@@ -297,7 +300,7 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
 
 /** Marcar ganho/perdido (ou reabrir) em massa. */
 async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
-  const { status, closedAt: closedAtInput, lossReasonId, lostReason } = body;
+  const { status, closedAt: closedAtInput, lossReasonId, lostReason, administratorId } = body;
   if (status !== "WON" && status !== "LOST" && status !== "OPEN") {
     return NextResponse.json({ error: "Status inválido" }, { status: 400 });
   }
@@ -308,6 +311,25 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
     const reason = await prisma.lossReason.findFirst({ where: { id: lossReasonId, organizationId }, select: { label: true } });
     if (!reason) return NextResponse.json({ error: "Motivo de perda inválido" }, { status: 400 });
     lossReasonLabel = reason.label;
+  }
+
+  // Mesma regra do Ganho individual (PUT /api/deals/[id]): administradora
+  // obrigatória quando a corretora usa Comissões; aplicada a todos.
+  let wonAdministratorId: string | null = null;
+  if (status === "WON") {
+    if (administratorId) {
+      const administrator = await prisma.consortiumAdministrator.findFirst({
+        where: { id: administratorId, organizationId, active: true },
+        select: { id: true },
+      });
+      if (!administrator) return NextResponse.json({ error: "Administradora inválida" }, { status: 400 });
+      wonAdministratorId = administrator.id;
+    } else {
+      const activeAdministrators = await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } });
+      if (activeAdministrators > 0) {
+        return NextResponse.json({ error: "Escolha a administradora antes de marcar como ganho" }, { status: 400 });
+      }
+    }
   }
 
   // Mesma regra do PUT individual: fechamento carimba closedAt em QUALQUER
@@ -332,7 +354,7 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
 
   const deals = await prisma.deal.findMany({
     where: scopedWhere,
-    select: { id: true, status: true, closedAt: true, lossReasonId: true, lostReason: true },
+    select: { id: true, status: true, closedAt: true, lossReasonId: true, lostReason: true, administratorId: true },
   });
   if (deals.length === 0) return NextResponse.json({ error: "Nenhum negócio encontrado" }, { status: 404 });
 
@@ -352,6 +374,7 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
       // andamento" carregando uma data de fechamento antiga que ainda
       // apareceria em relatório por período.
       ...(status === "OPEN" ? { closedAt: null, lossReasonId: null } : { closedAt }),
+      ...(wonAdministratorId ? { administratorId: wonAdministratorId } : {}),
     },
   });
 
@@ -373,7 +396,13 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
       "deal",
       changed.map((d) => ({
         id: d.id,
-        previousValues: { status: d.status, closedAt: d.closedAt, lossReasonId: d.lossReasonId, lostReason: d.lostReason },
+        previousValues: {
+          status: d.status,
+          closedAt: d.closedAt,
+          lossReasonId: d.lossReasonId,
+          lostReason: d.lostReason,
+          ...(wonAdministratorId ? { administratorId: d.administratorId } : {}),
+        },
       })),
     ),
     original: `${plural(changed.length, "negócio marcado", "negócios marcados")} como ${statusWord}`,
@@ -381,6 +410,13 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
   });
 
   recordUserChange(organizationId, userId).catch((err) => console.error("[user-activity] falha ao registrar alteração", err));
+
+  // Comissões: lote pequeno já sincroniza depois da resposta; lote grande
+  // (arrumação de base) fica pra tela de Comissões, que converte em lotes
+  // na próxima abertura — nunca milhares de vendas numa transação só.
+  if (changedIds.length <= 100) {
+    after(() => syncCommissionSalesInBackground(organizationId, changedIds));
+  }
 
   return NextResponse.json({ updated: changed.length, skipped, skippedReason: skipped > 0 ? "Já estavam nesse status" : null, undo });
 }

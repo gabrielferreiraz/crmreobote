@@ -3,7 +3,7 @@ import { ListTodo, Inbox, Clock, MessageSquareWarning, StickyNote } from "lucide
 import { prisma } from "@/lib/prisma";
 import { requireProcessAccess, processScopeWhere } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
-import { isStale } from "@/lib/stale";
+import { STALE_DEAL_DAYS } from "@/lib/stale";
 import { EmptyState } from "@/components/empty-state";
 import { CountUpValue } from "@/components/count-up-value";
 
@@ -27,29 +27,43 @@ export async function HomeAdministrativo() {
   return runWithTenant(access.organizationId, async () => {
   const scopeWhere = processScopeWhere(access);
 
-  const [pendingTasks, notes, openProcesses, openRequestCount] = await Promise.all([
+  const staleBefore = new Date(Date.now() - STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
+  const [pendingTasks, notes, staleCount, openRequestCount] = await Promise.all([
     prisma.task.findMany({
       where: { organizationId: access.organizationId, ownerId: access.userId, completedAt: null },
       orderBy: { dueAt: "asc" },
       take: 8,
-      include: { contact: true, deal: true },
+      select: {
+        id: true,
+        title: true,
+        dueAt: true,
+        contact: { select: { id: true, name: true } },
+        deal: { select: { name: true } },
+      },
     }),
     prisma.activity.findMany({
       where: { organizationId: access.organizationId, processId: { not: null }, userId: access.userId },
       orderBy: { createdAt: "desc" },
       take: 6,
-      include: { process: { include: { contact: true } } },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        process: { select: { id: true, contact: { select: { name: true } } } },
+      },
     }),
-    prisma.process.findMany({
-      where: { organizationId: access.organizationId, ...scopeWhere, stage: { isFinal: false } },
-      select: { id: true, stageEnteredAt: true },
+    prisma.process.count({
+      where: {
+        organizationId: access.organizationId,
+        ...scopeWhere,
+        stage: { isFinal: false },
+        stageEnteredAt: { lte: staleBefore },
+      },
     }),
     prisma.processRequest.count({
       where: { organizationId: access.organizationId, resolvedAt: null, process: scopeWhere },
     }),
   ]);
-
-  const staleCount = openProcesses.filter((p) => isStale(p.stageEnteredAt)).length;
 
   return (
     <div className="space-y-6 lg:space-y-8">

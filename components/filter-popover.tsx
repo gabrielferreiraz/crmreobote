@@ -19,10 +19,12 @@ import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 export function FilterPopover({
   active,
   onClear,
+  onOpen,
   children,
 }: {
   active: boolean;
   onClear?: () => void;
+  onOpen?: () => void;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -41,7 +43,10 @@ export function FilterPopover({
     <>
       <button
         ref={triggerRef}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((current) => {
+          if (!current) onOpen?.();
+          return !current;
+        })}
         aria-label="Filtros"
         className={`icon-btn relative h-9 w-9 border ${
           active

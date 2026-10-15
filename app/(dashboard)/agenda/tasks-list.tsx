@@ -2,15 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, CheckSquare, Loader2, List, CalendarDays, Search, SearchX } from "lucide-react";
+import { Plus, CheckSquare, List, CalendarDays, Search, SearchX } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { Modal } from "@/components/modal";
 import { FilterPopover } from "@/components/filter-popover";
 import { sortAlpha } from "@/lib/sort-alpha";
 import { NewTaskDialog } from "@/components/new-task-dialog";
 import { BulkScheduleTasksDialog, type BulkScheduleTask } from "@/components/bulk-schedule-tasks-dialog";
-import { VoiceInputButton, appendDictatedText } from "@/components/voice-input-button";
-import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 import { Select } from "@/components/select";
 import { TASK_TYPE_LABELS, TASK_TYPE_COLOR } from "@/lib/task-icons";
 import type { GoogleCalendarState } from "@/lib/use-google-calendar-events";
@@ -89,25 +86,28 @@ export function TasksList({
   // abre o diálogo de agendamento em massa automaticamente. Pop de uso
   // único — navegar de volta pra Agenda não reabre o mesmo popup.
   useEffect(() => {
-    const draft = popTasksScheduleDraft();
-    if (!draft) return;
-    const ids = new Set(draft.taskIds);
-    const matches: BulkScheduleTask[] = initialTasks
-      .filter((t) => ids.has(t.id) && t.type === "WHATSAPP" && t.contact)
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        dueAt: t.dueAt as string | Date,
-        contact: {
-          id: t.contact!.id,
-          name: t.contact!.name,
-          jobTitle: t.contact!.jobTitle,
-          company: t.contact!.company,
-          city: t.contact!.city,
-          phone: t.contact!.phone,
-        },
-      }));
-    if (matches.length > 0) setBulkScheduleOpen(matches);
+    const timeout = window.setTimeout(() => {
+      const draft = popTasksScheduleDraft();
+      if (!draft) return;
+      const ids = new Set(draft.taskIds);
+      const matches: BulkScheduleTask[] = initialTasks
+        .filter((t) => ids.has(t.id) && t.type === "WHATSAPP" && t.contact)
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          dueAt: t.dueAt as string | Date,
+          contact: {
+            id: t.contact!.id,
+            name: t.contact!.name,
+            jobTitle: t.contact!.jobTitle,
+            company: t.contact!.company,
+            city: t.contact!.city,
+            phone: t.contact!.phone,
+          },
+        }));
+      if (matches.length > 0) setBulkScheduleOpen(matches);
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [initialTasks]);
 
   // statusFilter no padrão ("pending") não conta como filtro "ativo" pro

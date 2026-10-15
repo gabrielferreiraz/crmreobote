@@ -54,7 +54,6 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
   }, [search]);
 
   useEffect(() => {
-    setLoading(true);
     const params = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
     if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
     if (categoryId) params.set("categoryId", categoryId);
@@ -62,15 +61,34 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
 
     // Fetch direto: X-Total-Count vem no header HTTP; requestJson não o expõe.
     // .catch garante que queda de rede deixa lista vazia em vez de travar.
-    fetch(`/api/processes?${params}`)
-      .then(async (res) => {
-        if (!res.ok) { setProcesses([]); setLoading(false); return; }
-        const data = (await res.json()) as ProcessListItem[];
-        setProcesses(Array.isArray(data) ? data : []);
-        setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
-        setLoading(false);
-      })
-      .catch(() => { setProcesses([]); setLoading(false); });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setLoading(true);
+      fetch(`/api/processes?${params}`, { signal: controller.signal })
+        .then(async (res) => {
+          if (!res.ok) {
+            setProcesses([]);
+            setTotalCount(0);
+            return;
+          }
+          const data = (await res.json()) as ProcessListItem[];
+          setProcesses(Array.isArray(data) ? data : []);
+          setTotalCount(Number(res.headers.get("X-Total-Count") ?? data.length));
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setProcesses([]);
+            setTotalCount(0);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
   }, [page, pageSize, debouncedSearch, categoryId, pipelineId]);
 
   function handleSearchChange(value: string) {

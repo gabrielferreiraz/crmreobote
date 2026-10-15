@@ -13,6 +13,10 @@ export type CurrentMembership = {
   role: $Enums.OrgRole;
   area: $Enums.UserArea;
   canManageProcesses: boolean;
+  /** "Cuida das comissões" (ver OrganizationUser.canManageCommissions) — OWNER sempre pode, independente disto (ver lib/commissions/access.ts). */
+  canManageCommissions: boolean;
+  /** Módulo de Comissões ligado (Organization.commissionStartDate preenchido) — decide se o menu mostra "Comissões" pra quem não cuida delas. */
+  commissionsActive: boolean;
   academyOnboardingStatus: $Enums.AcademyOnboardingStatus;
   academyShortcutHintSeenAt: Date | null;
   photoKey: string | null;
@@ -56,6 +60,8 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
         role: true,
         area: true,
         canManageProcesses: true,
+        canManageCommissions: true,
+        organization: { select: { commissionStartDate: true } },
         academyOnboardingStatus: true,
         academyShortcutHintSeenAt: true,
         user: {
@@ -77,6 +83,8 @@ export const getCurrentMembership = cache(async (): Promise<CurrentMembership | 
     role: membership.role,
     area: membership.area,
     canManageProcesses: membership.canManageProcesses,
+    canManageCommissions: membership.canManageCommissions,
+    commissionsActive: membership.organization.commissionStartDate != null,
     academyOnboardingStatus: membership.academyOnboardingStatus,
     academyShortcutHintSeenAt: membership.academyShortcutHintSeenAt,
     photoKey: membership.user.image,

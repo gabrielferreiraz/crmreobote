@@ -68,12 +68,11 @@ export function ContactSearchInput({
   });
 
   useEffect(() => {
-    if (!query.trim()) return;
+    if (!dropdownOpen || !query.trim()) return;
     // Mesmo raciocínio do command-palette: cancela a busca anterior ao
     // digitar de novo — economiza a consulta e evita a resposta atrasada de
     // um termo antigo sobrescrever o resultado do termo atual.
     const controller = new AbortController();
-    setLoading(true);
     const timeout = setTimeout(async () => {
       try {
         // includeOrphans: além dos próprios contatos, também acha contato
@@ -97,7 +96,7 @@ export function ContactSearchInput({
       controller.abort();
       clearTimeout(timeout);
     };
-  }, [query]);
+  }, [dropdownOpen, query]);
 
   async function select(c: ContactOption) {
     // Contato sem responsável, selecionado pra virar contato de um negócio/
@@ -125,6 +124,7 @@ export function ContactSearchInput({
     setPickedLabel(c.name);
     setQuery("");
     setResults([]);
+    setLoading(false);
     setOpen(false);
   }
 
@@ -132,6 +132,8 @@ export function ContactSearchInput({
     onChange("");
     setPickedLabel("");
     setQuery("");
+    setResults([]);
+    setLoading(false);
   }
 
   if (value && pickedLabel) {
@@ -162,8 +164,11 @@ export function ContactSearchInput({
         onChange={(e) => {
           const val = e.target.value;
           setQuery(val);
-          if (!val.trim()) {
+          if (val.trim()) {
+            setLoading(true);
+          } else {
             setResults([]);
+            setLoading(false);
           }
           setOpen(true);
         }}

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
-import { requireSession } from "@/lib/require-session";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
 import { validateTaskLinks } from "@/lib/task-link-guard";

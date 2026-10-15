@@ -29,38 +29,49 @@ import { getCommercialReportData } from "@/lib/reports/commercial-data";
 import { AutoInsights, DeltaBadge } from "./auto-insights";
 import { WeekdayHeatmap } from "./weekday-heatmap";
 import { RankingCardsGrid, type RankingCardData } from "./ranking-cards-grid";
+import { normalizeDateKeyRange } from "@/lib/date-ranges";
+
+type ReportSearchParam = string | string[] | undefined;
+
+function firstSearchParam(value: ReportSearchParam): string | undefined {
+  return typeof value === "string" ? value : Array.isArray(value) ? value[0] : undefined;
+}
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    pipelineId?: string;
-    from?: string;
-    to?: string;
+    pipelineId?: ReportSearchParam;
+    from?: ReportSearchParam;
+    to?: ReportSearchParam;
     /** "all" = Tudo escolhido explicitamente no filtro (ver date-range-filter.tsx) — precisa ser distinguível de "nunca escolheu nada", ver lib/reports/commercial-data.ts. */
-    range?: string;
-    who?: string;
-    view?: string;
-    processPipelineId?: string;
+    range?: ReportSearchParam;
+    who?: ReportSearchParam;
+    view?: ReportSearchParam;
+    processPipelineId?: ReportSearchParam;
     /** "mirror" | "month" | "last3" | "year" | "custom" — ver lib/reports/period-compare.ts. */
-    compare?: string;
+    compare?: ReportSearchParam;
     /** "YYYY-MM-DD" — só usado quando compare === "custom" (ver compare-period-filter.tsx). */
-    compareFrom?: string;
-    compareTo?: string;
+    compareFrom?: ReportSearchParam;
+    compareTo?: ReportSearchParam;
   }>;
 }) {
-  const {
-    pipelineId: pipelineIdParam,
-    from: fromParam,
-    to: toParam,
-    range: rangeParam,
-    who: whoParam,
-    view: viewParam,
-    processPipelineId: processPipelineIdParam,
-    compare: compareParam,
-    compareFrom: compareFromParam,
-    compareTo: compareToParam,
-  } = await searchParams;
+  const rawParams = await searchParams;
+  const selectedRange = normalizeDateKeyRange(firstSearchParam(rawParams.from), firstSearchParam(rawParams.to));
+  const comparisonRange = normalizeDateKeyRange(
+    firstSearchParam(rawParams.compareFrom),
+    firstSearchParam(rawParams.compareTo),
+  );
+  const pipelineIdParam = firstSearchParam(rawParams.pipelineId);
+  const rangeParam = firstSearchParam(rawParams.range) === "all" ? "all" : undefined;
+  const fromParam = rangeParam === "all" ? undefined : selectedRange?.from;
+  const toParam = rangeParam === "all" ? undefined : selectedRange?.to;
+  const whoParam = firstSearchParam(rawParams.who);
+  const viewParam = firstSearchParam(rawParams.view);
+  const processPipelineIdParam = firstSearchParam(rawParams.processPipelineId);
+  const compareParam = firstSearchParam(rawParams.compare);
+  const compareFromParam = comparisonRange?.from;
+  const compareToParam = comparisonRange?.to;
 
   // Administrativo (pós-venda) vê um relatório próprio — funil/metas de
   // vendas não fazem sentido pra quem não vende. Sem aba: Administrativo
@@ -75,8 +86,6 @@ export default async function RelatoriosPage({
   const session = await auth();
   const organizationId = session!.user.organizationId!;
   const userId = session!.user.id;
-  const membership = await getCurrentMembership();
-  const currentUserPhotoUrl = await resolveAvatarUrl(membership?.photoKey ?? session!.user.image);
 
   // Só o Dono ganha a aba "Processos" — consultor/gerente/supervisor nunca
   // tiveram acesso ao módulo de Processos pra começo de conversa (ver
@@ -120,6 +129,30 @@ export default async function RelatoriosPage({
       </div>
     );
   }
+
+  // Only the commercial view renders the current user's portrait. The two
+  // early-return views above should not wait for a membership query and an
+  // R2 signed URL that they will never use.
+  const currentUserPhotoUrlPromise = getCurrentMembership().then((membership) =>
+    resolveAvatarUrl(membership?.photoKey ?? session!.user.image),
+  );
+  const commercialDataPromise = getCommercialReportData({
+    organizationId,
+    userId,
+    session: session!,
+    pipelineIdParam,
+    fromParam,
+    toParam,
+    rangeParam,
+    whoParam,
+    compareParam,
+    compareFromParam,
+    compareToParam,
+  });
+  const [currentUserPhotoUrl, commercialData] = await Promise.all([
+    currentUserPhotoUrlPromise,
+    commercialDataPromise,
+  ]);
 
   const {
     pipelines,
@@ -183,19 +216,7 @@ export default async function RelatoriosPage({
     goalBasisChanged,
     goalDaysElapsed,
     goalDaysInMonth,
-  } = await getCommercialReportData({
-    organizationId,
-    userId,
-    session: session!,
-    pipelineIdParam,
-    fromParam,
-    toParam,
-    rangeParam,
-    whoParam,
-    compareParam,
-    compareFromParam,
-    compareToParam,
-  });
+  } = commercialData;
 
   // Rótulo do período no painel "Ver negócios" do card "Negócios fechados" —
   // mês por extenso quando o período é um mês civil inteiro (mesmo selo do
@@ -470,7 +491,7 @@ export default async function RelatoriosPage({
             {!isPersonalView && (
               <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />
             )}
-            <DateRangeFilter />
+            <DateRangeFilter defaultMode="this-month" />
             <ComparePeriodFilter />
           </div>
         </div>

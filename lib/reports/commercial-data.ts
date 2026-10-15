@@ -29,8 +29,8 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { type LeaderboardEntry } from "@/components/leaderboard";
 import { ONLINE_THRESHOLD_MS } from "@/lib/user-activity";
 import { RISK_WINDOW_MS, RISK_THRESHOLD } from "@/lib/whatsapp/health-check";
-import { buildQuickRanges, singleMonthLabel } from "@/lib/date-ranges";
-import { countActiveSellers, suggestedGoalValue, getGoalExcludedOwnerIds } from "@/lib/goals/suggestion";
+import { buildQuickRanges, normalizeDateKeyRange, singleMonthLabel } from "@/lib/date-ranges";
+import { getGoalTeamSnapshot, suggestedGoalValue } from "@/lib/goals/suggestion";
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
 import type { Session } from "next-auth";
@@ -115,6 +115,7 @@ export async function getCommercialReportData(params: {
   // porque quem vendeu não está mais na empresa (mesma decisão de "Total
   // ganho" de sempre).
   const activeOwnerIds = visibleMembers.map((m) => m.userId);
+  const activeOwnerIdSet = new Set(activeOwnerIds);
 
   // Interseção de "quem esta pessoa pode ver" (scope) com "quem ainda está
   // ativo" (activeOwnerIds), pras 3 consultas de negócio ABERTO abaixo.
@@ -129,7 +130,7 @@ export async function getCommercialReportData(params: {
   // scopeWhere(effectiveScope) de novo em cima nessas 3 consultas.
   function activeOpenOwnerFilter(scope: DealScope): { in: string[] } {
     if (scope.type === "owners") {
-      return { in: scope.ownerIds.filter((id) => activeOwnerIds.includes(id)) };
+      return { in: scope.ownerIds.filter((id) => activeOwnerIdSet.has(id)) };
     }
     return { in: activeOwnerIds };
   }
@@ -191,19 +192,20 @@ export async function getCommercialReportData(params: {
   // de qualquer coisa: com Tudo, rangeFrom/rangeTo ficam null direto, nem
   // olha fromParam/toParam/defaultRange.
   const isAllTime = rangeParam === "all";
+  const requestedRange = normalizeDateKeyRange(fromParam, toParam);
   const defaultRange =
-    isAllTime || fromParam || toParam ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
+    isAllTime || requestedRange ? null : buildQuickRanges().find((q) => q.key === "this-month")!.range();
   const rangeFrom = isAllTime
     ? null
-    : fromParam
-      ? brazilDateStringToUTC(fromParam)
+    : requestedRange
+      ? brazilDateStringToUTC(requestedRange.from)
       : defaultRange
         ? brazilDateStringToUTC(defaultRange.from)
         : null;
   const rangeTo = isAllTime
     ? null
-    : toParam
-      ? brazilEndOfDayUTC(toParam)
+    : requestedRange
+      ? brazilEndOfDayUTC(requestedRange.to)
       : defaultRange
         ? brazilEndOfDayUTC(defaultRange.to)
         : null;
@@ -221,8 +223,8 @@ export async function getCommercialReportData(params: {
   // meses") não diz QUAL mês é, então mostra em destaque no topo da tela
   // (ver relatorios/page.tsx). "Tudo" e "Este ano" nunca batem (não são um
   // mês só), ficam null de propósito — sem selo nenhum nesses casos.
-  const effectiveFromStr = isAllTime ? null : fromParam || defaultRange?.from || null;
-  const effectiveToStr = isAllTime ? null : toParam || defaultRange?.to || null;
+  const effectiveFromStr = isAllTime ? null : requestedRange?.from || defaultRange?.from || null;
+  const effectiveToStr = isAllTime ? null : requestedRange?.to || defaultRange?.to || null;
   const selectedMonthLabel =
     effectiveFromStr && effectiveToStr ? singleMonthLabel(effectiveFromStr, effectiveToStr) : null;
 
@@ -268,9 +270,7 @@ export async function getCommercialReportData(params: {
   const activityTo = brazilDateKey(trendEnd);
 
   const [
-    openCount,
     stageValues,
-    allByOwner,
     openByOwner,
     wonByOwner,
     lostByOwner,
@@ -288,9 +288,6 @@ export async function getCommercialReportData(params: {
     orgCreditTypes,
     proposalsBySenderStatus,
   ] = await Promise.all([
-    prisma.deal.count({
-      where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...pipelineFilter },
-    }),
     activePipeline
       ? prisma.deal.groupBy({
           by: ["stageId"],
@@ -304,11 +301,6 @@ export async function getCommercialReportData(params: {
           _sum: { value: true },
         })
       : Promise.resolve([]),
-    prisma.deal.groupBy({
-      by: ["ownerId"],
-      where: { organizationId, ...scopeWhere(effectiveScope), ...pipelineFilter },
-      _count: true,
-    }),
     prisma.deal.groupBy({
       by: ["ownerId"],
       where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...pipelineFilter },
@@ -484,6 +476,7 @@ export async function getCommercialReportData(params: {
     }),
   ]);
 
+  const openCount = openByOwner.reduce((sum, row) => sum + row._count, 0);
   const wonCount = wonByOwner.reduce((sum, w) => sum + w._count, 0);
   const lostCount = lostByOwner.reduce((sum, l) => l._count + sum, 0);
 
@@ -590,11 +583,11 @@ export async function getCommercialReportData(params: {
     };
   });
 
-  // ─── Pessoas: junta quem tem negócio, quem registrou videochamada e quem é
-  // membro de organização, pra não deixar ninguém de fora do nome/avatar. ──
+  // Pessoas necessárias nos rankings: membros visíveis e autores de
+  // videochamadas/tarefas do período. Os totais históricos não dependem deste
+  // cadastro de apresentação, então não precisam de outra consulta a Deal.
   const peopleIds = Array.from(
     new Set([
-      ...allByOwner.map((o) => o.ownerId),
       ...meetingsAndVisitsByOwner.map((m) => m.userId),
       ...completedTasksByOwner.map((t) => t.ownerId),
       ...visibleMembers.map((m) => m.userId),
@@ -701,10 +694,8 @@ export async function getCommercialReportData(params: {
   }
 
   // ─── Quem CONTA como time atual pros rankings abaixo ───────────────────
-  // peopleIds (acima) inclui todo mundo que já foi dono de negócio/videochamada
-  // um dia — inclusive quem já SAIU da empresa (o negócio antigo continua
-  // no banco com o ownerId de quem fechou, não é reatribuído sozinho quando
-  // alguém é desativado). Isso é o comportamento certo pros totais de
+  // As agregações históricas incluem quem já saiu da empresa (o negócio
+  // antigo continua no banco com o ownerId original). Isso é correto pros totais de
   // HISTÓRICO DECIDIDO (faturamento, "Total ganho"/"Total perdido", winRate,
   // statusSlices, monthTrend, attendanceRateOverall etc. — dinheiro que a
   // empresa já ganhou/perdeu continua contando mesmo que quem vendeu não
@@ -1343,6 +1334,32 @@ export async function getCommercialReportData(params: {
   const dealThreadIds = dealThreads.map((t) => t.id);
   const dealThreadIdSet = new Set(dealThreadIds);
 
+  // These branches are independent from the WhatsApp summary assembled
+  // below. Start them now so message history and monthly-goal I/O overlap
+  // the remaining report queries instead of adding two more serial stages.
+  const dealMessagesPromise = dealThreadIds.length
+    ? Promise.all([
+        prisma.whatsAppMessage.findMany({
+          where: { organizationId, threadId: { in: dealThreadIds }, ...dateWhere("createdAt") },
+          select: { threadId: true, instanceId: true, direction: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
+        }),
+      ]).then(([messages]) => messages)
+    : Promise.resolve([]);
+  const nowParts = getBrazilParts(new Date());
+  const currentMonthStart = brazilStartOfMonth();
+  const currentMonthLabel = currentMonthStart.toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const monthlyGoalAndTeamPromise = Promise.all([
+    prisma.monthlyGoal.findUnique({
+      where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
+    }),
+    getGoalTeamSnapshot(organizationId),
+  ]);
+
   // Prospecção manual: a mensagem de ABERTURA (a 1ª de toda a thread, sem
   // limite de período — precisa saber quem falou primeiro na história toda,
   // não só dentro do filtro de data) foi mandada pelo vendedor, não pelo
@@ -1362,23 +1379,15 @@ export async function getCommercialReportData(params: {
     (m) => m.direction === "OUTBOUND" && !m.campaignId && inRange(m.createdAt),
   );
   const manualOpenerThreadIds = manualProspectOpeners.map((m) => m.threadId);
-  const manualOpenerReplies = manualOpenerThreadIds.length
-    ? await prisma.whatsAppMessage.findMany({
-        where: { organizationId, threadId: { in: manualOpenerThreadIds }, direction: "INBOUND" },
-        select: { threadId: true },
-        distinct: ["threadId"],
-      })
-    : [];
-  const manualOpenerRepliedSet = new Set(manualOpenerReplies.map((m) => m.threadId));
-  const manualProspectByInstance = new Map<string, { sent: number; replied: number }>();
-  for (const m of manualProspectOpeners) {
-    if (m.instanceId) {
-      if (!manualProspectByInstance.has(m.instanceId)) manualProspectByInstance.set(m.instanceId, { sent: 0, replied: 0 });
-      const stat = manualProspectByInstance.get(m.instanceId)!;
-      stat.sent += 1;
-      if (m.threadId && manualOpenerRepliedSet.has(m.threadId)) stat.replied += 1;
-    }
-  }
+  const manualOpenerRepliesPromise = manualOpenerThreadIds.length
+    ? Promise.all([
+        prisma.whatsAppMessage.findMany({
+          where: { organizationId, threadId: { in: manualOpenerThreadIds }, direction: "INBOUND" },
+          select: { threadId: true },
+          distinct: ["threadId"],
+        }),
+      ]).then(([messages]) => messages)
+    : Promise.resolve([]);
 
   const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
     prisma.whatsAppInstance.findMany({
@@ -1452,6 +1461,17 @@ export async function getCommercialReportData(params: {
       },
     }),
   ]);
+  const manualOpenerReplies = await manualOpenerRepliesPromise;
+  const manualOpenerRepliedSet = new Set(manualOpenerReplies.map((m) => m.threadId));
+  const manualProspectByInstance = new Map<string, { sent: number; replied: number }>();
+  for (const m of manualProspectOpeners) {
+    if (m.instanceId) {
+      if (!manualProspectByInstance.has(m.instanceId)) manualProspectByInstance.set(m.instanceId, { sent: 0, replied: 0 });
+      const stat = manualProspectByInstance.get(m.instanceId)!;
+      stat.sent += 1;
+      if (m.threadId && manualOpenerRepliedSet.has(m.threadId)) stat.replied += 1;
+    }
+  }
   const outboundPairs = organicOutboundPairs;
 
   // Instabilidade de instância (risco de banimento) — recentDisconnectCount/
@@ -1723,9 +1743,23 @@ export async function getCommercialReportData(params: {
     wonOwnersByContact.get(d.contactId)!.add(d.ownerId);
   }
 
+  const sentCountByInstance = new Map(sentByInstance.map((row) => [row.instanceId, row._count]));
+  const outboundPairsByInstance = new Map<string | null, typeof outboundPairs>();
+  for (const pair of outboundPairs) {
+    const rows = outboundPairsByInstance.get(pair.instanceId);
+    if (rows) rows.push(pair);
+    else outboundPairsByInstance.set(pair.instanceId, [pair]);
+  }
+  const inboundPairsByInstance = new Map<string | null, typeof inboundPairs>();
+  for (const pair of inboundPairs) {
+    const rows = inboundPairsByInstance.get(pair.instanceId);
+    if (rows) rows.push(pair);
+    else inboundPairsByInstance.set(pair.instanceId, [pair]);
+  }
+
   const whatsappStats = whatsappInstances.map((inst) => {
-    const sent = sentByInstance.find((s) => s.instanceId === inst.id)?._count ?? 0;
-    const outboundForInst = outboundPairs.filter((p) => p.instanceId === inst.id);
+    const sent = sentCountByInstance.get(inst.id) ?? 0;
+    const outboundForInst = outboundPairsByInstance.get(inst.id) ?? [];
     // Denominador da taxa de resposta "Geral" precisa do MESMO universo do
     // numerador (inboundPairs, que exclui thread de negócio — ver
     // generalThreadIds acima) e de "sent" (sentByInstance, idem) — usar
@@ -1739,8 +1773,7 @@ export async function getCommercialReportData(params: {
         .filter((id): id is string => !!id),
     );
     const repliedContacts = new Set(
-      inboundPairs
-        .filter((p) => p.instanceId === inst.id)
+      (inboundPairsByInstance.get(inst.id) ?? [])
         .map((p) => contactIdByThread.get(p.threadId))
         .filter((id): id is string => !!id),
     ).size;
@@ -1787,13 +1820,7 @@ export async function getCommercialReportData(params: {
   // métricas de tempo, que exigem olhar as mensagens em ordem, não só contar.
   // dealContactIds/dealThreads/dealThreadIds já calculados lá em cima (o
   // bloco "Geral" precisa deles pra excluir thread de negócio da contagem).
-  const dealMessages = dealThreadIds.length
-    ? await prisma.whatsAppMessage.findMany({
-        where: { organizationId, threadId: { in: dealThreadIds }, ...dateWhere("createdAt") },
-        select: { threadId: true, instanceId: true, direction: true, createdAt: true },
-        orderBy: { createdAt: "asc" },
-      })
-    : [];
+  const dealMessages = await dealMessagesPromise;
 
   const dealMessagesByThread = new Map<string, typeof dealMessages>();
   for (const m of dealMessages) {
@@ -1823,6 +1850,24 @@ export async function getCommercialReportData(params: {
     return { instanceId: t.instanceId, contactId: t.contactId, contacted, responded, firstResponseMs, durationMs };
   });
 
+  const dealThreadStatsByInstance = new Map<string | null, typeof dealThreadStats>();
+  for (const thread of dealThreadStats) {
+    const rows = dealThreadStatsByInstance.get(thread.instanceId);
+    if (rows) rows.push(thread);
+    else dealThreadStatsByInstance.set(thread.instanceId, [thread]);
+  }
+  const dealOutboundByInstance = new Map<string | null, { count: number; firstSentAt: Date }>();
+  for (const message of dealMessages) {
+    if (message.direction !== "OUTBOUND") continue;
+    const current = dealOutboundByInstance.get(message.instanceId);
+    if (!current) {
+      dealOutboundByInstance.set(message.instanceId, { count: 1, firstSentAt: message.createdAt });
+      continue;
+    }
+    current.count += 1;
+    if (message.createdAt < current.firstSentAt) current.firstSentAt = message.createdAt;
+  }
+
   // Teto do período pra "msgs/dia": o fim do filtro selecionado, não "agora"
   // — senão filtrar um período passado (ex.: um mês já fechado) dilui a
   // média dividindo por "dias até hoje" em vez de pelos dias do próprio
@@ -1831,10 +1876,11 @@ export async function getCommercialReportData(params: {
 
   const dealWhatsappStats = whatsappInstances
     .map((inst) => {
-      const instThreads = dealThreadStats.filter((t) => t.instanceId === inst.id);
+      const instThreads = dealThreadStatsByInstance.get(inst.id) ?? [];
       const contactedThreads = instThreads.filter((t) => t.contacted);
       const respondedThreads = contactedThreads.filter((t) => t.responded);
-      const sentInScope = dealMessages.filter((m) => m.instanceId === inst.id && m.direction === "OUTBOUND");
+      const outboundSummary = dealOutboundByInstance.get(inst.id);
+      const sentInScope = outboundSummary?.count ?? 0;
 
       const responseRate =
         contactedThreads.length > 0 ? Math.round((respondedThreads.length / contactedThreads.length) * 100) : null;
@@ -1851,18 +1897,15 @@ export async function getCommercialReportData(params: {
       const durations = instThreads.map((t) => t.durationMs).filter((ms): ms is number => ms !== null);
       const avgDurationMs = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
 
-      const firstSentAt =
-        sentInScope.length > 0
-          ? sentInScope.reduce((min, m) => (m.createdAt < min ? m.createdAt : min), sentInScope[0].createdAt)
-          : null;
+      const firstSentAt = outboundSummary?.firstSentAt ?? null;
       const activeDays = firstSentAt ? daysSince(firstSentAt, messagesPerDayPeriodEnd) + 1 : 1;
-      const messagesPerDay = sentInScope.length > 0 ? sentInScope.length / activeDays : 0;
+      const messagesPerDay = sentInScope > 0 ? sentInScope / activeDays : 0;
 
       return {
         userId: inst.userId,
         name: inst.user.name,
         conversations: instThreads.length,
-        sent: sentInScope.length,
+        sent: sentInScope,
         responseRate,
         conversionRate,
         avgFirstResponseMs,
@@ -1895,19 +1938,8 @@ export async function getCommercialReportData(params: {
   // sempre a organização inteira (ignora o filtro de equipe/responsável):
   // é uma meta só, do time todo, não uma por pessoa. `isOwner` já foi
   // calculado lá em cima (decide a aba "Processos").
-  const nowParts = getBrazilParts(new Date());
-  const currentMonthLabel = brazilStartOfMonth().toLocaleDateString("pt-BR", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-  const [monthlyGoal, goalExcludedOwnerIds, activeSellerCount] = await Promise.all([
-    prisma.monthlyGoal.findUnique({
-      where: { organizationId_year_month: { organizationId, year: nowParts.year, month: nowParts.month + 1 } },
-    }),
-    getGoalExcludedOwnerIds(organizationId),
-    countActiveSellers(organizationId),
-  ]);
+  const [monthlyGoal, goalTeam] = await monthlyGoalAndTeamPromise;
+  const { excludedOwnerIds: goalExcludedOwnerIds, activeSellerCount } = goalTeam;
   // Sócio (Dono) que fecha negócio da própria Reobote não deve contar como
   // meta do time (ver countsTowardGoal no schema/getGoalExcludedOwnerIds) —
   // igual ao card de meta do Início e ao Churrascômetro da TV.
@@ -1915,7 +1947,7 @@ export async function getCommercialReportData(params: {
     where: {
       organizationId,
       status: "WON",
-      closedAt: { gte: brazilStartOfMonth() },
+      closedAt: { gte: currentMonthStart },
       ...(goalExcludedOwnerIds.length > 0 ? { ownerId: { notIn: goalExcludedOwnerIds } } : {}),
     },
     _sum: { value: true },

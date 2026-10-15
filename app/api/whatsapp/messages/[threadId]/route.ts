@@ -36,17 +36,19 @@ const MESSAGE_LIMIT = 200;
 
 /** Garante que a conversa é da própria organização e está dentro do escopo de quem pediu (mesma regra do Pipeline). */
 async function loadAuthorizedThread(threadId: string, organizationId: string, userId: string, role: string | undefined) {
-  const thread = await prisma.whatsAppThread.findFirst({
-    where: { id: threadId, organizationId },
-    include: { instance: { select: { userId: true, instanceName: true, status: true } } },
-  });
+  const [thread, scope] = await Promise.all([
+    prisma.whatsAppThread.findFirst({
+      where: { id: threadId, organizationId },
+      include: { instance: { select: { userId: true, instanceName: true, status: true } } },
+    }),
+    getDealScope(organizationId, userId, role),
+  ]);
   if (!thread) return { thread: null, forbidden: false };
 
   // ownerUserId (denormalizado, sobrevive à instância ser apagada de
   // verdade — ver prisma/schema.prisma), não thread.instance?.userId: uma
   // conversa arquivada (instance null) ainda precisa respeitar o mesmo
   // escopo de "dono/admin vê tudo, consultor só o seu".
-  const scope = await getDealScope(organizationId, userId, role);
   if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
     return { thread: null, forbidden: true };
   }
@@ -67,7 +69,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     // rawPayload nunca vai pro frontend — é o {key, message} bruto do
     // WhatsApp, só serve pra montar o "quoted" na hora de responder,
     // internamente (ver lib/whatsapp/send.ts).
-    const messagesDesc = await prisma.whatsAppMessage.findMany({
+    const messagesPromise = prisma.whatsAppMessage.findMany({
       where: { organizationId, threadId },
       orderBy: { createdAt: "desc" },
       take: MESSAGE_LIMIT,
@@ -89,7 +91,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
         sentBy: { select: { name: true, image: true } },
       },
     });
-    const messages = messagesDesc.reverse();
 
     // Abrir a conversa é o próprio ato de "ler" — some com a bolinha/contador
     // de não lidas na lista de Conversas e com o sinal de "lead respondeu" no
@@ -107,6 +108,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     // dono foi desativado): nenhum consultor enxerga essa thread (ver
     // loadAuthorizedThread acima), então não há aviso de ninguém pra
     // preservar — marca normalmente, senão o contador fica preso pra sempre.
+    const threadOwnerPromise = thread.ownerUserId
+      ? prisma.user.findUnique({ where: { id: thread.ownerUserId }, select: { name: true, image: true } })
+      : Promise.resolve(null);
     const viewerOwnsThread = !thread.ownerUserId || thread.ownerUserId === userId;
     if (viewerOwnsThread) {
       const marked = await prisma.whatsAppMessage.updateMany({
@@ -120,7 +124,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       // marca 0 linhas, não publica, e o ciclo para. O que isso compra: a
       // lista de Conversas apaga o badge na hora, sem esperar o poll de 45s.
       if (marked.count > 0) {
-        publishWhatsAppEvent(organizationId, { type: "status", threadId });
+        publishWhatsAppEvent(organizationId, { type: "read", threadId });
       }
     }
 
@@ -133,9 +137,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     // número mandou, nunca assumir que foi quem está com o chat aberto
     // agora (ver components/whatsapp-chat.tsx's MessageBubble, que já usou
     // currentUserName/currentUserPhotoUrl — o VIEWER — pra isso por engano).
-    const threadOwnerUser = thread.ownerUserId
-      ? await prisma.user.findUnique({ where: { id: thread.ownerUserId }, select: { name: true, image: true } })
-      : null;
+    const [threadOwnerUser, messagesDesc] = await Promise.all([threadOwnerPromise, messagesPromise]);
+    const messages = messagesDesc.reverse();
 
     const avatarMap = await resolveAvatarUrlMap([
       threadOwnerUser?.image,

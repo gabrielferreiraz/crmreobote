@@ -51,6 +51,17 @@ export type ConversationSummary = {
  * pra escala de equipe real (a organização inteira, não por vendedor).
  */
 const DEFAULT_LIMIT = 300;
+const SENDER_CACHE_MAX = 5_000;
+type SenderCacheEntry = {
+  version: string;
+  lastMessageAtMs: number;
+  senderIds: string[];
+};
+const globalForConversationCache = globalThis as unknown as {
+  whatsAppSenderCache?: Map<string, SenderCacheEntry>;
+};
+const senderCache = globalForConversationCache.whatsAppSenderCache ?? new Map<string, SenderCacheEntry>();
+globalForConversationCache.whatsAppSenderCache = senderCache;
 
 export async function listConversations(
   organizationId: string,
@@ -97,6 +108,54 @@ export async function listConversations(
     withMessages.filter((t) => t.instance).map((t) => [t.id, t.instance!.userId]),
   );
 
+  const sendersByThread = new Map<string, Set<string>>();
+  const coldSenderThreads = new Set<string>();
+  const changedSenderThreads = new Set<string>();
+  let senderDeltaSinceMs = Number.POSITIVE_INFINITY;
+  for (const thread of withMessages) {
+    const lastMessageAtMs = (thread.lastMessageAt ?? thread.messages[0].createdAt).getTime();
+    const version = `${lastMessageAtMs}:${thread.messages[0].id}`;
+    const cached = senderCache.get(thread.id);
+    if (cached) {
+      sendersByThread.set(thread.id, new Set(cached.senderIds));
+      if (cached.version !== version) {
+        changedSenderThreads.add(thread.id);
+        senderDeltaSinceMs = Math.min(
+          senderDeltaSinceMs,
+          Number.isFinite(cached.lastMessageAtMs) ? cached.lastMessageAtMs : 0,
+        );
+      }
+    } else {
+      coldSenderThreads.add(thread.id);
+    }
+  }
+
+  // Uma thread ativa muda de `lastMessageAt` a cada mensagem. Antes isso
+  // invalidava o cache e reagrupava TODO o historico dela repetidamente.
+  // Threads ja conhecidas consultam apenas o intervalo novo; so a primeira
+  // carga de cada thread precisa olhar o historico completo.
+  const outboundSendersPromise = Promise.all([
+    coldSenderThreads.size
+      ? prisma.whatsAppMessage.groupBy({
+          by: ["threadId", "sentByUserId"],
+          where: { organizationId, direction: "OUTBOUND", threadId: { in: Array.from(coldSenderThreads) } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    changedSenderThreads.size
+      ? prisma.whatsAppMessage.groupBy({
+          by: ["threadId", "sentByUserId"],
+          where: {
+            organizationId,
+            direction: "OUTBOUND",
+            threadId: { in: Array.from(changedSenderThreads) },
+            createdAt: { gte: new Date(senderDeltaSinceMs) },
+          },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+  ]).then(([coldRows, deltaRows]) => [...coldRows, ...deltaRows]);
+
   const [unreadCounts, openDeals, outboundSenders] = await Promise.all([
     prisma.whatsAppMessage.groupBy({
       by: ["threadId"],
@@ -118,21 +177,29 @@ export async function listConversations(
     // mandou" de verdade quando preenchido (override, ver schema). Escopado a
     // `threadIds` (só as ~300 conversas já selecionadas, não o histórico
     // OUTBOUND da organização inteira) — mesmo escopo que unreadCounts acima.
-    prisma.whatsAppMessage.groupBy({
-      by: ["threadId", "sentByUserId"],
-      where: { organizationId, direction: "OUTBOUND", threadId: { in: threadIds } },
-      _count: { _all: true },
-    }),
+    outboundSendersPromise,
   ]);
 
   const unreadByThread = new Map(unreadCounts.map((u) => [u.threadId, u._count._all]));
-  const sendersByThread = new Map<string, Set<string>>();
   for (const row of outboundSenders) {
     const effectiveSenderId = row.sentByUserId ?? instanceUserIdByThread.get(row.threadId);
     if (!effectiveSenderId) continue;
     const set = sendersByThread.get(row.threadId);
     if (set) set.add(effectiveSenderId);
     else sendersByThread.set(row.threadId, new Set([effectiveSenderId]));
+  }
+  for (const thread of withMessages) {
+    if (!coldSenderThreads.has(thread.id) && !changedSenderThreads.has(thread.id)) continue;
+    if (senderCache.size >= SENDER_CACHE_MAX) {
+      const oldestKey = senderCache.keys().next().value as string | undefined;
+      if (oldestKey) senderCache.delete(oldestKey);
+    }
+    const lastMessageAtMs = (thread.lastMessageAt ?? thread.messages[0].createdAt).getTime();
+    senderCache.set(thread.id, {
+      version: `${lastMessageAtMs}:${thread.messages[0].id}`,
+      lastMessageAtMs,
+      senderIds: Array.from(sendersByThread.get(thread.id) ?? []),
+    });
   }
   const dealByContact = new Map<string, { id: string; name: string; ownerId: string; ownerName: string }>();
   for (const deal of openDeals) {

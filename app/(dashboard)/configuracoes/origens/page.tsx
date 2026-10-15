@@ -56,8 +56,8 @@ export default async function LeadSourcesSettingsPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Origens</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            De onde vêm os leads — aparece no campo "Origem" ao cadastrar um cliente. Marcar uma origem como
-            "Conta como anúncio" faz todo contato com ela (novo ou antigo) entrar no relatório de Facebook/Instagram,
+            De onde vêm os leads — aparece no campo <strong>Origem</strong> ao cadastrar um cliente. Marcar uma origem como
+            <strong> Conta como anúncio</strong> faz todo contato com ela (novo ou antigo) entrar no relatório de Facebook/Instagram,
             mesmo sem ter vindo pelo formulário nativo — ver aba Facebook em Relatórios.
           </p>
         </div>

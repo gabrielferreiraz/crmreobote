@@ -38,7 +38,6 @@ export function CountUpValue({
     }
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   // tabular-nums: sem isso, cada dígito tem sua própria largura (1 é mais

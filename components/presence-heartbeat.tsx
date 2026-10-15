@@ -12,6 +12,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 // uso de verdade, longo o bastante pra não penalizar quem só está lendo a
 // tela parado (sem clicar/rolar) por um instante.
 const IDLE_THRESHOLD_MS = 60_000;
+const ACTIVITY_UPDATE_THROTTLE_MS = 5_000;
 
 // Cobre mouse, teclado e toque (celular/tablet) — qualquer um desses é
 // "a pessoa está de fato na frente da tela agora".
@@ -33,28 +34,39 @@ export function PresenceHeartbeat() {
 
   useEffect(() => {
     lastInteractionRef.current = Date.now();
+    let pingInFlight = false;
+    let heartbeatController: AbortController | null = null;
 
-    function ping() {
+    async function ping() {
       if (document.visibilityState !== "visible") return;
       if (lastInteractionRef.current === null || Date.now() - lastInteractionRef.current > IDLE_THRESHOLD_MS) return;
+      if (pingInFlight) return;
+
+      pingInFlight = true;
       // Leva de carona o que se acumulou de uso de funcionalidade desde o
       // último ping (ver lib/feature-usage/track.ts) — nenhuma requisição
       // nova, só um corpo a mais neste POST que já ia acontecer. Devolve
       // pro buffer se falhar, pra uma queda de rede não apagar a contagem.
       const features = drainFeatureUsage();
       const hasFeatures = Object.keys(features).length > 0;
-      fetch("/api/presence/heartbeat", {
-        method: "POST",
-        ...(hasFeatures
-          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ features }) }
-          : {}),
-      })
-        .then((res) => {
-          if (!res.ok && hasFeatures) restoreFeatureUsage(features);
-        })
-        .catch(() => {
-          if (hasFeatures) restoreFeatureUsage(features);
+      const controller = new AbortController();
+      heartbeatController = controller;
+
+      try {
+        const res = await fetch("/api/presence/heartbeat", {
+          method: "POST",
+          signal: controller.signal,
+          ...(hasFeatures
+            ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ features }) }
+            : {}),
         });
+        if (!res.ok && hasFeatures) restoreFeatureUsage(features);
+      } catch {
+        if (hasFeatures) restoreFeatureUsage(features);
+      } finally {
+        if (heartbeatController === controller) heartbeatController = null;
+        pingInFlight = false;
+      }
     }
 
     function markActive() {
@@ -65,13 +77,16 @@ export function PresenceHeartbeat() {
       // mais "parada" pelo critério acima, então isso não manda um ping por
       // evento, só um por retomada de verdade.
       const wasIdle = lastInteractionRef.current === null || now - lastInteractionRef.current > IDLE_THRESHOLD_MS;
+      if (!wasIdle && lastInteractionRef.current !== null && now - lastInteractionRef.current < ACTIVITY_UPDATE_THROTTLE_MS) {
+        return;
+      }
       lastInteractionRef.current = now;
-      if (wasIdle) ping();
+      if (wasIdle) void ping();
     }
     ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, markActive, { passive: true }));
 
-    ping();
-    const interval = setInterval(ping, HEARTBEAT_INTERVAL_MS);
+    void ping();
+    const interval = setInterval(() => void ping(), HEARTBEAT_INTERVAL_MS);
 
     // Ao voltar pra aba depois de um tempo, conta como interação e manda um
     // ping na hora em vez de esperar o próximo tick — senão dava pra passar
@@ -79,7 +94,7 @@ export function PresenceHeartbeat() {
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") {
         lastInteractionRef.current = Date.now();
-        ping();
+        void ping();
         return;
       }
       // Saindo (trocou de aba, minimizou, fechou) — descarrega o buffer de
@@ -98,6 +113,7 @@ export function PresenceHeartbeat() {
 
     return () => {
       clearInterval(interval);
+      heartbeatController?.abort();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, markActive));
     };

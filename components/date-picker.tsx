@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
@@ -50,7 +50,20 @@ export function DatePicker({
 }) {
   const [open, setOpen] = useState(false);
   const selected = parseISODate(value);
-  const [viewDate, setViewDate] = useState(() => selected ?? new Date());
+  const selectedTime = selected?.getTime() ?? null;
+  const [viewState, setViewState] = useState(() => ({
+    source: value,
+    date: selected ?? new Date(),
+  }));
+  const viewDate = useMemo(
+    () => viewState.source === value
+      ? viewState.date
+      : (selectedTime === null ? new Date() : new Date(selectedTime)),
+    [selectedTime, value, viewState],
+  );
+  function setViewDate(date: Date) {
+    setViewState({ source: value, date });
+  }
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -60,11 +73,6 @@ export function DatePicker({
     triggerRef,
     panelRef,
   });
-
-  useEffect(() => {
-    const next = parseISODate(value);
-    if (next) setViewDate(next);
-  }, [value]);
 
   const weeks = useMemo(() => {
     const year = viewDate.getFullYear();

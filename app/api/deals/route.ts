@@ -36,6 +36,7 @@ export async function GET(req: Request) {
   const limitParam = Number(searchParams.get("limit"));
   const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : null;
   const take = Math.min(requestedLimit ?? (q ? DEFAULT_SEARCH_LIMIT : DEFAULT_LIST_LIMIT), MAX_LIMIT);
+  const includeSummary = searchParams.get("includeSummary") !== "0";
 
   // Filtros que hoje só existiam client-side em deals-list.tsx — "está numa
   // dessas ids" (ownerId aceita lista) cobre tanto "responsável X" quanto
@@ -98,17 +99,20 @@ export async function GET(req: Request) {
 
     const [deals, totalCount, sums] = await Promise.all([
       fetchDealsList({ ...filterParams, skip, take, sortDir, sort }),
-      countDeals(filterParams),
-      aggregateDealValues(filterParams),
+      includeSummary ? countDeals(filterParams) : Promise.resolve(null),
+      includeSummary ? aggregateDealValues(filterParams) : Promise.resolve(null),
     ]);
 
+    const headers = new Headers();
+    if (totalCount !== null && sums !== null) {
+      headers.set("X-Total-Count", String(totalCount));
+      headers.set("X-Won-Sum", String(sums.wonSum));
+      headers.set("X-Lost-Sum", String(sums.lostSum));
+      headers.set("X-Total-Sum", String(sums.totalSum));
+    }
+
     return NextResponse.json(deals, {
-      headers: {
-        "X-Total-Count": String(totalCount),
-        "X-Won-Sum": String(sums.wonSum),
-        "X-Lost-Sum": String(sums.lostSum),
-        "X-Total-Sum": String(sums.totalSum),
-      },
+      headers,
     });
   });
 }

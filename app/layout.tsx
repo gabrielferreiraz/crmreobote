@@ -2,13 +2,15 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { ThemeInitScript } from "@/components/theme-init-script";
 
-// Aplica o tema escuro antes da primeira pintura (sem flash branco). Script
-// comum no <head> deste Server Component, não <Script> do next/script: o
-// <Script strategy="beforeInteractive"> era re-renderizado no cliente e o
+// Aplica o tema escuro antes da primeira pintura (sem flash branco). Inline
+// no <head>, não <Script> do next/script nem arquivo /theme-init.js (sem
+// requisição extra). Renderizado por ThemeInitScript, não por um <script>
+// direto aqui: mesmo vindo de Server Component, o React RECRIA a raiz no
+// cliente quando ela remonta (recarga/HMR do dev, recuperação de erro) e o
 // React 19 reclamava no console ("Encountered a script tag while rendering
-// React component"). Aqui ele só é renderizado no servidor, então não há
-// aviso; inline, não precisa nem da requisição extra a /theme-init.js.
+// React component") — ver o comentário em components/theme-init-script.tsx.
 const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem("theme");var t=s==="light"||s==="dark"?s:(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");if(t==="dark")document.documentElement.classList.add("dark");}catch(e){}})();`;
 
 // Redesign (ver new-design-for-claude/README.md) — DM Sans no lugar da Geist
@@ -63,7 +65,7 @@ export default function RootLayout({
       className={`${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <ThemeInitScript code={THEME_INIT_SCRIPT} />
       </head>
       <body className="min-h-full flex flex-col">
         <Providers>{children}</Providers>

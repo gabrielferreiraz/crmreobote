@@ -15,3 +15,10 @@
  * arriscar o cookie não ser enviado por engano num caso de borda.
  */
 export const PIPELINE_LAST_ID_COOKIE = "crm-pipeline-last-id";
+
+/**
+ * Mantem a visao escolhida disponivel no servidor. Assim a pagina busca
+ * somente Kanban ou Lista na primeira renderizacao, em vez de preparar as
+ * duas consultas pesadas para esconder metade do resultado no navegador.
+ */
+export const PIPELINE_LAST_VIEW_COOKIE = "crm-pipeline-last-view";

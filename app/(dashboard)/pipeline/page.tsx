@@ -5,7 +5,7 @@ import { scopeWhere } from "@/lib/team-scope";
 import { getSharedScope } from "@/lib/share-groups";
 import { fetchDealsList, aggregateDealValues, countDealsByStage, countDealsWithTaskByStage } from "@/lib/deals/list-query";
 import { runWithTenant } from "@/lib/tenant-context";
-import { PIPELINE_LAST_ID_COOKIE } from "@/lib/pipeline-last-selected";
+import { PIPELINE_LAST_ID_COOKIE, PIPELINE_LAST_VIEW_COOKIE } from "@/lib/pipeline-last-selected";
 import { PipelineView } from "./pipeline-view";
 import type { Deal } from "./kanban-board";
 
@@ -34,7 +34,11 @@ export default async function PipelinePage({
   // resolve um link ESTÁTICO de volta pro Pipeline (sem esse parâmetro, ex.:
   // "← Pipeline" no detalhe do negócio) continuar no funil que a pessoa
   // tinha escolhido, em vez de sempre cair no padrão de novo.
-  const lastPipelineId = (await cookies()).get(PIPELINE_LAST_ID_COOKIE)?.value;
+  const cookieStore = await cookies();
+  const lastPipelineId = cookieStore.get(PIPELINE_LAST_ID_COOKIE)?.value;
+  const savedView = cookieStore.get(PIPELINE_LAST_VIEW_COOKIE)?.value;
+  const initialView: "kanban" | "lista" =
+    view === "lista" ? "lista" : view === "kanban" ? "kanban" : savedView === "lista" ? "lista" : "kanban";
 
   return runWithTenant(organizationId, async () => {
     // Agrupa todas as consultas de metadados e escopo que não dependem do funil
@@ -111,8 +115,12 @@ export default async function PipelinePage({
     const KANBAN_INITIAL_CAP = 400;
     const LISTA_DEFAULT_PAGE_SIZE = 50;
 
-    const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope };
+    const listaFilterParams = { organizationId, pipelineId: activePipeline.id, scope, status: "OPEN" as const };
     const kanbanFilterParams = { organizationId, pipelineId: activePipeline.id, scope, status: "OPEN" as const };
+    // So a visualizacao ativa ocupa o banco na primeira carga. A outra usa
+    // os mesmos endpoints dos filtros quando for aberta pela primeira vez.
+    const initialKanbanLoaded = initialView === "kanban";
+    const initialListaLoaded = initialView === "lista" && !initialListaFilter;
 
     // "Saúde da etapa" (% com tarefa pendente) entra NESTE lote paralelo, não
     // mais numa consulta sequencial depois dele: antes dependia de saber
@@ -126,14 +134,26 @@ export default async function PipelinePage({
       // {count, sumValue} por etapa — sumValue corrige um bug real do
       // cabeçalho da coluna, que antes somava só os negócios já CARREGADOS
       // (uma página), errado em qualquer etapa com mais de uma página.
-      countDealsByStage(kanbanFilterParams),
-      fetchDealsList({ ...kanbanFilterParams, take: KANBAN_INITIAL_CAP }),
-      fetchDealsList({ ...listaFilterParams, take: LISTA_DEFAULT_PAGE_SIZE }),
-      prisma.deal.count({
-        where: { organizationId, pipelineId: activePipeline.id, ...scopeWhere(scope) },
-      }),
-      aggregateDealValues(listaFilterParams),
-      countDealsWithTaskByStage(kanbanFilterParams, activePipeline.stages.map((s) => s.id)),
+      initialKanbanLoaded
+        ? countDealsByStage(kanbanFilterParams)
+        : Promise.resolve<Record<string, { count: number; sumValue: number }>>({}),
+      initialKanbanLoaded
+        ? fetchDealsList({ ...kanbanFilterParams, take: KANBAN_INITIAL_CAP })
+        : Promise.resolve([]),
+      initialListaLoaded
+        ? fetchDealsList({ ...listaFilterParams, take: LISTA_DEFAULT_PAGE_SIZE })
+        : Promise.resolve([]),
+      initialListaLoaded
+        ? prisma.deal.count({
+            where: { organizationId, pipelineId: activePipeline.id, status: "OPEN", ...scopeWhere(scope) },
+          })
+        : Promise.resolve(0),
+      initialListaLoaded
+        ? aggregateDealValues(listaFilterParams)
+        : Promise.resolve({ wonSum: 0, lostSum: 0, totalSum: 0 }),
+      initialKanbanLoaded
+        ? countDealsWithTaskByStage(kanbanFilterParams, activePipeline.stages.map((s) => s.id))
+        : Promise.resolve<Record<string, number>>({}),
     ]);
     const initialKanbanByStage: Record<string, Deal[]> = {};
     for (const deal of kanbanDeals) {
@@ -204,9 +224,12 @@ export default async function PipelinePage({
           Object.entries(openStatsByStage).map(([stageId, stats]) => [stageId, stats.sumValue]),
         )}
         initialKanbanWithTaskByStage={openWithTaskByStage}
+        initialKanbanLoaded={initialKanbanLoaded}
         initialListaDeals={listaDeals}
         listaTotalCount={listaTotalCount}
         listaSums={listaSums}
+        initialListaLoaded={initialListaLoaded}
+        initialView={initialView}
         currentUserId={userId}
         members={members.map((m) => m.user)}
         allMembers={allMembersForFilter.map((m) => ({ ...m.user, active: m.active, teamId: m.teamId }))}

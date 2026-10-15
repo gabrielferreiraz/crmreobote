@@ -23,21 +23,42 @@ import { useEffect, useRef } from "react";
  * `fn` é guardado em ref — assim quem chama pode passar uma função nova a
  * cada render (o caso comum) sem reiniciar o intervalo a cada render.
  */
-export function useVisiblePoll(fn: () => void, intervalMs: number) {
+type VisiblePollOptions = {
+  /** Desative quando o componente ja recebeu dados frescos do servidor. */
+  immediate?: boolean;
+};
+
+export function useVisiblePoll(fn: () => void | Promise<void>, intervalMs: number, options: VisiblePollOptions = {}) {
   const fnRef = useRef(fn);
-  fnRef.current = fn;
+  const immediate = options.immediate !== false;
 
   useEffect(() => {
-    function run() {
+    fnRef.current = fn;
+  });
+
+  useEffect(() => {
+    let running = false;
+
+    async function run() {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      fnRef.current();
+      // setInterval nao espera uma Promise. Sem esta trava, uma resposta lenta
+      // podia deixar duas ou mais consultas iguais concorrendo no servidor.
+      if (running) return;
+      running = true;
+      try {
+        await fnRef.current();
+      } catch {
+        // Polls sao recuperaveis: preserva o ultimo estado bom e tenta de novo.
+      } finally {
+        running = false;
+      }
     }
 
-    run();
-    const interval = setInterval(run, intervalMs);
+    if (immediate) void run();
+    const interval = setInterval(() => void run(), intervalMs);
 
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") run();
+      if (document.visibilityState === "visible") void run();
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -45,5 +66,5 @@ export function useVisiblePoll(fn: () => void, intervalMs: number) {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [intervalMs]);
+  }, [immediate, intervalMs]);
 }

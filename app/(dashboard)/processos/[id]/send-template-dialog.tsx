@@ -80,21 +80,23 @@ export function SendTemplateDialog({
 
   const canUseLead = !!(process.contact.whatsapp || process.contact.phone);
 
-  function loadTemplates() {
-    setLoadError(null);
-    fetch(`/api/process-templates?processId=${process.id}`)
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/process-templates?processId=${process.id}`, { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
         if (!res.ok) {
           setLoadError(data.error ?? "Erro ao carregar modelos");
           return;
         }
         setTemplates(data);
       })
-      .catch(() => setLoadError("Falha de conexão."));
-  }
-
-  useEffect(loadTemplates, [process.id]);
+      .catch(() => {
+        if (!controller.signal.aborted) setLoadError("Falha de conexão.");
+      });
+    return () => controller.abort();
+  }, [process.id]);
 
   function interpolate(text: string): string {
     return interpolateAutomationTemplate(text, {

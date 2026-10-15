@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Briefcase, BriefcaseBusiness, MessageCircle, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -50,13 +50,16 @@ export function ConversationsMobile({
     return null;
   }, [paramThreadId, paramContactId, conversations]);
 
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialSelectedId);
+  const selectionSource = `${paramThreadId ?? ""}:${paramContactId ?? ""}:${initialSelectedId ?? ""}`;
+  const [selection, setSelection] = useState({
+    source: selectionSource,
+    threadId: initialSelectedId as string | null,
+  });
+  const selectedThreadId = selection.source === selectionSource ? selection.threadId : initialSelectedId;
 
-  useEffect(() => {
-    if (initialSelectedId) {
-      setSelectedThreadId(initialSelectedId);
-    }
-  }, [initialSelectedId]);
+  const setSelectedThreadId = useCallback((threadId: string | null) => {
+    setSelection({ source: selectionSource, threadId });
+  }, [selectionSource]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -66,7 +69,7 @@ export function ConversationsMobile({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [setSelectedThreadId]);
 
   const [tab, setTab] = useState<ConversationTab>(() => {
     if (paramContactId) return "crm";
@@ -113,6 +116,7 @@ export function ConversationsMobile({
 
   /** Busca ainda em voo — ver refreshConversations abaixo. */
   const inFlightRef = useRef<AbortController | null>(null);
+  const liveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mesmo mecanismo do desktop (ver conversations-view.tsx): uma busca por
   // vez, a anterior é derrubada quando chega outra, e sair da tela cancela.
@@ -145,7 +149,21 @@ export function ConversationsMobile({
     }
   }
 
-  useEffect(() => () => inFlightRef.current?.abort(), []);
+  function scheduleLiveRefresh() {
+    if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+    liveRefreshTimerRef.current = setTimeout(() => {
+      liveRefreshTimerRef.current = null;
+      void refreshConversations();
+    }, 180);
+  }
+
+  useEffect(
+    () => () => {
+      inFlightRef.current?.abort();
+      if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+    },
+    [],
+  );
 
   // Era `setInterval(…, 5000)` cru. Três problemas, todos corrigidos aqui ao
   // adotar o MESMO mecanismo do desktop:
@@ -158,12 +176,10 @@ export function ConversationsMobile({
   //  3. Sem SSE, o polling era o ÚNICO jeito de a lista se atualizar — por
   //     isso o intervalo curto. Com useWhatsAppLive, a atualização chega na
   //     hora pelo evento e o poll vira só rede de segurança, igual desktop.
-  useVisiblePoll(() => {
-    refreshConversations();
-  }, 45_000);
+  useVisiblePoll(() => refreshConversations(), 45_000, { immediate: false });
 
   useWhatsAppLive(() => {
-    refreshConversations();
+    scheduleLiveRefresh();
   });
 
   const tabCounts = useMemo(

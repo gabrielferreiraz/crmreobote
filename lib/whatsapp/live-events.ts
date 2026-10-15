@@ -24,6 +24,7 @@ import { EventEmitter } from "node:events";
 export type WhatsAppLiveEvent =
   | { type: "message"; threadId: string }
   | { type: "status"; threadId: string }
+  | { type: "read"; threadId: string }
   | { type: "presence"; threadId: string };
 
 // Guardado em globalThis pelo mesmo motivo do client do Prisma em lib/prisma.ts:

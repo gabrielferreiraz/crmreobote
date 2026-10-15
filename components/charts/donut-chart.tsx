@@ -13,6 +13,16 @@ const RADIUS = 15.9155;
 // única mancha.
 const GAP_PCT = 1.1;
 
+function buildGeometry(slices: Slice[], total: number) {
+  let cumulative = 0;
+  return slices.map((slice) => {
+    const pct = (slice.value / total) * 100;
+    const offset = -cumulative;
+    cumulative += pct;
+    return { pct, offset };
+  });
+}
+
 /** Rosca via strokeDasharray — sem lib de gráfico, só SVG. Passa o mouse numa
  * fatia (ou na legenda) e ela ganha destaque, com o centro trocando pro
  * detalhe daquela fatia especificamente. */
@@ -34,13 +44,7 @@ export function DonutChart({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  let cumulative = 0;
-  const geometry = slices.map((s) => {
-    const pct = (s.value / total) * 100;
-    const offset = -cumulative;
-    cumulative += pct;
-    return { pct, offset };
-  });
+  const geometry = buildGeometry(slices, total);
 
   const hoveredSlice = hovered !== null ? slices[hovered] : null;
   const hoveredPct = hoveredSlice ? Math.round((hoveredSlice.value / total) * 100) : null;

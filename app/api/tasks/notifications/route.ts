@@ -27,6 +27,8 @@ export async function GET() {
         dueAt: { lte: endOfToday },
       },
       orderBy: { dueAt: "asc" },
+      // O sino e um resumo rapido; a Agenda mantem a lista completa.
+      take: 100,
       select: {
         id: true,
         type: true,

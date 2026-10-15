@@ -184,8 +184,15 @@ export function NewDealProvider({
 
   useEffect(() => {
     if (!enabled) return;
-    const timer = window.setTimeout(preloadNewDeal, 700);
-    return () => window.clearTimeout(timer);
+    // Aquecer este formulario e util, mas nao deve disputar recursos com a
+    // pagina que acabou de abrir. Hover, foco e toque continuam imediatos.
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(preloadNewDeal, { timeout: 2_000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timer = setTimeout(preloadNewDeal, 1_500);
+    return () => clearTimeout(timer);
   }, [enabled, preloadNewDeal]);
 
   const selectedPipeline = options?.pipelines.find((pipeline) => pipeline.id === selectedPipelineId) ?? null;

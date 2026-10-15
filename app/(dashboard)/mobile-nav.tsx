@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -84,9 +84,12 @@ export function MobileNav({
   signOutAction,
   isAdministrativo,
   academyHref,
+  showCommissions = false,
 }: {
   signOutAction: () => Promise<void>;
   isAdministrativo: boolean;
+  /** "Comissões" na folha "Mais" — mesma regra do menu de cima (ver layout.tsx). */
+  showCommissions?: boolean;
   /** Link "Treinamento" (Reobote Academy) — calculado no servidor (ver
    * app/(dashboard)/layout.tsx, getAcademyBaseUrl em lib/academy-oauth.ts)
    * porque depende de uma variável de ambiente que este componente cliente
@@ -96,7 +99,10 @@ export function MobileNav({
   const pathname = usePathname();
   const [sheetOpen, setSheetOpen] = useState(false);
   const primaryItems = isAdministrativo ? PRIMARY_ITEMS_ADMINISTRATIVO : PRIMARY_ITEMS_VENDAS;
-  const overflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
+  const baseOverflowItems = isAdministrativo ? OVERFLOW_ITEMS_ADMINISTRATIVO : OVERFLOW_ITEMS_VENDAS;
+  const overflowItems = showCommissions
+    ? [...baseOverflowItems.slice(0, -1), { href: "/comissoes", label: "Comissões", icon: Wallet }, ...baseOverflowItems.slice(-1)]
+    : baseOverflowItems;
   const { unsubscribe } = usePushSubscription();
   const openHelp = useHelpCenter();
   const { openNewDeal, preloadNewDeal } = useNewDeal();
@@ -118,6 +124,7 @@ export function MobileNav({
       {fab?.href === "/pipeline?novo=1" && (
         <button
           type="button"
+          data-help="new-deal"
           onClick={openNewDeal}
           onTouchStart={preloadNewDeal}
           className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/25 active:scale-95 dark:shadow-brand/15 lg:hidden"
@@ -140,6 +147,7 @@ export function MobileNav({
           rola, ela continua parada no rodapé sem cobrir o conteúdo. */}
       <nav
         id="mobile-bottom-nav"
+        data-help="nav"
         className="relative z-40 flex shrink-0 items-stretch justify-around border-t border-neutral-200/60 bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg dark:border-white/10 dark:bg-neutral-900/80 lg:hidden"
       >
         {primaryItems.map((item) => {
@@ -161,7 +169,7 @@ export function MobileNav({
         <button
           type="button"
           onClick={() => setSheetOpen(true)}
-          data-help="academy"
+          data-help="help-launcher"
           className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors active:bg-neutral-100 dark:active:bg-neutral-800 ${
             isOverflowActive ? "text-brand dark:text-brand" : "text-neutral-400 dark:text-neutral-500"
           }`}

@@ -10,7 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { getAppCredentials, metaGraphRequest as request } from "@/lib/meta-graph";
+import { getAppCredentials, MetaApiError, metaGraphRequest as request } from "@/lib/meta-graph";
 
 function getRedirectUri(): string {
   const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
@@ -159,6 +159,37 @@ export async function listAdAccounts(userAccessToken: string): Promise<MetaAdAcc
 export type AdInsightsPeriod = { key: string; since: string; until: string };
 export type AdInsightsResult = { key: string; spend: number; leads: number };
 
+type InsightRecord = Record<string, unknown>;
+
+function parseInsightRows(payload: unknown): InsightRecord[] {
+  if (!payload || typeof payload !== "object") throw new MetaApiError("Resposta inválida da Insights API", 502);
+  const rows = (payload as { data?: unknown }).data;
+  if (rows == null) return [];
+  if (!Array.isArray(rows) || rows.some((row) => !row || typeof row !== "object")) {
+    throw new MetaApiError("Resposta inválida da Insights API", 502);
+  }
+  return rows as InsightRecord[];
+}
+
+function insightNumber(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function insightText(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function insightLeadCount(value: unknown): number {
+  if (!Array.isArray(value)) return 0;
+  return value.reduce((sum, action) => {
+    if (!action || typeof action !== "object") return sum;
+    const type = (action as { action_type?: unknown }).action_type;
+    if (typeof type !== "string" || !type.toLowerCase().includes("lead")) return sum;
+    return sum + insightNumber((action as { value?: unknown }).value);
+  }, 0);
+}
+
 /**
  * Gasto + leads por período — numa chamada só pros N períodos pedidos
  * (`time_ranges` aceita vários intervalos de uma vez, cada um volta como
@@ -182,19 +213,19 @@ export async function fetchAdSpendInsights(
     fields: "spend,actions,date_start,date_stop",
     time_ranges: JSON.stringify(periods.map((p) => ({ since: p.since, until: p.until }))),
   });
-  const data = await request<{
-    data?: { spend?: string; actions?: { action_type: string; value: string }[]; date_start: string; date_stop: string }[];
-  }>(`/${adAccountId}/insights?${params.toString()}`, accessToken);
+  const data = await request<unknown>(`/${adAccountId}/insights?${params.toString()}`, accessToken);
+  const rows = parseInsightRows(data);
 
   // A resposta não referencia de volta a chave do período pedido, só
   // date_start/date_stop — casa pela combinação exata (os 4 períodos fixos
   // usados hoje nunca têm since/until iguais entre si, sem ambiguidade).
   return periods.map((period) => {
-    const row = data.data?.find((d) => d.date_start === period.since && d.date_stop === period.until);
-    const leads = (row?.actions ?? [])
-      .filter((a) => a.action_type.toLowerCase().includes("lead"))
-      .reduce((sum, a) => sum + (Number(a.value) || 0), 0);
-    return { key: period.key, spend: row?.spend ? Number(row.spend) : 0, leads };
+    const row = rows.find((item) => item.date_start === period.since && item.date_stop === period.until);
+    return {
+      key: period.key,
+      spend: insightNumber(row?.spend),
+      leads: insightLeadCount(row?.actions),
+    };
   });
 }
 
@@ -235,28 +266,19 @@ export async function fetchInsightsBreakdown(
     time_range: JSON.stringify({ since: period.since, until: period.until }),
     limit: "500",
   });
-  const data = await request<{
-    data?: {
-      campaign_id?: string;
-      campaign_name?: string;
-      ad_id?: string;
-      ad_name?: string;
-      spend?: string;
-      actions?: { action_type: string; value: string }[];
-    }[];
-  }>(`/${adAccountId}/insights?${params.toString()}`, accessToken);
+  const data = await request<unknown>(`/${adAccountId}/insights?${params.toString()}`, accessToken);
+  const rows = parseInsightRows(data);
 
-  return (data.data ?? []).map((row) => {
-    const leads = (row.actions ?? [])
-      .filter((a) => a.action_type.toLowerCase().includes("lead"))
-      .reduce((sum, a) => sum + (Number(a.value) || 0), 0);
+  return rows.map((row) => {
+    const campaignId = insightText(row.campaign_id);
+    const campaignName = insightText(row.campaign_name);
     return {
-      id: (level === "campaign" ? row.campaign_id : row.ad_id) ?? "—",
-      name: (level === "campaign" ? row.campaign_name : row.ad_name) ?? "(sem nome)",
-      campaignId: row.campaign_id,
-      campaignName: row.campaign_name,
-      spend: row.spend ? Number(row.spend) : 0,
-      leads,
+      id: (level === "campaign" ? campaignId : insightText(row.ad_id)) ?? "—",
+      name: (level === "campaign" ? campaignName : insightText(row.ad_name)) ?? "(sem nome)",
+      campaignId,
+      campaignName,
+      spend: insightNumber(row.spend),
+      leads: insightLeadCount(row.actions),
     };
   });
 }

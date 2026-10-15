@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { listCampaigns } from "@/lib/campaigns/list";
 import { getCronStaleness, CAMPAIGNS_CRON_NAME, CAMPAIGNS_CRON_MAX_STALE_MINUTES } from "@/lib/cron-watchdog";
-import { contactScopeWhere, getDealScope } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
 import { CampaignsTable } from "./campaigns-table";
 
 export default async function CampanhasPage() {
@@ -17,41 +17,21 @@ export default async function CampanhasPage() {
     // Escopo por papel (ver lib/team-scope.ts) — mesma correção do GET
     // /api/campaigns: Consultor só vê as próprias campanhas, não a
     // organização inteira.
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
-    const [campaigns, instancesRaw, scriptsRaw, audienceContacts] = await Promise.all([
-      listCampaigns(organizationId, scope),
+    const scopePromise = getDealScope(organizationId, userId, session!.user.role);
+    const [campaigns, instancesRaw] = await Promise.all([
+      scopePromise.then((scope) => listCampaigns(organizationId, scope)),
       // Só o Dono monta campanha no WhatsApp de outra pessoa (regra reforçada
       // em lib/campaigns/build.ts) — os demais só veem o próprio número.
       prisma.whatsAppInstance.findMany({
         where: { organizationId, status: "CONNECTED", ...(isOwner ? {} : { userId }) },
-        include: { user: { select: { id: true, name: true } } },
+        select: { id: true, user: { select: { name: true } } },
       }),
       // Picker de script na criação de campanha respeita a mesma
       // visibilidade da biblioteca (ver app/(dashboard)/whatsapp/scripts/page.tsx).
-      prisma.messageScript.findMany({
-        where: { organizationId, ...(isOwner ? {} : { OR: [{ visibility: "PUBLIC" }, { createdById: userId }] }) },
-        orderBy: { name: "asc" },
-      }),
       // Sugestões do público seguem a carteira que a pessoa pode atender:
       // Dono vê tudo; os demais só os contatos sob sua responsabilidade/equipe.
       // Traz somente os três campos necessários, sem dados pessoais extras.
-      prisma.contact.findMany({
-        where: { organizationId, ...contactScopeWhere(scope) },
-        select: { jobTitle: true, city: true, tags: true },
-      }),
     ]);
-
-    const audienceOptions = {
-      jobTitles: Array.from(new Set(audienceContacts.map((contact) => contact.jobTitle?.trim()).filter(Boolean) as string[])).sort((a, b) =>
-        a.localeCompare(b, "pt-BR"),
-      ),
-      tags: Array.from(new Set(audienceContacts.flatMap((contact) => contact.tags.map((tag) => tag.trim()).filter(Boolean)))).sort((a, b) =>
-        a.localeCompare(b, "pt-BR"),
-      ),
-      cities: Array.from(new Set(audienceContacts.map((contact) => contact.city?.trim()).filter(Boolean) as string[])).sort((a, b) =>
-        a.localeCompare(b, "pt-BR"),
-      ),
-    };
 
     // Só checa quando existe alguma campanha rodando de verdade — sem isso a
     // consulta ao CronRun (barata, mas desnecessária) rodaria em toda visita
@@ -82,12 +62,6 @@ export default async function CampanhasPage() {
         <CampaignsTable
           initialCampaigns={campaigns.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
           instances={instancesRaw.map((i) => ({ id: i.id, label: i.user.name }))}
-          scripts={scriptsRaw.map((s) => ({
-            id: s.id,
-            name: s.name,
-            steps: s.steps as { text: string; delayAfterSec: number }[],
-          }))}
-          audienceOptions={audienceOptions}
         />
       </div>
     );

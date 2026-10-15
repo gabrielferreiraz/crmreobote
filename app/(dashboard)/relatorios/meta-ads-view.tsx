@@ -5,7 +5,7 @@ import { getAdSpendSummary, type AdSpendSummary } from "@/lib/meta-ads/insights"
 import { getCampaignPerformance, type CampaignPerformance, type CampaignPerformanceRow } from "@/lib/meta-ads/performance";
 import { CampaignBreakdownTable } from "./campaign-breakdown-table";
 import { DateRangeFilter } from "./date-range-filter";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildQuickRanges, normalizeDateKeyRange } from "@/lib/date-ranges";
 import { formatCurrency } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { FunnelChart } from "@/components/charts/funnel-chart";
@@ -294,7 +294,7 @@ function PerformanceSection({ performance }: { performance: CampaignPerformance 
           <Users className="h-3.5 w-3.5" strokeWidth={2} />
           Desempenho por campanha e anúncio
         </div>
-        <DateRangeFilter />
+        <DateRangeFilter defaultMode="this-month" />
       </div>
 
       {!performance.ok || !agg ? (
@@ -373,7 +373,10 @@ export async function MetaAdsReportView({
 }) {
   const isAllTime = range === "all";
   const thisMonth = buildQuickRanges().find((q) => q.key === "this-month")!.range();
-  const period = isAllTime ? null : { since: from && to ? from : thisMonth.from, until: from && to ? to : thisMonth.to };
+  const selectedRange = normalizeDateKeyRange(from, to);
+  const period = isAllTime
+    ? null
+    : { since: selectedRange?.from ?? thisMonth.from, until: selectedRange?.to ?? thisMonth.to };
 
   return runWithTenant(organizationId, async () => {
     const [adSpendSummary, performance] = await Promise.all([
@@ -403,9 +406,9 @@ export async function MetaAdsReportView({
         <div className="card p-4 text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Período:</strong> conta pela data em que o LEAD chegou, não pela data em que fechou — um lead que chegou este mês e só vira venda mês que vem continua contando neste mês (é quando o gasto que trouxe ele foi feito).</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Não responderam:</strong> teve conversa de WhatsApp iniciada mas nunca respondeu nada — não inclui quem nunca chegou a ser contatado.</div>
-          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Videochamada/Visita:</strong> ao menos um encontro marcado como "Realizada" (resultado perguntado ao concluir a tarefa de Videochamada/Visita, não mais ao criar) — histórico sem resposta registrada (anterior a essa opção existir) também conta aqui, nunca como no-show; já um encontro cuja tarefa ainda não foi concluída fica de fora dos dois até ter resposta.</div>
-          <div>• <strong className="text-neutral-700 dark:text-neutral-300">No-show:</strong> ao menos um encontro marcado como "Não compareceu". Não é o oposto de Videochamada/Visita — um lead pode ter levado um no-show numa data e comparecido na remarcação, contando nos dois.</div>
-          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Qualificado/Desqualificado:</strong> classificação manual na página do negócio. Só "Qualificado" dispara um evento &quot;Lead&quot; pra Conversions API da Meta — "Desqualificado" fica só neste relatório.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Videochamada/Visita:</strong> ao menos um encontro marcado como &quot;Realizada&quot; (resultado perguntado ao concluir a tarefa de Videochamada/Visita, não mais ao criar) — histórico sem resposta registrada (anterior a essa opção existir) também conta aqui, nunca como no-show; já um encontro cuja tarefa ainda não foi concluída fica de fora dos dois até ter resposta.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">No-show:</strong> ao menos um encontro marcado como &quot;Não compareceu&quot;. Não é o oposto de Videochamada/Visita — um lead pode ter levado um no-show numa data e comparecido na remarcação, contando nos dois.</div>
+          <div>• <strong className="text-neutral-700 dark:text-neutral-300">Qualificado/Desqualificado:</strong> classificação manual na página do negócio. Só &quot;Qualificado&quot; dispara um evento &quot;Lead&quot; pra Conversions API da Meta — &quot;Desqualificado&quot; fica só neste relatório.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">Ticket médio:</strong> valor ganho ÷ vendas, da própria campanha (ou do período todo, no card de resumo) — não é o ticket médio geral da organização.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">ROI:</strong> (valor ganho − gasto) ÷ gasto, no período. Sem dado de gasto (campanha manual, ou Meta Ads não conectado), fica sem número em vez de mostrar 0%.</div>
           <div>• <strong className="text-neutral-700 dark:text-neutral-300">manual:</strong> campanha sem lead real do Facebook/Instagram — é um agrupamento pela Origem do contato marcada como anúncio, sem gasto associado (a Meta não sabe que ela existe).</div>

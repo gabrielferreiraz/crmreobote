@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
   MessageCircle,
   ChevronLeft,
   ChevronRight,
-  X,
-  CheckCircle2,
   AlertTriangle,
 } from "lucide-react";
 import { Modal } from "./modal";

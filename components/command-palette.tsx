@@ -75,6 +75,9 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   // busca) — medir só um dos dois daria metade do uso real.
   const openPalette = useCallback(() => {
     trackUse("busca.abrir");
+    setQuery("");
+    setResults({ contacts: [], deals: [] });
+    setSearching(false);
     setOpen(true);
   }, []);
 
@@ -91,25 +94,12 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (open) {
-      setQuery("");
-      setResults({ contacts: [], deals: [] });
-      setSearching(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
 
   useEffect(() => {
-    if (!query.trim()) {
-      setResults({ contacts: [], deals: [] });
-      setSearching(false);
-      return;
-    }
-    // Liga o spinner já aqui (antes do debounce de 200ms), não só depois do
-    // fetch — é o que faz o "instantâneo mas com aviso quando demora um
-    // pouco" pedido: pra uma busca rápida o spinner mal pisca, mas se a
-    // conexão/consulta atrasar ele fica visível o tempo todo, em vez de a
-    // tela ficar "parada" sem indicar que algo está acontecendo.
-    setSearching(true);
+    if (!open || !query.trim()) return;
     // AbortController além do debounce: digitar continua enquanto a busca
     // anterior está no ar, e sem cancelar (a) a consulta antiga segue
     // custando banco à toa e (b) uma resposta atrasada da busca ANTERIOR
@@ -132,10 +122,25 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       controller.abort();
       clearTimeout(timeout);
     };
-  }, [query]);
+  }, [open, query]);
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    if (value.trim()) {
+      setSearching(true);
+    } else {
+      setResults({ contacts: [], deals: [] });
+      setSearching(false);
+    }
+  }
+
+  function closePalette() {
+    setOpen(false);
+    setSearching(false);
+  }
 
   function go(href: string) {
-    setOpen(false);
+    closePalette();
     router.push(href);
   }
 
@@ -149,7 +154,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       {children}
 
       {open && (
-        <Modal onClose={() => setOpen(false)} maxWidth="max-w-lg">
+        <Modal onClose={closePalette} maxWidth="max-w-lg">
           <div className="flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-800">
             {searching ? (
               <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" strokeWidth={2} />
@@ -159,7 +164,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
             <input
               ref={inputRef}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => handleQueryChange(e.target.value)}
               placeholder="Buscar clientes, negócios..."
               className="w-full bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
             />

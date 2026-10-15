@@ -2,13 +2,21 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { Settings2, Kanban, List, Plus } from "lucide-react";
 import Link from "next/link";
 import { CategoryTreeNav, type CategoryTreeItem } from "./category-tree-nav";
-import { ProcessKanbanBoard, type ProcessItem } from "./process-kanban-board";
-import { ProcessesListMobile } from "./processes-list-mobile";
+import type { ProcessItem } from "./process-kanban-board";
 import { ProcessList } from "./process-list";
 import { AddToProcessDialog } from "./add-to-process-dialog";
+import { useDesktopViewport } from "@/lib/use-desktop-viewport";
+
+const ProcessKanbanBoard = dynamic(() =>
+  import("./process-kanban-board").then((mod) => mod.ProcessKanbanBoard),
+);
+const ProcessesListMobile = dynamic(() =>
+  import("./processes-list-mobile").then((mod) => mod.ProcessesListMobile),
+);
 
 type Stage = { id: string; name: string; color: string | null; order: number; slaBusinessDays: number | null };
 
@@ -30,6 +38,7 @@ export function ProcessesView({
   isAdmin: boolean;
 }) {
   const router = useRouter();
+  const desktop = useDesktopViewport();
   const [view, setView] = useState<"kanban" | "lista">("kanban");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
@@ -98,7 +107,10 @@ export function ProcessesView({
             onSelect={(id) => router.push(`/processos?pipelineId=${id}`)}
           />
 
-          <div className="hidden h-full min-w-0 flex-1 lg:block">
+          {desktop === null ? (
+            <div className="card min-h-64 min-w-0 flex-1 animate-pulse bg-neutral-100 dark:bg-neutral-900" />
+          ) : desktop ? (
+          <div className="h-full min-w-0 flex-1">
             <ProcessKanbanBoard
               pipelineId={pipelineId}
               stages={stages}
@@ -107,10 +119,11 @@ export function ProcessesView({
               isAdmin={isAdmin}
             />
           </div>
-
-          <div className="min-w-0 flex-1 lg:hidden">
+          ) : (
+          <div className="min-w-0 flex-1">
             <ProcessesListMobile stages={stages} processes={mobileProcesses} />
           </div>
+          )}
         </div>
       ) : (
         <ProcessList categories={categories} />

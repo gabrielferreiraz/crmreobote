@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Calendar as CalendarIcon, Check, ChevronDown, ChevronLeft } from "lucide-react";
 import { DateRangeCalendar } from "@/components/date-range-calendar";
-import { buildQuickRanges } from "@/lib/date-ranges";
+import { buildQuickRanges, normalizeDateKeyRange } from "@/lib/date-ranges";
 import { DATE_RANGE_FILTER_KEY } from "./filters-storage";
 
 const QUICK_RANGES = buildQuickRanges();
@@ -24,7 +24,7 @@ function optionClass(active: boolean) {
  * tamanho do rótulo) que abre um menu com os atalhos + calendário
  * personalizado — em vez da fileira de pills de antes.
  */
-export function DateRangeFilter() {
+export function DateRangeFilter({ defaultMode = "all" }: { defaultMode?: "all" | "this-month" }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -32,8 +32,9 @@ export function DateRangeFilter() {
   const [showCustom, setShowCustom] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const activeFrom = searchParams.get("from") ?? "";
-  const activeTo = searchParams.get("to") ?? "";
+  const activeRange = normalizeDateKeyRange(searchParams.get("from"), searchParams.get("to"));
+  const activeFrom = activeRange?.from ?? "";
+  const activeTo = activeRange?.to ?? "";
   const [draftFrom, setDraftFrom] = useState(activeFrom);
   const [draftTo, setDraftTo] = useState(activeTo);
 
@@ -109,7 +110,8 @@ export function DateRangeFilter() {
     ? "Tudo"
     : isCustomActive
       ? `${new Date(`${activeFrom}T00:00:00`).toLocaleDateString("pt-BR")} – ${new Date(`${activeTo}T00:00:00`).toLocaleDateString("pt-BR")}`
-      : (QUICK_RANGES.find((q) => q.key === activeQuickKey)?.label ?? "Tudo");
+      : (QUICK_RANGES.find((q) => q.key === activeQuickKey)?.label ??
+        (defaultMode === "this-month" ? QUICK_RANGES.find((q) => q.key === "this-month")!.label : "Tudo"));
 
   return (
     <div ref={containerRef} className="relative">
