@@ -2583,6 +2583,12 @@ model TvDashboardConfig {
   churrascometroTarget Float    @default(0)
   selectedStageIds     Json     @default("[]")
   visibleWidgets       Json     @default("[\"sales_summary\",\"churrascometro\",\"last_sale\",\"funnels\",\"ranking\"]")
+  // Slide "Feliz aniversário" no carrossel de anúncios da TV, no dia do
+  // aniversário de cada consultor (User.birthDate):
+  // { backgroundUrl?: string; photos?: { [userId]: string } } — URLs do
+  // mesmo bucket público dos anúncios (ver lib/r2.ts, isAllowedTvAdUrl).
+  // Foto = consultor já recortado, sem fundo (PNG), por cima do fundo padrão.
+  birthdaySlide        Json     @default("{}")
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -2945,12 +2951,6 @@ model UserCompany {
 // tabela ficaria a única exceção ao padrão de isolamento do sistema
 // inteiro. userId aponta pro User GLOBAL (mesmo ponto de UserCompany
 // acima), mas cada LINHA de progresso pertence à organização em que a
-  // Slide "Feliz aniversário" no carrossel de anúncios da TV, no dia do
-  // aniversário de cada consultor (User.birthDate):
-  // { backgroundUrl?: string; photos?: { [userId]: string } } — URLs do
-  // mesmo bucket público dos anúncios (ver lib/r2.ts, isAllowedTvAdUrl).
-  // Foto = consultor já recortado, sem fundo (PNG), por cima do fundo padrão.
-  birthdaySlide        Json     @default("{}")
 // pessoa estava logada quando concluiu a aula (capturado no momento da
 // troca code→token, ver lib/academy-oauth.ts, nunca um valor solto).
 model Progresso {
