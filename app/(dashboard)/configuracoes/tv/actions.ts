@@ -3,7 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
-import { isAllowedTvAdUrl } from "@/lib/r2";
+import { isAllowedTvAdUrl, deleteTvAdByUrl } from "@/lib/r2";
+import { parseTvBirthdaySlide } from "@/lib/tv-birthday";
 
 const MAX_ADS = 30;
 const MAX_WIDGETS = 50;
@@ -75,5 +76,56 @@ export async function saveTvConfig({
   } catch (error) {
     console.error("[saveTvConfig] Error:", error);
     return { success: false, error: "Falha ao salvar as configurações." };
+  }
+}
+
+/**
+ * Slide "Feliz aniversário" da TV (ver lib/tv-birthday.ts) — salva NA HORA,
+ * a cada envio/remoção (igual as fotos do Cartão Digital), sem depender do
+ * "Salvar Configurações" do formulário de cima.
+ *
+ * `photo`: userId = foto daquele consultor; sem userId = o fundo padrão.
+ * `url` null = remover. A imagem antiga é apagada do bucket depois de salvar.
+ */
+export async function saveTvBirthdayImage({ userId, url }: { userId?: string; url: string | null }) {
+  try {
+    const access = await requireRole(["OWNER", "MANAGER"]);
+    if (!access.ok) return { success: false as const, error: "Só o dono ou um gerente pode alterar a TV." };
+    const { organizationId } = access;
+
+    if (url !== null && (typeof url !== "string" || !isAllowedTvAdUrl(url, organizationId))) {
+      return { success: false as const, error: "Imagem inválida — envie pelo botão de upload." };
+    }
+    if (userId !== undefined && typeof userId !== "string") return { success: false as const, error: "Dados inválidos." };
+
+    return await runWithTenant(organizationId, async () => {
+      if (userId) {
+        const member = await prisma.organizationUser.findFirst({ where: { organizationId, userId }, select: { id: true } });
+        if (!member) return { success: false as const, error: "Usuário não encontrado." };
+      }
+
+      const current = await prisma.tvDashboardConfig.findUnique({ where: { organizationId }, select: { birthdaySlide: true } });
+      const slide = parseTvBirthdaySlide(current?.birthdaySlide);
+      const previousUrl = userId ? (slide.photos[userId] ?? null) : slide.backgroundUrl;
+
+      if (userId) {
+        if (url) slide.photos[userId] = url;
+        else delete slide.photos[userId];
+      } else {
+        slide.backgroundUrl = url;
+      }
+
+      await prisma.tvDashboardConfig.upsert({
+        where: { organizationId },
+        update: { birthdaySlide: slide },
+        create: { organizationId, birthdaySlide: slide },
+      });
+
+      if (previousUrl && previousUrl !== url) await deleteTvAdByUrl(previousUrl, organizationId).catch(() => {});
+      return { success: true as const };
+    });
+  } catch (error) {
+    console.error("[saveTvBirthdayImage] Error:", error);
+    return { success: false as const, error: "Falha ao salvar a imagem." };
   }
 }

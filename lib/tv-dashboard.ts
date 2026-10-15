@@ -4,6 +4,7 @@ import { resolveAvatarUrlMap } from "@/lib/r2";
 import { brazilStartOfMonth, brazilStartOfYear, getBrazilParts } from "@/lib/timezone";
 import { SERVER_INSTANCE_ID } from "@/lib/server-instance";
 import { getGoalExcludedOwnerIds } from "@/lib/goals/suggestion";
+import { parseTvBirthdaySlide } from "@/lib/tv-birthday";
 
 export async function getTvConfig(organizationId: string) {
   try {
@@ -25,6 +26,7 @@ export async function getTvConfig(organizationId: string) {
         churrascometroTarget: config?.churrascometroTarget || 0,
         selectedStageIds: (config?.selectedStageIds as string[]) || [],
         visibleWidgets: (config?.visibleWidgets as string[]) || ["sales_summary","churrascometro","last_sale","funnels","ranking"],
+        birthdaySlide: parseTvBirthdaySlide(config?.birthdaySlide),
       };
     });
   } catch (error) {
@@ -36,6 +38,7 @@ export async function getTvConfig(organizationId: string) {
       churrascometroTarget: 0,
       selectedStageIds: [],
       visibleWidgets: ["sales_summary","churrascometro","last_sale","funnels","ranking"],
+      birthdaySlide: parseTvBirthdaySlide(null),
     };
   }
 }
@@ -271,6 +274,13 @@ export async function getTvMetrics(organizationId: string) {
         isToday: user.birthDate.getUTCDate() === nowParts.day,
       }));
       const churrascometroTarget = monthlyGoal ? Number(monthlyGoal.value) : 0;
+      // Slide "Feliz aniversário" no carrossel de anúncios (ver tv-view.tsx):
+      // só quem faz aniversário HOJE e já tem a foto recortada cadastrada em
+      // Configurações → TV. Sem foto, a pessoa continua só no carrossel de
+      // aniversariantes do card Ranking, como sempre.
+      const birthdaySlides = birthdaysThisMonth
+        .filter((b) => b.isToday && config.birthdaySlide.photos[b.id])
+        .map((b) => ({ id: b.id, name: b.name, photoUrl: config.birthdaySlide.photos[b.id] }));
 
       return {
         vendasAnuais,
@@ -291,6 +301,8 @@ export async function getTvMetrics(organizationId: string) {
         churrascometroProgress:
           churrascometroTarget > 0 ? (totalVendasMes / churrascometroTarget) * 100 : 0,
         adsUrls: config.adsUrls,
+        birthdaySlides,
+        birthdayBackgroundUrl: config.birthdaySlide.backgroundUrl,
         visibleWidgets: config.visibleWidgets,
         // Detecção de deploy novo pela TV — ver lib/server-instance.ts.
         serverInstanceId: SERVER_INSTANCE_ID,
@@ -309,6 +321,8 @@ export async function getTvMetrics(organizationId: string) {
       birthdaysThisMonth: [],
       churrascometroProgress: 0,
       adsUrls: config.adsUrls,
+      birthdaySlides: [] as { id: string; name: string; photoUrl: string }[],
+      birthdayBackgroundUrl: config.birthdaySlide.backgroundUrl,
       visibleWidgets: config.visibleWidgets,
       // Mesmo no fallback de erro — se o banco cair, ainda queremos que a
       // TV detecte um deploy novo e recarregue sozinha assim que possível

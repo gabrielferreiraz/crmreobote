@@ -403,16 +403,28 @@ export function TvView({
     return () => clearTimeout(timer);
   }, []);
 
-  // Carrossel de propagandas.
+  // Carrossel de propagandas — os slides "Feliz aniversário" (quem faz
+  // aniversário HOJE e tem foto recortada cadastrada, ver
+  // lib/tv-dashboard.ts) entram PRIMEIRO, como mais uma "foto" da fila; as
+  // propagandas seguem do mesmo jeito de sempre depois deles.
+  const adSlides = useMemo(
+    () => [
+      ...(metrics.birthdaySlides ?? []).map((b) => ({ kind: "birthday" as const, key: `birthday-${b.id}`, ...b })),
+      ...(metrics.adsUrls ?? []).map((url) => ({ kind: "image" as const, key: url, url })),
+    ],
+    [metrics.birthdaySlides, metrics.adsUrls],
+  );
+  const adSlideCount = adSlides.length;
+
   useEffect(() => {
-    if (!metrics.adsUrls || metrics.adsUrls.length <= 1) return;
+    if (adSlideCount <= 1) return;
     const interval = setInterval(() => {
-      setCurrentAdIndex((prev) => (prev + 1) % metrics.adsUrls.length);
+      setCurrentAdIndex((prev) => (prev + 1) % adSlideCount);
     }, AD_DURATION_MS);
     return () => clearInterval(interval);
-  }, [metrics.adsUrls]);
+  }, [adSlideCount]);
 
-  const safeAdIndex = Math.min(currentAdIndex, Math.max(0, (metrics.adsUrls?.length || 1) - 1));
+  const safeAdIndex = Math.min(currentAdIndex, Math.max(0, adSlideCount - 1));
 
   const has = useMemo(() => new Set(metrics.visibleWidgets), [metrics.visibleWidgets]);
   const showHero = has.has("sales_summary");
@@ -855,10 +867,18 @@ export function TvView({
               boxShadow: "0 0 0 1px rgba(139, 141, 243, 0.08), 0 30px 70px -25px rgba(90, 91, 230, 0.45)",
             }}
           >
-            {metrics.adsUrls && metrics.adsUrls.length > 0 ? (
-              metrics.adsUrls.map((url, i) => (
+            {adSlideCount > 0 ? (
+              adSlides.map((slide, i) =>
+                slide.kind === "birthday" ? (
+                  <div
+                    key={slide.key}
+                    className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${i === safeAdIndex ? "opacity-100" : "opacity-0"}`}
+                  >
+                    <TvBirthdaySlide name={slide.name} photoUrl={slide.photoUrl} backgroundUrl={metrics.birthdayBackgroundUrl ?? null} />
+                  </div>
+                ) : (
                 <div
-                  key={url}
+                  key={slide.key}
                   className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${i === safeAdIndex ? "opacity-100" : "opacity-0"
                     }`}
                 >
@@ -870,23 +890,24 @@ export function TvView({
                       lado. */}
                   <div
                     className="absolute inset-0 scale-110 bg-cover bg-center opacity-60 blur-2xl"
-                    style={{ backgroundImage: `url(${url})` }}
+                    style={{ backgroundImage: `url(${slide.url})` }}
                   />
                   <img
-                    src={url}
+                    src={slide.url}
                     alt={`Propaganda ${i + 1}`}
                     className="animate-tv-ken-burns relative h-full w-full object-contain"
                   />
                 </div>
-              ))
+                ),
+              )
             ) : (
               <div className="flex h-full items-center justify-center text-neutral-500">
                 Nenhuma propaganda configurada.
               </div>
             )}
-            {metrics.adsUrls && metrics.adsUrls.length > 1 && (
+            {adSlideCount > 1 && (
               <div className="absolute left-1/2 flex -translate-x-1/2 gap-1.5" style={{ bottom: "var(--tv-gap)" }}>
-                {metrics.adsUrls.map((_, i) => (
+                {adSlides.map((_, i) => (
                   <span
                     key={i}
                     className="h-1.5 rounded-full transition-all duration-300"
@@ -1611,4 +1632,42 @@ function getBirthdayAvatarGradient(name: string) {
   }
   const index = Math.abs(hash) % BIRTHDAY_AVATAR_GRADIENTS.length;
   return BIRTHDAY_AVATAR_GRADIENTS[index];
+}
+
+/**
+ * "Feliz aniversário" como mais uma foto do carrossel de anúncios: fundo
+ * padrão (Configurações → TV) cobrindo tudo, o consultor recortado (PNG sem
+ * fundo) em pé à direita, e o texto à esquerda. Sem fundo cadastrado, um
+ * gradiente da marca no lugar — o slide nunca fica vazio.
+ */
+function TvBirthdaySlide({ name, photoUrl, backgroundUrl }: { name: string; photoUrl: string; backgroundUrl: string | null }) {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {backgroundUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={backgroundUrl} alt="" className="animate-tv-ken-burns absolute inset-0 h-full w-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-[#5a5be6] via-[#2f2a7a] to-neutral-950" />
+      )}
+      {/* Escurece só o lado do texto — a foto do fundo continua aparecendo. */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/20 to-transparent" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={photoUrl}
+        alt={name}
+        className="absolute right-[4%] bottom-0 h-[90%] w-auto max-w-[55%] object-contain object-bottom drop-shadow-[0_20px_40px_rgba(0,0,0,0.55)]"
+      />
+      <div className="absolute top-1/2 left-[6%] max-w-[45%] -translate-y-1/2 text-white">
+        <p
+          className="font-semibold tracking-[0.18em] text-amber-300 uppercase drop-shadow"
+          style={{ fontSize: "var(--tv-text-value-sm)" }}
+        >
+          Feliz aniversário
+        </p>
+        <p className="mt-[0.3em] leading-[1.05] font-bold break-words drop-shadow-lg" style={{ fontSize: "var(--tv-text-hero)" }}>
+          {name}
+        </p>
+      </div>
+    </div>
+  );
 }

@@ -6,6 +6,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { redirect } from "next/navigation";
 import { TvConfigForm } from "./tv-config-form";
 import { TvDisplayLinkManager } from "./tv-display-link-manager";
+import { TvBirthdaySection } from "./tv-birthday-section";
+import { getBrazilParts } from "@/lib/timezone";
 
 export default async function TvConfigPage() {
   const { organizationId } = await requireSession();
@@ -36,7 +38,7 @@ export default async function TvConfigPage() {
   // mais de um funil tem etapa de mesmo nome repetida em cada um (ex.:
   // "Prospecção" em 5 funis diferentes); sem o nome do funil pra agrupar,
   // a lista de seleção fica ambígua (qual "Prospecção" é qual?).
-  const [config, stagesRaw, displayLink, rankingLink] = await Promise.all([
+  const [config, stagesRaw, displayLink, rankingLink, activeMembers] = await Promise.all([
     getTvConfig(organizationId),
     runWithTenant(organizationId, () =>
       prisma.pipelineStage.findMany({
@@ -69,7 +71,23 @@ export default async function TvConfigPage() {
           }),
         )
       : Promise.resolve(null),
+    // Aniversário na TV (ver tv-birthday-section.tsx) — só quem está ativo.
+    runWithTenant(organizationId, () =>
+      prisma.organizationUser.findMany({
+        where: { organizationId, active: true },
+        select: { user: { select: { id: true, name: true, birthDate: true } } },
+      }),
+    ),
   ]);
+  // birthDate é @db.Date (dia civil, meia-noite UTC) — lido pelos getters UTC,
+  // mesmo cuidado de lib/tv-dashboard.ts.
+  const birthdayMembers = activeMembers.map(({ user }) => ({
+    id: user.id,
+    name: user.name,
+    birthDay: user.birthDate ? user.birthDate.getUTCDate() : null,
+    birthMonth: user.birthDate ? user.birthDate.getUTCMonth() + 1 : null,
+  }));
+  const todayParts = getBrazilParts(new Date());
   const stages = stagesRaw.map((s) => ({ id: s.id, name: s.name, pipelineName: s.pipeline.name }));
 
   return (
@@ -79,6 +97,12 @@ export default async function TvConfigPage() {
         initialVisibleWidgets={config.visibleWidgets}
         initialSelectedStageIds={config.selectedStageIds}
         allStages={stages}
+      />
+      <TvBirthdaySection
+        initial={config.birthdaySlide}
+        members={birthdayMembers}
+        todayDay={todayParts.day}
+        todayMonth={todayParts.month + 1}
       />
       {canManageDisplayLink && (
         <TvDisplayLinkManager
