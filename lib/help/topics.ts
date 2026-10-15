@@ -507,7 +507,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     keywords: ["reunião", "visita", "resultado", "compareceu", "no show", "faltou", "remarcar", "videochamada", "concluir"],
     steps: [
       "Ao concluir uma visita ou videochamada, o CRM pergunta o que aconteceu.",
-      "Escolha compareceu, não compareceu ou remarcar (aí você já escolhe a nova data).",
+      "Escolha Realizada, Não compareceu ou Remarcou.",
       "Esse resultado é o que alimenta o relatório de reuniões — sem ele, a reunião não conta.",
     ],
     links: [{ label: "Abrir Agenda", href: "/agenda" }],
@@ -660,6 +660,53 @@ export const HELP_TOPICS: HelpTopic[] = [
     links: [
       { label: "Chaves e webhooks", href: "/configuracoes/integracoes" },
       { label: "Documentação da API", href: "/docs", newTab: true },
+    ],
+  },
+
+  // ─── Comissões ────────────────────────────────────────────────────
+
+  {
+    id: "minha-comissao",
+    title: "Como funciona minha comissão",
+    summary: "Quanto você recebe dia 10, o que vem nos próximos meses e o que fazer se um valor parecer errado.",
+    category: "pipeline",
+    icon: "CreditCard",
+    tourId: "minha-comissao",
+    keywords: ["comissão", "comissao", "quanto vou receber", "pagamento", "dia 10", "parcela", "travada", "contestar", "valor errado", "comprovante"],
+    steps: [
+      "Abra o menu da sua foto e toque em Minha comissão.",
+      "O número grande no topo é o que você recebe no próximo dia de pagamento.",
+      "Toque em qualquer linha para ver a conta: o percentual, sobre qual valor e em quantas parcelas.",
+      "Parcela travada mostra o motivo em amarelo — muitas vezes é só um documento faltando no negócio.",
+      "Achou um valor errado? Toque na linha e em “Esse valor está errado?”. O Financeiro responde por aqui e você recebe no celular.",
+    ],
+    note: {
+      kind: "tip",
+      text: "Ao marcar um negócio como ganho, o CRM já mostra quanto aquela venda vai te render — antes de você confirmar.",
+    },
+    links: [{ label: "Ver minha comissão", href: "/comissoes/minha" }],
+  },
+  {
+    id: "comissoes-financeiro",
+    title: "Primeiro mês cuidando das comissões",
+    summary: "Configurar, conferir as vendas antigas e fechar o pagamento do mês — na ordem certa.",
+    category: "admin",
+    icon: "Calculator",
+    keywords: ["comissão", "comissoes", "financeiro", "administradora", "regra", "fechar o mês", "pagar", "planilha", "conferir", "vendas antigas", "contestação"],
+    steps: [
+      "Em Comissões → Configurar, siga os 3 passos: administradoras, quanto cada um ganha e o mês de início.",
+      "Em Vendas → Trazer vendas antigas, traga as vendas que ainda têm parcela a pagar. Elas entram “a conferir”.",
+      "Para conferir rápido: marque várias vendas, escolha a administradora para todas de uma vez e confirme. Ou abra uma e use “Confirmar e ir para a próxima”.",
+      "No dia do pagamento, use Fechar o mês: ele mostra o que fica de fora, quanto cada pessoa recebe, paga tudo e entrega a planilha para o banco.",
+      "Contestações aparecem no topo da tela de Comissões — responda por lá e o consultor recebe no celular.",
+    ],
+    note: {
+      kind: "tip",
+      text: "Pagou por engano? Use o Desfazer que aparece no canto da tela logo depois (ou Ctrl+Z).",
+    },
+    links: [
+      { label: "Abrir Comissões", href: "/comissoes" },
+      { label: "Configurar", href: "/comissoes/configuracoes" },
     ],
   },
 ];

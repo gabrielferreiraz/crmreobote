@@ -46,6 +46,17 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   CAMPAIGN_RECIPIENT_REMOVED: "Contato removido da fila",
   CAMPAIGN_AUTO_PAUSED: "Campanha pausada automaticamente",
   CAMPAIGN_AUTO_RESUMED: "Campanha retomada automaticamente",
+  COMMISSION_SETTINGS_CHANGED: "Configuração de comissões alterada",
+  COMMISSION_MANAGER_CHANGED: "Responsável por comissões alterado",
+  COMMISSION_ADMINISTRATOR_CHANGED: "Administradora alterada",
+  COMMISSION_RULE_CHANGED: "Regra de comissão alterada",
+  COMMISSION_SALE_CHANGED: "Venda de comissão alterada",
+  COMMISSION_PAID: "Comissão paga",
+  COMMISSION_UNPAID: "Pagamento de comissão desfeito",
+  COMMISSION_HELD: "Comissão travada",
+  COMMISSION_RELEASED: "Comissão destravada",
+  COMMISSION_ADJUSTMENT: "Ajuste de comissão",
+  COMMISSION_DISPUTE_RESOLVED: "Contestação de comissão respondida",
 };
 
 const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warning"> = {
@@ -76,6 +87,17 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   CAMPAIGN_RECIPIENT_REMOVED: "warning",
   CAMPAIGN_AUTO_PAUSED: "warning", // a campanha parou sem ninguém mandar — é o que se procura quando "parou sozinha"
   CAMPAIGN_AUTO_RESUMED: "success",
+  COMMISSION_SETTINGS_CHANGED: "warning",
+  COMMISSION_MANAGER_CHANGED: "warning", // muda quem enxerga a comissão de todo mundo
+  COMMISSION_ADMINISTRATOR_CHANGED: "neutral",
+  COMMISSION_RULE_CHANGED: "warning",
+  COMMISSION_SALE_CHANGED: "neutral",
+  COMMISSION_PAID: "success",
+  COMMISSION_UNPAID: "danger",
+  COMMISSION_HELD: "warning",
+  COMMISSION_RELEASED: "neutral",
+  COMMISSION_ADJUSTMENT: "warning",
+  COMMISSION_DISPUTE_RESOLVED: "neutral",
 };
 
 function actionLabel(action: string): string {

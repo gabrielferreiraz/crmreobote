@@ -37,7 +37,21 @@ export type AuditAction =
   // O motor pausou/retomou uma campanha SOZINHO por causa do WhatsApp (caiu / voltou), ou pausou
   // depois de 5 falhas seguidas — sem isso ninguém saberia por que ela parou nem quando voltou.
   | "CAMPAIGN_AUTO_PAUSED"
-  | "CAMPAIGN_AUTO_RESUMED";
+  | "CAMPAIGN_AUTO_RESUMED"
+  // Comissões (ver lib/commissions/) — tudo que mexe em quanto alguém
+  // recebe fica registrado: cadastro (administradora/regra/configuração/
+  // quem cuida), conferência de venda e cada parcela paga/travada/ajustada.
+  | "COMMISSION_SETTINGS_CHANGED"
+  | "COMMISSION_MANAGER_CHANGED"
+  | "COMMISSION_ADMINISTRATOR_CHANGED"
+  | "COMMISSION_RULE_CHANGED"
+  | "COMMISSION_SALE_CHANGED"
+  | "COMMISSION_PAID"
+  | "COMMISSION_UNPAID"
+  | "COMMISSION_HELD"
+  | "COMMISSION_RELEASED"
+  | "COMMISSION_ADJUSTMENT"
+  | "COMMISSION_DISPUTE_RESOLVED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está

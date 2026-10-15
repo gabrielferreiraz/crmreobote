@@ -71,6 +71,19 @@ model Organization {
    * padrão configurado ainda, descrição nasce vazia.
    */
   defaultProposalDescription String?
+  /**
+   * Módulo de Comissões (ver lib/commissions/) — data a partir da qual todo
+   * negócio GANHO vira comissão sozinho. Null = módulo ainda em montagem
+   * (o Financeiro cadastra administradoras/regras antes, nada é calculado
+   * nem aparece pros consultores até alguém escolher esta data). Venda
+   * ganha ANTES desta data só entra pelo "Trazer vendas antigas", que nasce
+   * "a conferir" (ver CommissionSale.status).
+   */
+  commissionStartDate DateTime?
+  /** Dia do mês em que a empresa paga as comissões (só exibição — o mês de cada parcela é que decide o que entra em cada pagamento). */
+  commissionPayDay Int @default(10)
+  /** Quantos meses ANTERIORES ao atual o consultor ainda enxerga na "Minha comissão" — 0 = só o mês atual e os futuros (pedido original do dono). */
+  commissionSellerPastMonths Int @default(0)
 
   users                  OrganizationUser[]
   pipelines              Pipeline[]
@@ -122,6 +135,12 @@ model Organization {
   academyAuthCodes       AcademyAuthCode[]
   academyAccessTokens    AcademyAccessToken[]
   academyRefreshTokens   AcademyRefreshToken[]
+  consortiumAdministrators ConsortiumAdministrator[]
+  commissionRules        CommissionRule[]
+  commissionSales        CommissionSale[]
+  commissionEntries      CommissionEntry[]
+  commissionDisputes     CommissionDispute[]
+  commissionRevenues     CommissionRevenue[]
 }
 
 // ─── Usuários ────────────────────────────────────────────────────────
@@ -194,9 +213,17 @@ model User {
   academyAuthCodes            AcademyAuthCode[]
   academyAccessTokens         AcademyAccessToken[]
   academyRefreshTokens        AcademyRefreshToken[]
+  commissionRules             CommissionRule[]          @relation("CommissionRuleUser")
+  commissionSalesAsSeller     CommissionSale[]          @relation("CommissionSaleSeller")
+  commissionSalesAsSupervisor CommissionSale[]          @relation("CommissionSaleSupervisor")
+  commissionSalesAsManager    CommissionSale[]          @relation("CommissionSaleManager")
+  commissionEntries           CommissionEntry[]         @relation("CommissionEntryBeneficiary")
+  commissionEntriesPaid       CommissionEntry[]         @relation("CommissionEntryPaidBy")
+  commissionDisputesOpened    CommissionDispute[]       @relation("CommissionDisputeRequester")
+  commissionDisputesResolved  CommissionDispute[]       @relation("CommissionDisputeResolvedBy")
 }
 
-// ─── Google Agenda (OAuth por usuário) ───────────────────────────────
+// ─── Google Agenda (OAuth por usuário)───────────────────────────────
 //
 // Um client OAuth só (client id/secret nas env vars) serve o app inteiro;
 // cada usuário conecta a PRÓPRIA conta Google aqui, um por um — mesmo
@@ -895,6 +922,11 @@ model OrganizationUser {
   // OWNER também sempre tem acesso administrativo mesmo com este campo
   // false, igual ao OWNER sempre ver tudo no pipeline de vendas.
   canManageProcesses    Boolean   @default(false)
+  // "Cuida das comissões" (o Financeiro) — cadastra administradoras/regras,
+  // confere vendas, trava/paga parcelas, vê a comissão de TODO MUNDO. OWNER
+  // sempre pode, mesmo com isto false (ver lib/commissions/access.ts). Quem
+  // não tem só enxerga a própria comissão, nunca a de outra pessoa.
+  canManageCommissions  Boolean   @default(false)
   // Determina QUAL experiência a pessoa vê (início, menu, relatórios) —
   // eixo separado do `role` (que continua controlando o que ela pode FAZER
   // dentro de Vendas). ADMINISTRATIVO também dá acesso administrativo
@@ -1448,6 +1480,12 @@ model Deal {
   grossValue Decimal? @db.Decimal(12, 2)
 
   creditType String?
+  // Administradora do consórcio vendido — escolhida pelo consultor na hora
+  // de marcar Ganho (obrigatória só quando a organização tem alguma
+  // administradora ativa cadastrada, ver PUT /api/deals/[id]). É a principal
+  // variável da comissão (ver CommissionRule); a venda de comissão copia
+  // este valor no momento em que nasce e o Financeiro corrige lá, não aqui.
+  administratorId String?
 
   startedAt       DateTime  @default(now())
   expectedCloseAt DateTime?
@@ -1479,6 +1517,8 @@ model Deal {
   owner              User                @relation(fields: [ownerId], references: [id])
   lossReason         LossReason?         @relation(fields: [lossReasonId], references: [id])
   importBatch        ImportBatch?        @relation(fields: [importBatchId], references: [id])
+  administrator      ConsortiumAdministrator? @relation(fields: [administratorId], references: [id], onDelete: SetNull)
+  commissionSale     CommissionSale?
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
@@ -1523,6 +1563,328 @@ enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+// ─── Comissões ──────────────────────────────────────────────────────
+//
+// Quem opera é o Financeiro (OrganizationUser.canManageCommissions, ou
+// OWNER); consultor/supervisor/gerente só ENXERGAM a própria comissão (mês
+// atual e futuros — ver Organization.commissionSellerPastMonths). Tudo que
+// varia de corretora pra corretora é CADASTRO (administradora, regra), nunca
+// código: o produto vai ser vendido pra outras corretoras de consórcio.
+//
+// Fluxo: negócio GANHO → CommissionSale (fotografia da venda naquele
+// momento: vendedor, equipe, administradora, valores) → CommissionEntry (uma
+// linha por parcela de comissão, por pessoa que recebe). Parcela PAGA nunca
+// é recalculada nem apagada — correção vira um lançamento novo (ajuste).
+
+// Administradora de consórcio — o "como ela paga" mora aqui (em quantas
+// vezes, carência, dia de corte, QUANTO ela paga pra corretora); o "quanto
+// cada um ganha" mora em CommissionRule.
+model ConsortiumAdministrator {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  // Desativar (em vez de excluir) quando já foi usada em alguma venda —
+  // some do seletor do "Ganho", mas as vendas antigas continuam apontando
+  // pra ela.
+  active         Boolean  @default(true)
+  // Em quantas parcelas mensais a comissão é paga (ex.: 10).
+  commissionInstallments Int @default(1)
+  // QUANTO a administradora paga pra CORRETORA — cada uma paga de um jeito
+  // (ver CommissionRevenueMode). Null = "não informado": a comissão do
+  // consultor por % da venda continua funcionando (em partes iguais); só o
+  // que depende do que a corretora recebe fica sem calcular.
+  revenueMode         CommissionRevenueMode?
+  // CREDIT_EQUAL: % do crédito no total (ex.: 5.0000 = 5%), dividido igual.
+  revenueTotalPercent Decimal?               @db.Decimal(7, 4)
+  // CREDIT_TABLE / CLIENT_INSTALLMENT_TABLE: um % por parcela, na ordem —
+  // do crédito (ex.: [1.5, 0.5, 0.5…]) ou da parcela que o cliente paga
+  // (ex.: [100, 50, 50…]). Tamanho = commissionInstallments. Não precisa
+  // "somar 100": é a tabela da administradora como ela vem.
+  revenuePercents     Json?
+  // Sobre qual valor da venda os modos "% do crédito" calculam.
+  revenueBase         CommissionBase         @default(NET)
+  // Quantos meses depois do mês da venda sai a 1ª parcela (0 = no próprio mês).
+  graceMonths    Int      @default(1)
+  // Venda fechada DEPOIS deste dia conta como venda do mês seguinte. Null =
+  // sem corte (vale o mês do fechamento).
+  cutoffDay      Int?
+  // A administradora paga o CONSULTOR direto (ex.: Servopa) — a parcela do
+  // vendedor aparece pra ele normalmente, mas fica fora do "a pagar" da
+  // empresa (não é dinheiro que sai do caixa da corretora).
+  paysSellerDirectly Boolean @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals        Deal[]
+  rules        CommissionRule[]
+  sales        CommissionSale[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+// Como a administradora calcula o que paga pra corretora.
+enum CommissionRevenueMode {
+  // Um % do crédito no total, em parcelas iguais.
+  CREDIT_EQUAL
+  // Um % do crédito diferente em cada parcela (a "tabela de comissão").
+  CREDIT_TABLE
+  // Um % da parcela (mensalidade) que o cliente paga, por parcela.
+  CLIENT_INSTALLMENT_TABLE
+}
+
+// Parcela cheia ou meia parcela (parcela reduzida até a contemplação) —
+// algumas administradoras pagam comissão menor na modalidade reduzida.
+enum CommissionModality {
+  FULL
+  REDUCED
+}
+
+// Quem recebe uma parcela de comissão por causa de uma venda.
+enum CommissionBeneficiaryRole {
+  SELLER
+  SUPERVISOR
+  MANAGER
+}
+
+// Sobre o que o percentual de uma regra é aplicado.
+enum CommissionBase {
+  NET
+  GROSS
+  // "% do que a corretora recebe" da administradora (ver CommissionRevenue).
+  // Só existe em CommissionRule — a administradora usa NET/GROSS.
+  COMPANY_REVENUE
+}
+
+// "Quanto ganha" — cada condição vazia vale pra qualquer valor; com várias
+// regras servindo pra mesma venda, ganha a MAIS ESPECÍFICA (ver
+// lib/commissions/engine.ts#pickRule: pessoa > administradora > modalidade >
+// tipo de crédito). Mudar uma regra NUNCA recalcula venda já calculada
+// sozinho — só quando o Financeiro manda recalcular aquela venda.
+model CommissionRule {
+  id              String                    @id @default(cuid())
+  organizationId  String
+  beneficiaryRole CommissionBeneficiaryRole @default(SELLER)
+  // Pessoa que RECEBE (vendedor, supervisor ou gerente, conforme
+  // beneficiaryRole). Null = qualquer pessoa nesse papel.
+  userId          String?
+  administratorId String?
+  modality        CommissionModality?
+  // Texto livre, mesmo valor de Deal.creditType (que também não é FK).
+  creditType      String?
+  base            CommissionBase            @default(NET)
+  // % sobre o valor base — ex.: 1.2500 = 1,25%.
+  percent         Decimal                   @db.Decimal(7, 4)
+  active          Boolean                   @default(true)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          User?                    @relation("CommissionRuleUser", fields: [userId], references: [id], onDelete: Cascade)
+  administrator ConsortiumAdministrator? @relation(fields: [administratorId], references: [id], onDelete: Cascade)
+  entries       CommissionEntry[]
+
+  @@index([organizationId, active])
+}
+
+enum CommissionSaleStatus {
+  // Venda antiga trazida do CRM — o Financeiro confere antes de o consultor
+  // enxergar (ver "Trazer vendas antigas").
+  REVIEW
+  ACTIVE
+  // Negócio saiu do Ganho (reaberto/perdido) ou o Financeiro cancelou —
+  // parcelas não pagas são canceladas junto; as pagas ficam.
+  CANCELLED
+}
+
+enum CommissionSaleSource {
+  CRM
+  LEGACY
+  MANUAL
+}
+
+// Fotografia da venda no momento do Ganho — de propósito NÃO acompanha
+// mudanças posteriores do negócio (troca de responsável, de equipe, de
+// valor): comissão é sobre o que foi vendido, por quem, naquela data. O
+// Financeiro corrige aqui quando precisa (ex.: consultor trocou bruto por
+// líquido) sem mexer no negócio, que alimenta meta/TV/relatórios.
+model CommissionSale {
+  id              String               @id @default(cuid())
+  organizationId  String
+  // Null = venda lançada à mão pelo Financeiro (fora do CRM) — OU negócio
+  // excluído depois (SetNull: dinheiro já pago nunca some junto).
+  dealId          String?              @unique
+  // De qual negócio a venda nasceu, SEM chave estrangeira — sobrevive à
+  // exclusão do negócio. É o que impede o Ctrl+Z de uma exclusão (que
+  // recria o negócio com o MESMO id) de gerar uma segunda comissão: a
+  // sincronização reconecta esta venda em vez de criar outra.
+  sourceDealId    String?
+  source          CommissionSaleSource @default(CRM)
+  status          CommissionSaleStatus @default(ACTIVE)
+  // true = cancelada SOZINHA porque o negócio saiu do Ganho (reaberto/
+  // perdido) — volta sozinha se o negócio for ganho de novo. Cancelamento
+  // feito pelo Financeiro fica false e nunca é desfeito automaticamente.
+  autoCancelled   Boolean              @default(false)
+  clientName      String
+  sellerId        String
+  // Líder/gerente da equipe do vendedor NO DIA da venda (ver Team) — mudar
+  // de equipe depois não move comissão já gerada.
+  supervisorId    String?
+  managerId       String?
+  administratorId String?
+  modality        CommissionModality   @default(FULL)
+  creditType      String?
+  saleDate        DateTime
+  netValue        Decimal?             @db.Decimal(12, 2)
+  grossValue      Decimal?             @db.Decimal(12, 2)
+  // Valor da parcela (mensalidade) que o cliente paga — só usado pela
+  // administradora que paga a corretora em "% da parcela do cliente". Vem
+  // da proposta mais recente do negócio quando existe; o Financeiro corrige.
+  clientInstallment Decimal?           @db.Decimal(12, 2)
+  quotaNumber     String?
+  groupNumber     String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal          Deal?                    @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  seller        User                     @relation("CommissionSaleSeller", fields: [sellerId], references: [id])
+  supervisor    User?                    @relation("CommissionSaleSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  manager       User?                    @relation("CommissionSaleManager", fields: [managerId], references: [id], onDelete: SetNull)
+  administrator ConsortiumAdministrator? @relation(fields: [administratorId], references: [id], onDelete: SetNull)
+  entries       CommissionEntry[]
+  revenues      CommissionRevenue[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, sellerId])
+  @@index([organizationId, saleDate])
+  @@index([organizationId, sourceDealId])
+}
+
+enum CommissionEntryKind {
+  INSTALLMENT
+  // Lançamento avulso do Financeiro (bônus, desconto, diferença de meia
+  // parcela, estorno manual…) — sempre com justificativa (note).
+  ADJUSTMENT
+}
+
+enum CommissionEntryStatus {
+  SCHEDULED
+  ON_HOLD
+  PAID
+  CANCELLED
+}
+
+// Uma parcela de comissão (ou um ajuste) de UMA pessoa, num mês de
+// pagamento. É o que o consultor vê e o que o Financeiro paga.
+model CommissionEntry {
+  id                String                    @id @default(cuid())
+  organizationId    String
+  saleId            String?
+  beneficiaryId     String
+  role              CommissionBeneficiaryRole @default(SELLER)
+  kind              CommissionEntryKind       @default(INSTALLMENT)
+  installmentNumber Int?
+  installmentCount  Int?
+  // "YYYY-MM" (mês civil de Campo Grande) — mesma convenção de string de
+  // UserDailyActivity.date; compara/ordena como texto sem fuso no meio.
+  paymentMonth      String
+  // Negativo só em ajuste (desconto).
+  amount            Decimal                   @db.Decimal(12, 2)
+  // Fotografia de COMO foi calculado (regra pode mudar depois).
+  percent           Decimal?                  @db.Decimal(7, 4)
+  ruleId            String?
+  status            CommissionEntryStatus     @default(SCHEDULED)
+  // Copiado de ConsortiumAdministrator.paysSellerDirectly na geração — fora
+  // do "a pagar" da empresa.
+  paidByAdministrator Boolean                 @default(false)
+  holdReason        String?
+  note              String?
+  paidAt            DateTime?
+  paidById          String?
+  createdById       String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sale         CommissionSale? @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  beneficiary  User            @relation("CommissionEntryBeneficiary", fields: [beneficiaryId], references: [id])
+  rule         CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  paidBy       User?           @relation("CommissionEntryPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  disputes     CommissionDispute[]
+
+  @@index([organizationId, paymentMonth])
+  @@index([organizationId, beneficiaryId, paymentMonth])
+  @@index([saleId])
+}
+
+enum CommissionRevenueStatus {
+  EXPECTED
+  RECEIVED
+}
+
+// O que a CORRETORA recebe da administradora por uma venda, parcela a
+// parcela — mesma fotografia das parcelas do consultor (gerado junto, em
+// lib/commissions/sync.ts). É o que permite responder "dessa venda, quanto
+// fica pra corretora" e, depois, conferir o extrato da administradora
+// (status RECEIVED). Parcela já recebida nunca é refeita.
+model CommissionRevenue {
+  id                String                  @id @default(cuid())
+  organizationId    String
+  saleId            String
+  installmentNumber Int
+  installmentCount  Int
+  // "YYYY-MM", mesma convenção de CommissionEntry.paymentMonth.
+  paymentMonth      String
+  amount            Decimal                 @db.Decimal(12, 2)
+  // Fotografia do % usado (do crédito ou da parcela do cliente).
+  percent           Decimal?                @db.Decimal(7, 4)
+  status            CommissionRevenueStatus @default(EXPECTED)
+  receivedAt        DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sale         CommissionSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, paymentMonth])
+  @@index([saleId])
+}
+
+enum CommissionDisputeStatus {
+  OPEN
+  RESOLVED
+}
+
+// "Esse valor está errado?" — o consultor contesta UMA parcela de dentro da
+// própria tela, em vez de mandar mensagem no WhatsApp do Financeiro; o
+// Financeiro responde por aqui e a resposta volta pra ele (push + na linha
+// da parcela). Uma parcela pode ter várias ao longo do tempo (contestou,
+// foi respondido, contestou de novo).
+model CommissionDispute {
+  id             String                  @id @default(cuid())
+  organizationId String
+  entryId        String
+  requesterId    String
+  message        String
+  status         CommissionDisputeStatus @default(OPEN)
+  response       String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entry        CommissionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  requester    User            @relation("CommissionDisputeRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  resolvedBy   User?           @relation("CommissionDisputeResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([entryId])
 }
 
 // ─── Propostas comerciais ───────────────────────────────────────────

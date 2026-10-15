@@ -15,7 +15,8 @@ export type UndoActionType =
   | "deal.move"
   | "deal.bulkUpdate"
   | "activity.update"
-  | "activity.delete";
+  | "activity.delete"
+  | "commission.pay";
 
 /**
  * Par de descrições que se alterna pra sempre entre undo/redo — gênero e
@@ -96,5 +97,22 @@ export type DeleteSnapshotPayload<T extends { id: string } = Record<string, unkn
    * Contact, Process de um Deal) — restauradas na mesma transação, na
    * mesma ordem que dependências FK exigem. */
   cascaded?: { model: "campaignRecipient" | "process"; rows: Record<string, unknown>[] }[];
+  descriptions: DescriptionPair;
+};
+
+/**
+ * Payload de commission.pay — pagar (ou desfazer o pagamento de) parcelas de
+ * comissão (ver app/api/commissions/entries/*). `state` é o status em que as
+ * parcelas ficaram DEPOIS da ação; reverter leva pro outro ("PAID" ↔
+ * "SCHEDULED") só as que ainda estiverem nesse estado — se alguém travou ou
+ * cancelou uma delas nesse meio tempo, ela não é mexida. Substitui o
+ * "Tem certeza?" antes de pagar: paga na hora, e o engano se desfaz.
+ */
+export type CommissionPayPayload = {
+  entryIds: string[];
+  state: "PAID" | "SCHEDULED";
+  /** Quem pagou — vira o paidById de novo se a pessoa refizer o pagamento. */
+  actorUserId: string;
+  actorName: string;
   descriptions: DescriptionPair;
 };

@@ -23,7 +23,7 @@ const SCREENS: { match: (pathname: string) => boolean; screen: HelpScreen }[] = 
     match: (p) => p.startsWith("/clientes/"),
     screen: {
       title: "Ficha do cliente",
-      purpose: "Tudo sobre uma pessoa: contato, etiquetas, negócios e histórico.",
+      purpose: "Tudo sobre uma pessoa: dados de contato, etiquetas e negócios vinculados.",
       topicIds: ["tags-qualificacao", "registrar-atividade", "conversas"],
     },
   },
@@ -121,6 +121,22 @@ const SCREENS: { match: (pathname: string) => boolean; screen: HelpScreen }[] = 
       title: "Configurações",
       purpose: "Ajustes da sua conta e, pra quem administra, do time inteiro.",
       topicIds: ["conectar-whatsapp", "perfil-foto", "configurar-funil", "usuarios-permissoes"],
+    },
+  },
+  {
+    match: (p) => p.startsWith("/comissoes/minha"),
+    screen: {
+      title: "Minha comissão",
+      purpose: "Quanto você recebe no dia do pagamento, o que vem pela frente e de onde vem cada valor.",
+      topicIds: ["minha-comissao"],
+    },
+  },
+  {
+    match: (p) => p.startsWith("/comissoes"),
+    screen: {
+      title: "Comissões",
+      purpose: "Configurar, conferir e pagar a comissão de todo mundo, um mês por vez.",
+      topicIds: ["comissoes-financeiro", "minha-comissao"],
     },
   },
   {

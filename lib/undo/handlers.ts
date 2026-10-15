@@ -9,7 +9,9 @@ import type {
   DeleteSnapshotPayload,
   BulkUpdatePayload,
   BulkUpdateGroup,
+  CommissionPayPayload,
 } from "./types";
+import { logAudit } from "@/lib/audit-log";
 
 export type UndoResult = { type: UndoActionType; description: string; payload: unknown };
 
@@ -86,6 +88,44 @@ async function revertFieldUpdate(
       entities: redoEntities,
       descriptions: { afterRevert: payload.descriptions.original, original: payload.descriptions.afterRevert },
     } satisfies FieldUpdatePayload,
+  };
+}
+
+/**
+ * Pagar ↔ desfazer pagamento de parcelas de comissão. Só mexe nas que ainda
+ * estão no estado que a ação deixou (updateMany com o status no WHERE) — uma
+ * parcela travada/cancelada nesse meio tempo fica como está. Fica na
+ * auditoria de comissões igual a um pagamento feito pelo botão.
+ */
+async function revertCommissionPay(organizationId: string, payload: CommissionPayPayload): Promise<UndoResult> {
+  const target = payload.state === "PAID" ? ("SCHEDULED" as const) : ("PAID" as const);
+  const count = await prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, organizationId);
+    const { count } = await tx.commissionEntry.updateMany({
+      where: { organizationId, id: { in: payload.entryIds }, status: payload.state },
+      data:
+        target === "SCHEDULED"
+          ? { status: "SCHEDULED", paidAt: null, paidById: null }
+          : { status: "PAID", paidAt: new Date(), paidById: payload.actorUserId },
+    });
+    return count;
+  });
+  await logAudit({
+    organizationId,
+    actorUserId: payload.actorUserId,
+    actorName: payload.actorName,
+    action: target === "PAID" ? "COMMISSION_PAID" : "COMMISSION_UNPAID",
+    targetType: "CommissionEntry",
+    detail: `${target === "PAID" ? "Refez o pagamento de" : "Desfez o pagamento de"} ${count} ${count === 1 ? "parcela" : "parcelas"} (Ctrl+Z)`,
+  });
+  return {
+    type: "commission.pay",
+    description: payload.descriptions.afterRevert,
+    payload: {
+      ...payload,
+      state: target,
+      descriptions: { afterRevert: payload.descriptions.original, original: payload.descriptions.afterRevert },
+    } satisfies CommissionPayPayload,
   };
 }
 
@@ -277,6 +317,8 @@ export async function reverseUndoableAction(
       return dispatchDelete(organizationId, "deal", type, payload as DeleteSnapshotPayload);
     case "activity.delete":
       return dispatchDelete(organizationId, "activity", type, payload as DeleteSnapshotPayload);
+    case "commission.pay":
+      return revertCommissionPay(organizationId, payload as CommissionPayPayload);
     default: {
       const _exhaustive: never = type;
       throw new Error(`Tipo de ação desfazível desconhecido: ${_exhaustive}`);

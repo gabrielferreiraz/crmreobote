@@ -32,7 +32,7 @@ export const HELP_TOURS: HelpTour[] = [
       {
         target: "nav",
         title: "Suas áreas de trabalho",
-        body: "Clientes é a sua carteira, Pipeline são as vendas em andamento, WhatsApp é o atendimento e Agenda é o seu dia. Relatórios mostra o resultado de tudo isso.",
+        body: "A barra reúne suas áreas principais. No celular, o restante fica em Mais; no computador, aparece no topo.",
       },
       {
         target: "search",
@@ -53,7 +53,32 @@ export const HELP_TOURS: HelpTour[] = [
       {
         target: "help-launcher",
         title: "A ajuda mora aqui",
-        body: "Esse botão te acompanha em todas as telas. Ele sempre abre mostrando dicas da tela em que você está — e tem busca, se preferir procurar. Atrapalhando algo? Arraste pro outro canto da tela.",
+        body: "No celular, a ajuda fica dentro de Mais. No computador, este botão acompanha todas as telas e pode ser arrastado pro outro canto.",
+      },
+    ],
+  },
+  {
+    id: "minha-comissao",
+    title: "Minha comissão",
+    steps: [
+      {
+        title: "Sua comissão em 3 paradas",
+        body: "Melhor fazer este passeio com a tela Minha comissão aberta (menu da sua foto → Minha comissão).",
+      },
+      {
+        target: "commission-hero",
+        title: "Quanto você recebe",
+        body: "O número grande é o que cai no próximo dia de pagamento. Quando o Financeiro paga, você também recebe um aviso no celular.",
+      },
+      {
+        target: "commission-chart",
+        title: "O que já está garantido",
+        body: "Cada barra é um mês. Consórcio paga comissão em parcelas — aqui você vê sua renda dos próximos 12 meses.",
+      },
+      {
+        target: "commission-list",
+        title: "De onde vem cada valor",
+        body: "Toque numa linha para ver a conta. Se algo estiver errado, use “Esse valor está errado?” ali mesmo — o Financeiro responde por aqui.",
       },
     ],
   },
