@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { GitBranch, Layers, User, Send, CheckCircle2, XCircle, Tag } from "lucide-react";
+import { GitBranch, Layers, User, Send, CheckCircle2, XCircle, Tag, CalendarPlus } from "lucide-react";
 import { SelectionBar } from "@/components/selection-bar";
 import { BulkActionPopover } from "@/components/bulk-action-popover";
 import { SelectPopoverBody } from "@/components/select-popover-body";
 import { ClosedAtDialog } from "@/components/closed-at-dialog";
 import { LossReasonDialog, type LossReasonOption } from "@/components/loss-reason-dialog";
 import { BulkSendMessageDialog } from "@/components/bulk-send-message-dialog";
+import { BulkCreateTasksDialog } from "@/components/bulk-create-tasks-dialog";
 import { useUndoToast } from "@/components/undo-provider";
 import { trackUse } from "@/lib/feature-usage/track";
 import type { FeatureKey } from "@/lib/feature-usage/features";
@@ -71,6 +72,7 @@ export function DealBulkActions({
   const [wonOpen, setWonOpen] = useState(false);
   const [lossOpen, setLossOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(autoOpenSend ?? false);
+  const [tasksOpen, setTasksOpen] = useState(false);
 
   const count = selectedIds.length;
 
@@ -181,6 +183,16 @@ export function DealBulkActions({
 
         <button
           type="button"
+          onClick={() => setTasksOpen(true)}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          <CalendarPlus className="h-3.5 w-3.5" strokeWidth={2} />
+          Marcar tarefa
+        </button>
+
+        <button
+          type="button"
           onClick={() => setWonOpen(true)}
           disabled={busy}
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
@@ -260,6 +272,17 @@ export function DealBulkActions({
             await onApplied();
           }}
           onCreateScript={onCreateScript ?? (() => {})}
+        />
+      )}
+
+      {tasksOpen && (
+        <BulkCreateTasksDialog
+          dealIds={selectedIds}
+          onClose={() => setTasksOpen(false)}
+          onCreated={async () => {
+            onClear();
+            await onApplied();
+          }}
         />
       )}
     </>
