@@ -1,5 +1,6 @@
 import { Prisma } from "@/app/generated/prisma/client";
-import { searchDb } from "@/lib/search-db";
+import { searchDb, withSearchDbFallback } from "@/lib/search-db";
+import { prisma } from "@/lib/prisma";
 import { NO_JOB_TITLE, NO_RESPONSAVEL, type EnrichedContact } from "@/lib/contacts/constants";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 
@@ -158,7 +159,12 @@ export function buildContactsWhere(params: ContactsFilterParams): Prisma.Contact
 // opcional no tipo) — essa é a única proteção multi-tenant aqui agora,
 // então isso NUNCA pode virar opcional nestas duas funções.
 export async function countContacts(params: ContactsFilterParams): Promise<number> {
-  return searchDb.contact.count({ where: buildContactsWhere(params) });
+  const where = buildContactsWhere(params);
+  return withSearchDbFallback(
+    () => searchDb.contact.count({ where }),
+    () => prisma.contact.count({ where }),
+    "contacts-search",
+  );
 }
 
 /**
@@ -222,8 +228,7 @@ async function queryDistinctContactTags(organizationId: string, responsavelId?: 
 
 export async function fetchContactsList(params: ContactsFilterParams & { skip?: number; take: number }): Promise<EnrichedContact[]> {
   const { skip, take } = params;
-
-  return searchDb.contact.findMany({
+  const query = {
     where: buildContactsWhere(params),
     orderBy: { createdAt: "desc" },
     select: {
@@ -243,5 +248,11 @@ export async function fetchContactsList(params: ContactsFilterParams & { skip?: 
     },
     skip,
     take,
-  });
+  } satisfies Prisma.ContactFindManyArgs;
+
+  return withSearchDbFallback(
+    () => searchDb.contact.findMany(query),
+    () => prisma.contact.findMany(query),
+    "contacts-search",
+  );
 }

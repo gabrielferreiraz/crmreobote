@@ -62,6 +62,8 @@ function createSearchClient() {
     // Busca é uma consulta curta por tecla (com debounce) — 5 conexões bastam;
     // eram 10 somando às 20 do app e às dos crons (auditoria 09/2026).
     max: 5,
+    connectionTimeoutMillis: 3_000,
+    query_timeout: 8_000,
     // Devolve ao Postgres a conexão parada há 30s: a role app_search tem teto
     // de conexões próprio (erro "too many connections for role app_search"),
     // e com keepAlive sozinho as conexões ficavam abertas pra sempre.
@@ -93,3 +95,24 @@ export const searchDb = globalForSearchDb.searchDb ?? createSearchClient();
 // diferentes), cada avaliação criaria a SUA pool de 5 conexões e a soma
 // estouraria o teto da role app_search.
 globalForSearchDb.searchDb = searchDb;
+
+let degradedUntil = 0;
+const SEARCH_RETRY_DELAY_MS = 30_000;
+
+/** Mantém a busca funcional quando a role/pool dedicada estiver fora do ar. */
+export async function withSearchDbFallback<T>(
+  primary: () => Promise<T>,
+  fallback: () => Promise<T>,
+  context: string,
+): Promise<T> {
+  if (Date.now() < degradedUntil) return fallback();
+  try {
+    const result = await primary();
+    degradedUntil = 0;
+    return result;
+  } catch (error) {
+    degradedUntil = Date.now() + SEARCH_RETRY_DELAY_MS;
+    console.error(`[${context}] conexão de busca indisponível; usando conexão principal`, error);
+    return fallback();
+  }
+}

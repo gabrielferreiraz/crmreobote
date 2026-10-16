@@ -69,6 +69,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Result>({ contacts: [], deals: [] });
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Uma função só pros dois caminhos de abertura (atalho Cmd+K e botão de
@@ -78,6 +79,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     setQuery("");
     setResults({ contacts: [], deals: [] });
     setSearching(false);
+    setSearchError(false);
     setOpen(true);
   }, []);
 
@@ -105,22 +107,32 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     // custando banco à toa e (b) uma resposta atrasada da busca ANTERIOR
     // pode chegar depois da nova e repintar a lista com o resultado errado.
     const controller = new AbortController();
+    let requestTimeout: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     const timeout = setTimeout(async () => {
       try {
+        requestTimeout = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, 10_000);
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("search_failed");
         const data = await res.json();
         setResults(data);
+        setSearchError(false);
       } catch {
+        if (timedOut || !controller.signal.aborted) setSearchError(true);
         // Abort (trocou o termo/fechou a busca) ou falha de rede — mantém o
         // último resultado bom; o spinner é desligado no finally abaixo.
       } finally {
-        if (!controller.signal.aborted) setSearching(false);
+        if (requestTimeout) clearTimeout(requestTimeout);
+        if (timedOut || !controller.signal.aborted) setSearching(false);
       }
     }, 200);
     return () => {
       controller.abort();
       clearTimeout(timeout);
+      if (requestTimeout) clearTimeout(requestTimeout);
     };
   }, [open, query]);
 
@@ -128,9 +140,11 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     setQuery(value);
     if (value.trim()) {
       setSearching(true);
+      setSearchError(false);
     } else {
       setResults({ contacts: [], deals: [] });
       setSearching(false);
+      setSearchError(false);
     }
   }
 
@@ -178,7 +192,13 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
               </p>
             )}
 
-            {!hasResults && !searching && (
+            {searchError && !searching && (
+              <p className="px-1 py-6 text-center text-sm text-red-600 dark:text-red-400">
+                Não foi possível buscar agora. Tente novamente.
+              </p>
+            )}
+
+            {!hasResults && !searching && !searchError && (
               <p className="px-1 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
                 Nada encontrado.
               </p>

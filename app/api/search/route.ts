@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/app/generated/prisma/client";
-import { searchDb } from "@/lib/search-db";
+import { searchDb, withSearchDbFallback } from "@/lib/search-db";
+import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { getCurrentMembership } from "@/lib/current-membership";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
-import { getDealScope } from "@/lib/team-scope";
+import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { runWithTenant } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +107,8 @@ export async function GET(req: Request) {
   // ainda cai na fuzzy, exatamente como antes.
   const FUZZY_FALLBACK_MIN = 8;
 
-  const [contacts, deals] = await Promise.all([
+  const [contacts, deals] = await withSearchDbFallback(
+    () => Promise.all([
     (async (): Promise<ContactRow[]> => {
       const fast = await searchDb.$queryRaw<ContactRow[]>`
         SELECT ct.id, ct.name, ct.email, ct.whatsapp, u.name AS "ownerName"
@@ -193,7 +196,74 @@ export async function GET(req: Request) {
       `;
       return [...fast, ...fuzzy];
     })(),
-  ]);
+    ]),
+    () => runWithTenant(organizationId, async () => {
+      const [fallbackContacts, fallbackDeals] = await Promise.all([
+        prisma.contact.findMany({
+          where: {
+            organizationId,
+            ...(isMember ? { responsavelId: userId } : {}),
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { company: { contains: q, mode: "insensitive" } },
+              { email: { contains: q, mode: "insensitive" } },
+              ...(digits
+                ? [
+                    { phoneNormalized: { contains: digits } },
+                    { whatsappNormalized: { contains: digits } },
+                  ]
+                : []),
+            ],
+          },
+          orderBy: { name: "asc" },
+          take: RESULT_LIMIT,
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            whatsapp: true,
+            responsavel: { select: { name: true } },
+          },
+        }),
+        prisma.deal.findMany({
+          where: {
+            organizationId,
+            ...scopeWhere(scope),
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { contact: { name: { contains: q, mode: "insensitive" } } },
+            ],
+          },
+          orderBy: { name: "asc" },
+          take: RESULT_LIMIT,
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            contact: { select: { name: true } },
+            owner: { select: { name: true } },
+          },
+        }),
+      ]);
+      return [
+        fallbackContacts.map((contact) => ({
+          id: contact.id,
+          name: contact.name,
+          email: contact.email,
+          whatsapp: contact.whatsapp,
+          ownerName: contact.responsavel?.name ?? null,
+        })),
+        fallbackDeals.map((deal) => ({
+          id: deal.id,
+          name: deal.name,
+          contactName: deal.contact.name,
+          ownerName: deal.owner.name,
+          status: deal.status,
+        })),
+      ];
+    }),
+    "global-search",
+  );
 
   return NextResponse.json({
     contacts: contacts.map((c) => ({ id: c.id, name: c.name, email: c.email, whatsapp: c.whatsapp, ownerName: c.ownerName })),
