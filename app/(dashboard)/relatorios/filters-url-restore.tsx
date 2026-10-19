@@ -3,11 +3,12 @@
 import { useEffect } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { buildQuickRanges, normalizeDateKeyRange } from "@/lib/date-ranges";
-import { PIPELINE_FILTER_KEY, WHO_FILTER_KEY, DATE_RANGE_FILTER_KEY, PROCESS_PIPELINE_FILTER_KEY } from "./filters-storage";
+import { PIPELINE_FILTER_KEY, WHO_FILTER_KEY, TAGS_FILTER_KEY, DATE_RANGE_FILTER_KEY, PROCESS_PIPELINE_FILTER_KEY } from "./filters-storage";
+import { normalizeReportTags } from "@/lib/reports/tags";
 
 /**
  * Componente invisível (renderiza null) — na montagem, se a URL chegou "em
- * branco" (sem pipelineId/who/from/to, ex.: clicou em "Relatórios" no menu
+ * branco" (sem pipelineId/who/tag/from/to, ex.: clicou em "Relatórios" no menu
  * vindo de outra tela), preenche com o último filtro salvo no localStorage
  * desta tela. Se a URL já trouxer algum desses parâmetros explicitamente
  * (link compartilhado, voltar/avançar do navegador), respeita e não mexe —
@@ -51,6 +52,22 @@ export function FiltersUrlRestore() {
           changed = true;
         }
       } catch {}
+    }
+
+    if (!params.has("tag")) {
+      try {
+        const raw = localStorage.getItem(TAGS_FILTER_KEY);
+        if (raw) {
+          const saved = normalizeReportTags(JSON.parse(raw) as string[]);
+          for (const tag of saved) params.append("tag", tag);
+          if (saved.length > 0) changed = true;
+        }
+      } catch {
+        // Valor corrompido no navegador — descarta, não trava a tela.
+        try {
+          localStorage.removeItem(TAGS_FILTER_KEY);
+        } catch {}
+      }
     }
 
     if (!params.has("from") && !params.has("to") && !params.has("range")) {

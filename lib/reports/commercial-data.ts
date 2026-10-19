@@ -33,6 +33,7 @@ import { buildQuickRanges, normalizeDateKeyRange, singleMonthLabel } from "@/lib
 import { getGoalTeamSnapshot, suggestedGoalValue } from "@/lib/goals/suggestion";
 import { defaultTrendWindow, buildDailyOrMonthlyBuckets, buildDailyBuckets, findBucket, findBucketIndex } from "@/lib/reports/trend";
 import { isCompareMode, resolveComparePeriod } from "@/lib/reports/period-compare";
+import { dealTagWhere, normalizeReportTags } from "@/lib/reports/tags";
 import type { Session } from "next-auth";
 
 export async function getCommercialReportData(params: {
@@ -52,6 +53,8 @@ export async function getCommercialReportData(params: {
    */
   rangeParam?: string;
   whoParam?: string;
+  /** Tags escolhidas no filtro (?tag=…, repetido) — o negócio entra se o CONTATO tem alguma delas (ver lib/reports/tags.ts). */
+  tagParams?: string[];
   /** "mirror" | "month" | "last3" | "year" | "custom" — ver
    * lib/reports/period-compare.ts pro significado EXATO de cada um.
    * Ausente/valor desconhecido = comparação desligada (comportamento de
@@ -70,6 +73,7 @@ export async function getCommercialReportData(params: {
     toParam,
     rangeParam,
     whoParam,
+    tagParams,
     compareParam,
     compareFromParam,
     compareToParam,
@@ -257,6 +261,16 @@ export async function getCommercialReportData(params: {
   const pipelineFilter: { pipelineId?: string } =
     pipelineIdParam && pipelines.some((p) => p.id === pipelineIdParam) ? { pipelineId: pipelineIdParam } : {};
 
+  // Filtro de TAGS — mesma ideia do de funil: estreita só as consultas de
+  // NEGÓCIO (receita, ranking, cargo, motivo de perda, funil por etapa,
+  // comparação de período), olhando as tags do contato do negócio. Atividade
+  // (videochamada, ligação, tarefa) e WhatsApp seguem sem ele, pelo mesmo
+  // motivo do funil: são métricas de pessoa/conversa, não de negócio. Meta do
+  // mês também não (é sempre o time todo).
+  const tags = normalizeReportTags(tagParams);
+  const tagFilter = dealTagWhere(tags);
+  const dealFilter = { ...pipelineFilter, ...tagFilter };
+
   // Janela do gráfico de evolução: exatamente o período escolhido; sem
   // filtro, cai pros últimos 6 meses (senão "Tudo" viraria um gráfico com
   // anos de histórico espremidos, ilegível).
@@ -296,6 +310,7 @@ export async function getCommercialReportData(params: {
             pipelineId: activePipeline.id,
             status: "OPEN",
             ownerId: activeOpenOwnerFilter(effectiveScope),
+            ...tagFilter,
           },
           _count: true,
           _sum: { value: true },
@@ -303,13 +318,13 @@ export async function getCommercialReportData(params: {
       : Promise.resolve([]),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...pipelineFilter },
+      where: { organizationId, status: "OPEN", ownerId: activeOpenOwnerFilter(effectiveScope), ...dealFilter },
       _count: true,
       _sum: { value: true },
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
+      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
       // grossValue junto — pedido explícito: card "Vendas brutas" ao lado
       // de "Vendas líquidas" (era "Total ganho") na Visão geral. Mesma
@@ -319,12 +334,12 @@ export async function getCommercialReportData(params: {
     }),
     prisma.deal.groupBy({
       by: ["ownerId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
+      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
     }),
     prisma.deal.groupBy({
       by: ["lossReasonId"],
-      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
+      where: { organizationId, status: "LOST", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
     }),
     // Ranking de videochamadas + visitas: as duas são "foi falar com o lead direto"
@@ -392,14 +407,14 @@ export async function getCommercialReportData(params: {
       _count: true,
     }),
     prisma.deal.findMany({
-      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+      where: { organizationId, status: "WON", closedAt: { gte: trendStart, lte: trendEnd }, ...scopeWhere(effectiveScope), ...dealFilter },
       select: { closedAt: true, value: true },
     }),
     // Faturamento por tipo de crédito — imóvel e veículo têm ticket e ciclo
     // de decisão bem diferentes, vale ver separado, não só o total misturado.
     prisma.deal.groupBy({
       by: ["creditType"],
-      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...pipelineFilter },
+      where: { organizationId, status: "WON", ...scopeWhere(effectiveScope), ...dateWhere("closedAt"), ...dealFilter },
       _count: true,
       _sum: { value: true },
     }),
@@ -414,14 +429,14 @@ export async function getCommercialReportData(params: {
     // quando a comparação está desligada (sem query extra nenhuma à toa).
     comparePeriod
       ? prisma.deal.aggregate({
-          where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...dealFilter },
           _count: true,
           _sum: { value: true, grossValue: true },
         })
       : Promise.resolve(null),
     comparePeriod
       ? prisma.deal.count({
-          where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...dealFilter },
         })
       : Promise.resolve(0),
     // Faturamento por tipo de crédito do período de COMPARAÇÃO — mesma
@@ -431,7 +446,7 @@ export async function getCommercialReportData(params: {
     comparePeriod
       ? prisma.deal.groupBy({
           by: ["creditType"],
-          where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          where: { organizationId, status: "WON", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...dealFilter },
           _count: true,
           _sum: { value: true },
         })
@@ -442,7 +457,7 @@ export async function getCommercialReportData(params: {
     comparePeriod
       ? prisma.deal.groupBy({
           by: ["lossReasonId"],
-          where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...pipelineFilter },
+          where: { organizationId, status: "LOST", closedAt: { gte: comparePeriod.from, lte: comparePeriod.to }, ...scopeWhere(effectiveScope), ...dealFilter },
           _count: true,
         })
       : Promise.resolve([]),
@@ -1220,6 +1235,8 @@ export async function getCommercialReportData(params: {
         : Prisma.sql`AND false`
       : Prisma.empty;
   const pipelineFilterSql = pipelineFilter.pipelineId ? Prisma.sql`AND d."pipelineId" = ${pipelineFilter.pipelineId}` : Prisma.empty;
+  // Mesma regra do dealTagWhere, em SQL: o contato (já ligado como `c` na consulta por cargo) tem alguma das tags.
+  const tagFilterSql = tags.length > 0 ? Prisma.sql`AND c.tags && ARRAY[${Prisma.join(tags)}]::text[]` : Prisma.empty;
 
   // WhatsApp dos negócios: threads de contato que já viraram negócio (aberto,
   // ganho ou perdido) — precisa do resultado ANTES do bloco "Geral" mais
@@ -1278,6 +1295,7 @@ export async function getCommercialReportData(params: {
           AND d.status IN ('WON', 'LOST')
           ${ownerFilterSql}
           ${pipelineFilterSql}
+          ${tagFilterSql}
           ${rangeFrom ? Prisma.sql`AND d."closedAt" >= ${rangeFrom}` : Prisma.empty}
           ${rangeTo ? Prisma.sql`AND d."closedAt" <= ${rangeTo}` : Prisma.empty}
         GROUP BY 1
@@ -1995,6 +2013,8 @@ export async function getCommercialReportData(params: {
     showTeamActivity,
     activePipeline,
     pipelineFilter,
+    // Tags JÁ normalizadas (o painel "Ver negócios" repassa pra lista somar o número do card).
+    tags,
     // Período JÁ resolvido (ISO, ou null em "Tudo") — o painel "Ver
     // negócios" do ranking (ver relatorios/won-deals-button.tsx) usa estes
     // limites exatos pra listar os negócios de cada pessoa, em vez de

@@ -18,6 +18,9 @@ import { ComparePeriodFilter } from "./compare-period-filter";
 import { TeamOwnerFilter } from "./team-owner-filter";
 import { PipelineFilter } from "./pipeline-filter";
 import { FiltersUrlRestore } from "./filters-url-restore";
+import { TagsFilter } from "./tags-filter";
+import { ClearReportFilters } from "./clear-filters";
+import { normalizeReportTags } from "@/lib/reports/tags";
 import { GoalCard } from "./goal-card";
 import { getCurrentUserArea } from "@/lib/user-area";
 import { getCurrentMembership } from "@/lib/current-membership";
@@ -47,6 +50,8 @@ export default async function RelatoriosPage({
     /** "all" = Tudo escolhido explicitamente no filtro (ver date-range-filter.tsx) — precisa ser distinguível de "nunca escolheu nada", ver lib/reports/commercial-data.ts. */
     range?: ReportSearchParam;
     who?: ReportSearchParam;
+    /** Repetido (?tag=A&tag=B) — o negócio entra se o contato tem QUALQUER uma (ver lib/reports/tags.ts). */
+    tag?: ReportSearchParam;
     view?: ReportSearchParam;
     processPipelineId?: ReportSearchParam;
     /** "mirror" | "month" | "last3" | "year" | "custom" — ver lib/reports/period-compare.ts. */
@@ -67,6 +72,7 @@ export default async function RelatoriosPage({
   const fromParam = rangeParam === "all" ? undefined : selectedRange?.from;
   const toParam = rangeParam === "all" ? undefined : selectedRange?.to;
   const whoParam = firstSearchParam(rawParams.who);
+  const tagParams = normalizeReportTags(rawParams.tag);
   const viewParam = firstSearchParam(rawParams.view);
   const processPipelineIdParam = firstSearchParam(rawParams.processPipelineId);
   const compareParam = firstSearchParam(rawParams.compare);
@@ -145,6 +151,7 @@ export default async function RelatoriosPage({
     toParam,
     rangeParam,
     whoParam,
+    tagParams,
     compareParam,
     compareFromParam,
     compareToParam,
@@ -162,6 +169,7 @@ export default async function RelatoriosPage({
     showTeamActivity,
     activePipeline,
     pipelineFilter,
+    tags,
     rangeFromIso,
     rangeToIso,
     openCount,
@@ -238,6 +246,7 @@ export default async function RelatoriosPage({
         fromIso={rangeFromIso}
         toIso={rangeToIso}
         pipelineId={pipelineFilter.pipelineId ?? null}
+        tags={tags}
         periodLabel={periodLabel}
       />
     ),
@@ -428,19 +437,12 @@ export default async function RelatoriosPage({
     <div className="space-y-10 pb-8 sm:space-y-16">
       <div className="space-y-4">
         {isOwner && <ReportTabs active="comercial" />}
-        {/* flex-col + xl:flex-row/flex-nowrap (não flex-wrap+justify-between
-            de antes) — com justify-between, o bloco de filtros (que só
-            CRESCE conforme escolhe filtro: nome de responsável, comparação
-            de período com data por extenso etc.) passava de "colado na
-            direita" pra "colado na esquerda" assim que deixava de caber ao
-            lado do título, um salto visual pro outro lado da tela bem no
-            meio de usar o filtro (pedido explícito pra corrigir). Abaixo de
-            xl sempre empilhado (título em cima, filtros embaixo, nunca
-            ambíguo); a partir de xl a fileira NUNCA quebra como um todo —
-            só o título encolhe/quebra o próprio texto (min-w-0), os filtros
-            ficam com largura própria (shrink-0) sempre grudados na direita,
-            não importa o quanto cresçam. */}
-        <div className="flex flex-col gap-4 xl:flex-row xl:flex-nowrap xl:items-end xl:justify-between">
+        {/* Título em cima e a barra de filtros embaixo, em largura inteira: com
+            funil + equipe + tags + período + comparação, os filtros não cabem
+            mais ao lado do título (era o que fazia a fileira pular de lado
+            conforme se escolhia filtro). Agrupados por assunto — "Período" e
+            "Filtrar por" — em vez de uma fileira só de caixas iguais. */}
+        <div className="flex flex-col gap-5">
           {!isPersonalView && (
             <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">
@@ -475,24 +477,18 @@ export default async function RelatoriosPage({
               Relatórios
             </p>
           )}
-          {/* Celular: grade 2 colunas (era flex-wrap, cada filtro só
-              ocupando a própria largura fixa — 4 caixas de tamanhos
-              diferentes empilhadas, uma por linha, sem alinhar entre si —
-              pedido explícito, "não parece harmônico"). Cada filtro vira
-              w-full DENTRO da célula abaixo de sm (ver className de cada um
-              — Select recebe isso via prop, DateRangeFilter/
-              ComparePeriodFilter têm o próprio botão ajustado). A partir de
-              sm volta a ser a fileira flex de sempre, cada um com a própria
-              largura — nunca teve relato de problema lá, sobra espaço de
-              sobra pra não precisar de grade. */}
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center xl:shrink-0">
+          <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end lg:gap-x-8 lg:gap-y-3">
             <FiltersUrlRestore />
-            <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
-            {!isPersonalView && (
-              <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />
-            )}
-            <DateRangeFilter defaultMode="this-month" />
-            <ComparePeriodFilter />
+            <FilterGroup label="Período">
+              <DateRangeFilter defaultMode="this-month" />
+              <ComparePeriodFilter />
+            </FilterGroup>
+            <FilterGroup label="Filtrar por">
+              <PipelineFilter pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))} />
+              {!isPersonalView && <TeamOwnerFilter teams={teamFilterOptions} members={memberFilterOptions} currentUserId={userId} />}
+              <TagsFilter />
+              <ClearReportFilters />
+            </FilterGroup>
           </div>
         </div>
 
@@ -1219,5 +1215,20 @@ function MiniStat({ value, label }: { value: string | number; label: string }) {
       <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{value}</span>
       <span className="text-neutral-500 dark:text-neutral-400">{label}</span>
     </span>
+  );
+}
+
+/**
+ * Um bloco da barra de filtros: rótulo pequeno em cima e os controles
+ * embaixo. Celular: grade de 2 colunas (cada controle preenche a célula —
+ * ver as classes `w-full sm:w-…` de cada filtro); a partir de sm, fileira
+ * que quebra de linha, cada controle com a própria largura.
+ */
+function FilterGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-semibold tracking-[0.14em] text-neutral-400 uppercase dark:text-neutral-500">{label}</p>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">{children}</div>
+    </div>
   );
 }

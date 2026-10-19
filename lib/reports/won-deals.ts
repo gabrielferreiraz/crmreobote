@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { DealScope } from "@/lib/team-scope";
+import { dealTagWhere } from "@/lib/reports/tags";
 
 /**
  * "Quais negócios essa pessoa fechou" — a lista por trás do número do card
@@ -9,7 +10,7 @@ import type { DealScope } from "@/lib/team-scope";
  * (app/(dashboard)/relatorios/ganhos/[userId]).
  *
  * O `where` é o MESMO da agregação do ranking (status WON + closedAt no
- * período + funil, por dono) — de propósito, pra o total desta lista nunca
+ * período + funil + tags, por dono) — de propósito, pra o total desta lista nunca
  * divergir do número que a pessoa clicou pra abrir.
  */
 export type WonDealRow = {
@@ -52,10 +53,12 @@ export async function fetchWonDeals(params: {
   from?: Date | null;
   to?: Date | null;
   pipelineId?: string | null;
+  /** Tags do filtro do relatório (já normalizadas) — o contato do negócio tem alguma delas. */
+  tags?: string[];
   skip?: number;
   take: number;
 }): Promise<WonDealsResult | null> {
-  const { organizationId, scope, ownerId, from, to, pipelineId, skip = 0, take } = params;
+  const { organizationId, scope, ownerId, from, to, pipelineId, tags = [], skip = 0, take } = params;
   if (!ownerInScope(scope, ownerId)) return null;
 
   const where = {
@@ -63,6 +66,7 @@ export async function fetchWonDeals(params: {
     status: "WON" as const,
     ownerId,
     ...(pipelineId ? { pipelineId } : {}),
+    ...dealTagWhere(tags),
     ...(from || to ? { closedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
   };
 

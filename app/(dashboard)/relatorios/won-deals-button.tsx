@@ -38,6 +38,7 @@ export function WonDealsButton({
   fromIso,
   toIso,
   pipelineId,
+  tags,
   periodLabel,
 }: {
   ownerId: string;
@@ -46,6 +47,8 @@ export function WonDealsButton({
   fromIso: string | null;
   toIso: string | null;
   pipelineId: string | null;
+  /** Filtro de tags do relatório — a lista aplica o mesmo, pra somar o número do card. */
+  tags: string[];
   periodLabel: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -71,6 +74,7 @@ export function WonDealsButton({
           fromIso={fromIso}
           toIso={toIso}
           pipelineId={pipelineId}
+          tags={tags}
           periodLabel={periodLabel}
           onClose={() => setOpen(false)}
         />
@@ -86,6 +90,7 @@ function WonDealsPanel({
   fromIso,
   toIso,
   pipelineId,
+  tags,
   periodLabel,
   onClose,
 }: {
@@ -95,6 +100,8 @@ function WonDealsPanel({
   fromIso: string | null;
   toIso: string | null;
   pipelineId: string | null;
+  /** Filtro de tags do relatório — a lista aplica o mesmo, pra somar o número do card. */
+  tags: string[];
   periodLabel: string;
   onClose: () => void;
 }) {
@@ -110,6 +117,7 @@ function WonDealsPanel({
     if (fromIso) params.set("from", fromIso);
     if (toIso) params.set("to", toIso);
     if (pipelineId) params.set("pipelineId", pipelineId);
+    for (const tag of tags) params.append("tag", tag);
     return `/api/reports/won-deals?${params.toString()}`;
   }
 

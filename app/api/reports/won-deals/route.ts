@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getDealScope } from "@/lib/team-scope";
 import { fetchWonDeals } from "@/lib/reports/won-deals";
+import { normalizeReportTags } from "@/lib/reports/tags";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,7 @@ export async function GET(req: Request) {
       from: parseDate(searchParams.get("from")),
       to: parseDate(searchParams.get("to")),
       pipelineId: searchParams.get("pipelineId"),
+      tags: normalizeReportTags(searchParams.getAll("tag")),
       skip,
       take,
     });

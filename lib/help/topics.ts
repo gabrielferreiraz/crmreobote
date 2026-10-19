@@ -521,9 +521,10 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: "Quanto entrou, quanto fechou, quem está produzindo e onde o funil trava.",
     category: "relatorios",
     icon: "BarChart3",
-    keywords: ["relatório", "resultado", "número", "meta", "ranking", "produção", "desempenho", "conversão", "gráfico"],
+    keywords: ["relatório", "resultado", "número", "meta", "ranking", "produção", "desempenho", "conversão", "gráfico", "filtro", "tag", "tags", "funil"],
     steps: [
       "Abra Relatórios e escolha o período no topo — todos os números respeitam esse filtro.",
+      "Em “Filtrar por” dá pra estreitar por funil, equipe ou pessoa e por tags (negócios cujo contato tem qualquer uma delas). “Limpar filtros” volta ao todo.",
       "Clique num número pra ver a lista por trás dele (ex.: quais negócios foram ganhos).",
       "A aba de anúncios mostra o retorno do que veio de tráfego pago.",
     ],
