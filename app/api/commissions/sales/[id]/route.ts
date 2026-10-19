@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { parseSaleInput, resolveSaleReferences } from "@/lib/commissions/sale-input";
 import { loadEngineContext, regenerateSaleEntries, SALE_SELECT, withCommissionLock } from "@/lib/commissions/sync";
 import { getSaleEntries } from "@/lib/commissions/queries";
@@ -17,20 +17,21 @@ const FIELD_LABELS: Record<string, string> = {
   netValue: "valor líquido",
   grossValue: "valor bruto",
   clientInstallment: "parcela do cliente",
+  autoDebit: "débito automático",
   quotaNumber: "cota",
   groupNumber: "grupo",
   notes: "observação",
 };
 
 /** Parcelas da venda (todas as pessoas) — painel da venda na tela do Financeiro. */
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = commissionRoute(async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
   const entries = await runWithTenant(access.organizationId, () => getSaleEntries(access.organizationId, id));
   return NextResponse.json({ entries });
-}
+});
 
 /** Campos que mudam o VALOR/CALENDÁRIO da comissão — só eles disparam o recálculo das parcelas não pagas. */
 const RECALC_FIELDS = new Set(["sellerId", "administratorId", "modality", "creditType", "saleDate", "netValue", "grossValue", "clientInstallment"]);
@@ -41,7 +42,7 @@ const RECALC_FIELDS = new Set(["sellerId", "administratorId", "modality", "credi
  * está (alimenta meta/TV/relatórios do passado). Parcelas já pagas nunca são
  * tocadas; as demais são recalculadas na hora.
  */
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = commissionRoute(async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -57,7 +58,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const refs = await runWithTenant(access.organizationId, () => resolveSaleReferences(access.organizationId, data));
   if ("error" in refs) return badRequest(refs.error!);
 
-  const result = await withCommissionLock(access.organizationId, async (tx) => {
+  const result = await withCommissionLock(access.organizationId, async (tx): Promise<{ error: NextResponse } | { clientName: string }> => {
     const existing = await tx.commissionSale.findFirst({
       where: { id, organizationId: access.organizationId },
       select: { id: true, status: true, sellerId: true, clientName: true },
@@ -65,6 +66,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!existing) return { error: NextResponse.json({ error: "Venda não encontrada" }, { status: 404 }) };
     if (existing.status === "CANCELLED") {
       return { error: NextResponse.json({ error: "Venda cancelada — reative antes de corrigir" }, { status: 409 }) };
+    }
+    // Venda conferida sem administradora = o vendedor perde de vista a comissão inteira.
+    if (existing.status === "ACTIVE" && data.administratorId === null) {
+      return { error: NextResponse.json({ error: "Venda já conferida precisa de administradora — escolha outra em vez de deixar em branco" }, { status: 409 }) };
     }
 
     // Trocar o vendedor fotografa de novo a equipe DELE (líder/gerente).
@@ -90,4 +95,4 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     detail: `${result.clientName}: corrigiu ${Object.keys(data).map((k) => FIELD_LABELS[k] ?? k).join(", ")}`,
   });
   return NextResponse.json({ ok: true });
-}
+});

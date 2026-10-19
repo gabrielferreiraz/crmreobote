@@ -132,10 +132,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       // alguma administradora ativa cadastrada) — quem não usa nunca é
       // cobrado por um campo que não serve pra nada pra ela.
       const finalAdministratorId = administratorIdUpdate !== undefined ? administratorIdUpdate : existing.administratorId;
-      if (!finalAdministratorId) {
+      const finalCreditType = creditType !== undefined ? creditType : existing.creditType;
+      if (!finalAdministratorId || !finalCreditType) {
         const activeAdministrators = await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } });
-        if (activeAdministrators > 0) {
+        if (activeAdministrators > 0 && !finalAdministratorId) {
           return NextResponse.json({ error: "Escolha a administradora antes de marcar o negócio como ganho" }, { status: 400 });
+        }
+        // A categoria muda o % e em quantas vezes a comissão é paga — só
+        // exigida quando a corretora tem categorias cadastradas.
+        if (activeAdministrators > 0 && !finalCreditType && (await prisma.creditType.count({ where: { organizationId } })) > 0) {
+          return NextResponse.json({ error: "Escolha a categoria antes de marcar o negócio como ganho" }, { status: 400 });
         }
       }
     }

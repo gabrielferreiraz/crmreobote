@@ -24,7 +24,7 @@ export async function GET() {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findFirst({
-      where: { organizationId, userId, provider: "META_CLOUD" },
+      where: { organizationId, kind: "PERSONAL", personalOwnerId: userId, provider: "META_CLOUD" },
     });
     if (!instance) return NextResponse.json({ connected: false, status: "DISCONNECTED", phoneNumber: null });
 
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
 
     try {
       const existing = await prisma.whatsAppInstance.findFirst({
-        where: { organizationId, userId, provider: "META_CLOUD" },
+        where: { organizationId, kind: "PERSONAL", personalOwnerId: userId, provider: "META_CLOUD" },
       });
 
       const data = {
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
         await prisma.whatsAppInstance.update({ where: { id: existing.id }, data });
       } else {
         await prisma.whatsAppInstance.create({
-          data: { organizationId, userId, provider: "META_CLOUD", ...data },
+          data: { organizationId, kind: "PERSONAL", personalOwnerId: userId, provider: "META_CLOUD", ...data },
         });
       }
     } catch (err) {
@@ -165,7 +165,7 @@ export async function DELETE(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findFirst({
-      where: { organizationId, userId, provider: "META_CLOUD" },
+      where: { organizationId, kind: "PERSONAL", personalOwnerId: userId, provider: "META_CLOUD" },
     });
     if (!instance) return NextResponse.json({ ok: true });
 

@@ -85,7 +85,7 @@ export async function getOrCreateThread(params: GetOrCreateThreadParams) {
 
   const [contact, instance] = await Promise.all([
     resolveContactForNumber(organizationId, phoneNormalized),
-    prisma.whatsAppInstance.findUnique({ where: { id: instanceId }, select: { userId: true } }),
+    prisma.whatsAppInstance.findUnique({ where: { id: instanceId }, select: { kind: true, personalOwnerId: true } }),
   ]);
   try {
     return await prisma.whatsAppThread.create({
@@ -95,7 +95,13 @@ export async function getOrCreateThread(params: GetOrCreateThreadParams) {
         // Denormalizado (sobrevive à instância ser apagada de verdade quando
         // o dono é desativado — ver ownerUserId no schema) — resolvido uma
         // vez aqui, na criação, nunca reescrito depois.
-        ownerUserId: instance?.userId,
+        ownerUserId: instance?.kind === "PERSONAL" ? instance.personalOwnerId : null,
+        assigneeId: instance?.kind === "PERSONAL" ? instance.personalOwnerId : null,
+        // Conversa da Central nasce já na fila (OPEN, sem responsável): se a
+        // distribuição falhar depois, ela continua visível em "Sem responsável"
+        // em vez de virar uma conversa pessoal sem dono que ninguém enxerga.
+        // inboxStatus preenchido = Central; NULL = pessoal (ver schema).
+        inboxStatus: instance?.kind === "CENTRAL" ? "OPEN" : undefined,
         phoneNormalized,
         whatsappName: whatsappName ?? undefined,
         contactId: contact?.id,
@@ -205,9 +211,21 @@ export async function getOrCreateThreadForContact(params: GetOrCreateThreadForCo
   try {
     // ownerUserId: denormalizado, sobrevive à instância ser apagada de
     // verdade (ver ownerUserId no schema/getOrCreateThread acima).
-    const instanceRow = await prisma.whatsAppInstance.findUnique({ where: { id: instance.id }, select: { userId: true } });
+    const instanceRow = await prisma.whatsAppInstance.findUnique({
+      where: { id: instance.id },
+      select: { kind: true, personalOwnerId: true },
+    });
+    const personalOwnerId = instanceRow?.kind === "PERSONAL" ? instanceRow.personalOwnerId : null;
     return await prisma.whatsAppThread.create({
-      data: { organizationId, instanceId: instance.id, ownerUserId: instanceRow?.userId, phoneNormalized, contactId: contact.id },
+      data: {
+        organizationId,
+        instanceId: instance.id,
+        ownerUserId: personalOwnerId,
+        assigneeId: personalOwnerId,
+        inboxStatus: instanceRow?.kind === "CENTRAL" ? "OPEN" : undefined,
+        phoneNormalized,
+        contactId: contact.id,
+      },
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

@@ -258,6 +258,7 @@ export async function POST(req: Request) {
             source: sanitizeCell(source),
             company: sanitizeCell(company),
             jobTitle: sanitizeCell(jobTitle),
+            ...(jobTitle?.trim() ? { needsEnrichment: false } : {}),
             birthDate: birthDate ? new Date(birthDate) : undefined,
             address: sanitizeCell(address),
             addressNumber: sanitizeCell(addressNumber),

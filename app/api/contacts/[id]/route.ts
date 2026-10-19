@@ -236,6 +236,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       source: sanitizeCell(source),
       company: sanitizeCell(company),
       jobTitle: sanitizeCell(jobTitle),
+      // Cargo preenchido encerra o "contato incompleto" criado pela Central.
+      ...(jobTitle?.trim() ? { needsEnrichment: false } : {}),
       birthDate: birthDate ? new Date(birthDate) : undefined,
       address: sanitizeCell(address),
       addressNumber: sanitizeCell(addressNumber),

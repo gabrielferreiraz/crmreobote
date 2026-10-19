@@ -237,7 +237,13 @@ export function DealBulkActions({
           askAdministrator
           onConfirm={async (closedAt, extra) => {
             await apply(
-              { action: "status", status: "WON", closedAt, ...(extra.administratorId ? { administratorId: extra.administratorId } : {}) },
+              {
+                action: "status",
+                status: "WON",
+                closedAt,
+                ...(extra.administratorId ? { administratorId: extra.administratorId } : {}),
+                ...(extra.creditType ? { creditType: extra.creditType } : {}),
+              },
               "pipeline.massa.ganho",
             );
             setWonOpen(false);

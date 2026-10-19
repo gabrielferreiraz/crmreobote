@@ -2,7 +2,7 @@ import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCommissionAccess } from "@/lib/commissions/access";
-import { badRequest } from "@/lib/commissions/route-helpers";
+import { badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { notifyDisputeOpened } from "@/lib/commissions/notify";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * aberta por parcela de cada vez: contestar de novo antes da resposta só
  * duplicaria o aviso pro Financeiro.
  */
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const access = await getCommissionAccess();
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
@@ -44,4 +44,4 @@ export async function POST(req: Request) {
     after(() => notifyDisputeOpened(access.organizationId, access.actorName, entry.sale?.clientName ?? null));
     return NextResponse.json(dispute, { status: 201 });
   });
-}
+});

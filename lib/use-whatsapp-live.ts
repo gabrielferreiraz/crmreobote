@@ -2,11 +2,14 @@
 
 import { useEffect, useRef } from "react";
 
+// `central`: o evento é de uma conversa da Central de Leads — a tela da
+// Central só recarrega com estes (ou com conversas que já está mostrando), e
+// não a cada mensagem dos números pessoais da empresa inteira.
 export type WhatsAppLiveEvent =
-  | { type: "message"; threadId: string }
-  | { type: "status"; threadId: string }
-  | { type: "read"; threadId: string }
-  | { type: "presence"; threadId: string };
+  | { type: "message"; threadId: string; central?: boolean }
+  | { type: "status"; threadId: string; central?: boolean }
+  | { type: "read"; threadId: string; central?: boolean }
+  | { type: "presence"; threadId: string; central?: boolean };
 
 type WhatsAppLiveListener = (event: WhatsAppLiveEvent) => void;
 

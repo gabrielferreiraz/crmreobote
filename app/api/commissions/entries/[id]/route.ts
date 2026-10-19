@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, commissionRoute } from "@/lib/commissions/route-helpers";
 import { formatCurrency } from "@/lib/format";
 import { formatMonthShort } from "@/lib/commissions/engine";
 
 export const dynamic = "force-dynamic";
 
 /** Só ajuste (lançamento avulso) ainda não pago pode ser apagado — parcela de venda se cancela/trava, nunca some. */
-export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = commissionRoute(async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -32,4 +32,4 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     });
     return NextResponse.json({ ok: true });
   });
-}
+});

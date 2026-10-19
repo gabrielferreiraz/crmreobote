@@ -32,11 +32,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 // responsavel: fallback de {consultor} pra campanha MANUAL (ver buildVariables).
-// instance.user: nome de quem enviou, quando o destinatário tem instanceId
+// instance.personalOwner: nome de quem enviou, quando o destinatário tem instanceId
 // própria (campanha PIPELINE_BULK) — ver sendToRecipient.
 const RECIPIENT_INCLUDE = {
   contact: { include: { responsavel: { select: { name: true } } } },
-  instance: { select: { user: { select: { name: true } } } },
+  instance: { select: { personalOwner: { select: { name: true } } } },
 } as const;
 
 type CampaignRow = {
@@ -366,7 +366,7 @@ type RecipientRow = {
   id: string;
   contact: Contact & { responsavel?: { name: string } | null };
   instanceId: string | null;
-  instance?: { user: { name: string } } | null;
+  instance?: { personalOwner: { name: string } | null } | null;
   nextWaveIndex: number;
 };
 
@@ -467,7 +467,7 @@ async function sendToRecipient(
           : campaign.messageTemplates
     ) as unknown as WeightedScript[];
     const chosen = pickWeighted(templates);
-    const consultorName = recipient.instanceId ? (recipient.instance?.user.name ?? null) : null;
+    const consultorName = recipient.instanceId ? (recipient.instance?.personalOwner?.name ?? null) : null;
     const steps = renderSteps(chosen.steps, buildVariables(recipient.contact, consultorName), brazilGreeting());
 
     // Campanha PIPELINE_BULK: cada destinatário pode ter sua própria

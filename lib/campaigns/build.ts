@@ -113,10 +113,12 @@ export async function resolveCampaignInput(
   }
 
   if (!input.instanceId) return { ok: false, error: "Selecione de qual WhatsApp enviar" };
-  const instance = await prisma.whatsAppInstance.findFirst({ where: { id: input.instanceId, organizationId } });
+  const instance = await prisma.whatsAppInstance.findFirst({
+    where: { id: input.instanceId, organizationId, kind: "PERSONAL", personalOwnerId: { not: null } },
+  });
   if (!instance) return { ok: false, error: "Instância de WhatsApp inválida" };
   const canUseInstance =
-    actor.role === "OWNER" || instance.userId === actor.userId || instance.id === actor.currentInstanceId;
+    actor.role === "OWNER" || instance.personalOwnerId === actor.userId || instance.id === actor.currentInstanceId;
   if (!canUseInstance) {
     return { ok: false, error: "Você só pode disparar campanhas pelo seu próprio WhatsApp. Peça ao dono da organização para montar a campanha em nome de outra pessoa." };
   }

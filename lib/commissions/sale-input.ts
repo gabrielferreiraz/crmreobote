@@ -17,6 +17,7 @@ export type SaleInput = {
   netValue?: number | null;
   grossValue?: number | null;
   clientInstallment?: number | null;
+  autoDebit?: boolean;
   quotaNumber?: string | null;
   groupNumber?: string | null;
   notes?: string | null;
@@ -28,7 +29,9 @@ function moneyOrNull(value: unknown): number | null | undefined | "invalid" {
   if (value === undefined) return undefined;
   if (value === null || value === "") return null;
   const n = parseMoney(value);
-  if (n == null || n < 0) return "invalid";
+  // Teto bem acima de qualquer cota real — pega zero digitado a mais antes
+  // de estourar a coluna do banco (erro genérico pra quem digitou).
+  if (n == null || n < 0 || n > 1_000_000_000) return "invalid";
   return n;
 }
 
@@ -64,7 +67,8 @@ export function parseSaleInput(body: Record<string, unknown>, opts: { partial: b
   for (const key of ["netValue", "grossValue", "clientInstallment"] as const) {
     const v = moneyOrNull(body[key]);
     if (v === "invalid") {
-      return { ok: false, error: key === "netValue" ? "Valor líquido inválido" : key === "grossValue" ? "Valor bruto inválido" : "Valor da parcela do cliente inválido" };
+      const what = key === "netValue" ? "O valor líquido" : key === "grossValue" ? "O valor bruto" : "O valor da parcela do cliente";
+      return { ok: false, error: `${what} está inválido — confira se não sobrou um zero a mais` };
     }
     if (v !== undefined) data[key] = v;
   }
@@ -72,6 +76,10 @@ export function parseSaleInput(body: Record<string, unknown>, opts: { partial: b
     if (body[key] !== undefined) data[key] = optionalText(body[key], 40) ?? null;
   }
   if (body.notes !== undefined) data.notes = optionalText(body.notes, 1000) ?? null;
+  if (body.autoDebit !== undefined) {
+    if (typeof body.autoDebit !== "boolean") return { ok: false, error: "Opção inválida" };
+    data.autoDebit = body.autoDebit;
+  }
 
   return { ok: true, data };
 }

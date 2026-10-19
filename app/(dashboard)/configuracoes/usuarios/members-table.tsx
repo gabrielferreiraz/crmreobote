@@ -13,6 +13,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { Select } from "@/components/select";
 import { Switch } from "@/components/switch";
 import { requestJson } from "@/lib/client-request";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { AcademyOnboardingPreview } from "@/components/academy/academy-onboarding-preview";
 
 type Member = {
@@ -169,38 +170,32 @@ export function MembersTable({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetId = useRef<string | null>(null);
   const [presence, setPresence] = useState<Record<string, string | null>>({});
+  const presenceRequestRef = useRef<AbortController | null>(null);
 
   // Atualiza os pontinhos de "online" sozinho, sem re-render da página
   // inteira (router.refresh() re-buscaria tudo do servidor à toa).
-  useEffect(() => {
-    // Um controller pro ciclo inteiro: sair da tela derruba o poll em voo
-    // (antes a resposta só era descartada, mas a consulta terminava).
+  useVisiblePoll(async () => {
+    presenceRequestRef.current?.abort();
     const controller = new AbortController();
-
-    async function poll() {
-      try {
-        const res = await fetch("/api/presence/status", { signal: controller.signal });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        if (!data?.members) return;
-        const next: Record<string, string | null> = {};
-        for (const m of data.members as { userId: string; lastActiveAt: string | null }[]) {
-          next[m.userId] = m.lastActiveAt;
-        }
-        setPresence(next);
-      } catch {
-        // Abort ao sair da tela, ou rede oscilando: os pontinhos ficam como
-        // estão e o próximo ciclo corrige. Antes um erro de rede aqui virava
-        // promessa rejeitada sem tratamento nenhum.
+    presenceRequestRef.current = controller;
+    try {
+      const res = await fetch("/api/presence/status", { signal: controller.signal });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (!data?.members) return;
+      const next: Record<string, string | null> = {};
+      for (const m of data.members as { userId: string; lastActiveAt: string | null }[]) {
+        next[m.userId] = m.lastActiveAt;
       }
+      setPresence(next);
+    } catch {
+      // Abort ao sair da tela, ou rede oscilando: os pontinhos ficam como
+      // estão e o próximo ciclo corrige.
     }
+  }, 20_000);
 
-    poll();
-    const interval = setInterval(poll, 20_000);
-    return () => {
-      controller.abort();
-      clearInterval(interval);
-    };
+  useEffect(() => () => {
+    presenceRequestRef.current?.abort();
   }, []);
 
   const activeMembers = useMemo(() => initialMembers.filter((m) => m.active), [initialMembers]);

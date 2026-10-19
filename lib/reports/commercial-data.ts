@@ -1247,7 +1247,7 @@ export async function getCommercialReportData(params: {
   const instanceOwnerFilterSql =
     effectiveScope.type === "owners"
       ? effectiveScope.ownerIds.length > 0
-        ? Prisma.sql`AND EXISTS (SELECT 1 FROM "WhatsAppInstance" i WHERE i.id = t."instanceId" AND i."userId" IN (${Prisma.join(effectiveScope.ownerIds)}))`
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM "WhatsAppInstance" i WHERE i.id = t."instanceId" AND i."kind" = 'PERSONAL' AND i."userId" IN (${Prisma.join(effectiveScope.ownerIds)}))`
         : Prisma.sql`AND false`
       : Prisma.empty;
 
@@ -1389,10 +1389,14 @@ export async function getCommercialReportData(params: {
       ]).then(([messages]) => messages)
     : Promise.resolve([]);
 
-  const [whatsappInstances, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
+  const [whatsappInstancesRaw, sentByInstance, organicOutboundPairs, campaignRecipients] = await Promise.all([
     prisma.whatsAppInstance.findMany({
-      where: { organizationId, ...(effectiveScope.type === "owners" ? { userId: { in: effectiveScope.ownerIds } } : {}) },
-      include: { user: { select: { id: true, name: true } } },
+      where: {
+        organizationId,
+        kind: "PERSONAL",
+        personalOwnerId: { not: null, ...(effectiveScope.type === "owners" ? { in: effectiveScope.ownerIds } : {}) },
+      },
+      include: { personalOwner: { select: { id: true, name: true } } },
     }),
     prisma.whatsAppMessage.groupBy({
       by: ["instanceId"],
@@ -1444,8 +1448,14 @@ export async function getCommercialReportData(params: {
         ...(effectiveScope.type === "owners"
           ? {
               OR: [
-                { instanceId: null, campaign: { instance: { userId: { in: effectiveScope.ownerIds } } } },
-                { instanceId: { not: null }, instance: { userId: { in: effectiveScope.ownerIds } } },
+                {
+                  instanceId: null,
+                  campaign: { instance: { kind: "PERSONAL", personalOwnerId: { in: effectiveScope.ownerIds } } },
+                },
+                {
+                  instanceId: { not: null },
+                  instance: { kind: "PERSONAL", personalOwnerId: { in: effectiveScope.ownerIds } },
+                },
               ],
             }
           : {}),
@@ -1482,6 +1492,12 @@ export async function getCommercialReportData(params: {
   // propósito — é "estado de risco agora", igual ao badge Conectado/
   // Desconectado dos cards acima, não uma métrica histórica do intervalo
   // escolhido.
+  const whatsappInstances = whatsappInstancesRaw.filter(
+    (instance): instance is typeof instance & {
+      personalOwnerId: string;
+      personalOwner: { id: string; name: string };
+    } => Boolean(instance.personalOwnerId && instance.personalOwner),
+  );
   const instanceIds = whatsappInstances.map((i) => i.id);
   const riskWindowStart = new Date(new Date().getTime() - RISK_WINDOW_MS);
   const [pausedCampaignCounts, recentCampaignSentCounts] = instanceIds.length
@@ -1516,8 +1532,8 @@ export async function getCommercialReportData(params: {
   const instabilityRows = whatsappInstances
     .filter((i) => i.recentDisconnectCount > 0)
     .map((i) => ({
-      userId: i.userId,
-      name: i.user.name,
+      userId: i.personalOwnerId,
+      name: i.personalOwner.name,
       phoneNumber: i.phoneNumber,
       provider: i.provider,
       recentDisconnectCount: i.recentDisconnectCount,
@@ -1785,7 +1801,9 @@ export async function getCommercialReportData(params: {
     const allContactedContacts = new Set(
       outboundForInst.map((p) => contactIdByThread.get(p.threadId)).filter((id): id is string => !!id),
     );
-    const convertedForInst = Array.from(allContactedContacts).filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
+    const convertedForInst = Array.from(allContactedContacts).filter((cid) =>
+      wonOwnersByContact.get(cid)?.has(inst.personalOwnerId),
+    ).length;
     const conversionRate =
       allContactedContacts.size > 0 ? Math.round((convertedForInst / allContactedContacts.size) * 100) : 0;
     const campaignStats = campaignStatsByInstance.get(inst.id) ?? { sent: 0, replied: 0 };
@@ -1797,8 +1815,8 @@ export async function getCommercialReportData(params: {
     const possibleColdDeals = possibleColdDealsByInstance.get(inst.id)?.size ?? 0;
 
     return {
-      userId: inst.userId,
-      name: inst.user.name,
+      userId: inst.personalOwnerId,
+      name: inst.personalOwner.name,
       connected: inst.status === "CONNECTED",
       sent,
       contacted: generalContactedContacts.size,
@@ -1886,7 +1904,9 @@ export async function getCommercialReportData(params: {
         contactedThreads.length > 0 ? Math.round((respondedThreads.length / contactedThreads.length) * 100) : null;
 
       const contactIdsForInst = contactedThreads.map((t) => t.contactId).filter((id): id is string => !!id);
-      const convertedForInst = contactIdsForInst.filter((cid) => wonOwnersByContact.get(cid)?.has(inst.userId)).length;
+      const convertedForInst = contactIdsForInst.filter((cid) =>
+        wonOwnersByContact.get(cid)?.has(inst.personalOwnerId),
+      ).length;
       const conversionRate =
         contactIdsForInst.length > 0 ? Math.round((convertedForInst / contactIdsForInst.length) * 100) : null;
 
@@ -1902,8 +1922,8 @@ export async function getCommercialReportData(params: {
       const messagesPerDay = sentInScope > 0 ? sentInScope / activeDays : 0;
 
       return {
-        userId: inst.userId,
-        name: inst.user.name,
+        userId: inst.personalOwnerId,
+        name: inst.personalOwner.name,
         conversations: instThreads.length,
         sent: sentInScope,
         responseRate,

@@ -13,7 +13,7 @@ export default async function ConversasPage() {
   return runWithTenant(organizationId, async () => {
     const scopePromise = getDealScope(organizationId, userId, session!.user.role);
     const instancesPromise = prisma.whatsAppInstance.findMany({
-      where: { organizationId, userId },
+      where: { organizationId, kind: "PERSONAL", personalOwnerId: userId },
       select: { provider: true, notifyOnCrmMessage: true, notifyOnGeralMessage: true, status: true },
     });
     const scope = await scopePromise;

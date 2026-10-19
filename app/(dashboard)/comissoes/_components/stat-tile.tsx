@@ -26,14 +26,14 @@ export function StatTile({
   }[tone];
 
   return (
-    <div className="card flex items-center gap-3 p-4">
-      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconTone}`}>
+    <div className="card flex min-h-24 items-center gap-3 rounded-lg p-4">
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${iconTone}`}>
         <Icon className="h-5 w-5" strokeWidth={2} />
       </span>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">{label}</p>
+        <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{label}</p>
         <p className="truncate text-xl font-semibold tracking-tight text-neutral-900 tabular-nums dark:text-neutral-100">{value}</p>
-        {hint && <p className="text-sm text-neutral-500 dark:text-neutral-400">{hint}</p>}
+        {hint && <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{hint}</p>}
       </div>
     </div>
   );

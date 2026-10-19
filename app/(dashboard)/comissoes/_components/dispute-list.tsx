@@ -12,34 +12,34 @@ import { brazilDateKey } from "@/lib/timezone";
 import { formatMonthLong } from "@/lib/commissions/engine";
 import type { OpenDispute } from "@/lib/commissions/queries";
 
-const QUICK_ANSWERS = ["Conferi e o valor está certo.", "Você tem razão — já corrigi.", "Vou verificar com a administradora e te aviso."];
+const QUICK_ANSWERS = ["Conferi, está certo.", "Corrigido.", "Vou verificar e te aviso."];
 
-/** Contestações esperando resposta — cada uma numa frase, com "Responder" ao lado. */
+/** Contestações esperando resposta, resumidas para leitura rápida. */
 export function DisputeList({ disputes }: { disputes: OpenDispute[] }) {
   const [answering, setAnswering] = useState<OpenDispute | null>(null);
   if (disputes.length === 0) return null;
 
   return (
-    <section className="card space-y-3 p-5 ring-1 ring-red-500/20">
-      <h2 className="flex items-center gap-2 text-base font-semibold text-neutral-900 dark:text-neutral-100">
+    <section className="card space-y-2 rounded-lg p-4 ring-1 ring-red-500/20">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
         <MessageCircleQuestion className="h-5 w-5 text-red-500" strokeWidth={2} />
-        {disputes.length === 1 ? "1 pessoa está esperando sua resposta" : `${disputes.length} pessoas estão esperando sua resposta`}
+        Contestações
+        <span className="text-xs font-medium text-red-600 dark:text-red-400">{disputes.length}</span>
       </h2>
       <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
         {disputes.map((d) => (
           <li key={d.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
-            <div className="min-w-0 flex-1 space-y-1 text-sm text-neutral-700 dark:text-neutral-300">
-              <p>
-                <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{d.requesterName}</strong> contestou a {d.entry.what}
-                {d.entry.clientName ? ` da venda de ${d.entry.clientName}` : ""} ({formatCurrency(d.entry.amount)}, {formatMonthLong(d.entry.paymentMonth).toLowerCase()}) em{" "}
-                {brazilDateKey(new Date(d.createdAt)).split("-").reverse().join("/")}:
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{d.requesterName}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                {d.entry.what} · {formatCurrency(d.entry.amount)} · {formatMonthLong(d.entry.paymentMonth).toLowerCase()} · {brazilDateKey(new Date(d.createdAt)).split("-").reverse().join("/")}
               </p>
-              <p className="italic text-neutral-900 dark:text-neutral-100">“{d.message}”</p>
+              <p className="line-clamp-2 text-sm text-neutral-700 dark:text-neutral-300">“{d.message}”</p>
             </div>
             <div className="flex shrink-0 gap-2">
               {d.entry.saleId && (
                 <Link href={`/comissoes/vendas?venda=${d.entry.saleId}`} className="btn-ghost btn-sm">
-                  Ver a venda
+                  Venda
                 </Link>
               )}
               <button type="button" className="btn-primary btn-sm" onClick={() => setAnswering(d)}>
@@ -100,7 +100,7 @@ function AnswerDialog({ dispute, onClose }: { dispute: OpenDispute; onClose: () 
           value={response}
           maxLength={500}
           onChange={(e) => setResponse(e.target.value)}
-          placeholder="Escreva a resposta — o consultor recebe no celular"
+          placeholder="Resposta"
           aria-label="Resposta"
         />
         {error && <p className="field-error text-sm">{error}</p>}

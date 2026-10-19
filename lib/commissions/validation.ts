@@ -5,31 +5,34 @@
  */
 
 import { Prisma } from "@/app/generated/prisma/client";
-import { parsePercentList, revenueConfigError, type RevenueMode } from "@/lib/commissions/engine";
+import { revenueConfigError, type RevenueMode, type UnpaidPolicy } from "@/lib/commissions/engine";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/** Uma tabela de comissão (padrão ou de uma categoria), já validada. */
+export type CommissionTableInput = {
+  creditType: string | null;
+  commissionInstallments: number;
+  skippedInstallments: number[];
+  revenueMode: RevenueMode | null;
+  revenueTotalPercent: number | null;
+  revenuePercents: number[] | null;
+  revenueBase: "NET" | "GROSS";
+};
 
 export type AdministratorInput = {
   name?: string;
   active?: boolean;
-  commissionInstallments?: number;
   graceMonths?: number;
   cutoffDay?: number | null;
   paysSellerDirectly?: boolean;
-  revenueMode?: RevenueMode | null;
-  revenueTotalPercent?: number | null;
-  revenuePercents?: number[] | null;
-  revenueBase?: "NET" | "GROSS";
-};
-
-type ExistingRevenue = {
-  commissionInstallments: number;
-  revenueMode: RevenueMode | null;
-  revenueTotalPercent: number | null;
-  revenuePercents: number[] | null;
+  unpaidPolicy?: UnpaidPolicy;
+  /** Quando vem, SUBSTITUI todas as tabelas da administradora (sempre com uma padrão). */
+  tables?: CommissionTableInput[];
 };
 
 const REVENUE_MODES: RevenueMode[] = ["CREDIT_EQUAL", "CREDIT_TABLE", "CLIENT_INSTALLMENT_TABLE"];
+const UNPAID_POLICIES: UnpaidPolicy[] = ["IGNORE", "HOLD", "FORFEIT", "DEFER"];
 
 function percentOrNull(value: unknown): number | null | "invalid" {
   if (value === null || value === undefined || value === "") return null;
@@ -42,15 +45,65 @@ function intInRange(value: unknown, min: number, max: number): number | null {
   return typeof n === "number" && Number.isInteger(n) && n >= min && n <= max ? n : null;
 }
 
+/** Valida UMA tabela; `label` entra na mensagem ("Na tabela de Imóvel: …"). */
+function parseTable(raw: unknown): Result<CommissionTableInput> {
+  if (!raw || typeof raw !== "object") return { ok: false, error: "Tabela inválida" };
+  const t = raw as Record<string, unknown>;
+  const creditType = typeof t.creditType === "string" && t.creditType.trim() ? t.creditType.trim().slice(0, 80) : null;
+  const where = creditType ? `Na tabela de ${creditType}: ` : "";
+
+  const count = intInRange(t.commissionInstallments ?? 1, 1, 60);
+  if (count == null) return { ok: false, error: `${where}o número de parcelas deve ser de 1 a 60` };
+
+  const skippedRaw = Array.isArray(t.skippedInstallments) ? t.skippedInstallments : [];
+  const skipped = Array.from(new Set(skippedRaw.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1 && n <= count))).sort((a, b) => a - b);
+  if (skipped.length >= count) return { ok: false, error: `${where}pelo menos uma parcela precisa ter comissão` };
+
+  const mode = t.revenueMode ?? null;
+  if (mode !== null && !REVENUE_MODES.includes(mode as RevenueMode)) return { ok: false, error: `${where}opção inválida em quanto a administradora paga` };
+
+  const total = percentOrNull(t.revenueTotalPercent);
+  if (total === "invalid") return { ok: false, error: `${where}percentual inválido` };
+  let percents: number[] | null = null;
+  if (Array.isArray(t.revenuePercents)) {
+    const list = t.revenuePercents.map((v) => percentOrNull(v));
+    if (list.some((v) => v === "invalid")) return { ok: false, error: `${where}algum percentual está inválido` };
+    percents = Array.from({ length: count }, (_, i) => {
+      const v = list[i];
+      // Parcela sem comissão nunca guarda %: fica 0.
+      return skipped.includes(i + 1) || v === null || v === "invalid" || v === undefined ? 0 : v;
+    });
+  }
+
+  const base = t.revenueBase ?? "NET";
+  if (base !== "NET" && base !== "GROSS") return { ok: false, error: `${where}opção inválida` };
+
+  const revenueMode = mode as RevenueMode | null;
+  const error = revenueConfigError(revenueMode, count, revenueMode === "CREDIT_EQUAL" ? total : null, revenueMode === "CREDIT_EQUAL" ? null : percents);
+  if (error) return { ok: false, error: `${where}${error.charAt(0).toLowerCase()}${error.slice(1)}` };
+
+  return {
+    ok: true,
+    data: {
+      creditType,
+      commissionInstallments: count,
+      skippedInstallments: skipped,
+      revenueMode,
+      // Guarda só o que o modo usa — trocar de modo nunca deixa sobra do anterior.
+      revenueTotalPercent: revenueMode === "CREDIT_EQUAL" ? total : null,
+      revenuePercents: revenueMode === "CREDIT_TABLE" || revenueMode === "CLIENT_INSTALLMENT_TABLE" ? percents : null,
+      revenueBase: base,
+    },
+  };
+}
+
 /**
- * `partial: true` (PATCH) aceita só os campos enviados; `existing` completa
- * o que faltar pra validar o CONJUNTO (ex.: mudar só o número de parcelas
- * precisa conferir a tabela de percentuais que já estava salva).
+ * Cadastro de administradora. `partial: true` (PATCH) aceita só os campos
+ * enviados; `tables`, quando vem, é a lista COMPLETA (substitui as atuais) e
+ * precisa ter exatamente uma padrão (sem categoria) e nenhuma categoria
+ * repetida.
  */
-export function parseAdministratorInput(
-  body: Record<string, unknown>,
-  opts: { partial: boolean; existing?: ExistingRevenue },
-): Result<AdministratorInput> {
+export function parseAdministratorInput(body: Record<string, unknown>, opts: { partial: boolean }): Result<AdministratorInput> {
   const data: AdministratorInput = {};
 
   if (body.name !== undefined || !opts.partial) {
@@ -62,37 +115,6 @@ export function parseAdministratorInput(
   if (body.active !== undefined) {
     if (typeof body.active !== "boolean") return { ok: false, error: "Opção inválida" };
     data.active = body.active;
-  }
-  if (body.commissionInstallments !== undefined || !opts.partial) {
-    const n = intInRange(body.commissionInstallments ?? 1, 1, 60);
-    if (n == null) return { ok: false, error: "Número de parcelas deve ser de 1 a 60" };
-    data.commissionInstallments = n;
-  }
-  if (body.revenueMode !== undefined) {
-    if (body.revenueMode !== null && !REVENUE_MODES.includes(body.revenueMode as RevenueMode)) {
-      return { ok: false, error: "Opção inválida em quanto a administradora paga" };
-    }
-    data.revenueMode = (body.revenueMode as RevenueMode | null) ?? null;
-  }
-  if (body.revenueTotalPercent !== undefined) {
-    const n = percentOrNull(body.revenueTotalPercent);
-    if (n === "invalid") return { ok: false, error: "Percentual inválido" };
-    data.revenueTotalPercent = n;
-  }
-  if (body.revenuePercents !== undefined) {
-    if (body.revenuePercents === null) {
-      data.revenuePercents = null;
-    } else if (Array.isArray(body.revenuePercents)) {
-      const list = body.revenuePercents.map((v) => percentOrNull(v));
-      if (list.some((v) => v === "invalid")) return { ok: false, error: "Algum percentual está inválido" };
-      data.revenuePercents = list.map((v) => (v === null || v === "invalid" ? 0 : v));
-    } else {
-      return { ok: false, error: "Percentuais inválidos" };
-    }
-  }
-  if (body.revenueBase !== undefined) {
-    if (body.revenueBase !== "NET" && body.revenueBase !== "GROSS") return { ok: false, error: "Opção inválida" };
-    data.revenueBase = body.revenueBase;
   }
   if (body.graceMonths !== undefined || !opts.partial) {
     const n = intInRange(body.graceMonths ?? 1, 0, 24);
@@ -112,48 +134,39 @@ export function parseAdministratorInput(
     if (typeof body.paysSellerDirectly !== "boolean") return { ok: false, error: "Opção inválida" };
     data.paysSellerDirectly = body.paysSellerDirectly;
   }
-
-  // "Quanto paga pra corretora" sempre conferido como CONJUNTO final (o
-  // que veio no corpo, completado pelo que já estava salvo).
-  const pick = <K extends keyof ExistingRevenue>(key: K): ExistingRevenue[K] | null =>
-    (data as Partial<ExistingRevenue>)[key] !== undefined ? ((data as ExistingRevenue)[key]) : (opts.existing?.[key] ?? null);
-  const finalCount = pick("commissionInstallments") ?? 1;
-  const finalMode = pick("revenueMode");
-  const finalTotal = pick("revenueTotalPercent");
-  const finalPercents = pick("revenuePercents");
-  const revenueError = revenueConfigError(finalMode, finalCount, finalTotal, finalPercents);
-  if (revenueError) return { ok: false, error: revenueError };
-  // Guarda só o que o modo usa — trocar de modo nunca deixa sobra do anterior.
-  if (data.revenueMode !== undefined) {
-    if (finalMode !== "CREDIT_EQUAL") data.revenueTotalPercent = null;
-    if (finalMode !== "CREDIT_TABLE" && finalMode !== "CLIENT_INSTALLMENT_TABLE") data.revenuePercents = null;
+  if (body.unpaidPolicy !== undefined) {
+    if (!UNPAID_POLICIES.includes(body.unpaidPolicy as UnpaidPolicy)) return { ok: false, error: "Opção inválida para cliente que não pagou" };
+    // "Trava até pagar" saiu das opções: quem ainda mandar HOLD vira "recebe quando o cliente pagar".
+    data.unpaidPolicy = body.unpaidPolicy === "HOLD" ? "DEFER" : (body.unpaidPolicy as UnpaidPolicy);
+  }
+  if (body.tables !== undefined || !opts.partial) {
+    if (!Array.isArray(body.tables) || body.tables.length === 0) return { ok: false, error: "Informe como a administradora paga" };
+    const tables: CommissionTableInput[] = [];
+    for (const raw of body.tables) {
+      const parsed = parseTable(raw);
+      if (!parsed.ok) return parsed;
+      tables.push(parsed.data);
+    }
+    if (tables.filter((t) => t.creditType === null).length !== 1) return { ok: false, error: "Precisa existir exatamente uma tabela padrão" };
+    const categories = tables.filter((t) => t.creditType).map((t) => t.creditType!.toLocaleLowerCase("pt-BR"));
+    if (new Set(categories).size !== categories.length) return { ok: false, error: "Uma categoria aparece em duas tabelas" };
+    data.tables = tables;
   }
 
   return { ok: true, data };
 }
 
-/** AdministratorInput → `data` do Prisma (lista nula vira DbNull; % vira string de Decimal). */
-export function administratorPrismaData(input: AdministratorInput) {
-  const { revenuePercents, revenueTotalPercent, ...rest } = input;
+/** Tabela validada → linha do Prisma (lista nula vira DbNull; % vira string de Decimal). */
+export function tablePrismaData(organizationId: string, table: CommissionTableInput) {
   return {
-    ...rest,
-    ...(revenuePercents !== undefined ? { revenuePercents: revenuePercents ?? Prisma.DbNull } : {}),
-    ...(revenueTotalPercent !== undefined ? { revenueTotalPercent: revenueTotalPercent == null ? null : revenueTotalPercent.toFixed(4) } : {}),
-  };
-}
-
-/** Linha do banco → o que a validação precisa saber do que já está salvo. */
-export function existingRevenueFrom(row: {
-  commissionInstallments: number;
-  revenueMode: RevenueMode | null;
-  revenueTotalPercent: { toString(): string } | null;
-  revenuePercents: unknown;
-}): ExistingRevenue {
-  return {
-    commissionInstallments: row.commissionInstallments,
-    revenueMode: row.revenueMode,
-    revenueTotalPercent: row.revenueTotalPercent != null ? Number(row.revenueTotalPercent) : null,
-    revenuePercents: parsePercentList(row.revenuePercents),
+    organizationId,
+    creditType: table.creditType,
+    commissionInstallments: table.commissionInstallments,
+    skippedInstallments: table.skippedInstallments,
+    revenueMode: table.revenueMode,
+    revenueTotalPercent: table.revenueTotalPercent == null ? null : table.revenueTotalPercent.toFixed(4),
+    revenuePercents: table.revenuePercents ?? Prisma.DbNull,
+    revenueBase: table.revenueBase,
   };
 }
 

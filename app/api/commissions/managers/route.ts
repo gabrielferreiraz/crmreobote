@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * permissão que dá visão da comissão de todo mundo, então quem já cuida
  * (o próprio Financeiro) não pode se dar mais gente nem se tirar.
  */
-export async function PATCH(req: Request) {
+export const PATCH = commissionRoute(async function PATCH(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -39,4 +39,4 @@ export async function PATCH(req: Request) {
     });
     return NextResponse.json({ ok: true });
   });
-}
+});

@@ -99,6 +99,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         data: {
           ...(contactSource !== undefined ? { source: contactSource } : {}),
           ...(contactJobTitle !== undefined ? { jobTitle: contactJobTitle } : {}),
+          // Cargo preenchido encerra o "contato incompleto" criado pela Central.
+          ...(contactJobTitle ? { needsEnrichment: false } : {}),
         },
       });
     }

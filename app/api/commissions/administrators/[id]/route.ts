@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
-import { administratorPrismaData, existingRevenueFrom, parseAdministratorInput } from "@/lib/commissions/validation";
+import { forgetPageSync } from "@/lib/commissions/sync";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
+import { parseAdministratorInput, tablePrismaData } from "@/lib/commissions/validation";
 import { Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
  * por baixo dos panos) — a tela oferece "aplicar às vendas sem parcela paga"
  * à parte (POST /api/commissions/sales/recalculate).
  */
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = commissionRoute(async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -25,15 +26,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const existing = await prisma.consortiumAdministrator.findFirst({ where: { id, organizationId: access.organizationId } });
     if (!existing) return NextResponse.json({ error: "Administradora não encontrada" }, { status: 404 });
 
-    const parsed = parseAdministratorInput(body as Record<string, unknown>, { partial: true, existing: existingRevenueFrom(existing) });
+    const parsed = parseAdministratorInput(body as Record<string, unknown>, { partial: true });
     if (!parsed.ok) return badRequest(parsed.error);
-    const rest = parsed.data;
+    const { tables, ...rest } = parsed.data;
 
     try {
       const updated = await prisma.consortiumAdministrator.update({
         where: { id },
-        data: administratorPrismaData(rest),
+        data: {
+          ...rest,
+          // As tabelas vêm sempre completas: troca todas de uma vez (numa
+          // escrita só — nunca fica uma administradora sem tabela padrão).
+          ...(tables
+            ? { tables: { deleteMany: {}, create: tables.map((t) => tablePrismaData(access.organizationId, t)) } }
+            : {}),
+        },
       });
+      forgetPageSync(access.organizationId);
       await auditCommission(req, access, "COMMISSION_ADMINISTRATOR_CHANGED", {
         targetType: "ConsortiumAdministrator",
         targetId: id,
@@ -47,10 +56,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       throw err;
     }
   });
-}
+});
 
 /** Só apaga se nunca foi usada — com venda/negócio apontando pra ela, o caminho é desativar. */
-export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = commissionRoute(async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -70,6 +79,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     }
 
     await prisma.consortiumAdministrator.delete({ where: { id } });
+    forgetPageSync(access.organizationId);
     await auditCommission(req, access, "COMMISSION_ADMINISTRATOR_CHANGED", {
       targetType: "ConsortiumAdministrator",
       targetId: id,
@@ -77,4 +87,4 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     });
     return NextResponse.json({ ok: true });
   });
-}
+});

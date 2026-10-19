@@ -302,7 +302,7 @@ export async function getTvMetrics(organizationId: string) {
           churrascometroTarget > 0 ? (totalVendasMes / churrascometroTarget) * 100 : 0,
         adsUrls: config.adsUrls,
         birthdaySlides,
-        birthdayBackgroundUrl: config.birthdaySlide.backgroundUrl,
+        birthdayBackgroundUrl: config.birthdaySlide.useDefaultBackground ? null : config.birthdaySlide.backgroundUrl,
         visibleWidgets: config.visibleWidgets,
         // Detecção de deploy novo pela TV — ver lib/server-instance.ts.
         serverInstanceId: SERVER_INSTANCE_ID,
@@ -322,7 +322,7 @@ export async function getTvMetrics(organizationId: string) {
       churrascometroProgress: 0,
       adsUrls: config.adsUrls,
       birthdaySlides: [] as { id: string; name: string; photoUrl: string }[],
-      birthdayBackgroundUrl: config.birthdaySlide.backgroundUrl,
+      birthdayBackgroundUrl: config.birthdaySlide.useDefaultBackground ? null : config.birthdaySlide.backgroundUrl,
       visibleWidgets: config.visibleWidgets,
       // Mesmo no fallback de erro — se o banco cair, ainda queremos que a
       // TV detecte um deploy novo e recarregue sozinha assim que possível

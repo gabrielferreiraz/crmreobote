@@ -15,6 +15,7 @@ export type SaleFormState = {
   netValue: string;
   grossValue: string;
   clientInstallment: string;
+  autoDebit: boolean;
   creditType: string;
   quotaNumber: string;
   groupNumber: string;
@@ -23,8 +24,12 @@ export type SaleFormState = {
 
 export type SaleFormOptions = {
   members: { id: string; name: string }[];
-  /** `revenueMode` decide se pede o valor da parcela do cliente. */
-  administrators: { id: string; name: string; revenueMode?: "CREDIT_EQUAL" | "CREDIT_TABLE" | "CLIENT_INSTALLMENT_TABLE" | null }[];
+  /** As tabelas (categoria + modo) decidem se pede o valor da parcela do cliente. */
+  administrators: {
+    id: string;
+    name: string;
+    tables?: { creditType: string | null; revenueMode: "CREDIT_EQUAL" | "CREDIT_TABLE" | "CLIENT_INSTALLMENT_TABLE" | null }[];
+  }[];
   creditTypes: string[];
 };
 
@@ -47,8 +52,12 @@ export function SaleFields({
   const set = <K extends keyof SaleFormState>(key: K, v: SaleFormState[K]) => onChange({ ...value, [key]: v });
   // Só a administradora que paga a corretora em "% da parcela do cliente"
   // precisa desse valor — nas outras o campo nem aparece.
-  const needsClientInstallment =
-    options.administrators.find((a) => a.id === value.administratorId)?.revenueMode === "CLIENT_INSTALLMENT_TABLE" || value.clientInstallment !== "";
+  const tables = options.administrators.find((a) => a.id === value.administratorId)?.tables ?? [];
+  const norm = (v: string) => v.toLocaleLowerCase("pt-BR");
+  const table =
+    (value.creditType ? tables.find((t) => t.creditType && norm(t.creditType) === norm(value.creditType)) : undefined) ??
+    tables.find((t) => t.creditType === null);
+  const needsClientInstallment = table?.revenueMode === "CLIENT_INSTALLMENT_TABLE" || value.clientInstallment !== "";
 
   return (
     <div className="space-y-3">
@@ -97,9 +106,8 @@ export function SaleFields({
 
       {needsClientInstallment && (
         <div className="space-y-1">
-          <label className="field-label">Valor da parcela que o cliente paga</label>
+          <label className="field-label">Parcela do cliente</label>
           <CurrencyInput value={value.clientInstallment} onChange={(v) => set("clientInstallment", v)} />
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">A administradora calcula o que paga para a corretora em cima dele.</p>
         </div>
       )}
 
@@ -121,14 +129,34 @@ export function SaleFields({
 
       {options.creditTypes.length > 0 && (
         <div className="space-y-1">
-          <label className="field-label">Tipo de crédito</label>
+          <label className="field-label">Categoria</label>
           <Select
             value={value.creditType}
             onChange={(v) => set("creditType", v)}
-            options={[{ value: "", label: "—" }, ...options.creditTypes.map((c) => ({ value: c, label: c }))]}
+            options={[
+              { value: "", label: "Sem categoria" },
+              ...options.creditTypes.map((c) => ({ value: c, label: c })),
+              // Categoria que saiu da lista continua aparecendo na venda que já tem ela.
+              ...(value.creditType && !options.creditTypes.includes(value.creditType)
+                ? [{ value: value.creditType, label: `${value.creditType} (não está mais na lista)` }]
+                : []),
+            ]}
+            invalid={!value.creditType}
           />
         </div>
       )}
+
+      <div className="space-y-1">
+        <label className="field-label">Débito automático?</label>
+        <Choices
+          value={value.autoDebit ? "yes" : "no"}
+          onChange={(v) => set("autoDebit", v === "yes")}
+          options={[
+            { value: "no", label: "Não" },
+            { value: "yes", label: "Sim" },
+          ]}
+        />
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -147,7 +175,7 @@ export function SaleFields({
 
       <div className="space-y-1">
         <label className="field-label" htmlFor="sale-notes">
-          Observação (só quem cuida das comissões vê)
+          Observação interna
         </label>
         <textarea id="sale-notes" className="field-input min-h-16" value={value.notes} maxLength={1000} onChange={(e) => set("notes", e.target.value)} />
       </div>
@@ -166,6 +194,7 @@ export function saleFormToBody(state: SaleFormState, initial?: SaleFormState): R
     netValue: state.netValue === "" ? null : Number(state.netValue),
     grossValue: state.grossValue === "" ? null : Number(state.grossValue),
     clientInstallment: state.clientInstallment === "" ? null : Number(state.clientInstallment),
+    autoDebit: state.autoDebit,
     creditType: state.creditType || null,
     quotaNumber: state.quotaNumber,
     groupNumber: state.groupNumber,

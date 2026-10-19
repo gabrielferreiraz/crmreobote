@@ -5,8 +5,10 @@
  * pela tela de configuração.
  */
 export type TvBirthdaySlideConfig = {
-  /** Fundo padrão, igual pra todo mundo. */
+  /** Foto de fundo enviada, igual pra todo mundo. */
   backgroundUrl: string | null;
+  /** true = degradê azul padrão no lugar da foto (a foto continua guardada). */
+  useDefaultBackground: boolean;
   /** userId → foto do consultor JÁ recortada (PNG sem fundo). */
   photos: Record<string, string>;
 };
@@ -19,8 +21,11 @@ export function parseTvBirthdaySlide(raw: unknown): TvBirthdaySlideConfig {
   for (const [userId, url] of Object.entries(photosRaw)) {
     if (typeof url === "string" && url) photos[userId] = url;
   }
+  const backgroundUrl = typeof obj.backgroundUrl === "string" && obj.backgroundUrl ? obj.backgroundUrl : null;
   return {
-    backgroundUrl: typeof obj.backgroundUrl === "string" && obj.backgroundUrl ? obj.backgroundUrl : null,
+    backgroundUrl,
+    // Sem escolha salva (config antiga): segue o que já acontecia — foto se houver.
+    useDefaultBackground: typeof obj.useDefaultBackground === "boolean" ? obj.useDefaultBackground : !backgroundUrl,
     photos,
   };
 }

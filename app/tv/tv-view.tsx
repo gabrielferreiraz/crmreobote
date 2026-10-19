@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
-import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake } from "lucide-react";
+import { TrendingUp, Sparkles, Waypoints, Trophy, PartyPopper, Crown, Cake, ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatedFire } from "@/components/animated-fire";
 // import { ReoboteLogo } from "@/components/reobote-logo"; // desligado — ver comentário de LOGO_ASPECT_RATIO mais abaixo
 import { fetchTvMetrics } from "./actions";
@@ -9,6 +9,7 @@ import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 import { getBrazilParts, brazilDateTime } from "@/lib/timezone";
 import { TvWinCelebration } from "./tv-win-celebration";
 import { TvClock } from "./tv-clock";
+import { TvBirthdaySlide } from "./tv-birthday-slide";
 import { CountUpValue } from "@/components/count-up-value";
 import { useVisiblePoll } from "@/lib/use-visible-poll";
 
@@ -416,13 +417,22 @@ export function TvView({
   );
   const adSlideCount = adSlides.length;
 
+  // adNavTick: passar na mão reinicia a contagem — senão o automático podia
+  // trocar de novo logo depois do clique.
+  const [adNavTick, setAdNavTick] = useState(0);
   useEffect(() => {
     if (adSlideCount <= 1) return;
     const interval = setInterval(() => {
       setCurrentAdIndex((prev) => (prev + 1) % adSlideCount);
     }, AD_DURATION_MS);
     return () => clearInterval(interval);
-  }, [adSlideCount]);
+  }, [adSlideCount, adNavTick]);
+
+  function stepAd(delta: 1 | -1) {
+    if (adSlideCount <= 1) return;
+    setCurrentAdIndex((prev) => (Math.min(prev, adSlideCount - 1) + delta + adSlideCount) % adSlideCount);
+    setAdNavTick((t) => t + 1);
+  }
 
   const safeAdIndex = Math.min(currentAdIndex, Math.max(0, adSlideCount - 1));
 
@@ -860,7 +870,7 @@ export function TvView({
             }}
           />
           <div
-            className="relative h-full w-full overflow-hidden bg-neutral-950"
+            className="group/ads relative h-full w-full overflow-hidden bg-neutral-950"
             style={{
               borderRadius: "var(--tv-radius-lg)",
               border: "1px solid rgba(139, 141, 243, 0.25)",
@@ -919,6 +929,24 @@ export function TvView({
                 ))}
               </div>
             )}
+            {/* Passar na mão — só aparece com o mouse em cima das propagandas. */}
+            {adSlideCount > 1 &&
+              ([-1, 1] as const).map((delta) => (
+                <button
+                  key={delta}
+                  type="button"
+                  onClick={() => stepAd(delta)}
+                  aria-label={delta < 0 ? "Propaganda anterior" : "Próxima propaganda"}
+                  className={`absolute top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover/ads:opacity-100 hover:bg-black/70 focus-visible:opacity-100 ${delta < 0 ? "left-[var(--tv-gap)]" : "right-[var(--tv-gap)]"}`}
+                  style={{ width: "var(--tv-avatar-md)", height: "var(--tv-avatar-md)" }}
+                >
+                  {delta < 0 ? (
+                    <ChevronLeft style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)" }} strokeWidth={2.5} />
+                  ) : (
+                    <ChevronRight style={{ width: "var(--tv-icon-md)", height: "var(--tv-icon-md)" }} strokeWidth={2.5} />
+                  )}
+                </button>
+              ))}
             <TvClock stale={stale} />
           </div>
         </div>
@@ -1634,40 +1662,3 @@ function getBirthdayAvatarGradient(name: string) {
   return BIRTHDAY_AVATAR_GRADIENTS[index];
 }
 
-/**
- * "Feliz aniversário" como mais uma foto do carrossel de anúncios: fundo
- * padrão (Configurações → TV) cobrindo tudo, o consultor recortado (PNG sem
- * fundo) em pé à direita, e o texto à esquerda. Sem fundo cadastrado, um
- * gradiente da marca no lugar — o slide nunca fica vazio.
- */
-function TvBirthdaySlide({ name, photoUrl, backgroundUrl }: { name: string; photoUrl: string; backgroundUrl: string | null }) {
-  return (
-    <div className="absolute inset-0 overflow-hidden">
-      {backgroundUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={backgroundUrl} alt="" className="animate-tv-ken-burns absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-[#5a5be6] via-[#2f2a7a] to-neutral-950" />
-      )}
-      {/* Escurece só o lado do texto — a foto do fundo continua aparecendo. */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/20 to-transparent" />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={photoUrl}
-        alt={name}
-        className="absolute right-[4%] bottom-0 h-[90%] w-auto max-w-[55%] object-contain object-bottom drop-shadow-[0_20px_40px_rgba(0,0,0,0.55)]"
-      />
-      <div className="absolute top-1/2 left-[6%] max-w-[45%] -translate-y-1/2 text-white">
-        <p
-          className="font-semibold tracking-[0.18em] text-amber-300 uppercase drop-shadow"
-          style={{ fontSize: "var(--tv-text-value-sm)" }}
-        >
-          Feliz aniversário
-        </p>
-        <p className="mt-[0.3em] leading-[1.05] font-bold break-words drop-shadow-lg" style={{ fontSize: "var(--tv-text-hero)" }}>
-          {name}
-        </p>
-      </div>
-    </div>
-  );
-}

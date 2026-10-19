@@ -11,6 +11,7 @@ import { resolveConnectedInstance } from "@/lib/whatsapp/send";
 import { stringifyCustomFieldValue, type CustomFieldValue } from "@/lib/custom-fields";
 import { isoToBirthDateMask } from "@/lib/birth-date";
 import { ContactTabs } from "./contact-tabs";
+import { findOpenCentralThreadForContact } from "@/lib/whatsapp/central-access";
 
 function formatAddress(contact: {
   address: string | null;
@@ -124,10 +125,15 @@ export default async function ContactPage({
   // — quase sempre vazia — que por acaso exista com o mesmo contato. Pedido
   // explícito: o conteúdo mostrado é sempre "o mesmo do celular do dono do
   // lead".
+  // Atendimento aberto na Central e de quem está vendo: o chat do perfil é o
+  // da Central (o envio pelo pessoal é barrado no backend enquanto ele existir).
+  const openCentral = await findOpenCentralThreadForContact(organizationId, contact.id);
   const whatsappThread =
-    responsibleInstance?.status === "CONNECTED"
-      ? await getOrCreateThreadForContact({ organizationId, instance: responsibleInstance, contact })
-      : null;
+    openCentral?.assigneeId === session!.user.id
+      ? { id: openCentral.id }
+      : responsibleInstance?.status === "CONNECTED"
+        ? await getOrCreateThreadForContact({ organizationId, instance: responsibleInstance, contact })
+        : null;
 
   // "Enviar como você": Dono, Gerente ou Supervisor vendo o cliente de outro
   // consultor (nunca o Consultor — ele só vê as próprias conversas, regra
@@ -140,7 +146,8 @@ export default async function ContactPage({
   if (
     whatsappThread &&
     canSendAsSelf &&
-    contact.responsavel
+    contact.responsavel &&
+    !openCentral
   ) {
     const myThread =
       myInstance?.status === "CONNECTED"

@@ -71,7 +71,9 @@ export function scopeWhere(scope: DealScope) {
  * via polling — qualquer query lenta ali dói rápido).
  */
 export function whatsappScopeWhere(scope: DealScope) {
-  return scope.type === "owners" ? { instance: { userId: { in: scope.ownerIds } } } : {};
+  return scope.type === "owners"
+    ? { instance: { kind: "PERSONAL" as const, personalOwnerId: { in: scope.ownerIds } } }
+    : {};
 }
 
 /**
@@ -120,7 +122,7 @@ export function campaignScopeWhere(scope: DealScope) {
       // quando a campanha tem UM WhatsApp (MANUAL/LEAD_CAPTURE): no envio em
       // massa do Pipeline a campanha junta o celular de vários consultores e
       // um deles não pode apagar/pausar o envio dos outros.
-      { source: { not: "PIPELINE_BULK" as const }, instance: { userId: ids } },
+      { source: { not: "PIPELINE_BULK" as const }, instance: { kind: "PERSONAL" as const, personalOwnerId: ids } },
     ],
   };
 }
@@ -140,7 +142,10 @@ export function campaignVisibilityWhere(scope: DealScope) {
   return {
     OR: [
       ...campaignScopeWhere(scope).OR!,
-      { source: "PIPELINE_BULK" as const, recipients: { some: { instance: { userId: ids } } } },
+      {
+        source: "PIPELINE_BULK" as const,
+        recipients: { some: { instance: { kind: "PERSONAL" as const, personalOwnerId: ids } } },
+      },
     ],
   };
 }
@@ -160,7 +165,7 @@ export function campaignRecipientVisibilityWhere(scope: DealScope) {
     OR: [
       { campaign: { createdById: ids } },
       { campaign: { source: { not: "PIPELINE_BULK" as const } } },
-      { instance: { userId: ids } },
+      { instance: { kind: "PERSONAL" as const, personalOwnerId: ids } },
     ],
   };
 }

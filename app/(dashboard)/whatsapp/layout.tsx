@@ -1,3 +1,4 @@
+import { centralLeadsEnabled } from "@/lib/whatsapp/central-config";
 import { WhatsAppSubNav } from "./whatsapp-subnav";
 
 /** Conversas, Campanhas e Scripts moram todos sob uma aba só no menu — separados aqui por sub-navegação em vez de 3 itens no menu de cima. */
@@ -17,7 +18,8 @@ export default function WhatsAppLayout({ children }: { children: React.ReactNode
           tela — igual ao WhatsApp de verdade, quase nada de "moldura" acima
           da lista + chat. */}
       <div className="shrink-0">
-        <WhatsAppSubNav />
+        {/* Aba "Central" só aparece com o kill-switch ligado (CENTRAL_LEADS_ENABLED). */}
+        <WhatsAppSubNav showCentral={centralLeadsEnabled()} />
       </div>
       <div className="min-h-0 flex-1">{children}</div>
     </div>

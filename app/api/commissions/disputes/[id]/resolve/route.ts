@@ -1,13 +1,13 @@
 import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { notifyDisputeResolved } from "@/lib/commissions/notify";
 
 export const dynamic = "force-dynamic";
 
 /** Responder (e fechar) uma contestação — a resposta volta pro consultor no celular e na linha da parcela. */
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const POST = commissionRoute(async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -38,4 +38,4 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     after(() => notifyDisputeResolved(dispute.requesterId, response));
     return NextResponse.json({ ok: true });
   });
-}
+});

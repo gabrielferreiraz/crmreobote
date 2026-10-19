@@ -5,6 +5,8 @@ import {
   ROLE_LABELS,
   type AdministratorLike,
   type Base,
+  type CommissionTableLike,
+  type UnpaidPolicy,
   type BeneficiaryRole,
   type Modality,
   type RevenueMode,
@@ -74,21 +76,10 @@ export function ruleSentence(rule: {
 }
 
 export function graceSentence(months: number): string {
-  if (months === 0) return "no mesmo mês da venda";
-  if (months === 1) return "no mês seguinte à venda";
-  return `${months} meses depois da venda`;
+  if (months === 0) return "no mesmo mês";
+  if (months === 1) return "no mês seguinte";
+  return `${months} meses depois`;
 }
-
-type AdministratorSentenceInput = {
-  commissionInstallments: number;
-  graceMonths: number;
-  cutoffDay: number | null;
-  paysSellerDirectly: boolean;
-  revenueMode: RevenueMode | null;
-  revenueTotalPercent: number | null;
-  revenuePercents: number[] | null;
-  revenueBase: "NET" | "GROSS";
-};
 
 /** "1,5%, 0,5% e 0,5%" — no máximo 3 itens; o resto vira "e mais N". */
 function listPercents(percents: number[]): string {
@@ -98,27 +89,52 @@ function listPercents(percents: number[]): string {
   return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} e ${shown.at(-1)}` : (shown[0] ?? "");
 }
 
-/** Como uma administradora paga, numa frase só — inclusive QUANTO ela paga pra corretora. */
-export function administratorSentence(a: AdministratorSentenceInput): SentencePart[] {
-  const parts: SentencePart[] = [];
-  const count = a.commissionInstallments;
-  const when = graceSentence(a.graceMonths);
-  const base = a.revenueBase === "GROSS" ? "bruto" : "líquido";
+/** "2ª" / "2ª e 5ª" / "2ª, 5ª e 7ª". */
+function listOrdinals(numbers: number[]): string {
+  const items = numbers.map((n) => `${n}ª`);
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} e ${items.at(-1)}` : (items[0] ?? "");
+}
 
-  if (a.revenueMode === "CREDIT_EQUAL" && a.revenueTotalPercent != null) {
-    parts.push("Paga à corretora ", { strong: `${formatPercent(a.revenueTotalPercent)} do valor ${base}` });
-    parts.push(count === 1 ? ", de uma vez" : `, em ${count} parcelas iguais`);
-  } else if (a.revenueMode === "CREDIT_TABLE" && a.revenuePercents) {
-    const total = a.revenuePercents.reduce((x, y) => x + y, 0);
-    parts.push("Paga à corretora ", { strong: `${formatPercent(total)} do valor ${base}` }, ` em ${count} parcelas (${listPercents(a.revenuePercents)})`);
-  } else if (a.revenueMode === "CLIENT_INSTALLMENT_TABLE" && a.revenuePercents) {
-    parts.push("Paga à corretora ", { strong: listPercents(a.revenuePercents) }, ` das parcelas que o cliente paga, em ${count} parcelas`);
+/**
+ * Uma tabela de comissão numa frase — quanto a administradora paga pra
+ * corretora, em quantas vezes, quais parcelas não têm comissão e quando sai
+ * a primeira.
+ */
+export function tableSentence(t: Omit<CommissionTableLike, "creditType">, graceMonths: number): SentencePart[] {
+  const parts: SentencePart[] = [];
+  const count = t.commissionInstallments;
+  const base = t.revenueBase === "GROSS" ? "bruto" : "líquido";
+  const paying = t.revenuePercents?.filter((_, i) => !t.skippedInstallments.includes(i + 1)) ?? [];
+
+  if (t.revenueMode === "CREDIT_EQUAL" && t.revenueTotalPercent != null) {
+    parts.push("Paga à corretora ", { strong: `${formatPercent(t.revenueTotalPercent)} do ${base}` });
+    parts.push(count === 1 ? ", de uma vez" : `, em ${count}x`);
+  } else if (t.revenueMode === "CREDIT_TABLE" && t.revenuePercents) {
+    const total = paying.reduce((x, y) => x + y, 0);
+    parts.push("Paga à corretora ", { strong: `${formatPercent(Math.round(total * 10000) / 10000)} do ${base}` }, ` em ${count}x (${listPercents(paying)})`);
+  } else if (t.revenueMode === "CLIENT_INSTALLMENT_TABLE" && t.revenuePercents) {
+    parts.push("Paga à corretora ", { strong: listPercents(paying) }, ` da parcela do cliente, em ${count}x`);
   } else {
-    parts.push("Paga a comissão ", { strong: count === 1 ? "de uma vez" : `em ${count} parcelas` }, " (sem informar quanto paga à corretora)");
+    parts.push("Paga ", { strong: count === 1 ? "de uma vez" : `em ${count} parcelas` });
   }
-  parts.push(", a primeira ", { strong: when }, ".");
-  if (a.cutoffDay != null) parts.push(" Venda depois do dia ", { strong: String(a.cutoffDay) }, " conta para o mês seguinte.");
-  parts.push(a.paysSellerDirectly ? " Ela paga o consultor direto." : " A empresa paga o consultor.");
+  if (t.skippedInstallments.length > 0) parts.push(", ", { strong: `sem comissão na ${listOrdinals(t.skippedInstallments)}` });
+  parts.push(", 1ª ", { strong: graceSentence(graceMonths) }, ".");
+  return parts;
+}
+
+const UNPAID_SENTENCE: Record<UnpaidPolicy, string> = {
+  IGNORE: "Não depende do cliente pagar.",
+  HOLD: "Recebe quando o cliente pagar.",
+  FORFEIT: "Cliente não pagou: consultor perde.",
+  DEFER: "Recebe quando o cliente pagar.",
+};
+
+/** O que vale pra administradora inteira (corte, quem paga, cliente que não pagou). */
+export function administratorGeneralSentence(a: { cutoffDay: number | null; paysSellerDirectly: boolean; unpaidPolicy: UnpaidPolicy }): SentencePart[] {
+  const parts: SentencePart[] = [];
+  if (a.cutoffDay != null) parts.push("Corte dia ", { strong: String(a.cutoffDay) }, ". ");
+  parts.push(a.paysSellerDirectly ? "Paga o consultor direto. " : "Empresa paga o consultor. ");
+  parts.push(UNPAID_SENTENCE[a.unpaidPolicy]);
   return parts;
 }
 
@@ -145,8 +161,10 @@ export type ExampleSplit = {
  * fica. Vendedor/supervisor/gerente fictícios só pra a regra de cada papel
  * entrar.
  */
-export function exampleSplit(administrator: AdministratorLike, rules: RuleLike[]): ExampleSplit {
-  const generic = rules.filter((r) => r.userId === null && r.modality !== "REDUCED" && r.creditType === null);
+export function exampleSplit(administrator: AdministratorLike, rules: RuleLike[], creditType: string | null = null): ExampleSplit {
+  // Regras "de todos" (sem pessoa, parcela cheia) — as de categoria entram
+  // e a mais específica vence normalmente.
+  const generic = rules.filter((r) => r.userId === null && r.modality !== "REDUCED");
   const { installments, revenue } = buildSaleSchedule(
     {
       sellerId: "__seller",
@@ -154,7 +172,7 @@ export function exampleSplit(administrator: AdministratorLike, rules: RuleLike[]
       managerId: "__manager",
       administratorId: administrator.id,
       modality: "FULL",
-      creditType: null,
+      creditType,
       saleDate: new Date(),
       netValue: EXAMPLE_SALE.value,
       grossValue: EXAMPLE_SALE.value,
@@ -182,21 +200,21 @@ export function exampleSplitSentences(split: ExampleSplit, administratorName: st
   const lines: SentencePart[][] = [];
   const saleText =
     mode === "CLIENT_INSTALLMENT_TABLE"
-      ? `Numa venda com parcela de ${formatCurrency(EXAMPLE_SALE.clientInstallment)} e crédito de ${formatCurrency(EXAMPLE_SALE.value)}`
-      : `Numa venda de ${formatCurrency(EXAMPLE_SALE.value)}`;
+      ? `Parcela de ${formatCurrency(EXAMPLE_SALE.clientInstallment)}`
+      : `Venda de ${formatCurrency(EXAMPLE_SALE.value)}`;
   if (split.revenue != null) {
-    lines.push([`${saleText}, a ${administratorName} paga `, { strong: formatCurrency(split.revenue) }, " para a corretora."]);
+    lines.push([`${saleText}: corretora recebe `, { strong: formatCurrency(split.revenue) }]);
   } else {
-    lines.push([`${saleText} na ${administratorName}:`]);
+    lines.push([`${saleText}:`]);
   }
   for (const c of split.commissions) {
     const who = c.role === "SELLER" ? "O vendedor" : c.role === "SUPERVISOR" ? "O supervisor" : "O gerente";
-    const direct = c.role === "SELLER" && split.paysSellerDirectly ? ", pago direto pela administradora" : "";
-    lines.push([`${who} recebe `, { strong: formatCurrency(c.amount) }, `${direct}.`]);
+    const direct = c.role === "SELLER" && split.paysSellerDirectly ? " (direto da administradora)" : "";
+    lines.push([`${who}: `, { strong: formatCurrency(c.amount) }, direct]);
   }
-  if (split.commissions.length === 0) lines.push(["Ainda não há regra dizendo quanto o vendedor ganha aqui."]);
+  if (split.commissions.length === 0) lines.push(["Sem regra de vendedor."]);
   if (split.remaining != null) {
-    lines.push(["Ficam ", { strong: formatCurrency(split.remaining) }, " para a corretora."]);
+    lines.push(["Fica: ", { strong: formatCurrency(split.remaining) }]);
   }
   return lines;
 }

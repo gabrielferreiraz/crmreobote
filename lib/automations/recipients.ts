@@ -120,7 +120,7 @@ export async function resolveWhatsappRecipients(
     // duas linhas agora (uma por provider); prefere a conectada, entre as
     // duas conectadas prefere a Meta (mesmo critério de resolveConnectedInstance).
     const instances = await prisma.whatsAppInstance.findMany({
-      where: { organizationId: entity.organizationId, userId },
+      where: { organizationId: entity.organizationId, kind: "PERSONAL", personalOwnerId: userId },
       select: { provider: true, status: true, phoneNumber: true },
     });
     const instance =

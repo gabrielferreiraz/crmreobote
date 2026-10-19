@@ -60,7 +60,10 @@ export async function POST(req: Request) {
     });
     if (!instance) return NextResponse.json({ error: "Instância de WhatsApp inválida" }, { status: 400 });
     // Mesma regra de lib/campaigns/build.ts: só o Dono usa o WhatsApp de outra pessoa.
-    if (access.role !== "OWNER" && instance.userId !== access.userId) {
+    if (instance.kind !== "PERSONAL" || !instance.personalOwnerId) {
+      return NextResponse.json({ error: "Selecione um WhatsApp pessoal" }, { status: 400 });
+    }
+    if (access.role !== "OWNER" && instance.personalOwnerId !== access.userId) {
       return NextResponse.json({ error: "Você só pode enviar teste pelo seu próprio WhatsApp." }, { status: 403 });
     }
 

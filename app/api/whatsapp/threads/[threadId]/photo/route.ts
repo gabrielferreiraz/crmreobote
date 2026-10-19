@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getDealScope } from "@/lib/team-scope";
+import { getWhatsAppThreadAccess } from "@/lib/whatsapp/thread-access";
 import { fetchProfilePictureUrl } from "@/lib/evolution";
 import { toDialNumber } from "@/lib/phone-normalize";
 
@@ -22,12 +22,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
   return runWithTenant(organizationId, async () => {
     const thread = await prisma.whatsAppThread.findFirst({
       where: { id: threadId, organizationId },
-      include: { instance: { select: { userId: true, instanceName: true, status: true } } },
+      include: { instance: { select: { kind: true, personalOwnerId: true, instanceName: true, status: true } } },
     });
     if (!thread || !thread.instance) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
-    if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
+    const access = await getWhatsAppThreadAccess(organizationId, userId, session!.user.role, thread);
+    if (!access.canRead) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
 

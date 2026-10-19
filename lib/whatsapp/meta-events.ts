@@ -24,6 +24,8 @@ import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUplo
 import { getOrCreateThread, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
+import { handleCentralInbound } from "@/lib/whatsapp/central-ingest";
+import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
 import type { $Enums } from "@/app/generated/prisma/client";
 
 const DEBUG_LOG_ENABLED = process.env.WHATSAPP_WEBHOOK_DEBUG_LOG === "true" || process.env.NODE_ENV !== "production";
@@ -36,12 +38,19 @@ function debugLog(...args: unknown[]): void {
 export type InstanceRef = {
   id: string;
   organizationId: string;
-  userId: string;
+  kind: $Enums.WhatsAppInstanceKind;
+  personalOwnerId: string | null;
   status: $Enums.WhatsAppInstanceStatus;
   notifyOnCrmMessage: boolean;
   notifyOnGeralMessage: boolean;
   metaAccessToken: string | null;
 };
+
+type PersonalInstanceRef = InstanceRef & { kind: "PERSONAL"; personalOwnerId: string };
+
+function isPersonalInstance(instance: InstanceRef): instance is PersonalInstanceRef {
+  return instance.kind === "PERSONAL" && Boolean(instance.personalOwnerId);
+}
 
 export type MetaMessage = {
   from?: string;
@@ -163,6 +172,23 @@ async function saveIncomingMetaMessage(
   await touchThreadLastMessage(thread.id, saved.createdAt);
   debugLog(`[wa:meta-webhook] mensagem salva: id=${saved.id} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`);
 
+  if (instance.kind === "CENTRAL") {
+    await handleCentralInbound({
+      organizationId: instance.organizationId,
+      threadId: thread.id,
+      messageId: saved.id,
+      displayName: thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized,
+      preview:
+        body ||
+        (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem"),
+      notify: true,
+    });
+    publishWhatsAppEvent(instance.organizationId, { type: "message", threadId: thread.id, central: true });
+    return;
+  }
+
+  if (!isPersonalInstance(instance)) return;
+
   const shouldNotify = thread.contactId ? instance.notifyOnCrmMessage : instance.notifyOnGeralMessage;
   if (shouldNotify) {
     // Mesma prioridade de customName antes de whatsappName (ver
@@ -176,7 +202,7 @@ async function saveIncomingMetaMessage(
     const preview =
       body ||
       (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
-    sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
+    sendPushToUser(instance.personalOwnerId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
       console.error("[wa:meta-webhook] falha ao enviar push de mensagem recebida", err),
     );
   }

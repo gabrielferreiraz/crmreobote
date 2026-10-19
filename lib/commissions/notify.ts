@@ -39,6 +39,48 @@ export function notifyPaid(entries: { beneficiaryId: string; amount: number; pay
   );
 }
 
+/** O Financeiro marcou que o cliente NÃO pagou a parcela — o vendedor fica sabendo o que acontece com a comissão dele. */
+export function notifyClientUnpaid(userId: string, clientName: string, month: string, policy: "HOLD" | "FORFEIT" | "DEFER") {
+  const monthName = formatMonthLong(month).toLowerCase();
+  const effect =
+    policy === "FORFEIT"
+      ? "Pela regra da administradora, a comissão dessa parcela não será paga."
+      : "Você recebe quando ele pagar — as próximas parcelas andam um mês.";
+  return safe("cliente não pagou", () =>
+    sendPushToUser(userId, {
+      title: `${clientName} não pagou a parcela de ${monthName}`,
+      body: effect,
+      url: MY_COMMISSION_URL,
+    }),
+  );
+}
+
+/**
+ * Vários "não pagou" de uma vez (marcação em lote): UM aviso por vendedor —
+ * quem tem 15 clientes na lista não recebe 15 notificações seguidas.
+ */
+export function notifyClientsUnpaid(items: { userId: string; clientName: string; policy: "HOLD" | "FORFEIT" | "DEFER" }[], month: string) {
+  const bySeller = new Map<string, typeof items>();
+  for (const item of items) bySeller.set(item.userId, [...(bySeller.get(item.userId) ?? []), item]);
+  const monthName = formatMonthLong(month).toLowerCase();
+  return Promise.all(
+    Array.from(bySeller.entries()).map(([userId, list]) =>
+      list.length === 1
+        ? notifyClientUnpaid(userId, list[0].clientName, month, list[0].policy)
+        : safe("clientes não pagaram", () =>
+            sendPushToUser(userId, {
+              title: `${list.length} clientes seus não pagaram a parcela de ${monthName}`,
+              body: `${list
+                .slice(0, 3)
+                .map((i) => i.clientName)
+                .join(", ")}${list.length > 3 ? " e outros" : ""}. Toque para ver o que acontece com a sua comissão.`,
+              url: MY_COMMISSION_URL,
+            }),
+          ),
+    ),
+  );
+}
+
 export function notifyHeld(userId: string, clientName: string | null, reason: string) {
   return safe("travada", () =>
     sendPushToUser(userId, {

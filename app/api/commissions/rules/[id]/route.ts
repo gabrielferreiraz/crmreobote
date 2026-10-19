@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { forgetPageSync } from "@/lib/commissions/sync";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { parseRuleInput } from "@/lib/commissions/validation";
 import { describeRule } from "@/lib/commissions/describe";
 import { checkRuleReferences } from "@/lib/commissions/rule-refs";
@@ -9,7 +10,7 @@ import { checkRuleReferences } from "@/lib/commissions/rule-refs";
 export const dynamic = "force-dynamic";
 
 /** Mesma regra do cadastro de administradora: editar não recalcula venda nenhuma sozinho. */
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = commissionRoute(async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -35,6 +36,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       data: parsed.data,
       include: { user: { select: { name: true } }, administrator: { select: { name: true } } },
     });
+    forgetPageSync(access.organizationId);
     await auditCommission(req, access, "COMMISSION_RULE_CHANGED", {
       targetType: "CommissionRule",
       targetId: id,
@@ -42,10 +44,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
     return NextResponse.json(updated);
   });
-}
+});
 
 /** Parcela já gerada guarda a própria fotografia (percent/ruleId vira null) — apagar a regra não mexe em nada calculado. */
-export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = commissionRoute(async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
@@ -59,6 +61,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     if (!existing) return NextResponse.json({ error: "Regra não encontrada" }, { status: 404 });
 
     await prisma.commissionRule.delete({ where: { id } });
+    forgetPageSync(access.organizationId);
     await auditCommission(req, access, "COMMISSION_RULE_CHANGED", {
       targetType: "CommissionRule",
       targetId: id,
@@ -66,4 +69,4 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     });
     return NextResponse.json({ ok: true });
   });
-}
+});

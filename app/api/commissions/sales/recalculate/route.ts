@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCommissionManager, auditCommission } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, commissionRoute } from "@/lib/commissions/route-helpers";
 import { loadEngineContext, regenerateSaleEntries, SALE_SELECT, withCommissionLock } from "@/lib/commissions/sync";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ const BATCH = 80;
  * caso a caso, pela própria venda). Em lotes: devolve quantas faltam e a
  * tela chama de novo.
  */
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -47,4 +47,4 @@ export async function POST(req: Request) {
     });
   }
   return NextResponse.json(result);
-}
+});

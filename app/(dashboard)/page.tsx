@@ -184,7 +184,7 @@ export default async function HomePage() {
     // "?filter=..." de cada linha realmente mostra ao chegar lá.
     countDeals({ organizationId, scope, status: "OPEN", hasNoOpenTask: true }),
     countDeals({ organizationId, scope, status: "OPEN", stageEnteredBefore: alertBefore }),
-    countUnreadThreads(organizationId, scope),
+    countUnreadThreads(organizationId, scope, userId),
     isOwnerForGoal ? getCurrentMonthGoalProgress(organizationId) : Promise.resolve(null),
     // Só os clientes DESTE usuário (responsável), não o escopo de equipe do
     // resto do Início — pedido explícito, ver lib/birthdays.ts. Exceção: o

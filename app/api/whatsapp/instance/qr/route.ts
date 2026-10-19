@@ -18,7 +18,7 @@ export async function GET() {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
+      where: { organizationId_personalOwnerId_provider: { organizationId, personalOwnerId: userId, provider: "EVOLUTION" } },
     });
 
     if (!instance) {

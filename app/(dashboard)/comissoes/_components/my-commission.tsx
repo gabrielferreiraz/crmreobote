@@ -16,6 +16,10 @@ import { entryDescription, entryDisplayStatus, PAID_BY_ADMINISTRATOR_LABEL } fro
 import type { EntryView } from "@/lib/commissions/queries";
 
 const sum = (list: EntryView[]) => list.reduce((acc, e) => acc + e.amount, 0);
+/** Entra na conta do mês: nem travada, nem cancelada/perdida. */
+const counts = (e: EntryView) => e.status !== "ON_HOLD" && e.status !== "CANCELLED";
+/** Esperando o Financeiro conferir se o cliente pagou a parcela do mês. */
+const waitingClient = (e: EntryView) => e.status === "SCHEDULED" && e.clientPayment === "PENDING";
 const formatDay = (iso: string) => brazilDateKey(new Date(iso)).split("-").reverse().join("/");
 
 /**
@@ -38,7 +42,7 @@ export function MyCommission({
   payDay: number;
 }) {
   const months = useMemo(() => Array.from(new Set(entries.map((e) => e.paymentMonth))).sort(), [entries]);
-  const thisMonth = entries.filter((e) => e.paymentMonth === currentMonth && e.status !== "ON_HOLD");
+  const thisMonth = entries.filter((e) => e.paymentMonth === currentMonth && counts(e));
   const held = entries.filter((e) => e.status === "ON_HOLD");
   const future = entries.filter((e) => e.paymentMonth > currentMonth && e.status === "SCHEDULED");
   const [disputeEntry, setDisputeEntry] = useState<EntryView | null>(null);
@@ -55,8 +59,7 @@ export function MyCommission({
             <p className="card flex items-start gap-3 p-4 text-sm text-neutral-700 dark:text-neutral-300">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" strokeWidth={2} />
               <span>
-                <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(sum(held))}</strong> estão travados (
-                {held.length} {held.length === 1 ? "parcela" : "parcelas"}). O motivo aparece em amarelo na lista abaixo.
+                <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(sum(held))}</strong> travados ({held.length})
               </span>
             </p>
           )}
@@ -64,8 +67,7 @@ export function MyCommission({
             <p className="card flex items-start gap-3 p-4 text-sm text-neutral-700 dark:text-neutral-300">
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" strokeWidth={2} />
               <span>
-                Você já tem <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(sum(future))}</strong> garantidos
-                para os próximos meses.
+                <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(sum(future))}</strong> nos próximos meses
               </span>
             </p>
           )}
@@ -76,7 +78,7 @@ export function MyCommission({
 
       {months.length === 0 ? (
         <div className="card">
-          <EmptyState icon={Wallet} title="Nenhuma comissão ainda" description="Quando você ganhar uma venda, a comissão aparece aqui." />
+          <EmptyState icon={Wallet} title="Nenhuma comissão ainda" description="Suas comissões aparecem aqui." />
         </div>
       ) : (
         months.map((month, monthIndex) => {
@@ -97,11 +99,11 @@ export function MyCommission({
                   {month <= currentMonth && (
                     <a href={`/comprovante-comissao?mes=${month}`} target="_blank" rel="noopener noreferrer" className="btn-ghost btn-sm">
                       <FileText className="h-3.5 w-3.5" strokeWidth={2} />
-                      Baixar comprovante
+                      Comprovante
                     </a>
                   )}
                   <span className="text-base font-semibold text-neutral-900 tabular-nums dark:text-neutral-100">
-                    {formatCurrency(sum(rows.filter((e) => e.status !== "ON_HOLD")))}
+                    {formatCurrency(sum(rows.filter(counts)))}
                   </span>
                 </div>
               </div>
@@ -124,8 +126,10 @@ export function MyCommission({
 function Hero({ thisMonth, currentMonth, todayDay, payDay }: { thisMonth: EntryView[]; currentMonth: string; todayDay: number; payDay: number }) {
   const fromCompany = thisMonth.filter((e) => !e.paidByAdministrator);
   const direct = thisMonth.filter((e) => e.paidByAdministrator);
+  // O número grande é só o que já está confirmado; o que depende do cliente pagar a parcela vem na frase de baixo.
+  const waiting = fromCompany.filter(waitingClient);
   const onlyDirect = fromCompany.length === 0 && direct.length > 0;
-  const shown = onlyDirect ? direct : fromCompany;
+  const shown = onlyDirect ? direct : fromCompany.filter((e) => !waitingClient(e));
   const total = sum(shown);
   const allPaid = shown.length > 0 && shown.every((e) => e.status === "PAID");
   const monthName = formatMonthLong(currentMonth, { withYear: false }).toLowerCase();
@@ -135,19 +139,22 @@ function Hero({ thisMonth, currentMonth, todayDay, payDay }: { thisMonth: EntryV
   let hint: string;
   if (thisMonth.length === 0) {
     title = `Nada para receber em ${monthName}`;
-    hint = "Suas próximas comissões aparecem logo abaixo.";
+    hint = "Veja as próximas abaixo.";
   } else if (onlyDirect) {
-    title = `Em ${monthName}, a administradora paga direto para você`;
-    hint = "Esse valor não passa pela empresa.";
+    title = `${monthName.charAt(0).toUpperCase()}${monthName.slice(1)} · pago pela administradora`;
+    hint = "Direto para você.";
   } else if (allPaid) {
     title = `Você recebeu em ${monthName}`;
     hint = "Pagamento feito.";
   } else {
     title = `Dia ${payDay} você recebe`;
-    hint = daysLeft > 1 ? `Faltam ${daysLeft} dias.` : daysLeft === 1 ? "É amanhã." : daysLeft === 0 ? "É hoje." : "O pagamento deste mês está sendo feito.";
+    hint = daysLeft > 1 ? `Faltam ${daysLeft} dias.` : daysLeft === 1 ? "É amanhã." : daysLeft === 0 ? "É hoje." : "Em pagamento.";
   }
   if (!onlyDirect && direct.length > 0) {
-    hint = `${hint} Mais ${formatCurrency(sum(direct))} pagos direto pela administradora.`;
+    hint = `${hint} + ${formatCurrency(sum(direct))} direto da administradora.`;
+  }
+  if (waiting.length > 0) {
+    hint = `${hint} + ${formatCurrency(sum(waiting))} se ${waiting.length === 1 ? "o cliente pagar" : "os clientes pagarem"}.`;
   }
 
   return (
@@ -175,14 +182,14 @@ function Hero({ thisMonth, currentMonth, todayDay, payDay }: { thisMonth: EntryV
  */
 function FutureChart({ entries, currentMonth }: { entries: EntryView[]; currentMonth: string }) {
   const months = Array.from({ length: 12 }, (_, i) => addMonths(currentMonth, i));
-  const totals = months.map((m) => sum(entries.filter((e) => e.paymentMonth === m && e.status !== "ON_HOLD")));
+  const totals = months.map((m) => sum(entries.filter((e) => e.paymentMonth === m && counts(e))));
   const max = Math.max(...totals, 1);
   const [selected, setSelected] = useState(0);
 
   return (
     <section data-help="commission-chart" className="card space-y-4 p-5">
       <div>
-        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Sua comissão nos próximos 12 meses</h2>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Próximos 12 meses</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           {formatMonthLong(months[selected])}: <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrency(totals[selected])}</strong>
         </p>
@@ -214,7 +221,7 @@ function FutureChart({ entries, currentMonth }: { entries: EntryView[]; currentM
         ))}
       </div>
       <p className="text-sm text-neutral-600 dark:text-neutral-400">
-        Total: <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrencyCompact(totals.reduce((a, b) => a + b, 0))}</strong> em 12 meses.
+        Total: <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{formatCurrencyCompact(totals.reduce((a, b) => a + b, 0))}</strong>
       </p>
     </section>
   );
@@ -242,6 +249,14 @@ function EntryLine({ entry, currentMonth, onDispute }: { entry: EntryView; curre
               {entry.holdReason}
             </p>
           )}
+          {waitingClient(entry) && (
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">Aguardando o cliente</p>
+          )}
+          {entry.status === "CANCELLED" && entry.clientPaymentEffect === "FORFEIT" && (
+            <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+              Perdida: cliente não pagou
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <div className="flex flex-col items-end gap-1">
@@ -262,39 +277,36 @@ function EntryLine({ entry, currentMonth, onDispute }: { entry: EntryView; curre
         <div className="space-y-3 border-t border-neutral-100 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-300">
           {isAdjustment ? (
             <p>
-              Lançamento feito pelo Financeiro{entry.clientName ? ` na venda de ${entry.clientName}` : ""}: <strong className="font-semibold">{entry.note}</strong>.
+              Ajuste{entry.clientName ? ` · ${entry.clientName}` : ""}: <strong className="font-semibold">{entry.note}</strong>
             </p>
           ) : (
             <>
               <p>
-                Venda de <strong className="font-semibold">{entry.clientName}</strong>
-                {entry.saleDate ? ` em ${formatDay(entry.saleDate)}` : ""}
-                {entry.administratorName ? `, ${entry.administratorName}` : ""}
-                {entry.modality === "REDUCED" ? ", em meia parcela" : ""}.
+                <strong className="font-semibold">{entry.clientName}</strong>
+                {entry.saleDate ? ` · ${formatDay(entry.saleDate)}` : ""}
+                {entry.administratorName ? ` · ${entry.administratorName}` : ""}
+                {entry.modality === "REDUCED" ? " · meia parcela" : ""}
               </p>
               {total != null && entry.percent != null && entry.baseValue != null && (
                 <p>
-                  A conta: {formatPercent(entry.percent)} de {formatCurrency(entry.baseValue)} (
-                  {entry.baseKind === "COMPANY_REVENUE"
-                    ? `o que ${entry.administratorName ?? "a administradora"} paga para a corretora por esta venda`
-                    : `valor ${entry.baseKind === "GROSS" ? "bruto" : "líquido"} da venda`}
-                  ) ={" "}
+                  {formatPercent(entry.percent)} de {formatCurrency(entry.baseValue)} (
+                  {entry.baseKind === "COMPANY_REVENUE" ? "receita da corretora" : entry.baseKind === "GROSS" ? "bruto" : "líquido"}) ={" "}
                   <strong className="font-semibold">{formatCurrency(total)}</strong>
-                  {entry.installmentCount && entry.installmentCount > 1 ? `, dividido em ${entry.installmentCount} parcelas.` : "."}
+                  {entry.installmentCount && entry.installmentCount > 1 ? ` em ${entry.installmentCount}x` : ""}
                 </p>
               )}
-              {entry.paidByAdministrator && <p>Esta parcela quem paga é a administradora, direto para você.</p>}
+              {entry.paidByAdministrator && <p>Paga direto pela administradora.</p>}
             </>
           )}
 
           {entry.dispute?.status === "OPEN" && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">
-              Você contestou em {formatDay(entry.dispute.createdAt)}: “{entry.dispute.message}”. Aguardando o Financeiro.
+              Contestado em {formatDay(entry.dispute.createdAt)}: “{entry.dispute.message}” · aguardando resposta
             </p>
           )}
           {entry.dispute?.status === "RESOLVED" && entry.dispute.response && (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-100">
-              Resposta do Financeiro: “{entry.dispute.response}”
+              Financeiro: “{entry.dispute.response}”
             </p>
           )}
 
@@ -308,7 +320,7 @@ function EntryLine({ entry, currentMonth, onDispute }: { entry: EntryView; curre
             {entry.dispute?.status !== "OPEN" && (
               <button type="button" className="btn-secondary btn-sm" onClick={onDispute}>
                 <MessageCircleQuestion className="h-3.5 w-3.5" strokeWidth={2} />
-                Esse valor está errado?
+                Contestar
               </button>
             )}
           </div>
@@ -345,7 +357,7 @@ function DisputeDialog({ entry, onClose }: { entry: EntryView; onClose: () => vo
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">O que está errado?</h2>
       <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
         {entry.clientName ? `${entry.clientName}, ` : ""}
-        {formatCurrency(entry.amount)}. O Financeiro recebe sua mensagem e responde por aqui.
+        {formatCurrency(entry.amount)}
       </p>
       <form onSubmit={submit} className="mt-4 space-y-3">
         <div className="flex flex-wrap gap-2">
@@ -378,7 +390,7 @@ function DisputeDialog({ entry, onClose }: { entry: EntryView; onClose: () => vo
             Cancelar
           </button>
           <button type="submit" className="btn-primary" disabled={saving || !message.trim()}>
-            {saving ? <LoadingDots /> : "Enviar para o Financeiro"}
+            {saving ? <LoadingDots /> : "Enviar"}
           </button>
         </div>
       </form>

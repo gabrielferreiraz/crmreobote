@@ -179,17 +179,50 @@ export function pickRule<R extends RuleLike>(rules: R[], ctx: RuleContext): R | 
 
 // ─── Cronograma de uma venda ─────────────────────────────────────────
 
-export type AdministratorLike = {
-  id: string;
+/** O que fazer com a comissão quando o cliente não paga a parcela do mês (por administradora). */
+export type UnpaidPolicy = "IGNORE" | "HOLD" | "FORFEIT" | "DEFER";
+
+/** Tabela de comissão de uma administradora (padrão = creditType null, ou de uma categoria). */
+export type CommissionTableLike = {
+  creditType: string | null;
   commissionInstallments: number;
-  graceMonths: number;
-  cutoffDay: number | null;
-  paysSellerDirectly: boolean;
+  /** Parcelas sem comissão (1 = primeira) — o calendário anda, só ela fica de fora. */
+  skippedInstallments: number[];
   revenueMode: RevenueMode | null;
   revenueTotalPercent: number | null;
   revenuePercents: number[] | null;
   revenueBase: "NET" | "GROSS";
 };
+
+/** Administradora como vem do cadastro: dados gerais + as tabelas dela. */
+export type AdministratorBaseLike = {
+  id: string;
+  graceMonths: number;
+  cutoffDay: number | null;
+  paysSellerDirectly: boolean;
+  unpaidPolicy: UnpaidPolicy;
+  tables: CommissionTableLike[];
+};
+
+/** A administradora JÁ com a tabela da categoria da venda aplicada — é o que o cálculo usa. */
+export type AdministratorLike = Omit<AdministratorBaseLike, "tables"> & Omit<CommissionTableLike, "creditType">;
+
+/**
+ * Escolhe a tabela que vale pra uma venda: a da categoria dela (Imóvel,
+ * Automóvel…, comparando sem diferença de maiúscula/espaço) ou, se não
+ * existir, a padrão. Null só quando a administradora não tem tabela nenhuma.
+ */
+export function resolveAdministrator(base: AdministratorBaseLike, creditType: string | null): AdministratorLike | null {
+  const norm = (v: string) => v.trim().toLocaleLowerCase("pt-BR");
+  const byCategory = creditType ? base.tables.find((t) => t.creditType && norm(t.creditType) === norm(creditType)) : undefined;
+  const table = byCategory ?? base.tables.find((t) => t.creditType === null) ?? null;
+  if (!table) return null;
+  const { tables: _tables, ...general } = base;
+  void _tables;
+  const { creditType: _ct, ...config } = table;
+  void _ct;
+  return { ...general, ...config };
+}
 
 export type SaleLike = {
   sellerId: string;
@@ -251,6 +284,13 @@ export function beneficiaryFor(sale: SaleLike, role: BeneficiaryRole): string | 
  *  - CLIENT_INSTALLMENT_TABLE: um % da parcela que o cliente paga, por parcela.
  * Mesmo calendário das parcelas de comissão (carência, dia de corte).
  */
+/** 1 nas parcelas que pagam, 0 nas "sem comissão" (alinhado com o número de parcelas). */
+export function installmentMask(administrator: Pick<AdministratorLike, "commissionInstallments" | "skippedInstallments">): number[] {
+  const count = Math.max(1, administrator.commissionInstallments);
+  const skipped = new Set(administrator.skippedInstallments ?? []);
+  return Array.from({ length: count }, (_, i) => (skipped.has(i + 1) ? 0 : 1));
+}
+
 export function buildRevenueSchedule(
   sale: Pick<SaleLike, "saleDate" | "netValue" | "grossValue" | "clientInstallment">,
   administrator: AdministratorLike,
@@ -258,6 +298,7 @@ export function buildRevenueSchedule(
   const mode = administrator.revenueMode;
   if (!mode) return { installments: [], problem: "NO_CONFIG" };
   const count = Math.max(1, administrator.commissionInstallments);
+  const mask = installmentMask(administrator);
   const first = firstPaymentMonth(sale.saleDate, administrator.cutoffDay, administrator.graceMonths);
 
   let baseValue: number | null;
@@ -275,23 +316,28 @@ export function buildRevenueSchedule(
   if (mode === "CREDIT_EQUAL") {
     const total = administrator.revenueTotalPercent;
     if (total == null || total <= 0) return { installments: [], problem: "NO_CONFIG" };
-    amounts = splitCents(Math.round((baseCents * total) / 100), count);
-    percents = Array.from({ length: count }, () => total / count);
+    // O total se divide só entre as parcelas que pagam.
+    const paying = mask.reduce((a, b) => a + b, 0) || 1;
+    amounts = splitByWeights(Math.round((baseCents * total) / 100), mask);
+    percents = mask.map((m) => (m ? total / paying : 0));
   } else {
     const table = administrator.revenuePercents;
     if (!table || table.length === 0) return { installments: [], problem: "NO_CONFIG" };
-    percents = Array.from({ length: count }, (_, i) => (Number.isFinite(table[i]) ? Math.max(0, table[i]) : 0));
+    percents = Array.from({ length: count }, (_, i) => (mask[i] && Number.isFinite(table[i]) ? Math.max(0, table[i]) : 0));
     amounts = percents.map((p) => Math.round((baseCents * p) / 100));
   }
 
   return {
-    installments: amounts.map((amountCents, index) => ({
-      installmentNumber: index + 1,
-      installmentCount: count,
-      paymentMonth: addMonths(first, index),
-      amountCents,
-      percent: percents[index],
-    })),
+    installments: amounts
+      .map((amountCents, index) => ({
+        installmentNumber: index + 1,
+        installmentCount: count,
+        paymentMonth: addMonths(first, index),
+        amountCents,
+        percent: percents[index],
+      }))
+      // Parcela sem comissão (ou 0% na tabela) não vira linha nenhuma.
+      .filter((r) => r.amountCents > 0),
     problem: null,
   };
 }
@@ -329,7 +375,10 @@ export function buildSaleSchedule(
   const { installments: revenue, problem: revenueProblem } = buildRevenueSchedule(sale, administrator);
   const revenueTotal = revenue.reduce((acc, r) => acc + r.amountCents, 0);
   // Peso de cada parcela = o que a corretora recebe nela; sem isso, iguais.
-  const weights = revenueTotal > 0 ? revenue.map((r) => r.amountCents) : Array.from({ length: count }, () => 1);
+  // Parcela "sem comissão" pesa 0 nos dois casos.
+  const mask = installmentMask(administrator);
+  const revenueByNumber = new Map(revenue.map((r) => [r.installmentNumber, r.amountCents]));
+  const weights = revenueTotal > 0 ? mask.map((m, i) => (m ? (revenueByNumber.get(i + 1) ?? 0) : 0)) : mask;
 
   for (const role of BENEFICIARY_ROLES) {
     const beneficiaryId = beneficiaryFor(sale, role);
@@ -369,6 +418,9 @@ export function buildSaleSchedule(
       parts = splitByWeights(Math.round((baseCents * rule.percent) / 100), weights);
     }
     parts.forEach((amountCents, index) => {
+      // Parcela sem comissão (peso 0) não vira linha nenhuma — o consultor
+      // não vê um "R$ 0,00" naquele mês, só o mês sem nada.
+      if (amountCents <= 0) return;
       installments.push({
         role,
         beneficiaryId,
@@ -427,16 +479,16 @@ export const MODALITY_LABELS: Record<Modality, string> = {
 };
 
 export function problemLabel(problem: ScheduleProblem): string {
-  if (problem.code === "NO_ADMINISTRATOR") return "Falta escolher a administradora";
-  if (problem.code === "NO_RULE") return "Falta uma regra dizendo quanto o vendedor ganha";
+  if (problem.code === "NO_ADMINISTRATOR") return "Sem administradora";
+  if (problem.code === "NO_RULE") return "Sem regra";
   if (problem.code === "NO_REVENUE") return revenueProblemLabel(problem.reason);
-  return problem.base === "GROSS" ? "Falta o valor bruto da venda" : "Falta o valor líquido da venda";
+  return problem.base === "GROSS" ? "Sem valor bruto" : "Sem valor líquido";
 }
 
 export function revenueProblemLabel(reason: RevenueProblem): string {
-  if (reason === "NO_CLIENT_INSTALLMENT") return "Falta o valor da parcela do cliente";
-  if (reason === "NO_VALUE") return "Falta o valor da venda";
-  return "Falta dizer quanto a administradora paga para a corretora";
+  if (reason === "NO_CLIENT_INSTALLMENT") return "Sem parcela do cliente";
+  if (reason === "NO_VALUE") return "Sem valor da venda";
+  return "Sem % da administradora";
 }
 
 /** "1.25" → "1,25%". */

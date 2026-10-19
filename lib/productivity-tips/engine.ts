@@ -65,7 +65,7 @@ async function evaluateWhatsAppDisconnected(
   userId: string,
 ): Promise<EvaluatedTip | null> {
   const instance = await prisma.whatsAppInstance.findFirst({
-    where: { organizationId, userId, status: "CONNECTED" },
+    where: { organizationId, kind: "PERSONAL", personalOwnerId: userId, status: "CONNECTED" },
     select: { id: true },
   });
   if (instance) return null;

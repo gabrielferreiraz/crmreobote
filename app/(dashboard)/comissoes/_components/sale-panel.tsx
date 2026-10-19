@@ -10,16 +10,16 @@ import { LoadingDots } from "@/components/loading-dots";
 import { requestJson } from "@/lib/client-request";
 import { formatCurrency } from "@/lib/format";
 import { brazilDateKey } from "@/lib/timezone";
-import { ROLE_LABELS } from "@/lib/commissions/engine";
+import { problemLabel, revenueProblemLabel, ROLE_LABELS } from "@/lib/commissions/engine";
 import type { EntryView, SaleListItem } from "@/lib/commissions/queries";
 import { EntryRow } from "./entry-row";
 import { AdjustmentDialog } from "./adjustment-dialog";
 import { SaleFields, saleFormToBody, type SaleFormOptions, type SaleFormState } from "./sale-form";
 
 const SOURCE_SENTENCE = {
-  CRM: "Veio do CRM quando o negócio foi marcado como ganho.",
-  LEGACY: "Venda antiga, trazida do CRM para conferência.",
-  MANUAL: "Lançada à mão pelo Financeiro (não está no CRM).",
+  CRM: "Veio do CRM",
+  LEGACY: "Venda antiga",
+  MANUAL: "Lançada à mão",
 } as const;
 
 const formatDay = (iso: string) => brazilDateKey(new Date(iso)).split("-").reverse().join("/");
@@ -34,6 +34,7 @@ function toFormState(sale: SaleListItem): SaleFormState {
     netValue: sale.netValue != null ? sale.netValue.toFixed(2) : "",
     grossValue: sale.grossValue != null ? sale.grossValue.toFixed(2) : "",
     clientInstallment: sale.clientInstallment != null ? sale.clientInstallment.toFixed(2) : "",
+    autoDebit: sale.autoDebit,
     creditType: sale.creditType ?? "",
     quotaNumber: sale.quotaNumber ?? "",
     groupNumber: sale.groupNumber ?? "",
@@ -41,19 +42,43 @@ function toFormState(sale: SaleListItem): SaleFormState {
   };
 }
 
-/** O que falta, traduzido em "o que fazer" — com o atalho certo quando a solução mora em outra tela. */
-function problemHelp(label: string): { text: string; href?: string; cta?: string } {
-  // Ordem importa: "quanto a administradora paga" também contém "administradora".
-  if (label.includes("paga para a corretora")) {
-    return { text: "Cadastrar quanto a administradora paga para a corretora (a regra deste vendedor depende disso).", href: "/comissoes/configuracoes", cta: "Configurar" };
+/** O que falta → o que fazer (curto), com atalho quando a solução mora em outra tela. */
+function problemHelp(label: string, sale: SaleListItem): { text: string; href?: string; cta?: string } {
+  const config = { href: "/comissoes/configuracoes" };
+  if (label === revenueProblemLabel("NO_CONFIG")) return { text: "Cadastre quanto a administradora paga", ...config, cta: "Configurar" };
+  if (label === revenueProblemLabel("NO_CLIENT_INSTALLMENT")) return { text: "Preencha a parcela do cliente abaixo" };
+  if (label === problemLabel({ code: "NO_ADMINISTRATOR" })) return { text: "Escolha a administradora abaixo" };
+  if (label === problemLabel({ code: "NO_RULE", role: "SELLER" })) {
+    // A regra pode valer só para uma categoria — sem categoria na venda, nenhuma serve.
+    return sale.creditType
+      ? { text: `Sem regra para ${sale.administratorName ?? "a administradora"}, ${sale.creditType}`, ...config, cta: "Criar regra" }
+      : { text: "Escolha a categoria abaixo", ...config, cta: "Ver regras" };
   }
-  if (label.includes("parcela do cliente")) return { text: "Preencher o valor da parcela que o cliente paga, logo abaixo em Dados da venda." };
-  if (label.includes("valor da venda")) return { text: "Preencher o valor da venda, logo abaixo." };
-  if (label.includes("administradora")) return { text: "Escolher a administradora, logo abaixo em Dados da venda." };
-  if (label.includes("regra")) return { text: "Criar uma regra que diga quanto o vendedor ganha nessa administradora.", href: "/comissoes/configuracoes", cta: "Criar regra" };
-  if (label.includes("bruto")) return { text: "Preencher o valor bruto da venda, logo abaixo." };
-  if (label.includes("líquido")) return { text: "Preencher o valor líquido da venda, logo abaixo." };
-  return { text: label };
+  return { text: `${label.replace(/^Sem /, "Preencha o ")} abaixo` };
+}
+
+/** Parcelas por venda, nesta aba do navegador — reabrir/ir e voltar é instantâneo. */
+const entriesCache = new Map<string, EntryView[]>();
+const inFlight = new Map<string, Promise<EntryView[] | null>>();
+
+/**
+ * Busca (e guarda) as parcelas de uma venda. A lista chama ao passar o mouse
+ * numa linha, então ao clicar o painel já abre com tudo. `force` ignora o
+ * guardado (depois de uma ação, os valores mudaram).
+ */
+export function fetchSaleEntries(saleId: string, opts?: { force?: boolean }): Promise<EntryView[] | null> {
+  if (!opts?.force && entriesCache.has(saleId)) return Promise.resolve(entriesCache.get(saleId)!);
+  const pending = inFlight.get(saleId);
+  if (pending && !opts?.force) return pending;
+  const request = requestJson<{ entries: EntryView[] }>(`/api/commissions/sales/${saleId}`, undefined, { silent: !opts?.force })
+    .then((res) => {
+      if (!res.ok) return null;
+      entriesCache.set(saleId, res.data.entries);
+      return res.data.entries;
+    })
+    .finally(() => inFlight.delete(saleId));
+  inFlight.set(saleId, request);
+  return request;
 }
 
 /**
@@ -81,7 +106,9 @@ export function SalePanel({
   const router = useRouter();
   const initial = toFormState(sale);
   const [form, setForm] = useState(initial);
-  const [entries, setEntries] = useState<EntryView[] | null>(null);
+  // Parcelas já vistas (ou buscadas ao passar o mouse na lista) aparecem na
+  // hora; a busca abaixo atualiza por cima.
+  const [entries, setEntries] = useState<EntryView[] | null>(() => entriesCache.get(sale.id) ?? null);
   const [saving, setSaving] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,8 +116,8 @@ export function SalePanel({
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
 
   const loadEntries = useCallback(async () => {
-    const res = await requestJson<{ entries: EntryView[] }>(`/api/commissions/sales/${sale.id}`);
-    if (res.ok) setEntries(res.data.entries);
+    const fresh = await fetchSaleEntries(sale.id, { force: true });
+    if (fresh) setEntries(fresh);
   }, [sale.id]);
 
   useEffect(() => {
@@ -173,13 +200,13 @@ export function SalePanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-0.5 text-sm text-neutral-700 dark:text-neutral-300">
             <p>
-              Vendida por <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{sale.sellerName}</strong> em {formatDay(sale.saleDate)}.
+              <strong className="font-semibold text-neutral-900 dark:text-neutral-100">{sale.sellerName}</strong> · {formatDay(sale.saleDate)}
             </p>
             <p className="text-neutral-500 dark:text-neutral-400">{SOURCE_SENTENCE[sale.source]}</p>
           </div>
           {sale.dealId && (
             <Link href={`/negocios/${sale.dealId}`} className="btn-secondary btn-sm" target="_blank">
-              Abrir o negócio
+              Negócio
               <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
             </Link>
           )}
@@ -189,8 +216,7 @@ export function SalePanel({
         {cancelled && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-500/10">
             <p className="text-sm text-red-900 dark:text-red-100">
-              <strong className="font-semibold">A comissão desta venda está cancelada.</strong> O que já tinha sido pago continua pago; o resto não
-              será pago.
+              <strong className="font-semibold">Comissão cancelada.</strong> O que já foi pago continua pago.
             </p>
             <button type="button" className="btn-secondary btn-sm" disabled={!!busyAction} onClick={() => action("reactivate")}>
               {busyAction === "reactivate" ? (
@@ -198,7 +224,7 @@ export function SalePanel({
               ) : (
                 <>
                   <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
-                  Voltar a pagar
+                  Reativar
                 </>
               )}
             </button>
@@ -209,11 +235,11 @@ export function SalePanel({
           <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-500/10 dark:text-amber-100">
             <p className="flex items-center gap-2 text-sm font-semibold">
               <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2} />
-              Para esta venda gerar comissão, falta:
+              Falta:
             </p>
             <ul className="space-y-1.5 pl-6 text-sm">
               {sale.problems.map((p) => {
-                const help = problemHelp(p);
+                const help = problemHelp(p, sale);
                 return (
                   <li key={p} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>• {help.text}</span>
@@ -233,10 +259,10 @@ export function SalePanel({
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/20 bg-brand-light px-4 py-3">
             <p className="text-sm text-neutral-800 dark:text-neutral-200">
               {hasProblems
-                ? "Resolva o que falta acima para poder confirmar."
+                ? "Resolva o que falta para confirmar."
                 : dirty
-                  ? "Salve as correções antes de confirmar."
-                  : "Está tudo certo? Ao confirmar, o vendedor passa a ver esta comissão."}
+                  ? "Salve antes de confirmar."
+                  : "Ao confirmar, o vendedor passa a ver."}
             </p>
             <button
               type="button"
@@ -249,7 +275,7 @@ export function SalePanel({
               ) : (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
-                  {queue?.nextId ? "Confirmar e ir para a próxima" : "Confirmar venda"}
+                  {queue?.nextId ? "Confirmar e próxima" : "Confirmar"}
                 </>
               )}
             </button>
@@ -259,38 +285,36 @@ export function SalePanel({
         {/* Quanto fica para a corretora */}
         {!cancelled && (sale.revenueTotal != null || sale.commissionTotal > 0) && (
           <section className="space-y-1.5 rounded-xl border border-neutral-200 px-4 py-3 dark:border-neutral-800">
-            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Quanto fica para a corretora</h3>
+            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Saldo da corretora</h3>
             {sale.revenueTotal != null ? (
-              <>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300">
-                  {sale.administratorName ?? "A administradora"} paga <strong className="font-semibold">{formatCurrency(sale.revenueTotal)}</strong> para a
-                  corretora por esta venda.
-                </p>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300">
-                  A corretora paga <strong className="font-semibold">{formatCurrency(sale.commissionPaidByCompany)}</strong> de comissão
-                  {sale.commissionTotal > sale.commissionPaidByCompany
-                    ? ` (mais ${formatCurrency(sale.commissionTotal - sale.commissionPaidByCompany)} que a administradora paga direto ao vendedor)`
-                    : ""}
-                  .
-                </p>
-                <p className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-                  Ficam {formatCurrency(sale.revenueTotal - sale.commissionPaidByCompany)} para a corretora.
-                </p>
-              </>
+              <dl className="space-y-1 text-sm text-neutral-700 dark:text-neutral-300">
+                <div className="flex justify-between gap-3">
+                  <dt>{sale.administratorName ?? "Administradora"} paga</dt>
+                  <dd className="tabular-nums">{formatCurrency(sale.revenueTotal)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>Comissões da empresa</dt>
+                  <dd className="tabular-nums">− {formatCurrency(sale.commissionPaidByCompany)}</dd>
+                </div>
+                {sale.commissionTotal > sale.commissionPaidByCompany && (
+                  <div className="flex justify-between gap-3 text-neutral-500 dark:text-neutral-400">
+                    <dt>Pago direto pela administradora</dt>
+                    <dd className="tabular-nums">{formatCurrency(sale.commissionTotal - sale.commissionPaidByCompany)}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3 border-t border-neutral-100 pt-1 text-base font-semibold text-neutral-900 dark:border-neutral-800 dark:text-neutral-100">
+                  <dt>Fica</dt>
+                  <dd className="tabular-nums">{formatCurrency(sale.revenueTotal - sale.commissionPaidByCompany)}</dd>
+                </div>
+              </dl>
             ) : (
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                A comissão desta venda é de {formatCurrency(sale.commissionTotal)}. Para ver quanto fica para a corretora,{" "}
+                Comissão: {formatCurrency(sale.commissionTotal)}.{" "}
                 {sale.administratorId ? (
-                  <>
-                    cadastre quanto a {sale.administratorName} paga em{" "}
-                    <Link href="/comissoes/configuracoes" className="font-semibold text-brand underline underline-offset-2">
-                      Configurar comissões
-                    </Link>
-                    {" "}(ou preencha o valor da parcela do cliente, se ela pagar por ele).
-                  </>
-                ) : (
-                  "escolha a administradora."
-                )}
+                  <Link href="/comissoes/configuracoes" className="font-semibold text-brand underline underline-offset-2">
+                    Cadastrar quanto a {sale.administratorName} paga
+                  </Link>
+                ) : null}
               </p>
             )}
           </section>
@@ -301,9 +325,7 @@ export function SalePanel({
           <section className="space-y-3">
             <div>
               <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Dados da venda</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                Corrija aqui o que veio errado. As parcelas que ainda não foram pagas são recalculadas na hora; o negócio no CRM não muda.
-              </p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">Parcelas não pagas são recalculadas ao salvar.</p>
             </div>
             <SaleFields value={form} onChange={setForm} options={options} showClient={sale.source === "MANUAL"} />
             {dirty && (
@@ -324,21 +346,21 @@ export function SalePanel({
         {/* Quem recebe */}
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Quem recebe por esta venda</h3>
+            <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Quem recebe</h3>
             {!cancelled && (
               <button type="button" className="btn-secondary btn-sm" onClick={() => setAdjustmentOpen(true)}>
                 <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                Lançar ajuste nesta venda
+                Ajuste
               </button>
             )}
           </div>
           {entries === null ? (
             <p className="flex items-center gap-2 py-4 text-sm text-neutral-500">
-              Carregando as parcelas <LoadingDots />
+              Carregando <LoadingDots />
             </p>
           ) : people.length === 0 ? (
             <p className="rounded-xl bg-neutral-50 px-4 py-4 text-sm text-neutral-600 dark:bg-neutral-800/50 dark:text-neutral-400">
-              {hasProblems ? "Ninguém recebe ainda — resolva o que falta acima." : "Nenhuma parcela nesta venda."}
+              {hasProblems ? "Sem parcelas até resolver o que falta." : "Sem parcelas."}
             </p>
           ) : (
             people.map((person) => {
@@ -347,9 +369,9 @@ export function SalePanel({
                 <div key={person.id} className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
                   <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-100 bg-neutral-50 px-4 py-2.5 dark:border-neutral-800 dark:bg-neutral-800/40">
                     <p className="text-sm text-neutral-800 dark:text-neutral-200">
-                      <strong className="font-semibold">{person.name}</strong> recebe como {ROLE_LABELS[person.role].toLowerCase()}
+                      <strong className="font-semibold">{person.name}</strong> · {ROLE_LABELS[person.role].toLowerCase()}
                     </p>
-                    <p className="text-sm font-semibold text-neutral-900 tabular-nums dark:text-neutral-100">{formatCurrency(total)} no total</p>
+                    <p className="text-sm font-semibold text-neutral-900 tabular-nums dark:text-neutral-100">{formatCurrency(total)}</p>
                   </div>
                   <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
                     {person.list.map((entry) => (
@@ -369,20 +391,20 @@ export function SalePanel({
               className="btn-ghost btn-sm"
               disabled={!!busyAction || dirty}
               onClick={() => action("recalculate")}
-              title="Refaz as parcelas que ainda não foram pagas com as regras e a administradora de hoje"
+              title="Refaz as parcelas não pagas com as regras atuais"
             >
               {busyAction === "recalculate" ? (
                 <LoadingDots />
               ) : (
                 <>
                   <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
-                  Refazer com as regras de hoje
+                  Recalcular
                 </>
               )}
             </button>
             <button type="button" className="btn-ghost btn-sm text-red-600 dark:text-red-400" disabled={!!busyAction} onClick={() => setConfirmCancel(true)}>
               <XCircle className="h-3.5 w-3.5" strokeWidth={2} />
-              Cancelar a comissão desta venda
+              Cancelar comissão
             </button>
           </div>
         )}
@@ -390,8 +412,8 @@ export function SalePanel({
 
       {confirmCancel && (
         <ConfirmDialog
-          title="Cancelar a comissão desta venda?"
-          description="O que já foi pago continua pago. As parcelas que faltam deixam de ser pagas e somem da tela do vendedor."
+          title="Cancelar a comissão?"
+          description="O que já foi pago continua pago. O resto é cancelado."
           confirmLabel="Cancelar comissão"
           closeLabel="Voltar"
           onClose={() => setConfirmCancel(false)}

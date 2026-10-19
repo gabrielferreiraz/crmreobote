@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Cake, Loader2, Trash2, Upload } from "lucide-react";
-import { saveTvBirthdayImage } from "./actions";
+import { Cake, Eye, Loader2, Trash2, Upload } from "lucide-react";
+import { Modal } from "@/components/modal";
+import { TvBirthdaySlide } from "@/app/tv/tv-birthday-slide";
+import { saveTvBirthdayImage, saveTvBirthdayUseDefault } from "./actions";
 import { TvAdCropDialog } from "./tv-ad-crop-dialog";
 import { TV_AD_ASPECT_RATIO } from "./tv-ad-aspect";
 import type { TvBirthdaySlideConfig } from "@/lib/tv-birthday";
@@ -46,9 +48,12 @@ export function TvBirthdaySection({
 }) {
   const [backgroundUrl, setBackgroundUrl] = useState(initial.backgroundUrl);
   const [photos, setPhotos] = useState(initial.photos);
+  const [useDefault, setUseDefault] = useState(initial.useDefaultBackground);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingBackground, setPendingBackground] = useState<string | null>(null);
+  // Pré-visualização do slide (mesmo componente da TV) — qualquer dia, não só no aniversário.
+  const [preview, setPreview] = useState<{ name: string; photoUrl: string } | null>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
 
   async function save(userId: string | undefined, url: string | null) {
@@ -62,12 +67,25 @@ export function TvBirthdaySection({
     const url = await uploadImage(blob, "fundo-aniversario.jpg");
     await save(undefined, url);
     setBackgroundUrl(url);
+    setUseDefault(false);
     closeBackgroundCrop();
   }
 
   function closeBackgroundCrop() {
     if (pendingBackground) URL.revokeObjectURL(pendingBackground);
     setPendingBackground(null);
+  }
+
+  async function toggleUseDefault(next: boolean) {
+    setBusy("default");
+    setError(null);
+    setUseDefault(next);
+    const result = await saveTvBirthdayUseDefault(next);
+    if (!result.success) {
+      setUseDefault(!next);
+      setError(result.error);
+    }
+    setBusy(null);
   }
 
   async function removeBackground() {
@@ -140,14 +158,35 @@ export function TvBirthdaySection({
 
         {/* Fundo padrão */}
         <div>
-          <p className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Fundo</p>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Fundo</p>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+              Usar fundo padrão
+              <button
+                type="button"
+                role="switch"
+                aria-checked={useDefault}
+                disabled={busy === "default"}
+                onClick={() => toggleUseDefault(!useDefault)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${useDefault ? "bg-blue-600" : "bg-neutral-300 dark:bg-neutral-600"}`}
+              >
+                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${useDefault ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+              </button>
+            </label>
+          </div>
           <div className="flex flex-wrap items-end gap-3">
             <div
-              style={{ aspectRatio: TV_AD_ASPECT_RATIO }}
-              className="relative w-44 overflow-hidden rounded-md border border-neutral-200 bg-gradient-to-br from-[#5a5be6] via-[#2f2a7a] to-neutral-950 dark:border-neutral-700"
+              style={{
+                aspectRatio: TV_AD_ASPECT_RATIO,
+                background: "radial-gradient(ellipse 55% 60% at 85% 0%, #49d6f7 0%, rgba(73,214,247,0) 70%), linear-gradient(180deg, #0b5a92 0%, #083563 48%, #05182f 78%, #030c19 100%)",
+              }}
+              className="relative w-44 overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {backgroundUrl && <img src={backgroundUrl} alt="Fundo do aniversário" className="h-full w-full object-cover" />}
+              {!useDefault && backgroundUrl && <img src={backgroundUrl} alt="Fundo do aniversário" className="h-full w-full object-cover" />}
+              <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[11px] font-medium text-white">
+                {useDefault || !backgroundUrl ? "Padrão" : "Sua foto"}
+              </span>
             </div>
             <div className="flex gap-2">
               <button
@@ -182,8 +221,8 @@ export function TvBirthdaySection({
               }}
             />
           </div>
-          {!backgroundUrl && (
-            <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">Sem fundo, a TV usa um degradê na cor da marca.</p>
+          {!useDefault && !backgroundUrl && (
+            <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">Sem foto enviada, a TV usa o fundo padrão.</p>
           )}
         </div>
 
@@ -243,6 +282,16 @@ export function TvBirthdaySection({
                   {photo && (
                     <button
                       type="button"
+                      onClick={() => setPreview({ name: m.name, photoUrl: photo })}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded bg-neutral-100 px-3 py-1.5 text-sm font-medium hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Ver
+                    </button>
+                  )}
+                  {photo && (
+                    <button
+                      type="button"
                       onClick={() => removePhoto(m.id)}
                       disabled={!!busy}
                       aria-label={`Remover foto de ${m.name}`}
@@ -262,6 +311,24 @@ export function TvBirthdaySection({
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       </div>
+
+      {preview && (
+        <Modal onClose={() => setPreview(null)} maxWidth="max-w-3xl">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Como aparece na TV</h3>
+            <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{preview.name}</p>
+          </div>
+          {/* Mesmo formato do quadro de propaganda da TV. */}
+          <div className="relative w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700" style={{ aspectRatio: TV_AD_ASPECT_RATIO }}>
+            <TvBirthdaySlide name={preview.name} photoUrl={preview.photoUrl} backgroundUrl={useDefault ? null : backgroundUrl} />
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button type="button" onClick={() => setPreview(null)} className="btn-ghost">
+              Fechar
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {pendingBackground && <TvAdCropDialog imageSrc={pendingBackground} onCancel={closeBackgroundCrop} onConfirm={confirmBackground} />}
     </div>

@@ -290,7 +290,11 @@ export function HelpCenterProvider({
   }, [open, discovery]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || view.kind !== "home") return;
+    // No celular, focar a busca ao abrir levantava o teclado imediatamente e
+    // reduzia a folha de ajuda a uma faixa estreita. O toque no campo continua
+    // focando normalmente; autofocus fica só no desktop, onde ele agiliza.
+    if (!window.matchMedia("(min-width: 1024px)").matches) return;
     const timeout = setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 60);
     return () => clearTimeout(timeout);
   }, [open, view.kind]);
@@ -752,7 +756,7 @@ function HelpHeader({ onClose }: { onClose: () => void }) {
       <button
         type="button"
         onClick={onClose}
-        className="shrink-0 rounded-md p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 lg:h-auto lg:w-auto lg:p-1.5"
         aria-label="Fechar a ajuda"
       >
         <X className="h-4 w-4" strokeWidth={2.2} />
@@ -783,7 +787,7 @@ function TopicRow({
     <button
       type="button"
       onClick={() => onPick(topic.id)}
-      className={`group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+      className={`group flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors lg:min-h-0 ${
         tone === "brand" ? "hover:bg-white/70 dark:hover:bg-white/10" : "hover:bg-neutral-100/80 dark:hover:bg-neutral-800/60"
       }`}
     >

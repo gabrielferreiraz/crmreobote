@@ -297,6 +297,7 @@ export function ChatWindow({
   onRenamed,
   className = "",
   backMode = false,
+  composerNotice = null,
 }: {
   threadId: string;
   contactId?: string | null;
@@ -323,6 +324,12 @@ export function ChatWindow({
   className?: string;
   /** No mestre-detalhe do mobile o botão de fechar volta pra lista — troca o X por uma seta. */
   backMode?: boolean;
+  /**
+   * Quando preenchido, troca a caixa de digitar por este aviso — quem está
+   * vendo não pode responder (ex.: Central de Leads, atendimento de outra
+   * pessoa). Melhor que deixar digitar e só recusar no envio.
+   */
+  composerNotice?: string | null;
 }) {
   // Sobrepõe contactName localmente depois de um "Renomear" — sem isso, o
   // cabeçalho só mostraria o nome novo depois de quem chamou re-renderizar
@@ -763,7 +770,11 @@ export function ChatWindow({
       )}
 
       <div className="mt-3 shrink-0 px-1">
-        {attachMode === null ? (
+        {composerNotice ? (
+          <p className="rounded-lg bg-neutral-100 px-3 py-2.5 text-center text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+            {composerNotice}
+          </p>
+        ) : attachMode === null ? (
           <TextComposer
             sending={sending}
             onSend={(text) => sendPayload({ type: "TEXT", text })}

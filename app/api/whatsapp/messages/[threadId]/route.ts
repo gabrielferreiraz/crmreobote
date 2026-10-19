@@ -6,8 +6,10 @@ import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { sendPresence } from "@/lib/evolution";
 import { toDialNumber } from "@/lib/phone-normalize";
 import { resolveChatMediaUrl, resolveAvatarUrlMap } from "@/lib/r2";
-import { getDealScope } from "@/lib/team-scope";
 import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
+import { getWhatsAppThreadAccess } from "@/lib/whatsapp/thread-access";
+import { assignCentralLead, CentralLeadError } from "@/lib/whatsapp/lead-routing";
+import { findOpenCentralThreadForContact } from "@/lib/whatsapp/central-access";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
 import type { $Enums } from "@/app/generated/prisma/client";
 import { readJson, bodyErrorResponse } from "@/lib/read-body";
@@ -35,24 +37,27 @@ const PRESENCE_RESUBSCRIBE_MS = 55_000;
 const MESSAGE_LIMIT = 200;
 
 /** Garante que a conversa é da própria organização e está dentro do escopo de quem pediu (mesma regra do Pipeline). */
-async function loadAuthorizedThread(threadId: string, organizationId: string, userId: string, role: string | undefined) {
-  const [thread, scope] = await Promise.all([
-    prisma.whatsAppThread.findFirst({
-      where: { id: threadId, organizationId },
-      include: { instance: { select: { userId: true, instanceName: true, status: true } } },
-    }),
-    getDealScope(organizationId, userId, role),
-  ]);
-  if (!thread) return { thread: null, forbidden: false };
+async function loadAuthorizedThread(
+  threadId: string,
+  organizationId: string,
+  userId: string,
+  role: string | undefined,
+) {
+  const thread = await prisma.whatsAppThread.findFirst({
+    where: { id: threadId, organizationId },
+    include: { instance: { select: { kind: true, personalOwnerId: true, instanceName: true, status: true } } },
+  });
+  if (!thread) return { thread: null, forbidden: false, access: null };
+  const access = await getWhatsAppThreadAccess(organizationId, userId, role, thread);
 
   // ownerUserId (denormalizado, sobrevive à instância ser apagada de
-  // verdade — ver prisma/schema.prisma), não thread.instance?.userId: uma
+  // verdade — ver prisma/schema.prisma), não personalOwnerId da instância: uma
   // conversa arquivada (instance null) ainda precisa respeitar o mesmo
   // escopo de "dono/admin vê tudo, consultor só o seu".
-  if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
-    return { thread: null, forbidden: true };
+  if (!access.canRead) {
+    return { thread: null, forbidden: true, access };
   }
-  return { thread, forbidden: false };
+  return { thread, forbidden: false, access };
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ threadId: string }> }) {
@@ -62,7 +67,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
-    const { thread, forbidden } = await loadAuthorizedThread(threadId, organizationId, userId, session!.user.role);
+    const { thread, forbidden, access } = await loadAuthorizedThread(threadId, organizationId, userId, session!.user.role);
     if (forbidden) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
@@ -108,10 +113,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
     // dono foi desativado): nenhum consultor enxerga essa thread (ver
     // loadAuthorizedThread acima), então não há aviso de ninguém pra
     // preservar — marca normalmente, senão o contador fica preso pra sempre.
-    const threadOwnerPromise = thread.ownerUserId
-      ? prisma.user.findUnique({ where: { id: thread.ownerUserId }, select: { name: true, image: true } })
+    const displayOwnerId = thread.inboxStatus ? thread.assigneeId : thread.ownerUserId;
+    const threadOwnerPromise = displayOwnerId
+      ? prisma.user.findUnique({ where: { id: displayOwnerId }, select: { name: true, image: true } })
       : Promise.resolve(null);
-    const viewerOwnsThread = !thread.ownerUserId || thread.ownerUserId === userId;
+    const viewerOwnsThread = access?.isResponsibleViewer ?? false;
     if (viewerOwnsThread) {
       const marked = await prisma.whatsAppMessage.updateMany({
         where: { organizationId, threadId, direction: "INBOUND", read: false },
@@ -124,7 +130,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
       // marca 0 linhas, não publica, e o ciclo para. O que isso compra: a
       // lista de Conversas apaga o badge na hora, sem esperar o poll de 45s.
       if (marked.count > 0) {
-        publishWhatsAppEvent(organizationId, { type: "read", threadId });
+        publishWhatsAppEvent(organizationId, { type: "read", threadId, central: thread.inboxStatus !== null });
       }
     }
 
@@ -223,9 +229,47 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
   }
 
   return runWithTenant(organizationId, async () => {
-    const { thread, forbidden } = await loadAuthorizedThread(threadId, organizationId, userId, session!.user.role);
+    // Sem atalho de "assumir" para quem não enxerga a fila: só gestor (que
+    // já lê "Sem responsável") assume ao responder; consultor recebe 403.
+    const { thread, forbidden, access } = await loadAuthorizedThread(
+      threadId,
+      organizationId,
+      userId,
+      session!.user.role,
+    );
     if (forbidden) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+    // Gestor respondendo a fila assume na hora; o responsável respondendo um
+    // atendimento encerrado o reabre com ele mesmo.
+    const claimOnSend = access?.isCentral && (
+      (thread.inboxStatus === "OPEN" && !thread.assigneeId) ||
+      (thread.inboxStatus === "CLOSED" && thread.assigneeId === userId)
+    );
+    if (claimOnSend) {
+      try {
+        await assignCentralLead({
+          organizationId,
+          threadId,
+          assigneeId: userId,
+          actorUserId: userId,
+          source: "MANUAL_CLAIM",
+        });
+      } catch (err) {
+        if (err instanceof CentralLeadError) return NextResponse.json({ error: err.message }, { status: 409 });
+        console.error(`[wa:central] falha ao assumir thread=${threadId} no envio`, err);
+        return NextResponse.json({ error: "Não foi possível assumir a conversa. Tente de novo." }, { status: 500 });
+      }
+    } else if (!access?.canSend) {
+      return NextResponse.json({ error: "Transfira a conversa para você antes de responder" }, { status: 409 });
+    } else if (!access.isCentral && thread.contactId) {
+      // Item 14: com atendimento aberto na Central, o cliente não recebe pelo número pessoal.
+      const central = await findOpenCentralThreadForContact(organizationId, thread.contactId);
+      if (central) {
+        const who = central.assigneeId === userId ? "com você" : central.assignee ? `com ${central.assignee.name}` : "sem responsável";
+        return NextResponse.json({ error: `Cliente em atendimento na Central (${who}). Responda por lá.` }, { status: 409 });
+      }
+    }
 
     try {
       const message = await sendWhatsAppMessage({

@@ -1,9 +1,10 @@
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCommissionAccess } from "@/lib/commissions/access";
-import { getCommissionWeight, getExpectedRevenue, getManagerAlerts, getMonthEntries, getMonthRange, getOpenDisputes } from "@/lib/commissions/queries";
-import { syncCommissionSales } from "@/lib/commissions/sync";
+import { getCommissionWeight, getManagerOverview, getMonthEntries, getOpenDisputes } from "@/lib/commissions/queries";
+import { syncOnPageOpen } from "@/lib/commissions/sync";
 import { brazilMonthKey, isMonthKey } from "@/lib/commissions/engine";
 import { ManagerMonth } from "./_components/manager-month";
 
@@ -18,48 +19,43 @@ export default async function CommissionsPage({ searchParams }: { searchParams: 
   if (!access.ok) redirect("/");
   if (!access.canManage) redirect(access.commissionsActive ? "/comissoes/minha" : "/");
 
-  await syncCommissionSales(access.organizationId).catch((err) => console.error("[commissions] sync na mesa do Financeiro", err));
+  // Depois de enviar a tela (rede de segurança pra negócio ganho por um
+  // caminho que não sincronizou) — esperar aqui custava ~0,5 s em cada abertura.
+  after(() => syncOnPageOpen(access.organizationId, "mesa do Financeiro"));
 
   const { mes } = await searchParams;
   const currentMonth = brazilMonthKey();
   const month = isMonthKey(mes) ? mes : currentMonth;
 
   return runWithTenant(access.organizationId, async () => {
-    const [org, administratorsCount, rulesCount, entries, alerts, range, members, disputes, expectedRevenue] = await Promise.all([
-      prisma.organization.findUnique({
-        where: { id: access.organizationId },
-        select: { commissionStartDate: true, commissionPayDay: true },
-      }),
-      prisma.consortiumAdministrator.count({ where: { organizationId: access.organizationId, active: true } }),
-      prisma.commissionRule.count({ where: { organizationId: access.organizationId, active: true } }),
+    // 5 consultas ao mesmo tempo (eram 10): os números pequenos vêm todos juntos em getManagerOverview.
+    const [overview, entries, members, disputes, weight] = await Promise.all([
+      getManagerOverview(access.organizationId, month),
       getMonthEntries(access.organizationId, month),
-      getManagerAlerts(access.organizationId),
-      getMonthRange(access.organizationId),
       prisma.organizationUser.findMany({
         where: { organizationId: access.organizationId, active: true },
         select: { user: { select: { id: true, name: true } } },
         orderBy: { user: { name: "asc" } },
       }),
       getOpenDisputes(access.organizationId),
-      getExpectedRevenue(access.organizationId, month),
+      // Transação própria com tenant (SQL direto, prismaRaw) — roda junto, não depois.
+      getCommissionWeight(access.organizationId),
     ]);
-    // Transação própria com tenant (SQL direto) — fora do Promise.all acima.
-    const weight = await getCommissionWeight(access.organizationId);
 
     return (
       <ManagerMonth
         month={month}
         currentMonth={currentMonth}
-        firstMonth={range.first < month ? range.first : month}
-        lastMonth={range.last > month ? range.last : month}
+        firstMonth={overview.range.first < month ? overview.range.first : month}
+        lastMonth={overview.range.last > month ? overview.range.last : month}
         entries={entries}
-        alerts={alerts}
-        payDay={org?.commissionPayDay ?? 10}
-        setup={{ started: !!org?.commissionStartDate, administratorsCount, rulesCount }}
+        alerts={overview.alerts}
+        payDay={overview.payDay}
+        setup={{ started: overview.started, administratorsCount: overview.administratorsCount, rulesCount: overview.rulesCount }}
         members={members.map((m) => m.user)}
         disputes={disputes}
         weight={weight}
-        expectedRevenue={expectedRevenue}
+        expectedRevenue={overview.expectedRevenue}
       />
     );
   });

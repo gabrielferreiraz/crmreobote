@@ -4,9 +4,10 @@ import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
 import { requireRole } from "@/lib/require-role";
 import { getSharedScope } from "@/lib/share-groups";
 import { scopeWhere } from "@/lib/team-scope";
-import { buildSaleSchedule } from "@/lib/commissions/engine";
+import { buildSaleSchedule, resolveAdministrator } from "@/lib/commissions/engine";
 import { LATEST_PROPOSAL_INSTALLMENT, loadEngineContext } from "@/lib/commissions/sync";
 import { brazilDateStringWithNowTimeToUTC } from "@/lib/timezone";
+import { commissionRoute } from "@/lib/commissions/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
  * `pending` e a tela diz que o Financeiro vai confirmar — nunca um número
  * que depois muda. Só a parte do VENDEDOR (é dele que a tela fala).
  */
-export async function GET(req: Request) {
+export const GET = commissionRoute(async function GET(req: Request) {
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
@@ -29,6 +30,8 @@ export async function GET(req: Request) {
   const dealId = params.get("dealId");
   const administratorId = params.get("administratorId");
   const closedAtRaw = params.get("closedAt");
+  // Categoria escolhida no próprio diálogo do Ganho (ainda não salva no negócio).
+  const creditTypeParam = params.get("creditType");
   if (!dealId || !administratorId || !closedAtRaw || !/^\d{4}-\d{2}-\d{2}$/.test(closedAtRaw)) {
     return NextResponse.json({ status: "inactive" });
   }
@@ -73,13 +76,16 @@ export async function GET(req: Request) {
       managerId: null,
       administratorId,
       modality: "FULL",
-      creditType: deal.creditType,
+      creditType: creditTypeParam || deal.creditType,
       saleDate: closedAt,
       netValue: deal.value != null ? Number(deal.value) : null,
       grossValue: deal.grossValue != null ? Number(deal.grossValue) : null,
       clientInstallment: deal.proposals[0] ? Number(deal.proposals[0].installment) : null,
     },
-    ctx.administrators.get(administratorId) ?? null,
+    (() => {
+      const base = ctx.administrators.get(administratorId);
+      return base ? resolveAdministrator(base, creditTypeParam || deal.creditType) : null;
+    })(),
     ctx.rules,
   );
   const seller = installments.filter((i) => i.role === "SELLER");
@@ -100,4 +106,4 @@ export async function GET(req: Request) {
     lastMonth: seller[seller.length - 1].paymentMonth,
     paidByAdministrator: seller[0].paidByAdministrator,
   });
-}
+});

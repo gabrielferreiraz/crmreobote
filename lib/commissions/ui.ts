@@ -16,14 +16,23 @@ export type DisplayStatus = { label: string; tone: BadgeTone };
  * (é dinheiro que ele vai receber, não um erro dele).
  */
 export function entryDisplayStatus(
-  entry: { status: "SCHEDULED" | "ON_HOLD" | "PAID" | "CANCELLED"; paymentMonth: string },
+  entry: {
+    status: "SCHEDULED" | "ON_HOLD" | "PAID" | "CANCELLED";
+    paymentMonth: string;
+    /** O cliente pagou a parcela do mês? (ver lib/commissions/client-payment.ts) */
+    clientPayment?: "PAID" | "UNPAID" | "PENDING" | "NOT_REQUIRED";
+    clientPaymentEffect?: "HOLD" | "FORFEIT" | "DEFER" | null;
+  },
   currentMonth: string,
   audience: "seller" | "manager",
 ): DisplayStatus {
   if (entry.status === "PAID") return { label: "Pago", tone: "success" };
   if (entry.status === "ON_HOLD") return { label: "Travado", tone: "warning" };
-  if (entry.status === "CANCELLED") return { label: "Cancelado", tone: "neutral" };
+  // Cancelada porque o cliente não pagou (regra da administradora): "perdida", não um cancelamento qualquer.
+  if (entry.status === "CANCELLED") return entry.clientPaymentEffect === "FORFEIT" ? { label: "Perdida", tone: "danger" } : { label: "Cancelado", tone: "neutral" };
   if (entry.paymentMonth > currentMonth) return { label: "Previsto", tone: "neutral" };
+  // Mês chegou e ninguém conferiu ainda se o cliente pagou a parcela.
+  if (entry.clientPayment === "PENDING") return { label: "Aguardando o cliente", tone: "warning" };
   if (entry.paymentMonth < currentMonth && audience === "manager") return { label: "Atrasado", tone: "danger" };
   return { label: "A receber", tone: "brand" };
 }
@@ -45,26 +54,29 @@ export function entryDescription(
     paymentMonth: string;
     paidByAdministrator: boolean;
     note: string | null;
+    /** Mês original de uma parcela empurrada pro mês seguinte (cliente não pagou). */
+    deferredFromMonth?: string | null;
   },
   opts: { withAdministrator?: boolean; withMonth?: boolean; withClient?: boolean } = {},
 ): string {
   const parts: string[] = [];
   if (entry.kind === "ADJUSTMENT") {
-    parts.push(opts.withClient && entry.clientName ? `ajuste na venda de ${entry.clientName}` : "ajuste lançado pelo Financeiro");
+    parts.push(opts.withClient && entry.clientName ? `ajuste · ${entry.clientName}` : "ajuste");
   } else {
     if (opts.withClient && entry.clientName) parts.push(entry.clientName);
     if (opts.withAdministrator && entry.administratorName) parts.push(entry.administratorName);
     parts.push(
-      entry.installmentCount && entry.installmentCount > 1 ? `parcela ${entry.installmentNumber} de ${entry.installmentCount}` : "parcela única",
+      entry.installmentCount && entry.installmentCount > 1 ? `parcela ${entry.installmentNumber}/${entry.installmentCount}` : "parcela única",
     );
     if (entry.role !== "SELLER") parts.push(`como ${ROLE_LABELS[entry.role].toLowerCase()}`);
   }
-  if (opts.withMonth) parts.push(`para ${formatMonthLong(entry.paymentMonth).toLowerCase()}`);
-  if (entry.paidByAdministrator) parts.push("paga direto pela administradora");
-  const text = parts.join(", ");
-  const sentence = `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+  if (opts.withMonth) parts.push(formatMonthLong(entry.paymentMonth).toLowerCase());
+  if (entry.paidByAdministrator) parts.push("paga pela administradora");
+  if (entry.deferredFromMonth) parts.push(`adiada de ${formatMonthLong(entry.deferredFromMonth, { withYear: false }).toLowerCase()}`);
   // "Pago antes do sistema" (venda antiga) é observação da própria parcela.
-  return entry.kind === "INSTALLMENT" && entry.note ? `${sentence} ${entry.note}.` : sentence;
+  if (entry.kind === "INSTALLMENT" && entry.note) parts.push(entry.note);
+  const text = parts.join(" · ");
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
 /** Rótulo do status quando é a administradora que paga direto (sem sigla). */

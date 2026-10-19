@@ -1,9 +1,10 @@
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCommissionAccess } from "@/lib/commissions/access";
-import { getSalesList, type SaleFilter } from "@/lib/commissions/queries";
-import { syncCommissionSales } from "@/lib/commissions/sync";
+import { countSalesNeedingAttention, getSalesList, type SaleFilter } from "@/lib/commissions/queries";
+import { syncOnPageOpen } from "@/lib/commissions/sync";
 import { brazilMonthKey } from "@/lib/commissions/engine";
 import { brazilDateKey } from "@/lib/timezone";
 import { SalesView } from "../_components/sales-view";
@@ -15,22 +16,38 @@ const FILTERS: SaleFilter[] = ["atencao", "conferir", "todas", "canceladas"];
 export default async function CommissionSalesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ f?: string; q?: string; venda?: string }>;
+  searchParams: Promise<{ f?: string; q?: string; v?: string; venda?: string }>;
 }) {
   const access = await getCommissionAccess();
   if (!access.ok) redirect("/");
   if (!access.canManage) redirect("/comissoes");
 
-  await syncCommissionSales(access.organizationId).catch((err) => console.error("[commissions] sync em Vendas", err));
+  // Depois de enviar a tela (rede de segurança pra negócio ganho por um
+  // caminho que não sincronizou) — esperar aqui custava ~0,5 s em cada abertura.
+  after(() => syncOnPageOpen(access.organizationId, "Vendas"));
 
-  const { f, q = "", venda } = await searchParams;
+  const { f, q = "", v, venda } = await searchParams;
   const filter: SaleFilter = FILTERS.includes(f as SaleFilter) ? (f as SaleFilter) : "atencao";
   const organizationId = access.organizationId;
 
   return runWithTenant(organizationId, async () => {
-    const [attention, reviewCount, org, members, administrators, creditTypes] = await Promise.all([
-      getSalesList(organizationId, "atencao", filter === "atencao" ? q : ""),
-      prisma.commissionSale.count({ where: { organizationId, status: "REVIEW" } }),
+    // Filtro de vendedor direto da URL: a consulta já é presa à organização,
+    // então um id que não é dela só devolve lista vazia (sem esperar a lista
+    // de vendedores pra validar — tudo roda junto, em paralelo).
+    const sellerId = typeof v === "string" && /^[a-z0-9]{10,40}$/i.test(v) ? v : "";
+    const bySeller = sellerId ? { sellerId } : undefined;
+
+    const [sellerRows, list, attentionCount, reviewCount, org, members, administrators, creditTypes] = await Promise.all([
+      // Vendedores que têm venda (inclusive quem já saiu da empresa) — é o filtro "Vendedor".
+      prisma.commissionSale.findMany({
+        where: { organizationId },
+        distinct: ["sellerId"],
+        select: { seller: { select: { id: true, name: true } } },
+      }),
+      getSalesList(organizationId, filter, q, bySeller),
+      // Na própria aba "atenção" sem busca, o total da lista já é o contador.
+      filter === "atencao" && !q.trim() ? null : countSalesNeedingAttention(organizationId, sellerId || undefined),
+      prisma.commissionSale.count({ where: { organizationId, status: "REVIEW", ...(sellerId ? { sellerId } : {}) } }),
       prisma.organization.findUnique({ where: { id: organizationId }, select: { commissionStartDate: true } }),
       prisma.organizationUser.findMany({
         where: { organizationId, active: true },
@@ -39,15 +56,16 @@ export default async function CommissionSalesPage({
       }),
       prisma.consortiumAdministrator.findMany({
         where: { organizationId, active: true },
-        select: { id: true, name: true, revenueMode: true },
+        select: { id: true, name: true, tables: { select: { creditType: true, revenueMode: true } } },
         orderBy: { name: "asc" },
       }),
       prisma.creditType.findMany({ where: { organizationId }, orderBy: { order: "asc" }, select: { label: true } }),
     ]);
-    const sales = filter === "atencao" ? attention : await getSalesList(organizationId, filter, q);
+    const sellers = sellerRows.map((r) => r.seller).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    const sales = list.items;
 
     let openSale = venda ? (sales.find((s) => s.id === venda) ?? null) : null;
-    if (venda && !openSale) openSale = (await getSalesList(organizationId, "todas", "", { id: venda }))[0] ?? null;
+    if (venda && !openSale) openSale = (await getSalesList(organizationId, "todas", "", { id: venda })).items[0] ?? null;
 
     // Vendedor que saiu da empresa continua aparecendo na venda dele.
     const memberOptions = members.map((m) => m.user);
@@ -57,7 +75,7 @@ export default async function CommissionSalesPage({
     // Administradora desativada continua aparecendo na venda que já tem ela.
     const administratorOptions = [...administrators];
     if (openSale?.administratorId && !administratorOptions.some((a) => a.id === openSale!.administratorId)) {
-      administratorOptions.push({ id: openSale.administratorId, name: openSale.administratorName ?? "—", revenueMode: null });
+      administratorOptions.push({ id: openSale.administratorId, name: openSale.administratorName ?? "—", tables: [] });
     }
 
     const start = org?.commissionStartDate ?? null;
@@ -75,8 +93,11 @@ export default async function CommissionSalesPage({
       <SalesView
         filter={filter}
         search={q}
+        sellerId={sellerId}
+        sellers={sellers}
         sales={sales}
-        counts={{ atencao: attention.length, conferir: reviewCount }}
+        total={list.total}
+        counts={{ atencao: attentionCount ?? list.total, conferir: reviewCount }}
         openSale={openSale}
         currentMonth={brazilMonthKey()}
         options={{ members: memberOptions, administrators: administratorOptions, creditTypes: creditTypes.map((c) => c.label) }}

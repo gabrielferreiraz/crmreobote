@@ -40,8 +40,8 @@ export default async function AutomacoesPage() {
       // organização); os demais só o próprio — mesma regra de
       // validateActionConfig em lib/automations/validation.ts.
       prisma.whatsAppInstance.findMany({
-        where: { organizationId, status: "CONNECTED", ...(isManager ? {} : { userId }) },
-        select: { userId: true, phoneNumber: true },
+        where: { organizationId, kind: "PERSONAL", status: "CONNECTED", ...(isManager ? {} : { personalOwnerId: userId }) },
+        select: { personalOwnerId: true, phoneNumber: true },
         orderBy: { createdAt: "asc" },
       }),
       prisma.customFieldDefinition.findMany({
@@ -82,9 +82,9 @@ export default async function AutomacoesPage() {
       createdByName: r.createdById ? (memberUserMap.get(r.createdById) ?? null) : null,
     }));
 
-    const whatsappInstances = connectedInstances.map((inst) => ({
-      userId: inst.userId,
-      label: `${memberUserMap.get(inst.userId) ?? "Usuário"} (${inst.phoneNumber ?? "sem número"})`,
+    const whatsappInstances = connectedInstances.filter((inst) => inst.personalOwnerId).map((inst) => ({
+      userId: inst.personalOwnerId!,
+      label: `${memberUserMap.get(inst.personalOwnerId!) ?? "Usuário"} (${inst.phoneNumber ?? "sem número"})`,
     }));
 
     return (

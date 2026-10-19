@@ -36,7 +36,8 @@ export { RISK_THRESHOLD, RISK_WINDOW_MS };
 type CheckableInstance = {
   id: string;
   organizationId: string;
-  userId: string;
+  kind: $Enums.WhatsAppInstanceKind;
+  personalOwnerId: string;
   instanceName: string;
   provider: $Enums.WhatsAppProvider;
   phoneNumber: string | null;
@@ -44,6 +45,12 @@ type CheckableInstance = {
   recentDisconnectCount: number;
   riskWindowStartedAt: Date | null;
 };
+
+function hasPersonalOwner<T extends { personalOwnerId: string | null }>(
+  instance: T,
+): instance is T & { personalOwnerId: string } {
+  return Boolean(instance.personalOwnerId);
+}
 
 
 /**
@@ -98,7 +105,7 @@ async function checkAndMaybeDisconnect(
 
     // Dono não é mais membro ativo: remove de vez em vez de só marcar
     // desconectado (mesma regra do webhook — ver lib/whatsapp/events.ts).
-    if (!(await isActiveMember(instance.organizationId, instance.userId))) {
+    if (!(await isActiveMember(instance.organizationId, instance.personalOwnerId))) {
       await deleteInstanceForInactiveUser(instance);
       console.log(`[wa:health] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
       counters.disconnected += 1;
@@ -157,9 +164,14 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
       // Passo 1: quem achamos CONNECTED pode ter caído sem o webhook avisar —
       // "caído" significa coisas diferentes por provider (sessão Baileys vs.
       // token da Meta revogado/expirado), por isso duas checagens separadas.
-      const believedConnected = await prisma.whatsAppInstance.findMany({ where: { status: "CONNECTED" } });
+      const believedConnected = await prisma.whatsAppInstance.findMany({
+        where: { kind: "PERSONAL", status: "CONNECTED", personalOwnerId: { not: null } },
+      });
 
       for (const instance of believedConnected) {
+        // PERSONAL sempre tem dono pelo CHECK do banco; a guarda mantém o
+        // contrato explícito também para o TypeScript e para dados corrompidos.
+        if (!hasPersonalOwner(instance)) continue;
         checked += 1;
 
         if (instance.provider === "META_CLOUD") {
@@ -190,10 +202,17 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
       // Passo 2: quem já está desconectado — escala o aviso conforme o tempo
       // parado, um nível de cada vez, nunca pulando nem repetindo.
       const stillDisconnected = await prisma.whatsAppInstance.findMany({
-        where: { status: "DISCONNECTED", disconnectedAt: { not: null }, disconnectAlertLevel: { lt: 3 } },
+        where: {
+          kind: "PERSONAL",
+          personalOwnerId: { not: null },
+          status: "DISCONNECTED",
+          disconnectedAt: { not: null },
+          disconnectAlertLevel: { lt: 3 },
+        },
       });
 
       for (const instance of stillDisconnected) {
+        if (!hasPersonalOwner(instance)) continue;
         const elapsedDays = Math.floor((Date.now() - instance.disconnectedAt!.getTime()) / DAY_MS);
         const nextLevel = Math.min(3, elapsedDays) as 0 | 1 | 2 | 3;
         if (nextLevel <= instance.disconnectAlertLevel) continue;

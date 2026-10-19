@@ -1,10 +1,11 @@
 import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { formatMonthLong, isMonthKey } from "@/lib/commissions/engine";
 import { formatCurrency } from "@/lib/format";
 import { notifyPaid } from "@/lib/commissions/notify";
+import { clientConfirmedWhere } from "@/lib/commissions/client-payment";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { CommissionPayPayload } from "@/lib/undo/types";
 
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
  * administradora paga direto fica de fora (não sai do caixa da corretora).
  * Devolve Ctrl+Z (commission.pay) e avisa cada pessoa no celular.
  */
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   const beneficiaryId = typeof body.beneficiaryId === "string" ? body.beneficiaryId : undefined;
 
   return runWithTenant(access.organizationId, async () => {
-    const where = {
+    const base = {
       organizationId: access.organizationId,
       paymentMonth: month,
       status: "SCHEDULED" as const,
@@ -36,8 +37,13 @@ export async function POST(req: Request) {
       OR: [{ saleId: null }, { sale: { status: "ACTIVE" as const } }],
       ...(beneficiaryId ? { beneficiaryId } : {}),
     };
-    const toPay = await prisma.commissionEntry.findMany({ where, select: { id: true, amount: true, beneficiaryId: true } });
-    if (toPay.length === 0) return NextResponse.json({ paid: 0, total: 0 });
+    // Só o que o cliente já pagou (ou não depende disso) — o resto espera o ✓.
+    const where = { ...base, AND: [clientConfirmedWhere(month)] };
+    const [toPay, waiting] = await Promise.all([
+      prisma.commissionEntry.findMany({ where, select: { id: true, amount: true, beneficiaryId: true } }),
+      prisma.commissionEntry.count({ where: { ...base, NOT: clientConfirmedWhere(month) } }),
+    ]);
+    if (toPay.length === 0) return NextResponse.json({ paid: 0, total: 0, people: 0, waiting });
 
     // Só os ids lidos agora (nunca "tudo que bater no where" de novo) — uma
     // parcela travada entre a leitura e a escrita não é paga por engano.
@@ -75,6 +81,6 @@ export async function POST(req: Request) {
       } satisfies CommissionPayPayload,
     });
 
-    return NextResponse.json({ paid: count, total, people, undo });
+    return NextResponse.json({ paid: count, total, people, waiting, undo });
   });
-}
+});

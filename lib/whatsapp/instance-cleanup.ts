@@ -51,7 +51,9 @@ export async function deleteInstanceForInactiveUser(instance: {
 
 /** Chamado quando um membro é desativado/removido — só age se já não houver conexão ativa esperando um evento futuro pra pegar essa limpeza. Confere as duas linhas possíveis (uma por provider). */
 export async function cleanupInstanceIfDisconnected(organizationId: string, userId: string): Promise<void> {
-  const instances = await prisma.whatsAppInstance.findMany({ where: { organizationId, userId } });
+  const instances = await prisma.whatsAppInstance.findMany({
+    where: { organizationId, kind: "PERSONAL", personalOwnerId: userId },
+  });
   for (const instance of instances) {
     if (instance.status !== "DISCONNECTED") continue;
     await deleteInstanceForInactiveUser(instance);

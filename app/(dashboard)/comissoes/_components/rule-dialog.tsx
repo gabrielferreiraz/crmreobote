@@ -7,7 +7,7 @@ import { LoadingDots } from "@/components/loading-dots";
 import { requestJson } from "@/lib/client-request";
 import { formatCurrency } from "@/lib/format";
 import { EXAMPLE_SALE, ruleSentence } from "@/lib/commissions/describe";
-import { buildSaleSchedule, type AdministratorLike, type BeneficiaryRole, type Modality } from "@/lib/commissions/engine";
+import { buildSaleSchedule, resolveAdministrator, type AdministratorBaseLike, type BeneficiaryRole, type Modality } from "@/lib/commissions/engine";
 import { Choices, Question } from "./question";
 import { Sentence } from "./sentence";
 
@@ -40,8 +40,8 @@ export function RuleDialog({
 }: {
   initial: RuleForm;
   members: { id: string; name: string; role: "OWNER" | "MANAGER" | "SUPERVISOR" | "MEMBER" }[];
-  /** Cadastro completo — a prévia usa o "quanto paga pra corretora" da administradora escolhida. */
-  administrators: (AdministratorLike & { name: string })[];
+  /** Cadastro completo (com as tabelas) — a prévia usa a tabela da categoria escolhida. */
+  administrators: (AdministratorBaseLike & { name: string })[];
   creditTypes: string[];
   onClose: () => void;
   onSaved: () => void;
@@ -84,7 +84,9 @@ export function RuleDialog({
   // Prévia em reais, pelo MESMO motor da comissão de verdade, só com esta
   // regra: o que a corretora recebe na administradora escolhida e quanto
   // esta regra paga, numa venda de exemplo.
-  const chosenAdministrator = administrators.find((a) => a.id === form.administratorId) ?? null;
+  const chosenBase = administrators.find((a) => a.id === form.administratorId) ?? null;
+  const resolved = chosenBase ? resolveAdministrator(chosenBase, form.creditType) : null;
+  const chosenAdministrator = chosenBase && resolved ? { ...resolved, name: chosenBase.name } : null;
   const roleIds = { SELLER: "__seller", SUPERVISOR: "__supervisor", MANAGER: "__manager" };
   if (scope === "one" && form.userId) roleIds[form.beneficiaryRole] = form.userId;
   const example =
@@ -137,7 +139,7 @@ export function RuleDialog({
     <Modal onClose={() => !saving && onClose()} maxWidth="max-w-lg">
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{initial.id ? "Editar regra" : "Nova regra de comissão"}</h2>
       <form onSubmit={submit} className="mt-5 space-y-6">
-        <Question title="Quem recebe essa comissão?">
+        <Question title="Quem recebe">
           <Choices
             columns={3}
             value={form.beneficiaryRole}
@@ -147,13 +149,13 @@ export function RuleDialog({
             }}
             options={[
               { value: "SELLER", label: "O vendedor" },
-              { value: "SUPERVISOR", label: "O supervisor da equipe" },
-              { value: "MANAGER", label: "O gerente da equipe" },
+              { value: "SUPERVISOR", label: "O supervisor" },
+              { value: "MANAGER", label: "O gerente" },
             ]}
           />
         </Question>
 
-        <Question title="Vale para todos ou para uma pessoa só?">
+        <Question title="Para quem">
           <Choices
             value={scope}
             onChange={(v) => {
@@ -176,16 +178,27 @@ export function RuleDialog({
           )}
         </Question>
 
-        <Question title="Em qual administradora?">
+        <Question title="Administradora">
           <Select
             value={form.administratorId ?? ""}
             onChange={(v) => setForm((f) => ({ ...f, administratorId: v || null }))}
-            options={[{ value: "", label: "Em qualquer administradora" }, ...administrators.map((a) => ({ value: a.id, label: a.name }))]}
+            options={[{ value: "", label: "Qualquer uma" }, ...administrators.map((a) => ({ value: a.id, label: a.name }))]}
             ariaLabel="Administradora"
           />
         </Question>
 
-        <Question title="Quanto ganha?">
+        {creditTypes.length > 0 && (
+          <Question title="Categoria">
+            <Choices
+              columns={3}
+              value={form.creditType ?? "__all"}
+              onChange={(v) => setForm((f) => ({ ...f, creditType: v === "__all" ? null : v }))}
+              options={[{ value: "__all", label: "Todas" }, ...creditTypes.map((c) => ({ value: c, label: c }))]}
+            />
+          </Question>
+        )}
+
+        <Question title="Quanto">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative w-32">
               <input
@@ -207,36 +220,28 @@ export function RuleDialog({
                 options={[
                   { value: "NET", label: "do valor líquido" },
                   { value: "GROSS", label: "do valor bruto" },
-                  { value: "COMPANY_REVENUE", label: "do que a corretora recebe" },
+                  { value: "COMPANY_REVENUE", label: "da receita" },
                 ]}
               />
             </div>
           </div>
+          {form.percent.trim() !== "" && !validPercent && (
+            <p className="field-error text-sm">Entre 0 e 100 (ex.: 1,5).</p>
+          )}
         </Question>
 
-        <Question title="Vale para qual tipo de parcela?">
+        <Question title="Tipo de parcela">
           <Choices
             columns={3}
             value={form.modality ?? "ANY"}
             onChange={(v) => setForm((f) => ({ ...f, modality: v === "ANY" ? null : v }))}
             options={[
-              { value: "ANY", label: "Qualquer venda" },
-              { value: "FULL", label: "Só parcela cheia" },
-              { value: "REDUCED", label: "Só meia parcela" },
+              { value: "ANY", label: "Qualquer" },
+              { value: "FULL", label: "Cheia" },
+              { value: "REDUCED", label: "Meia" },
             ]}
           />
         </Question>
-
-        {creditTypes.length > 0 && (
-          <Question title="Só para um tipo de crédito?">
-            <Select
-              value={form.creditType ?? ""}
-              onChange={(v) => setForm((f) => ({ ...f, creditType: v || null }))}
-              options={[{ value: "", label: "Não, qualquer tipo de crédito" }, ...creditTypes.map((c) => ({ value: c, label: `Só ${c}` }))]}
-              ariaLabel="Tipo de crédito"
-            />
-          </Question>
-        )}
 
         <div className="space-y-1 rounded-xl bg-brand-light px-4 py-3">
           <Sentence parts={preview} className="text-neutral-800 dark:text-neutral-200" />
@@ -256,7 +261,7 @@ export function RuleDialog({
                   <strong className="font-semibold">{formatCurrency(examplePay)}</strong> {whoGets}.
                 </>
               ) : form.base === "COMPANY_REVENUE" ? (
-                <>. A {chosenAdministrator.name} ainda não tem cadastrado quanto paga para a corretora — sem isso, esta regra não calcula nada.</>
+                <>. Falta cadastrar quanto a {chosenAdministrator.name} paga.</>
               ) : (
                 "."
               )}
@@ -265,7 +270,7 @@ export function RuleDialog({
           {validPercent && !chosenAdministrator && (
             <p className="text-sm text-neutral-700 dark:text-neutral-300">
               {form.base === "COMPANY_REVENUE" ? (
-                "O valor depende de quanto cada administradora paga para a corretora."
+                "Depende de cada administradora."
               ) : (
                 <>
                   Numa venda de {formatCurrency(EXAMPLE_SALE.value)}, isso dá{" "}
@@ -283,7 +288,7 @@ export function RuleDialog({
             Cancelar
           </button>
           <button type="submit" className="btn-primary" disabled={saving || !validPercent || needsPerson}>
-            {saving ? <LoadingDots /> : "Salvar regra"}
+            {saving ? <LoadingDots /> : "Salvar"}
           </button>
         </div>
       </form>

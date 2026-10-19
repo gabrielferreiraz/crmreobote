@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getDealScope, whatsappThreadScopeWhere } from "@/lib/team-scope";
+import { getWhatsAppThreadAccess } from "@/lib/whatsapp/thread-access";
 import { recordUserChange } from "@/lib/user-activity";
 import { fetchSavedContactName } from "@/lib/evolution";
 import { toDialNumber } from "@/lib/phone-normalize";
@@ -25,15 +25,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(organizationId, async () => {
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
     const thread = await prisma.whatsAppThread.findFirst({
-      where: { id: threadId, organizationId, ...whatsappThreadScopeWhere(scope) },
+      where: { id: threadId, organizationId },
       select: {
+        ownerUserId: true,
+        assigneeId: true,
+        inboxStatus: true,
         phoneNormalized: true,
         instance: { select: { provider: true, instanceName: true, status: true } },
       },
     });
     if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    const access = await getWhatsAppThreadAccess(organizationId, userId, session!.user.role, thread);
+    if (!access.canRead) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     if (!thread.instance || thread.instance.provider !== "EVOLUTION" || thread.instance.status !== "CONNECTED") {
       return NextResponse.json({ name: null });
     }
@@ -76,12 +80,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ thread
     // Mesma regra de escopo de quem pode ABRIR a conversa (ver
     // lib/whatsapp/conversations.ts) — um Membro não pode renomear conversa
     // de outro vendedor só porque sabe o threadId.
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
     const thread = await prisma.whatsAppThread.findFirst({
-      where: { id: threadId, organizationId, ...whatsappThreadScopeWhere(scope) },
-      select: { id: true, contactId: true },
+      where: { id: threadId, organizationId },
+      select: {
+        id: true,
+        contactId: true,
+        ownerUserId: true,
+        assigneeId: true,
+        inboxStatus: true,
+        contact: { select: { responsavelId: true } },
+      },
     });
     if (!thread) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    const access = await getWhatsAppThreadAccess(organizationId, userId, session!.user.role, thread);
+    if (!access.canRead) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    if (access.isCentral && thread.contact?.responsavelId && thread.contact.responsavelId !== userId) {
+      return NextResponse.json({ error: "O contato continua sob responsabilidade de outro consultor" }, { status: 403 });
+    }
 
     if (thread.contactId) {
       await prisma.contact.update({ where: { id: thread.contactId }, data: { name: trimmed } });

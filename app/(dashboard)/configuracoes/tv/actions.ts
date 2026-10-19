@@ -113,6 +113,8 @@ export async function saveTvBirthdayImage({ userId, url }: { userId?: string; ur
         else delete slide.photos[userId];
       } else {
         slide.backgroundUrl = url;
+        // Enviou foto nova = quer usar ela (o interruptor desliga sozinho).
+        if (url) slide.useDefaultBackground = false;
       }
 
       await prisma.tvDashboardConfig.upsert({
@@ -127,5 +129,29 @@ export async function saveTvBirthdayImage({ userId, url }: { userId?: string; ur
   } catch (error) {
     console.error("[saveTvBirthdayImage] Error:", error);
     return { success: false as const, error: "Falha ao salvar a imagem." };
+  }
+}
+
+/** Interruptor "Usar fundo padrão" do slide de aniversário — salva na hora. */
+export async function saveTvBirthdayUseDefault(useDefaultBackground: boolean) {
+  try {
+    const access = await requireRole(["OWNER", "MANAGER"]);
+    if (!access.ok) return { success: false as const, error: "Só o dono ou um gerente pode alterar a TV." };
+    if (typeof useDefaultBackground !== "boolean") return { success: false as const, error: "Dados inválidos." };
+    const { organizationId } = access;
+
+    return await runWithTenant(organizationId, async () => {
+      const current = await prisma.tvDashboardConfig.findUnique({ where: { organizationId }, select: { birthdaySlide: true } });
+      const slide = { ...parseTvBirthdaySlide(current?.birthdaySlide), useDefaultBackground };
+      await prisma.tvDashboardConfig.upsert({
+        where: { organizationId },
+        update: { birthdaySlide: slide },
+        create: { organizationId, birthdaySlide: slide },
+      });
+      return { success: true as const };
+    });
+  } catch (error) {
+    console.error("[saveTvBirthdayUseDefault] Error:", error);
+    return { success: false as const, error: "Falha ao salvar." };
   }
 }

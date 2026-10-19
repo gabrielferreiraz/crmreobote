@@ -51,7 +51,11 @@ export type AuditAction =
   | "COMMISSION_HELD"
   | "COMMISSION_RELEASED"
   | "COMMISSION_ADJUSTMENT"
-  | "COMMISSION_DISPUTE_RESOLVED";
+  | "COMMISSION_DISPUTE_RESOLVED"
+  // Central de Leads (ver lib/whatsapp/lead-routing.ts): contato criado pelo
+  // sistema na 1ª mensagem, e conexão/pool da Central mexidos pelo Dono.
+  | "CENTRAL_CONTACT_CREATED"
+  | "CENTRAL_SETTINGS_CHANGED";
 
 /**
  * Registra um evento de auditoria — nunca deve quebrar a ação real que está

@@ -81,6 +81,9 @@ export async function listConversations(
       // de conversas ativas.
       lastMessageAt: { not: null },
       instanceId: { not: null },
+      // Só conversas pessoais: inboxStatus preenchido = Central (tela própria).
+      // Coluna da própria thread, sem JOIN — esta lista roda em polling.
+      inboxStatus: null,
     },
     // Ordena e já limita no Postgres (índice organizationId+lastMessageAt) —
     // antes buscava TODA thread da organização, com a última mensagem de
@@ -91,7 +94,7 @@ export async function listConversations(
     take: limit,
     include: {
       contact: { select: { id: true, name: true } },
-      instance: { select: { userId: true, user: { select: { id: true, name: true } } } },
+      instance: { select: { personalOwnerId: true, personalOwner: { select: { id: true, name: true } } } },
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
@@ -105,7 +108,9 @@ export async function listConversations(
   const contactIds = withMessages.map((t) => t.contactId).filter((id): id is string => !!id);
 
   const instanceUserIdByThread = new Map(
-    withMessages.filter((t) => t.instance).map((t) => [t.id, t.instance!.userId]),
+    withMessages.flatMap((thread) =>
+      thread.instance?.personalOwnerId ? [[thread.id, thread.instance.personalOwnerId] as const] : [],
+    ),
   );
 
   const sendersByThread = new Map<string, Set<string>>();
@@ -239,8 +244,8 @@ export async function listConversations(
       // conecta o número, mas atribui o lead pra outro vendedor cuidar). Sem
       // negócio vinculado (WhatsApp Geral), cai no dono da instância mesmo,
       // que é a única informação de "responsável" que existe nesse caso.
-      ownerId: deal?.ownerId ?? thread.instance?.userId ?? "",
-      ownerName: deal?.ownerName ?? thread.instance?.user.name ?? "",
+      ownerId: deal?.ownerId ?? thread.instance?.personalOwnerId ?? "",
+      ownerName: deal?.ownerName ?? thread.instance?.personalOwner?.name ?? "",
       senderIds: Array.from(sendersByThread.get(thread.id) ?? []),
       profilePicUrl: thread.profilePicUrl,
     };
@@ -257,13 +262,22 @@ export async function listConversations(
  * listConversations já usa acima (direction INBOUND, read false), só que
  * contando threads em vez de somar mensagens.
  */
-export async function countUnreadThreads(organizationId: string, scope: DealScope): Promise<number> {
+export async function countUnreadThreads(
+  organizationId: string,
+  scope: DealScope,
+  userId?: string,
+): Promise<number> {
   return prisma.whatsAppThread.count({
     where: {
       organizationId,
-      ...whatsappThreadScopeWhere(scope),
       instanceId: { not: null },
       messages: { some: { direction: "INBOUND", read: false } },
+      // Pessoais pelo escopo de sempre + atendimentos da Central que são de
+      // quem está vendo (a fila "Sem responsável" tem badge próprio na Central).
+      OR: [
+        { inboxStatus: null, ...whatsappThreadScopeWhere(scope) },
+        ...(userId ? [{ inboxStatus: "OPEN" as const, assigneeId: userId }] : []),
+      ],
     },
   });
 }

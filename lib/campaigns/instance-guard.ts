@@ -58,8 +58,11 @@ const SYSTEM_ACTOR = "Sistema";
 
 async function ownerNameOf(instanceId: string | null): Promise<string | null> {
   if (!instanceId) return null;
-  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId }, select: { user: { select: { name: true } } } });
-  return instance?.user.name ?? null;
+  const instance = await prisma.whatsAppInstance.findFirst({
+    where: { id: instanceId, kind: "PERSONAL" },
+    select: { personalOwner: { select: { name: true } } },
+  });
+  return instance?.personalOwner?.name ?? null;
 }
 
 async function writeAudit(

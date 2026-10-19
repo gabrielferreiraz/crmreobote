@@ -60,15 +60,18 @@ export function ClosedAtDialog({
   onConfirm,
   askAdministrator = false,
   initialAdministratorId = null,
+  initialCreditType = null,
   previewDealId,
 }: {
   title: string;
   confirmLabel: string;
   confirmClassName: string;
   onClose: () => void;
-  onConfirm: (closedAt: string, extra: { administratorId: string | null }) => Promise<void>;
+  onConfirm: (closedAt: string, extra: { administratorId: string | null; creditType: string | null }) => Promise<void>;
   askAdministrator?: boolean;
   initialAdministratorId?: string | null;
+  /** Categoria (Imóvel, Automóvel…) que o negócio já tem — pré-seleciona. */
+  initialCreditType?: string | null;
   previewDealId?: string;
 }) {
   // Fallback local enquanto a server action não respondeu — evita campo vazio
@@ -89,6 +92,10 @@ export function ClosedAtDialog({
   // Enquanto a lista não chegou, não deixa confirmar sem ela — senão um
   // clique rápido passaria sem a administradora e o servidor recusaria.
   const [administratorsReady, setAdministratorsReady] = useState(!askAdministrator);
+  // Categoria muda a comissão inteira (% e em quantas vezes) — pedida junto
+  // da administradora quando a corretora tem categorias cadastradas.
+  const [creditTypes, setCreditTypes] = useState<string[]>([]);
+  const [creditType, setCreditType] = useState(initialCreditType ?? "");
 
   useEffect(() => {
     getServerTodayKey()
@@ -107,9 +114,10 @@ export function ClosedAtDialog({
     if (!askAdministrator) return;
     fetch("/api/commissions/administrators")
       .then((res) => (res.ok ? res.json() : { administrators: [] }))
-      .then((data: { administrators?: { id: string; name: string }[] }) => {
+      .then((data: { administrators?: { id: string; name: string }[]; creditTypes?: string[] }) => {
         const list = data.administrators ?? [];
         setAdministrators(list);
+        setCreditTypes(data.creditTypes ?? []);
         // A que estava no negócio pode ter sido desativada — sem ela na lista, pede de novo.
         setAdministratorId((current) => (list.some((a) => a.id === current) ? current : ""));
       })
@@ -118,26 +126,32 @@ export function ClosedAtDialog({
   }, [askAdministrator]);
 
   const needsAdministrator = administrators.length > 0;
+  const needsCreditType = needsAdministrator && creditTypes.length > 0;
 
   const [preview, setPreview] = useState<CommissionPreview | null>(null);
   useEffect(() => {
     if (!previewDealId || !administratorId || !closedAt || !ready) return;
     const controller = new AbortController();
-    const qs = new URLSearchParams({ dealId: previewDealId, administratorId, closedAt });
+    const qs = new URLSearchParams({ dealId: previewDealId, administratorId, closedAt, ...(creditType ? { creditType } : {}) });
     fetch(`/api/commissions/preview?${qs}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: CommissionPreview | null) => setPreview(data))
       .catch(() => {});
     return () => controller.abort();
-  }, [previewDealId, administratorId, closedAt, ready]);
+  }, [previewDealId, administratorId, closedAt, ready, creditType]);
   const shownPreview = administratorId ? preview : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (needsAdministrator && !administratorId) return;
+    if (needsCreditType && !creditType) return;
     setLoading(true);
-    await onConfirm(closedAt, { administratorId: needsAdministrator ? administratorId : null });
-    setLoading(false);
+    try {
+      await onConfirm(closedAt, { administratorId: needsAdministrator ? administratorId : null, creditType: needsCreditType ? creditType : null });
+    } finally {
+      // Mesmo se a confirmação lançar, o botão volta — nunca fica girando pra sempre.
+      setLoading(false);
+    }
   }
 
   return (
@@ -162,24 +176,34 @@ export function ClosedAtDialog({
           </div>
         )}
 
+        {needsCreditType && (
+          <div className="space-y-1">
+            <label className="field-label">Categoria</label>
+            <Select
+              value={creditType}
+              onChange={setCreditType}
+              options={creditTypes.map((c) => ({ value: c, label: c }))}
+              placeholder="Escolha a categoria"
+              ariaLabel="Categoria"
+            />
+          </div>
+        )}
+
         {shownPreview && shownPreview.status !== "inactive" && (
           <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-100">
             {shownPreview.status === "ok" ? (
               <>
                 <p>
-                  Essa venda vai {shownPreview.isMe ? "te render" : "render"}{" "}
-                  <strong className="text-base font-semibold">{formatCurrency(shownPreview.total)}</strong> de comissão
-                  {shownPreview.isMe ? "" : ` para ${shownPreview.sellerName}`}
+                  Comissão{shownPreview.isMe ? "" : ` de ${shownPreview.sellerName}`}:{" "}
+                  <strong className="text-base font-semibold">{formatCurrency(shownPreview.total)}</strong>
                   {shownPreview.count === 1
-                    ? `, em ${formatMonthLong(shownPreview.firstMonth).toLowerCase()}`
-                    : `, em ${shownPreview.count} parcelas de ${formatMonthLong(shownPreview.firstMonth).toLowerCase()} a ${formatMonthLong(shownPreview.lastMonth).toLowerCase()}`}
-                  .
+                    ? ` em ${formatMonthLong(shownPreview.firstMonth, { withYear: false }).toLowerCase()}`
+                    : ` em ${shownPreview.count}x`}
+                  {shownPreview.paidByAdministrator ? " · paga pela administradora" : ""}
                 </p>
-                {shownPreview.paidByAdministrator && <p className="mt-1">Quem paga é a administradora, direto.</p>}
-                {shownPreview.hasReducedRules && <p className="mt-1">Se a venda for em meia parcela, o Financeiro ajusta esse valor.</p>}
               </>
             ) : (
-              <p>O Financeiro ainda vai confirmar o valor da comissão desta venda.</p>
+              <p>Comissão a confirmar pelo Financeiro.</p>
             )}
           </div>
         )}
@@ -190,7 +214,7 @@ export function ClosedAtDialog({
           </button>
           <button
             type="submit"
-            disabled={loading || !closedAt || !ready || !administratorsReady || (needsAdministrator && !administratorId)}
+            disabled={loading || !closedAt || !ready || !administratorsReady || (needsAdministrator && !administratorId) || (needsCreditType && !creditType)}
             className={confirmClassName}
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}

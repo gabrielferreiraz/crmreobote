@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
+
+type LeadClaimClient = Pick<Prisma.TransactionClient, "organizationUser" | "deal">;
 
 /**
  * Regra ÚNICA de "este lead pode ser assumido por outro consultor SEM pedir
@@ -45,18 +48,20 @@ export async function evaluateLeadClaim(
   organizationId: string,
   contactId: string,
   responsavelId: string | null,
+  client?: LeadClaimClient,
 ): Promise<LeadClaimEvaluation> {
   if (!responsavelId) return { ownerActive: false, claimReason: "NO_OWNER", lostAt: null };
+  const db = client ?? (prisma as unknown as LeadClaimClient);
 
   // Em paralelo — as duas consultas não dependem uma da outra, e cada
   // operação do Prisma custa várias idas-e-voltas ao Postgres por causa da
   // transação de RLS (ver withTenantRls em lib/prisma.ts).
   const [membership, dealsByStatus] = await Promise.all([
-    prisma.organizationUser.findUnique({
+    db.organizationUser.findUnique({
       where: { organizationId_userId: { organizationId, userId: responsavelId } },
       select: { active: true },
     }),
-    prisma.deal.groupBy({
+    db.deal.groupBy({
       by: ["status"],
       where: { organizationId, contactId },
       _max: { closedAt: true },

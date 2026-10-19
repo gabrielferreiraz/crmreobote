@@ -69,31 +69,31 @@ export function AdjustmentDialog({
     <Modal onClose={() => !saving && onClose()} maxWidth="max-w-lg">
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Lançar ajuste</h2>
       <form onSubmit={submit} className="mt-5 space-y-6">
-        <Question title="Para quem é o ajuste?">
+        <Question title="Para quem">
           <Select value={beneficiaryId} onChange={setBeneficiaryId} options={members.map((m) => ({ value: m.id, label: m.name }))} placeholder="Escolha a pessoa" ariaLabel="Pessoa" />
         </Question>
 
-        <Question title="É para somar ou descontar?">
+        <Question title="Tipo">
           <Choices
             value={direction}
             onChange={setDirection}
             options={[
-              { value: "add", label: "Somar (bônus, diferença)" },
-              { value: "subtract", label: "Descontar (estorno, correção)" },
+              { value: "add", label: "Somar" },
+              { value: "subtract", label: "Descontar" },
             ]}
           />
         </Question>
 
         <div className="grid gap-6 sm:grid-cols-2">
-          <Question title="Qual o valor?">
+          <Question title="Valor">
             <CurrencyInput value={amount} onChange={setAmount} />
           </Question>
-          <Question title="Em que mês entra?">
+          <Question title="Mês">
             <Select value={month} onChange={setMonth} options={monthOptions} ariaLabel="Mês" />
           </Question>
         </div>
 
-        <Question title="Qual o motivo? O consultor vai ler.">
+        <Question title="Motivo (o consultor vê)">
           <div className="flex flex-wrap gap-2">
             {QUICK_NOTES.map((n) => (
               <button
@@ -115,8 +115,10 @@ export function AdjustmentDialog({
 
         {personName && amountNum > 0 && (
           <p className="rounded-xl bg-brand-light px-4 py-3 text-sm text-neutral-800 dark:text-neutral-200">
-            Vai <strong className="font-semibold">{direction === "add" ? "somar" : "descontar"} {formatCurrency(amountNum)}</strong> na comissão de{" "}
-            <strong className="font-semibold">{personName}</strong> em {formatMonthLong(month).toLowerCase()}.
+            <strong className="font-semibold">
+              {direction === "add" ? "+" : "−"} {formatCurrency(amountNum)}
+            </strong>{" "}
+            para {personName} em {formatMonthLong(month).toLowerCase()}
           </p>
         )}
 
@@ -127,7 +129,7 @@ export function AdjustmentDialog({
             Cancelar
           </button>
           <button type="submit" className="btn-primary" disabled={saving || !canSave}>
-            {saving ? <LoadingDots /> : "Lançar ajuste"}
+            {saving ? <LoadingDots /> : "Lançar"}
           </button>
         </div>
       </form>

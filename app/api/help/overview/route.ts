@@ -38,7 +38,7 @@ export async function GET() {
     const [instance, deal, script, usedRows] = await runWithTenant(organizationId, () =>
       Promise.all([
         prisma.whatsAppInstance.findFirst({
-          where: { organizationId, userId, status: "CONNECTED" },
+          where: { organizationId, kind: "PERSONAL", personalOwnerId: userId, status: "CONNECTED" },
           select: { id: true },
         }),
         prisma.deal.findFirst({ where: { organizationId, ownerId: userId }, select: { id: true } }),

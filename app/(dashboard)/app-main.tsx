@@ -29,7 +29,7 @@ import { usePathname } from "next/navigation";
 // pelo usuário). Mesmo tratamento que o Pipeline já tinha: cabeçalho da
 // tabela fica sticky e a paginação vira rodapé fixo (ver contacts-table.tsx),
 // os dois sempre à vista, sem depender do tamanho da lista.
-const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/processos", "/pipeline", "/clientes"];
+const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/whatsapp/central", "/processos", "/pipeline", "/clientes"];
 
 // Pipeline é um quadro Kanban de colunas de largura fixa que rolam na
 // horizontal — o teto de 1500px (bom pra texto/formulário não esticar
@@ -38,8 +38,10 @@ const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/processos", "/pipeline", "/cl
 // a fileira de colunas usa a largura de verdade disponível (px-4 lg:px-8 no
 // <main>, abaixo, já dá a moldura responsiva das bordas). Conversas/Processos
 // não pediram isso ainda — Conversas já gerencia a própria largura via
-// painéis redimensionáveis, então ficam de fora por ora.
-const FULL_WIDTH_ROUTES = ["/pipeline"];
+// painéis redimensionáveis, então ficam de fora por ora. Comissões também é
+// uma mesa operacional: resumo, pendências e lista usam colunas lado a lado,
+// por isso a tela principal aproveita toda a largura disponível.
+const FULL_WIDTH_ROUTES = ["/pipeline", "/comissoes", "/comissoes/vendas"];
 
 export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

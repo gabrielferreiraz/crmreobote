@@ -29,6 +29,7 @@ import {
 import * as metaWhatsApp from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
 import { getOrCreateThreadForContact, touchThreadLastMessage } from "@/lib/whatsapp/threads";
+import { findOpenCentralThreadForContact } from "@/lib/whatsapp/central-access";
 import { signMediaKey } from "@/lib/whatsapp/media-token";
 import { toDialNumber } from "@/lib/phone-normalize";
 
@@ -42,7 +43,9 @@ export class WhatsAppSendError extends Error {}
  * não uma conversa já aberta (que já fixa a instância pelo threadId).
  */
 export async function resolveConnectedInstance(organizationId: string, userId: string) {
-  const instances = await prisma.whatsAppInstance.findMany({ where: { organizationId, userId } });
+  const instances = await prisma.whatsAppInstance.findMany({
+    where: { organizationId, kind: "PERSONAL", personalOwnerId: userId },
+  });
   return (
     instances.find((i) => i.provider === "META_CLOUD" && i.status === "CONNECTED") ??
     instances.find((i) => i.provider === "EVOLUTION" && i.status === "CONNECTED") ??
@@ -68,15 +71,15 @@ export async function resolvePreferredInstancesByOwner(
   if (ownerIds.length === 0) return new Map();
 
   const instances = await prisma.whatsAppInstance.findMany({
-    where: { organizationId, userId: { in: ownerIds }, status: "CONNECTED" },
-    select: { id: true, userId: true, provider: true },
+    where: { organizationId, kind: "PERSONAL", personalOwnerId: { in: ownerIds }, status: "CONNECTED" },
+    select: { id: true, personalOwnerId: true, provider: true },
   });
 
   const byOwnerId = new Map<string, { id: string; provider: $Enums.WhatsAppProvider }>();
   for (const provider of ["META_CLOUD", "EVOLUTION"] as const) {
     for (const instance of instances) {
-      if (instance.provider === provider && !byOwnerId.has(instance.userId)) {
-        byOwnerId.set(instance.userId, { id: instance.id, provider: instance.provider });
+      if (instance.personalOwnerId && instance.provider === provider && !byOwnerId.has(instance.personalOwnerId)) {
+        byOwnerId.set(instance.personalOwnerId, { id: instance.id, provider: instance.provider });
       }
     }
   }
@@ -168,6 +171,11 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
   const instance = thread.instanceId ? await prisma.whatsAppInstance.findUnique({ where: { id: thread.instanceId ?? undefined } }) : null;
   if (!instance || instance.status !== "CONNECTED") {
     throw new WhatsAppSendError("O WhatsApp desta conversa não está conectado no CRM");
+  }
+  // Última barreira: a Central nunca dispara campanha/lista fria (risco de
+  // banimento do número que recebe todos os leads), seja qual for o caminho.
+  if (instance.kind === "CENTRAL" && campaignId) {
+    throw new WhatsAppSendError("A Central de Leads não envia campanhas");
   }
 
   let quoted: MessageRef | undefined; // formato Evolution/Baileys (key+message)
@@ -347,7 +355,8 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
       status: "SENT",
       campaignId,
       automationRuleId,
-      sentByUserId: sentByUserId && sentByUserId !== instance.userId ? sentByUserId : undefined,
+      sentByUserId: sentByUserId && sentByUserId !== instance.personalOwnerId ? sentByUserId : undefined,
+      attributedUserId: sentByUserId ?? instance.personalOwnerId,
     },
   });
   await touchThreadLastMessage(threadId, message.createdAt);
@@ -372,6 +381,26 @@ export async function sendWhatsAppMessageToContact(
 
   const contact = await prisma.contact.findFirst({ where: { id: contactId, organizationId } });
   if (!contact) throw new WhatsAppSendError("Contato não encontrado");
+
+  // Cliente em atendimento aberto na Central: o cliente nunca recebe por dois
+  // números. Se o atendimento é de quem envia, sai pela Central; se é de
+  // outra pessoa (ou está na fila), não envia pelo número pessoal.
+  const centralThread = await findOpenCentralThreadForContact(organizationId, contactId);
+  if (centralThread) {
+    if (centralThread.assigneeId === ownerId) {
+      return sendWhatsAppMessage({
+        organizationId,
+        threadId: centralThread.id,
+        ...rest,
+        sentByUserId: rest.sentByUserId ?? ownerId,
+      });
+    }
+    throw new WhatsAppSendError(
+      centralThread.assignee
+        ? `Cliente em atendimento na Central com ${centralThread.assignee.name}`
+        : "Cliente na fila da Central, ainda sem responsável",
+    );
+  }
 
   const instance = await resolveConnectedInstance(organizationId, ownerId);
   if (!instance) {

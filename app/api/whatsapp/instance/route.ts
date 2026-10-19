@@ -161,7 +161,7 @@ export async function GET() {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
+      where: { organizationId_personalOwnerId_provider: { organizationId, personalOwnerId: userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ connected: false, status: "DISCONNECTED", phoneNumber: null });
 
@@ -218,7 +218,7 @@ export async function PATCH(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
+      where: { organizationId_personalOwnerId_provider: { organizationId, personalOwnerId: userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ error: "Nenhum WhatsApp conectado" }, { status: 404 });
 
@@ -261,7 +261,7 @@ export async function POST(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     let instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
+      where: { organizationId_personalOwnerId_provider: { organizationId, personalOwnerId: userId, provider: "EVOLUTION" } },
     });
     let created = false;
 
@@ -274,7 +274,8 @@ export async function POST(req: Request) {
         instance = await prisma.whatsAppInstance.create({
           data: {
             organizationId,
-            userId,
+            kind: "PERSONAL",
+            personalOwnerId: userId,
             provider: "EVOLUTION",
             instanceName,
             status: "CONNECTING",
@@ -285,7 +286,7 @@ export async function POST(req: Request) {
       } catch (error) {
         if ((error as { code?: string }).code !== "P2002") throw error;
         instance = await prisma.whatsAppInstance.findUnique({
-          where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
+          where: { organizationId_personalOwnerId_provider: { organizationId, personalOwnerId: userId, provider: "EVOLUTION" } },
         });
       }
     }
@@ -332,7 +333,7 @@ export async function DELETE(req: Request) {
 
   return runWithTenant(organizationId, async () => {
     const instance = await prisma.whatsAppInstance.findUnique({
-      where: { organizationId_userId_provider: { organizationId, userId, provider: "EVOLUTION" } },
+      where: { organizationId_personalOwnerId_provider: { organizationId, personalOwnerId: userId, provider: "EVOLUTION" } },
     });
     if (!instance) return NextResponse.json({ ok: true });
 

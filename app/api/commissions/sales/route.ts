@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { parseSaleInput, resolveSaleReferences } from "@/lib/commissions/sale-input";
 import { loadEngineContext, regenerateSaleEntries, SALE_SELECT, withCommissionLock } from "@/lib/commissions/sync";
 
 export const dynamic = "force-dynamic";
 
 /** "Venda fora do CRM" — lançada à mão pelo Financeiro (sem negócio vinculado). */
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -38,6 +38,7 @@ export async function POST(req: Request) {
         netValue: data.netValue ?? null,
         grossValue: data.grossValue ?? null,
         clientInstallment: data.clientInstallment ?? null,
+        autoDebit: data.autoDebit ?? false,
         quotaNumber: data.quotaNumber ?? null,
         groupNumber: data.groupNumber ?? null,
         notes: data.notes ?? null,
@@ -54,4 +55,4 @@ export async function POST(req: Request) {
     detail: `Lançou venda fora do CRM: ${data.clientName}`,
   });
   return NextResponse.json({ id: sale.id }, { status: 201 });
-}
+});

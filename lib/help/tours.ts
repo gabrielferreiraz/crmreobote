@@ -78,7 +78,7 @@ export const HELP_TOURS: HelpTour[] = [
       {
         target: "commission-list",
         title: "De onde vem cada valor",
-        body: "Toque numa linha para ver a conta. Se algo estiver errado, use “Esse valor está errado?” ali mesmo — o Financeiro responde por aqui.",
+        body: "Toque numa linha para ver a conta. Se algo estiver errado, use “Contestar” ali mesmo — o Financeiro responde por aqui.",
       },
     ],
   },

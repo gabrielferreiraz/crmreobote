@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCommissionAccess } from "@/lib/commissions/access";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
-import { administratorPrismaData, parseAdministratorInput } from "@/lib/commissions/validation";
+import { forgetPageSync } from "@/lib/commissions/sync";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
+import { parseAdministratorInput, tablePrismaData } from "@/lib/commissions/validation";
 import { Prisma } from "@/app/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -13,21 +14,26 @@ export const dynamic = "force-dynamic";
  * "Marcar como ganho", então qualquer pessoa ativa da organização pode ler.
  * `required` diz se a organização exige a escolha (tem ao menos uma ativa).
  */
-export async function GET() {
+export const GET = commissionRoute(async function GET() {
   const access = await getCommissionAccess();
   if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
-    const administrators = await prisma.consortiumAdministrator.findMany({
-      where: { organizationId: access.organizationId, active: true },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    });
-    return NextResponse.json({ administrators, required: administrators.length > 0 });
+    const [administrators, creditTypes] = await Promise.all([
+      prisma.consortiumAdministrator.findMany({
+        where: { organizationId: access.organizationId, active: true },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.creditType.findMany({ where: { organizationId: access.organizationId }, orderBy: { order: "asc" }, select: { label: true } }),
+    ]);
+    // A categoria (Imóvel, Automóvel…) muda a comissão inteira — com o módulo
+    // em uso, o "Ganho" pede as duas.
+    return NextResponse.json({ administrators, creditTypes: creditTypes.map((c) => c.label), required: administrators.length > 0 });
   });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -36,17 +42,20 @@ export async function POST(req: Request) {
   if (!body || typeof body !== "object") return badRequest("Dados inválidos");
   const parsed = parseAdministratorInput(body as Record<string, unknown>, { partial: false });
   if (!parsed.ok) return badRequest(parsed.error);
-  const data = administratorPrismaData(parsed.data);
+  const { tables, ...general } = parsed.data;
 
   return runWithTenant(access.organizationId, async () => {
     try {
       const administrator = await prisma.consortiumAdministrator.create({
         data: {
-          ...data,
+          ...general,
           organizationId: access.organizationId,
           name: parsed.data.name!,
+          // Tabela padrão + as de cada categoria, junto, numa escrita só.
+          tables: { create: (tables ?? []).map((t) => tablePrismaData(access.organizationId, t)) },
         },
       });
+      forgetPageSync(access.organizationId);
       await auditCommission(req, access, "COMMISSION_ADMINISTRATOR_CHANGED", {
         targetType: "ConsortiumAdministrator",
         targetId: administrator.id,
@@ -60,4 +69,4 @@ export async function POST(req: Request) {
       throw err;
     }
   });
-}
+});

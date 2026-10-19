@@ -1,9 +1,10 @@
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getCommissionAccess, sellerVisibleFromMonth } from "@/lib/commissions/access";
 import { getMyCommissionEntries } from "@/lib/commissions/queries";
-import { syncCommissionSales } from "@/lib/commissions/sync";
+import { syncOnPageOpen } from "@/lib/commissions/sync";
 import { brazilMonthKey } from "@/lib/commissions/engine";
 import { brazilDayOfMonth } from "@/lib/timezone";
 import { MyCommission } from "../_components/my-commission";
@@ -19,7 +20,9 @@ export default async function MyCommissionPage() {
   // Ganho por um caminho que não sincronizou (API, importação…) aparece
   // aqui do mesmo jeito — ver lib/commissions/sync.ts. Falhar aqui nunca
   // impede de ver o que já existe.
-  await syncCommissionSales(access.organizationId).catch((err) => console.error("[commissions] sync na Minha comissão", err));
+  // Depois de enviar a tela (rede de segurança pra negócio ganho por um
+  // caminho que não sincronizou) — esperar aqui custava ~0,5 s em cada abertura.
+  after(() => syncOnPageOpen(access.organizationId, "Minha comissão"));
 
   return runWithTenant(access.organizationId, async () => {
     const org = await prisma.organization.findUnique({

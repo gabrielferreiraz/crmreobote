@@ -46,7 +46,10 @@ export function LegacyDialog({ defaultFrom, maxDate, onClose, onDone }: { defaul
         { silent: true },
       );
       if (!res.ok) {
-        setError(res.error);
+        // O que já veio fica (cada lote é gravado inteiro ou nada) — diz
+        // quanto entrou e deixa continuar de onde parou.
+        setError(done > 0 ? `${res.error} ${done} já vieram — clique em Trazer para continuar.` : res.error);
+        if (done > 0) setCount((c) => (c != null ? Math.max(0, c - done) : c));
         break;
       }
       done += res.data.imported;
@@ -63,8 +66,7 @@ export function LegacyDialog({ defaultFrom, maxDate, onClose, onDone }: { defaul
     <Modal onClose={() => !progress && onClose()} maxWidth="max-w-md">
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Trazer vendas antigas</h2>
       <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
-        Para as vendas de antes do início das comissões que ainda têm parcela a pagar. Elas entram para você conferir — o vendedor só vê
-        depois que você confirmar cada uma.
+        Entram para conferência antes do vendedor ver.
       </p>
       <div className="mt-5 space-y-2">
         <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">A partir de que data?</p>
@@ -74,11 +76,10 @@ export function LegacyDialog({ defaultFrom, maxDate, onClose, onDone }: { defaul
         {counting ? (
           <LoadingDots />
         ) : count == null ? null : count === 0 ? (
-          "Nenhuma venda ganha nesse período ainda está fora das comissões."
+          "Nenhuma venda nova nesse período."
         ) : (
           <>
-            Encontramos <strong className="font-semibold">{count} {count === 1 ? "venda ganha" : "vendas ganhas"}</strong> nesse período. As parcelas dos meses que
-            já passaram entram como pagas.
+            <strong className="font-semibold">{count} {count === 1 ? "venda" : "vendas"}</strong>. Meses passados entram como pagos.
           </>
         )}
       </p>
@@ -88,7 +89,7 @@ export function LegacyDialog({ defaultFrom, maxDate, onClose, onDone }: { defaul
             <div className="h-full bg-brand transition-all" style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }} />
           </div>
           <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Trazendo {progress.done} de {progress.total}… não feche esta janela.
+            Trazendo {progress.done} de {progress.total}…
           </p>
         </div>
       )}

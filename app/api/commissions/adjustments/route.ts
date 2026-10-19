@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest, parseMoney } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, parseMoney, commissionRoute } from "@/lib/commissions/route-helpers";
 import { formatMonthShort, isMonthKey } from "@/lib/commissions/engine";
 import { formatCurrency } from "@/lib/format";
 
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * depois da contemplação, estorno enquanto a regra não é decidida… Sempre
  * com justificativa — é o que aparece pro consultor e na auditoria.
  */
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -61,4 +61,4 @@ export async function POST(req: Request) {
     });
     return NextResponse.json(entry, { status: 201 });
   });
-}
+});

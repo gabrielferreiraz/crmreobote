@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getDealScope } from "@/lib/team-scope";
+import { getWhatsAppThreadAccess } from "@/lib/whatsapp/thread-access";
+import { findOpenCentralThreadForContact } from "@/lib/whatsapp/central-access";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/send";
 import { renderSteps } from "@/lib/campaigns/spintax";
 import { brazilGreeting } from "@/lib/timezone";
@@ -36,13 +37,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
   return runWithTenant(organizationId, async () => {
     const thread = await prisma.whatsAppThread.findFirst({
       where: { id: threadId, organizationId },
-      include: { instance: { select: { userId: true, status: true } }, contact: true },
+      include: { instance: { select: { kind: true, personalOwnerId: true, status: true } }, contact: true },
     });
     if (!thread || !thread.instance) return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
 
-    const scope = await getDealScope(organizationId, userId, session!.user.role);
-    if (scope.type === "owners" && (!thread.ownerUserId || !scope.ownerIds.includes(thread.ownerUserId))) {
+    const access = await getWhatsAppThreadAccess(organizationId, userId, session!.user.role, thread);
+    if (!access.canSend) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    }
+    // Mesma regra do envio avulso: com atendimento aberto na Central, nada sai pelo pessoal.
+    if (!access.isCentral && thread.contactId && (await findOpenCentralThreadForContact(organizationId, thread.contactId))) {
+      return NextResponse.json({ error: "Cliente em atendimento na Central. Responda por lá." }, { status: 409 });
     }
 
     // Checa a conexão ANTES de responder 202 — sendWhatsAppMessage já lança

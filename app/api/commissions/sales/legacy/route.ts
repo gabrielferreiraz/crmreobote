@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { countLegacyCandidates, importLegacySales, withCommissionLock } from "@/lib/commissions/sync";
 import { brazilDateStringToUTC } from "@/lib/timezone";
 
@@ -25,7 +25,7 @@ async function resolveWindow(organizationId: string, fromRaw: unknown) {
   return { from, until: org.commissionStartDate };
 }
 
-export async function GET(req: Request) {
+export const GET = commissionRoute(async function GET(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -37,9 +37,9 @@ export async function GET(req: Request) {
     return countLegacyCandidates(tx, access.organizationId, window.from, window.until);
   });
   return NextResponse.json({ count });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = commissionRoute(async function POST(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -61,4 +61,4 @@ export async function POST(req: Request) {
     });
   }
   return NextResponse.json(result);
-}
+});

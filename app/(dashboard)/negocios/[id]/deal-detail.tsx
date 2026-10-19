@@ -775,11 +775,19 @@ export function DealDetail({
     if (res.ok) pushUndoToast(res.data?.undo);
   }
 
-  async function confirmWon(closedAt: string, extra: { administratorId: string | null }) {
+  async function confirmWon(closedAt: string, extra: { administratorId: string | null; creditType: string | null }) {
     const wasWon = deal.status === "WON";
     const res = await requestJson(
       `/api/deals/${deal.id}`,
-      { method: "PUT", json: { status: "WON", closedAt, ...(extra.administratorId ? { administratorId: extra.administratorId } : {}) } },
+      {
+        method: "PUT",
+        json: {
+          status: "WON",
+          closedAt,
+          ...(extra.administratorId ? { administratorId: extra.administratorId } : {}),
+          ...(extra.creditType ? { creditType: extra.creditType } : {}),
+        },
+      },
       { silent: true, errorMessage: "Não foi possível marcar o negócio como ganho" },
     );
     const data = res.data ?? {};
@@ -2709,6 +2717,7 @@ export function DealDetail({
           onConfirm={confirmWon}
           askAdministrator
           initialAdministratorId={deal.administratorId ?? null}
+          initialCreditType={deal.creditType ?? null}
           previewDealId={deal.id}
         />
       )}

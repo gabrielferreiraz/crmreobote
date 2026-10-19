@@ -80,7 +80,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       createdAt: true,
       createdById: true,
       source: true,
-      instance: { select: { userId: true, user: { select: { name: true } } } },
+      instance: { select: { personalOwnerId: true, personalOwner: { select: { name: true } } } },
       createdBy: { select: { name: true } },
     },
   });
@@ -129,7 +129,7 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       pausedReason: c.status === "PAUSED" ? parsePauseReason(c.pausedReason) : null,
       audienceFilter,
       audienceLabel: describeAudienceFilter(audienceFilter),
-      instanceName: c.instance.user.name,
+      instanceName: c.instance.personalOwner?.name ?? "WhatsApp pessoal",
       createdByName: c.createdBy.name,
       delayMinSec: c.delayMinSec,
       delayMaxSec: c.delayMaxSec,
@@ -141,7 +141,11 @@ export async function listCampaigns(organizationId: string, scope: DealScope): P
       followUpDelayHours: c.followUpDelayHours,
       createdAt: c.createdAt,
       counts: countsByCampaign.get(c.id) ?? { pending: 0, sent: 0, failed: 0, skipped: 0, replied: 0 },
-      canManage: canManageCampaign(scope, { createdById: c.createdById, source: c.source, instanceUserId: c.instance.userId }),
+      canManage: canManageCampaign(scope, {
+        createdById: c.createdById,
+        source: c.source,
+        instanceUserId: c.instance.personalOwnerId ?? "",
+      }),
     };
   });
 }
@@ -281,6 +285,7 @@ async function getCampaignDailyMetrics(
             SELECT 1
             FROM "WhatsAppInstance" i
             WHERE i.id = r."instanceId"
+              AND i."kind" = 'PERSONAL'
               AND i."userId" IN (${Prisma.join(visibleInstanceOwnerIds)})
           )`
         : Prisma.sql`AND false`;
@@ -357,7 +362,7 @@ export async function getCampaignDetail(
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, organizationId, ...campaignVisibilityWhere(scope) },
     include: {
-      instance: { include: { user: { select: { name: true } } } },
+      instance: { include: { personalOwner: { select: { name: true } } } },
       createdBy: { select: { name: true } },
     },
   });
@@ -365,7 +370,7 @@ export async function getCampaignDetail(
   const canManage = canManageCampaign(scope, {
     createdById: campaign.createdById,
     source: campaign.source,
-    instanceUserId: campaign.instance.userId,
+    instanceUserId: campaign.instance.personalOwnerId ?? "",
   });
 
   const templateEntries = listCampaignScriptEntries(campaign);
@@ -559,14 +564,20 @@ export async function getCampaignDetail(
       campaign.pausedInstanceId && campaign.pausedInstanceId !== campaign.instanceId
         ? await prisma.whatsAppInstance.findUnique({
             where: { id: campaign.pausedInstanceId },
-            select: { status: true, disconnectedAt: true, user: { select: { name: true } } },
+            select: { status: true, disconnectedAt: true, personalOwner: { select: { name: true } } },
           })
         : campaign.instance;
-    if (source) pauseInstance = { ownerName: source.user.name, status: source.status, disconnectedAt: source.disconnectedAt };
+    if (source) {
+      pauseInstance = {
+        ownerName: source.personalOwner?.name ?? "WhatsApp pessoal",
+        status: source.status,
+        disconnectedAt: source.disconnectedAt,
+      };
+    }
   }
   const whatsappOffline: CampaignDetail["whatsappOffline"] =
     campaign.status === "RUNNING" && campaign.source !== "PIPELINE_BULK" && campaign.instance.status !== "CONNECTED"
-      ? { ownerName: campaign.instance.user.name, disconnectedAt: campaign.instance.disconnectedAt }
+      ? { ownerName: campaign.instance.personalOwner?.name ?? "WhatsApp pessoal", disconnectedAt: campaign.instance.disconnectedAt }
       : null;
 
   return {
@@ -578,7 +589,7 @@ export async function getCampaignDetail(
     whatsappOffline,
     audienceFilter,
     audienceLabel: describeAudienceFilter(audienceFilter),
-    instanceName: campaign.instance.user.name,
+    instanceName: campaign.instance.personalOwner?.name ?? "WhatsApp pessoal",
     createdByName: campaign.createdBy.name,
     delayMinSec: campaign.delayMinSec,
     delayMaxSec: campaign.delayMaxSec,

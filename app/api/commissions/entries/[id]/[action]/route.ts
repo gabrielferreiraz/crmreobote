@@ -1,10 +1,12 @@
 import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { formatCurrency } from "@/lib/format";
-import { formatMonthShort } from "@/lib/commissions/engine";
+import { formatMonthLong, formatMonthShort } from "@/lib/commissions/engine";
+import { clientAllowsPayment, clientPaymentState } from "@/lib/commissions/client-payment";
 import { notifyHeld, notifyPaid } from "@/lib/commissions/notify";
+import { applyClientPayments, withCommissionLock } from "@/lib/commissions/sync";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { CommissionPayPayload } from "@/lib/undo/types";
 import type { AuditAction } from "@/lib/audit-log";
@@ -43,7 +45,7 @@ const WRONG_STATUS: Record<Action, string> = {
   release: "Essa parcela não está travada",
 };
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string; action: string }> }) {
+export const POST = commissionRoute(async function POST(req: Request, { params }: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await params;
   if (!(action in TRANSITIONS)) return NextResponse.json({ error: "Ação inválida" }, { status: 404 });
   const transition = TRANSITIONS[action as Action];
@@ -68,9 +70,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         paymentMonth: true,
         installmentNumber: true,
         installmentCount: true,
+        kind: true,
+        saleId: true,
+        clientPaymentEffect: true,
         beneficiaryId: true,
         beneficiary: { select: { name: true } },
-        sale: { select: { status: true, clientName: true } },
+        sale: {
+          select: {
+            status: true,
+            clientName: true,
+            autoDebit: true,
+            administrator: { select: { unpaidPolicy: true } },
+            clientPayments: { select: { month: true, paid: true } },
+          },
+        },
       },
     });
     if (!entry) return NextResponse.json({ error: "Parcela não encontrada" }, { status: 404 });
@@ -79,6 +92,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         { error: entry.sale.status === "REVIEW" ? "Confira a venda antes de pagar" : "Venda cancelada" },
         { status: 409 },
       );
+    }
+    // Trava do "cliente não pagou" não sai à mão: sai sozinha quando o ✓ for marcado.
+    if (action === "release" && entry.clientPaymentEffect === "HOLD") {
+      return NextResponse.json(
+        { error: `Essa trava sai sozinha quando você marcar em "Quem pagou a parcela" que ${entry.sale?.clientName ?? "o cliente"} pagou` },
+        { status: 409 },
+      );
+    }
+    // Só paga comissão de parcela que o cliente pagou (quando a administradora depende disso).
+    if (action === "pay" && entry.kind === "INSTALLMENT" && entry.sale) {
+      const state = clientPaymentState({
+        hasSale: true,
+        policy: entry.sale.administrator?.unpaidPolicy ?? null,
+        autoDebit: entry.sale.autoDebit,
+        paid: entry.sale.clientPayments.find((c) => c.month === entry.paymentMonth)?.paid ?? null,
+      });
+      if (!clientAllowsPayment(state)) {
+        return NextResponse.json(
+          {
+            error: `Antes de pagar, marque em "Quem pagou a parcela" que ${entry.sale.clientName} pagou a parcela de ${formatMonthLong(entry.paymentMonth).toLowerCase()}`,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const now = new Date();
@@ -94,6 +131,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
               : { status: "SCHEDULED", holdReason: null },
     });
     if (count === 0) return NextResponse.json({ error: WRONG_STATUS[action as Action] }, { status: 409 });
+
+    // Parcela que volta a "a receber" passa de novo pela regra do "cliente não
+    // pagou" — destravar à mão num mês sem ✓ não libera o pagamento por engano.
+    if ((action === "release" || action === "unpay") && entry.saleId && entry.sale) {
+      const saleId = entry.saleId;
+      const policy = entry.sale.administrator?.unpaidPolicy ?? null;
+      await withCommissionLock(access.organizationId, (tx) => applyClientPayments(tx, saleId, policy));
+    }
 
     const amount = Number(entry.amount);
     const what = entry.sale
@@ -134,4 +179,4 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     return NextResponse.json({ ok: true, undo });
   });
-}
+});

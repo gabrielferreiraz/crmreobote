@@ -37,7 +37,12 @@ function debugLog(...args: unknown[]): void {
 }
 import { maskPhone } from "@/lib/log-redact";
 import { assertValidChatMedia, buildChatMediaKey, uploadChatMedia, ChatMediaUploadError } from "@/lib/r2";
-import { notifyInstanceConnected, notifyInstanceDisconnected } from "@/lib/whatsapp/instance-alerts";
+import {
+  notifyCentralConnected,
+  notifyCentralDisconnected,
+  notifyInstanceConnected,
+  notifyInstanceDisconnected,
+} from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
 import { getOrCreateThread, touchThreadLastMessage } from "@/lib/whatsapp/threads";
 import { sendPushToUser } from "@/lib/push";
@@ -47,13 +52,15 @@ import { dispatchMessageReceivedAutomations } from "@/lib/automations/message-tr
 import { shouldResetWarmup } from "@/lib/whatsapp/warmup";
 import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
 import { pauseRunningCampaignsForOfflineInstance, resumeCampaignsWithReconnectedInstance } from "@/lib/campaigns/instance-guard";
+import { handleCentralInbound } from "@/lib/whatsapp/central-ingest";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
   id: string;
   organizationId: string;
   instanceName: string;
-  userId: string;
+  kind: $Enums.WhatsAppInstanceKind;
+  personalOwnerId: string | null;
   status: $Enums.WhatsAppInstanceStatus;
   phoneNumber: string | null;
   notifyOnCrmMessage: boolean;
@@ -62,6 +69,12 @@ type InstanceRef = {
   disconnectedAt: Date | null;
   firstConnectedAt: Date | null;
 };
+
+type PersonalInstanceRef = InstanceRef & { kind: "PERSONAL"; personalOwnerId: string };
+
+function isPersonalInstance(instance: InstanceRef): instance is PersonalInstanceRef {
+  return instance.kind === "PERSONAL" && Boolean(instance.personalOwnerId);
+}
 
 type ContextInfo = { stanzaId?: string };
 
@@ -240,13 +253,41 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
   // = false lá) — um sync de histórico grava centenas de mensagens de uma vez,
   // e cada uma acordando um chat aberto pra refazer o fetch seria só ruído.
   if (options.notify) {
-    publishWhatsAppEvent(instance.organizationId, { type: "message", threadId: thread.id });
+    publishWhatsAppEvent(instance.organizationId, {
+      type: "message",
+      threadId: thread.id,
+      central: instance.kind === "CENTRAL",
+    });
   }
 
   // Push e resposta de campanha só fazem sentido pra mensagem recebida de
   // verdade em tempo real (nunca pro eco do que o próprio vendedor mandou,
   // nem pra uma mensagem antiga vinda do backfill de histórico).
   if (direction === "INBOUND" && options.notify) {
+    if (instance.kind === "CENTRAL") {
+      const { contactId } = await handleCentralInbound({
+        organizationId: instance.organizationId,
+        threadId: thread.id,
+        messageId: saved.id,
+        displayName: thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized,
+        preview:
+          body ||
+          (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem"),
+        notify: true,
+      });
+
+      if (contactId && isOptOutMessage(body)) {
+        // Nunca derruba o webhook: a mensagem já foi salva e distribuída.
+        await prisma.contact
+          .update({ where: { id: contactId }, data: { whatsappOptOutAt: new Date() } })
+          .catch((err) => console.error("[wa:central] falha ao gravar opt-out", err));
+      }
+      // 2º aviso, já com o responsável definido pela distribuição.
+      publishWhatsAppEvent(instance.organizationId, { type: "message", threadId: thread.id, central: true });
+      return;
+    }
+
+    if (!isPersonalInstance(instance)) return;
     // Só avisa por push quem tem ESTE WhatsApp conectado — existia um
     // segundo aviso aqui, pro dono do negócio quando a mensagem chegava por
     // um número que não é o dele (ex.: número central, ou lead que escreveu
@@ -268,7 +309,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
       const preview =
         body ||
         (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
-      sendPushToUser(instance.userId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
+      sendPushToUser(instance.personalOwnerId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
         console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
       );
     }
@@ -298,6 +339,9 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
 }
 
 export async function handleIncomingMessage(instance: InstanceRef, data: unknown): Promise<void> {
+  // A Central ganha o fluxo próprio no passo de ingestão. Até lá, handlers
+  // pessoais nunca tentam interpretar uma instância sem dono individual.
+  if (instance.kind === "PERSONAL" && !isPersonalInstance(instance)) return;
   debugLog(`[wa:webhook] messages.upsert instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
 
   const messages = extractMessages(data);
@@ -340,6 +384,7 @@ export async function importHistoryMessages(
   instance: InstanceRef,
   opts?: { maxPages?: number },
 ): Promise<{ imported: number; contacts: number }> {
+  if (!isPersonalInstance(instance)) return { imported: 0, contacts: 0 };
   let raw: HistoryMessage[];
   try {
     raw = await findMessages(instance.instanceName, opts?.maxPages);
@@ -394,6 +439,7 @@ export async function importHistoryMessages(
  * app/api/whatsapp/instance/import-history/route.ts) pra quem já conectou.
  */
 export async function handleHistorySync(instance: InstanceRef): Promise<void> {
+  if (!isPersonalInstance(instance)) return;
   if (instance.historySyncedAt) {
     console.log(`[wa:webhook] histórico de ${instance.instanceName} já importado antes (${instance.historySyncedAt.toISOString()}) — ignorando`);
     return;
@@ -446,6 +492,7 @@ const CALL_STATUS_MAP: Record<string, "RINGING" | "MISSED" | "REJECTED" | "ACCEP
  * coisas.
  */
 export async function handleIncomingCall(instance: InstanceRef, data: unknown): Promise<void> {
+  if (!isPersonalInstance(instance)) return;
   debugLog(`[wa:webhook] call instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
 
   const calls = extractCalls(data);
@@ -540,7 +587,7 @@ export async function handleIncomingCall(instance: InstanceRef, data: unknown): 
             });
             if (contact) displayName = contact.name;
           }
-          sendPushToUser(instance.userId, { title: displayName, body, url: "/whatsapp/conversas" }).catch((err) =>
+          sendPushToUser(instance.personalOwnerId, { title: displayName, body, url: "/whatsapp/conversas" }).catch((err) =>
             console.error("[wa:webhook] falha ao enviar push de chamada perdida", err),
           );
         }
@@ -592,7 +639,11 @@ export async function handlePresenceUpdate(instance: InstanceRef, data: unknown)
         ...(presenceInfo.lastSeen ? { lastSeenAt: new Date(presenceInfo.lastSeen * 1000) } : {}),
       },
     });
-    publishWhatsAppEvent(instance.organizationId, { type: "presence", threadId: thread.id });
+    publishWhatsAppEvent(instance.organizationId, {
+      type: "presence",
+      threadId: thread.id,
+      central: instance.kind === "CENTRAL",
+    });
   } catch (err) {
     console.error("[wa:webhook] falha ao processar presence.update", err);
   }
@@ -611,6 +662,7 @@ const ACK_STATUS_MAP: Record<string, $Enums.WhatsAppMessageStatus> = {
   READ: "READ",
 };
 
+// Presença e status (✓✓) não dependem de dono — valem também para a Central.
 export async function handleStatusUpdate(instance: InstanceRef, data: unknown): Promise<void> {
   debugLog(`[wa:webhook] messages.update instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
   try {
@@ -634,7 +686,13 @@ export async function handleStatusUpdate(instance: InstanceRef, data: unknown): 
     // pra saber quem avisar — barato, externalId é @unique.
     if (result.count > 0) {
       const message = await prisma.whatsAppMessage.findFirst({ where: { externalId }, select: { threadId: true } });
-      if (message) publishWhatsAppEvent(instance.organizationId, { type: "status", threadId: message.threadId });
+      if (message) {
+        publishWhatsAppEvent(instance.organizationId, {
+          type: "status",
+          threadId: message.threadId,
+          central: instance.kind === "CENTRAL",
+        });
+      }
     }
   } catch (err) {
     console.error("[wa:webhook] falha ao processar status de mensagem", err);
@@ -642,6 +700,8 @@ export async function handleStatusUpdate(instance: InstanceRef, data: unknown): 
 }
 
 export async function handleConnectionUpdate(instance: InstanceRef, data: unknown): Promise<void> {
+  const personalInstance = isPersonalInstance(instance) ? instance : null;
+  if (instance.kind === "PERSONAL" && !personalInstance) return;
   debugLog(`[wa:webhook] connection.update instância=${instance.instanceName} payload bruto:`, JSON.stringify(data));
   try {
     const update = data as { state?: string; wuid?: string };
@@ -653,10 +713,10 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     // desconectado e ficar esperando alguém reconectar (o que nunca vai
     // acontecer), remove a instância de vez. Nunca faz isso pra quem
     // continua ativo, mesmo desconectado.
-    if (status === "DISCONNECTED" && !(await isActiveMember(instance.organizationId, instance.userId))) {
+    if (personalInstance && status === "DISCONNECTED" && !(await isActiveMember(instance.organizationId, personalInstance.personalOwnerId))) {
       // connection.update só existe no Evolution (é conceito de sessão
       // Baileys) — este handler nunca é chamado pelo webhook da Meta.
-      await deleteInstanceForInactiveUser({ ...instance, provider: "EVOLUTION" });
+      await deleteInstanceForInactiveUser({ ...personalInstance, provider: "EVOLUTION" });
       console.log(`[wa:webhook] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
       return;
     }
@@ -677,13 +737,25 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
     // CONNECTED" (o que inclui CONNECTING), cada um desses soluços sem
     // desconexão de verdade virava um e-mail de "conectou" — era exatamente
     // esse o e-mail repetido que a gente via.
-    if (instance.status === "CONNECTED" && status === "DISCONNECTED") {
-      notifyInstanceDisconnected(instance).catch((err) =>
+    const wentDown = instance.status === "CONNECTED" && status === "DISCONNECTED";
+    const cameUp = status === "CONNECTED" && instance.status !== "CONNECTED" &&
+      (instance.status === "DISCONNECTED" || isFirstEverConnection);
+    if (personalInstance && wentDown) {
+      notifyInstanceDisconnected(personalInstance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de desconexão por e-mail", err),
       );
-    } else if (status === "CONNECTED" && instance.status !== "CONNECTED" && (instance.status === "DISCONNECTED" || isFirstEverConnection)) {
-      notifyInstanceConnected(instance).catch((err) =>
+    } else if (personalInstance && cameUp) {
+      notifyInstanceConnected(personalInstance).catch((err) =>
         console.error("[wa:webhook] falha ao enviar alerta de conexão por e-mail", err),
+      );
+    } else if (instance.kind === "CENTRAL" && wentDown) {
+      // Central fora do ar = nenhum lead novo chega pra ninguém: avisa dono e gerentes.
+      notifyCentralDisconnected(instance).catch((err) =>
+        console.error("[wa:central] falha ao enviar alerta de desconexão da Central", err),
+      );
+    } else if (instance.kind === "CENTRAL" && cameUp) {
+      notifyCentralConnected(instance).catch((err) =>
+        console.error("[wa:central] falha ao enviar alerta de conexão da Central", err),
       );
     }
 
@@ -728,9 +800,9 @@ export async function handleConnectionUpdate(instance: InstanceRef, data: unknow
         ...warmupFields,
       },
     });
-    if (shouldPersistStatus && instance.status === "CONNECTED" && status === "DISCONNECTED") {
+    if (personalInstance && shouldPersistStatus && instance.status === "CONNECTED" && status === "DISCONNECTED") {
       await pauseRunningCampaignsForOfflineInstance(instance.organizationId, instance.id);
-    } else if (shouldPersistStatus && status === "CONNECTED" && instance.status !== "CONNECTED") {
+    } else if (personalInstance && shouldPersistStatus && status === "CONNECTED" && instance.status !== "CONNECTED") {
       await resumeCampaignsWithReconnectedInstance(instance.organizationId);
     }
     console.log(

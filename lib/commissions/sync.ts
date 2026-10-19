@@ -17,12 +17,16 @@ import { prismaRaw } from "@/lib/prisma";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import type { Prisma } from "@/app/generated/prisma/client";
 import {
+  addMonths,
   brazilMonthKey,
   buildSaleSchedule,
+  formatMonthLong,
   parsePercentList,
-  type AdministratorLike,
+  resolveAdministrator,
+  type AdministratorBaseLike,
   type RuleLike,
   type SaleLike,
+  type UnpaidPolicy,
 } from "@/lib/commissions/engine";
 
 type Tx = Prisma.TransactionClient;
@@ -46,14 +50,32 @@ export async function withCommissionLock<T>(organizationId: string, fn: (tx: Tx)
   );
 }
 
+/**
+ * Igual a withCommissionLock, mas NÃO espera: com a trava ocupada (outra
+ * sincronização, um pagamento…) devolve null na hora. É o que a abertura de
+ * tela usa — esperar a trava ali só empilharia consultores numa fila.
+ */
+async function withCommissionLockIfFree<T>(organizationId: string, fn: (tx: Tx) => Promise<T>): Promise<T | null> {
+  return prismaRaw.$transaction(
+    async (tx) => {
+      await setTenantOnTx(tx, organizationId);
+      const [row] = await tx.$queryRaw<{ locked: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtextextended(${organizationId}, 20261008)) AS locked`;
+      if (!row?.locked) return null;
+      return fn(tx);
+    },
+    { timeout: 60_000, maxWait: 15_000 },
+  );
+}
+
 export type EngineContext = {
   rules: RuleLike[];
-  administrators: Map<string, AdministratorLike>;
+  /** Administradora + todas as tabelas dela — a da categoria certa é escolhida por venda (resolveAdministrator). */
+  administrators: Map<string, AdministratorBaseLike>;
 };
 
 export async function loadEngineContext(tx: Tx, organizationId: string): Promise<EngineContext> {
   const rules = await tx.commissionRule.findMany({ where: { organizationId, active: true } });
-  const administrators = await tx.consortiumAdministrator.findMany({ where: { organizationId } });
+  const administrators = await tx.consortiumAdministrator.findMany({ where: { organizationId }, include: { tables: true } });
   return {
     rules: rules.map((r) => ({
       id: r.id,
@@ -72,14 +94,19 @@ export async function loadEngineContext(tx: Tx, organizationId: string): Promise
         a.id,
         {
           id: a.id,
-          commissionInstallments: a.commissionInstallments,
           graceMonths: a.graceMonths,
           cutoffDay: a.cutoffDay,
           paysSellerDirectly: a.paysSellerDirectly,
-          revenueMode: a.revenueMode,
-          revenueTotalPercent: a.revenueTotalPercent != null ? Number(a.revenueTotalPercent) : null,
-          revenuePercents: parsePercentList(a.revenuePercents),
-          revenueBase: a.revenueBase === "GROSS" ? "GROSS" : "NET",
+          unpaidPolicy: a.unpaidPolicy,
+          tables: a.tables.map((t) => ({
+            creditType: t.creditType,
+            commissionInstallments: t.commissionInstallments,
+            skippedInstallments: t.skippedInstallments,
+            revenueMode: t.revenueMode,
+            revenueTotalPercent: t.revenueTotalPercent != null ? Number(t.revenueTotalPercent) : null,
+            revenuePercents: parsePercentList(t.revenuePercents),
+            revenueBase: t.revenueBase === "GROSS" ? ("GROSS" as const) : ("NET" as const),
+          })),
         },
       ]),
     ),
@@ -137,13 +164,17 @@ const centsToDecimalString = (cents: number) => (cents / 100).toFixed(2);
 export async function regenerateSaleEntries(tx: Tx, sale: SaleRow, ctx: EngineContext, now: Date = new Date()) {
   const existing = await tx.commissionEntry.findMany({
     where: { saleId: sale.id, kind: "INSTALLMENT" },
-    select: { role: true, installmentNumber: true, status: true, holdReason: true },
+    select: { role: true, installmentNumber: true, status: true, holdReason: true, clientPaymentEffect: true },
   });
   const keyOf = (role: string, n: number | null) => `${role}#${n ?? 0}`;
   const paidKeys = new Set(existing.filter((e) => e.status === "PAID").map((e) => keyOf(e.role, e.installmentNumber)));
   const knownKeys = new Set(existing.map((e) => keyOf(e.role, e.installmentNumber)));
+  // Só trava feita À MÃO sobrevive ao recálculo — a do "cliente não pagou"
+  // é reaplicada no fim (applyClientPayments), a partir dos ✓ do Financeiro.
   const holds = new Map(
-    existing.filter((e) => e.status === "ON_HOLD").map((e) => [keyOf(e.role, e.installmentNumber), e.holdReason]),
+    existing
+      .filter((e) => e.status === "ON_HOLD" && e.clientPaymentEffect !== "HOLD")
+      .map((e) => [keyOf(e.role, e.installmentNumber), e.holdReason]),
   );
 
   await tx.commissionEntry.deleteMany({ where: { saleId: sale.id, kind: "INSTALLMENT", status: { not: "PAID" } } });
@@ -154,7 +185,9 @@ export async function regenerateSaleEntries(tx: Tx, sale: SaleRow, ctx: EngineCo
   await tx.commissionRevenue.deleteMany({ where: { saleId: sale.id, status: { not: "RECEIVED" } } });
   if (sale.status === "CANCELLED") return;
 
-  const administrator = sale.administratorId ? (ctx.administrators.get(sale.administratorId) ?? null) : null;
+  const base = sale.administratorId ? (ctx.administrators.get(sale.administratorId) ?? null) : null;
+  // A tabela da categoria da venda (ou a padrão da administradora).
+  const administrator = base ? resolveAdministrator(base, sale.creditType) : null;
   const { installments, revenue } = buildSaleSchedule(toSaleLike(sale), administrator, ctx.rules);
   const currentMonth = brazilMonthKey(now);
 
@@ -197,6 +230,129 @@ export async function regenerateSaleEntries(tx: Tx, sale: SaleRow, ctx: EngineCo
       };
     });
   if (data.length > 0) await tx.commissionEntry.createMany({ data });
+  await applyClientPayments(tx, sale.id, base?.unpaidPolicy ?? null);
+}
+
+/**
+ * Aplica nas parcelas de UMA venda o que o Financeiro marcou em "o cliente
+ * pagou a parcela?" — conforme a regra da administradora quando ele NÃO
+ * pagou:
+ *  - HOLD: legado ("Trava até pagar" saiu das opções) — funciona como DEFER;
+ *  - FORFEIT: a comissão daquele mês é cancelada (o consultor perde);
+ *  - DEFER: "recebe quando o cliente pagar" — a parcela de comissão Nº k
+ *    acompanha a parcela Nº k do cliente: mês sem pagamento empurra ESTA e
+ *    TODAS as seguintes um mês (o consultor recebe todas, só mais tarde —
+ *    explicado pelo Financeiro: com diluição, a 2ª pode sair no 4º mês);
+ *  - IGNORE: nada (essa administradora não depende do pagamento do cliente).
+ *
+ * Sempre DESFAZ primeiro tudo que ela mesma tinha aplicado (marcado em
+ * clientPaymentEffect) e aplica de novo a partir dos ✓ atuais — então
+ * trocar "não pagou" por "pagou" devolve a parcela ao normal sozinho, e
+ * recalcular a venda nunca perde o efeito. Parcela já PAGA nunca é tocada;
+ * trava feita à mão (sem clientPaymentEffect) também não.
+ */
+export async function applyClientPayments(tx: Tx, saleId: string, policy: UnpaidPolicy | null) {
+  const affected = await tx.commissionEntry.findMany({
+    where: { saleId, clientPaymentEffect: { not: null }, status: { not: "PAID" } },
+    select: { id: true, status: true, clientPaymentEffect: true, paymentMonth: true, deferredFromMonth: true },
+  });
+  for (const e of affected) {
+    // Parcela adiada que o Financeiro travou à mão depois: a trava é dele, fica.
+    const manualHold = e.status === "ON_HOLD" && e.clientPaymentEffect !== "HOLD";
+    await tx.commissionEntry.update({
+      where: { id: e.id },
+      data: {
+        ...(manualHold ? {} : { status: "SCHEDULED" as const, holdReason: null }),
+        note: null,
+        paymentMonth: e.deferredFromMonth ?? e.paymentMonth,
+        clientPaymentEffect: null,
+        deferredFromMonth: null,
+      },
+    });
+  }
+  if (!policy || policy === "IGNORE") return;
+  // "Trava até pagar" saiu das opções (o cliente que dilui a parcela nunca
+  // "paga aquele mês", então a trava ficaria parada pra sempre).
+  const effective = policy === "HOLD" ? "DEFER" : policy;
+
+  const unpaid = await tx.commissionClientPayment.findMany({ where: { saleId, paid: false }, orderBy: { month: "asc" } });
+
+  if (effective === "DEFER") {
+    // Calcula o mês final de cada parcela em memória (em ordem de mês: se o
+    // mês para onde ela andou também não foi pago, anda de novo) e grava uma
+    // vez só. Travada à mão também anda: a trava continua, só o mês muda.
+    const entries = await tx.commissionEntry.findMany({
+      where: { saleId, kind: "INSTALLMENT", status: { in: ["SCHEDULED", "ON_HOLD"] } },
+      select: { id: true, paymentMonth: true },
+    });
+    const months = new Map(entries.map((e) => [e.id, e.paymentMonth]));
+    for (const u of unpaid) {
+      for (const [id, month] of months) if (month >= u.month) months.set(id, addMonths(month, 1));
+    }
+    for (const e of entries) {
+      const month = months.get(e.id)!;
+      if (month === e.paymentMonth) continue;
+      await tx.commissionEntry.update({
+        where: { id: e.id },
+        data: { paymentMonth: month, deferredFromMonth: e.paymentMonth, clientPaymentEffect: "DEFER" },
+      });
+    }
+    return;
+  }
+
+  // FORFEIT: a comissão do mês sem pagamento é cancelada (o consultor perde).
+  for (const u of unpaid) {
+    const monthName = formatMonthLong(u.month).toLowerCase();
+    await tx.commissionEntry.updateMany({
+      where: { saleId, kind: "INSTALLMENT", status: "SCHEDULED", paymentMonth: u.month },
+      data: { status: "CANCELLED", note: `Cliente não pagou ${monthName}`, clientPaymentEffect: "FORFEIT" },
+    });
+  }
+}
+
+/**
+ * Grava o ✓ de "o cliente pagou a parcela de `month`" pra várias vendas de
+ * uma vez (o "marcar todos" chega com centenas) e reaplica a regra da
+ * administradora SÓ onde algo muda nas parcelas: virou "não pagou", ou
+ * deixou de ser. Marcar "pagou" em quem estava pendente não toca em
+ * parcela nenhuma — é uma escrita só pra todas. Rodar dentro da trava.
+ * `newlyUnpaid` = quem virou "não pagou" agora (é quem recebe o aviso).
+ */
+export async function markClientPayments(
+  tx: Tx,
+  params: { organizationId: string; userId: string; saleIds: string[]; month: string; state: "PAID" | "UNPAID" | "PENDING" },
+) {
+  const { organizationId, userId, saleIds, month, state } = params;
+  const sales = await tx.commissionSale.findMany({
+    where: { organizationId, id: { in: saleIds }, status: "ACTIVE" },
+    select: { id: true, clientName: true, sellerId: true, administrator: { select: { unpaidPolicy: true } } },
+  });
+  const ids = sales.map((s) => s.id);
+  const previous = new Map(
+    (await tx.commissionClientPayment.findMany({ where: { saleId: { in: ids }, month }, select: { saleId: true, paid: true } })).map((p) => [p.saleId, p.paid]),
+  );
+
+  if (state === "PENDING") {
+    await tx.commissionClientPayment.deleteMany({ where: { saleId: { in: ids }, month } });
+  } else {
+    const paid = state === "PAID";
+    await tx.commissionClientPayment.updateMany({ where: { saleId: { in: ids }, month }, data: { paid, markedById: userId } });
+    const missing = ids.filter((id) => !previous.has(id));
+    if (missing.length > 0) {
+      await tx.commissionClientPayment.createMany({
+        data: missing.map((saleId) => ({ organizationId, saleId, month, paid, markedById: userId })),
+        skipDuplicates: true,
+      });
+    }
+  }
+
+  for (const sale of sales) {
+    const wasUnpaid = previous.get(sale.id) === false;
+    const changes = state === "UNPAID" ? !wasUnpaid : wasUnpaid;
+    if (changes) await applyClientPayments(tx, sale.id, sale.administrator?.unpaidPolicy ?? null);
+  }
+  const newlyUnpaid = state === "UNPAID" ? sales.filter((s) => previous.get(s.id) !== false) : [];
+  return { sales, newlyUnpaid };
 }
 
 const SALE_SELECT = {
@@ -297,7 +453,17 @@ async function createSalesFromDeals(
   return created;
 }
 
-export type SyncResult = { created: number; cancelled: number; revived: number; filled: number };
+/** Última vez que alguma regra, administradora ou tabela foi criada/editada (null = nada cadastrado). */
+async function lastConfigChange(tx: Tx, organizationId: string): Promise<Date | null> {
+  // Em sequência: dentro de uma transação a conexão é uma só.
+  const rule = await tx.commissionRule.aggregate({ where: { organizationId }, _max: { updatedAt: true } });
+  const administrator = await tx.consortiumAdministrator.aggregate({ where: { organizationId }, _max: { updatedAt: true } });
+  const table = await tx.commissionTable.aggregate({ where: { organizationId }, _max: { updatedAt: true } });
+  const dates = [rule._max.updatedAt, administrator._max.updatedAt, table._max.updatedAt].filter((d): d is Date => d != null);
+  return dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
+}
+
+export type SyncResult ={ created: number; cancelled: number; revived: number; filled: number };
 
 /**
  * Deixa as vendas de comissão em dia com os negócios. `dealIds` limita a
@@ -305,11 +471,11 @@ export type SyncResult = { created: number; cancelled: number; revived: number; 
  * passa pela organização inteira. Não faz nada enquanto o módulo não tiver
  * data de início (Organization.commissionStartDate).
  */
-export async function syncCommissionSales(organizationId: string, opts?: { dealIds?: string[] }): Promise<SyncResult> {
+export async function syncCommissionSales(organizationId: string, opts?: { dealIds?: string[]; ifFree?: boolean }): Promise<SyncResult> {
   const result: SyncResult = { created: 0, cancelled: 0, revived: 0, filled: 0 };
   if (opts?.dealIds && opts.dealIds.length === 0) return result;
 
-  return withCommissionLock(organizationId, async (tx) => {
+  const run = async (tx: Tx) => {
     const org = await tx.organization.findUnique({ where: { id: organizationId }, select: { commissionStartDate: true } });
     if (!org?.commissionStartDate) return result;
 
@@ -412,22 +578,67 @@ export async function syncCommissionSales(organizationId: string, opts?: { dealI
     // tenta de novo: se o Financeiro cadastrou a regra depois, ela passa a
     // ter comissão sem ninguém precisar lembrar de "recalcular". Venda que
     // continua sem regra simplesmente segue sem parcela (e com o aviso).
+    //
+    // Só tenta de novo quando o cadastro mudou DEPOIS da última tentativa
+    // daquela venda (updatedAt) — sem isso, cada abertura da tela refazia
+    // as mesmas 100 vendas sem regra, ficando mais lenta conforme a base cresce.
     if (!opts?.dealIds) {
-      const empty = await tx.commissionSale.findMany({
-        where: {
-          organizationId,
-          status: { in: ["ACTIVE", "REVIEW"] },
-          administratorId: { not: null },
-          entries: { none: { kind: "INSTALLMENT" } },
-        },
-        select: SALE_SELECT,
-        take: SYNC_BATCH,
-      });
+      const configChangedAt = await lastConfigChange(tx, organizationId);
+      const empty = configChangedAt
+        ? await tx.commissionSale.findMany({
+            where: {
+              organizationId,
+              status: { in: ["ACTIVE", "REVIEW"] },
+              administratorId: { not: null },
+              entries: { none: { kind: "INSTALLMENT" } },
+              updatedAt: { lt: configChangedAt },
+            },
+            select: SALE_SELECT,
+            take: SYNC_BATCH,
+          })
+        : [];
       for (const sale of empty) await regenerateSaleEntries(tx, sale, ctx);
+      if (empty.length > 0) {
+        await tx.commissionSale.updateMany({ where: { id: { in: empty.map((s) => s.id) } }, data: { updatedAt: new Date() } });
+      }
     }
 
     return result;
-  });
+  };
+  if (opts?.ifFree) return (await withCommissionLockIfFree(organizationId, run)) ?? result;
+  return withCommissionLock(organizationId, run);
+}
+
+/** Última sincronização "de abertura de tela" por organização, nesta instância do servidor. */
+const pageSyncs = new Map<string, { at: number; running: Promise<void> | null }>();
+const PAGE_SYNC_INTERVAL_MS = 30_000;
+
+/** Cadastro mudou (regra/administradora): a próxima abertura de tela sincroniza de novo, sem esperar o intervalo. */
+export function forgetPageSync(organizationId: string) {
+  const state = pageSyncs.get(organizationId);
+  if (state && !state.running) pageSyncs.delete(organizationId);
+}
+
+/**
+ * Sincronização que as TELAS rodam ao abrir (rede de segurança pra negócio
+ * ganho por um caminho que não sincronizou sozinho). Feita pra aguentar o
+ * dia do pagamento, com todo consultor abrindo "Minha comissão" junto:
+ *  - no máximo uma a cada 30 s por organização (nesta instância);
+ *  - quem chega enquanto uma está rodando espera ESSA, não começa outra;
+ *  - se a trava estiver ocupada (outra instância, um pagamento), pula — a
+ *    próxima abertura tenta de novo;
+ *  - nunca derruba a tela: erro só vai pro log.
+ */
+export function syncOnPageOpen(organizationId: string, where: string): Promise<void> {
+  const state = pageSyncs.get(organizationId);
+  if (state?.running) return state.running;
+  if (state && Date.now() - state.at < PAGE_SYNC_INTERVAL_MS) return Promise.resolve();
+  const running = syncCommissionSales(organizationId, { ifFree: true })
+    .then(() => undefined)
+    .catch((err) => console.error(`[commissions] sync em ${where}`, err))
+    .finally(() => pageSyncs.set(organizationId, { at: Date.now(), running: null }));
+  pageSyncs.set(organizationId, { at: state?.at ?? 0, running });
+  return running;
 }
 
 /**

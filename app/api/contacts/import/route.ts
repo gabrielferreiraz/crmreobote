@@ -241,12 +241,16 @@ export async function POST(req: Request) {
       // Atribuir/Pedir, decisão à parte, ver DuplicateTableRow).
       const scope = await getDealScope(organizationId, userId, session?.user.role);
       const scopeWhere = contactScopeWhere(scope);
-      const byPayload = new Map<string, { data: Record<string, string>; ids: string[] }>();
+      const byPayload = new Map<string, { data: Record<string, string | boolean>; ids: string[] }>();
       for (const u of contactUpdates) {
         // sanitizeCell nos campos de texto livre — mesma proteção do INSERT
         // acima: célula "=HYPERLINK(...)" da planilha não pode virar fórmula
         // viva quando alguém exportar esses contatos depois.
-        const data = Object.fromEntries(Object.entries(u.data).map(([field, value]) => [field, sanitizeCell(value)]));
+        const data: Record<string, string | boolean> = Object.fromEntries(
+          Object.entries(u.data).map(([field, value]) => [field, sanitizeCell(value)]),
+        );
+        // Cargo vindo da planilha encerra o "contato incompleto" criado pela Central.
+        if (typeof data.jobTitle === "string" && data.jobTitle.trim()) data.needsEnrichment = false;
         // Ordem das chaves é estável (divergentFields sempre segue a ordem de
         // DIVERGENT_FIELD_LABELS), então o JSON serve de chave de grupo.
         const key = JSON.stringify(data);

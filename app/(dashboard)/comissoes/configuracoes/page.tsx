@@ -22,7 +22,7 @@ export default async function CommissionSettingsPage() {
       prisma.consortiumAdministrator.findMany({
         where: { organizationId },
         orderBy: [{ active: "desc" }, { name: "asc" }],
-        include: { _count: { select: { sales: true, deals: true } } },
+        include: { _count: { select: { sales: true, deals: true } }, tables: true },
       }),
       prisma.commissionRule.findMany({
         where: { organizationId, active: true },
@@ -47,14 +47,19 @@ export default async function CommissionSettingsPage() {
           id: a.id,
           name: a.name,
           active: a.active,
-          commissionInstallments: a.commissionInstallments,
           graceMonths: a.graceMonths,
           cutoffDay: a.cutoffDay,
           paysSellerDirectly: a.paysSellerDirectly,
-          revenueMode: a.revenueMode,
-          revenueTotalPercent: a.revenueTotalPercent != null ? Number(a.revenueTotalPercent) : null,
-          revenuePercents: parsePercentList(a.revenuePercents),
-          revenueBase: a.revenueBase === "GROSS" ? "GROSS" : "NET",
+          unpaidPolicy: a.unpaidPolicy,
+          tables: a.tables.map((t) => ({
+            creditType: t.creditType,
+            commissionInstallments: t.commissionInstallments,
+            skippedInstallments: t.skippedInstallments,
+            revenueMode: t.revenueMode,
+            revenueTotalPercent: t.revenueTotalPercent != null ? Number(t.revenueTotalPercent) : null,
+            revenuePercents: parsePercentList(t.revenuePercents),
+            revenueBase: t.revenueBase === "GROSS" ? ("GROSS" as const) : ("NET" as const),
+          })),
           salesCount: a._count.sales + a._count.deals,
         }))}
         rules={rules.map((r) => ({

@@ -12,22 +12,26 @@
  */
 
 import { sendEmail } from "@/lib/email";
+import { prisma } from "@/lib/prisma";
 import { resolveUserAndOrgOwners, type ResolvedRecipients } from "@/lib/notify-recipients";
 import { escapeHtml } from "@/lib/security/html-escape";
 import { isEmailNotificationEnabled } from "@/lib/notification-settings";
+import type { $Enums } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
   id: string;
   organizationId: string;
-  userId: string;
+  kind: $Enums.WhatsAppInstanceKind;
+  personalOwnerId: string | null;
   instanceName: string;
   phoneNumber: string | null;
 };
 
 async function resolveRecipients(instance: InstanceRef): Promise<ResolvedRecipients | null> {
-  const resolved = await resolveUserAndOrgOwners(instance.organizationId, instance.userId);
+  if (instance.kind !== "PERSONAL" || !instance.personalOwnerId) return null;
+  const resolved = await resolveUserAndOrgOwners(instance.organizationId, instance.personalOwnerId);
   if (!resolved) {
-    console.error(`[wa:alert] instância ${instance.instanceName} sem usuário dono (userId=${instance.userId})`);
+    console.error(`[wa:alert] instância ${instance.instanceName} sem usuário dono (personalOwnerId=${instance.personalOwnerId})`);
   }
   return resolved;
 }
@@ -80,6 +84,48 @@ export async function notifyInstanceDisconnected(instance: InstanceRef): Promise
   `;
 
   await dispatch(`⚠️ WhatsApp de ${resolved.name} desconectou`, html, resolved);
+}
+
+/** Dono(s) + gerentes ativos — destinatários dos alertas da Central (que não tem dono pessoal). */
+async function resolveCentralRecipients(organizationId: string): Promise<ResolvedRecipients | null> {
+  const rows = await prisma.organizationUser.findMany({
+    where: { organizationId, active: true, role: { in: ["OWNER", "MANAGER"] } },
+    select: { user: { select: { name: true, email: true } } },
+  });
+  if (rows.length === 0) return null;
+  const recipients = new Map<string, string>();
+  for (const row of rows) recipients.set(row.user.email, row.user.name);
+  return { name: "Central de Leads", recipients };
+}
+
+export async function notifyCentralDisconnected(instance: InstanceRef): Promise<void> {
+  if (instance.kind !== "CENTRAL") return;
+  if (!(await isEmailNotificationEnabled(instance.organizationId, "whatsappDisconnected"))) return;
+  const resolved = await resolveCentralRecipients(instance.organizationId);
+  if (!resolved) return;
+
+  const appUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? "";
+  const phoneLabel = instance.phoneNumber ? ` (${escapeHtml(instance.phoneNumber)})` : "";
+  const html = `
+    <p>O WhatsApp da <strong>Central de Leads</strong>${phoneLabel} desconectou do CRM.</p>
+    <p>Enquanto estiver desconectado, nenhum lead novo chega aos atendentes.</p>
+    <p><a href="${appUrl}/whatsapp/central">Reconectar agora</a></p>
+  `;
+  await dispatch("⚠️ Central de Leads desconectou", html, resolved);
+}
+
+export async function notifyCentralConnected(instance: InstanceRef): Promise<void> {
+  if (instance.kind !== "CENTRAL") return;
+  if (!(await isEmailNotificationEnabled(instance.organizationId, "whatsappConnected"))) return;
+  const resolved = await resolveCentralRecipients(instance.organizationId);
+  if (!resolved) return;
+
+  const phoneLabel = instance.phoneNumber ? ` (${escapeHtml(instance.phoneNumber)})` : "";
+  const html = `
+    <p>O WhatsApp da <strong>Central de Leads</strong>${phoneLabel} conectou ao CRM.</p>
+    <p>Os leads voltaram a ser distribuídos normalmente.</p>
+  `;
+  await dispatch("✅ Central de Leads conectou", html, resolved);
 }
 
 const ESCALATION_COPY: Record<number, { emoji: string; tone: string }> = {

@@ -12,15 +12,20 @@ import {
   buildSaleSchedule,
   firstPaymentMonth,
   pickRule,
+  resolveAdministrator,
   revenueConfigError,
   saleReferenceMonth,
   splitByWeights,
   splitCents,
+  type AdministratorBaseLike,
   type AdministratorLike,
+  type CommissionTableLike,
   type RuleLike,
   type SaleLike,
 } from "@/lib/commissions/engine";
 import { exampleSplit } from "@/lib/commissions/describe";
+import { clientAllowsPayment, clientPaymentState } from "@/lib/commissions/client-payment";
+import { ACCENTED, PLAIN, plainSearchText } from "@/lib/commissions/search-text";
 
 /** Instante no horário de Campo Grande (UTC-4). */
 const cg = (y: number, m: number, d: number, h = 12) => new Date(Date.UTC(y, m - 1, d, h + 4));
@@ -45,6 +50,8 @@ const adm = (over: Partial<AdministratorLike> = {}): AdministratorLike => ({
   graceMonths: 1,
   cutoffDay: null,
   paysSellerDirectly: false,
+  unpaidPolicy: "HOLD",
+  skippedInstallments: [],
   revenueMode: null,
   revenueTotalPercent: null,
   revenuePercents: null,
@@ -236,4 +243,75 @@ test("conta de exemplo: corretora recebe, cada um recebe, o que fica", () => {
   // Administradora pagando o vendedor direto: só a liderança sai da corretora.
   const direct = exampleSplit({ ...administrator, paysSellerDirectly: true }, [rule({ percent: 1 })]);
   assert.equal(direct.remaining, 5000);
+});
+
+const table = (over: Partial<CommissionTableLike> = {}): CommissionTableLike => ({
+  creditType: null,
+  commissionInstallments: 1,
+  skippedInstallments: [],
+  revenueMode: null,
+  revenueTotalPercent: null,
+  revenuePercents: null,
+  revenueBase: "NET",
+  ...over,
+});
+
+test("categoria escolhe a tabela própria; sem tabela própria, vale a padrão", () => {
+  const base: AdministratorBaseLike = {
+    id: "adm1",
+    graceMonths: 1,
+    cutoffDay: null,
+    paysSellerDirectly: false,
+    unpaidPolicy: "HOLD",
+    tables: [table({ commissionInstallments: 10 }), table({ creditType: "Imóvel", commissionInstallments: 4 })],
+  };
+  assert.equal(resolveAdministrator(base, " imóvel")?.commissionInstallments, 4);
+  assert.equal(resolveAdministrator(base, "Automóvel")?.commissionInstallments, 10);
+  assert.equal(resolveAdministrator(base, null)?.commissionInstallments, 10);
+  assert.equal(resolveAdministrator({ ...base, tables: [] }, "Imóvel"), null);
+  // Os dados gerais da administradora vão junto com a tabela escolhida.
+  assert.equal(resolveAdministrator(base, "Imóvel")?.unpaidPolicy, "HOLD");
+});
+
+test("parcelas sem comissão: o calendário anda, o valor se divide entre as outras", () => {
+  const { installments } = buildSaleSchedule(sale(), adm({ commissionInstallments: 4, skippedInstallments: [2] }), [rule({ percent: 0.9 })]);
+  assert.deepEqual(installments.map((i) => i.paymentMonth), ["2026-11", "2027-01", "2027-02"]);
+  assert.deepEqual(installments.map((i) => i.installmentNumber), [1, 3, 4]);
+  assert.equal(sumCents(installments), 900_00);
+  assert.ok(installments.every((i) => i.amountCents > 0));
+});
+
+test("parcela sem comissão também some do que a corretora recebe", () => {
+  const { installments } = buildRevenueSchedule(
+    sale(),
+    adm({ commissionInstallments: 3, skippedInstallments: [1], revenueMode: "CREDIT_EQUAL", revenueTotalPercent: 3 }),
+  );
+  assert.deepEqual(installments.map((i) => i.paymentMonth), ["2026-12", "2027-01"]);
+  assert.equal(sumCents(installments), 3000_00);
+});
+
+test("✓ do cliente: quem libera o pagamento da comissão", () => {
+  const base = { hasSale: true, policy: "HOLD" as const, autoDebit: false, paid: null };
+  assert.equal(clientPaymentState(base), "PENDING");
+  assert.equal(clientPaymentState({ ...base, paid: true }), "PAID");
+  assert.equal(clientPaymentState({ ...base, paid: false }), "UNPAID");
+  // Débito automático já vem marcado — só "não pagou" explícito desmarca.
+  assert.equal(clientPaymentState({ ...base, autoDebit: true }), "PAID");
+  assert.equal(clientPaymentState({ ...base, autoDebit: true, paid: false }), "UNPAID");
+  // Administradora que não depende disso, ou ajuste avulso: não precisa de ✓.
+  assert.equal(clientPaymentState({ ...base, policy: "IGNORE" }), "NOT_REQUIRED");
+  assert.equal(clientPaymentState({ ...base, hasSale: false }), "NOT_REQUIRED");
+
+  assert.equal(clientAllowsPayment("PAID"), true);
+  assert.equal(clientAllowsPayment("NOT_REQUIRED"), true);
+  assert.equal(clientAllowsPayment("PENDING"), false);
+  assert.equal(clientAllowsPayment("UNPAID"), false);
+});
+
+test("busca sem acento: 'joao' acha 'João'", () => {
+  // As duas listas precisam ter o mesmo tamanho — o translate() do Postgres usa a posição.
+  assert.equal([...ACCENTED].length, [...PLAIN].length);
+  assert.equal(plainSearchText("  JOÃO   da  Conceição "), "joao da conceicao");
+  assert.equal(plainSearchText("Gonçalves"), "goncalves");
+  assert.equal(plainSearchText("ÁÉÍÓÚ àâêô ü ñ"), "aeiou aaeo u n");
 });

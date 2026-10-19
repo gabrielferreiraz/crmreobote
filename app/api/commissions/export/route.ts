@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { isMonthKey, ROLE_LABELS } from "@/lib/commissions/engine";
 import { sanitizeCell } from "@/lib/csv-sanitize";
+import { clientConfirmedWhere } from "@/lib/commissions/client-payment";
 import { formatCnpj } from "@/lib/cnpj";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +17,10 @@ export const dynamic = "force-dynamic";
  * que a contabilidade confere).
  *
  * `what=topay` (padrão): o que a EMPRESA ainda vai pagar no mês (pronto,
- * não travado). `what=paid`: o que já foi marcado como pago no mês. O que a
+ * não travado, cliente já conferido). `what=paid`: o que já foi marcado como pago no mês. O que a
  * administradora paga direto nunca entra — não sai do caixa da corretora.
  */
-export async function GET(req: Request) {
+export const GET = commissionRoute(async function GET(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -37,6 +38,9 @@ export async function GET(req: Request) {
         paidByAdministrator: false,
         status: what === "paid" ? "PAID" : "SCHEDULED",
         OR: [{ saleId: null }, { sale: { status: "ACTIVE" } }],
+        // "A pagar" = o mesmo que o "Fechar o mês" paga: sem o que ainda espera
+        // o ✓ de "o cliente pagou a parcela".
+        ...(what === "topay" ? { AND: [clientConfirmedWhere(month)] } : {}),
       },
       select: {
         amount: true,
@@ -126,4 +130,4 @@ export async function GET(req: Request) {
       "Content-Disposition": `attachment; filename="comissoes-${what === "paid" ? "pagas" : "a-pagar"}-${month}.xlsx"`,
     },
   });
-}
+});

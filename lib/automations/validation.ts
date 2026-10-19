@@ -156,11 +156,11 @@ export async function validateTriggerConfig(
         // um count() simples de linhas bateria errado com o tamanho do Set
         // de userIds sempre que algum deles tivesse 2 linhas.
         const owners = await prisma.whatsAppInstance.findMany({
-          where: { organizationId, userId: { in: config.messageInstanceUserIds } },
-          select: { userId: true },
-          distinct: ["userId"],
+          where: { organizationId, kind: "PERSONAL", personalOwnerId: { in: config.messageInstanceUserIds } },
+          select: { personalOwnerId: true },
+          distinct: ["personalOwnerId"],
         });
-        const validIds = new Set(owners.map((o) => o.userId));
+        const validIds = new Set(owners.flatMap((owner) => owner.personalOwnerId ? [owner.personalOwnerId] : []));
         if (config.messageInstanceUserIds.some((id) => !validIds.has(id))) {
           return "Um dos números de WhatsApp selecionados não existe mais nesta organização";
         }

@@ -38,7 +38,7 @@ export function HelpTopicView({
       <button
         type="button"
         onClick={onBack}
-        className="-ml-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        className="-ml-1 inline-flex min-h-11 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 lg:min-h-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2.5} />
         Voltar

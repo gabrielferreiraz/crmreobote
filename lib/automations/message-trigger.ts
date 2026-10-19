@@ -172,7 +172,7 @@ export type IncomingMessageRef = {
  */
 export async function dispatchMessageReceivedAutomations(
   organizationId: string,
-  instance: { id: string; userId: string },
+  instance: { id: string; personalOwnerId: string },
   thread: { id: string; contactId: string | null; phoneNormalized: string; customName?: string | null; whatsappName?: string | null },
   message: IncomingMessageRef,
 ): Promise<void> {
@@ -193,7 +193,7 @@ export async function dispatchMessageReceivedAutomations(
 
   const [organization, contactContext] = await Promise.all([
     prisma.organization.findUnique({ where: { id: organizationId }, select: { businessHours: true } }),
-    resolveContactContext(organizationId, thread.contactId, instance.userId),
+    resolveContactContext(organizationId, thread.contactId, instance.personalOwnerId),
   ]);
 
   const entity = {
@@ -212,7 +212,7 @@ export async function dispatchMessageReceivedAutomations(
   const candidates = rules
     .map((rule) => ({ rule, config: (rule.triggerConfig ?? {}) as TriggerConfig }))
     .filter(({ rule, config }) => {
-      if (!matchesMessageInstance(config, instance.userId)) return false;
+      if (!matchesMessageInstance(config, instance.personalOwnerId)) return false;
       if (!matchesBusinessHours(organization?.businessHours, config.businessHoursMode)) return false;
       if (!matchesContactContext(config.contactContext, contactContext)) return false;
       if (!matchesKeyword(config, message.body)) return false;

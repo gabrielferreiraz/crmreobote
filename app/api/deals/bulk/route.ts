@@ -250,6 +250,8 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
       data: {
         ...(contactSource !== undefined ? { source: contactSource } : {}),
         ...(contactJobTitle !== undefined ? { jobTitle: contactJobTitle } : {}),
+        // Cargo preenchido encerra o "contato incompleto" criado pela Central.
+        ...(contactJobTitle ? { needsEnrichment: false } : {}),
       },
     });
   }
@@ -300,7 +302,7 @@ async function bulkMove({ body, scopedWhere, organizationId, userId }: Ctx) {
 
 /** Marcar ganho/perdido (ou reabrir) em massa. */
 async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
-  const { status, closedAt: closedAtInput, lossReasonId, lostReason, administratorId } = body;
+  const { status, closedAt: closedAtInput, lossReasonId, lostReason, administratorId, creditType: wonCreditTypeInput } = body;
   if (status !== "WON" && status !== "LOST" && status !== "OPEN") {
     return NextResponse.json({ error: "Status inválido" }, { status: 400 });
   }
@@ -316,6 +318,7 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
   // Mesma regra do Ganho individual (PUT /api/deals/[id]): administradora
   // obrigatória quando a corretora usa Comissões; aplicada a todos.
   let wonAdministratorId: string | null = null;
+  const wonCreditType = typeof wonCreditTypeInput === "string" && wonCreditTypeInput.trim() ? wonCreditTypeInput.trim() : null;
   if (status === "WON") {
     if (administratorId) {
       const administrator = await prisma.consortiumAdministrator.findFirst({
@@ -324,6 +327,9 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
       });
       if (!administrator) return NextResponse.json({ error: "Administradora inválida" }, { status: 400 });
       wonAdministratorId = administrator.id;
+      if (!wonCreditType && (await prisma.creditType.count({ where: { organizationId } })) > 0) {
+        return NextResponse.json({ error: "Escolha a categoria antes de marcar como ganho" }, { status: 400 });
+      }
     } else {
       const activeAdministrators = await prisma.consortiumAdministrator.count({ where: { organizationId, active: true } });
       if (activeAdministrators > 0) {
@@ -354,7 +360,7 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
 
   const deals = await prisma.deal.findMany({
     where: scopedWhere,
-    select: { id: true, status: true, closedAt: true, lossReasonId: true, lostReason: true, administratorId: true },
+    select: { id: true, status: true, closedAt: true, lossReasonId: true, lostReason: true, administratorId: true, creditType: true },
   });
   if (deals.length === 0) return NextResponse.json({ error: "Nenhum negócio encontrado" }, { status: 404 });
 
@@ -375,6 +381,7 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
       // apareceria em relatório por período.
       ...(status === "OPEN" ? { closedAt: null, lossReasonId: null } : { closedAt }),
       ...(wonAdministratorId ? { administratorId: wonAdministratorId } : {}),
+      ...(wonAdministratorId && wonCreditType ? { creditType: wonCreditType } : {}),
     },
   });
 
@@ -402,6 +409,7 @@ async function bulkStatus({ body, scopedWhere, organizationId, userId }: Ctx) {
           lossReasonId: d.lossReasonId,
           lostReason: d.lostReason,
           ...(wonAdministratorId ? { administratorId: d.administratorId } : {}),
+          ...(wonAdministratorId && wonCreditType ? { creditType: d.creditType } : {}),
         },
       })),
     ),

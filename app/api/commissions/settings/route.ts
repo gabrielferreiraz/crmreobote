@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCommissionManager, auditCommission, badRequest } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, badRequest, commissionRoute } from "@/lib/commissions/route-helpers";
 import { addMonths, brazilMonthKey, formatMonthLong, isMonthKey } from "@/lib/commissions/engine";
 import { brazilDateStringToUTC } from "@/lib/timezone";
 import { syncCommissionSales } from "@/lib/commissions/sync";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * - `payDay`: dia do pagamento (só exibição).
  * - `sellerPastMonths`: quantos meses anteriores o consultor ainda vê.
  */
-export async function PATCH(req: Request) {
+export const PATCH = commissionRoute(async function PATCH(req: Request) {
   const guard = await requireCommissionManager();
   if ("error" in guard) return guard.error;
   const { access } = guard;
@@ -72,4 +72,4 @@ export async function PATCH(req: Request) {
   if (data.commissionStartDate) await syncCommissionSales(access.organizationId);
 
   return NextResponse.json({ ok: true });
-}
+});

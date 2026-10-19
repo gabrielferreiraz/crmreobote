@@ -10,6 +10,7 @@ import { getSharedScope } from "@/lib/share-groups";
 import { listProposalsForDeal } from "@/lib/proposals/queries";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
 import { resolveConnectedInstance } from "@/lib/whatsapp/send";
+import { findOpenCentralThreadForContact } from "@/lib/whatsapp/central-access";
 import type { CustomFieldFormValues } from "@/components/custom-fields-fieldset";
 import { DealDetail } from "./deal-detail";
 
@@ -154,7 +155,12 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
         : null;
 
-    const whatsappThread = dealOwnerThread;
+    // Atendimento aberto na Central e de quem está vendo: o chat do negócio
+    // é o da Central (o cliente nunca recebe por dois números; o envio pelo
+    // pessoal é barrado no backend enquanto ele existir).
+    const openCentral = await findOpenCentralThreadForContact(organizationId, dealRaw.contact.id);
+    const centralIsMine = openCentral?.assigneeId === session!.user.id;
+    const whatsappThread = centralIsMine ? { id: openCentral!.id } : dealOwnerThread;
 
     // "Enviar como você": Dono, Gerente ou Supervisor vendo o negócio de
     // outra pessoa (nunca o Consultor — ele só vê as próprias conversas,
@@ -169,7 +175,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     let sendAsAlternate: { threadId: string; label: string; defaultLabel: string } | null = null;
     if (
       canSendAsSelf &&
-      dealOwnerThread
+      dealOwnerThread &&
+      !openCentral
     ) {
       const myThread =
         myInstance?.status === "CONNECTED"

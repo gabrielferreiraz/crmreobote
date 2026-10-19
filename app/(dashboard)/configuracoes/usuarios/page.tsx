@@ -27,8 +27,8 @@ export default async function UsuariosSettingsPage() {
       // ver @@unique([organizationId, userId, provider]) no schema) — "tem
       // WhatsApp conectado" aqui é OU, não uma linha só por pessoa.
       prisma.whatsAppInstance.findMany({
-        where: { organizationId },
-        select: { userId: true, status: true, phoneNumber: true },
+        where: { organizationId, kind: "PERSONAL" },
+        select: { personalOwnerId: true, status: true, phoneNumber: true },
       }),
     ]);
 
@@ -37,7 +37,9 @@ export default async function UsuariosSettingsPage() {
     const connectedPhoneByUserId = new Map<string, string | null>();
     for (const inst of whatsappInstances) {
       if (inst.status !== "CONNECTED") continue;
-      if (!connectedPhoneByUserId.has(inst.userId)) connectedPhoneByUserId.set(inst.userId, inst.phoneNumber);
+      if (inst.personalOwnerId && !connectedPhoneByUserId.has(inst.personalOwnerId)) {
+        connectedPhoneByUserId.set(inst.personalOwnerId, inst.phoneNumber);
+      }
     }
 
     const members = await Promise.all(

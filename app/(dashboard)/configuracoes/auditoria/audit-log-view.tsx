@@ -57,6 +57,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   COMMISSION_RELEASED: "Comissão destravada",
   COMMISSION_ADJUSTMENT: "Ajuste de comissão",
   COMMISSION_DISPUTE_RESOLVED: "Contestação de comissão respondida",
+  CENTRAL_CONTACT_CREATED: "Contato criado pela Central",
+  CENTRAL_SETTINGS_CHANGED: "Central de Leads alterada",
 };
 
 const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warning"> = {
@@ -98,6 +100,8 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   COMMISSION_RELEASED: "neutral",
   COMMISSION_ADJUSTMENT: "warning",
   COMMISSION_DISPUTE_RESOLVED: "neutral",
+  CENTRAL_CONTACT_CREATED: "neutral",
+  CENTRAL_SETTINGS_CHANGED: "warning",
 };
 
 function actionLabel(action: string): string {

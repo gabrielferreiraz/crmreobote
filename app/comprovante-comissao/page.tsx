@@ -49,10 +49,12 @@ export default async function CommissionReceiptPage({ searchParams }: { searchPa
   if (!data) redirect("/comissoes");
 
   const { org, person, entries } = data;
-  const counted = entries.filter((e) => e.status !== "ON_HOLD");
-  const total = counted.reduce((acc, e) => acc + e.amount, 0);
-  const paid = entries.filter((e) => e.status === "PAID").reduce((acc, e) => acc + e.amount, 0);
-  const held = entries.filter((e) => e.status === "ON_HOLD").reduce((acc, e) => acc + e.amount, 0);
+  const sumOf = (list: typeof entries) => list.reduce((acc, e) => acc + e.amount, 0);
+  // Travada e perdida (cliente não pagou) aparecem na lista com o motivo, mas ficam fora do total.
+  const total = sumOf(entries.filter((e) => e.status !== "ON_HOLD" && e.status !== "CANCELLED"));
+  const paid = sumOf(entries.filter((e) => e.status === "PAID"));
+  const held = sumOf(entries.filter((e) => e.status === "ON_HOLD"));
+  const lost = sumOf(entries.filter((e) => e.status === "CANCELLED"));
 
   return (
     <div className="min-h-dvh bg-neutral-100 py-8 text-neutral-900 print:bg-white print:py-0">
@@ -95,7 +97,13 @@ export default async function CommissionReceiptPage({ searchParams }: { searchPa
                   <td className="py-2 pr-3">{e.administratorName ?? "—"}</td>
                   <td className="py-2 pr-3">{e.kind === "ADJUSTMENT" ? "—" : entryWhat(e)}</td>
                   <td className="py-2 pr-3">
-                    {e.paidByAdministrator && e.status !== "PAID" ? "Paga pela administradora" : STATUS_LABEL[e.status]}
+                    {e.paidByAdministrator && e.status !== "PAID"
+                      ? "Paga pela administradora"
+                      : e.status === "CANCELLED" && e.clientPaymentEffect === "FORFEIT"
+                        ? "Perdida (o cliente não pagou a parcela)"
+                        : e.status === "SCHEDULED" && e.clientPayment === "PENDING"
+                          ? "A receber, se o cliente pagar a parcela"
+                          : STATUS_LABEL[e.status]}
                     {e.status === "ON_HOLD" && e.holdReason ? <span className="block text-sm text-neutral-600">Motivo: {e.holdReason}</span> : null}
                   </td>
                   <td className="py-2 text-right tabular-nums">{formatCurrency(e.amount)}</td>
@@ -118,6 +126,12 @@ export default async function CommissionReceiptPage({ searchParams }: { searchPa
             <div className="flex justify-between text-neutral-600">
               <span>Travado (fora do total)</span>
               <span className="tabular-nums">{formatCurrency(held)}</span>
+            </div>
+          )}
+          {lost > 0 && (
+            <div className="flex justify-between text-neutral-600">
+              <span>Perdido (fora do total)</span>
+              <span className="tabular-nums">{formatCurrency(lost)}</span>
             </div>
           )}
         </section>

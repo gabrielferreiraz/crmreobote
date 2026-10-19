@@ -23,8 +23,8 @@ export default async function CampanhasPage() {
       // Só o Dono monta campanha no WhatsApp de outra pessoa (regra reforçada
       // em lib/campaigns/build.ts) — os demais só veem o próprio número.
       prisma.whatsAppInstance.findMany({
-        where: { organizationId, status: "CONNECTED", ...(isOwner ? {} : { userId }) },
-        select: { id: true, user: { select: { name: true } } },
+        where: { organizationId, kind: "PERSONAL", status: "CONNECTED", ...(isOwner ? {} : { personalOwnerId: userId }) },
+        select: { id: true, personalOwner: { select: { name: true } } },
       }),
       // Picker de script na criação de campanha respeita a mesma
       // visibilidade da biblioteca (ver app/(dashboard)/whatsapp/scripts/page.tsx).
@@ -61,7 +61,9 @@ export default async function CampanhasPage() {
         )}
         <CampaignsTable
           initialCampaigns={campaigns.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
-          instances={instancesRaw.map((i) => ({ id: i.id, label: i.user.name }))}
+          instances={instancesRaw.flatMap((instance) =>
+            instance.personalOwner ? [{ id: instance.id, label: instance.personalOwner.name }] : [],
+          )}
         />
       </div>
     );

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCommissionManager, auditCommission } from "@/lib/commissions/route-helpers";
+import { requireCommissionManager, auditCommission, commissionRoute } from "@/lib/commissions/route-helpers";
 import { loadEngineContext, regenerateSaleEntries, SALE_SELECT, withCommissionLock } from "@/lib/commissions/sync";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  *   reactivate   CANCELLED         → ACTIVE   (só se o negócio ainda estiver ganho)
  *   recalculate  REVIEW | ACTIVE   → mesmo status, parcelas não pagas refeitas pelo cadastro atual
  */
-export async function POST(req: Request, { params }: { params: Promise<{ id: string; action: string }> }) {
+export const POST = commissionRoute(async function POST(req: Request, { params }: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await params;
   if (!["confirm", "cancel", "reactivate", "recalculate"].includes(action)) {
     return NextResponse.json({ error: "Ação inválida" }, { status: 404 });
@@ -75,4 +75,4 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
   await auditCommission(req, access, "COMMISSION_SALE_CHANGED", { targetType: "CommissionSale", targetId: id, detail: result.detail });
   return NextResponse.json({ ok: true });
-}
+});

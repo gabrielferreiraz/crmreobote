@@ -69,7 +69,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (status === "RUNNING") {
         const target = await prisma.campaign.findFirst({
           where: { id, organizationId: access.organizationId, ...campaignScopeWhere(scope) },
-          select: { source: true, pausedReason: true, instance: { select: { status: true, user: { select: { name: true } } } } },
+          select: { source: true, pausedReason: true, instance: { select: { status: true, personalOwner: { select: { name: true } } } } },
         });
         if (!target) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
         if (target.source !== "PIPELINE_BULK" && target.instance.status !== "CONNECTED") {
@@ -77,8 +77,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           return NextResponse.json(
             {
               error: comesBackAlone
-                ? `O WhatsApp de ${target.instance.user.name} está desconectado. Reconecte-o (Configurações → Perfil → WhatsApp) — esta campanha volta a enviar sozinha assim que ele reconectar, não precisa retomar na mão.`
-                : `O WhatsApp de ${target.instance.user.name} está desconectado. Reconecte-o (Configurações → Perfil → WhatsApp) e tente de novo.`,
+                ? `O WhatsApp de ${target.instance.personalOwner?.name ?? "outro usuário"} está desconectado. Reconecte-o (Configurações → Perfil → WhatsApp) — esta campanha volta a enviar sozinha assim que ele reconectar, não precisa retomar na mão.`
+                : `O WhatsApp de ${target.instance.personalOwner?.name ?? "outro usuário"} está desconectado. Reconecte-o (Configurações → Perfil → WhatsApp) e tente de novo.`,
               code: "WHATSAPP_OFFLINE",
             },
             { status: 409 },
