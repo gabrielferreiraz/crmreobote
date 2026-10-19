@@ -41,7 +41,7 @@ const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/whatsapp/central", "/processo
 // painéis redimensionáveis, então ficam de fora por ora. Comissões também é
 // uma mesa operacional: resumo, pendências e lista usam colunas lado a lado,
 // por isso a tela principal aproveita toda a largura disponível.
-const FULL_WIDTH_ROUTES = ["/pipeline", "/comissoes", "/comissoes/vendas"];
+const FULL_WIDTH_ROUTES = ["/pipeline", "/whatsapp/central", "/comissoes", "/comissoes/vendas"];
 
 export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
