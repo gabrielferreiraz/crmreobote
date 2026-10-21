@@ -688,6 +688,10 @@ model LeadDistributionPoolMember {
   poolId         String
   userId         String
   position       Int       @default(0)
+  // Participacao desejada nos leads novos do pool. A configuracao exige que
+  // a soma dos membros seja 100; pausados preservam sua parte para quando
+  // voltarem, mas ficam fora da selecao enquanto a pausa estiver ativa.
+  distributionPercent Int   @default(100)
   pausedAt       DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

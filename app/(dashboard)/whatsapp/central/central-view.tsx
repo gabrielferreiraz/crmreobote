@@ -300,7 +300,7 @@ export function CentralView({
           <span className="min-w-0 flex-1">{banner}</span>
           {isOwner && (
             <button type="button" className="shrink-0 font-semibold underline" onClick={() => setSettingsOpen(true)}>
-              {central === "missing" ? "Configurar" : central === "noPool" ? "Montar rodízio" : "Reconectar"}
+              {central === "missing" ? "Configurar" : central === "noPool" ? "Definir distribuição" : "Reconectar"}
             </button>
           )}
         </div>
@@ -462,14 +462,14 @@ function centralStatus(central: CentralState | null): { label: string; dotClass:
   if (central === "CONNECTED") return { label: "Central online", dotClass: "bg-emerald-500" };
   if (central === "CONNECTING") return { label: "Conectando", dotClass: "bg-amber-500" };
   if (central === "DISCONNECTED") return { label: "Central offline", dotClass: "bg-red-500" };
-  if (central === "noPool") return { label: "Rodízio pendente", dotClass: "bg-amber-500" };
+  if (central === "noPool") return { label: "Distribuição pendente", dotClass: "bg-amber-500" };
   if (central === "missing") return { label: "Não configurada", dotClass: "bg-neutral-400" };
   return { label: "Carregando", dotClass: "bg-neutral-300 dark:bg-neutral-700" };
 }
 
 function centralBanner(central: CentralState | null, isOwner: boolean): string | null {
   if (central === "missing") return isOwner ? "Central ainda não conectada." : "Central ainda não configurada pelo Dono.";
-  if (central === "noPool") return "Sem rodízio: leads novos ficam em Sem responsável.";
+  if (central === "noPool") return "Sem distribuição: leads novos ficam na Fila.";
   if (central === "DISCONNECTED") return "Central desconectada: leads novos não estão chegando.";
   if (central === "CONNECTING") return "Central conectando…";
   return null;

@@ -15,7 +15,7 @@ const MAX_ROUTING_ATTEMPTS = 3;
  */
 export class CentralLeadError extends Error {}
 
-// READ COMMITTED (padrão), de propósito — NÃO Serializable: o rodízio já é
+// READ COMMITTED (padrão), de propósito — NÃO Serializable: a distribuição já é
 // serializado pelo SELECT ... FOR UPDATE no cursor, e a mesma conversa pelo
 // FOR UPDATE na thread. Em Serializable, o FOR UPDATE sobre uma linha que
 // outra transação acabou de alterar falha com erro de serialização: com dois
@@ -47,6 +47,41 @@ function notRouted(threadId: string, assigneeId: string | null, contactId: strin
     contactOwnershipBlocked: false,
     reopened: false,
     newlyQueued: false,
+  };
+}
+
+type WeightedMember = { userId: string; distributionPercent: number };
+
+/**
+ * Monta implicitamente um ciclo de smooth weighted round-robin. Em um ciclo
+ * completo cada pessoa aparece exatamente o numero de vezes do seu peso, mas
+ * as entregas ficam espalhadas em vez de formar blocos (30 seguidas, depois 70).
+ */
+export function pickWeightedMember(
+  members: WeightedMember[],
+  cursorIndex: number,
+): { userId: string; nextIndex: number } {
+  if (members.length === 0) throw new Error("Nao ha atendentes para distribuir");
+  const totalWeight = members.reduce((sum, member) => sum + member.distributionPercent, 0);
+  if (totalWeight <= 0) throw new Error("A distribuicao nao possui peso valido");
+
+  const targetIndex = Math.max(0, Math.trunc(cursorIndex)) % totalWeight;
+  const scores = members.map(() => 0);
+  let selectedIndex = 0;
+  for (let step = 0; step <= targetIndex; step += 1) {
+    for (let index = 0; index < members.length; index += 1) {
+      scores[index] += members[index].distributionPercent;
+    }
+    selectedIndex = 0;
+    for (let index = 1; index < scores.length; index += 1) {
+      if (scores[index] > scores[selectedIndex]) selectedIndex = index;
+    }
+    scores[selectedIndex] -= totalWeight;
+  }
+
+  return {
+    userId: members[selectedIndex].userId,
+    nextIndex: (targetIndex + 1) % totalWeight,
   };
 }
 
@@ -132,10 +167,10 @@ async function routeInTransaction(
         select: { distributionPoolId: true, distributionPool: { select: { active: true } } },
       });
       if (!instance) return notRouted(threadId, thread.assigneeId, thread.contactId);
-      // Sem rodízio (ou rodízio desativado) NÃO sai cedo: a conversa ainda
+      // Sem distribuição (ou pool desativado) NÃO sai cedo: a conversa ainda
       // precisa reabrir (com quem já atendia, o responsável do contato ou o
       // dono do negócio) ou cair em "Sem responsável" avisando a gestão — só
-      // o sorteio do rodízio fica de fora (members vazio).
+      // a distribuição automática fica de fora (members vazio).
       const poolId = instance.distributionPool?.active ? instance.distributionPoolId : null;
 
       const existingEvent = await tx.whatsAppAssignmentEvent.findUnique({
@@ -210,8 +245,8 @@ async function routeInTransaction(
       // - activeIds: membro ativo da organização. Decide quem MANTÉM/RECEBE
       //   por vínculo (atendimento aberto, reabertura, responsável do contato,
       //   dono do negócio aberto) — pausar alguém no pool só corta lead NOVO
-      //   do rodízio, nunca tira dele o que já é dele.
-      // - members: pool sem pausa, na ordem do rodízio.
+      //   da distribuição, nunca tira dele o que já é dele.
+      // - members: pool sem pausa e com seus percentuais.
       const [members, activeMemberships] = await Promise.all([
         poolId
           ? tx.leadDistributionPoolMember.findMany({
@@ -222,7 +257,7 @@ async function routeInTransaction(
                 user: { orgs: { some: { organizationId, active: true } } },
               },
               orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-              select: { userId: true },
+              select: { userId: true, distributionPercent: true },
             })
           : Promise.resolve([]),
         tx.organizationUser.findMany({
@@ -254,7 +289,7 @@ async function routeInTransaction(
       const wasQueued = thread.inboxStatus === "OPEN" && !thread.assigneeId && thread.routingAppliedAt !== null;
       let assigneeId: string | null = null;
       let source: $Enums.WhatsAppAssignmentSource = "NO_ELIGIBLE_MEMBER";
-      let roundRobinUsed = false;
+      let weightedDistributionNextIndex: number | null = null;
 
       if (reopened && thread.assigneeId && activeIds.has(thread.assigneeId)) {
         assigneeId = thread.assigneeId;
@@ -269,7 +304,7 @@ async function routeInTransaction(
         });
         // Inequívoco = exatamente UM dono distinto entre os negócios abertos,
         // e ele está ativo. Dois donos distintos não é inequívoco, mesmo que
-        // um deles esteja inativo: vai pro rodízio.
+        // um deles esteja inativo: vai para a distribuição configurada.
         const openDealOwners = Array.from(new Set(openDeals.map((deal) => deal.ownerId)));
 
         if (openDealOwners.length === 1 && activeIds.has(openDealOwners[0])) {
@@ -288,9 +323,10 @@ async function routeInTransaction(
              FOR UPDATE
           `;
           const nextIndex = Math.max(0, cursor?.nextIndex ?? 0);
-          assigneeId = members[nextIndex % members.length].userId;
+          const weighted = pickWeightedMember(members, nextIndex);
+          assigneeId = weighted.userId;
           source = "ROUND_ROBIN";
-          roundRobinUsed = true;
+          weightedDistributionNextIndex = weighted.nextIndex;
         }
       }
 
@@ -335,10 +371,10 @@ async function routeInTransaction(
           source,
         },
       });
-      if (roundRobinUsed && poolId) {
+      if (weightedDistributionNextIndex !== null && poolId) {
         await tx.leadDistributionCursor.update({
           where: { poolId },
-          data: { nextIndex: { increment: 1 } },
+          data: { nextIndex: weightedDistributionNextIndex },
         });
       }
 
@@ -456,14 +492,14 @@ export async function assignCentralLead(params: {
           instance: { select: { kind: true } },
         },
       });
-      // Não exige rodízio: sem ele todo lead cai na fila, e é justamente aí que
+      // Não exige distribuição: sem ela todo lead cai na fila, e é justamente aí que
       // o gestor precisa assumir/transferir à mão.
       if (thread?.instance?.kind !== "CENTRAL") {
         throw new CentralLeadError("Essa conversa não está mais na Central");
       }
 
       // Atribuição MANUAL aceita qualquer membro ativo: a pausa do pool só
-      // corta o rodízio automático; o gestor pode mandar para quem quiser.
+      // corta a distribuição automática; o gestor pode mandar para quem quiser.
       const activeMember = await tx.organizationUser.findFirst({
         where: { organizationId: params.organizationId, userId: params.assigneeId, active: true },
         select: { id: true },

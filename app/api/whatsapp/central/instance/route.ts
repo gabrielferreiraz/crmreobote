@@ -60,9 +60,37 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({})) as {
     name?: string;
-    memberUserIds?: string[];
+    memberUserIds?: unknown;
+    pausedUserIds?: unknown;
+    memberPercentages?: unknown;
     proxy?: ProxyInput;
   };
+  let memberUserIds: string[] | undefined;
+  if (body.memberUserIds !== undefined) {
+    if (!Array.isArray(body.memberUserIds) || body.memberUserIds.some((id) => typeof id !== "string")) {
+      return NextResponse.json({ error: "Escolha atendentes válidos" }, { status: 400 });
+    }
+    memberUserIds = body.memberUserIds as string[];
+  }
+  let distributionPercentages: { userId: string; percent: number }[] | undefined;
+  if (body.memberPercentages !== undefined) {
+    if (
+      !Array.isArray(body.memberPercentages) ||
+      body.memberPercentages.some(
+        (item) =>
+          !item ||
+          typeof item !== "object" ||
+          typeof (item as { userId?: unknown }).userId !== "string" ||
+          typeof (item as { percent?: unknown }).percent !== "number",
+      )
+    ) {
+      return NextResponse.json({ error: "Defina a porcentagem de todos os atendentes" }, { status: 400 });
+    }
+    distributionPercentages = body.memberPercentages as { userId: string; percent: number }[];
+  }
+  const pausedUserIds = Array.isArray(body.pausedUserIds)
+    ? body.pausedUserIds.filter((id): id is string => typeof id === "string")
+    : [];
   const proxy = validateProxyInput(body.proxy);
   if (!proxy.ok) return NextResponse.json({ error: proxy.error }, { status: 400 });
   // Sem URL/segredo do webhook o número conectaria mas nenhuma mensagem chegaria ao CRM.
@@ -81,12 +109,14 @@ export async function POST(request: Request) {
       select: { id: true },
     });
     let poolId = existingPool?.id ?? null;
-    if (Array.isArray(body.memberUserIds) && body.memberUserIds.length > 0 && !poolId) {
+    if (memberUserIds && memberUserIds.length > 0 && !poolId) {
       try {
         poolId = await saveCentralDistributionPool({
           organizationId: access.organizationId,
           name: body.name ?? "Central de Leads",
-          memberUserIds: body.memberUserIds,
+          memberUserIds,
+          pausedUserIds,
+          distributionPercentages,
         });
       } catch (error) {
         if (error instanceof CentralLeadError) return NextResponse.json({ error: error.message }, { status: 400 });

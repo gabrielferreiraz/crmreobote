@@ -226,12 +226,19 @@ export function TvBirthdaySlide({ name, photoUrl, backgroundUrl }: { name: strin
 
       {/* Texto */}
       <div className="absolute inset-x-0 flex flex-col items-center px-[4cqw] text-center text-white" style={{ top: "48cqh" }}>
+        {/* Branco SÓLIDO + text-shadow, de propósito. Antes era texto transparente
+            com degradê recortado no texto (background-clip: text) E
+            `filter: drop-shadow` no mesmo elemento: no PC saía branco, mas em
+            navegador de TV (camada com transição de opacidade + filtro + recorte)
+            o preenchimento do recorte se perdia e sobrava só a sombra — o
+            "Parabéns" aparecia PRETO. O nome logo abaixo, que é cor sólida,
+            sempre saiu branco nas duas telas. */}
         <p
-          className={`${scriptFont.className} bg-clip-text leading-none text-transparent`}
+          className={`${scriptFont.className} leading-none`}
           style={{
             fontSize: "18cqh",
-            backgroundImage: "linear-gradient(90deg, #ffffff 0%, #ffffff 55%, #bfeaff 100%)",
-            filter: "drop-shadow(0 0.4cqh 1.2cqh rgba(0,0,0,0.45))",
+            color: "#ffffff",
+            textShadow: "0 0.4cqh 1.2cqh rgba(0,0,0,0.45)",
             paddingInline: "2cqh",
           }}
         >

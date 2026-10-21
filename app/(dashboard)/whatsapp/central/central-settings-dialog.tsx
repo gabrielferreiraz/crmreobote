@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { Scale, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Modal } from "@/components/modal";
 import { requestJson } from "@/lib/client-request";
@@ -15,25 +15,41 @@ type SettingsResponse = {
     status: "CONNECTED" | "CONNECTING" | "DISCONNECTED";
     phoneNumber: string | null;
     distributionPool: {
-      members: { userId: string; pausedAt: string | null }[];
+      members: { userId: string; pausedAt: string | null; distributionPercent: number }[];
     } | null;
   } | null;
   availableMembers: { userId: string; user: { name: string } }[];
 };
 
-type Row = { userId: string; name: string; mode: Mode };
+type Row = { userId: string; name: string; mode: Mode; distributionPercent: number };
 
 const MODE_LABEL: Record<Mode, string> = { on: "Recebe", paused: "Pausado", off: "Fora" };
 
-/** Retrato do rodízio (ordem + situação) — compara com o salvo para saber se há alteração pendente. */
+/** Retrato da distribuição — compara com o salvo para saber se há alteração pendente. */
 function poolKey(rows: Row[]): string {
-  return rows.filter((row) => row.mode !== "off").map((row) => `${row.userId}:${row.mode}`).join(",");
+  return rows
+    .filter((row) => row.mode !== "off")
+    .map((row) => `${row.userId}:${row.mode}:${row.distributionPercent}`)
+    .join(",");
+}
+
+function equallyDistributed(rows: Row[]): Row[] {
+  const selected = rows.filter((row) => row.mode !== "off");
+  if (selected.length === 0) return rows;
+  const base = Math.floor(100 / selected.length);
+  const remainder = 100 % selected.length;
+  const percentages = new Map(
+    selected.map((row, index) => [row.userId, base + (index < remainder ? 1 : 0)]),
+  );
+  return rows.map((row) => ({
+    ...row,
+    distributionPercent: percentages.get(row.userId) ?? row.distributionPercent,
+  }));
 }
 
 /**
- * Configuração da Central (só Dono): quem entra no rodízio, em que ordem,
- * quem está pausado (não recebe lead NOVO, mantém os atuais) e a conexão do
- * número. Salvar o pool não mexe na conexão e vice-versa.
+ * Configuração da Central (só Dono): quem recebe leads, qual a participação
+ * percentual, quem está pausado e a conexão do número.
  */
 export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<SettingsResponse | null>(null);
@@ -70,11 +86,17 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
         userId: member.userId,
         name: names.get(member.userId)!,
         mode: member.pausedAt ? "paused" : "on",
+        distributionPercent: member.distributionPercent,
       }));
     const poolIds = new Set(inPool.map((row) => row.userId));
     const others = res.data.availableMembers
       .filter((member) => !poolIds.has(member.userId))
-      .map((member): Row => ({ userId: member.userId, name: member.user.name, mode: "off" }));
+      .map((member): Row => ({
+        userId: member.userId,
+        name: member.user.name,
+        mode: "off",
+        distributionPercent: 0,
+      }));
     const next = [...inPool, ...others];
     setRows(next);
     setSavedKey(poolKey(next));
@@ -100,36 +122,66 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Lista sempre em dois blocos: rodízio (na ordem) em cima, "Fora" embaixo.
-  // Entrar no rodízio = vai para o fim da fila; sair = vai para o bloco de baixo.
+  // Lista em dois blocos: quem participa da distribuição em cima e "Fora" embaixo.
   function setMode(userId: string, mode: Mode) {
     setMessage(null);
     setRows((current) => {
       const row = current.find((item) => item.userId === userId);
       if (!row) return current;
-      const updated = { ...row, mode };
       const rest = current.filter((item) => item.userId !== userId);
       const inPool = rest.filter((item) => item.mode !== "off");
       const out = rest.filter((item) => item.mode === "off");
-      if (mode === "off") return [...inPool, updated, ...out];
-      if (row.mode !== "off") return current.map((item) => (item.userId === userId ? updated : item));
-      return [...inPool, updated, ...out];
+
+      if (mode === "off") {
+        if (row.mode === "off") return current;
+        const recipient = inPool.reduce<Row | null>(
+          (largest, item) => (!largest || item.distributionPercent > largest.distributionPercent ? item : largest),
+          null,
+        );
+        const adjusted = inPool.map((item) =>
+          item.userId === recipient?.userId
+            ? { ...item, distributionPercent: item.distributionPercent + row.distributionPercent }
+            : item,
+        );
+        return [...adjusted, { ...row, mode, distributionPercent: 0 }, ...out];
+      }
+
+      if (row.mode !== "off") {
+        return current.map((item) => (item.userId === userId ? { ...item, mode } : item));
+      }
+
+      if (inPool.length === 0) return [{ ...row, mode, distributionPercent: 100 }, ...out];
+      const total = inPool.reduce((sum, item) => sum + item.distributionPercent, 0);
+      const largest = inPool.reduce((currentLargest, item) =>
+        item.distributionPercent > currentLargest.distributionPercent ? item : currentLargest,
+      );
+      const newPercent = total < 100 ? 100 - total : 1;
+      const adjusted = inPool.map((item) =>
+        total === 100 && item.userId === largest.userId && item.distributionPercent > 1
+          ? { ...item, distributionPercent: item.distributionPercent - 1 }
+          : item,
+      );
+      return [...adjusted, { ...row, mode, distributionPercent: newPercent }, ...out];
     });
   }
 
-  function move(index: number, delta: -1 | 1) {
+  function setDistributionPercent(userId: string, value: number) {
     setMessage(null);
-    setRows((current) => {
-      const target = index + delta;
-      const poolSize = current.filter((row) => row.mode !== "off").length;
-      if (target < 0 || target >= poolSize) return current;
-      const next = [...current];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
+    setRows((current) =>
+      current.map((row) =>
+        row.userId === userId ? { ...row, distributionPercent: Math.min(100, Math.max(0, value)) } : row,
+      ),
+    );
   }
 
   const selected = rows.filter((row) => row.mode !== "off");
+  const distributionTotal = selected.reduce((sum, row) => sum + row.distributionPercent, 0);
+  const percentagesValid =
+    selected.length > 0 &&
+    distributionTotal === 100 &&
+    selected.every((row) => Number.isInteger(row.distributionPercent) && row.distributionPercent >= 1);
+  const hasReceivingMember = selected.some((row) => row.mode === "on");
+  const distributionValid = percentagesValid && hasReceivingMember;
   const dirty = data !== null && poolKey(rows) !== savedKey;
 
   async function savePool() {
@@ -142,6 +194,10 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
         json: {
           memberUserIds: selected.map((row) => row.userId),
           pausedUserIds: selected.filter((row) => row.mode === "paused").map((row) => row.userId),
+          memberPercentages: selected.map((row) => ({
+            userId: row.userId,
+            percent: row.distributionPercent,
+          })),
         },
       },
       { silent: true },
@@ -196,7 +252,17 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
     setMessage(null);
     const res = await requestJson(
       "/api/whatsapp/central/instance",
-      { method: "POST", json: { memberUserIds: selected.map((row) => row.userId) } },
+      {
+        method: "POST",
+        json: {
+          memberUserIds: selected.map((row) => row.userId),
+          pausedUserIds: selected.filter((row) => row.mode === "paused").map((row) => row.userId),
+          memberPercentages: selected.map((row) => ({
+            userId: row.userId,
+            percent: row.distributionPercent,
+          })),
+        },
+      },
       { silent: true },
     );
     if (!res.ok) {
@@ -248,7 +314,7 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       className="btn-primary text-xs"
-                      disabled={connecting || (!instance && selected.length === 0)}
+                      disabled={connecting || (!instance && !distributionValid)}
                       onClick={connect}
                     >
                       {connecting ? "Aguardando QR…" : instance ? "Reconectar" : "Conectar"}
@@ -274,20 +340,47 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
             </section>
 
             <section className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Rodízio</h3>
-              <p className="text-xs text-neutral-500">Ordem de cima para baixo. Pausado não recebe lead novo.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Distribuição</h3>
+                  <p className="mt-1 text-xs text-neutral-500">Defina quanto cada consultor recebe. A soma deve fechar 100%.</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm shrink-0 text-xs"
+                  disabled={selected.length === 0}
+                  onClick={() => {
+                    setMessage(null);
+                    setRows((current) => equallyDistributed(current));
+                  }}
+                >
+                  <Scale className="h-3.5 w-3.5" />
+                  Dividir igualmente
+                </button>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className={hasReceivingMember || selected.length === 0 ? "text-neutral-500" : "text-amber-600 dark:text-amber-400"}>
+                  {hasReceivingMember || selected.length === 0
+                    ? "Pausado mantém sua porcentagem, mas não recebe novos leads."
+                    : "Ative ao menos um consultor."}
+                </span>
+                <span
+                  className={`shrink-0 font-semibold tabular-nums ${
+                    percentagesValid ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
+                  }`}
+                >
+                  Total {distributionTotal}%
+                </span>
+              </div>
               <ul className="divide-y divide-neutral-100 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-700">
                 {rows.map((row, index) => (
                   <li
                     key={row.userId}
                     className={`flex items-center gap-2 px-3 py-2 ${
-                      // Linha divisória entre o rodízio e quem está fora.
+                      // Linha divisória entre a distribuição e quem está fora.
                       row.mode === "off" && index === selected.length && index > 0 ? "border-t-2 border-neutral-200 dark:border-neutral-700" : ""
                     }`}
                   >
-                    {row.mode !== "off" && (
-                      <span className="w-5 shrink-0 text-right text-xs tabular-nums text-neutral-400">{index + 1}</span>
-                    )}
                     <span
                       className={`min-w-0 flex-1 truncate text-sm ${
                         row.mode === "off" ? "text-neutral-400" : "text-neutral-800 dark:text-neutral-100"
@@ -296,26 +389,20 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
                       {row.name}
                     </span>
                     {row.mode !== "off" && (
-                      <span className="flex">
-                        <button
-                          type="button"
-                          onClick={() => move(index, -1)}
-                          disabled={index === 0}
-                          className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30"
-                          aria-label={`Subir ${row.name}`}
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => move(index, 1)}
-                          disabled={index === selected.length - 1}
-                          className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30"
-                          aria-label={`Descer ${row.name}`}
-                        >
-                          <ArrowDown className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
+                      <label className="relative shrink-0">
+                        <span className="sr-only">Porcentagem de {row.name}</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={100}
+                          step={1}
+                          className="field-input h-8 w-16 pr-6 text-right text-xs tabular-nums"
+                          value={row.distributionPercent}
+                          onChange={(event) => setDistributionPercent(row.userId, Number(event.target.value))}
+                        />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400">%</span>
+                      </label>
                     )}
                     <select
                       className="field-input w-28 py-1 text-xs"
@@ -342,10 +429,10 @@ export function CentralSettingsDialog({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   className="btn-primary text-xs"
-                  disabled={saving || selected.length === 0 || !dirty}
+                  disabled={saving || !distributionValid || !dirty}
                   onClick={savePool}
                 >
-                  {saving ? "Salvando…" : "Salvar rodízio"}
+                  {saving ? "Salvando…" : "Salvar distribuição"}
                 </button>
               </div>
             </section>

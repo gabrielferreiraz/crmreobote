@@ -4,7 +4,7 @@ import { CentralView } from "./central-view";
 
 /**
  * Central de Leads: um número da EMPRESA (não de um consultor) que recebe os
- * leads e distribui em rodízio. A lista e as ações vêm de
+ * leads e distribui entre os consultores. A lista e as ações vêm de
  * /api/whatsapp/central/* — esta página só decide o que mostrar por papel.
  */
 export default async function CentralPage({

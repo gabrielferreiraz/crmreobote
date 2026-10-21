@@ -8,7 +8,7 @@ import { centralLeadsEnabled } from "@/lib/whatsapp/central-config";
 import { saveCentralDistributionPool } from "@/lib/whatsapp/central-settings";
 import { CentralLeadError } from "@/lib/whatsapp/lead-routing";
 
-// Configuração da Central (conexão + pool do rodízio): só o Dono lê e altera —
+// Configuração da Central (conexão + distribuição): só o Dono lê e altera —
 // a lista traz todos os membros e cargos da organização.
 export async function GET() {
   const access = await requireRole(["OWNER"]);
@@ -31,7 +31,13 @@ export async function GET() {
               active: true,
               members: {
                 orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-                select: { userId: true, position: true, pausedAt: true, user: { select: { name: true } } },
+                select: {
+                  userId: true,
+                  position: true,
+                  distributionPercent: true,
+                  pausedAt: true,
+                  user: { select: { name: true } },
+                },
               },
             },
           },
@@ -51,7 +57,12 @@ export async function PUT(request: Request) {
   const access = await requireRole(["OWNER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  let body: { name?: string; memberUserIds?: string[]; pausedUserIds?: string[] };
+  let body: {
+    name?: string;
+    memberUserIds?: string[];
+    pausedUserIds?: string[];
+    memberPercentages?: unknown;
+  };
   try {
     body = await readJson(request) as typeof body;
   } catch (error) {
@@ -63,6 +74,19 @@ export async function PUT(request: Request) {
   const pausedUserIds = Array.isArray(body.pausedUserIds)
     ? body.pausedUserIds.filter((id): id is string => typeof id === "string")
     : [];
+  if (
+    !Array.isArray(body.memberPercentages) ||
+    body.memberPercentages.some(
+      (item) =>
+        !item ||
+        typeof item !== "object" ||
+        typeof (item as { userId?: unknown }).userId !== "string" ||
+        typeof (item as { percent?: unknown }).percent !== "number",
+    )
+  ) {
+    return NextResponse.json({ error: "Defina a porcentagem de todos os atendentes" }, { status: 400 });
+  }
+  const distributionPercentages = body.memberPercentages as { userId: string; percent: number }[];
 
   return runWithTenant(access.organizationId, async () => {
     try {
@@ -71,6 +95,7 @@ export async function PUT(request: Request) {
         name: body.name ?? "Central de Leads",
         memberUserIds: body.memberUserIds!,
         pausedUserIds,
+        distributionPercentages,
       });
       await logAudit({
         organizationId: access.organizationId,
@@ -79,12 +104,12 @@ export async function PUT(request: Request) {
         action: "CENTRAL_SETTINGS_CHANGED",
         targetType: "LeadDistributionPool",
         targetId: poolId,
-        detail: `${body.memberUserIds!.length} atendente(s), ${pausedUserIds.length} pausado(s)`,
+        detail: `${body.memberUserIds!.length} atendente(s), ${pausedUserIds.length} pausado(s), distribuição percentual`,
       });
       return NextResponse.json({ poolId });
     } catch (error) {
       if (error instanceof CentralLeadError) return NextResponse.json({ error: error.message }, { status: 400 });
-      console.error("[wa:central] falha ao salvar rodízio", error);
+      console.error("[wa:central] falha ao salvar distribuição", error);
       return NextResponse.json({ error: "Não foi possível salvar. Tente de novo." }, { status: 500 });
     }
   });
