@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { validateSteps, getScriptUsageMap } from "@/lib/campaigns/scripts";
 import type { Prisma } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name, steps, tags, visibility } = body as {
     name?: string;
     steps?: unknown;

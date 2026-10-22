@@ -30,8 +30,23 @@ function formatDelay(seconds: number): string {
   return `${minutes}min`;
 }
 
-export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+function campaignStatusMeta(status: string) {
+  if (status === "RUNNING") return { label: "Em andamento", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" };
+  if (status === "PAUSED") return { label: "Pausada", dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" };
+  if (status === "DONE") return { label: "Concluída", dot: "bg-neutral-400", text: "text-neutral-600 dark:text-neutral-300" };
+  return { label: "Rascunho", dot: "bg-neutral-400", text: "text-neutral-600 dark:text-neutral-300" };
+}
+
+export default async function CampaignDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ destinatarios?: string }>;
+}) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const initialRecipientStatus = query.destinatarios === "falhas" ? "FAILED" as const : undefined;
+  const initialOnlyReplied = query.destinatarios === "respostas";
   const session = await auth();
   const organizationId = session!.user.organizationId!;
 
@@ -48,13 +63,24 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     // "Ver negócio" da tabela só aparece pra negócio que essa pessoa abre.
     const [campaign, initialRecipients] = await Promise.all([
       getCampaignDetail(organizationId, id, scope),
-      getCampaignRecipientsPage(organizationId, id, scope, dealScope, { limit: 50 }),
+      getCampaignRecipientsPage(organizationId, id, scope, dealScope, {
+        limit: 50,
+        status: initialRecipientStatus,
+        onlyReplied: initialOnlyReplied,
+      }),
     ]);
     if (!campaign || !initialRecipients) notFound();
 
     const total = campaign.counts.pending + campaign.counts.sent + campaign.counts.failed + campaign.counts.skipped;
-    const notSent = campaign.counts.pending + campaign.counts.failed + campaign.counts.skipped;
     const replyRate = campaign.counts.sent > 0 ? Math.round((campaign.counts.replied / campaign.counts.sent) * 100) : 0;
+    const processed = Math.max(0, total - campaign.counts.pending);
+    const progress = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    const hasAudienceFilter =
+      campaign.audienceFilter.jobTitles.length > 0 ||
+      campaign.audienceFilter.tags.length > 0 ||
+      campaign.audienceFilter.cities.length > 0;
+    const audienceLabel = hasAudienceFilter ? campaign.audienceLabel : "Lista definida para esta campanha";
+    const statusMeta = campaignStatusMeta(campaign.status);
     const { completionEstimate } = campaign;
 
     // Só checa quando faz diferença de verdade: campanha rodando com gente
@@ -93,37 +119,61 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     const [cronStatus, queue] = await Promise.all([cronStatusPromise, queuePromise]);
 
     return (
-      <div className="space-y-4">
-        <Link
-          href="/whatsapp/campanhas"
-          className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
-          Campanhas
-        </Link>
+      <div className="space-y-6">
+        <header className="border-b border-neutral-200 pb-5 dark:border-neutral-800">
+          <Link
+            href="/whatsapp/campanhas"
+            className="mb-4 inline-flex items-center gap-1.5 text-base text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
+            Campanhas
+          </Link>
 
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{campaign.name}</h1>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">{campaign.audienceLabel}</p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <div className={`mb-1.5 flex items-center gap-2 text-sm font-medium ${statusMeta.text}`}>
+                <span className={`h-2 w-2 rounded-full ${statusMeta.dot}`} aria-hidden="true" />
+                {statusMeta.label}
+              </div>
+              <h1 className="max-w-4xl text-xl font-semibold text-neutral-950 dark:text-white sm:text-2xl">{campaign.name}</h1>
+              <p className="mt-1 text-base text-neutral-500 dark:text-neutral-400">{audienceLabel}</p>
+            </div>
+            {/* Só quem pode gerenciar (criador ou dono do WhatsApp da campanha) — quem
+                apenas enxerga um envio em massa em que parte saiu do seu WhatsApp não
+                tem pausar/enviar/duplicar. */}
+            {campaign.canManage && (
+              <CampaignActions
+                id={campaign.id}
+                status={campaign.status}
+                hasAudienceFilter={hasAudienceFilter}
+                hasRmktWaves={campaign.hasRmktWaves}
+                autoPausedByDisconnect={campaign.status === "PAUSED" && campaign.pausedReason === PAUSE_REASON.WHATSAPP_DISCONNECTED}
+              />
+            )}
           </div>
-          {/* Só quem pode gerenciar (criador ou dono do WhatsApp da campanha) — quem
-              apenas enxerga um envio em massa em que parte saiu do seu WhatsApp não
-              tem pausar/enviar/duplicar. */}
-          {campaign.canManage && (
-            <CampaignActions
-              id={campaign.id}
-              status={campaign.status}
-              hasAudienceFilter={
-                campaign.audienceFilter.jobTitles.length > 0 ||
-                campaign.audienceFilter.tags.length > 0 ||
-                campaign.audienceFilter.cities.length > 0
-              }
-              hasRmktWaves={campaign.hasRmktWaves}
-              autoPausedByDisconnect={campaign.status === "PAUSED" && campaign.pausedReason === PAUSE_REASON.WHATSAPP_DISCONNECTED}
-            />
-          )}
-        </div>
+        </header>
+
+        <nav
+          aria-label="Seções da campanha"
+          className="sticky top-[-1rem] z-20 -mx-4 -mt-6 overflow-x-auto border-b border-neutral-200 bg-neutral-50 px-4 dark:border-neutral-800 dark:bg-neutral-950 lg:top-[-2rem] lg:-mx-8 lg:px-8"
+        >
+          <div className="flex min-w-max items-center gap-6">
+            <a href="#visao-geral" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
+              Visão geral
+            </a>
+            {queue && (
+              <a href="#fila" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
+                Fila <span className="font-normal text-neutral-400 dark:text-neutral-500">{campaign.counts.pending}</span>
+              </a>
+            )}
+            <a href="#destinatarios" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
+              Destinatários <span className="font-normal text-neutral-400 dark:text-neutral-500">{total}</span>
+            </a>
+            <a href="#mensagens" className="border-b-2 border-transparent py-3 text-base font-medium text-neutral-600 hover:border-neutral-400 hover:text-neutral-950 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-white">
+              Mensagens e desempenho
+            </a>
+          </div>
+        </nav>
 
         {/* Pausada pelo PRÓPRIO motor (WhatsApp caiu, número instável, falhas seguidas): por que
             parou, se volta sozinha e o que fazer — ver lib/campaigns/instance-guard.ts. */}
@@ -134,33 +184,67 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <OfflineNotice ownerName={campaign.whatsappOffline.ownerName} disconnectedAt={campaign.whatsappOffline.disconnectedAt} />
         )}
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="card p-3">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Total</p>
-            <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{total}</p>
+        <section id="visao-geral" className="scroll-mt-16 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950" aria-label="Progresso da campanha">
+          <div className="p-4 sm:p-5">
+            <div className="mb-3 flex items-end justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Progresso dos envios</h2>
+                <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+                  {processed} de {total} contatos processados
+                </p>
+              </div>
+              <span className="text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{progress}%</span>
+            </div>
+            <div
+              className="h-2 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800"
+              role="progressbar"
+              aria-label="Contatos processados"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+            >
+              <div className="h-full rounded-full bg-emerald-500 transition-[width]" style={{ width: `${progress}%` }} />
+            </div>
           </div>
-          <div className="card p-3">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Enviados</p>
-            <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{campaign.counts.sent}</p>
+
+          <div className="grid grid-cols-2 border-t border-neutral-200 dark:border-neutral-800 sm:grid-cols-4">
+            <div className="border-r border-b border-neutral-200 p-4 dark:border-neutral-800 sm:border-b-0">
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Enviados</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{campaign.counts.sent}</p>
+            </div>
+            <div className="border-b border-neutral-200 p-4 dark:border-neutral-800 sm:border-r sm:border-b-0">
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Na fila</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{campaign.counts.pending}</p>
+            </div>
+            <div className="border-r border-neutral-200 p-4 dark:border-neutral-800">
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Falharam</p>
+              <p className={`mt-1 text-xl font-semibold tabular-nums ${campaign.counts.failed > 0 ? "text-red-600 dark:text-red-400" : "text-neutral-900 dark:text-neutral-100"}`}>
+                {campaign.counts.failed}
+              </p>
+              {campaign.counts.skipped > 0 && <p className="text-xs text-neutral-400 dark:text-neutral-500">{campaign.counts.skipped} ignorados</p>}
+              {campaign.counts.failed > 0 && (
+                <Link href={`/whatsapp/campanhas/${campaign.id}?destinatarios=falhas#destinatarios`} className="mt-1 inline-block text-sm font-medium text-red-600 hover:underline dark:text-red-400">
+                  Revisar contatos
+                </Link>
+              )}
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Responderam</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                {campaign.counts.replied}
+                <span className="ml-1 text-sm font-normal text-neutral-400 dark:text-neutral-500">{replyRate}%</span>
+              </p>
+              {campaign.counts.replied > 0 && (
+                <Link href={`/whatsapp/campanhas/${campaign.id}?destinatarios=respostas#destinatarios`} className="mt-1 inline-block text-sm font-medium text-brand hover:underline">
+                  Ver respostas
+                </Link>
+              )}
+            </div>
           </div>
-          <div className="card p-3">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Não enviados</p>
-            <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-              {notSent}
-              {campaign.counts.failed > 0 && <span className="ml-1 text-sm font-normal text-red-500">({campaign.counts.failed} falhas)</span>}
-            </p>
-          </div>
-          <div className="card p-3">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Responderam</p>
-            <p className="text-xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-              {campaign.counts.replied}
-              <span className="ml-1 text-sm font-normal text-neutral-400 dark:text-neutral-500">({replyRate}%)</span>
-            </p>
-          </div>
-        </div>
+        </section>
 
         {cronStatus?.stale && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
             <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />
             <span>
               <strong>Envio automático parado</strong> — o disparador não roda{" "}
@@ -174,31 +258,28 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         )}
 
         {campaign.counts.pending > 0 && (
-          <div className="card space-y-2 p-3 text-sm text-neutral-600 dark:text-neutral-300">
-            <div className="flex flex-wrap items-center gap-2">
-              <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <span className="font-medium">Estimativa de conclusão:</span>
-              {completionEstimate.completionAt ? (
-                <span>
-                  {new Date(completionEstimate.completionAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
-                </span>
+          <section className="grid overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 md:grid-cols-2 md:divide-x md:divide-neutral-200 md:dark:divide-neutral-800" aria-label="Próximos passos">
+            <div className="border-b border-neutral-200 p-4 dark:border-neutral-800 md:border-b-0">
+              <p className="mb-1.5 text-sm font-medium text-neutral-500 dark:text-neutral-400">Próximo envio</p>
+              {campaign.nextSendEstimateAt ? (
+                <NextSendCountdown targetAt={campaign.nextSendEstimateAt.toISOString()} label="Daqui a" />
               ) : (
-                <span className="text-neutral-400 dark:text-neutral-500">Não foi possível estimar (config. de horário/dias inválida)</span>
+                <p className="text-base text-neutral-500 dark:text-neutral-400">Aguardando uma janela de envio válida.</p>
               )}
-              <span className="text-neutral-400 dark:text-neutral-500">
-                · ~{Math.max(1, Math.round(completionEstimate.leadsPerDay))} leads/dia · janela de {formatHours(completionEstimate.windowHoursPerDay)}/dia ·
-                delay médio de {formatDelay(completionEstimate.avgDelaySec)}
-              </span>
             </div>
-            {campaign.nextSendEstimateAt && (
-              <NextSendCountdown targetAt={campaign.nextSendEstimateAt.toISOString()} />
-            )}
-          </div>
+            <div className="p-4">
+              <p className="mb-1.5 text-sm font-medium text-neutral-500 dark:text-neutral-400">Conclusão prevista</p>
+              <p className="text-base font-medium text-neutral-800 dark:text-neutral-200">
+                {completionEstimate.completionAt
+                  ? new Date(completionEstimate.completionAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                  : "Sem estimativa disponível"}
+              </p>
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                ~{Math.max(1, Math.round(completionEstimate.leadsPerDay))} por dia · janela de {formatHours(completionEstimate.windowHoursPerDay)} · intervalo médio de {formatDelay(completionEstimate.avgDelaySec)}
+              </p>
+            </div>
+          </section>
         )}
-
-        {/* Ordem de envio dos pendentes, por horário previsto, e quem sai na próxima hora — editável
-            por quem gerencia a campanha (ver campaign-queue.tsx). */}
-        {queue && <CampaignQueue campaignId={campaign.id} initial={queue} />}
 
         {/* Pedido explícito: "não mostra quando vai começar a fase de
             follow-up" — antes disso não existia nenhum horário previsto pra
@@ -217,49 +298,65 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             o rmkt porque foi programado e não foi ainda parece" — a engine
             estava certa, só a tela não sabia mostrar). */}
         {(campaign.followUpEnabled || campaign.hasRmktWaves) && campaign.pendingFollowUpCount > 0 && (
-          <div className="card space-y-1 p-3 text-sm text-neutral-600 dark:text-neutral-300">
-            <div className="flex flex-wrap items-center gap-2">
-              <Clock3 className="h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-              <span className="font-medium">Fase de follow-up:</span>
-              <span>
-                {campaign.pendingFollowUpCount} destinatário{campaign.pendingFollowUpCount === 1 ? "" : "s"} sem resposta aguardando reenvio
-                automático
-              </span>
+          <section className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-900/50 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
+              <div>
+                <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Reenvio automático</h2>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  {campaign.pendingFollowUpCount} sem resposta aguardando {campaign.hasRmktWaves ? "a próxima onda" : `o intervalo de ${formatHours(campaign.followUpDelayHours)}`}.
+                </p>
+              </div>
             </div>
             {campaign.nextFollowUpEstimateAt && (
-              <NextSendCountdown targetAt={campaign.nextFollowUpEstimateAt.toISOString()} label="Próximo reenvio estimado" />
+              <div className="shrink-0 text-base">
+                <NextSendCountdown targetAt={campaign.nextFollowUpEstimateAt.toISOString()} label="Próximo reenvio" />
+              </div>
             )}
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              {campaign.hasRmktWaves
-                ? "Reenvia sozinho pra quem não respondeu, seguindo as ondas de remarketing configuradas — veja o previsto de cada pessoa na coluna “Reenvio” abaixo."
-                : `Reenvia sozinho pra quem não respondeu, ${formatHours(campaign.followUpDelayHours)} depois do envio inicial de cada um — veja o previsto de cada pessoa na coluna "Reenvio" abaixo.`}
-            </p>
+          </section>
+        )}
+
+        {/* Ordem de envio dos pendentes, por horário previsto, e quem sai na próxima hora — editável
+            por quem gerencia a campanha (ver campaign-queue.tsx). */}
+        {queue && (
+          <div id="fila" className="scroll-mt-16">
+            <CampaignQueue campaignId={campaign.id} initial={queue} />
           </div>
         )}
+
+        <section id="destinatarios" className="scroll-mt-16 space-y-3" aria-labelledby="campaign-recipients-title">
+          <div className="border-b border-neutral-200 pb-3 dark:border-neutral-800">
+            <h2 id="campaign-recipients-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Destinatários</h2>
+            <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">Busque um contato, acompanhe o envio e abra as respostas.</p>
+          </div>
+          <RecipientsTable
+            key={query.destinatarios ?? "todos"}
+            campaignId={campaign.id}
+            repliedTotal={campaign.counts.replied}
+            initialStatusFilter={initialRecipientStatus ?? "ALL"}
+            initialOnlyReplied={initialOnlyReplied}
+            initialPage={{
+              ...initialRecipients,
+              items: initialRecipients.items.map((r) => ({
+                ...r,
+                sentAt: r.sentAt?.toISOString() ?? null,
+                repliedAt: r.repliedAt?.toISOString() ?? null,
+                followUpSentAt: r.followUpSentAt?.toISOString() ?? null,
+                lastWaveSentAt: r.lastWaveSentAt?.toISOString() ?? null,
+                lastWaveNumber: r.lastWaveNumber,
+                nextFollowUpAt: r.nextFollowUpAt?.toISOString() ?? null,
+              })),
+            }}
+          />
+        </section>
 
         {/* Scripts que a campanha usa e se a cópia dela está igual à biblioteca —
             editar aqui abre o editor com "esta campanha" já marcada pra receber
             o texto novo (ver lib/campaigns/script-sync.ts). */}
-        <CampaignScriptsPanel campaignId={campaign.id} scripts={campaign.scripts} editable={campaign.scriptsEditable} />
-
-        <CampaignMetricsChart data={campaign.dailyMetrics} />
-
-        <RecipientsTable
-          campaignId={campaign.id}
-          repliedTotal={campaign.counts.replied}
-          initialPage={{
-            ...initialRecipients,
-            items: initialRecipients.items.map((r) => ({
-            ...r,
-            sentAt: r.sentAt?.toISOString() ?? null,
-            repliedAt: r.repliedAt?.toISOString() ?? null,
-            followUpSentAt: r.followUpSentAt?.toISOString() ?? null,
-            lastWaveSentAt: r.lastWaveSentAt?.toISOString() ?? null,
-            lastWaveNumber: r.lastWaveNumber,
-            nextFollowUpAt: r.nextFollowUpAt?.toISOString() ?? null,
-            })),
-          }}
-        />
+        <div id="mensagens" className={`scroll-mt-16 grid items-start gap-4 ${campaign.scripts.length > 0 ? "xl:grid-cols-2" : ""}`}>
+          <CampaignMetricsChart data={campaign.dailyMetrics} />
+          <CampaignScriptsPanel campaignId={campaign.id} scripts={campaign.scripts} editable={campaign.scriptsEditable} />
+        </div>
       </div>
     );
   });

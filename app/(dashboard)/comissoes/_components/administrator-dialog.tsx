@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { CheckCircle2, CircleAlert, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import { requestJson } from "@/lib/client-request";
@@ -33,6 +34,26 @@ export const EMPTY_ADMINISTRATOR: AdministratorForm = {
   unpaidPolicy: "DEFER",
   tables: [],
 };
+
+function FormSectionHeading({
+  number,
+  title,
+  description,
+}: {
+  number: number;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-5 flex items-start gap-3">
+      <span className="pt-0.5 text-xs font-semibold tabular-nums text-neutral-400">{String(number).padStart(2, "0")}</span>
+      <div>
+        <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{title}</h3>
+        <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Cadastro de administradora como uma conversa, de cima pra baixo:
@@ -75,12 +96,19 @@ export function AdministratorDialog({
   const [byCategory, setByCategory] = useState(Object.values(categoryDrafts).some(Boolean));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showValidation, setShowValidation] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const cutoffDay = parseWholeNumber(cutoffText, 1, 31);
   const cutoffError = hasCutoff && cutoffDay == null ? "Dia de 1 a 31." : null;
   const ownCategories = byCategory ? Object.entries(categoryDrafts).filter((e): e is [string, TableDraft] => !!e[1]) : [];
   const tablesError = draftError(defaultDraft) ?? ownCategories.map(([c, d]) => (draftError(d) ? `${c}: ${draftError(d)}` : null)).find(Boolean) ?? null;
   const blocked = !form.name.trim() || !!cutoffError || !!tablesError;
+  const pendingItems = [
+    !form.name.trim() ? "nome" : null,
+    tablesError ? "dados da comissão" : null,
+    cutoffError ? "dia de corte" : null,
+  ].filter((item): item is string => item !== null);
   const name = form.name.trim() || "a administradora";
 
   // "Na prática" da tabela padrão, numa venda de exemplo fechada hoje.
@@ -97,7 +125,16 @@ export function AdministratorDialog({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (blocked) return;
+    setShowValidation(true);
+    if (blocked) {
+      setError(null);
+      requestAnimationFrame(() => {
+        const target = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"], [data-invalid-section="true"]');
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (target?.matches("input, select, textarea, button")) target.focus({ preventScroll: true });
+      });
+      return;
+    }
     setSaving(true);
     setError(null);
     const res = await requestJson(
@@ -125,20 +162,85 @@ export function AdministratorDialog({
   }
 
   return (
-    <Modal onClose={() => !saving && onClose()} maxWidth="max-w-2xl">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{initial.id ? `Editar ${initial.name}` : "Cadastrar administradora"}</h2>
-      <form onSubmit={submit} className="mt-5 space-y-7">
-        <Question title="Nome">
-          <input
-            className="field-input text-base"
-            value={form.name}
-            maxLength={80}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="Ex.: Servopa"
-            autoFocus
-            aria-label="Nome da administradora"
+    <Modal
+      onClose={() => !saving && onClose()}
+      maxWidth="max-w-3xl"
+      panelClassName="!flex !h-[90vh] !flex-col !overflow-hidden !p-0"
+    >
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            {initial.id ? `Editar ${initial.name}` : "Cadastrar administradora"}
+          </h2>
+          <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+            Preencha os dados usados no cálculo das comissões.
+          </p>
+          <p
+            className={`mt-2 flex items-center gap-1.5 text-xs font-medium ${
+              pendingItems.length > 0
+                ? "text-amber-700 dark:text-amber-300"
+                : "text-emerald-700 dark:text-emerald-300"
+            }`}
+          >
+            {pendingItems.length > 0 ? (
+              <CircleAlert className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {pendingItems.length > 0
+              ? `${pendingItems.length} ${pendingItems.length === 1 ? "pendência" : "pendências"}`
+              : "Pronto para salvar"}
+          </p>
+        </div>
+        <button type="button" className="icon-btn shrink-0" onClick={onClose} disabled={saving} aria-label="Fechar">
+          <X className="h-4 w-4" />
+        </button>
+      </header>
+
+      <form ref={formRef} onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+        <div className="scrollbar-thin min-h-0 flex-1 divide-y divide-neutral-200 overflow-y-auto px-5 dark:divide-neutral-800">
+        <section className="py-6">
+          <FormSectionHeading number={1} title="Identificação" description="Comece pelo nome da administradora." />
+          <Question title="Nome da administradora" required>
+            <input
+              className="field-input text-base"
+              value={form.name}
+              maxLength={80}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Ex.: Servopa"
+              autoFocus
+              aria-label="Nome da administradora"
+              aria-invalid={showValidation && !form.name.trim() ? true : undefined}
+            />
+            {!form.name.trim() && (
+              <p className={`text-sm ${showValidation ? "field-error" : "text-neutral-500 dark:text-neutral-400"}`}>
+                Digite o nome para continuar.
+              </p>
+            )}
+          </Question>
+          {initial.id && (
+            <div className="mt-5 max-w-sm">
+              <Question title="Administradora ativa?">
+                <Choices
+                  value={form.active ? "yes" : "no"}
+                  onChange={(v) => setForm((f) => ({ ...f, active: v === "yes" }))}
+                  options={[
+                    { value: "yes", label: "Sim" },
+                    { value: "no", label: "Não" },
+                  ]}
+                />
+              </Question>
+            </div>
+          )}
+        </section>
+
+        <section className="py-6">
+          <FormSectionHeading
+            number={2}
+            title="Comissão da corretora"
+            description="Informe como e quanto a administradora paga."
           />
-        </Question>
+          <div className="space-y-6">
 
         {creditTypes.length > 0 && (
           <Question title={`${name.charAt(0).toUpperCase()}${name.slice(1)} paga igual em todas as categorias?`}>
@@ -153,21 +255,28 @@ export function AdministratorDialog({
           </Question>
         )}
 
-        <section className={byCategory ? "space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800" : ""}>
+        <section
+          className={byCategory ? "space-y-4 border-l-2 border-neutral-200 pl-4 dark:border-neutral-700" : ""}
+          data-invalid-section={showValidation && !!draftError(defaultDraft) ? "true" : undefined}
+        >
           {byCategory && (
             <div>
               <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Tabela padrão</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">Para categorias sem tabela própria.</p>
             </div>
           )}
-          <CommissionTableEditor draft={defaultDraft} onChange={setDefaultDraft} name={name} />
+          <CommissionTableEditor draft={defaultDraft} onChange={setDefaultDraft} name={name} showValidation={showValidation} />
         </section>
 
         {byCategory &&
           creditTypes.map((category) => {
             const draft = categoryDrafts[category];
             return (
-              <section key={category} className="space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+              <section
+                key={category}
+                className="space-y-4 border-l-2 border-neutral-200 pl-4 dark:border-neutral-700"
+                data-invalid-section={showValidation && !!draft && !!draftError(draft) ? "true" : undefined}
+              >
                 <Question title={`${category}: igual à padrão?`}>
                   <Choices
                     value={draft ? "own" : "default"}
@@ -189,11 +298,22 @@ export function AdministratorDialog({
                     draft={draft}
                     onChange={(next) => setCategoryDrafts((prev) => ({ ...prev, [category]: next }))}
                     name={`${name} (${category})`}
+                    showValidation={showValidation}
                   />
                 )}
               </section>
             );
           })}
+          </div>
+        </section>
+
+        <section className="py-6">
+          <FormSectionHeading
+            number={3}
+            title="Repasse e pagamento"
+            description="Defina quando e em quais condições o consultor recebe."
+          />
+          <div className="grid gap-6 sm:grid-cols-2">
 
         <Question title="1ª parcela">
           <Choices
@@ -255,21 +375,9 @@ export function AdministratorDialog({
             <p className="text-sm text-neutral-600 dark:text-neutral-400">Conferido todo mês em Pagamentos.</p>
           )}
         </Question>
+          </div>
 
-        {initial.id && (
-          <Question title="Ativa?">
-            <Choices
-              value={form.active ? "yes" : "no"}
-              onChange={(v) => setForm((f) => ({ ...f, active: v === "yes" }))}
-              options={[
-                { value: "yes", label: "Sim" },
-                { value: "no", label: "Não" },
-              ]}
-            />
-          </Question>
-        )}
-
-        <div className="space-y-1 rounded-xl bg-brand-light px-4 py-3 text-sm text-neutral-800 dark:text-neutral-200">
+        <div className="mt-6 space-y-1 border-l-2 border-brand pl-4 text-sm text-neutral-700 dark:text-neutral-300">
           <p>
             <strong className="font-semibold">Na prática{byCategory ? " (tabela padrão)" : ""}:</strong>{" "}
             {exampleRevenue != null ? (
@@ -297,17 +405,44 @@ export function AdministratorDialog({
           </p>
           <p>{form.paysSellerDirectly ? "Consultor recebe direto da administradora." : "Empresa paga no ritmo em que recebe."}</p>
         </div>
+        </section>
 
-        {(error || tablesError) && <p className="field-error text-sm">{error ?? tablesError}</p>}
-
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn-ghost" onClick={onClose} disabled={saving}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn-primary" disabled={saving || blocked}>
-            {saving ? <LoadingDots /> : "Salvar"}
-          </button>
+        {error && (
+          <p className="field-error my-4 flex items-start gap-1.5 text-sm" role="alert">
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {error}
+          </p>
+        )}
         </div>
+
+        <footer className="flex shrink-0 flex-col gap-3 border-t border-neutral-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-800">
+          <p
+            className={`flex min-w-0 items-center gap-1.5 text-sm ${
+              pendingItems.length > 0
+                ? "text-amber-700 dark:text-amber-300"
+                : "text-emerald-700 dark:text-emerald-300"
+            }`}
+          >
+            {pendingItems.length > 0 ? (
+              <CircleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            )}
+            <span className="truncate">
+              {pendingItems.length > 0
+                ? `${pendingItems.length} ${pendingItems.length === 1 ? "pendência" : "pendências"}: ${pendingItems.join(", ")}`
+                : "Todos os dados obrigatórios foram preenchidos"}
+            </span>
+          </p>
+          <div className="flex shrink-0 justify-end gap-2">
+            <button type="button" className="btn-ghost" onClick={onClose} disabled={saving}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? <LoadingDots /> : initial.id ? "Salvar alterações" : "Cadastrar"}
+            </button>
+          </div>
+        </footer>
       </form>
     </Modal>
   );

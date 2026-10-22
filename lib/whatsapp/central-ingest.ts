@@ -47,8 +47,8 @@ export async function handleCentralInbound(params: {
       alertManagers = true;
     }
   } else {
-    // Kill-switch desligado: só garante que a conversa está na fila; nada de
-    // rodízio, criação de contato nem aviso.
+    // Freio de emergência acionado (CENTRAL_LEADS_ENABLED=false): só garante
+    // que a conversa está na fila; nada de rodízio, criação de contato nem aviso.
     const thread = await prisma.whatsAppThread
       .update({ where: { id: threadId }, data: { inboxStatus: "OPEN", closedAt: null }, select: { contactId: true } })
       .catch((err) => {

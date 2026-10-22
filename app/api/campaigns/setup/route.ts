@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /** Dados usados somente pelo formulario de criacao ou edicao. */
 export async function GET() {
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
-  if (!access.ok) return NextResponse.json({ error: "Nao autenticado" }, { status: 401 });
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   return runWithTenant(access.organizationId, async () => {
     const scope = await getDealScope(access.organizationId, access.userId, access.role);

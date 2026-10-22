@@ -42,10 +42,7 @@ export default async function CampanhasPage() {
       : null;
 
     return (
-      <div className="space-y-4">
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Envie a mesma mensagem para várias pessoas, uma por vez, com um intervalo entre cada envio.
-        </p>
+      <div className="space-y-3">
         {cronStatus?.stale && (
           <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
             <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2} />

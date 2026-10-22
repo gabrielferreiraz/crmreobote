@@ -49,12 +49,15 @@ export function Modal({
   children,
   maxWidth = "max-w-sm",
   mobileSheet = false,
+  panelClassName = "",
 }: {
   onClose: () => void;
   children: React.ReactNode;
   maxWidth?: string;
   /** No mobile, ancora o painel na base; em lg+ mantém o modal central. */
   mobileSheet?: boolean;
+  /** Ajustes de layout para fluxos que controlam o proprio scroll. */
+  panelClassName?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const idRef = useRef<symbol | null>(null);
@@ -154,7 +157,7 @@ export function Modal({
                 : "max-h-[90vh] rounded-xl pb-7"
             } ${
               isNested ? "shadow-2xl ring-1 ring-black/5 dark:ring-white/10" : ""
-            }`}
+            } ${panelClassName}`}
           >
             {children}
           </div>

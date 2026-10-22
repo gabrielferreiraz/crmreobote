@@ -28,8 +28,8 @@ const VALID_TYPES: $Enums.WhatsAppMessageType[] = ["TEXT", "IMAGE", "AUDIO", "CO
 const PRESENCE_RESUBSCRIBE_MS = 55_000;
 
 // Sem isso, uma conversa antiga com milhares de mensagens trocadas era
-// buscada INTEIRA a cada 4s (o frontend faz polling nessa mesma rota
-// enquanto o chat fica aberto) — não é só "carrega tudo uma vez", é
+// buscada INTEIRA a cada atualização (evento ao vivo + poll de segurança do
+// chat aberto batem nesta mesma rota) — não é só "carrega tudo uma vez", é
 // retransferir um histórico que só cresce a cada poll. Não existe hoje um
 // "carregar mensagens mais antigas" ao rolar pra cima, então o corte é só
 // nas mais recentes — mensagem mais antiga que isso fica sem aparecer no

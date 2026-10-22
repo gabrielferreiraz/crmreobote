@@ -15,7 +15,7 @@ function shortLabel(dateKey: string): string {
 export function CampaignMetricsChart({ data }: { data: DailyMetric[] }) {
   if (data.length === 0) {
     return (
-      <div className="card flex h-40 items-center justify-center p-4 text-sm text-neutral-400 dark:text-neutral-500">
+      <div className="card flex h-40 items-center justify-center p-4 text-base text-neutral-400 dark:text-neutral-500">
         Sem envios registrados ainda.
       </div>
     );
@@ -32,8 +32,8 @@ export function CampaignMetricsChart({ data }: { data: DailyMetric[] }) {
   return (
     <div className="card space-y-3 p-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Envios e respostas por dia</p>
-        <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+        <p className="text-base font-semibold text-neutral-800 dark:text-neutral-200">Envios e respostas por dia</p>
+        <div className="flex items-center gap-3 text-sm text-neutral-500 dark:text-neutral-400">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-white" />
             Enviadas

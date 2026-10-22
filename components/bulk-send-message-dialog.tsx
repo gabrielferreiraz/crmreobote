@@ -11,7 +11,7 @@ import { RmktWavesFields } from "@/components/rmkt-waves-fields";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useRmktWaves } from "@/lib/use-rmkt-waves";
 import { MANY_RECIPIENTS_THRESHOLD } from "@/lib/use-whatsapp-provider";
-import { renderTemplate } from "@/lib/campaigns/spintax";
+import { renderSamplePreview, stepDelayLabel, SAMPLE_CONTACT_VARS } from "@/lib/campaigns/spintax";
 
 type ScriptOption = BulkScriptOption;
 
@@ -27,19 +27,11 @@ type ScriptPreview = { script: ScriptOption; messages: string[] } & PreviewPosit
 
 const DEFAULT_DELAY_MIN = 120;
 const DEFAULT_DELAY_MAX = 1200;
-const PREVIEW_VARIABLES = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Campo Grande" };
 
-function delayLabel(sec: number): string {
-  if (sec < 60) return `${sec}s depois`;
-  return `${Math.round(sec / 60)} min depois`;
-}
 
-function previewMessage(text: string): string {
-  return renderTemplate(text, PREVIEW_VARIABLES, "Boa tarde").replace(/\{[^{}]*\}/g, "Maria").replace(/[{}]/g, "");
-}
 
 function createPreviewMessages(script: ScriptOption): string[] {
-  return script.steps.map((step) => (step.text.trim() ? previewMessage(step.text) : "(mensagem vazia)"));
+  return script.steps.map((step) => (step.text.trim() ? renderSamplePreview(step.text) : "(mensagem vazia)"));
 }
 
 /**
@@ -356,7 +348,7 @@ export function BulkSendMessageDialog({
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">M</div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">Maria Silva</p>
+                <p className="truncate text-sm font-semibold">{SAMPLE_CONTACT_VARS.nome}</p>
                 <p className="text-[11px] text-white/70">Prévia de envio</p>
               </div>
             </div>
@@ -375,7 +367,7 @@ export function BulkSendMessageDialog({
               <div key={index}>
                 {index > 0 && (
                   <p className="mb-2 text-center text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                    {delayLabel(preview.script.steps[index - 1].delayAfterSec)}
+                    {stepDelayLabel(preview.script.steps[index - 1].delayAfterSec)}
                   </p>
                 )}
                 <div className="ml-auto max-w-[88%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-snug whitespace-pre-wrap text-neutral-800 shadow-sm dark:bg-[#005c4b] dark:text-neutral-100">

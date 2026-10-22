@@ -7,6 +7,7 @@ import { sendWhatsAppMessage, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { normalizePhoneNumber } from "@/lib/phone-normalize";
 import { validateSteps } from "@/lib/campaigns/scripts";
 import { rateLimitOrResponse } from "@/lib/rate-limit";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,8 @@ function sleep(ms: number): Promise<void> {
  * depois pra cada destinatário real.
  */
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { instanceId, phone, steps: rawSteps } = body as {
     instanceId?: string;
     phone?: string;

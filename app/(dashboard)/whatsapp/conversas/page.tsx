@@ -30,7 +30,11 @@ export default async function ConversasPage() {
     // se as duas existirem.
     const myInstance =
       myInstances.find((i) => i.provider === "META_CLOUD") ?? myInstances.find((i) => i.provider === "EVOLUTION");
-    const notificationPrefs = myInstance ?? { notifyOnCrmMessage: true, notifyOnGeralMessage: true };
+    // Sem WhatsApp próprio não há preferência a mostrar: o sininho some (antes
+    // aparecia com um valor inventado e dava erro ao clicar).
+    const notificationPrefs = myInstance
+      ? { notifyOnCrmMessage: myInstance.notifyOnCrmMessage, notifyOnGeralMessage: myInstance.notifyOnGeralMessage }
+      : undefined;
     // Sem NENHUMA instância própria conectada, quem está vendo a tela não
     // consegue mandar mensagem nenhuma — a área de chat avisa isso no lugar
     // de "Selecione uma conversa" (ver ConversationsView).

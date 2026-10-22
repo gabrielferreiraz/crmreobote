@@ -93,7 +93,7 @@ export function ContactInfoPanel({
   }, [contactId]);
 
   return (
-    <div className="surface-glass-panel scrollbar-thin hidden w-72 shrink-0 flex-col overflow-y-auto rounded-lg xl:flex">
+    <div className="scrollbar-thin hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 xl:flex">
       {loading ? (
         <div className="animate-pulse space-y-3 p-4">
           <div className="mx-auto h-12 w-12 rounded-full bg-neutral-200 dark:bg-neutral-800" />

@@ -22,7 +22,7 @@ export default async function CentralPage({
   if (!centralLeadsEnabled()) {
     return (
       <div className="card flex h-full items-center justify-center p-8 text-center text-sm text-neutral-500">
-        Central de Leads desligada.
+        Central de Leads temporariamente desligada pelo administrador do sistema.
       </div>
     );
   }

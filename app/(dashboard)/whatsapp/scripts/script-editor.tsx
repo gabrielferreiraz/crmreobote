@@ -10,7 +10,7 @@ import { Switch } from "@/components/switch";
 import { LoadingDots } from "@/components/loading-dots";
 import { WhatsAppPhonePreview } from "@/components/whatsapp-phone-preview";
 import { MessageVariationEditor } from "@/components/message-variation-editor";
-import { renderTemplate } from "@/lib/campaigns/spintax";
+import { renderTemplate, SAMPLE_CONTACT_VARS } from "@/lib/campaigns/spintax";
 import type { ScriptStep } from "@/lib/campaigns/spintax";
 import { normalizeSteps, textChangeRatio } from "@/lib/campaigns/script-steps";
 import { SYNONYM_REGEX, synonymsFor } from "@/lib/message-synonyms";
@@ -19,7 +19,6 @@ import { trackUse } from "@/lib/feature-usage/track";
 
 type Step = ScriptStep & { previewUrl?: string };
 
-const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
 const MAX_DELAY_SEC = 120;
 const SYNONYM_TIP_STORAGE_KEY = "whatsapp-script-synonyms-tip-seen";
 /** Acima disso (fração do texto que mudou) o diálogo de salvar sugere "nova versão" em vez de "correção". */
@@ -345,6 +344,9 @@ export function ScriptEditor({
       if (!res.ok || !data.key) throw new Error(data.error ?? "Não foi possível enviar a imagem");
 
       const previewUrl = URL.createObjectURL(file);
+      // Trocou a imagem: a prévia anterior (blob local) não serve mais — libera a memória dela.
+      const previous = steps[idx]?.previewUrl;
+      if (previous) URL.revokeObjectURL(previous);
       setSteps((prev) => prev.map((step, i) => (i === idx ? { ...step, type: "IMAGE", mediaUrl: data.key, previewUrl } : step)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível enviar a imagem");
@@ -354,6 +356,8 @@ export function ScriptEditor({
   }
 
   function removeStepImage(idx: number) {
+    const previous = steps[idx]?.previewUrl;
+    if (previous) URL.revokeObjectURL(previous);
     setSteps((prev) =>
       prev.map((step, i) => (i === idx ? { ...step, type: "TEXT", mediaUrl: undefined, previewUrl: undefined } : step)),
     );
@@ -695,7 +699,7 @@ export function ScriptEditor({
   const previewSteps = useMemo(
     () =>
       steps.map((s) => ({
-        text: s.text.trim() ? renderTemplate(s.text, SAMPLE_VARS, "Boa tarde") : "",
+        text: s.text.trim() ? renderTemplate(s.text, SAMPLE_CONTACT_VARS, "Boa tarde") : "",
         delayAfterSec: s.delayAfterSec,
         type: s.type,
         imagePreviewUrl: imagePreviewUrl(s),
@@ -1147,7 +1151,7 @@ export function ScriptEditor({
             <div className="pointer-events-none absolute top-1/2 left-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[80px]" />
             <p className="field-label relative z-10 text-center">Prévia (com dados de exemplo)</p>
             <div className="relative z-10">
-              <WhatsAppPhonePreview steps={previewSteps} contactName={SAMPLE_VARS.nome} />
+              <WhatsAppPhonePreview steps={previewSteps} contactName={SAMPLE_CONTACT_VARS.nome} />
             </div>
             {hasVariation && (
               <button

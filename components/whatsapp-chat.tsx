@@ -45,6 +45,9 @@ import { formatCurrency } from "@/lib/format";
 import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { withViewTransition } from "@/lib/view-transition";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
+import { isAbortError } from "@/lib/client-request";
+import { chatDayKey, formatChatClock, formatChatDayDivider, formatChatFull, formatLastSeen } from "@/lib/whatsapp/format-time";
+import { messagePreview } from "@/lib/whatsapp/message-preview";
 import { trackUse } from "@/lib/feature-usage/track";
 
 // Reexportado só pra não quebrar quem já importava daqui (ver
@@ -111,21 +114,12 @@ function presenceLabel(presence: ThreadPresence | null): { text: string; online:
 
   const seenAt = presence.lastSeenAt ?? presence.updatedAt;
   if (!seenAt) return null;
-  const time = new Date(seenAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  return { text: `visto por último às ${time}`, online: false };
+  // Com o dia: "às 14:00" sozinho podia ser de três dias atrás.
+  return { text: `visto por último ${formatLastSeen(seenAt)}`, online: false };
 }
 
-const QUOTE_PREVIEW_FALLBACK: Record<string, string> = {
-  IMAGE: "📷 Imagem",
-  AUDIO: "🎵 Áudio",
-  CONTACT: "👤 Contato",
-  PIX: "💰 Pix",
-  STICKER: "🧩 Figurinha",
-  CALL: "📞 Chamada",
-};
-
 function previewForQuote(msg: QuotedMessage): string {
-  return msg.body || QUOTE_PREVIEW_FALLBACK[msg.type ?? "TEXT"] || "Mensagem";
+  return messagePreview(msg.body, msg.type, "Mensagem");
 }
 
 // BUTTONS/LIST não entram mais aqui: confirmado em produção que o WhatsApp
@@ -355,6 +349,9 @@ export function ChatWindow({
     data: ContactOriginInfo | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Falha ao CARREGAR a conversa (sem acesso, removida, servidor fora). Antes
+  // era engolida em silêncio e a tela ficava em "Carregando…" para sempre.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [attachMode, setAttachMode] = useState<AttachMode | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -367,7 +364,7 @@ export function ChatWindow({
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   // Guarda se o usuário estava perto do fim ANTES da mensagem chegar — lido de
-  // forma síncrona (não é estado) porque o polling de 4s troca `messages` o
+  // forma síncrona (não é estado) porque cada atualização troca `messages` o
   // tempo todo, e um re-render no meio do caminho não pode perder essa leitura.
   const wasNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -396,6 +393,7 @@ export function ChatWindow({
   if (activeThreadId !== renderedThreadId) {
     setRenderedThreadId(activeThreadId);
     setShowScrollButton(false);
+    setLoadError(null);
   }
   const [renderedBaseThreadId, setRenderedBaseThreadId] = useState(threadId);
   if (threadId !== renderedBaseThreadId) {
@@ -439,10 +437,24 @@ export function ChatWindow({
         setMessages(data.messages);
         setThreadOwner(data.threadOwner ?? null);
         setPresence(data.presence);
+        setLoadError(null);
+      } else {
+        // Com a conversa já na tela, uma atualização que falha não apaga nada
+        // (só o aviso aparece se ela nunca carregou — ver o render).
+        const data = await res.json().catch(() => ({}));
+        setLoadError(
+          typeof data.error === "string" && data.error
+            ? data.error
+            : res.status === 404
+              ? "Conversa não encontrada."
+              : res.status === 403
+                ? "Você não tem acesso a esta conversa."
+                : "Não foi possível carregar a conversa.",
+        );
       }
-    } catch {
-      // Silencioso: se a conversa não carregar, o componente simplesmente não
-      // aparece — vale também pro abort, que não é erro.
+    } catch (err) {
+      // Cancelar (trocar de conversa/fechar) não é erro.
+      if (!isAbortError(err)) setLoadError("Sem conexão com o servidor — confira a internet.");
     } finally {
       if (inFlightRef.current === controller) inFlightRef.current = null;
     }
@@ -482,7 +494,7 @@ export function ChatWindow({
   });
 
   useEffect(() => {
-    // Só uma vez por troca de conversa (não entra no polling de 4s) — a rota
+    // Só uma vez por troca de conversa (não entra nas atualizações) — a rota
     // já cacheia no banco, mas evita repetir a requisição HTTP toda hora.
     const controller = new AbortController();
     fetch(`/api/whatsapp/threads/${activeThreadId}/photo`, { signal: controller.signal })
@@ -528,7 +540,7 @@ export function ChatWindow({
   }, [activeThreadId]);
 
   useEffect(() => {
-    // O polling de 4s troca `messages` mesmo sem mensagem nova (nova
+    // Cada atualização troca `messages` mesmo sem mensagem nova (nova
     // referência de array a cada fetch) — só desce a tela sozinho se o
     // usuário já estava perto do fim; se ele subiu pra ler algo antigo,
     // isso NUNCA deve puxar a tela de volta pra baixo.
@@ -693,7 +705,16 @@ export function ChatWindow({
           className="chat-bg-dots scrollbar-thin h-full space-y-1.5 overflow-y-auto rounded-[24px] ring-1 ring-neutral-200/50 bg-neutral-50/50 p-3 sm:p-4 pb-6 dark:bg-neutral-900/40 dark:ring-neutral-800"
         >
           {!messages ? (
-            <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+            loadError ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">{loadError}</p>
+                <button type="button" onClick={() => void load()} className="btn-secondary btn-sm">
+                  Tentar de novo
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+            )
           ) : messages.length === 0 ? (
             <div className="flex h-full items-center justify-center">
               <EmptyState
@@ -707,7 +728,8 @@ export function ChatWindow({
               let lastDayString = "";
               return messages.map((m) => {
                 const mDate = new Date(m.createdAt);
-                const dayString = mDate.toDateString();
+                // Dia no fuso da empresa — o mesmo do rótulo do divisor (format-time.ts).
+                const dayString = chatDayKey(mDate);
                 const showDivider = dayString !== lastDayString;
                 lastDayString = dayString;
 
@@ -716,7 +738,7 @@ export function ChatWindow({
                     {showDivider && (
                       <div className="my-3 flex justify-center">
                         <span className="rounded bg-neutral-200/80 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 shadow-sm">
-                          {formatDividerDate(mDate)}
+                          {formatChatDayDivider(mDate)}
                         </span>
                       </div>
                     )}
@@ -926,7 +948,10 @@ function MessageBubble({
               : "mt-0.5 flex items-center gap-1 text-[10px] opacity-60"
           }
         >
-          {new Date(message.createdAt).toLocaleString("pt-BR")}
+          {/* Só a hora (o dia já está no divisor acima); data completa ao passar o mouse. */}
+          <time dateTime={message.createdAt} title={formatChatFull(message.createdAt)}>
+            {formatChatClock(message.createdAt)}
+          </time>
           {isOut && <MessageStatusIcon status={message.status} />}
         </p>
       </div>
@@ -1246,15 +1271,28 @@ function SendScriptModal({ threadId, onClose }: { threadId: string; onClose: () 
 function TagContactModal({ contactId, onClose }: { contactId: string; onClose: () => void }) {
   const [tagsInput, setTagsInput] = useState("");
   const [loaded, setLoaded] = useState(false);
+  // Salvar SUBSTITUI todas as tags do contato. Se as atuais não carregaram, o
+  // campo apareceria vazio e salvar apagaria as que já existiam — então,
+  // nesse caso, o salvar fica bloqueado.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/contacts/${contactId}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setTagsInput(((data?.tags ?? []) as string[]).join(", ")))
-      .catch(() => { })
-      .finally(() => setLoaded(true));
+    const controller = new AbortController();
+    fetch(`/api/contacts/${contactId}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("load");
+        const data = await res.json();
+        setTagsInput(((data?.tags ?? []) as string[]).join(", "));
+        setLoaded(true);
+      })
+      .catch((err) => {
+        if (isAbortError(err)) return;
+        setLoadFailed(true);
+        setLoaded(true);
+      });
+    return () => controller.abort();
   }, [contactId]);
 
   async function handleSave() {
@@ -1289,6 +1327,8 @@ function TagContactModal({ contactId, onClose }: { contactId: string; onClose: (
       <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">Tags separadas por vírgula.</p>
       {!loaded ? (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">Carregando…</p>
+      ) : loadFailed ? (
+        <p className="text-sm text-red-600 dark:text-red-400">Não foi possível carregar as tags atuais. Feche e tente de novo.</p>
       ) : (
         <input
           autoFocus
@@ -1303,7 +1343,7 @@ function TagContactModal({ contactId, onClose }: { contactId: string; onClose: (
         <button type="button" onClick={onClose} className="btn-ghost">
           Cancelar
         </button>
-        <button type="button" disabled={!loaded || saving} onClick={handleSave} className="btn-primary">
+        <button type="button" disabled={!loaded || loadFailed || saving} onClick={handleSave} className="btn-primary">
           {saving && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
           {saving ? "Salvando" : "Salvar"}
         </button>
@@ -2220,32 +2260,5 @@ function PixForm({ sending, onSend }: { sending: boolean; onSend: (payload: Reco
       </button>
     </div>
   );
-}
-
-function formatDividerDate(date: Date): string {
-  const now = new Date();
-  const dDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffDays = Math.round((dNow.getTime() - dDate.getTime()) / (24 * 60 * 60 * 1000));
-
-  if (diffDays === 0) return "Hoje";
-  if (diffDays === 1) return "Ontem";
-  if (diffDays < 7) {
-    const daysOfWeek = [
-      "Domingo",
-      "Segunda-feira",
-      "Terça-feira",
-      "Quarta-feira",
-      "Quinta-feira",
-      "Sexta-feira",
-      "Sábado"
-    ];
-    return daysOfWeek[dDate.getDay()];
-  }
-  return dDate.toLocaleDateString("pt-BR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric"
-  });
 }
 

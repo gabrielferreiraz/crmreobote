@@ -6,6 +6,7 @@ import { listCampaigns } from "@/lib/campaigns/list";
 import { resolveCampaignInput, type CampaignInput } from "@/lib/campaigns/build";
 import { getDealScope } from "@/lib/team-scope";
 import type { Prisma } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as CampaignInput;
+  const parsed = await readJsonObjectOrError(req);
+  if (parsed instanceof NextResponse) return parsed;
+  const body = parsed as CampaignInput;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });

@@ -109,3 +109,24 @@ export function bodyErrorResponse(err: unknown): NextResponse | null {
   }
   return null;
 }
+
+/**
+ * Corpo JSON como OBJETO, ou a resposta de erro já pronta (400 JSON inválido
+ * ou não-objeto, 413 grande demais) — pra rota fazer só
+ * `const body = await readJsonObjectOrError(req); if (body instanceof NextResponse) return body;`.
+ * Existe porque várias rotas faziam `await req.json()` cru: um corpo
+ * malformado virava erro 500 e não havia teto de tamanho.
+ */
+export async function readJsonObjectOrError(req: Request, maxBytes: number = BODY_LIMITS.json): Promise<Record<string, unknown> | NextResponse> {
+  try {
+    const body = await readJson<unknown>(req, maxBytes);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+    }
+    return body as Record<string, unknown>;
+  } catch (err) {
+    const res = bodyErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
+}

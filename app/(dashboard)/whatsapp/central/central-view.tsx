@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCheck, Inbox, MessageCircle, Search, Settings, UserPlus, UserRound } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { ChatWindow } from "@/components/whatsapp-chat";
@@ -11,6 +11,8 @@ import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
 import { CentralSettingsDialog } from "./central-settings-dialog";
+import { formatChatListTime } from "@/lib/whatsapp/format-time";
+import { messagePreview } from "@/lib/whatsapp/message-preview";
 
 type Tab = "mine" | "unassigned" | "team" | "closed";
 type CentralState = "missing" | "noPool" | "CONNECTED" | "CONNECTING" | "DISCONNECTED";
@@ -44,14 +46,6 @@ type InboxResponse = {
   assignableUsers?: { id: string; name: string }[];
 };
 
-const TYPE_PREVIEW: Record<string, string> = {
-  IMAGE: "📷 Imagem",
-  AUDIO: "🎵 Áudio",
-  VIDEO: "🎬 Vídeo",
-  DOCUMENT: "📄 Documento",
-  STICKER: "🧩 Figurinha",
-};
-
 const EMPTY_STATE: Record<Tab, { title: string; description: string }> = {
   mine: { title: "Tudo em dia", description: "Novos leads aparecem aqui." },
   unassigned: { title: "Fila vazia", description: "Nenhum lead aguardando atendimento." },
@@ -59,13 +53,9 @@ const EMPTY_STATE: Record<Tab, { title: string; description: string }> = {
   closed: { title: "Nenhum encerrado", description: "Conversas concluídas aparecem aqui." },
 };
 
-const TIME_FMT = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Campo_Grande", hour: "2-digit", minute: "2-digit" });
-const DAY_FMT = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Campo_Grande", day: "2-digit", month: "2-digit" });
-
+/** Mesma régua de horário da lista de Conversas (lib/whatsapp/format-time.ts). */
 function formatWhen(iso: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  return DAY_FMT.format(date) === DAY_FMT.format(new Date()) ? TIME_FMT.format(date) : DAY_FMT.format(date);
+  return iso ? formatChatListTime(iso) : "";
 }
 
 export function CentralView({
@@ -145,6 +135,15 @@ export function CentralView({
   }
 
   useVisiblePoll(load, 30_000);
+  // Saindo da tela: nada de carga pendente nem timer acordando depois.
+  useEffect(
+    () => () => {
+      inFlightRef.current?.abort();
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    },
+    [],
+  );
   useWhatsAppLive((event) => {
     // Só eventos da Central (ou de conversa que já está na tela) — mensagens
     // dos números pessoais da empresa toda não precisam recarregar esta lista.
@@ -365,7 +364,7 @@ export function CentralView({
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-xs text-neutral-500">
                     {item.lastMessage?.direction === "OUTBOUND" ? "Enviada · " : ""}
-                    {item.lastMessage?.body || TYPE_PREVIEW[item.lastMessage?.type ?? ""] || ""}
+                    {item.lastMessage ? messagePreview(item.lastMessage.body, item.lastMessage.type, "") : ""}
                   </span>
                   {item.unreadCount > 0 && (
                     <span className="shrink-0 rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold leading-5 text-white">
@@ -480,7 +479,8 @@ function composerNoticeFor(item: CentralItem, currentUserId: string, canManageQu
   const mine = item.assignee?.id === currentUserId;
   if (item.status === "CLOSED") return mine ? null : "Atendimento encerrado.";
   if (!item.assignee) return canManageQueue ? null : "Aguardando responsável.";
-  if (!mine) return `Atendimento de ${item.assignee.name}. Transfira para você para responder.`;
+  // Só quem gerencia a fila pode transferir — pros outros a dica não serviria.
+  if (!mine) return `Atendimento de ${item.assignee.name}.${canManageQueue ? " Transfira para você para responder." : ""}`;
   return null;
 }
 

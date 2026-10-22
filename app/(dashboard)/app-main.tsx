@@ -36,17 +36,18 @@ const APP_SHELL_ROUTES = ["/whatsapp/conversas", "/whatsapp/central", "/processo
 // demais) só cortava colunas inteiras pra dentro do scroll horizontal à toa
 // em monitor largo, sobrando uma faixa vazia enorme do lado. Sem teto aqui,
 // a fileira de colunas usa a largura de verdade disponível (px-4 lg:px-8 no
-// <main>, abaixo, já dá a moldura responsiva das bordas). Conversas/Processos
-// não pediram isso ainda — Conversas já gerencia a própria largura via
-// painéis redimensionáveis, então ficam de fora por ora. Comissões também é
-// uma mesa operacional: resumo, pendências e lista usam colunas lado a lado,
-// por isso a tela principal aproveita toda a largura disponível.
-const FULL_WIDTH_ROUTES = ["/pipeline", "/whatsapp/central", "/comissoes", "/comissoes/vendas"];
+// <main>, abaixo, já dá a moldura responsiva das bordas). Conversas segue a
+// mesma estrutura de tela inteira de Atendimentos; a lista ainda pode ser
+// redimensionada dentro dessa área. Comissões também é uma mesa operacional:
+// resumo, pendências e lista usam colunas lado a lado, por isso a tela
+// principal aproveita toda a largura disponível.
+const FULL_WIDTH_ROUTES = ["/pipeline", "/whatsapp/central", "/whatsapp/conversas", "/whatsapp/campanhas", "/comissoes", "/comissoes/vendas"];
 
 export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAppShell = APP_SHELL_ROUTES.some((route) => pathname === route);
-  const isFullWidth = FULL_WIDTH_ROUTES.some((route) => pathname === route);
+  const isFullWidth =
+    FULL_WIDTH_ROUTES.some((route) => pathname === route) || pathname.startsWith("/whatsapp/campanhas/");
   const hasFlushMobileStickyHeader = pathname.startsWith("/negocios/");
 
   return (

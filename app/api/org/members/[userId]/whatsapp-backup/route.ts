@@ -3,17 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
+import { messagePreview } from "@/lib/whatsapp/message-preview";
 
 export const dynamic = "force-dynamic";
-
-const PREVIEW_FALLBACK: Record<string, string> = {
-  IMAGE: "📷 Imagem",
-  AUDIO: "🎵 Áudio",
-  CONTACT: "👤 Contato",
-  PIX: "💰 Pix",
-  STICKER: "🧩 Figurinha",
-  CALL: "📞 Chamada",
-};
 
 /**
  * Lista as conversas de WhatsApp de UM usuário específico — usado pelo
@@ -65,7 +57,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ userId:
           // instância null = histórico arquivado, congelado na desativação.
           archived: !t.instance,
           messageCount: t._count.messages,
-          lastMessagePreview: lastMessage.body || PREVIEW_FALLBACK[lastMessage.type] || "—",
+          lastMessagePreview: messagePreview(lastMessage.body, lastMessage.type, "—"),
           lastMessageDirection: lastMessage.direction,
           lastMessageAt: lastMessage.createdAt,
         };

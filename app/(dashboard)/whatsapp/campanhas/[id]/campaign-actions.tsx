@@ -64,9 +64,11 @@ export function CampaignActions({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(target ? { target } : {}),
-    });
-    const data = await res.json().catch(() => ({}));
+    }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
     setSendingNow(null);
+    // Sem rede o botão ficava em "enviando" pra sempre.
+    if (!res) return setSendNowResult("Sem conexão. Tente de novo.");
     if (!res.ok) {
       setSendNowResult(data.error ?? "Não foi possível enviar agora");
       return;
@@ -83,11 +85,11 @@ export function CampaignActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
       {(status === "DRAFT" || status === "PAUSED") && (
-        <button type="button" disabled={togglingStatus} onClick={() => setStatus("RUNNING")} className="btn-secondary">
+        <button type="button" disabled={togglingStatus} onClick={() => setStatus("RUNNING")} className="btn-primary">
           {togglingStatus ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Play className="h-4 w-4" strokeWidth={2} />}
-          Retomar
+          {status === "DRAFT" ? "Iniciar" : "Retomar"}
         </button>
       )}
       {status === "PAUSED" && autoPausedByDisconnect && (
@@ -132,19 +134,18 @@ export function CampaignActions({
           title="Pula direto pra próxima onda de RMKT vencida, sem esperar a vez do pendente inicial ou do reenvio único, e ignora toda regra automática (janela de dias/horário, teto diário/aquecimento). Use com cuidado — risco de restrição/banimento do número."
         >
           {sendingNow === "wave" ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Waves className="h-4 w-4" strokeWidth={2} />}
-          Enviar onda de RMKT agora
+          Enviar RMKT agora
         </button>
       )}
       <DuplicateCampaignButton
         campaignId={id}
         hasAudienceFilter={hasAudienceFilter}
-        labeled
         // O rascunho novo só pode ser editado/iniciado na lista (é lá que
         // fica o modal de edição) — navega pra lá em vez de ficar na página
         // de detalhe da campanha original.
         onDuplicated={() => router.push("/whatsapp/campanhas")}
       />
-      {sendNowResult && <span className="text-xs text-neutral-500 dark:text-neutral-400">{sendNowResult}</span>}
+      {sendNowResult && <span className="basis-full text-sm text-neutral-500 dark:text-neutral-400 lg:text-right">{sendNowResult}</span>}
     </div>
   );
 }

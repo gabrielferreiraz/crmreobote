@@ -12,6 +12,7 @@ import {
   stateAfterMembershipChange,
   type ManualAcademyOnboardingAction,
 } from "@/lib/academy-onboarding";
+import { enqueueWebhookEvent, buildMemberWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -237,7 +238,10 @@ export async function PATCH(
               ? null
               : undefined,
         },
-        include: { user: { select: { id: true, name: true, email: true, image: true } } },
+        include: {
+          user: { select: { id: true, name: true, email: true, image: true } },
+          team: { select: { id: true, name: true } },
+        },
       });
 
       // Academy credentials are kept in another system. Revoke them as soon
@@ -319,6 +323,15 @@ export async function PATCH(
         detail: updated.user.name,
         ip,
       });
+      buildMemberWebhookPayload({
+        user: updated.user,
+        role: updated.role,
+        active: updated.active,
+        team: updated.team,
+        createdAt: updated.createdAt,
+      })
+        .then((payload) => enqueueWebhookEvent(access.organizationId, "member.deactivated", payload))
+        .catch((err) => console.error("[webhooks] falha ao enfileirar member.deactivated", err));
     }
     if (active === true && !membership.active) {
       await logAudit({
@@ -331,6 +344,15 @@ export async function PATCH(
         detail: updated.user.name,
         ip,
       });
+      buildMemberWebhookPayload({
+        user: updated.user,
+        role: updated.role,
+        active: updated.active,
+        team: updated.team,
+        createdAt: updated.createdAt,
+      })
+        .then((payload) => enqueueWebhookEvent(access.organizationId, "member.activated", payload))
+        .catch((err) => console.error("[webhooks] falha ao enfileirar member.activated", err));
     }
     if (academyOnboardingAction === "REQUIRE" && nextAcademyOnboardingStatus !== membership.academyOnboardingStatus) {
       await logAudit({

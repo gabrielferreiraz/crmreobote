@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
           await handleMetaMessages(instance, value.messages, value.contacts ?? []);
         }
         if (value?.statuses?.length) {
-          await handleMetaStatuses(instance.organizationId, value.statuses);
+          await handleMetaStatuses(instance, value.statuses);
         }
       });
     }

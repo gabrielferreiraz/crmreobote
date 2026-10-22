@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { validateSteps, canAccessScript, canManageScript, SCRIPT_READ_ONLY_MESSAGE } from "@/lib/campaigns/scripts";
 import { updateScriptAndSync } from "@/lib/campaigns/script-sync";
 import { getDealScope } from "@/lib/team-scope";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { name, steps, tags, visibility, versionMode, applyToCampaignIds } = body as {
     name?: string;
     steps?: unknown;

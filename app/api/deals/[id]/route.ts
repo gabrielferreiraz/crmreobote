@@ -305,9 +305,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (status === "WON") {
         const valueSuffix = deal.value != null ? ` · ${formatCurrency(Number(deal.value))}` : "";
         systemBodies.push(`marcou o negócio como ganho${valueSuffix}`);
-        enqueueWebhookEvent(organizationId, "deal.won", buildDealWebhookPayload(deal)).catch((err) =>
-          console.error("[webhooks] falha ao enfileirar deal.won", err),
-        );
+        buildDealWebhookPayload(deal)
+          .then((payload) => enqueueWebhookEvent(organizationId, "deal.won", payload))
+          .catch((err) => console.error("[webhooks] falha ao enfileirar deal.won", err));
         notifyMetaConversionWon(organizationId, {
           id: deal.id,
           value: deal.value != null ? Number(deal.value) : null,
@@ -320,9 +320,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       } else if (status === "LOST") {
         const reasonSuffix = lossReasonLabel ? ` · ${lossReasonLabel}` : "";
         systemBodies.push(`marcou o negócio como perdido${reasonSuffix}`);
-        enqueueWebhookEvent(organizationId, "deal.lost", buildDealWebhookPayload(deal)).catch((err) =>
-          console.error("[webhooks] falha ao enfileirar deal.lost", err),
-        );
+        buildDealWebhookPayload(deal)
+          .then((payload) => enqueueWebhookEvent(organizationId, "deal.lost", payload))
+          .catch((err) => console.error("[webhooks] falha ao enfileirar deal.lost", err));
       } else if (status === "OPEN") {
         systemBodies.push("reabriu o negócio");
       }

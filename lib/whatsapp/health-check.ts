@@ -20,7 +20,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getConnectionState } from "@/lib/evolution";
 import { getPhoneNumberHealth } from "@/lib/meta-whatsapp";
 import { decryptSecret } from "@/lib/security/secret-crypto";
-import { notifyInstanceDisconnected, notifyInstanceStillDisconnected } from "@/lib/whatsapp/instance-alerts";
+import { notifyCentralDisconnected, notifyInstanceDisconnected, notifyInstanceStillDisconnected } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
 import { RISK_THRESHOLD, RISK_WINDOW_MS } from "@/lib/whatsapp/risk";
 import { pauseCampaignsForUnstableInstance, pauseRunningCampaignsForOfflineInstance } from "@/lib/campaigns/instance-guard";
@@ -37,7 +37,7 @@ type CheckableInstance = {
   id: string;
   organizationId: string;
   kind: $Enums.WhatsAppInstanceKind;
-  personalOwnerId: string;
+  personalOwnerId: string | null;
   instanceName: string;
   provider: $Enums.WhatsAppProvider;
   phoneNumber: string | null;
@@ -63,7 +63,7 @@ function hasPersonalOwner<T extends { personalOwnerId: string | null }>(
 async function checkAndMaybeDisconnect(
   instance: CheckableInstance,
   isHealthy: () => Promise<boolean>,
-  counters: { disconnected: number },
+  onConfirmedDown: () => Promise<void>,
 ): Promise<void> {
   try {
     const healthy = await isHealthy();
@@ -103,47 +103,69 @@ async function checkAndMaybeDisconnect(
       return;
     }
 
-    // Dono não é mais membro ativo: remove de vez em vez de só marcar
-    // desconectado (mesma regra do webhook — ver lib/whatsapp/events.ts).
-    if (!(await isActiveMember(instance.organizationId, instance.personalOwnerId))) {
-      await deleteInstanceForInactiveUser(instance);
-      console.log(`[wa:health] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
-      counters.disconnected += 1;
-      return;
-    }
-
-    const windowExpired =
-      !instance.riskWindowStartedAt || Date.now() - instance.riskWindowStartedAt.getTime() >= RISK_WINDOW_MS;
-    const nextDisconnectCount = windowExpired ? 1 : instance.recentDisconnectCount + 1;
-
-    await prisma.whatsAppInstance.update({
-      where: { id: instance.id },
-      data: {
-        status: "DISCONNECTED",
-        disconnectedAt: new Date(),
-        disconnectAlertLevel: 0,
-        recentDisconnectCount: nextDisconnectCount,
-        riskWindowStartedAt: windowExpired ? new Date() : instance.riskWindowStartedAt,
-      },
-    });
-    await notifyInstanceDisconnected(instance);
-    counters.disconnected += 1;
-    await pauseRunningCampaignsForOfflineInstance(instance.organizationId, instance.id, {
-      status: "DISCONNECTED",
-      pendingDisconnectSince: null,
-      recentDisconnectCount: nextDisconnectCount,
-      riskWindowStartedAt: windowExpired ? new Date() : instance.riskWindowStartedAt,
-    });
-
-    if (nextDisconnectCount >= RISK_THRESHOLD) {
-      console.warn(
-        `[wa:health] instância ${instance.instanceName} caiu ${nextDisconnectCount}x em 7 dias — pausando campanhas (risco de banimento)`,
-      );
-      await pauseCampaignsForUnstableInstance(instance.organizationId, instance.id);
-    }
+    await onConfirmedDown();
   } catch (err) {
     console.error(`[wa:health] falha ao checar instância ${instance.instanceName}`, err);
   }
+}
+
+/** Queda confirmada de um número PESSOAL: avisa o consultor/dono, conta pro risco de banimento e pausa as campanhas dele. */
+async function handlePersonalDown(
+  instance: CheckableInstance & { personalOwnerId: string },
+  counters: { disconnected: number },
+): Promise<void> {
+  // Dono não é mais membro ativo: remove de vez em vez de só marcar
+  // desconectado (mesma regra do webhook — ver lib/whatsapp/events.ts).
+  if (!(await isActiveMember(instance.organizationId, instance.personalOwnerId))) {
+    await deleteInstanceForInactiveUser(instance);
+    console.log(`[wa:health] instância ${instance.instanceName} removida — dono não é mais membro ativo`);
+    counters.disconnected += 1;
+    return;
+  }
+
+  const windowExpired =
+    !instance.riskWindowStartedAt || Date.now() - instance.riskWindowStartedAt.getTime() >= RISK_WINDOW_MS;
+  const nextDisconnectCount = windowExpired ? 1 : instance.recentDisconnectCount + 1;
+
+  await prisma.whatsAppInstance.update({
+    where: { id: instance.id },
+    data: {
+      status: "DISCONNECTED",
+      disconnectedAt: new Date(),
+      disconnectAlertLevel: 0,
+      recentDisconnectCount: nextDisconnectCount,
+      riskWindowStartedAt: windowExpired ? new Date() : instance.riskWindowStartedAt,
+    },
+  });
+  await notifyInstanceDisconnected(instance);
+  counters.disconnected += 1;
+  await pauseRunningCampaignsForOfflineInstance(instance.organizationId, instance.id, {
+    status: "DISCONNECTED",
+    pendingDisconnectSince: null,
+    recentDisconnectCount: nextDisconnectCount,
+    riskWindowStartedAt: windowExpired ? new Date() : instance.riskWindowStartedAt,
+  });
+
+  if (nextDisconnectCount >= RISK_THRESHOLD) {
+    console.warn(
+      `[wa:health] instância ${instance.instanceName} caiu ${nextDisconnectCount}x em 7 dias — pausando campanhas (risco de banimento)`,
+    );
+    await pauseCampaignsForUnstableInstance(instance.organizationId, instance.id);
+  }
+}
+
+/**
+ * Queda confirmada da Central de Leads. Antes a Central nem entrava nesta
+ * checagem — só o webhook avisava, e foi justamente o webhook que já falhou
+ * calado (ver topo do arquivo). Central fora = nenhum lead chega pra ninguém.
+ */
+async function handleCentralDown(instance: CheckableInstance, counters: { disconnected: number }): Promise<void> {
+  await prisma.whatsAppInstance.update({
+    where: { id: instance.id },
+    data: { status: "DISCONNECTED", disconnectedAt: new Date(), disconnectAlertLevel: 0 },
+  });
+  await notifyCentralDisconnected(instance);
+  counters.disconnected += 1;
 }
 
 export async function checkWhatsAppInstancesHealth(): Promise<{
@@ -165,14 +187,21 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
       // "caído" significa coisas diferentes por provider (sessão Baileys vs.
       // token da Meta revogado/expirado), por isso duas checagens separadas.
       const believedConnected = await prisma.whatsAppInstance.findMany({
-        where: { kind: "PERSONAL", status: "CONNECTED", personalOwnerId: { not: null } },
+        where: {
+          status: "CONNECTED",
+          OR: [{ kind: "PERSONAL", personalOwnerId: { not: null } }, { kind: "CENTRAL" }],
+        },
       });
 
       for (const instance of believedConnected) {
         // PERSONAL sempre tem dono pelo CHECK do banco; a guarda mantém o
         // contrato explícito também para o TypeScript e para dados corrompidos.
-        if (!hasPersonalOwner(instance)) continue;
+        const personal = instance.kind === "PERSONAL" && hasPersonalOwner(instance) ? instance : null;
+        if (instance.kind === "PERSONAL" && !personal) continue;
         checked += 1;
+        const onConfirmedDown = personal
+          ? () => handlePersonalDown(personal, counters)
+          : () => handleCentralDown(instance, counters);
 
         if (instance.provider === "META_CLOUD") {
           if (!instance.metaPhoneNumberId || !instance.metaAccessToken) {
@@ -180,14 +209,24 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
             continue;
           }
           const phoneNumberId = instance.metaPhoneNumberId;
-          const accessToken = decryptSecret(instance.metaAccessToken);
+          const encryptedToken = instance.metaAccessToken;
           await checkAndMaybeDisconnect(
             instance,
             async () => {
-              await getPhoneNumberHealth(phoneNumberId, accessToken);
-              return true; // não lançou = token ainda válido
+              // A Meta responde token revogado/expirado com ERRO — isso é
+              // "não saudável", não falha da checagem. Antes o erro subia, caía
+              // no catch genérico e a queda nunca era confirmada. Falha de rede
+              // passageira também cai aqui, mas só vira alerta se repetir na
+              // próxima rodada (confirmação em duas etapas acima).
+              try {
+                await getPhoneNumberHealth(phoneNumberId, decryptSecret(encryptedToken));
+                return true;
+              } catch (err) {
+                console.warn(`[wa:health] instância ${instance.instanceName} META_CLOUD falhou na checagem`, err);
+                return false;
+              }
             },
-            counters,
+            onConfirmedDown,
           );
           continue;
         }
@@ -195,7 +234,7 @@ export async function checkWhatsAppInstancesHealth(): Promise<{
         await checkAndMaybeDisconnect(
           instance,
           async () => (await getConnectionState(instance.instanceName)) === "open",
-          counters,
+          onConfirmedDown,
         );
       }
 

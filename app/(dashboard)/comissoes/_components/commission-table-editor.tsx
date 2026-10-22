@@ -1,5 +1,6 @@
 "use client";
 
+import { CircleAlert } from "lucide-react";
 import { formatPercent, revenueConfigError, type CommissionTableLike, type RevenueMode } from "@/lib/commissions/engine";
 import { Choices, Question } from "./question";
 import { parseWholeNumber, WholeNumberInput } from "./whole-number-input";
@@ -89,12 +90,14 @@ function PercentInput({
   ariaLabel,
   className = "",
   disabled = false,
+  invalid = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   ariaLabel: string;
   className?: string;
   disabled?: boolean;
+  invalid?: boolean;
 }) {
   return (
     <div className={`relative ${className}`}>
@@ -103,11 +106,12 @@ function PercentInput({
         autoComplete="off"
         className="field-input pr-8 text-right tabular-nums disabled:opacity-50"
         value={disabled ? "" : value}
-        placeholder={disabled ? "—" : undefined}
+        placeholder={disabled ? "—" : "0,00"}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value.replace(/[^\d.,]/g, ""))}
         onFocus={(e) => e.target.select()}
         aria-label={ariaLabel}
+        aria-invalid={invalid || undefined}
       />
       <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-neutral-400">%</span>
     </div>
@@ -119,7 +123,16 @@ function PercentInput({
  * parcelas NÃO têm comissão, quanto paga pra corretora (nos três jeitos ou
  * "não informar"). Usada pra tabela padrão e pra cada categoria.
  */
-export function CommissionTableEditor({ draft, onChange }: { draft: TableDraft; onChange: (next: TableDraft) => void; name: string }) {
+export function CommissionTableEditor({
+  draft,
+  onChange,
+  showValidation = false,
+}: {
+  draft: TableDraft;
+  onChange: (next: TableDraft) => void;
+  name: string;
+  showValidation?: boolean;
+}) {
   const set = (patch: Partial<TableDraft>) => onChange({ ...draft, ...patch });
   const count = draft.count;
   const typedCountInvalid = draft.countChoice === "other" && parseWholeNumber(draft.countText, 1, 60) == null;
@@ -235,7 +248,13 @@ export function CommissionTableEditor({ draft, onChange }: { draft: TableDraft; 
           <div className="space-y-1.5 pt-2">
             <label className="flex flex-wrap items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
               No total, ela paga
-              <PercentInput value={draft.totalText} onChange={(v) => set({ totalText: v })} ariaLabel="Percentual total do crédito" className="w-28" />
+              <PercentInput
+                value={draft.totalText}
+                onChange={(v) => set({ totalText: v })}
+                ariaLabel="Percentual total do crédito"
+                className="w-28"
+                invalid={showValidation && (total == null || total <= 0 || total > 100)}
+              />
               do crédito.
             </label>
             {total != null && total > 0 && count - skipped.length > 1 && (
@@ -252,14 +271,23 @@ export function CommissionTableEditor({ draft, onChange }: { draft: TableDraft; 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {Array.from({ length: count }, (_, i) => {
                 const off = skipped.includes(i + 1);
+                const text = draft.tableText[i] ?? "";
+                const typedPercent = parseDecimal(text);
+                const maxPercent = mode === "CLIENT_INSTALLMENT_TABLE" ? 1000 : 100;
+                const invalidPercent =
+                  showValidation &&
+                  !off &&
+                  ((!anyTyped && text.trim() === "") ||
+                    (typedPercent != null && (typedPercent < 0 || typedPercent > maxPercent)));
                 return (
                   <label key={i} className="space-y-1">
                     <span className="block text-sm text-neutral-600 dark:text-neutral-400">
                       {i + 1}ª parcela{off ? " (sem comissão)" : ""}
                     </span>
                     <PercentInput
-                      value={draft.tableText[i] ?? ""}
+                      value={text}
                       disabled={off}
+                      invalid={invalidPercent}
                       onChange={(v) => {
                         const next = [...draft.tableText];
                         next[i] = v;
@@ -302,7 +330,18 @@ export function CommissionTableEditor({ draft, onChange }: { draft: TableDraft; 
         )}
       </Question>
 
-      {showError && <p className="field-error text-sm">{error}</p>}
+      {error && (
+        <p
+          className={`flex items-start gap-1.5 text-sm ${
+            showValidation || showError
+              ? "field-error"
+              : "text-amber-700 dark:text-amber-300"
+          }`}
+        >
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{showValidation || showError ? error : `Falta preencher: ${error}`}</span>
+        </p>
+      )}
     </div>
   );
 }

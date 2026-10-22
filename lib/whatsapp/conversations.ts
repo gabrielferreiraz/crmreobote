@@ -8,15 +8,7 @@
 import { prisma } from "@/lib/prisma";
 import { whatsappThreadScopeWhere, type DealScope } from "@/lib/team-scope";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
-
-const PREVIEW_FALLBACK: Record<string, string> = {
-  IMAGE: "📷 Imagem",
-  AUDIO: "🎵 Áudio",
-  CONTACT: "👤 Contato",
-  PIX: "💰 Pix",
-  STICKER: "🧩 Figurinha",
-  CALL: "📞 Chamada",
-};
+import { messagePreview } from "@/lib/whatsapp/message-preview";
 
 export type ConversationSummary = {
   threadId: string;
@@ -27,6 +19,10 @@ export type ConversationSummary = {
   whatsappName: string | null;
   lastMessagePreview: string;
   lastMessageDirection: "INBOUND" | "OUTBOUND";
+  /** Quem mandou a última mensagem, quando ela foi ENVIADA (OUTBOUND) — pra
+   * prévia dizer "Você:" só pra quem mandou de fato, e o nome de quem mandou
+   * pra quem está vendo a conversa de outra pessoa (dono/gerente). */
+  lastMessageFrom: { id: string; name: string } | null;
   lastMessageAt: Date;
   unreadCount: number;
   deal: { id: string; name: string } | null;
@@ -44,8 +40,8 @@ export type ConversationSummary = {
 };
 
 /**
- * Quantas conversas a lista (e o polling de 5s que a mantém atualizada, ver
- * conversations-view.tsx) traz por padrão — é um inbox de "conversas
+ * Quantas conversas a lista (e a atualização ao vivo + poll de segurança que
+ * a mantém em dia, ver use-conversations-list.ts) traz por padrão — é um inbox de "conversas
  * recentes", não um arquivo histórico completo; ninguém precisa ver de
  * relance um lead frio de anos atrás que nunca mais respondeu. Bem generoso
  * pra escala de equipe real (a organização inteira, não por vendedor).
@@ -95,7 +91,14 @@ export async function listConversations(
     include: {
       contact: { select: { id: true, name: true } },
       instance: { select: { personalOwnerId: true, personalOwner: { select: { id: true, name: true } } } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
+      // Só o que a prévia usa — sem isso vinham TODAS as colunas da última
+      // mensagem, inclusive rawPayload (o JSON bruto do WhatsApp), em 300
+      // conversas, a cada atualização da lista.
+      messages: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, body: true, type: true, direction: true, createdAt: true, sentByUserId: true },
+      },
     },
   });
 
@@ -206,6 +209,24 @@ export async function listConversations(
       senderIds: Array.from(sendersByThread.get(thread.id) ?? []),
     });
   }
+  // Nome de quem mandou a última mensagem quando NÃO foi o dono do número
+  // (ex.: gestor mandando pela conversa de um consultor). Envio pelo CRM grava
+  // sentByUserId sempre, então quando é o próprio dono o nome já está em mãos;
+  // só busca os outros.
+  const overrideSenderIds = Array.from(
+    new Set(
+      withMessages.flatMap((t) => {
+        const m = t.messages[0];
+        return m.direction === "OUTBOUND" && m.sentByUserId && m.sentByUserId !== t.instance?.personalOwnerId ? [m.sentByUserId] : [];
+      }),
+    ),
+  );
+  const overrideSenderNames = new Map(
+    overrideSenderIds.length > 0
+      ? (await prisma.user.findMany({ where: { id: { in: overrideSenderIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
+      : [],
+  );
+
   const dealByContact = new Map<string, { id: string; name: string; ownerId: string; ownerName: string }>();
   for (const deal of openDeals) {
     if (!dealByContact.has(deal.contactId)) {
@@ -234,8 +255,16 @@ export async function listConversations(
         thread.phoneNormalized,
       phoneNormalized: thread.phoneNormalized,
       whatsappName: thread.whatsappName,
-      lastMessagePreview: msg.body || PREVIEW_FALLBACK[msg.type] || "—",
+      lastMessagePreview: messagePreview(msg.body, msg.type, "—"),
       lastMessageDirection: msg.direction,
+      lastMessageFrom:
+        msg.direction !== "OUTBOUND"
+          ? null
+          : msg.sentByUserId && msg.sentByUserId !== thread.instance?.personalOwnerId
+            ? { id: msg.sentByUserId, name: overrideSenderNames.get(msg.sentByUserId) ?? "" }
+            : thread.instance?.personalOwner
+              ? { id: thread.instance.personalOwner.id, name: thread.instance.personalOwner.name }
+              : null,
       lastMessageAt: msg.createdAt,
       unreadCount: unreadByThread.get(thread.id) ?? 0,
       deal: deal ? { id: deal.id, name: deal.name } : null,

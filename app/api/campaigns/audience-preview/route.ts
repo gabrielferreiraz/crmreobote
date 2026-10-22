@@ -3,12 +3,14 @@ import { requireRole } from "@/lib/require-role";
 import { runWithTenant } from "@/lib/tenant-context";
 import { parseAudienceFilter, audienceFilterIsEmpty, countAudience } from "@/lib/campaigns/audience";
 import { getDealScope } from "@/lib/team-scope";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
 /** Chamado pelo modal de campanha (criação/edição) pra mostrar quantos contatos batem com o público antes de salvar. */
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });

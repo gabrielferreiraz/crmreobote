@@ -330,9 +330,9 @@ async function markDealLostOnExpiry(organizationId: string, campaign: CampaignRo
     },
   });
 
-  enqueueWebhookEvent(organizationId, "deal.lost", buildDealWebhookPayload(deal)).catch((err) =>
-    console.error("[campaigns] falha ao enfileirar deal.lost (não respondeu)", err),
-  );
+  buildDealWebhookPayload(deal)
+    .then((payload) => enqueueWebhookEvent(organizationId, "deal.lost", payload))
+    .catch((err) => console.error("[campaigns] falha ao enfileirar deal.lost (não respondeu)", err));
 }
 
 /** Ainda há destinatário enviado sem resposta — a campanha não pode ser

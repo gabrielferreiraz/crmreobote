@@ -388,9 +388,9 @@ export async function performAction(
       include: { contact: true, owner: true, stage: true, lossReason: true },
     });
     if (dealForWebhook) {
-      enqueueWebhookEvent(entity.organizationId, "deal.lost", buildDealWebhookPayload(dealForWebhook)).catch((err) =>
-        console.error("[webhooks] falha ao enfileirar deal.lost (automação)", err),
-      );
+      buildDealWebhookPayload(dealForWebhook)
+        .then((payload) => enqueueWebhookEvent(entity.organizationId, "deal.lost", payload))
+        .catch((err) => console.error("[webhooks] falha ao enfileirar deal.lost (automação)", err));
     }
     return { success: true, detail: "Negócio marcado como perdido." };
   }

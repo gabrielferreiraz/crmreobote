@@ -124,7 +124,7 @@ export function SettingsView({
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto w-full max-w-7xl space-y-5">
       <div>
         <div className="flex items-center gap-2">
           <Link href="/comissoes" className="icon-btn" aria-label="Voltar para Comissões">
@@ -139,8 +139,9 @@ export function SettingsView({
 
       {rulesChanged && <RecalculateBanner onDone={() => setRulesChanged(false)} />}
 
-      {/* Passo 1 */}
-      <Step number={1} done={activeAdministrators.length > 0} title="Administradoras">
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+        {/* Passo 1 */}
+        <Step number={1} done={activeAdministrators.length > 0} title="Administradoras">
         {administrators.length === 0 ? (
           <p className="text-sm text-neutral-600 dark:text-neutral-400">Nenhuma cadastrada.</p>
         ) : (
@@ -185,10 +186,10 @@ export function SettingsView({
           <Plus className="h-4 w-4" strokeWidth={2} />
           Cadastrar administradora
         </button>
-      </Step>
+        </Step>
 
-      {/* Passo 2 */}
-      <Step number={2} done={rules.length > 0} title="Regras">
+        {/* Passo 2 */}
+        <Step number={2} done={rules.length > 0} title="Regras">
         {administrators.length === 0 && rules.length === 0 ? (
           <p className="text-sm text-neutral-600 dark:text-neutral-400">Cadastre uma administradora primeiro.</p>
         ) : (
@@ -252,12 +253,15 @@ export function SettingsView({
             )}
           </div>
         )}
-      </Step>
+        </Step>
+      </div>
 
-      {/* Passo 3 */}
-      <StartStep currentMonth={currentMonth} startMonth={startMonth} payDay={payDay} sellerPastMonths={sellerPastMonths} />
+      <div className="mx-auto w-full max-w-3xl space-y-5">
+        {/* Passo 3 */}
+        <StartStep currentMonth={currentMonth} startMonth={startMonth} payDay={payDay} sellerPastMonths={sellerPastMonths} />
 
-      {isOwner && <ManagersStep members={members} />}
+        {isOwner && <ManagersStep members={members} />}
+      </div>
 
       {admDialog && <AdministratorDialog initial={admDialog} creditTypes={creditTypes} onClose={() => setAdmDialog(null)} onSaved={savedConfig} />}
       {ruleDialog && (
@@ -370,7 +374,7 @@ function RuleGroup({
 
 function Step({ number, done, title, children }: { number?: number; done?: boolean; title: string; children: React.ReactNode }) {
   return (
-    <section className="card space-y-4 p-5">
+    <section className="card min-w-0 space-y-4 p-5">
       <div className="flex items-center gap-3">
         {number != null && (
           <span

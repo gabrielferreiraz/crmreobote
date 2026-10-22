@@ -44,16 +44,18 @@ import {
   notifyInstanceDisconnected,
 } from "@/lib/whatsapp/instance-alerts";
 import { isActiveMember, deleteInstanceForInactiveUser } from "@/lib/whatsapp/instance-cleanup";
-import { getOrCreateThread, touchThreadLastMessage } from "@/lib/whatsapp/threads";
+import { getOrCreateThread, markInboundReadUpTo, touchThreadLastMessage } from "@/lib/whatsapp/threads";
+import { statusesReplaceableBy } from "@/lib/whatsapp/message-status";
 import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
 import { isOptOutMessage } from "@/lib/whatsapp/opt-out";
 import { dispatchMessageReceivedAutomations } from "@/lib/automations/message-trigger";
 import { shouldResetWarmup } from "@/lib/whatsapp/warmup";
 import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
+import { messagePreview } from "@/lib/whatsapp/message-preview";
 import { pauseRunningCampaignsForOfflineInstance, resumeCampaignsWithReconnectedInstance } from "@/lib/campaigns/instance-guard";
 import { handleCentralInbound } from "@/lib/whatsapp/central-ingest";
-import type { $Enums, Prisma } from "@/app/generated/prisma/client";
+import { Prisma, type $Enums } from "@/app/generated/prisma/client";
 
 type InstanceRef = {
   id: string;
@@ -228,22 +230,35 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     );
   }
 
-  const saved = await prisma.whatsAppMessage.create({
-    data: {
-      organizationId: instance.organizationId,
-      instanceId: instance.id,
-      threadId: thread.id,
-      direction,
-      type,
-      body,
-      mediaUrl,
-      externalId: externalId ?? undefined,
-      rawPayload: msg.key ? ({ key: msg.key, message: msg.message } as Prisma.InputJsonValue) : undefined,
-      replyToId,
-      status: "DELIVERED",
-      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
-    },
-  });
+  let saved;
+  try {
+    saved = await prisma.whatsAppMessage.create({
+      data: {
+        organizationId: instance.organizationId,
+        instanceId: instance.id,
+        threadId: thread.id,
+        direction,
+        type,
+        body,
+        mediaUrl,
+        externalId: externalId ?? undefined,
+        rawPayload: msg.key ? ({ key: msg.key, message: msg.message } as Prisma.InputJsonValue) : undefined,
+        replyToId,
+        status: "DELIVERED",
+        ...(options.createdAt ? { createdAt: options.createdAt } : {}),
+      },
+    });
+  } catch (err) {
+    // Corrida com a checagem acima: o envio pelo CRM (send.ts) ou outra
+    // entrega do mesmo webhook gravou esse externalId entre o findUnique e
+    // aqui. A mensagem já está salva — nada a fazer (antes virava erro 500 e
+    // o provedor reenviava o webhook à toa).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      console.log(`[wa:webhook] ignorada: externalId ${externalId} gravado em paralelo (duplicata/eco)`);
+      return;
+    }
+    throw err;
+  }
   await touchThreadLastMessage(thread.id, saved.createdAt);
   debugLog(
     `[wa:webhook] mensagem salva: id=${saved.id} direction=${direction} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`,
@@ -260,6 +275,24 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
     });
   }
 
+  // O consultor respondeu PELO PRÓPRIO CELULAR (eco OUTBOUND do número dele):
+  // quem responde viu — o que o lead tinha mandado até agora deixa de contar
+  // como não lido (ponto vermelho, lista e filtro de não lidos). Só no número
+  // PESSOAL: é o dono dele quem tem o aviso (mesma regra de "só o dono marca"
+  // de GET /api/whatsapp/messages/[threadId]); o número central tem fila e
+  // responsável próprios. Só em tempo real (o backfill grava histórico antigo
+  // em massa). Nunca derruba o webhook — a mensagem já foi salva.
+  if (direction === "OUTBOUND" && options.notify && isPersonalInstance(instance)) {
+    try {
+      const marked = await markInboundReadUpTo({ organizationId: instance.organizationId, threadId: thread.id, upTo: saved.createdAt });
+      // Só avisa quando algo mudou (mesma guarda da rota de leitura): a lista de
+      // Conversas apaga o badge na hora, sem esperar o poll.
+      if (marked > 0) publishWhatsAppEvent(instance.organizationId, { type: "read", threadId: thread.id, central: false });
+    } catch (err) {
+      console.error("[wa:webhook] falha ao marcar como lidas as mensagens respondidas pelo celular", err);
+    }
+  }
+
   // Push e resposta de campanha só fazem sentido pra mensagem recebida de
   // verdade em tempo real (nunca pro eco do que o próprio vendedor mandou,
   // nem pra uma mensagem antiga vinda do backfill de histórico).
@@ -270,9 +303,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
         threadId: thread.id,
         messageId: saved.id,
         displayName: thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized,
-        preview:
-          body ||
-          (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem"),
+        preview: messagePreview(body, type, "Nova mensagem"),
         notify: true,
       });
 
@@ -306,9 +337,7 @@ async function saveIncomingMessage(instance: InstanceRef, msg: BaileysMessage, o
         const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
         if (contact) displayName = contact.name;
       }
-      const preview =
-        body ||
-        (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
+      const preview = messagePreview(body, type, "Nova mensagem");
       sendPushToUser(instance.personalOwnerId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
         console.error("[wa:webhook] falha ao enviar push de mensagem recebida", err),
       );
@@ -679,20 +708,35 @@ export async function handleStatusUpdate(instance: InstanceRef, data: unknown): 
       return;
     }
 
-    const result = await prisma.whatsAppMessage.updateMany({ where: { externalId }, data: { status: mapped } });
+    const result = await prisma.whatsAppMessage.updateMany({
+      where: { externalId, status: { in: statusesReplaceableBy(mapped) } },
+      data: { status: mapped },
+    });
     console.log(`[wa:webhook] status "${update.status}" → ${mapped} aplicado a ${result.count} mensagem(ns) (externalId=${externalId})`);
 
-    // Achar a thread à parte (updateMany não devolve as linhas afetadas) só
-    // pra saber quem avisar — barato, externalId é @unique.
+    // externalId é @unique — busca barata, pra saber a conversa (e a direção).
+    const message = await prisma.whatsAppMessage.findFirst({
+      where: { externalId },
+      select: { threadId: true, direction: true, createdAt: true },
+    });
+    if (!message) return;
+
+    // "Lida" numa mensagem RECEBIDA = o dono do número abriu a conversa no
+    // celular (nem o CRM nem a Evolution marcam leitura sozinhos). Então ela,
+    // e as anteriores, deixam de contar como não lidas aqui também — o ponto
+    // vermelho do CRM não pode cobrar uma mensagem que o consultor já leu.
+    // Só no número pessoal (mesma regra de "só o dono marca"; a Central tem
+    // fila e responsável próprios).
+    let markedRead = 0;
+    if (mapped === "READ" && message.direction === "INBOUND" && isPersonalInstance(instance)) {
+      markedRead = await markInboundReadUpTo({ organizationId: instance.organizationId, threadId: message.threadId, upTo: message.createdAt });
+    }
+
     if (result.count > 0) {
-      const message = await prisma.whatsAppMessage.findFirst({ where: { externalId }, select: { threadId: true } });
-      if (message) {
-        publishWhatsAppEvent(instance.organizationId, {
-          type: "status",
-          threadId: message.threadId,
-          central: instance.kind === "CENTRAL",
-        });
-      }
+      publishWhatsAppEvent(instance.organizationId, { type: "status", threadId: message.threadId, central: instance.kind === "CENTRAL" });
+    }
+    if (markedRead > 0) {
+      publishWhatsAppEvent(instance.organizationId, { type: "read", threadId: message.threadId, central: false });
     }
   } catch (err) {
     console.error("[wa:webhook] falha ao processar status de mensagem", err);

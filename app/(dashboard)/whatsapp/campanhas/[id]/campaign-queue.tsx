@@ -112,7 +112,7 @@ function savedNotice(changed: number, ignored: number, refreshed: boolean): stri
 function TimeChip({ iso, soon }: { iso: string | null; soon?: boolean }) {
   return (
     <span
-      className={`inline-flex min-w-[3.6rem] shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums ${
+      className={`inline-flex min-w-[4rem] shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-sm font-medium tabular-nums ${
         soon
           ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300"
           : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
@@ -127,7 +127,7 @@ function TimeChip({ iso, soon }: { iso: string | null; soon?: boolean }) {
 function PersonLine({ item }: { item: QueueItemView }) {
   return (
     <div className="min-w-0 flex-1">
-      <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.contactName}</p>
+      <p className="truncate text-base font-medium text-neutral-900 dark:text-neutral-100">{item.contactName}</p>
       <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
         {item.contactJobTitle ?? "Sem cargo"} · {item.contactPhone ?? "sem telefone"}
       </p>
@@ -520,15 +520,13 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
   const windowHint = view.state === "not-started" ? "se iniciar agora" : stoppedButResumable ? "se retomar agora" : `até ${timeOf(view.nextHour.untilAt)}`;
 
   return (
-    <div className="card space-y-3 p-3">
+    <section className="space-y-3 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 sm:p-4" aria-labelledby="campaign-queue-title">
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <ListOrdered className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-          <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Fila de disparo</h2>
-          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium tabular-nums text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-            {view.total} na fila
-          </span>
+          <h2 id="campaign-queue-title" className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Fila de envio</h2>
+          <span className="text-sm tabular-nums text-neutral-500 dark:text-neutral-400">{view.total} contatos</span>
         </div>
         <div className="flex items-center gap-2">
           {!editing && view.items.length > 8 && (
@@ -536,7 +534,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
               type="button"
               onClick={expanded ? () => setExpanded(false) : showAll}
               disabled={showingAll}
-              className="btn-secondary"
+              className="btn-secondary btn-sm"
               title={view.total > MAX_LOADED ? "Mostra até 500 contatos; use a busca para localizar qualquer outro." : undefined}
             >
               {showingAll ? (
@@ -550,7 +548,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
             </button>
           )}
           {canEditNow && !editing && (
-            <button type="button" onClick={enterEdit} disabled={starting} className="btn-secondary">
+            <button type="button" onClick={enterEdit} disabled={starting} className="btn-secondary btn-sm">
               {starting ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Pencil className="h-4 w-4" strokeWidth={2} />}
               Editar ordem
             </button>
@@ -571,7 +569,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
       </div>
 
       {/* Situação da campanha + de onde vem o ritmo */}
-      <div className="space-y-0.5 text-sm">
+      <div className="space-y-0.5 text-base">
         <p className={`font-medium ${STATE_TONE[view.state]}`}>{stateMessage(view, firstAt)}</p>
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
           {view.pace.basis === "observed"
@@ -582,34 +580,34 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
       </div>
 
       {/* Próxima hora */}
-      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2.5 dark:border-emerald-900/60 dark:bg-emerald-500/10">
+      <div className="-mx-3 border-y border-emerald-200 bg-emerald-50 px-3 py-3 dark:border-emerald-900/60 dark:bg-emerald-500/10 sm:-mx-4 sm:px-4">
         <div className="flex flex-wrap items-center gap-2">
           <CalendarClock className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" strokeWidth={2} />
-          <span className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">{windowTitle}</span>
+          <span className="text-base font-semibold text-emerald-900 dark:text-emerald-200">{windowTitle}</span>
           <span className="text-xs text-emerald-800/80 dark:text-emerald-300/80">({windowHint})</span>
-          <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold tabular-nums text-white dark:bg-emerald-500">
+          <span className="text-sm font-semibold tabular-nums text-emerald-800 dark:text-emerald-300">
             {view.nextHour.count} contato{view.nextHour.count === 1 ? "" : "s"}
           </span>
         </div>
         {view.nextHour.count > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1">
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
             {nextHourItems.map((n) => (
               <span
                 key={n.id}
-                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-xs text-neutral-800 dark:border-emerald-900/60 dark:bg-neutral-900 dark:text-neutral-200"
+                className="inline-flex max-w-full items-center gap-1.5 text-sm text-neutral-800 dark:text-neutral-200"
               >
                 <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{timeOf(n.estimatedAt)}</span>
                 <span className="truncate">{n.contactName}</span>
               </span>
             ))}
             {view.nextHour.count > nextHourItems.length && (
-              <span className="self-center text-xs text-emerald-800/80 dark:text-emerald-300/80">
+              <span className="self-center text-sm text-emerald-800/80 dark:text-emerald-300/80">
                 + {view.nextHour.count - nextHourItems.length} outros
               </span>
             )}
           </div>
         ) : (
-          <p className="mt-1.5 text-xs text-emerald-900/80 dark:text-emerald-200/80">
+          <p className="mt-1.5 text-sm text-emerald-900/80 dark:text-emerald-200/80">
             Ninguém será enviado {hypothetical ? "nessa hora" : "na próxima hora"}.
             {firstAt && shown[0] ? ` O próximo envio está previsto para ${dayLabel(firstAt, view.serverNow).toLowerCase()} às ${timeOf(firstAt)} — ${shown[0].contactName}.` : ""}
           </p>
@@ -617,24 +615,22 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
       </div>
 
       {editing && (
-        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-900 dark:border-blue-900/60 dark:bg-blue-500/10 dark:text-blue-200">
+        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-500/10 dark:text-blue-200">
           <Info className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
           <span>
             <strong>Modo edição.</strong> Arraste pelo ícone <GripVertical className="inline h-3.5 w-3.5" strokeWidth={2} /> ou use{" "}
-            <ArrowUpToLine className="inline h-3.5 w-3.5" strokeWidth={2} /> para mandar alguém pro início da fila. Os horários ficam nas posições:
-            quem sobe na lista passa a ser enviado mais cedo. Nada é salvo até você clicar em <strong>Salvar ordem</strong>, e quem já foi
-            enviado não muda.
+            <ArrowUpToLine className="inline h-3.5 w-3.5" strokeWidth={2} />. Quem sobe recebe antes. Finalize em <strong>Salvar ordem</strong>.
           </span>
         </div>
       )}
 
       {notice && (
-        <p className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+        <p className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
           <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
           {notice}
         </p>
       )}
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       {/* Busca — acha quem está lá no fundo de uma fila de milhares */}
       {view.total > PAGE_SIZE && (
@@ -644,7 +640,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar contato na fila (nome ou telefone)"
+              placeholder="Buscar na fila"
               className="field-input pl-8"
             />
             {searching && <Loader2 className="absolute top-1/2 right-2.5 h-4 w-4 -translate-y-1/2 animate-spin text-neutral-400" strokeWidth={2} />}
@@ -652,7 +648,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
           {results !== null && (
             <ul className="space-y-1.5">
               {results.length === 0 && (
-                <li className="text-xs text-neutral-500 dark:text-neutral-400">Ninguém com esse nome/telefone na fila (quem já foi enviado não aparece aqui).</li>
+                <li className="text-sm text-neutral-500 dark:text-neutral-400">Ninguém com esse nome/telefone na fila (quem já foi enviado não aparece aqui).</li>
               )}
               {results.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
@@ -697,7 +693,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
                 </li>
               ))}
               {results.length > 0 && !editing && view.canEdit && (
-                <li className="text-xs text-neutral-400 dark:text-neutral-500">Para mover alguém, clique em “Editar ordem”.</li>
+                <li className="text-sm text-neutral-400 dark:text-neutral-500">Para mover alguém, clique em “Editar ordem”.</li>
               )}
             </ul>
           )}
@@ -733,7 +729,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
         <div className={expanded ? "space-y-3" : "max-h-[55vh] space-y-3 overflow-y-auto overscroll-contain pr-1 scrollbar-thin"}>
           {groups.map((group) => (
             <div key={group.key}>
-              <div className="mb-1 flex items-center gap-1.5 border-b border-neutral-100 pb-1 text-xs font-semibold text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+              <div className="mb-1 flex items-center gap-1.5 border-b border-neutral-100 pb-1 text-sm font-semibold text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
                 <Clock3 className="h-3.5 w-3.5" strokeWidth={2} />
                 {group.label}
                 {group.hour !== null && ` · ${String(group.hour).padStart(2, "0")}h`}
@@ -774,7 +770,7 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
       {/* Carregar mais */}
       {view.total > view.items.length && (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          <p className="text-sm text-neutral-400 dark:text-neutral-500">
             Mostrando os primeiros {view.items.length} de {view.total}.
           </p>
           {view.items.length < MAX_LOADED ? (
@@ -782,21 +778,23 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
               type="button"
               onClick={loadMore}
               disabled={dirty}
-              className="text-xs font-medium text-brand hover:underline disabled:opacity-40"
+              className="text-sm font-medium text-brand hover:underline disabled:opacity-40"
               title={dirty ? "Salve ou cancele as mudanças antes de carregar mais." : undefined}
             >
               Mostrar mais {Math.min(PAGE_SIZE, view.total - view.items.length)}
             </button>
           ) : (
-            <span className="text-xs text-neutral-400 dark:text-neutral-500">Use a busca acima pra achar quem está mais adiante.</span>
+            <span className="text-sm text-neutral-400 dark:text-neutral-500">Use a busca acima pra achar quem está mais adiante.</span>
           )}
         </div>
       )}
 
-      <p className="text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
-        Horários são previsões: dependem do ritmo real de envio, da janela de dias/horário e do teto diário, e mudam se a campanha for pausada ou
-        se algum envio falhar. Fuso de Campo Grande.
-      </p>
+      <details className="text-xs text-neutral-400 dark:text-neutral-500">
+        <summary className="w-fit cursor-pointer select-none font-medium hover:text-neutral-600 dark:hover:text-neutral-300">Como calculamos os horários</summary>
+        <p className="mt-1 max-w-3xl leading-snug">
+          As previsões usam o ritmo real, a janela de envio e o limite diário. Pausas e falhas podem alterar os horários. Fuso de Campo Grande.
+        </p>
+      </details>
 
       {confirmDiscard && (
         <ConfirmDialog
@@ -819,6 +817,6 @@ export function CampaignQueue({ campaignId, initial }: { campaignId: string; ini
           }}
         />
       )}
-    </div>
+    </section>
   );
 }

@@ -61,9 +61,9 @@ export function pickWeightedMember(
   members: WeightedMember[],
   cursorIndex: number,
 ): { userId: string; nextIndex: number } {
-  if (members.length === 0) throw new Error("Nao ha atendentes para distribuir");
+  if (members.length === 0) throw new Error("Não há atendentes para distribuir");
   const totalWeight = members.reduce((sum, member) => sum + member.distributionPercent, 0);
-  if (totalWeight <= 0) throw new Error("A distribuicao nao possui peso valido");
+  if (totalWeight <= 0) throw new Error("A distribuição não possui peso válido");
 
   const targetIndex = Math.max(0, Math.trunc(cursorIndex)) % totalWeight;
   const scores = members.map(() => 0);

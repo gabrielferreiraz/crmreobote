@@ -8,9 +8,9 @@ import { centralLeadsEnabled } from "@/lib/whatsapp/central-config";
  * número pessoal é barrado e o perfil abre a conversa da Central para quem
  * é o responsável.
  *
- * Com o kill-switch desligado não bloqueia nada (ninguém conseguiria
- * responder pela Central, o cliente ficaria sem resposta) e nem consulta o
- * banco. Sem JOIN: inboxStatus preenchido já é Central (ver schema), e o
+ * Com o freio de emergência acionado (CENTRAL_LEADS_ENABLED=false) não
+ * bloqueia nada (ninguém conseguiria responder pela Central, o cliente
+ * ficaria sem resposta) e nem consulta o banco. Sem JOIN: inboxStatus preenchido já é Central (ver schema), e o
  * índice (organizationId, contactId) resolve.
  */
 export async function findOpenCentralThreadForContact(organizationId: string, contactId: string) {

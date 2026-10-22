@@ -6,6 +6,10 @@ import { getWhatsAppThreadAccess } from "@/lib/whatsapp/thread-access";
 import { recordUserChange } from "@/lib/user-activity";
 import { fetchSavedContactName } from "@/lib/evolution";
 import { toDialNumber } from "@/lib/phone-normalize";
+import { bodyErrorResponse, readJson } from "@/lib/read-body";
+
+/** Mesmo teto do nome de cliente no resto do CRM. */
+const MAX_NAME_LENGTH = 120;
 
 export const dynamic = "force-dynamic";
 
@@ -67,14 +71,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ threadI
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
   const { threadId } = await params;
-  const body = await req.json();
-  const { name } = body as { name?: string };
 
-  const trimmed = typeof name === "string" ? name.trim() : "";
-  if (!trimmed) return NextResponse.json({ error: "Digite um nome" }, { status: 400 });
-
+  // Sessão ANTES de ler o corpo, e corpo com teto e JSON inválido tratado
+  // (lib/read-body.ts) — mesmo padrão das outras rotas de WhatsApp; antes um
+  // corpo malformado virava erro 500.
   const { session, organizationId, userId } = await requireSession();
   if (!organizationId || !userId) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+
+  let body: { name?: unknown };
+  try {
+    body = (await readJson(req)) as { name?: unknown };
+  } catch (err) {
+    return bodyErrorResponse(err) ?? NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+  }
+  const trimmed = typeof body?.name === "string" ? body.name.trim() : "";
+  if (!trimmed) return NextResponse.json({ error: "Digite um nome" }, { status: 400 });
+  if (trimmed.length > MAX_NAME_LENGTH) return NextResponse.json({ error: `Nome muito longo (máximo ${MAX_NAME_LENGTH} caracteres)` }, { status: 400 });
 
   return runWithTenant(organizationId, async () => {
     // Mesma regra de escopo de quem pode ABRIR a conversa (ver

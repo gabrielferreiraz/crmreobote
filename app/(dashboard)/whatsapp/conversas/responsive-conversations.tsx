@@ -2,7 +2,7 @@
 
 import { useDesktopViewport } from "@/lib/use-desktop-viewport";
 import dynamic from "next/dynamic";
-import type { Conversation, NotificationPrefs } from "./conversations-view";
+import type { Conversation, NotificationPrefs } from "./use-conversations-list";
 
 const ConversationsView = dynamic(() => import("./conversations-view").then((mod) => mod.ConversationsView));
 const ConversationsMobile = dynamic(() =>
@@ -12,7 +12,8 @@ const ConversationsMobile = dynamic(() =>
 type ResponsiveConversationsProps = {
   initialConversations: Conversation[];
   currentUserId: string;
-  notificationPrefs: NotificationPrefs;
+  /** undefined = sem WhatsApp próprio (o sininho não aparece). */
+  notificationPrefs?: NotificationPrefs;
   whatsappConnected: boolean;
 };
 
@@ -26,7 +27,7 @@ export function ResponsiveConversations(props: ResponsiveConversationsProps) {
   if (desktop === null) {
     return (
       <div
-        className="card min-h-0 flex-1 animate-pulse bg-neutral-100 dark:bg-neutral-900"
+        className="min-h-0 flex-1 animate-pulse rounded-lg border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900"
         aria-label="Carregando conversas"
       />
     );
@@ -40,6 +41,7 @@ export function ResponsiveConversations(props: ResponsiveConversationsProps) {
         initialConversations={props.initialConversations}
         currentUserId={props.currentUserId}
         notificationPrefs={props.notificationPrefs}
+        whatsappConnected={props.whatsappConnected}
       />
     </div>
   );

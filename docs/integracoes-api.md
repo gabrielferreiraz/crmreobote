@@ -510,6 +510,18 @@ recebe uma URL de destino e escolhe os eventos:
 - `contact.created` — um contato novo foi criado (manual, importação ou via `/api/v1/contacts`).
 - `deal.won` — um negócio foi marcado como ganho.
 - `deal.lost` — um negócio foi marcado como perdido.
+- `member.created` — um consultor/membro foi cadastrado na organização.
+- `member.activated` — um consultor/membro desativado foi reativado.
+- `member.deactivated` — um consultor/membro foi desativado.
+
+Os três eventos de `member.*` sempre mandam o **mesmo formato** (igual a um
+item de `GET /api/v1/members`) — na prática, esses eventos existem pra você
+manter sua própria tabela de consultores sincronizada sem precisar ficar
+chamando `GET /api/v1/members` por conta própria: ao receber qualquer um dos
+três, grave (`upsert` pelo `id`) o `data` recebido na sua tabela. Não existe
+hoje um evento pra remoção definitiva de um consultor (só desativação) — um
+consultor removido do CRM continua existindo do seu lado como `active:
+false`, igual aconteceria se só tivesse sido desativado.
 
 O CRM não entrega na hora exata do evento — enfileira e entrega no próximo
 ciclo (até ~1-2 minutos depois), com retry automático em caso de falha
@@ -534,9 +546,19 @@ X-CRM-Signature: sha256=<hmac hex>
     "name": "07/26 - Maria Silva FACEBOOK ADS",
     "status": "WON",
     "value": 350000,
+    "grossValue": 380000,
+    "creditType": "Imóvel",
+    "description": null,
+    "createdAt": "2026-07-10T13:00:00.000Z",
     "closedAt": "2026-07-17T14:32:00.000Z",
+    "pipeline": { "id": "cm...", "name": "Funil padrão" },
     "contact": { "id": "cm...", "name": "Maria Silva", "phone": "67991234567", "email": null },
-    "owner": { "id": "cm...", "name": "Vendedor" },
+    "owner": {
+      "id": "cm...",
+      "name": "Vendedor",
+      "email": "vendedor@empresa.com",
+      "photoUrl": "https://.../avatars/....jpg?X-Amz-Signature=..."
+    },
     "stage": { "id": "cm...", "name": "Fechamento" },
     "lossReason": null
   }
@@ -553,11 +575,44 @@ X-CRM-Signature: sha256=<hmac hex>
     "name": "07/26 - Maria Silva FACEBOOK ADS",
     "status": "LOST",
     "value": 350000,
+    "grossValue": 380000,
+    "creditType": "Imóvel",
+    "description": null,
+    "createdAt": "2026-07-10T13:00:00.000Z",
     "closedAt": "2026-07-17T15:00:00.000Z",
+    "pipeline": { "id": "cm...", "name": "Funil padrão" },
     "contact": { "id": "cm...", "name": "Maria Silva", "phone": "67991234567", "email": null },
-    "owner": { "id": "cm...", "name": "Vendedor" },
+    "owner": {
+      "id": "cm...",
+      "name": "Vendedor",
+      "email": "vendedor@empresa.com",
+      "photoUrl": "https://.../avatars/....jpg?X-Amz-Signature=..."
+    },
     "stage": { "id": "cm...", "name": "Fechamento" },
     "lossReason": "Sem interesse no momento"
+  }
+}
+```
+
+`owner.photoUrl` segue a mesma regra de `GET /api/v1/members`: `null` quando
+não tem foto, e quando vem preenchido é uma URL assinada que **expira em 1
+hora** — não guarde/cacheie por muito tempo.
+
+**Exemplo para `member.created` / `member.activated` / `member.deactivated`**
+(formato idêntico aos três; só o `event` e o `active` dentro de `data` mudam):
+```json
+{
+  "event": "member.deactivated",
+  "timestamp": "2026-07-17T15:00:00.000Z",
+  "data": {
+    "id": "cm...",
+    "name": "Vendedor Escolhido",
+    "email": "vendedor@empresa.com",
+    "role": "MEMBER",
+    "active": false,
+    "team": { "id": "cm...", "name": "Equipe Centro" },
+    "photoUrl": "https://.../avatars/....jpg?X-Amz-Signature=...",
+    "memberSince": "2026-01-10T12:00:00.000Z"
   }
 }
 ```

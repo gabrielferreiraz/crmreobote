@@ -24,7 +24,7 @@ function nonNegativeInt(value: string | null, fallback: number) {
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
-  if (!access.ok) return NextResponse.json({ error: "Nao autenticado" }, { status: 401 });
+  if (!access.ok) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
 
   const limited = rateLimitOrResponse(`campaign-recipients:${access.organizationId}:${access.userId}`, 120, 60_000);
   if (limited) return limited;
@@ -46,7 +46,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       status,
       onlyReplied: url.searchParams.get("replied") === "1",
     });
-    if (!page) return NextResponse.json({ error: "Campanha nao encontrada" }, { status: 404 });
+    if (!page) return NextResponse.json({ error: "Campanha não encontrada" }, { status: 404 });
     return NextResponse.json(page, { headers: { "Cache-Control": "no-store" } });
   });
 }

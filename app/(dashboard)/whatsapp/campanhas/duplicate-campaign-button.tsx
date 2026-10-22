@@ -45,8 +45,9 @@ export function DuplicateCampaignButton({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode }),
-    });
+    }).catch(() => null);
     setLoading(false);
+    if (!res) return setError("Sem conexão. Tente de novo.");
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Erro ao duplicar campanha");
@@ -91,6 +92,13 @@ export function DuplicateCampaignButton({
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} /> : <Copy className="h-3.5 w-3.5" strokeWidth={2} />}
         </button>
+      )}
+      {/* Duplicação direta (sem filtro de público, sem modal): o erro aparecia
+          só dentro do modal — que nesse caminho nunca abre — e sumia calado. */}
+      {error && !choosing && (
+        <span role="alert" className="text-[11px] text-red-600 dark:text-red-400">
+          {error}
+        </span>
       )}
 
       {choosing && (

@@ -24,6 +24,40 @@ export async function touchThreadLastMessage(threadId: string, at: Date): Promis
   await prisma.whatsAppThread.update({ where: { id: threadId }, data: { lastMessageAt: at } });
 }
 
+/**
+ * O dono da conversa RESPONDEU — marca como lidas as mensagens que o lead
+ * mandou até o momento da resposta (`upTo`). Só mexe no que já tinha chegado:
+ * uma mensagem do lead posterior à resposta continua não lida, porque ainda
+ * ninguém viu.
+ *
+ * Existe porque o "não lido" do CRM só se apagava ao ABRIR a conversa aqui
+ * dentro: quem respondia direto do celular continuava com o ponto vermelho
+ * (e a conversa na lista de não lidas) de uma mensagem que já viu e respondeu.
+ * Chamado só pelo webhook, para o eco de mensagem enviada do celular de quem
+ * é dono do número (ver saveIncomingMessage em lib/whatsapp/events.ts).
+ *
+ * `db` aceita o cliente normal ou uma transação (os testes usam transação
+ * desfeita). Devolve quantas mensagens mudaram.
+ */
+export async function markInboundReadUpTo(
+  params: { organizationId: string; threadId: string; upTo: Date },
+  // O cliente com a extensão de RLS e a transação têm tipos diferentes pro
+  // TypeScript, mas aqui só se usa `updateMany` — igual nos dois.
+  db: Pick<Prisma.TransactionClient, "whatsAppMessage"> = prisma as unknown as Pick<Prisma.TransactionClient, "whatsAppMessage">,
+): Promise<number> {
+  const { count } = await db.whatsAppMessage.updateMany({
+    where: {
+      organizationId: params.organizationId,
+      threadId: params.threadId,
+      direction: "INBOUND",
+      read: false,
+      createdAt: { lte: params.upTo },
+    },
+    data: { read: true },
+  });
+  return count;
+}
+
 /** Acha um Contact do CRM cujo telefone bata com o número normalizado (considera a variante com/sem o 9º dígito). */
 export async function resolveContactForNumber(
   organizationId: string,

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Briefcase, Loader2, MessageCircle } from "lucide-react";
+import { Briefcase, Loader2, MessageCircle, Search } from "lucide-react";
 import { useDesktopViewport } from "@/lib/use-desktop-viewport";
 
 type RecipientStatus = "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED";
@@ -48,11 +48,19 @@ const STATUS_LABELS: Record<RecipientStatus, string> = {
 };
 
 const STATUS_TONE: Record<RecipientStatus, string> = {
-  PENDING: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
-  SENDING: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400",
-  SENT: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
-  FAILED: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400",
-  SKIPPED: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
+  PENDING: "text-neutral-600 dark:text-neutral-400",
+  SENDING: "text-blue-700 dark:text-blue-400",
+  SENT: "text-emerald-700 dark:text-emerald-400",
+  FAILED: "text-red-700 dark:text-red-400",
+  SKIPPED: "text-amber-700 dark:text-amber-400",
+};
+
+const STATUS_DOT: Record<RecipientStatus, string> = {
+  PENDING: "bg-neutral-400",
+  SENDING: "bg-blue-500",
+  SENT: "bg-emerald-500",
+  FAILED: "bg-red-500",
+  SKIPPED: "bg-amber-500",
 };
 
 function formatDateTime(iso: string | null): string {
@@ -84,14 +92,14 @@ function RepliedAtCell({
           {threadId && (
             <Link
               href={`/whatsapp/conversas?threadId=${threadId}`}
-              className="flex items-center gap-1 text-xs font-medium text-brand hover:underline"
+              className="flex items-center gap-1 text-sm font-medium text-brand hover:underline"
             >
               <MessageCircle className="h-3 w-3" strokeWidth={2} />
               Ver conversa
             </Link>
           )}
           {dealId && (
-            <Link href={`/negocios/${dealId}`} className="flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+            <Link href={`/negocios/${dealId}`} className="flex items-center gap-1 text-sm font-medium text-brand hover:underline">
               <Briefcase className="h-3 w-3" strokeWidth={2} />
               Ver negócio
             </Link>
@@ -146,16 +154,20 @@ export function RecipientsTable({
   campaignId,
   initialPage,
   repliedTotal,
+  initialStatusFilter = "ALL",
+  initialOnlyReplied = false,
 }: {
   campaignId: string;
   initialPage: RecipientPage;
   repliedTotal: number;
+  initialStatusFilter?: RecipientStatus | "ALL";
+  initialOnlyReplied?: boolean;
 }) {
   const desktop = useDesktopViewport();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<RecipientStatus | "ALL">("ALL");
-  const [onlyReplied, setOnlyReplied] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<RecipientStatus | "ALL">(initialStatusFilter);
+  const [onlyReplied, setOnlyReplied] = useState(initialOnlyReplied);
   const [recipients, setRecipients] = useState(initialPage.items);
   const [total, setTotal] = useState(initialPage.total);
   const [loading, setLoading] = useState(false);
@@ -197,7 +209,7 @@ export function RecipientsTable({
       })
       .catch((requestError) => {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
-        setError("Nao foi possivel carregar os destinatarios.");
+        setError("Não foi possível carregar os destinatários.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -223,28 +235,28 @@ export function RecipientsTable({
       setRecipients((current) => [...current, ...page.items]);
       setTotal(page.total);
     } catch {
-      if (activeQuery.current === key) setError("Nao foi possivel carregar mais destinatarios.");
+      if (activeQuery.current === key) setError("Não foi possível carregar mais destinatários.");
     } finally {
       setLoadingMore(false);
     }
   }
 
-  const filtered = recipients;
-  const repliedCount = repliedTotal;
-
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nome ou telefone"
-          className="field-input max-w-xs"
-        />
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400" strokeWidth={2} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar nome ou telefone"
+            className="field-input w-full pl-9 text-base"
+          />
+        </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as RecipientStatus | "ALL")}
-          className="field-input w-auto"
+          className="field-input w-auto text-base"
         >
           <option value="ALL">Todos os status</option>
           <option value="PENDING">Pendente</option>
@@ -256,27 +268,28 @@ export function RecipientsTable({
         <button
           type="button"
           onClick={() => setOnlyReplied((v) => !v)}
-          className={`rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors ${
+          aria-pressed={onlyReplied}
+          className={`rounded-md border px-3 py-2 text-base font-medium transition-colors ${
             onlyReplied
               ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
               : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           }`}
         >
-          Só quem respondeu ({repliedCount})
+          Só quem respondeu ({repliedTotal})
         </button>
       </div>
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-base text-red-600 dark:text-red-400">{error}</p>}
 
       {loading && (
-        <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+        <div className="flex items-center gap-2 text-base text-neutral-500 dark:text-neutral-400">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Atualizando destinatarios
         </div>
       )}
 
-      {filtered.length === 0 && !loading ? (
-        <div className="card px-4 py-6 text-center text-neutral-400 dark:text-neutral-500">
+      {recipients.length === 0 && !loading ? (
+        <div className="rounded-lg border border-neutral-200 px-4 py-8 text-center text-base text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
           Nenhum destinatário encontrado.
         </div>
       ) : (
@@ -286,16 +299,17 @@ export function RecipientsTable({
           )}
           {/* Mobile: cards */}
           {desktop === false && (
-          <div className="space-y-2">
-            {filtered.map((r) => (
-              <div key={r.id} className="card p-3">
+          <div className="divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-950">
+            {recipients.map((r) => (
+              <article key={r.id} className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <span className="min-w-0 truncate font-medium text-neutral-900 dark:text-neutral-100">{r.contactName}</span>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[r.status]}`}>
+                  <span className={`inline-flex shrink-0 items-center gap-1.5 text-sm font-medium ${STATUS_TONE[r.status]}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[r.status]}`} aria-hidden="true" />
                     {STATUS_LABELS[r.status]}
                   </span>
                 </div>
-                {r.error && <p className="mt-0.5 text-xs text-red-500">{r.error}</p>}
+                {r.error && <p className="mt-0.5 text-sm text-red-500">{r.error}</p>}
                 <div className="mt-2 space-y-1 text-sm text-neutral-500 dark:text-neutral-400">
                   <p>Cargo: {r.contactJobTitle ?? "—"}</p>
                   <p>Telefone: {r.contactPhone ?? "—"}</p>
@@ -319,7 +333,7 @@ export function RecipientsTable({
                     />
                   </p>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
           )}
@@ -327,7 +341,7 @@ export function RecipientsTable({
           {/* Desktop: table */}
           {desktop === true && (
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-base">
               <thead>
                 <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-neutral-500 dark:text-neutral-400">
                   <th className="px-4 py-2 font-medium">Contato</th>
@@ -341,7 +355,7 @@ export function RecipientsTable({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {recipients.map((r) => (
                   <tr key={r.id} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
                     <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{r.contactName}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{r.contactJobTitle ?? "—"}</td>
@@ -353,10 +367,11 @@ export function RecipientsTable({
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[r.status]}`}>
+                      <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${STATUS_TONE[r.status]}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[r.status]}`} aria-hidden="true" />
                         {STATUS_LABELS[r.status]}
                       </span>
-                      {r.error && <p className="mt-0.5 text-xs text-red-500">{r.error}</p>}
+                      {r.error && <p className="mt-0.5 text-sm text-red-500">{r.error}</p>}
                     </td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">{formatDateTime(r.sentAt)}</td>
                     <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400">
@@ -379,12 +394,12 @@ export function RecipientsTable({
         </>
       )}
 
-      {filtered.length > 0 && (
+      {recipients.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-500 dark:text-neutral-400">
           <span>
-            Exibindo {filtered.length} de {total}
+            Exibindo {recipients.length} de {total}
           </span>
-          {filtered.length < total && (
+          {recipients.length < total && (
             <button type="button" className="btn-secondary btn-sm" onClick={() => void loadMore()} disabled={loadingMore || loading}>
               {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
               Mostrar mais

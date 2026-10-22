@@ -49,6 +49,30 @@ export function renderTemplate(template: string, vars: CampaignVariables, greeti
     .replaceAll("{saudacao}", greeting);
 }
 
+/**
+ * Contato de exemplo de TODAS as prévias de mensagem (campanha, script, envio
+ * em massa). Eram cópias em cada tela — uma dizia "Sua Cidade", outra "Campo
+ * Grande", e {consultor} saía vazio — então o mesmo script aparecia diferente
+ * dependendo de onde se olhava.
+ */
+export const SAMPLE_CONTACT_VARS = {
+  nome: "Maria Silva",
+  cargo: "Advogada",
+  empresa: "Empresa Exemplo",
+  cidade: "Campo Grande",
+  consultor: "Ana",
+} satisfies CampaignVariables;
+
+/** Texto como o lead veria, com o contato de exemplo; variável desconhecida vira "Maria" e chave solta some. */
+export function renderSamplePreview(text: string): string {
+  return renderTemplate(text, SAMPLE_CONTACT_VARS, "Boa tarde").replace(/\{[^{}]*\}/g, "Maria").replace(/[{}]/g, "");
+}
+
+/** Espera entre mensagens na prévia: "30s depois", "2 min depois". */
+export function stepDelayLabel(seconds: number): string {
+  return seconds < 60 ? `${seconds}s depois` : `${Math.round(seconds / 60)} min depois`;
+}
+
 /** Uma "mensagem" da sequência de um script — delayAfterSec é a espera até a PRÓXIMA (ignorado na última). */
 /**
  * Cada etapa pode ser uma mensagem normal ou uma imagem com legenda. A imagem

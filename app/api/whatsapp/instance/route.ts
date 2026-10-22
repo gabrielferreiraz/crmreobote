@@ -18,6 +18,7 @@ import { validateProxyInput, buildEvolutionProxyPayload, type ProxyInput } from 
 import { provisionEvolutionConnection } from "@/lib/whatsapp/provision-evolution";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -207,7 +208,8 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
   const { notifyOnCrmMessage, notifyOnGeralMessage } = body as {
     notifyOnCrmMessage?: boolean;
     notifyOnGeralMessage?: boolean;

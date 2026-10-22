@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, Search, Briefcase, BriefcaseBusiness, X, Bell, BellOff, WifiOff, CheckSquare, Square } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
-import { EmptyState } from "@/components/empty-state";
 import { Select } from "@/components/select";
 import { SelectionBar } from "@/components/selection-bar";
 import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
@@ -14,84 +13,20 @@ import { QuickAddDealPanel } from "@/components/quick-add-deal-panel";
 import { ContactInfoPanel } from "./contact-info-panel";
 import { BulkSendConversationsDialog } from "@/components/bulk-send-conversations-dialog";
 import { formatBrazilianPhone } from "@/lib/phone-normalize";
-import { useVisiblePoll } from "@/lib/use-visible-poll";
-import { useWhatsAppLive } from "@/lib/use-whatsapp-live";
+import { formatChatListTime } from "@/lib/whatsapp/format-time";
+import { useConversationsList, type Conversation, type ConversationTab, type NotificationPrefs } from "./use-conversations-list";
 
-export type Conversation = {
-  threadId: string;
-  /** null = ainda não vinculada a nenhum Contact do CRM ("WhatsApp Geral"). */
-  contactId: string | null;
-  displayName: string;
-  phoneNormalized: string;
-  whatsappName: string | null;
-  lastMessagePreview: string;
-  lastMessageDirection: "INBOUND" | "OUTBOUND";
-  lastMessageAt: string | Date;
-  unreadCount: number;
-  deal: { id: string; name: string } | null;
-  ownerId: string;
-  ownerName: string;
-  /** userIds de quem já mandou mensagem OUTBOUND nesta conversa — ver
-   * lib/whatsapp/conversations.ts. Usado pelo filtro "Você"/consultor
-   * abaixo, não ownerId (responsável pelo negócio pode nunca ter falado
-   * com o lead). */
-  senderIds: string[];
-  profilePicUrl: string | null;
-};
-
-export type ConversationTab = "crm" | "geral";
-
-export type NotificationPrefs = { notifyOnCrmMessage: boolean; notifyOnGeralMessage: boolean };
+// Tipos e regras da lista moram em use-conversations-list.ts (compartilhado com o celular).
+export type { Conversation, ConversationTab, NotificationPrefs } from "./use-conversations-list";
 
 const SIDEBAR_WIDTH_KEY = "wa-conversations-sidebar-width";
-const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MIN_WIDTH = 320;
 const SIDEBAR_MAX_WIDTH = 480;
-const SIDEBAR_DEFAULT_WIDTH = 320;
+const SIDEBAR_DEFAULT_WIDTH = 360;
 
-/**
- * Agrupa por responsável preservando a ordem de primeira aparição — como a
- * lista já chega ordenada por mensagem mais recente, isso naturalmente põe o
- * grupo do vendedor mais ativo agora no topo, sem precisar reordenar nada.
- */
-export function groupByOwner<T extends { ownerId: string; ownerName: string }>(
-  conversations: T[],
-): { ownerId: string; ownerName: string; items: T[] }[] {
-  const groups = new Map<string, { ownerId: string; ownerName: string; items: T[] }>();
-  for (const c of conversations) {
-    const group = groups.get(c.ownerId);
-    if (group) group.items.push(c);
-    else groups.set(c.ownerId, { ownerId: c.ownerId, ownerName: c.ownerName, items: [c] });
-  }
-  return Array.from(groups.values());
-}
-
+/** Horário da lista — mesma régua (e fuso) de Atendimentos e do chat (lib/whatsapp/format-time.ts). */
 export function formatWhen(value: string | Date): string {
-  const date = new Date(value);
-  const now = new Date();
-  
-  const dDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffDays = Math.round((dNow.getTime() - dDate.getTime()) / (24 * 60 * 60 * 1000));
-
-  if (diffDays === 0) {
-    return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  }
-  if (diffDays === 1) {
-    return "Ontem";
-  }
-  if (diffDays < 7) {
-    const daysOfWeek = [
-      "Domingo",
-      "Segunda-feira",
-      "Terça-feira",
-      "Quarta-feira",
-      "Quinta-feira",
-      "Sexta-feira",
-      "Sábado"
-    ];
-    return daysOfWeek[dDate.getDay()];
-  }
-  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatChatListTime(value);
 }
 
 /** Abas "WhatsApp CRM" (vinculado a um Contact) / "WhatsApp Geral" (todo o resto) — compartilhado entre desktop e mobile. */
@@ -101,6 +36,7 @@ export function TabSwitcher({
   counts,
   notificationPrefs,
   onToggleNotifications,
+  whatsappConnected = true,
 }: {
   tab: ConversationTab;
   onChange: (tab: ConversationTab) => void;
@@ -108,13 +44,42 @@ export function TabSwitcher({
   /** Sem instância própria conectada não tem o que configurar — some o sino. */
   notificationPrefs?: NotificationPrefs;
   onToggleNotifications?: (tab: ConversationTab) => void;
+  whatsappConnected?: boolean;
 }) {
   const notifyEnabled =
     tab === "crm" ? notificationPrefs?.notifyOnCrmMessage : notificationPrefs?.notifyOnGeralMessage;
 
   return (
-    <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
-      <div className="flex flex-1 items-center gap-0.5 rounded-xl bg-neutral-100/80 p-0.5 dark:bg-neutral-900">
+    <header className="shrink-0 border-b border-neutral-200 px-3 pt-3 pb-2.5 dark:border-neutral-800">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Conversas</h1>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${whatsappConnected ? "bg-emerald-500" : "bg-red-500"}`}
+              aria-hidden="true"
+            />
+            {whatsappConnected ? "WhatsApp conectado" : "WhatsApp desconectado"}
+          </p>
+        </div>
+        {notificationPrefs && onToggleNotifications && (
+          <button
+            type="button"
+            onClick={() => onToggleNotifications(tab)}
+            className={`icon-btn shrink-0 ${notifyEnabled ? "bg-brand-light text-brand" : ""}`}
+            aria-label={notifyEnabled ? `Desativar notificações do ${tab === "crm" ? "CRM" : "Geral"}` : `Ativar notificações do ${tab === "crm" ? "CRM" : "Geral"}`}
+            title={notifyEnabled ? "Notificações ativadas" : "Notificações desativadas"}
+          >
+            {notifyEnabled ? (
+              <Bell className="h-4 w-4" strokeWidth={2} />
+            ) : (
+              <BellOff className="h-4 w-4" strokeWidth={2} />
+            )}
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 rounded-md bg-neutral-100 p-0.5 dark:bg-neutral-900" role="tablist" aria-label="Tipo de conversa">
         {(
           [
             { value: "crm" as const, label: "WhatsApp CRM" },
@@ -124,38 +89,31 @@ export function TabSwitcher({
           <button
             key={opt.value}
             type="button"
+            role="tab"
+            aria-selected={tab === opt.value}
             onClick={() => onChange(opt.value)}
-            className={`flex-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${
+            className={`flex min-w-0 items-center justify-center gap-1 rounded px-1.5 py-2 text-xs font-medium transition-colors ${
               tab === opt.value
-                ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-800 dark:text-white dark:ring-white/10"
-                : "text-neutral-500 hover:text-neutral-700 active:bg-black/5 dark:text-neutral-400 dark:hover:text-neutral-200 dark:active:bg-white/5"
+                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-white"
+                : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
             }`}
           >
-            {opt.label}
-            {counts[opt.value] > 0 && <span className="ml-1 opacity-60">· {counts[opt.value]}</span>}
+            <span className="truncate">{opt.label}</span>
+            {counts[opt.value] > 0 && (
+              <span
+                className={`shrink-0 rounded-full px-1 text-[10px] font-semibold leading-4 ${
+                  tab === opt.value
+                    ? "bg-brand text-white"
+                    : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+                }`}
+              >
+                {counts[opt.value] > 999 ? "999+" : counts[opt.value]}
+              </span>
+            )}
           </button>
         ))}
       </div>
-      {notificationPrefs && onToggleNotifications && (
-        <button
-          type="button"
-          onClick={() => onToggleNotifications(tab)}
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
-            notifyEnabled
-              ? "bg-brand-light text-brand dark:bg-brand-light dark:text-brand"
-              : "bg-neutral-100/80 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-600 dark:bg-neutral-900 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-          }`}
-          aria-label={notifyEnabled ? `Desativar notificações do ${tab === "crm" ? "CRM" : "Geral"}` : `Ativar notificações do ${tab === "crm" ? "CRM" : "Geral"}`}
-          title={notifyEnabled ? "Notificações ativadas — clique pra desativar" : "Notificações desativadas — clique pra ativar"}
-        >
-          {notifyEnabled ? (
-            <Bell className="h-3 w-3" strokeWidth={2} />
-          ) : (
-            <BellOff className="h-3 w-3" strokeWidth={2} />
-          )}
-        </button>
-      )}
-    </div>
+    </header>
   );
 }
 
@@ -171,70 +129,47 @@ export function ConversationsView({
   /** Sem instância própria conectada, o chat avisa isso no lugar do "Selecione uma conversa". */
   whatsappConnected?: boolean;
 }) {
-  const [conversations, setConversations] = useState(initialConversations);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const paramThreadId = searchParams?.get("threadId");
-  const paramContactId = searchParams?.get("contactId");
-
-  const initialSelectedId = useMemo(() => {
-    if (paramThreadId) return paramThreadId;
-    if (paramContactId) {
-      const found = conversations.find((c) => c.contactId === paramContactId);
-      if (found) return found.threadId;
-    }
-    return null;
-  }, [paramThreadId, paramContactId, conversations]);
-
-  const selectionSource = `${paramThreadId ?? ""}:${paramContactId ?? ""}:${initialSelectedId ?? ""}`;
-  const [selection, setSelection] = useState({
-    source: selectionSource,
-    threadId: initialSelectedId as string | null,
-  });
-  const selectedThreadId = selection.source === selectionSource ? selection.threadId : initialSelectedId;
-
-  const setSelectedThreadId = useCallback((threadId: string | null) => {
-    setSelection({ source: selectionSource, threadId });
-  }, [selectionSource]);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setSelectedThreadId(null);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setSelectedThreadId]);
-
-  const [tab, setTab] = useState<ConversationTab>(() => {
-    if (paramContactId) return "crm";
-    if (paramThreadId) {
-      const found = conversations.find((c) => c.threadId === paramThreadId);
-      return found?.contactId ? "crm" : "geral";
-    }
-    return "crm";
-  });
-  const [search, setSearch] = useState("");
-  const [onlyUnread, setOnlyUnread] = useState(false);
-  // Filtro por responsável só faz sentido pra quem enxerga conversa de mais
-  // de um vendedor (OWNER) — um MEMBER só vê as próprias mesmo.
-  const [ownerFilter, setOwnerFilter] = useState("");
-  const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [notificationPrefs, setNotificationPrefs] = useState(initialNotificationPrefs);
-  const [notificationError, setNotificationError] = useState<string | null>(null);
-
   // Multi-seleção — só na aba "crm", só conversas do próprio usuário.
   const [selectMode, setSelectMode] = useState(false);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [bulkSendOpen, setBulkSendOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
-  function changeTab(nextTab: ConversationTab) {
-    setTab(nextTab);
-    setSelectMode(false);
-    setSelectedThreadIds(new Set());
-  }
+  const {
+    selected,
+    selectedThreadId,
+    setSelectedThreadId,
+    tab,
+    changeTab,
+    search,
+    setSearch,
+    onlyUnread,
+    setOnlyUnread,
+    ownerFilter,
+    setOwnerFilter,
+    justArrived,
+    notificationPrefs,
+    notificationError,
+    toggleNotifications,
+    tabCounts,
+    tabConversations,
+    unreadConversationCount,
+    ownerOptions,
+    showOwnerInfo,
+    filteredConversations,
+    groupedConversations,
+    applyDealAdded,
+    renameConversation,
+  } = useConversationsList({
+    initialConversations,
+    currentUserId,
+    initialNotificationPrefs,
+    onTabChange: () => {
+      setSelectMode(false);
+      setSelectedThreadIds(new Set());
+    },
+  });
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
 
@@ -279,179 +214,6 @@ export function ConversationsView({
     document.addEventListener("mouseup", onUp);
   }
 
-  async function toggleNotifications(target: ConversationTab) {
-    if (!notificationPrefs) return;
-    const field = target === "crm" ? "notifyOnCrmMessage" : "notifyOnGeralMessage";
-    const previous = notificationPrefs;
-    const nextValue = !previous[field];
-    setNotificationError(null);
-    setNotificationPrefs({ ...previous, [field]: nextValue });
-    try {
-      const res = await fetch("/api/whatsapp/instance", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: nextValue }),
-      });
-      if (!res.ok) {
-        // Sem isso, uma falha (sessão expirada, sem instância etc.) deixava o
-        // sino "mudo" na tela mas nada gravado — voltava sozinho ao recarregar,
-        // sem nenhum aviso de que não tinha salvo de verdade.
-        const data = await res.json().catch(() => ({}));
-        setNotificationPrefs(previous);
-        setNotificationError(data.error ?? "Não foi possível salvar a preferência de notificação.");
-      }
-    } catch {
-      setNotificationPrefs(previous);
-      setNotificationError("Falha de conexão ao salvar a preferência de notificação.");
-    }
-  }
-  const unreadByThreadRef = useRef<Map<string, number>>(
-    new Map(initialConversations.map((c) => [c.threadId, c.unreadCount])),
-  );
-  /** Busca de conversas ainda em voo — ver refreshConversations abaixo. */
-  const inFlightRef = useRef<AbortController | null>(null);
-  const liveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Reaproveitado pelo polling de segurança E pelo evento ao vivo (useWhatsAppLive
-  // abaixo) — os dois só decidem QUANDO buscar de novo, a lógica de "o que
-  // fazer com a resposta" é uma só.
-  async function refreshConversations() {
-    // Uma busca por vez: a anterior ainda em voo é DERRUBADA quando chega
-    // uma nova (SSE pode disparar várias seguidas numa conversa movimentada,
-    // e o poll ainda pode cair em cima) — só a última interessa, e esta é
-    // uma das consultas mais caras do sistema. Também é o que permite
-    // cancelar ao sair da tela (ver o efeito de desmontagem abaixo).
-    inFlightRef.current?.abort();
-    const controller = new AbortController();
-    inFlightRef.current = controller;
-    try {
-      const res = await fetch("/api/whatsapp/conversations", { signal: controller.signal });
-      if (!res.ok) return;
-      const next: Conversation[] = await res.json();
-
-      // Marca quem recebeu mensagem nova desde a última busca pra dar um
-      // piscar sutil na linha — sem isso, uma mensagem nova só se nota
-      // reparando no número do badge, fácil de passar batido.
-      const arrived = new Set<string>();
-      for (const c of next) {
-        const prevCount = unreadByThreadRef.current.get(c.threadId) ?? 0;
-        if (c.unreadCount > prevCount) arrived.add(c.threadId);
-      }
-      unreadByThreadRef.current = new Map(next.map((c) => [c.threadId, c.unreadCount]));
-
-      setConversations(next);
-      if (arrived.size > 0) {
-        setJustArrived(arrived);
-        setTimeout(() => setJustArrived(new Set()), 1400);
-      }
-    } catch {
-      // Silencioso: mantém a última lista boa em caso de falha temporária de
-      // rede — e também quando a própria tela cancelou (abort), que não é erro.
-    } finally {
-      if (inFlightRef.current === controller) inFlightRef.current = null;
-    }
-  }
-
-  // Sair de Conversas no meio do carregamento derruba a requisição em vez de
-  // deixar o Postgres terminando uma lista que ninguém mais vai ver.
-  function scheduleLiveRefresh() {
-    if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
-    liveRefreshTimerRef.current = setTimeout(() => {
-      liveRefreshTimerRef.current = null;
-      void refreshConversations();
-    }, 180);
-  }
-
-  useEffect(
-    () => () => {
-      inFlightRef.current?.abort();
-      if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
-    },
-    [],
-  );
-
-  // Rede de segurança, não o mecanismo principal — ver comentário análogo
-  // em components/whatsapp-chat.tsx. Cobre só a conexão SSE cair sem o
-  // navegador perceber.
-  //
-  // useVisiblePoll (não setInterval cru): a aba de Conversas é exatamente a
-  // que costuma ficar aberta o dia inteiro em segundo plano, e esta lista é
-  // uma das consultas mais caras do sistema. Parado, deixa de custar; e ao
-  // voltar pra aba recarrega na hora, então a lista fica mais fresca do que
-  // ficava esperando o próximo tique de 45s.
-  useVisiblePoll(() => refreshConversations(), 45_000, { immediate: false });
-
-  // Qualquer evento (de qualquer thread) pode mudar esta lista — uma
-  // conversa nova, reordenação por "mensagem mais recente", contador de não
-  // lida — então, diferente do chat (que só recarrega a própria thread
-  // aberta), aqui não filtra por threadId.
-  useWhatsAppLive(() => {
-    scheduleLiveRefresh();
-  });
-
-  const tabCounts = useMemo(
-    () => ({
-      crm: conversations.filter((c) => c.contactId).length,
-      geral: conversations.filter((c) => !c.contactId).length,
-    }),
-    [conversations],
-  );
-
-  const tabConversations = useMemo(
-    () => conversations.filter((c) => (tab === "crm" ? !!c.contactId : !c.contactId)),
-    [conversations, tab],
-  );
-
-  const unreadTotal = useMemo(() => tabConversations.reduce((sum, c) => sum + c.unreadCount, 0), [tabConversations]);
-
-  const ownerOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const c of tabConversations) seen.set(c.ownerId, c.ownerId === currentUserId ? "Você" : c.ownerName);
-    // "Você" sempre em primeiro, o resto por ordem alfabética.
-    return Array.from(seen, ([value, label]) => ({ value, label })).sort((a, b) => {
-      if (a.value === currentUserId) return -1;
-      if (b.value === currentUserId) return 1;
-      return a.label.localeCompare(b.label);
-    });
-  }, [tabConversations, currentUserId]);
-  // Enxergar mais de um responsável nas conversas já indica visibilidade
-  // ampliada (dono, ou admin líder de equipe) — não precisa checar role.
-  const showOwnerInfo = ownerOptions.length > 1;
-
-  const filteredConversations = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return tabConversations.filter((c) => {
-      if (onlyUnread && c.unreadCount === 0) return false;
-      // Filtra por quem MANDOU mensagem nesta conversa, não por quem é
-      // responsável pelo negócio vinculado (ownerId) — são coisas diferentes:
-      // o dono pode atribuir o lead pra outro cuidar sem nunca ter falado
-      // com ele, e "Você"/nome de consultor aqui é sobre atendimento de
-      // verdade, não sobre responsabilidade (ver senderIds em
-      // lib/whatsapp/conversations.ts).
-      if (ownerFilter && !c.senderIds.includes(ownerFilter)) return false;
-      if (
-        term &&
-        !c.displayName.toLowerCase().includes(term) &&
-        !c.deal?.name.toLowerCase().includes(term) &&
-        !c.phoneNormalized.includes(term)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [tabConversations, search, onlyUnread, ownerFilter]);
-
-  // Sem filtro de responsável escolhido e visibilidade ampliada: agrupa por
-  // vendedor (cada um numa seção com cabeçalho) em vez de misturar tudo numa
-  // lista só — é o "bem separado" que dá pra enxergar de quem é cada
-  // conversa sem precisar abrir uma por uma.
-  const groupedConversations = useMemo(() => {
-    if (!showOwnerInfo || ownerFilter) return null;
-    return groupByOwner(filteredConversations);
-  }, [showOwnerInfo, ownerFilter, filteredConversations]);
-
-  const selected = conversations.find((c) => c.threadId === selectedThreadId) ?? null;
-
   function selectConversation(threadId: string) {
     if (threadId === selectedThreadId) return;
     withViewTransition(() => setSelectedThreadId(threadId));
@@ -467,27 +229,25 @@ export function ConversationsView({
   }
 
   function handleDealAdded(threadId: string, result: { contactId: string; deal: { id: string; name: string } }) {
-    setConversations((prev) =>
-      prev.map((c) => (c.threadId === threadId ? { ...c, contactId: result.contactId, deal: result.deal } : c)),
-    );
+    applyDealAdded(threadId, result);
     setQuickAddOpen(false);
-    changeTab("crm");
   }
 
   return (
-    <div className="hidden min-h-0 flex-1 lg:flex">
+    <div className="hidden min-h-0 flex-1 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 lg:flex">
       {/* min-h-0: sem isso, a coluna crescia pro tamanho da lista de
           conversas inteira em vez de ficar presa à altura da tela — a
           página inteira acabava rolando junto (mesmo ajuste já feito em
           pipeline-view.tsx/processes-view.tsx). Só a lista (overflow-y-auto
           abaixo) deve rolar, nunca a tela toda. */}
-      <div className="surface-glass-panel flex min-h-0 shrink-0 flex-col overflow-hidden rounded-3xl" style={{ width: sidebarWidth }}>
+      <div className="flex min-h-0 shrink-0 flex-col overflow-hidden bg-white dark:bg-neutral-950" style={{ width: sidebarWidth }}>
         <TabSwitcher
           tab={tab}
           onChange={changeTab}
           counts={tabCounts}
           notificationPrefs={notificationPrefs}
           onToggleNotifications={toggleNotifications}
+          whatsappConnected={whatsappConnected}
         />
 
         {notificationError && (
@@ -496,12 +256,8 @@ export function ConversationsView({
           </p>
         )}
 
-        <div
-          className={`flex shrink-0 items-center gap-2 px-3 pb-3 ${
-            showOwnerInfo ? "" : "border-b border-neutral-200/60 dark:border-neutral-800/60"
-          }`}
-        >
-          <div className="relative flex-1">
+        <div className="shrink-0 border-b border-neutral-100 p-2.5 dark:border-neutral-800/70">
+          <div className="relative">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
               strokeWidth={2}
@@ -510,7 +266,7 @@ export function ConversationsView({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar conversa"
-              className="field-input rounded-2xl border-transparent bg-neutral-100 py-1.5 pr-8 pl-9 text-sm focus:border-transparent focus:bg-white focus:ring-1 focus:ring-neutral-200 dark:bg-neutral-900 dark:focus:bg-neutral-950 dark:focus:ring-neutral-800"
+              className="field-input py-2 pr-8 pl-9 text-sm"
             />
             {search && (
               <button
@@ -523,36 +279,38 @@ export function ConversationsView({
               </button>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => setOnlyUnread((v) => !v)}
-            className={`shrink-0 rounded-2xl border px-3 py-1.5 text-xs font-medium transition-all ${
-              onlyUnread
-                ? "border-transparent bg-brand text-white shadow-sm dark:text-white"
-                : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
-            }`}
-            title="Mostrar só não lidas"
-          >
-            Não lidas{unreadTotal > 0 && ` · ${unreadTotal}`}
-          </button>
-          {/* Botão "Selecionar" — só na aba CRM e quando conectado. */}
-          {tab === "crm" && whatsappConnected && (
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                setSelectMode((v) => !v);
-                setSelectedThreadIds(new Set());
-              }}
-              className={`shrink-0 rounded-2xl border px-3 py-1.5 text-xs font-medium transition-all ${
-                selectMode
-                  ? "border-transparent bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
-                  : "border-transparent bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              onClick={() => setOnlyUnread((v) => !v)}
+              className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                onlyUnread
+                  ? "border-brand bg-brand-light text-brand"
+                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-200"
               }`}
-              title={selectMode ? "Cancelar seleção" : "Selecionar conversas para envio em massa"}
+              title="Mostrar só não lidas"
             >
-              {selectMode ? "Cancelar" : "Selecionar"}
+              Não lidas{unreadConversationCount > 0 && ` · ${unreadConversationCount}`}
             </button>
-          )}
+            {/* Botão "Selecionar" — só na aba CRM e quando conectado. */}
+            {tab === "crm" && whatsappConnected && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectMode((v) => !v);
+                  setSelectedThreadIds(new Set());
+                }}
+                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  selectMode
+                    ? "border-neutral-800 bg-neutral-800 text-white dark:border-neutral-200 dark:bg-neutral-200 dark:text-neutral-900"
+                    : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-neutral-200"
+                }`}
+                title={selectMode ? "Cancelar seleção" : "Selecionar conversas para envio em massa"}
+              >
+                {selectMode ? "Cancelar" : "Selecionar"}
+              </button>
+            )}
+          </div>
         </div>
 
         {showOwnerInfo && (
@@ -613,22 +371,18 @@ export function ConversationsView({
             </div>
           </div>
         )}
-        <div className="scrollbar-thin min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5 pb-4">
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
           {tabConversations.length === 0 ? (
-            <div className="relative flex h-full items-center justify-center overflow-hidden rounded-2xl">
-              <div className="absolute top-1/2 left-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[70px]" />
-              <div className="chat-bg-dots absolute inset-0 opacity-60" />
-              <div className="relative z-10 p-6">
-                <EmptyState
-                  icon={MessageCircle}
-                  title="Nenhuma conversa ainda"
-                  description={
-                    tab === "crm"
-                      ? "Conversas de contatos já cadastrados no CRM aparecem aqui."
-                      : "Conversas de números que ainda não são contato aparecem aqui."
-                  }
-                />
-              </div>
+            <div className="flex h-full min-h-56 flex-col items-center justify-center px-6 py-10 text-center">
+              <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400 dark:bg-neutral-900 dark:text-neutral-500">
+                <MessageCircle className="h-4 w-4" strokeWidth={1.8} />
+              </span>
+              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Nenhuma conversa ainda</p>
+              <p className="mt-1 max-w-56 text-xs text-neutral-400 dark:text-neutral-500">
+                {tab === "crm"
+                  ? "Os contatos do CRM aparecem aqui."
+                  : "Os números ainda não cadastrados aparecem aqui."}
+              </p>
             </div>
           ) : filteredConversations.length === 0 ? (
             <p className="p-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
@@ -636,14 +390,15 @@ export function ConversationsView({
             </p>
           ) : groupedConversations ? (
             groupedConversations.map((group) => (
-              <div key={group.ownerId} className="space-y-0.5">
-                <p className="sticky top-0 z-10 truncate bg-white px-1.5 py-1 text-[11px] font-semibold text-neutral-400 dark:bg-neutral-900 dark:text-neutral-500">
+              <div key={group.ownerId}>
+                <p className="sticky top-0 z-10 truncate border-b border-neutral-100 bg-neutral-50 px-3 py-1.5 text-[11px] font-semibold text-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-500">
                   {group.ownerId === currentUserId ? "Você" : group.ownerName}
                 </p>
                 {group.items.map((c) => (
                   <ConversationRow
                     key={c.threadId}
                     conversation={c}
+                    viewerId={currentUserId}
                     isActive={c.threadId === selectedThreadId}
                     justArrived={justArrived.has(c.threadId)}
                     isCurrentUser={c.ownerId === currentUserId}
@@ -660,6 +415,7 @@ export function ConversationsView({
               <ConversationRow
                 key={c.threadId}
                 conversation={c}
+                viewerId={currentUserId}
                 isActive={c.threadId === selectedThreadId}
                 showOwner={showOwnerInfo}
                 isCurrentUser={c.ownerId === currentUserId}
@@ -688,12 +444,12 @@ export function ConversationsView({
           }
         }}
         title="Arraste pra redimensionar · duplo clique pra restaurar"
-        className="group flex w-4 shrink-0 cursor-col-resize items-center justify-center"
+        className="relative z-10 flex w-px shrink-0 cursor-col-resize items-center justify-center bg-neutral-200 before:absolute before:inset-y-0 before:-left-2 before:-right-2 hover:bg-neutral-400 active:bg-neutral-500 dark:bg-neutral-800 dark:hover:bg-neutral-600 dark:active:bg-neutral-500"
       >
-        <div className="h-full w-px bg-neutral-200 transition-colors group-hover:bg-neutral-400 group-active:bg-neutral-500 dark:bg-neutral-800 dark:group-hover:bg-neutral-600 dark:group-active:bg-neutral-500" />
+        <span className="sr-only">Redimensionar lista</span>
       </div>
 
-      <div className="surface-glass-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-neutral-950">
         {selected ? (
           <div className="flex h-full flex-col p-3">
             {/* Não é mais um "ou" — ver comentário equivalente em
@@ -736,11 +492,7 @@ export function ConversationsView({
               contactName={selected.displayName}
               contactPhone={formatBrazilianPhone(selected.phoneNormalized)}
               onClose={() => withViewTransition(() => setSelectedThreadId(null))}
-              onRenamed={(name) =>
-                setConversations((prev) =>
-                  prev.map((c) => (c.threadId === selected.threadId ? { ...c, displayName: name } : c)),
-                )
-              }
+              onRenamed={(name) => renameConversation(selected.threadId, name)}
               className="min-h-0 flex-1"
             />
 
@@ -757,36 +509,25 @@ export function ConversationsView({
             )}
           </div>
         ) : !whatsappConnected ? (
-          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-50/50 p-6 dark:bg-neutral-900/40">
-            <div className="absolute top-1/2 left-1/2 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/10 blur-[100px]" />
-            <div className="chat-bg-dots absolute inset-0 opacity-70" />
-            
-            <div className="relative z-10 w-full max-w-md rounded-[24px] bg-white p-8 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
-              <EmptyState
-                icon={WifiOff}
-                title="Seu WhatsApp está desconectado"
-                description="Você pode ver as conversas, mas não consegue enviar nem receber mensagens até reconectar."
-                action={
-                  <Link href="/configuracoes/perfil" className="btn-secondary">
-                    Reconectar em Configurações → Perfil
-                  </Link>
-                }
-              />
-            </div>
+          <div className="flex h-full flex-col items-center justify-center bg-white px-6 text-center dark:bg-neutral-950">
+            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-500 dark:bg-red-500/10 dark:text-red-400">
+              <WifiOff className="h-5 w-5" strokeWidth={1.8} />
+            </span>
+            <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">WhatsApp desconectado</p>
+            <p className="mt-1 max-w-sm text-xs text-neutral-400 dark:text-neutral-500">
+              Reconecte para enviar e receber mensagens.
+            </p>
+            <Link href="/configuracoes/perfil" className="btn-secondary mt-4 text-xs">
+              Reconectar
+            </Link>
           </div>
         ) : (
-          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden bg-neutral-50/50 p-6 dark:bg-neutral-900/40">
-            <div className="absolute top-1/2 left-1/2 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/10 blur-[100px]" />
-            <div className="chat-bg-dots absolute inset-0 opacity-70" />
-            <WhatsAppIcon className="absolute top-1/2 left-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 text-neutral-900/[0.07] dark:text-white/[0.07]" />
-            
-            <div className="relative z-10 w-full max-w-md rounded-[24px] bg-white p-8 shadow-sm ring-1 ring-neutral-200/50 dark:bg-neutral-950 dark:ring-neutral-800">
-              <EmptyState
-                icon={MessageCircle}
-                title="Selecione uma conversa"
-                description="Escolha um contato à esquerda pra ver o histórico."
-              />
-            </div>
+          <div className="flex h-full flex-col items-center justify-center bg-white px-6 text-center dark:bg-neutral-950">
+            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-neutral-100 text-neutral-400 dark:bg-neutral-900 dark:text-neutral-500">
+              <MessageCircle className="h-5 w-5" strokeWidth={1.8} />
+            </span>
+            <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Abra uma conversa</p>
+            <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">Escolha um contato na lista.</p>
           </div>
         )}
       </div>
@@ -824,8 +565,23 @@ export function ConversationsView({
  * mestre-detalhe do mobile (conversations-view-mobile.tsx), pra não duplicar
  * essa marcação bem detalhada em dois lugares.
  */
+/**
+ * "Você: " só quando foi quem está vendo que mandou a última mensagem. Pra
+ * dono/gerente olhando a conversa de um consultor, mostra o nome de quem
+ * mandou — antes toda mensagem enviada aparecia como "Você:", mesmo sendo
+ * de outra pessoa.
+ */
+function outboundPrefix(c: Conversation, viewerId: string | undefined): string {
+  if (c.lastMessageDirection !== "OUTBOUND") return "";
+  const from = c.lastMessageFrom;
+  if (!from || !viewerId || from.id === viewerId) return "Você: ";
+  const firstName = from.name.trim().split(/\s+/)[0];
+  return firstName ? `${firstName}: ` : "";
+}
+
 export function ConversationRow({
   conversation: c,
+  viewerId,
   isActive,
   showOwner,
   isCurrentUser,
@@ -836,6 +592,8 @@ export function ConversationRow({
   onSelect,
 }: {
   conversation: Conversation;
+  /** Quem está vendo a lista — decide o "Você:" da prévia. */
+  viewerId?: string;
   isActive: boolean;
   showOwner?: boolean;
   isCurrentUser?: boolean;
@@ -853,7 +611,11 @@ export function ConversationRow({
   const canSelect = selectMode && isCurrentUser && !!onToggleSelect;
 
   return (
-    <div className={`relative flex items-stretch gap-0 rounded-md transition-all ${selected ? "ring-1 ring-brand/40 dark:ring-brand/30" : ""}`}>
+    <div
+      className={`relative flex items-stretch border-b border-neutral-100 transition-colors dark:border-neutral-800/60 ${
+        selected ? "bg-brand-light" : ""
+      }`}
+    >
       {/* Checkbox — irmão do botão, nunca dentro dele. A coluna aparece pra
           TODA linha durante selectMode (mesmo alinhamento pra lista
           inteira); só é clicável nas conversas do próprio usuário — nas
@@ -866,7 +628,7 @@ export function ConversationRow({
             onClick={onToggleSelect}
             aria-label={selected ? "Desmarcar conversa" : "Selecionar conversa"}
             aria-pressed={selected}
-            className="flex w-8 shrink-0 items-center justify-center rounded-l-md transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
+            className="flex w-9 shrink-0 items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
           >
             {selected ? (
               <CheckSquare className="h-4 w-4 text-brand" strokeWidth={2} />
@@ -877,7 +639,7 @@ export function ConversationRow({
         ) : (
           <span
             title="Só é possível enviar mensagem em massa pelas suas próprias conversas"
-            className="flex w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-l-md"
+            className="flex w-9 shrink-0 cursor-not-allowed items-center justify-center"
           >
             <Square className="h-4 w-4 text-neutral-200 dark:text-neutral-800" strokeWidth={2} />
           </span>
@@ -886,12 +648,10 @@ export function ConversationRow({
       <button
         type="button"
         onClick={canSelect ? onToggleSelect : onSelect}
-        className={`flex min-w-0 flex-1 items-start gap-2.5 border-l-2 p-2.5 text-left transition-all hover:-translate-y-px active:translate-y-0 ${
-          selectMode ? "rounded-r-md" : "rounded-md"
-        } ${
+        className={`flex min-w-0 flex-1 items-start gap-3 border-l-2 px-3 py-3 text-left transition-colors ${
           isActive
-            ? "border-l-brand bg-white shadow-sm ring-1 ring-neutral-200/50 dark:border-l-brand dark:bg-neutral-800 dark:ring-neutral-700"
-            : "border-l-transparent hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-neutral-200/50 dark:hover:bg-neutral-800/60 dark:hover:ring-neutral-800"
+            ? "border-l-brand bg-brand-light dark:border-l-brand dark:bg-brand-light"
+            : "border-l-transparent hover:bg-neutral-50 dark:hover:bg-neutral-900"
         } ${justArrived ? "animate-highlight-once" : ""}`}
       >
         <div className="group relative mt-0.5 shrink-0">
@@ -930,11 +690,11 @@ export function ConversationRow({
                 unread ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-500 dark:text-neutral-400"
               }`}
             >
-              {c.lastMessageDirection === "OUTBOUND" ? "Você: " : ""}
+              {outboundPrefix(c, viewerId)}
               {c.lastMessagePreview}
             </p>
             {unread && (
-              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-semibold text-white">
                 {c.unreadCount}
               </span>
             )}

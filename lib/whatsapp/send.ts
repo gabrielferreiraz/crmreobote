@@ -339,26 +339,47 @@ export async function sendWhatsAppMessage(params: WhatsAppOutgoingMessage): Prom
     throw new WhatsAppSendError("Falha ao enviar a mensagem pelo WhatsApp. Tente novamente.");
   }
 
-  const message = await prisma.whatsAppMessage.create({
-    data: {
-      organizationId,
-      instanceId: instance.id,
-      threadId,
-      direction: "OUTBOUND",
-      type,
-      body: text,
-      mediaUrl,
-      metadata: metadata as Prisma.InputJsonValue | undefined,
-      externalId,
-      rawPayload: rawPayload as Prisma.InputJsonValue | undefined,
-      replyToId,
-      status: "SENT",
-      campaignId,
-      automationRuleId,
-      sentByUserId: sentByUserId && sentByUserId !== instance.personalOwnerId ? sentByUserId : undefined,
-      attributedUserId: sentByUserId ?? instance.personalOwnerId,
-    },
-  });
+  const data = {
+    organizationId,
+    instanceId: instance.id,
+    threadId,
+    direction: "OUTBOUND" as const,
+    type,
+    body: text,
+    mediaUrl,
+    metadata: metadata as Prisma.InputJsonValue | undefined,
+    externalId,
+    rawPayload: rawPayload as Prisma.InputJsonValue | undefined,
+    replyToId,
+    status: "SENT" as const,
+    campaignId,
+    automationRuleId,
+    sentByUserId: sentByUserId && sentByUserId !== instance.personalOwnerId ? sentByUserId : undefined,
+    attributedUserId: sentByUserId ?? instance.personalOwnerId,
+  };
+  // A mensagem JÁ SAIU. Se o eco dela pelo webhook chegou antes desta
+  // gravação, a linha já existe (mesmo externalId, que é único): completa ela
+  // com o que só o envio sabe (quem mandou, campanha, automação, mídia) em vez
+  // de estourar erro — antes isso mostrava "Falha ao enviar" pra uma mensagem
+  // que o lead já tinha recebido, e quem tentava de novo mandava duplicado.
+  // O status não é tocado: o do eco/webhook pode já estar à frente (entregue).
+  const message = externalId
+    ? await prisma.whatsAppMessage.upsert({
+        where: { externalId },
+        create: data,
+        update: {
+          type,
+          mediaUrl,
+          metadata: data.metadata,
+          replyToId,
+          campaignId,
+          automationRuleId,
+          sentByUserId: data.sentByUserId,
+          attributedUserId: data.attributedUserId,
+          ...(rawPayload ? { rawPayload: data.rawPayload } : {}),
+        },
+      })
+    : await prisma.whatsAppMessage.create({ data });
   await touchThreadLastMessage(threadId, message.createdAt);
 
   return { id: message.id };

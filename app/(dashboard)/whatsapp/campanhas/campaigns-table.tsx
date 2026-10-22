@@ -42,7 +42,7 @@ import { BulkCampaignScheduleFields, type BulkCampaignSchedule } from "@/compone
 import { BulkScriptPicker, type BulkScriptOption } from "@/components/bulk-script-picker";
 import { RmktWavesFields } from "@/components/rmkt-waves-fields";
 import { useRmktWaves, type WaveRow } from "@/lib/use-rmkt-waves";
-import { renderSteps, pickWeighted, renderTemplate, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
+import { renderSteps, pickWeighted, renderSamplePreview, stepDelayLabel, SAMPLE_CONTACT_VARS, type WeightedScript, type ScriptStep } from "@/lib/campaigns/spintax";
 import { DuplicateCampaignButton } from "./duplicate-campaign-button";
 import { trackUse } from "@/lib/feature-usage/track";
 import { PAUSE_REASON, type PauseReason } from "@/lib/campaigns/pause-reasons";
@@ -133,18 +133,8 @@ const STATUS_META: Record<CampaignStatus, { label: string; tone: BadgeTone; icon
   DONE: { label: "Concluída", tone: "slate", icon: CircleCheckBig },
 };
 
-const SAMPLE_VARS = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Sua Cidade" };
-const PREVIEW_VARIABLES = { nome: "Maria Silva", cargo: "Advogada", empresa: "Empresa Exemplo", cidade: "Campo Grande" };
-
-function delayLabel(seconds: number): string {
-  return seconds < 60 ? `${seconds}s depois` : `${Math.round(seconds / 60)} min depois`;
-}
-
 function createPreviewMessages(script: BulkScriptOption): string[] {
-  return script.steps.map((step) => {
-    if (!step.text.trim()) return "(mensagem vazia)";
-    return renderTemplate(step.text, PREVIEW_VARIABLES, "Boa tarde").replace(/\{[^{}]*\}/g, "Maria").replace(/[{}]/g, "");
-  });
+  return script.steps.map((step) => (step.text.trim() ? renderSamplePreview(step.text) : "(mensagem vazia)"));
 }
 
 const NUMBER_FORMAT = new Intl.NumberFormat("pt-BR");
@@ -181,9 +171,12 @@ const DOT = (
  * por seleção manual, ver DuplicateCampaignButton) — "Nenhum critério
  * definido" (o que describeAudienceFilter devolve nesse caso) lê como um
  * erro/campo esquecido; isso aqui deixa claro que é intencional. */
+function hasAudienceFilter(f: AudienceFilter): boolean {
+  return f.jobTitles.length > 0 || f.tags.length > 0 || f.cities.length > 0;
+}
+
 function audienceDisplay(c: Pick<Campaign, "audienceFilter" | "audienceLabel">): string {
-  const hasFilter = c.audienceFilter.jobTitles.length > 0 || c.audienceFilter.tags.length > 0 || c.audienceFilter.cities.length > 0;
-  return hasFilter ? c.audienceLabel : "Lista selecionada manualmente";
+  return hasAudienceFilter(c.audienceFilter) ? c.audienceLabel : "Lista selecionada manualmente";
 }
 
 /** "Rodando" com tudo já enviado (0 pendente) confunde — parece travada, mas
@@ -248,11 +241,7 @@ function CampaignProgressBar({
   );
 }
 
-/** Cartão de número do topo da tela — ícone em selo colorido + rótulo +
- * número + uma linha de contexto. Mesmo desenho dos cards do Início
- * (app/(dashboard)/page.tsx). O `hint` existe porque número sozinho não diz
- * nada pra quem não é técnico: "148" só faz sentido junto de "mensagens
- * enviadas". */
+/** Indicador compacto da faixa de resumo. */
 function StatCard({
   icon: Icon,
   label,
@@ -271,13 +260,13 @@ function StatCard({
   valueClass?: string;
 }) {
   return (
-    <div className="card flex items-center gap-3 p-3.5">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${sealClass}`}>
+    <div className="flex min-w-0 items-center gap-3 bg-white px-4 py-3.5 dark:bg-neutral-950">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${sealClass}`}>
         <Icon className="h-4 w-4" strokeWidth={2} />
       </span>
       <div className="min-w-0">
         <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
-        <p className={`text-xl font-semibold tabular-nums ${valueClass}`}>
+        <p className={`text-lg font-semibold tabular-nums ${valueClass}`}>
           {value}
           {suffix && <span className="ml-1 text-sm font-normal text-neutral-400 dark:text-neutral-500">{suffix}</span>}
         </p>
@@ -386,7 +375,8 @@ export function CampaignsTable({
       // Devolve a linha solta: a posição não precisa ser reconstruída aqui
       // porque a ordenação roda de novo a cada render (ver visibleCampaigns).
       setRows((current) => [...current, campaign]);
-      setActionError(`Não foi possível excluir "${campaign.name}". Tente de novo.`);
+      const data = await res?.json().catch(() => null);
+      setActionError(data?.error ?? `Não foi possível excluir "${campaign.name}". Tente de novo.`);
       return;
     }
     router.refresh();
@@ -410,7 +400,7 @@ export function CampaignsTable({
       setSetup(loaded);
       return loaded;
     } catch {
-      setSetupError("Nao foi possivel carregar as opcoes da campanha.");
+      setSetupError("Não foi possível carregar as opções da campanha.");
       return null;
     } finally {
       setupPromiseRef.current = null;
@@ -433,14 +423,20 @@ export function CampaignsTable({
     try {
       const [res, loadedSetup] = await Promise.all([fetch(`/api/campaigns/${id}`), loadSetup()]);
       if (!res.ok) {
-        setActionError("Nao foi possivel abrir esta campanha.");
+        setActionError("Não foi possível abrir esta campanha.");
         setOpen(false);
         return;
       }
-      if (!loadedSetup) return;
+      if (!loadedSetup) {
+        // Sem as opções não dá pra editar — fecha em vez de deixar o "Tentar
+        // novamente" do modal de carga, que reabriria como campanha NOVA.
+        setActionError("Não foi possível abrir esta campanha.");
+        setOpen(false);
+        return;
+      }
       setEditCampaign((await res.json()) as RawCampaign);
     } catch {
-      setActionError("Nao foi possivel abrir esta campanha.");
+      setActionError("Não foi possível abrir esta campanha.");
       setOpen(false);
     } finally {
       setLoadingEditId(null);
@@ -504,14 +500,33 @@ export function CampaignsTable({
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Campanhas</h1>
+          <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+            {summary.running > 0
+              ? `${fmtNumber(summary.running)} ${summary.running === 1 ? "campanha enviando" : "campanhas enviando"}`
+              : "Envios em massa pelo WhatsApp"}
+          </p>
+        </div>
+        <button
+          onClick={openCreate}
+          className="btn-primary"
+          disabled={instances.length === 0}
+        >
+          <Plus className="h-4 w-4" strokeWidth={2.5} />
+          Nova campanha
+        </button>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* Histórico: filtro de status — Ativas some Concluída da visão
             principal sozinha, sem esconder o histórico de vez (ver
             statusFilter acima). A contagem aparece nas TRÊS abas (antes só
             "Concluídas" tinha número) — sem isso "Todas" não dizia quantas
             eram no total. */}
-        <div className="flex items-center gap-1">
+        <div className="grid grid-cols-3 rounded-md bg-neutral-100 p-0.5 dark:bg-neutral-900" role="tablist" aria-label="Filtrar campanhas">
           {(
             [
               ["active", "Ativas", rows.length - doneCount],
@@ -522,25 +537,19 @@ export function CampaignsTable({
             <button
               key={value}
               type="button"
+              role="tab"
+              aria-selected={statusFilter === value}
               onClick={() => setStatusFilter(value)}
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`rounded px-3 py-2 text-xs font-medium transition-colors ${
                 statusFilter === value
-                  ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                  : "border-neutral-300 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                  ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-white"
+                  : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
               }`}
             >
               {label} ({count})
             </button>
           ))}
         </div>
-        <button
-          onClick={openCreate}
-          className="btn-primary"
-          disabled={instances.length === 0}
-        >
-          <Plus className="h-4 w-4" strokeWidth={2.5} />
-          Nova campanha
-        </button>
       </div>
 
       {instances.length === 0 && (
@@ -561,7 +570,7 @@ export function CampaignsTable({
       )}
 
       {rows.length > 0 && visibleCampaigns.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 lg:grid-cols-4 dark:border-neutral-800 dark:bg-neutral-800">
           <StatCard
             icon={Megaphone}
             label="Campanhas"
@@ -607,11 +616,11 @@ export function CampaignsTable({
       )}
 
       {rows.length === 0 ? (
-        <div className="card">
+        <div className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
           <EmptyState
             icon={Megaphone}
             title="Nenhuma campanha criada ainda"
-            description="Escolha um público (cargo, tag ou cidade) e envie uma prospecção com variação de mensagem e intervalo seguro entre envios."
+            description="Crie uma campanha e escolha quem vai receber."
             action={
               <button
                 type="button"
@@ -626,18 +635,20 @@ export function CampaignsTable({
           />
         </div>
       ) : (
-        <>
-          <div className="relative min-w-[200px] sm:max-w-xs">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
-              strokeWidth={2}
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar campanha pelo nome"
-              className="field-input py-1.5 pl-8 text-sm"
-            />
+        <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+          <div className="border-b border-neutral-100 p-3 dark:border-neutral-800/70">
+            <div className="relative min-w-[200px] sm:max-w-sm">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
+                strokeWidth={2}
+              />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar campanha pelo nome"
+                className="field-input py-2 pl-8 text-sm"
+              />
+            </div>
           </div>
 
           {/* Explicação de "Pausar" vs "Parar" — os dois ficam lado a lado na
@@ -646,7 +657,7 @@ export function CampaignsTable({
               técnico precisa saber ANTES de clicar. Só aparece quando existe
               campanha com um dos dois botões à vista. */}
           {hasStoppable && (
-            <div className="flex items-start gap-2 rounded-lg border border-neutral-200 bg-neutral-50/70 p-2.5 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
+            <div className="flex items-start gap-2 border-b border-neutral-100 bg-neutral-50 px-3 py-2.5 text-xs text-neutral-500 dark:border-neutral-800/70 dark:bg-neutral-900/50 dark:text-neutral-400">
               <Info className="mt-px h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
               <span>
                 <strong className="font-medium text-neutral-700 dark:text-neutral-300">Pausar</strong> interrompe os
@@ -666,7 +677,7 @@ export function CampaignsTable({
                   : "Nenhuma campanha nesse filtro."}
             </p>
           ) : (
-            <div className="space-y-2.5">
+            <div className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
               {visibleCampaigns.map((c) => {
                 const total = c.counts.pending + c.counts.sent + c.counts.failed + c.counts.skipped;
                 const { sent, pending, failed, skipped, replied } = c.counts;
@@ -676,7 +687,10 @@ export function CampaignsTable({
                 const replySuffix = sent > 0 ? ` (${fmtPercent(replied, sent)})` : "";
 
                 return (
-                  <div key={c.id} className="card p-4">
+                  <div
+                    key={c.id}
+                    className="grid items-start gap-x-6 p-4 transition-colors hover:bg-neutral-50/70 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.2fr)] dark:hover:bg-neutral-900/40"
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <Link
@@ -721,7 +735,7 @@ export function CampaignsTable({
                       </div>
                     </div>
 
-                    <div className="mt-3">
+                    <div className="mt-3 lg:mt-0 lg:self-center">
                       <div className="flex items-center gap-2.5">
                         <CampaignProgressBar sent={sent} failed={failed} total={total} status={c.status} />
                         <span className="w-11 shrink-0 text-right text-xs font-medium tabular-nums text-neutral-500 dark:text-neutral-400">
@@ -778,7 +792,7 @@ export function CampaignsTable({
                         = navegação/edição, vermelho = o que não tem volta
                         (parar/excluir). Antes os botões tinham todos o mesmo
                         peso visual e ficavam no meio da linha sem hierarquia. */}
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-neutral-100 pt-3 lg:col-span-2 dark:border-neutral-800">
                       {/* Sem spinner no próprio botão de status: a resposta é
                           otimista (ver setStatus), então o botão já VIRA o
                           outro (Pausar → Retomar) no mesmo quadro do clique —
@@ -839,11 +853,7 @@ export function CampaignsTable({
                       {c.canManage && (
                         <DuplicateCampaignButton
                           campaignId={c.id}
-                          hasAudienceFilter={
-                            c.audienceFilter.jobTitles.length > 0 ||
-                            c.audienceFilter.tags.length > 0 ||
-                            c.audienceFilter.cities.length > 0
-                          }
+                          hasAudienceFilter={hasAudienceFilter(c.audienceFilter)}
                           labeled
                           size="sm"
                           onDuplicated={() => router.refresh()}
@@ -889,7 +899,7 @@ export function CampaignsTable({
               })}
             </div>
           )}
-        </>
+        </div>
       )}
 
       {open && (!setup || preparingEdit) && (
@@ -908,7 +918,7 @@ export function CampaignsTable({
             )}
             <div>
               <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
-                {preparingEdit ? "Abrindo campanha" : setupError ? "Nao foi possivel abrir" : "Preparando campanha"}
+                {preparingEdit ? "Abrindo campanha" : setupError ? "Não foi possível abrir" : "Preparando campanha"}
               </h2>
               {setupError && <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{setupError}</p>}
             </div>
@@ -1181,19 +1191,21 @@ function CampaignDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const hasAudienceFilter = jobTitles.length > 0 || tags.length > 0 || cities.length > 0;
+  const audienceSelected = hasAudienceFilter({ jobTitles, tags, cities });
+  const [audienceFailed, setAudienceFailed] = useState(false);
 
   // Prévia do público — debounced, evita disparar uma consulta a cada tecla.
   // Todo o trabalho (inclusive ligar o "carregando") roda dentro do timeout,
   // nunca direto no corpo do efeito. Sem critério nenhum, a mensagem exibida
-  // já cobre esse caso olhando pra hasAudienceFilter, sem precisar de fetch.
+  // já cobre esse caso olhando pra audienceSelected, sem precisar de fetch.
   useEffect(() => {
-    if (!hasAudienceFilter) return;
+    if (!audienceSelected) return;
 
     const controller = new AbortController();
     const timeout = setTimeout(async () => {
       setAudienceLoading(true);
       setAudienceCount(null);
+      setAudienceFailed(false);
       try {
         const res = await fetch("/api/campaigns/audience-preview", {
           method: "POST",
@@ -1201,11 +1213,16 @@ function CampaignDialog({
           body: JSON.stringify({ audienceFilter: { jobTitles, tags, cities } }),
           signal: controller.signal,
         });
-        if (!res.ok || controller.signal.aborted) return;
+        if (controller.signal.aborted) return;
+        // Falhou: avisa em vez de ficar "Calculando..." pra sempre.
+        if (!res.ok) return setAudienceFailed(true);
         const data = await res.json();
         if (!controller.signal.aborted) setAudienceCount(data.count);
       } catch (err) {
-        if (!controller.signal.aborted) console.error("[campaigns] falha ao calcular público", err);
+        if (!controller.signal.aborted) {
+          console.error("[campaigns] falha ao calcular público", err);
+          setAudienceFailed(true);
+        }
       } finally {
         if (!controller.signal.aborted) setAudienceLoading(false);
       }
@@ -1214,7 +1231,7 @@ function CampaignDialog({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [jobTitles, tags, cities, hasAudienceFilter]);
+  }, [jobTitles, tags, cities, audienceSelected]);
 
   function toggleScript(scriptId: string) {
     setSelectedScriptIds((prev) =>
@@ -1295,7 +1312,7 @@ function CampaignDialog({
     const chosen = pickWeighted(candidates);
     return renderSteps(
       chosen.steps,
-      { nome: SAMPLE_VARS.nome, cargo: jobTitles[0] || SAMPLE_VARS.cargo, empresa: SAMPLE_VARS.empresa, cidade: cities[0] || SAMPLE_VARS.cidade },
+      { ...SAMPLE_CONTACT_VARS, cargo: jobTitles[0] || SAMPLE_CONTACT_VARS.cargo, cidade: cities[0] || SAMPLE_CONTACT_VARS.cidade },
       "Boa tarde",
     );
   }, [selectedScriptIds, scripts, jobTitles, cities]);
@@ -1308,8 +1325,9 @@ function CampaignDialog({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ instanceId, phone: testPhone, steps: previewSteps }),
-    });
+    }).catch(() => null);
     setTestSending(false);
+    if (!res) return setTestResult("Sem conexão. Tente de novo.");
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setTestResult(data.error ?? "Erro ao enviar teste");
@@ -1341,10 +1359,12 @@ function CampaignDialog({
       method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    });
+    }).catch(() => null);
 
     setLoading(false);
 
+    // Sem rede o botão ficava em "salvando" pra sempre.
+    if (!res) return setError("Sem conexão. Tente de novo.");
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Erro ao salvar campanha");
@@ -1357,14 +1377,14 @@ function CampaignDialog({
 
   const canSubmit =
     !!name.trim() &&
-    hasAudienceFilter &&
+    audienceSelected &&
     !!instanceId &&
     selectedScriptIds.length > 0 &&
     rmkt.valid &&
     schedule.delayMaxSec >= schedule.delayMinSec &&
     schedule.allowedWeekdays.length > 0;
 
-  const audienceBadge = hasAudienceFilter ? (
+  const audienceBadge = audienceSelected ? (
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
         audienceLoading || audienceCount === null
@@ -1374,7 +1394,9 @@ function CampaignDialog({
             : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
       }`}
     >
-      {audienceLoading || audienceCount === null
+      {audienceFailed && !audienceLoading
+        ? "Sem contagem"
+        : audienceLoading || audienceCount === null
         ? "Calculando..."
         : `${audienceCount} contato${audienceCount === 1 ? "" : "s"}`}
     </span>
@@ -1422,10 +1444,10 @@ function CampaignDialog({
           <ChipInput label="Cargo (um ou mais)" values={jobTitles} onChange={setJobTitles} placeholder="Ex.: Advogado — Enter pra adicionar" options={audienceOptions.jobTitles} />
           <ChipInput label="Tags do contato" values={tags} onChange={setTags} placeholder="Ex.: lead-quente" options={audienceOptions.tags} />
           <ChipInput label="Cidade" values={cities} onChange={setCities} placeholder="Ex.: Campo Grande" options={audienceOptions.cities} />
-          {!hasAudienceFilter && (
+          {!audienceSelected && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Defina ao menos um critério pra ver quantos contatos batem.</p>
           )}
-          {hasAudienceFilter && audienceCount === 0 && !audienceLoading && (
+          {audienceSelected && audienceCount === 0 && !audienceLoading && (
             <p className="text-xs text-red-600 dark:text-red-400">Nenhum contato encontrado com esse público.</p>
           )}
         </DialogSection>
@@ -1512,7 +1534,7 @@ function CampaignDialog({
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">M</div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">Maria Silva</p>
+                <p className="truncate text-sm font-semibold">{SAMPLE_CONTACT_VARS.nome}</p>
                 <p className="text-[11px] text-white/70">Prévia de envio</p>
               </div>
             </div>
@@ -1531,7 +1553,7 @@ function CampaignDialog({
               <div key={index}>
                 {index > 0 && (
                   <p className="mb-2 text-center text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                    {delayLabel(scriptPreview.script.steps[index - 1].delayAfterSec)}
+                    {stepDelayLabel(scriptPreview.script.steps[index - 1].delayAfterSec)}
                   </p>
                 )}
                 <div className="ml-auto max-w-[88%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-3 py-2 text-sm leading-snug whitespace-pre-wrap text-neutral-800 shadow-sm dark:bg-[#005c4b] dark:text-neutral-100">

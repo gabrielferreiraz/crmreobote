@@ -6,6 +6,7 @@ import { resolveCampaignInput, type CampaignInput } from "@/lib/campaigns/build"
 import { getDealScope, campaignScopeWhere } from "@/lib/team-scope";
 import { PAUSE_REASON, parsePauseReason } from "@/lib/campaigns/pause-reasons";
 import type { $Enums, Prisma } from "@/app/generated/prisma/client";
+import { readJsonObjectOrError } from "@/lib/read-body";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
+  const body = await readJsonObjectOrError(req);
+  if (body instanceof NextResponse) return body;
 
   const access = await requireRole(["OWNER", "MANAGER", "SUPERVISOR", "MEMBER"]);
   if (!access.ok) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });

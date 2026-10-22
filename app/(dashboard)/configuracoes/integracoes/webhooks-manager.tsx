@@ -10,15 +10,31 @@ import { EmptyState } from "@/components/empty-state";
 import { LoadingDots } from "@/components/loading-dots";
 import { requestJson } from "@/lib/client-request";
 
-type WebhookEventType = "contact.created" | "deal.won" | "deal.lost";
+type WebhookEventType =
+  | "contact.created"
+  | "deal.won"
+  | "deal.lost"
+  | "member.created"
+  | "member.activated"
+  | "member.deactivated";
 
 const EVENT_LABELS: Record<WebhookEventType, string> = {
   "contact.created": "Contato criado",
   "deal.won": "Negócio ganho",
   "deal.lost": "Negócio perdido",
+  "member.created": "Consultor cadastrado",
+  "member.activated": "Consultor reativado",
+  "member.deactivated": "Consultor inativado",
 };
 
-const ALL_EVENTS: WebhookEventType[] = ["contact.created", "deal.won", "deal.lost"];
+const ALL_EVENTS: WebhookEventType[] = [
+  "contact.created",
+  "deal.won",
+  "deal.lost",
+  "member.created",
+  "member.activated",
+  "member.deactivated",
+];
 
 type WebhookSubscription = {
   id: string;

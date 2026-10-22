@@ -78,6 +78,8 @@ export function WhatsAppConnect() {
   const [error, setError] = useState<string | null>(null);
   const [importingHistory, setImportingHistory] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  // A 1ª checagem falhou: sem isso a tela ficava em "Verificando…" pra sempre.
+  const [checkFailed, setCheckFailed] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qrPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectInFlightRef = useRef(false);
@@ -85,8 +87,12 @@ export function WhatsAppConnect() {
   const refreshStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/whatsapp/instance", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setCheckFailed(true);
+        return;
+      }
       const data = await res.json();
+      setCheckFailed(false);
       const nextStatus: EvolutionStatus = data.connected
         ? "connected"
         : data.status === "CONNECTING"
@@ -97,6 +103,7 @@ export function WhatsAppConnect() {
       if (nextStatus !== "connecting") setQrCode(null);
       return data.connected as boolean;
     } catch {
+      setCheckFailed(true);
       return undefined;
     }
   }, []);
@@ -135,7 +142,11 @@ export function WhatsAppConnect() {
       return;
     }
 
+    // `hasQr` local em vez de depender do estado qrCode: com ele nas
+    // dependências, cada QR novo reiniciava o efeito e disparava uma busca
+    // extra imediata (duas requisições por QR).
     let cancelled = false;
+    let hasQr = false;
     const pollQrCode = async () => {
       try {
         const res = await fetch("/api/whatsapp/instance/qr", { cache: "no-store" });
@@ -144,9 +155,12 @@ export function WhatsAppConnect() {
         if (data.connected) {
           setQrCode(null);
           setStatus("connected");
+          // Busca o número conectado — sem isso a tela dizia "conectado" sem o número até recarregar.
+          void refreshStatus();
           return;
         }
         if (res.ok && data.qrCode) {
+          hasQr = true;
           setQrCode(data.qrCode);
           setError(null);
         } else if (!res.ok && res.status !== 202) {
@@ -158,7 +172,7 @@ export function WhatsAppConnect() {
         // Falha transitória: mantém o fluxo e tenta novamente sem criar outra instância.
       }
 
-      if (!cancelled) qrPollRef.current = setTimeout(pollQrCode, qrCode ? 15_000 : 2_000);
+      if (!cancelled) qrPollRef.current = setTimeout(pollQrCode, hasQr ? 15_000 : 2_000);
     };
 
     void pollQrCode();
@@ -166,7 +180,7 @@ export function WhatsAppConnect() {
       cancelled = true;
       if (qrPollRef.current) clearTimeout(qrPollRef.current);
     };
-  }, [qrCode, status]);
+  }, [refreshStatus, status]);
 
   async function connect() {
     if (connectInFlightRef.current) return;
@@ -244,7 +258,16 @@ export function WhatsAppConnect() {
     <div className="space-y-5">
       <div className="space-y-3">
         {status === "loading" ? (
-          <p className="text-sm text-neutral-400 dark:text-neutral-500">Verificando…</p>
+          checkFailed ? (
+            <p className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+              Não foi possível verificar o WhatsApp.
+              <button type="button" className="btn-secondary btn-sm" onClick={() => void refreshStatus()}>
+                Tentar de novo
+              </button>
+            </p>
+          ) : (
+            <p className="text-sm text-neutral-400 dark:text-neutral-500">Verificando…</p>
+          )
         ) : (
           <>
             <div className="flex items-center justify-between gap-3">
@@ -341,14 +364,20 @@ function MetaWhatsAppConnect() {
   // parseEmbeddedSignupMessage), por isso fica num ref em vez de só uma
   // variável local dentro do callback.
   const signupDataRef = useRef<{ phoneNumberId?: string; wabaId?: string }>({});
+  const [checkFailed, setCheckFailed] = useState(false);
 
   const appId = process.env.NEXT_PUBLIC_META_APP_ID;
   const configId = process.env.NEXT_PUBLIC_META_SIGNUP_CONFIG_ID;
 
   const refreshStatus = useCallback(async () => {
-    const res = await fetch("/api/whatsapp/instance/meta/connect");
-    if (!res.ok) return;
-    const data = await res.json();
+    // Falha (rede ou servidor) vira "Tentar de novo" em vez de "Verificando…" eterno.
+    const res = await fetch("/api/whatsapp/instance/meta/connect").catch(() => null);
+    const data = res?.ok ? await res.json().catch(() => null) : null;
+    if (!data) {
+      setCheckFailed(true);
+      return;
+    }
+    setCheckFailed(false);
     setPhoneNumber(data.phoneNumber ?? null);
     setStatus(data.connected ? "connected" : "disconnected");
   }, []);
@@ -370,6 +399,12 @@ function MetaWhatsAppConnect() {
   }, []);
 
   async function finishConnect(code: string) {
+    // O postMessage com o número pode chegar DEPOIS deste callback (ver
+    // signupDataRef) — espera até ~3s antes de desistir, em vez de dar erro
+    // num pareamento que deu certo.
+    for (let i = 0; i < 15 && !(signupDataRef.current.phoneNumberId && signupDataRef.current.wabaId); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
     const { phoneNumberId, wabaId } = signupDataRef.current;
     if (!phoneNumberId || !wabaId) {
       setError("Não recebemos os dados do número conectado. Tente novamente.");
@@ -446,7 +481,16 @@ function MetaWhatsAppConnect() {
   }
 
   if (status === "loading") {
-    return <p className="text-sm text-neutral-400 dark:text-neutral-500">Verificando…</p>;
+    return checkFailed ? (
+      <p className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+        Não foi possível verificar a conexão com a Meta.
+        <button type="button" className="btn-secondary btn-sm" onClick={() => void refreshStatus()}>
+          Tentar de novo
+        </button>
+      </p>
+    ) : (
+      <p className="text-sm text-neutral-400 dark:text-neutral-500">Verificando…</p>
+    );
   }
 
   return (

@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit-log";
 import { getClientIp } from "@/lib/rate-limit";
 import { getUserOrganizationIds, EMAIL_BELONGS_TO_OTHER_ORG_MESSAGE } from "@/lib/org-membership-guard";
 import { initialAcademyOnboardingState } from "@/lib/academy-onboarding";
+import { enqueueWebhookEvent, buildMemberWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -123,7 +124,7 @@ export async function POST(req: Request) {
         showInPodium: role !== "OWNER" && role !== "SUPERVISOR",
         showInMonthRanking: role !== "OWNER",
       },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: { user: { select: { id: true, name: true, email: true, image: true } } },
     });
 
     await logAudit({
@@ -136,6 +137,16 @@ export async function POST(req: Request) {
       detail: `${membership.user.name} (${membership.user.email}) · papel ${role}`,
       ip: getClientIp(req),
     });
+
+    buildMemberWebhookPayload({
+      user: membership.user,
+      role: membership.role,
+      active: membership.active,
+      team: null,
+      createdAt: membership.createdAt,
+    })
+      .then((payload) => enqueueWebhookEvent(access.organizationId, "member.created", payload))
+      .catch((err) => console.error("[webhooks] falha ao enfileirar member.created", err));
 
     return NextResponse.json({ membership }, { status: 201 });
   });

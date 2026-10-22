@@ -20,7 +20,7 @@ function since(date: Date | null): string {
  */
 export function OfflineNotice({ ownerName, disconnectedAt }: { ownerName: string; disconnectedAt: Date | null }) {
   return (
-    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
+    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
       <Unplug className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
       <span>
         <strong>WhatsApp desconectado.</strong> O WhatsApp de <strong>{ownerName}</strong> caiu{since(disconnectedAt)}. Nada é enviado enquanto isso
@@ -77,7 +77,7 @@ export function PausedNotice({ reason, instance, canManage }: { reason: PauseRea
   }
 
   return (
-    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
+    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300">
       <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
       <span>
         <strong>Pausada automaticamente.</strong> {body}

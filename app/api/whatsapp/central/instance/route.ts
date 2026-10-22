@@ -9,6 +9,7 @@ import { buildEvolutionProxyPayload, validateProxyInput, type ProxyInput } from 
 import { provisionEvolutionConnection } from "@/lib/whatsapp/provision-evolution";
 import { saveCentralDistributionPool } from "@/lib/whatsapp/central-settings";
 import { CentralLeadError } from "@/lib/whatsapp/lead-routing";
+import { forgetCentralVisibility } from "@/lib/whatsapp/central-visibility";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -154,6 +155,8 @@ export async function POST(request: Request) {
     }
     if (!instance) return NextResponse.json({ error: "Não foi possível preparar a Central" }, { status: 500 });
 
+    // A aba "Atendimentos" dos outros cargos passa a aparecer logo (ver central-visibility.ts).
+    forgetCentralVisibility(access.organizationId);
     after(() => provisionCentral(access.organizationId, instance, created));
     return NextResponse.json({ status: "CONNECTING", pending: true }, { status: 202 });
   });
@@ -180,6 +183,7 @@ export async function DELETE() {
       data: { inboxStatus: "CLOSED", closedAt: new Date() },
     });
     await prisma.whatsAppInstance.delete({ where: { id: instance.id } });
+    forgetCentralVisibility(access.organizationId);
     await logAudit({
       organizationId: access.organizationId,
       actorUserId: access.userId,

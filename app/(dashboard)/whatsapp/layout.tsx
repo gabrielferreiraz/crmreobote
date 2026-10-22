@@ -1,8 +1,11 @@
-import { centralLeadsEnabled } from "@/lib/whatsapp/central-config";
+import { auth } from "@/lib/auth";
+import { shouldShowCentralTab } from "@/lib/whatsapp/central-visibility";
 import { WhatsAppSubNav } from "./whatsapp-subnav";
 
 /** Conversas, Campanhas e Scripts moram todos sob uma aba só no menu — separados aqui por sub-navegação em vez de 3 itens no menu de cima. */
-export default function WhatsAppLayout({ children }: { children: React.ReactNode }) {
+export default async function WhatsAppLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  const showCentral = await shouldShowCentralTab(session?.user.organizationId ?? undefined, session?.user.role ?? undefined);
   return (
     // min-h-0: sem isso, o filho h-full/flex-1 de baixo (min-h-0 flex-1 na
     // linha seguinte) não tem uma altura definida de verdade pra herdar — o
@@ -18,8 +21,9 @@ export default function WhatsAppLayout({ children }: { children: React.ReactNode
           tela — igual ao WhatsApp de verdade, quase nada de "moldura" acima
           da lista + chat. */}
       <div className="shrink-0">
-        {/* Aba "Central" só aparece com o kill-switch ligado (CENTRAL_LEADS_ENABLED). */}
-        <WhatsAppSubNav showCentral={centralLeadsEnabled()} />
+        {/* Aba "Atendimentos": Dono sempre (é quem conecta a Central); os demais
+            cargos quando a empresa já tem Central — ver central-visibility.ts. */}
+        <WhatsAppSubNav showCentral={showCentral} />
       </div>
       <div className="min-h-0 flex-1">{children}</div>
     </div>

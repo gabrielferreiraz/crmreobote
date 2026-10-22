@@ -26,7 +26,9 @@ import { sendPushToUser } from "@/lib/push";
 import { handleCampaignReply } from "@/lib/campaigns/reply";
 import { handleCentralInbound } from "@/lib/whatsapp/central-ingest";
 import { publishWhatsAppEvent } from "@/lib/whatsapp/live-events";
-import type { $Enums } from "@/app/generated/prisma/client";
+import { statusesReplaceableBy } from "@/lib/whatsapp/message-status";
+import { messagePreview } from "@/lib/whatsapp/message-preview";
+import { Prisma, type $Enums } from "@/app/generated/prisma/client";
 
 const DEBUG_LOG_ENABLED = process.env.WHATSAPP_WEBHOOK_DEBUG_LOG === "true" || process.env.NODE_ENV !== "production";
 
@@ -153,22 +155,33 @@ async function saveIncomingMetaMessage(
     replyToId = quotedMessage?.id;
   }
 
-  const saved = await prisma.whatsAppMessage.create({
-    data: {
-      organizationId: instance.organizationId,
-      instanceId: instance.id,
-      threadId: thread.id,
-      // A Meta só manda messages[] pra mensagem recebida (nunca ecoa envio
-      // próprio) — diferente do Evolution, aqui é sempre INBOUND.
-      direction: "INBOUND",
-      type,
-      body,
-      mediaUrl,
-      externalId: externalId ?? undefined,
-      replyToId,
-      status: "DELIVERED",
-    },
-  });
+  let saved;
+  try {
+    saved = await prisma.whatsAppMessage.create({
+      data: {
+        organizationId: instance.organizationId,
+        instanceId: instance.id,
+        threadId: thread.id,
+        // A Meta só manda messages[] pra mensagem recebida (nunca ecoa envio
+        // próprio) — diferente do Evolution, aqui é sempre INBOUND.
+        direction: "INBOUND",
+        type,
+        body,
+        mediaUrl,
+        externalId: externalId ?? undefined,
+        replyToId,
+        status: "DELIVERED",
+      },
+    });
+  } catch (err) {
+    // A Meta reentrega o mesmo webhook; duas entregas juntas passam as duas
+    // pela checagem acima e a segunda bate no externalId único — já salva.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      console.log(`[wa:meta-webhook] ignorada: externalId ${externalId} gravado em paralelo`);
+      return;
+    }
+    throw err;
+  }
   await touchThreadLastMessage(thread.id, saved.createdAt);
   debugLog(`[wa:meta-webhook] mensagem salva: id=${saved.id} type=${type} body="${body}" mediaUrl=${mediaUrl ?? "—"}`);
 
@@ -178,9 +191,7 @@ async function saveIncomingMetaMessage(
       threadId: thread.id,
       messageId: saved.id,
       displayName: thread.customName ?? thread.whatsappName ?? formatBrazilianPhone(normalized) ?? normalized,
-      preview:
-        body ||
-        (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem"),
+      preview: messagePreview(body, type, "Nova mensagem"),
       notify: true,
     });
     publishWhatsAppEvent(instance.organizationId, { type: "message", threadId: thread.id, central: true });
@@ -199,9 +210,7 @@ async function saveIncomingMetaMessage(
       const contact = await prisma.contact.findUnique({ where: { id: thread.contactId }, select: { name: true } });
       if (contact) displayName = contact.name;
     }
-    const preview =
-      body ||
-      (type === "IMAGE" ? "📷 Imagem" : type === "AUDIO" ? "🎵 Áudio" : type === "STICKER" ? "🧩 Figurinha" : "Nova mensagem");
+    const preview = messagePreview(body, type, "Nova mensagem");
     sendPushToUser(instance.personalOwnerId, { title: displayName, body: preview, url: "/whatsapp/conversas" }).catch((err) =>
       console.error("[wa:meta-webhook] falha ao enviar push de mensagem recebida", err),
     );
@@ -225,14 +234,30 @@ export async function handleMetaMessages(instance: InstanceRef, messages: MetaMe
   }
 }
 
-/** Status de entrega/leitura — statuses[] não carrega phone_number_id próprio, já veio filtrado pelo metadata do change. */
-export async function handleMetaStatuses(organizationId: string, statuses: MetaStatus[]): Promise<void> {
+/**
+ * Status de entrega/leitura — statuses[] não carrega phone_number_id próprio, já veio filtrado pelo metadata do change.
+ *
+ * Mesma regra do Evolution (lib/whatsapp/events.ts): status só avança — a Meta
+ * não garante ordem, e um "delivered" atrasado chegando depois do "read"
+ * voltava os dois tiques azuis pra cinza. E avisa o chat aberto, que antes só
+ * via o tique novo no próximo poll.
+ */
+export async function handleMetaStatuses(instance: Pick<InstanceRef, "organizationId" | "kind">, statuses: MetaStatus[]): Promise<void> {
+  const { organizationId } = instance;
   for (const s of statuses) {
     if (!s.id || !s.status) continue;
     const mapped = STATUS_MAP[s.status];
     if (!mapped) continue;
     try {
-      await prisma.whatsAppMessage.updateMany({ where: { organizationId, externalId: s.id }, data: { status: mapped } });
+      const result = await prisma.whatsAppMessage.updateMany({
+        where: { organizationId, externalId: s.id, status: { in: statusesReplaceableBy(mapped) } },
+        data: { status: mapped },
+      });
+      if (result.count === 0) continue;
+      const message = await prisma.whatsAppMessage.findUnique({ where: { externalId: s.id }, select: { threadId: true } });
+      if (message) {
+        publishWhatsAppEvent(organizationId, { type: "status", threadId: message.threadId, central: instance.kind === "CENTRAL" });
+      }
     } catch (err) {
       console.error(`[wa:meta-webhook] falha ao atualizar status de ${s.id}`, err);
     }
