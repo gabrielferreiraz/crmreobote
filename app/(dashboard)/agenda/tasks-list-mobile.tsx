@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckSquare, Search, SearchX } from "lucide-react";
+import { CalendarDays, CheckSquare, List, Plus, Search, SearchX } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { FilterPopover } from "@/components/filter-popover";
 import { sortAlpha } from "@/lib/sort-alpha";
@@ -18,24 +18,8 @@ import { useUndoToast } from "@/components/undo-provider";
 import { CompactMonthCalendar } from "./compact-month-calendar";
 import { trackUse } from "@/lib/feature-usage/track";
 import { requestJson } from "@/lib/client-request";
-
-function groupTasks(tasks: Task[]) {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-
-  const pending = tasks.filter((t) => !t.completedAt);
-  const completed = tasks.filter((t) => t.completedAt);
-
-  const overdue = pending.filter((t) => t.dueAt && new Date(t.dueAt) < startOfToday);
-  const today = pending.filter(
-    (t) => t.dueAt && new Date(t.dueAt) >= startOfToday && new Date(t.dueAt) < endOfToday,
-  );
-  const upcoming = pending.filter((t) => t.dueAt && new Date(t.dueAt) >= endOfToday);
-  const noDate = pending.filter((t) => !t.dueAt);
-
-  return { overdue, today, upcoming, noDate, completed };
-}
+import { AgendaSummary } from "./agenda-summary";
+import { groupAgendaTasks, type AgendaFocus } from "./agenda-utils";
 
 /**
  * Agenda no celular: o calendário em grade do desktop fica minúsculo demais
@@ -75,21 +59,25 @@ export function TasksListMobile({
   const canDelete = true;
   const [open, setOpen] = useState(false);
   const taskDialogOpen = open || !!openNewTask;
+  const [view, setView] = useState<"list" | "calendar">("list");
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [ownerFilter, setOwnerFilter] = useState("");
   // Mesmo padrão de tasks-list.tsx (desktop) — "Pendentes" como padrão,
   // concluir uma tarefa some ela da tela sem precisar mexer em filtro.
   const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
+  const [focusFilter, setFocusFilter] = useState<AgendaFocus>("all");
   const showOwner = members.length > 1;
 
-  const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending";
+  const hasFilters =
+    !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending" || focusFilter !== "all";
 
   function clearFilters() {
     setSearch("");
     setTypeFilters(new Set());
     setOwnerFilter("");
     setStatusFilter("pending");
+    setFocusFilter("all");
   }
 
   function toggleType(type: string) {
@@ -101,7 +89,7 @@ export function TasksListMobile({
     });
   }
 
-  const filteredTasks = useMemo(() => {
+  const scopedTasks = useMemo(() => {
     const term = search.trim().toLowerCase();
     return initialTasks.filter((t) => {
       if (
@@ -115,13 +103,21 @@ export function TasksListMobile({
       }
       if (typeFilters.size > 0 && !typeFilters.has(t.type)) return false;
       if (ownerFilter && t.owner.id !== ownerFilter) return false;
+      return true;
+    });
+  }, [initialTasks, search, typeFilters, ownerFilter]);
+
+  const summaryGroups = useMemo(() => groupAgendaTasks(scopedTasks), [scopedTasks]);
+  const filteredTasks = useMemo(() => {
+    const focusedTasks = focusFilter === "all" ? scopedTasks : summaryGroups[focusFilter];
+    return focusedTasks.filter((t) => {
       if (statusFilter === "pending" && t.completedAt) return false;
       if (statusFilter === "completed" && !t.completedAt) return false;
       return true;
     });
-  }, [initialTasks, search, typeFilters, ownerFilter, statusFilter]);
+  }, [scopedTasks, statusFilter, focusFilter, summaryGroups]);
 
-  const groups = useMemo(() => groupTasks(filteredTasks), [filteredTasks]);
+  const groups = useMemo(() => groupAgendaTasks(filteredTasks), [filteredTasks]);
   const isEmpty = initialTasks.length === 0;
   const noResults = !isEmpty && filteredTasks.length === 0;
 
@@ -174,38 +170,75 @@ export function TasksListMobile({
         </p>
       )}
 
-      <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} googleEvents={googleCalendar.events} />
-
       {!isEmpty && (
-        <CompactMonthCalendar
-          tasks={initialTasks}
-          onToggle={toggleComplete}
-          onDelete={deleteTask}
-          canDelete={canDelete}
-          showOwner={showOwner}
-          deals={deals}
-          googleEvents={showGoogleEvents ? googleCalendar.events : []}
+        <AgendaSummary
+          counts={{
+            pending: summaryGroups.pending.length,
+            overdue: summaryGroups.overdue.length,
+            today: summaryGroups.today.length,
+            upcoming: summaryGroups.upcoming.length,
+            noDate: summaryGroups.noDate.length,
+          }}
+          active={focusFilter}
+          onChange={(focus) => {
+            setFocusFilter(focus);
+            setStatusFilter("pending");
+            if (focus !== "all") setView("list");
+          }}
         />
       )}
 
+      <div className="flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-950/30">
+        <div className="inline-flex min-w-0 flex-1 rounded-xl bg-neutral-100 p-1 dark:bg-neutral-900">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+              view === "list"
+                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-neutral-100"
+                : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            <List className="h-4 w-4" strokeWidth={2} />
+            Lista
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("calendar")}
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+              view === "calendar"
+                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-neutral-100"
+                : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            <CalendarDays className="h-4 w-4" strokeWidth={2} />
+            Mês
+          </button>
+        </div>
+        <button type="button" onClick={() => setOpen(true)} className="btn-primary px-3 py-2.5">
+          <Plus className="h-4 w-4" strokeWidth={2.5} />
+          Nova
+        </button>
+      </div>
+
       {!isEmpty && (
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
+          <div className="relative min-w-0 flex-1">
             <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
+              className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
               strokeWidth={2}
             />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar tarefa, negócio ou contato"
-              className="field-input py-2 pl-8 text-sm"
+              placeholder="Buscar atividade ou contato"
+              className="field-input py-2.5 pl-9 text-sm"
             />
           </div>
           <FilterPopover active={hasFilters} onClear={clearFilters}>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <label className="field-label">Status</label>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1.5">
                 {(
                   [
                     { value: "pending" as const, label: "Pendentes" },
@@ -216,11 +249,14 @@ export function TasksListMobile({
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setStatusFilter(opt.value)}
-                    className={`rounded-full border px-2 py-1 text-xs font-medium transition-colors ${
+                    onClick={() => {
+                      setStatusFilter(opt.value);
+                      setFocusFilter("all");
+                    }}
+                    className={`rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors ${
                       statusFilter === opt.value
                         ? "border-neutral-900 bg-neutral-100 text-neutral-900 dark:border-white dark:bg-neutral-800 dark:text-white"
-                        : "border-transparent text-neutral-500 hover:border-neutral-200 dark:text-neutral-400 dark:hover:border-neutral-700"
+                        : "border-neutral-200 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400"
                     }`}
                   >
                     {opt.label}
@@ -228,9 +264,9 @@ export function TasksListMobile({
                 ))}
               </div>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <label className="field-label">Categoria</label>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1.5">
                 {sortAlpha(Object.entries(TASK_TYPE_LABELS), ([, label]) => label).map(([value, label]) => {
                   const color = TASK_TYPE_COLOR[value];
                   const active = typeFilters.has(value);
@@ -239,7 +275,7 @@ export function TasksListMobile({
                       key={value}
                       type="button"
                       onClick={() => toggleType(value)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors active:scale-[0.97] ${
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors active:scale-[0.97] ${
                         active
                           ? "border-neutral-900 dark:border-white"
                           : "border-transparent active:border-neutral-200 dark:active:border-neutral-700"
@@ -271,15 +307,28 @@ export function TasksListMobile({
       )}
 
       {isEmpty ? (
-        <div className="card">
+        <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800">
           <EmptyState
             icon={CheckSquare}
             title="Nenhuma atividade por aqui"
-            description="Toque no + pra criar sua primeira atividade."
+            description="Crie uma atividade para organizar o próximo contato."
           />
         </div>
+      ) : view === "calendar" ? (
+        <div className="space-y-4">
+          <CompactMonthCalendar
+            tasks={filteredTasks}
+            onToggle={toggleComplete}
+            onDelete={deleteTask}
+            canDelete={canDelete}
+            showOwner={showOwner}
+            deals={deals}
+            googleEvents={showGoogleEvents ? googleCalendar.events : []}
+          />
+          <UpcomingAppointmentsCard tasks={filteredTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} googleEvents={showGoogleEvents ? googleCalendar.events : []} />
+        </div>
       ) : noResults ? (
-        <div className="card">
+        <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800">
           <EmptyState icon={SearchX} title="Nenhuma atividade encontrada" description="Ajuste a busca ou limpe os filtros." />
         </div>
       ) : (
@@ -337,7 +386,7 @@ function MobileTaskGroup({
   return (
     <div>
       <h2
-        className={`mb-2 text-sm font-medium ${
+        className={`mb-3 text-base font-semibold ${
           tone === "red" ? "text-red-600 dark:text-red-400" : "text-neutral-700 dark:text-neutral-300"
         }`}
       >

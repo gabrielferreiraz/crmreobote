@@ -4,16 +4,32 @@ import { resolveAvatarUrl } from "@/lib/r2";
 
 export type WebhookEvent =
   | "contact.created"
+  | "contact.updated"
+  | "contact.deleted"
+  | "contact.owner_changed"
+  | "deal.created"
   | "deal.won"
   | "deal.lost"
+  | "deal.stage_changed"
+  | "deal.owner_changed"
+  | "task.created"
+  | "task.completed"
   | "member.created"
   | "member.activated"
   | "member.deactivated";
 
 export const VALID_WEBHOOK_EVENTS: WebhookEvent[] = [
   "contact.created",
+  "contact.updated",
+  "contact.deleted",
+  "contact.owner_changed",
+  "deal.created",
   "deal.won",
   "deal.lost",
+  "deal.stage_changed",
+  "deal.owner_changed",
+  "task.created",
+  "task.completed",
   "member.created",
   "member.activated",
   "member.deactivated",
@@ -123,5 +139,32 @@ export async function buildMemberWebhookPayload(membership: MemberForWebhook) {
     team: membership.team,
     photoUrl,
     memberSince: membership.createdAt,
+  };
+}
+
+type TaskForWebhook = {
+  id: string;
+  type: string;
+  title: string;
+  dueAt: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+  deal: { id: string; name: string } | null;
+  contact: { id: string; name: string } | null;
+  owner: { id: string; name: string };
+};
+
+/** Formato comum do payload de task.created/task.completed. */
+export function buildTaskWebhookPayload(task: TaskForWebhook) {
+  return {
+    id: task.id,
+    type: task.type,
+    title: task.title,
+    dueAt: task.dueAt,
+    completedAt: task.completedAt,
+    createdAt: task.createdAt,
+    deal: task.deal ? { id: task.deal.id, name: task.deal.name } : null,
+    contact: task.contact ? { id: task.contact.id, name: task.contact.name } : null,
+    owner: { id: task.owner.id, name: task.owner.name },
   };
 }

@@ -11,10 +11,17 @@ import type { Option } from "./tasks-list";
 
 const MONTH_ABBR = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
 
-function formatWhen(date: Date): string {
-  const time = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDay(date: Date): string {
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (date.toDateString() === today.toDateString()) return "Hoje";
+  if (date.toDateString() === tomorrow.toDateString()) return "Amanhã";
   const day = String(date.getDate()).padStart(2, "0");
-  return `${time} (${day} ${MONTH_ABBR[date.getMonth()]})`;
+  return `${day} ${MONTH_ABBR[date.getMonth()]}`;
 }
 
 /**
@@ -75,39 +82,52 @@ export function UpcomingAppointmentsCard({
 
   return (
     <>
-      <div className="card p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <CalendarClock className="h-4 w-4 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
-          <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Compromissos agendados</h2>
+      <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white/60 dark:border-neutral-800 dark:bg-neutral-950/30">
+        <div className="flex items-center gap-2 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
+          <CalendarClock className="h-5 w-5 text-brand" strokeWidth={2} />
+          <div>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Próximos compromissos</h2>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{upcoming.length} na sequência</p>
+          </div>
         </div>
-        <div className="space-y-3">
+        <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
           {upcoming.map((item) =>
             item.kind === "task" ? (
               <button
                 key={item.task.id}
                 type="button"
                 onClick={() => setOpenItem(item)}
-                className="block w-full border-l-2 border-neutral-900 pl-3 text-left transition-opacity hover:opacity-70 dark:border-white"
+                className="grid w-full grid-cols-[64px_minmax(0,1fr)] gap-3 px-4 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/70"
               >
-                <p className="line-clamp-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.task.title}</p>
-                <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                  {[item.task.contact?.name ?? item.task.deal?.name, formatWhen(item.date)].filter(Boolean).join(" · ")}
-                </p>
+                <span>
+                  <span className="block text-base font-semibold text-neutral-900 dark:text-neutral-100">{formatTime(item.date)}</span>
+                  <span className="block text-xs font-medium text-neutral-500 dark:text-neutral-400">{formatDay(item.date)}</span>
+                </span>
+                <span className="min-w-0">
+                  <span className="line-clamp-2 block text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.task.title}</span>
+                  <span className="mt-0.5 block truncate text-xs text-neutral-500 dark:text-neutral-400">
+                    {item.task.contact?.name ?? item.task.deal?.name ?? "Atividade do CRM"}
+                  </span>
+                </span>
               </button>
             ) : (
               <button
                 key={item.event.id}
                 type="button"
                 onClick={() => setOpenItem(item)}
-                className="block w-full border-l-2 border-blue-500 pl-3 text-left transition-opacity hover:opacity-70"
+                className="grid w-full grid-cols-[64px_minmax(0,1fr)] gap-3 px-4 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/70"
               >
-                <p className="line-clamp-2 flex items-center gap-1.5 text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                  <CalendarIcon className="h-3 w-3 shrink-0 text-blue-500" strokeWidth={2} />
-                  {item.event.title}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                  Google Agenda · {formatWhen(item.date)}
-                </p>
+                <span>
+                  <span className="block text-base font-semibold text-neutral-900 dark:text-neutral-100">{formatTime(item.date)}</span>
+                  <span className="block text-xs font-medium text-neutral-500 dark:text-neutral-400">{formatDay(item.date)}</span>
+                </span>
+                <span className="min-w-0">
+                  <span className="line-clamp-2 flex items-center gap-1.5 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                    <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-blue-500" strokeWidth={2} />
+                    {item.event.title}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">Google Agenda</span>
+                </span>
               </button>
             ),
           )}

@@ -31,6 +31,7 @@ import {
   Pencil,
   Briefcase,
   User,
+  CircleCheck,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { requestJson } from "@/lib/client-request";
@@ -40,7 +41,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TASK_TYPE_ICON, TASK_TYPE_COLOR, TASK_TYPE_LABELS } from "@/lib/task-icons";
 import { useFloatingDropdown } from "@/lib/use-floating-dropdown";
 import { buildGoogleCalendarUrl } from "@/lib/google-calendar";
-import { TaskRow, type Task } from "./task-row";
+import type { Task } from "./task-row";
 import { TaskDetailModal } from "./task-detail-modal";
 import { EditTaskDialog } from "./edit-task-dialog";
 import { GoogleEventDetailModal } from "./google-event-detail-modal";
@@ -112,6 +113,8 @@ export function TaskCalendar({
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedDayTask, setSelectedDayTask] = useState<Task | null>(null);
+  const [selectedDayGoogleEvent, setSelectedDayGoogleEvent] = useState<GoogleEvent | null>(null);
   // Arrastar-e-soltar — seleção múltipla opcional (botão "Selecionar",
   // mesmo padrão de WhatsApp Conversas): arrastar uma tarefa que FAZ parte
   // da seleção move a seleção inteira; arrastar qualquer outra move só ela,
@@ -203,6 +206,17 @@ export function TaskCalendar({
     return map;
   }, [googleEvents]);
 
+  const selectedDayTasks = selectedDay ? (tasksByDay.get(selectedDay.toDateString()) ?? []) : [];
+  const selectedDayGoogleEvents = selectedDay ? (googleEventsByDay.get(selectedDay.toDateString()) ?? []) : [];
+  const selectedDayItems = [
+    ...selectedDayTasks.map((task) => ({ kind: "task" as const, date: new Date(task.dueAt!), task })),
+    ...selectedDayGoogleEvents.map((event) => ({ kind: "google" as const, date: new Date(event.start), event })),
+  ].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const selectedDayCompleted = selectedDayTasks.filter((task) => task.completedAt).length;
+  const selectedDayOverdue = selectedDayTasks.filter(
+    (task) => !task.completedAt && task.dueAt && new Date(task.dueAt) < new Date(),
+  ).length;
+
   function toggleTaskSelection(id: string) {
     setSelectedTaskIds((prev) => {
       const next = new Set(prev);
@@ -244,22 +258,19 @@ export function TaskCalendar({
     setSelectMode(false);
   }
 
+  function closeSelectedDay() {
+    setSelectedDay(null);
+    setSelectedDayTask(null);
+    setSelectedDayGoogleEvent(null);
+  }
+
   return (
-    // DndContext precisa ser o wrapper mais externo (não só em volta da
-    // grade) — DragOverlay abaixo é `position:fixed`, e diferente de Modal
-    // (ver components/modal.tsx, que já resolve isso com createPortal pro
-    // document.body), o DragOverlay do @dnd-kit não tem prop de portal
-    // nenhuma. Com ele dentro do `.card` logo abaixo, o backdrop-filter do
-    // `.card` (mesmo motivo já documentado em modal.tsx) virava o
-    // "containing block" do fixed — o cartão fantasma seguia o mouse
-    // deslocado, ancorado no canto do `.card` em vez da tela inteira.
-    // DndContext em si não renderiza elemento DOM próprio (só contexto),
-    // então isso não muda layout nenhum — só tira o DragOverlay de dentro
-    // do `.card`.
+    // O contexto envolve a superfície inteira para manter a grade e o
+    // DragOverlay no mesmo fluxo de interação durante o arraste.
     <DndContext id="task-calendar" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-    <div className="card relative p-4">
+    <div className="relative rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950/40">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           {MONTH_LABELS[cursor.getMonth()]} {cursor.getFullYear()}
         </h2>
         <div className="flex items-center gap-1">
@@ -300,9 +311,9 @@ export function TaskCalendar({
       </div>
 
       {/* Dica + erro do arraste — position:absolute de propósito, flutuando
-          sobre o canto do card (nunca dentro do fluxo normal): pedido
+          sobre o canto do calendário (nunca dentro do fluxo normal): pedido
           explícito, entrar/sair da seleção NÃO pode empurrar a grade do mês
-          pra cima/baixo. `.card` acima ganhou `relative` só pra ancorar
+          pra cima/baixo. A superfície acima usa `relative` só pra ancorar
           isso; `absolute` (não `fixed`, ver comentário do DragOverlay mais
           abaixo) já basta, não precisa escapar de container nenhum. */}
       {((selectMode && selectedTaskIds.size > 0) || moveError) && (
@@ -330,11 +341,11 @@ export function TaskCalendar({
         </div>
       )}
 
-      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800">
+      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800">
         {WEEKDAY_LABELS.map((w) => (
           <div
             key={w}
-            className="bg-neutral-50 px-2 py-1.5 text-center text-xs font-medium text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400"
+            className="bg-neutral-50 px-2 py-2 text-center text-sm font-medium text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400"
           >
             {w}
           </div>
@@ -366,36 +377,87 @@ export function TaskCalendar({
       </div>
 
       {selectedDay && (
-        // max-w-3xl (era xl) + max-h-[75vh] na lista (era 60vh) — o painel
-        // do Modal em si já suporta até 90vh (ver components/modal.tsx),
-        // mas esse card ficava artificialmente pequeno preso num teto de
-        // 60vh dentro de um painel de 576px — bem menos espaço do que o
-        // Modal já tinha disponível.
-        <Modal onClose={() => setSelectedDay(null)} maxWidth="max-w-3xl">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900 capitalize dark:text-neutral-100">
-            {selectedDay.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
-          </h2>
-          <div className="scrollbar-thin max-h-[75vh] space-y-2.5 overflow-y-auto pb-2">
-            {(tasksByDay.get(selectedDay.toDateString()) ?? []).map((t) => (
-              <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} canDelete={canDelete} showOwner={showOwner} deals={deals} />
-            ))}
-            {(googleEventsByDay.get(selectedDay.toDateString()) ?? []).map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                onClick={() => setSelectedGoogleEvent(e)}
-                className="card flex w-full items-center gap-3 p-3 text-left text-sm text-blue-700 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-500/10"
-              >
-                <CalendarIcon className="h-4 w-4 shrink-0" strokeWidth={2} />
-                <span className="min-w-0 flex-1 truncate">{e.title}</span>
-                {!e.allDay && (
-                  <span className="shrink-0 text-xs text-blue-500/80 dark:text-blue-400/70">
-                    {new Date(e.start).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                )}
-              </button>
-            ))}
+        <Modal onClose={closeSelectedDay} maxWidth="max-w-4xl" panelClassName="!overflow-hidden !p-0 !pb-0">
+          <div className="flex max-h-[86vh] flex-col">
+            <header className="shrink-0 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+                    {formatDayHeading(selectedDay)}
+                  </h2>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-neutral-500 dark:text-neutral-400">
+                    <span>{selectedDayItems.length} {selectedDayItems.length === 1 ? "compromisso" : "compromissos"}</span>
+                    {selectedDayOverdue > 0 && (
+                      <span className="inline-flex items-center gap-1.5 font-medium text-red-600 dark:text-red-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                        {selectedDayOverdue} {selectedDayOverdue === 1 ? "atrasado" : "atrasados"}
+                      </span>
+                    )}
+                    {selectedDayCompleted > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">{selectedDayCompleted} concluídos</span>
+                    )}
+                    {selectedDayGoogleEvents.length > 0 && (
+                      <span className="text-blue-600 dark:text-blue-400">{selectedDayGoogleEvents.length} do Google</span>
+                    )}
+                  </div>
+                </div>
+                <button type="button" onClick={closeSelectedDay} className="icon-btn" aria-label="Fechar agenda do dia">
+                  <X className="h-4 w-4" strokeWidth={2} />
+                </button>
+              </div>
+            </header>
+
+            <div className="scrollbar-thin min-h-0 overflow-y-auto p-3 sm:p-4">
+              {selectedDayItems.length > 0 ? (
+                <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white/50 dark:border-neutral-800 dark:bg-neutral-950/20">
+                  <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                    {selectedDayItems.map((item) =>
+                      item.kind === "task" ? (
+                        <DayAgendaTaskRow
+                          key={item.task.id}
+                          task={item.task}
+                          showOwner={showOwner}
+                          overdue={!item.task.completedAt && item.date < new Date()}
+                          onOpen={() => setSelectedDayTask(item.task)}
+                          onToggle={() => handleToggleTask(item.task)}
+                        />
+                      ) : (
+                        <DayAgendaGoogleRow
+                          key={item.event.id}
+                          event={item.event}
+                          onOpen={() => setSelectedDayGoogleEvent(item.event)}
+                        />
+                      ),
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-56 flex-col items-center justify-center text-center">
+                  <CalendarIcon className="h-7 w-7 text-neutral-400 dark:text-neutral-500" strokeWidth={1.8} />
+                  <p className="mt-3 font-medium text-neutral-800 dark:text-neutral-200">Nenhum compromisso neste dia</p>
+                </div>
+              )}
+            </div>
           </div>
+
+          {selectedDayTask && (
+            <TaskDetailModal
+              task={selectedDayTask}
+              completed={!!selectedDayTask.completedAt}
+              justCompleted={false}
+              onClose={() => setSelectedDayTask(null)}
+              onToggle={() => {
+                handleToggleTask(selectedDayTask);
+                setSelectedDayTask(null);
+              }}
+              canDelete={canDelete}
+              onDelete={onDelete}
+              deals={deals}
+            />
+          )}
+          {selectedDayGoogleEvent && (
+            <GoogleEventDetailModal event={selectedDayGoogleEvent} onClose={() => setSelectedDayGoogleEvent(null)} />
+          )}
         </Modal>
       )}
 
@@ -897,6 +959,145 @@ function OverflowPreviewList({
   );
 }
 
+function formatDayHeading(date: Date) {
+  const label = date.toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function formatDayItemTime(date: Date, allDay = false) {
+  if (allDay) return "Dia todo";
+  if (date.getHours() === 0 && date.getMinutes() === 0) return "Sem hora";
+  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function DayAgendaTaskRow({
+  task,
+  overdue,
+  showOwner,
+  onOpen,
+  onToggle,
+}: {
+  task: Task;
+  overdue: boolean;
+  showOwner: boolean;
+  onOpen: () => void;
+  onToggle: () => void;
+}) {
+  const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
+  const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
+  const typeLabel = TASK_TYPE_LABELS[task.type] ?? task.type;
+  const completed = !!task.completedAt;
+  const identity = task.contact?.name?.trim() || task.deal?.name?.trim() || task.title;
+  const typePrefix = `${typeLabel}:`;
+  const title = task.title.toLocaleLowerCase("pt-BR").startsWith(typePrefix.toLocaleLowerCase("pt-BR"))
+    ? task.title.slice(typePrefix.length).trim()
+    : task.title.trim();
+  const note = title && title.toLocaleLowerCase("pt-BR") !== identity.toLocaleLowerCase("pt-BR") ? title : null;
+  const secondaryDeal =
+    task.contact?.name && task.deal?.name && task.contact.name.trim() !== task.deal.name.trim()
+      ? task.deal.name
+      : null;
+  const dueAt = new Date(task.dueAt!);
+  const statusLabel = completed ? "Concluída" : overdue ? "Atrasada" : "Pendente";
+
+  return (
+    <div className={`group flex items-stretch ${completed ? "opacity-60" : ""}`}>
+      <div className="flex w-14 shrink-0 items-center justify-center pl-2 sm:w-16">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={completed ? "Marcar como pendente" : "Marcar como concluída"}
+          title={completed ? "Marcar como pendente" : "Marcar como concluída"}
+          className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-transform hover:scale-105 active:scale-95 ${color.bg} ${color.text}`}
+        >
+          <Icon className="h-4 w-4" strokeWidth={2} />
+          {overdue && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-white bg-red-500 dark:border-neutral-950" />}
+          {completed && (
+            <CircleCheck className="absolute -right-1 -bottom-1 h-3.5 w-3.5 rounded-full bg-white text-emerald-500 dark:bg-neutral-950" strokeWidth={2.5} />
+          )}
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpen}
+        className="grid min-w-0 flex-1 grid-cols-[68px_minmax(0,1fr)_auto] items-center gap-3 px-2 py-3 text-left transition-colors hover:bg-neutral-50/80 dark:hover:bg-neutral-900/60 sm:grid-cols-[76px_minmax(0,1fr)_auto] sm:px-3"
+      >
+        <span className="min-w-0">
+          <span className={`block font-semibold tabular-nums ${dueAt.getHours() === 0 && dueAt.getMinutes() === 0 ? "text-xs" : "text-base"} text-neutral-900 dark:text-neutral-100`}>
+            {formatDayItemTime(dueAt)}
+          </span>
+          <span className={`mt-0.5 block text-xs ${overdue ? "font-medium text-red-600 dark:text-red-400" : "text-neutral-500 dark:text-neutral-400"}`}>
+            {statusLabel}
+          </span>
+        </span>
+
+        <span className="min-w-0">
+          <span className={`block truncate text-[15px] font-semibold ${completed ? "line-through" : ""} text-neutral-900 dark:text-neutral-100`}>
+            {identity}
+          </span>
+          {note && <span className="mt-0.5 block truncate text-sm text-neutral-600 dark:text-neutral-300">{note}</span>}
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            <span className={color.text}>{typeLabel}</span>
+            {secondaryDeal && (
+              <>
+                <span>·</span>
+                <span className="truncate">{secondaryDeal}</span>
+              </>
+            )}
+          </span>
+        </span>
+
+        <span className="flex min-w-0 shrink-0 items-center gap-2">
+          {showOwner && (
+            <span className="hidden max-w-36 items-center gap-2 sm:flex">
+              <Avatar name={task.owner.name} src={task.owner.photoUrl} size="xs" />
+              <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">{task.owner.name}</span>
+            </span>
+          )}
+          <ChevronRight className="h-4 w-4 text-neutral-300 transition-transform group-hover:translate-x-0.5 dark:text-neutral-600" strokeWidth={2} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function DayAgendaGoogleRow({ event, onOpen }: { event: GoogleEvent; onOpen: () => void }) {
+  const start = new Date(event.start);
+  return (
+    <div className="group flex items-stretch">
+      <div className="flex w-14 shrink-0 items-center justify-center pl-2 sm:w-16">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+          <CalendarIcon className="h-4 w-4" strokeWidth={2} />
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="grid min-w-0 flex-1 grid-cols-[68px_minmax(0,1fr)_auto] items-center gap-3 px-2 py-3 text-left transition-colors hover:bg-blue-50/50 dark:hover:bg-blue-500/5 sm:grid-cols-[76px_minmax(0,1fr)_auto] sm:px-3"
+      >
+        <span>
+          <span className={`block font-semibold tabular-nums ${event.allDay ? "text-xs" : "text-base"} text-neutral-900 dark:text-neutral-100`}>
+            {formatDayItemTime(start, event.allDay)}
+          </span>
+          <span className="mt-0.5 block text-xs text-blue-600 dark:text-blue-400">Google</span>
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">{event.title}</span>
+          <span className="mt-1 block text-xs text-neutral-500 dark:text-neutral-400">
+            {[event.location, "Google Agenda"].filter(Boolean).join(" · ")}
+          </span>
+        </span>
+        <ChevronRight className="h-4 w-4 text-neutral-300 transition-transform group-hover:translate-x-0.5 dark:text-neutral-600" strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
+
 /**
  * Uma célula de dia da grade do mês — extraída da própria TaskCalendar de
  * propósito: useDroppable precisa rodar uma vez por dia, e chamar hook
@@ -967,14 +1168,14 @@ function DayCell({
     <div
       ref={setNodeRef}
       onClick={onOpenDay}
-      className={`min-h-[104px] p-1.5 cursor-pointer transition-colors ${
+      className={`min-h-[138px] cursor-pointer p-2 transition-colors 2xl:min-h-[150px] ${
         isOver
           ? "bg-brand-light dark:bg-brand/15"
           : `hover:bg-neutral-50/80 dark:hover:bg-neutral-800/20 ${inMonth ? "bg-white dark:bg-neutral-900" : "bg-neutral-50/60 dark:bg-neutral-900/40"}`
       } ${isToday ? "ring-1 ring-inset ring-neutral-900 dark:ring-white" : ""}`}
     >
       <span
-        className={`mb-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+        className={`mb-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-sm ${
           isToday
             ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900"
             : inMonth
@@ -1012,10 +1213,24 @@ function DayCell({
               onOpenGoogleEvent(e);
             }}
             title={e.title}
-            className="flex w-full items-center gap-1 truncate rounded bg-blue-50 px-1 py-0.5 text-left text-[11px] text-blue-700 transition-colors hover:brightness-95 dark:bg-blue-500/10 dark:text-blue-400"
+            className="flex min-h-8 w-full items-center gap-2 overflow-hidden rounded-lg border border-blue-100 bg-blue-50/80 px-1.5 py-1 text-left transition-colors hover:border-blue-200 hover:bg-blue-50 dark:border-blue-500/15 dark:bg-blue-500/10 dark:hover:border-blue-500/30"
           >
-            <CalendarIcon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
-            <span className="truncate">{e.title}</span>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+              <CalendarIcon className="h-3.5 w-3.5" strokeWidth={2} />
+            </span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="flex items-center justify-between gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-300">
+                <span>Google Agenda</span>
+                {!e.allDay && (
+                  <span className="shrink-0 tabular-nums">
+                    {new Date(e.start).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </span>
+              <span className="block truncate text-[11px] font-medium text-neutral-800 dark:text-neutral-100">
+                {e.title}
+              </span>
+            </span>
           </button>
         ))}
         {overflow > 0 && (
@@ -1028,9 +1243,9 @@ function DayCell({
               }}
               onMouseEnter={showOverflow}
               onMouseLeave={hideOverflow}
-              className="px-1 text-[11px] font-medium text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-neutral-100"
+              className="mt-0.5 rounded-md bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
             >
-              +{overflow} mais
+              Mais {overflow}
             </button>
             <HoverFloatingPanel open={overflowOpen} triggerRef={overflowTriggerRef} onMouseEnter={showOverflow} onMouseLeave={hideOverflow}>
               <OverflowPreviewList
@@ -1069,16 +1284,45 @@ function TaskPillContent({
 }) {
   const Icon = TASK_TYPE_ICON[task.type] ?? TASK_TYPE_ICON.OTHER;
   const color = TASK_TYPE_COLOR[task.type] ?? TASK_TYPE_COLOR.OTHER;
+  const typeLabel = TASK_TYPE_LABELS[task.type] ?? task.type;
+  const typePrefix = `${typeLabel}:`;
+  const cleanTitle = task.title.toLocaleLowerCase("pt-BR").startsWith(typePrefix.toLocaleLowerCase("pt-BR"))
+    ? task.title.slice(typePrefix.length).trim()
+    : task.title.trim();
+  const identity = task.contact?.name?.trim() || task.deal?.name?.trim() || null;
+  const eventLabel = identity && cleanTitle.toLocaleLowerCase("pt-BR") !== identity.toLocaleLowerCase("pt-BR")
+    ? `${identity} · ${cleanTitle}`
+    : cleanTitle || identity || typeLabel;
+  const time = task.dueAt
+    ? new Date(task.dueAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : null;
+
   return (
     <div
-      className={`flex min-w-0 items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] ${overlay ? "shadow-lg" : ""} ${
+      title={`${typeLabel}: ${eventLabel}${time ? ` às ${time}` : ""}`}
+      className={`flex min-h-8 min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-1.5 py-1 ${overlay ? "shadow-lg" : ""} ${
         task.completedAt
-          ? "text-neutral-400 line-through dark:text-neutral-500"
-          : `${color.bg} ${color.text} ${overdue ? "ring-1 ring-inset ring-red-500" : ""}`
+          ? "border-neutral-200 bg-neutral-50 text-neutral-400 line-through dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-500"
+          : `border-neutral-200/80 bg-white/90 dark:border-neutral-700/80 dark:bg-neutral-900 ${color.text}`
       }`}
     >
-      <Icon className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
-      <span className="truncate">{task.title}</span>
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${task.completedAt ? "bg-neutral-100 dark:bg-neutral-800" : color.bg}`}>
+        <Icon className="h-3.5 w-3.5" strokeWidth={2} />
+      </span>
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="flex items-center gap-1 text-[10px] font-medium">
+          <span className="truncate">{typeLabel}</span>
+          {overdue && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
+              title="Atividade atrasada"
+              aria-label="Atividade atrasada"
+            />
+          )}
+          {time && <span className="ml-auto shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">{time}</span>}
+        </span>
+        <span className="block truncate text-[11px] font-medium text-neutral-800 dark:text-neutral-100">{eventLabel}</span>
+      </span>
       {showOwner && <Avatar name={task.owner.name} src={task.owner.photoUrl} size="2xs" className="ml-auto shrink-0" />}
     </div>
   );
@@ -1169,7 +1413,7 @@ function TaskPill({
         }}
         className={`min-w-0 flex-1 text-left transition-transform duration-150 hover:scale-[1.03] hover:shadow-sm active:scale-[0.97] ${
           canDrag ? "touch-manipulation cursor-grab active:cursor-grabbing" : ""
-        } ${selected ? "ring-2 ring-inset ring-brand rounded" : ""}`}
+        } ${selected ? "rounded-lg ring-2 ring-brand" : ""}`}
       >
         <TaskPillContent task={task} overdue={overdue} showOwner={showOwner} />
       </button>

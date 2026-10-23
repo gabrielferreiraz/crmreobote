@@ -296,6 +296,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         where: { id: deal.contactId },
         data: { responsavelId: ownerId },
       });
+
+      const previousOwner = await prisma.user.findUnique({
+        where: { id: existing.ownerId },
+        select: { id: true, name: true },
+      });
+      buildDealWebhookPayload(deal)
+        .then((payload) =>
+          enqueueWebhookEvent(organizationId, "deal.owner_changed", { ...payload, previousOwner: previousOwner ?? null }),
+        )
+        .catch((err) => console.error("[webhooks] falha ao enfileirar deal.owner_changed", err));
+
+      // Responsável do contato foi sincronizado junto (ver comentário acima) — avisa também.
+      enqueueWebhookEvent(organizationId, "contact.owner_changed", {
+        id: deal.contact.id,
+        name: deal.contact.name,
+        previousOwnerId: previousContactResponsavelId,
+        ownerId,
+      }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.owner_changed (via negócio)", err));
     }
 
     // Marcos automáticos na timeline — ganho/perdido/reabertura e mudança de

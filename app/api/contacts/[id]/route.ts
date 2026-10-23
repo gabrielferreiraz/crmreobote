@@ -14,6 +14,7 @@ import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
+import { enqueueWebhookEvent } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -258,6 +259,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       recordUserChange(organizationId, userId).catch((err) =>
         console.error("[user-activity] falha ao registrar alteração", err),
       );
+      // Responsável editando um lead PERDIDO = ainda está trabalhando nele: fica
+      // registrado na linha do tempo, e isso recomeça os 3 meses até o lead
+      // poder ser assumido por outro (ver lastOwnerTouch em lib/lead-claim.ts).
+      // Só no lead perdido — em lead ativo seria só ruído na linha do tempo.
+      if (contact.responsavelId === userId) {
+        recordLostLeadTouch(organizationId, id, userId).catch((err) =>
+          console.error("[contacts] falha ao registrar movimento no lead perdido", err),
+        );
+      }
 
       // Ctrl+Z (ver lib/undo/) — phoneNormalized/whatsappNormalized sempre
       // aparecem em updateData (recalculados mesmo quando não mudou nada,
@@ -279,6 +289,27 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             descriptions: { afterRevert: `Contato "${existing.name}" revertido`, original: `Contato "${existing.name}" atualizado` },
           } satisfies FieldUpdatePayload,
         });
+
+        enqueueWebhookEvent(organizationId, "contact.updated", {
+          id: contact.id,
+          name: contact.name,
+          email: contact.email,
+          phone: contact.phone,
+          whatsapp: contact.whatsapp,
+          source: contact.source,
+          tags: contact.tags,
+          ownerId: contact.responsavelId,
+          updatedAt: contact.updatedAt,
+        }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.updated", err));
+
+        if (changedKeys.includes("responsavelId") && existing.responsavelId !== contact.responsavelId) {
+          enqueueWebhookEvent(organizationId, "contact.owner_changed", {
+            id: contact.id,
+            name: contact.name,
+            previousOwnerId: existing.responsavelId,
+            ownerId: contact.responsavelId,
+          }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.owner_changed", err));
+        }
       }
 
       return NextResponse.json({ ...contact, undo });
@@ -367,6 +398,13 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       console.error("[user-activity] falha ao registrar alteração", err),
     );
 
+    enqueueWebhookEvent(access.organizationId, "contact.deleted", {
+      id: existing.id,
+      name: existing.name,
+      phone: existing.phone,
+      whatsapp: existing.whatsapp,
+    }).catch((err) => console.error("[webhooks] falha ao enfileirar contact.deleted", err));
+
     // Com negócios apagados junto não há Ctrl+Z: o snapshot só restauraria o
     // contato, e um "desfazer" que devolve o cliente sem os negócios seria
     // pior que não oferecer (a tela avisa isso antes de confirmar).
@@ -386,5 +424,14 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     });
 
     return NextResponse.json({ ok: true, undo });
+  });
+}
+
+async function recordLostLeadTouch(organizationId: string, contactId: string, userId: string): Promise<void> {
+  const statuses = await prisma.deal.groupBy({ by: ["status"], where: { organizationId, contactId } });
+  const lostOnly = statuses.length > 0 && statuses.every((g) => g.status === "LOST");
+  if (!lostOnly) return;
+  await prisma.activity.create({
+    data: { organizationId, contactId, userId, type: "SYSTEM", body: "Cadastro atualizado" },
   });
 }

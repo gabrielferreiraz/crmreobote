@@ -9,6 +9,7 @@ import { recordUserChange } from "@/lib/user-activity";
 import { hasCalendarWriteScope } from "@/lib/google-calendar-oauth";
 import { parseBrazilDateTime } from "@/lib/timezone";
 import type { $Enums } from "@/app/generated/prisma/client";
+import { enqueueWebhookEvent, buildTaskWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -131,6 +132,10 @@ export async function POST(req: Request) {
 
     recordUserChange(organizationId, userId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
+    );
+
+    enqueueWebhookEvent(organizationId, "task.created", buildTaskWebhookPayload(task)).catch((err) =>
+      console.error("[webhooks] falha ao enfileirar task.created", err),
     );
 
     // Só consultada pra Videochamada — é o único tipo que usa isso (ver

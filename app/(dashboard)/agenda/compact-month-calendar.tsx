@@ -105,9 +105,9 @@ export function CompactMonthCalendar({
   }, [googleEvents]);
 
   return (
-    <div className="card p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+    <div className="rounded-2xl border border-neutral-200 bg-white/60 p-3 dark:border-neutral-800 dark:bg-neutral-950/30">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           {MONTH_LABELS[cursor.getMonth()]} {cursor.getFullYear()}
         </h2>
         <div className="flex items-center gap-0.5">
@@ -131,7 +131,7 @@ export function CompactMonthCalendar({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 text-center text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
+      <div className="grid grid-cols-7 text-center text-xs font-medium text-neutral-400 dark:text-neutral-500">
         {WEEKDAY_LABELS.map((w, i) => (
           <span key={i} className="py-1">
             {w}
@@ -158,10 +158,10 @@ export function CompactMonthCalendar({
               type="button"
               onClick={() => hasAny && setSelectedDay(day)}
               disabled={!hasAny}
-              className="flex h-11 flex-col items-center justify-center gap-0.5 rounded-md active:scale-[0.97] disabled:cursor-default"
+              className="flex h-12 flex-col items-center justify-center gap-0.5 rounded-md active:scale-[0.97] disabled:cursor-default"
             >
               <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
                   isToday
                     ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900"
                     : inMonth

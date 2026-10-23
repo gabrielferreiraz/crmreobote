@@ -11,6 +11,7 @@ import { parseBrazilDateTime } from "@/lib/timezone";
 import { recordUndoableAction } from "@/lib/undo/record";
 import { validateTaskLinks } from "@/lib/task-link-guard";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
+import { enqueueWebhookEvent, buildTaskWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -226,6 +227,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     recordUserChange(organizationId, accessUserId).catch((err) =>
       console.error("[user-activity] falha ao registrar alteração", err),
     );
+
+    if (existing.completedAt == null && task.completedAt != null) {
+      enqueueWebhookEvent(organizationId, "task.completed", buildTaskWebhookPayload(task)).catch((err) =>
+        console.error("[webhooks] falha ao enfileirar task.completed", err),
+      );
+    }
 
     // Ctrl+Z (ver lib/undo/) — só no ramo simples. RESCHEDULED fica de fora
     // de propósito: cria uma tarefa nova + mexe na Activity ligada, tem

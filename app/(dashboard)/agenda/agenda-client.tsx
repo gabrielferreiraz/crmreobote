@@ -57,6 +57,7 @@ export function AgendaClient({
         initialTasks={initialTasks}
         deals={deals}
         members={members}
+        openNewTask={openNewTask}
         isWhatsAppConnected={isWhatsAppConnected}
         googleParam={googleParam}
         googleCalendar={googleCalendar}

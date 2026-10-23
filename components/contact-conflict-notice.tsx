@@ -52,8 +52,8 @@ function explanation(conflict: ContactConflict): string {
   if (conflict.claimable) {
     if (conflict.claimReason === "LOST_OVER_3_MONTHS") {
       return conflict.lostAt
-        ? `Este lead está perdido desde ${formatDate(conflict.lostAt)} (mais de 3 meses) — você pode assumi-lo.`
-        : "Este lead está perdido há mais de 3 meses — você pode assumi-lo.";
+        ? `Este lead está perdido e parado desde ${formatDate(conflict.lostAt)} (mais de 3 meses) — você pode assumi-lo.`
+        : "Este lead está perdido e parado há mais de 3 meses — você pode assumi-lo.";
     }
     if (conflict.claimReason === "OWNER_INACTIVE" || (!conflict.claimReason && conflict.responsavelName)) {
       return "O responsável anterior não está mais ativo — você pode assumir este contato.";

@@ -12,29 +12,45 @@ import { requestJson } from "@/lib/client-request";
 
 type WebhookEventType =
   | "contact.created"
+  | "contact.updated"
+  | "contact.deleted"
+  | "contact.owner_changed"
+  | "deal.created"
   | "deal.won"
   | "deal.lost"
+  | "deal.stage_changed"
+  | "deal.owner_changed"
+  | "task.created"
+  | "task.completed"
   | "member.created"
   | "member.activated"
   | "member.deactivated";
 
 const EVENT_LABELS: Record<WebhookEventType, string> = {
   "contact.created": "Contato criado",
+  "contact.updated": "Contato atualizado",
+  "contact.deleted": "Contato removido",
+  "contact.owner_changed": "Responsável do contato trocou",
+  "deal.created": "Negócio criado",
   "deal.won": "Negócio ganho",
   "deal.lost": "Negócio perdido",
+  "deal.stage_changed": "Negócio mudou de etapa",
+  "deal.owner_changed": "Responsável do negócio trocou",
+  "task.created": "Tarefa criada",
+  "task.completed": "Tarefa concluída",
   "member.created": "Consultor cadastrado",
   "member.activated": "Consultor reativado",
   "member.deactivated": "Consultor inativado",
 };
 
-const ALL_EVENTS: WebhookEventType[] = [
-  "contact.created",
-  "deal.won",
-  "deal.lost",
-  "member.created",
-  "member.activated",
-  "member.deactivated",
+const EVENT_GROUPS: { label: string; events: WebhookEventType[] }[] = [
+  { label: "Contato", events: ["contact.created", "contact.updated", "contact.deleted", "contact.owner_changed"] },
+  { label: "Negócio", events: ["deal.created", "deal.won", "deal.lost", "deal.stage_changed", "deal.owner_changed"] },
+  { label: "Tarefa", events: ["task.created", "task.completed"] },
+  { label: "Consultor", events: ["member.created", "member.activated", "member.deactivated"] },
 ];
+
+const ALL_EVENTS: WebhookEventType[] = EVENT_GROUPS.flatMap((g) => g.events);
 
 type WebhookSubscription = {
   id: string;

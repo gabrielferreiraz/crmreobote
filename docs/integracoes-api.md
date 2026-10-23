@@ -507,9 +507,24 @@ por causa disso, só não aparece automaticamente no Google dele.
 Ao criar uma assinatura de webhook (Configurações → Integrações), você
 recebe uma URL de destino e escolhe os eventos:
 
+**Contato**
 - `contact.created` — um contato novo foi criado (manual, importação ou via `/api/v1/contacts`).
+- `contact.updated` — qualquer edição nos dados de um contato existente.
+- `contact.deleted` — um contato foi removido do CRM.
+- `contact.owner_changed` — o responsável (consultor) de um contato mudou. Também dispara quando o responsável de um negócio muda e o contato é sincronizado junto (ver `deal.owner_changed`).
+
+**Negócio**
+- `deal.created` — um negócio novo foi criado (manual ou via `/api/v1/deals`).
 - `deal.won` — um negócio foi marcado como ganho.
 - `deal.lost` — um negócio foi marcado como perdido.
+- `deal.stage_changed` — um negócio foi movido pra outra etapa do funil (inclui `previousStage`).
+- `deal.owner_changed` — o responsável (vendedor) de um negócio mudou (inclui `previousOwner`).
+
+**Tarefa**
+- `task.created` — uma tarefa/compromisso novo foi criado.
+- `task.completed` — uma tarefa foi marcada como concluída (inclui o caso de remarcação de videochamada/visita, que finaliza a tentativa original).
+
+**Consultor**
 - `member.created` — um consultor/membro foi cadastrado na organização.
 - `member.activated` — um consultor/membro desativado foi reativado.
 - `member.deactivated` — um consultor/membro foi desativado.
@@ -613,6 +628,92 @@ hora** — não guarde/cacheie por muito tempo.
     "team": { "id": "cm...", "name": "Equipe Centro" },
     "photoUrl": "https://.../avatars/....jpg?X-Amz-Signature=...",
     "memberSince": "2026-01-10T12:00:00.000Z"
+  }
+}
+```
+
+**Exemplo para `deal.created`** — mesmo formato de `deal.won`/`deal.lost`, com `status: "OPEN"` e `closedAt: null`.
+
+**Exemplo para `deal.stage_changed`** — mesmo formato, mais `previousStage`:
+```json
+{
+  "event": "deal.stage_changed",
+  "timestamp": "2026-07-17T14:00:00.000Z",
+  "data": {
+    "id": "cm...",
+    "name": "07/26 - Maria Silva FACEBOOK ADS",
+    "status": "OPEN",
+    "stage": { "id": "cm...", "name": "Em negociação" },
+    "previousStage": { "id": "cm...", "name": "Novo lead" },
+    "pipeline": { "id": "cm...", "name": "Funil padrão" },
+    "...": "resto igual a deal.won"
+  }
+}
+```
+
+**Exemplo para `deal.owner_changed`** — mesmo formato, mais `previousOwner`:
+```json
+{
+  "event": "deal.owner_changed",
+  "timestamp": "2026-07-17T14:00:00.000Z",
+  "data": {
+    "id": "cm...",
+    "owner": { "id": "cm...", "name": "Vendedor Novo", "email": "novo@empresa.com", "photoUrl": null },
+    "previousOwner": { "id": "cm...", "name": "Vendedor Antigo" },
+    "...": "resto igual a deal.won"
+  }
+}
+```
+Trocar o responsável de um negócio também sincroniza o responsável do contato vinculado — por isso essa troca sempre dispara `contact.owner_changed` junto, se você estiver assinando os dois.
+
+**Exemplo para `contact.updated` / `contact.deleted` / `contact.owner_changed`:**
+```json
+{
+  "event": "contact.updated",
+  "timestamp": "2026-07-17T14:00:00.000Z",
+  "data": {
+    "id": "cm...",
+    "name": "Maria Silva",
+    "email": "maria@exemplo.com",
+    "phone": "67991234567",
+    "whatsapp": "67991234567",
+    "source": "Facebook Ads",
+    "tags": ["lead-quente"],
+    "ownerId": "cm...",
+    "updatedAt": "2026-07-17T14:00:00.000Z"
+  }
+}
+```
+```json
+{
+  "event": "contact.owner_changed",
+  "timestamp": "2026-07-17T14:00:00.000Z",
+  "data": { "id": "cm...", "name": "Maria Silva", "previousOwnerId": "cm...antigo", "ownerId": "cm...novo" }
+}
+```
+```json
+{
+  "event": "contact.deleted",
+  "timestamp": "2026-07-17T14:00:00.000Z",
+  "data": { "id": "cm...", "name": "Maria Silva", "phone": "67991234567", "whatsapp": "67991234567" }
+}
+```
+
+**Exemplo para `task.created` / `task.completed`:**
+```json
+{
+  "event": "task.completed",
+  "timestamp": "2026-07-17T14:00:00.000Z",
+  "data": {
+    "id": "cm...",
+    "type": "CALL",
+    "title": "Ligar pra Maria Silva",
+    "dueAt": "2026-07-17T13:00:00.000Z",
+    "completedAt": "2026-07-17T14:00:00.000Z",
+    "createdAt": "2026-07-15T10:00:00.000Z",
+    "deal": { "id": "cm...", "name": "07/26 - Maria Silva FACEBOOK ADS" },
+    "contact": { "id": "cm...", "name": "Maria Silva" },
+    "owner": { "id": "cm...", "name": "Vendedor" }
   }
 }
 ```

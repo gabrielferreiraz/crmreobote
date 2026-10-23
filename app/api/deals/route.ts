@@ -11,6 +11,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { validateCustomFieldValues } from "@/lib/custom-fields";
 import { recordUserChange } from "@/lib/user-activity";
 import { publishDealsEvent } from "@/lib/deals/live-events";
+import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -290,6 +291,10 @@ export async function POST(req: Request) {
     // manual: "Novo negócio" da Pipeline, "Cadastro rápido" e o botão da
     // página do Cliente — todas passam por este mesmo POST.
     publishDealsEvent(organizationId, { type: "deal-created", pipelineId });
+
+    buildDealWebhookPayload(deal)
+      .then((payload) => enqueueWebhookEvent(organizationId, "deal.created", payload))
+      .catch((err) => console.error("[webhooks] falha ao enfileirar deal.created", err));
 
     return NextResponse.json(deal, { status: 201 });
   });

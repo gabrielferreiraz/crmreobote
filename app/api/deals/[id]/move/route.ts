@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/format";
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { FieldUpdatePayload } from "@/lib/undo/types";
+import { enqueueWebhookEvent, buildDealWebhookPayload } from "@/lib/webhooks/enqueue";
 
 export const dynamic = "force-dynamic";
 
@@ -143,6 +144,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           body: moveDescription,
         },
       });
+
+      buildDealWebhookPayload(deal)
+        .then((payload) =>
+          enqueueWebhookEvent(organizationId, "deal.stage_changed", {
+            ...payload,
+            previousStage: oldStage ? { id: existing.stageId, name: oldStage.name } : null,
+          }),
+        )
+        .catch((err) => console.error("[webhooks] falha ao enfileirar deal.stage_changed", err));
     }
 
     recordUserChange(organizationId, userId).catch((err) =>

@@ -15,6 +15,8 @@ import { TaskRow, type Task } from "./task-row";
 import { TaskCalendar } from "./task-calendar";
 import { GoogleCalendarBanner } from "./google-calendar-banner";
 import { UpcomingAppointmentsCard } from "./upcoming-appointments-card";
+import { AgendaSummary } from "./agenda-summary";
+import { groupAgendaTasks, type AgendaFocus } from "./agenda-utils";
 import { useUndoToast } from "@/components/undo-provider";
 import { popTasksScheduleDraft } from "@/lib/tasks-schedule-draft";
 import { trackUse } from "@/lib/feature-usage/track";
@@ -22,28 +24,11 @@ import { requestJson } from "@/lib/client-request";
 
 export type Option = { id: string; name: string };
 
-function groupTasks(tasks: Task[]) {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-
-  const pending = tasks.filter((t) => !t.completedAt);
-  const completed = tasks.filter((t) => t.completedAt);
-
-  const overdue = pending.filter((t) => t.dueAt && new Date(t.dueAt) < startOfToday);
-  const today = pending.filter(
-    (t) => t.dueAt && new Date(t.dueAt) >= startOfToday && new Date(t.dueAt) < endOfToday,
-  );
-  const upcoming = pending.filter((t) => t.dueAt && new Date(t.dueAt) >= endOfToday);
-  const noDate = pending.filter((t) => !t.dueAt);
-
-  return { overdue, today, upcoming, noDate, completed };
-}
-
 export function TasksList({
   initialTasks,
   deals,
   members,
+  openNewTask,
   isWhatsAppConnected,
   googleParam,
   googleCalendar,
@@ -52,6 +37,7 @@ export function TasksList({
   initialTasks: Task[];
   deals: Option[];
   members: Option[];
+  openNewTask?: boolean;
   isWhatsAppConnected: boolean;
   googleParam?: string;
   /** Buscado uma vez só em AgendaClient (ver comentário lá) e repassado pra
@@ -70,6 +56,7 @@ export function TasksList({
   // escopo real, isto aqui só decide se o botão aparece).
   const canDelete = true;
   const [open, setOpen] = useState(false);
+  const taskDialogOpen = open || !!openNewTask;
   const [view, setView] = useState<"list" | "calendar">("calendar");
   const [search, setSearch] = useState("");
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
@@ -78,6 +65,7 @@ export function TasksList({
   // da Agenda na hora, sem precisar mexer em filtro nenhum; só volta a
   // aparecer trocando pra "Finalizadas" ou "Todas" de propósito.
   const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
+  const [focusFilter, setFocusFilter] = useState<AgendaFocus>("all");
   const showOwner = members.length > 1;
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState<BulkScheduleTask[] | null>(null);
 
@@ -113,13 +101,15 @@ export function TasksList({
   // statusFilter no padrão ("pending") não conta como filtro "ativo" pro
   // indicador do FilterPopover/hasFilters — é o estado de repouso da tela,
   // não algo que a pessoa escolheu additivamente.
-  const hasFilters = !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending";
+  const hasFilters =
+    !!search || typeFilters.size > 0 || !!ownerFilter || statusFilter !== "pending" || focusFilter !== "all";
 
   function clearFilters() {
     setSearch("");
     setTypeFilters(new Set());
     setOwnerFilter("");
     setStatusFilter("pending");
+    setFocusFilter("all");
   }
 
   function toggleType(type: string) {
@@ -131,7 +121,7 @@ export function TasksList({
     });
   }
 
-  const filteredTasks = useMemo(() => {
+  const scopedTasks = useMemo(() => {
     const term = search.trim().toLowerCase();
     return initialTasks.filter((t) => {
       if (
@@ -145,13 +135,21 @@ export function TasksList({
       }
       if (typeFilters.size > 0 && !typeFilters.has(t.type)) return false;
       if (ownerFilter && t.owner.id !== ownerFilter) return false;
+      return true;
+    });
+  }, [initialTasks, search, typeFilters, ownerFilter]);
+
+  const summaryGroups = useMemo(() => groupAgendaTasks(scopedTasks), [scopedTasks]);
+  const filteredTasks = useMemo(() => {
+    const focusedTasks = focusFilter === "all" ? scopedTasks : summaryGroups[focusFilter];
+    return focusedTasks.filter((t) => {
       if (statusFilter === "pending" && t.completedAt) return false;
       if (statusFilter === "completed" && !t.completedAt) return false;
       return true;
     });
-  }, [initialTasks, search, typeFilters, ownerFilter, statusFilter]);
+  }, [scopedTasks, statusFilter, focusFilter, summaryGroups]);
 
-  const groups = useMemo(() => groupTasks(filteredTasks), [filteredTasks]);
+  const groups = useMemo(() => groupAgendaTasks(filteredTasks), [filteredTasks]);
   const isEmpty = initialTasks.length === 0;
   const noResults = !isEmpty && filteredTasks.length === 0;
 
@@ -228,172 +226,197 @@ export function TasksList({
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_300px] xl:items-start">
-      <div className="min-w-0 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="inline-flex rounded-md border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 p-0.5">
-          <button
-            onClick={() => setView("calendar")}
-            className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-              view === "calendar"
-                ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
-                : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
-            }`}
-          >
-            <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} />
-            Mês
-          </button>
-          <button
-            onClick={() => setView("list")}
-            className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-              view === "list"
-                ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
-                : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
-            }`}
-          >
-            <List className="h-3.5 w-3.5" strokeWidth={2} />
-            Lista
-          </button>
-        </div>
-
-        <button onClick={() => setOpen(true)} className="btn-primary">
-          <Plus className="h-4 w-4" strokeWidth={2.5} />
-          Nova atividade
-        </button>
-      </div>
-
       {!isEmpty && (
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
-              strokeWidth={2}
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar tarefa, negócio ou contato"
-              className="field-input w-64 py-1.5 pl-8 text-sm"
-            />
-          </div>
-          <FilterPopover active={hasFilters} onClear={clearFilters}>
-            <div className="space-y-1">
-              <label className="field-label">Status</label>
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    { value: "pending" as const, label: "Pendentes" },
-                    { value: "completed" as const, label: "Finalizadas" },
-                    { value: "all" as const, label: "Todas" },
-                  ]
-                ).map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setStatusFilter(opt.value)}
-                    className={`rounded-full border px-2 py-1 text-xs font-medium transition-colors ${
-                      statusFilter === opt.value
-                        ? "border-neutral-900 bg-neutral-100 text-neutral-900 dark:border-white dark:bg-neutral-800 dark:text-white"
-                        : "border-transparent text-neutral-500 hover:border-neutral-200 dark:text-neutral-400 dark:hover:border-neutral-700"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="field-label">Categoria</label>
-              <div className="flex flex-wrap gap-1">
-                {sortAlpha(Object.entries(TASK_TYPE_LABELS), ([, label]) => label).map(([value, label]) => {
-                  const color = TASK_TYPE_COLOR[value];
-                  const active = typeFilters.has(value);
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => toggleType(value)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors ${
-                        active
-                          ? "border-neutral-900 dark:border-white"
-                          : "border-transparent hover:border-neutral-200 dark:hover:border-neutral-700"
-                      } ${color.bg} ${color.text}`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            {members.length > 1 && (
-              <div className="space-y-1">
-                <label className="field-label">Responsável</label>
-                <Select
-                  value={ownerFilter}
-                  onChange={setOwnerFilter}
-                  className="w-full py-1.5 text-sm"
-                  options={[
-                    { value: "", label: "Todos" },
-                    ...sortAlpha(members, (m) => m.name).map((m) => ({ value: m.id, label: m.name })),
-                  ]}
-                />
-              </div>
-            )}
-          </FilterPopover>
-        </div>
-      )}
-
-      {isEmpty ? (
-        <div className="card">
-          <EmptyState
-            icon={CheckSquare}
-            title="Nenhuma atividade por aqui"
-            description="Crie atividades para organizar ligações, e-mails e follow-ups."
-          />
-        </div>
-      ) : view === "calendar" ? (
-        <TaskCalendar
-          tasks={filteredTasks}
-          onToggle={toggleComplete}
-          onDelete={deleteTask}
-          onBulkMove={bulkMoveTasks}
-          canDelete={canDelete}
-          showOwner={showOwner}
-          googleEvents={showGoogleEvents ? googleCalendar.events : []}
-          deals={deals}
+        <AgendaSummary
+          counts={{
+            pending: summaryGroups.pending.length,
+            overdue: summaryGroups.overdue.length,
+            today: summaryGroups.today.length,
+            upcoming: summaryGroups.upcoming.length,
+            noDate: summaryGroups.noDate.length,
+          }}
+          active={focusFilter}
+          onChange={(focus) => {
+            setFocusFilter(focus);
+            setStatusFilter("pending");
+            if (focus !== "all") setView("list");
+          }}
         />
-      ) : noResults ? (
-        <div className="card">
-          <EmptyState
-            icon={SearchX}
-            title="Nenhuma atividade encontrada"
-            description="Ajuste a busca ou limpe os filtros."
-          />
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <TaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
-          <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
-          <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
-          <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
-          <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} muted showOwner={showOwner} deals={deals} />
-        </div>
       )}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
+        <div className="min-w-0 space-y-5">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-neutral-200 bg-white/60 p-2 dark:border-neutral-800 dark:bg-neutral-950/30">
+            <div className="inline-flex rounded-xl bg-neutral-100 p-1 dark:bg-neutral-900">
+              <button
+                onClick={() => setView("calendar")}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  view === "calendar"
+                    ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-neutral-100"
+                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                }`}
+              >
+                <CalendarDays className="h-4 w-4" strokeWidth={2} />
+                Mês
+              </button>
+              <button
+                onClick={() => setView("list")}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  view === "list"
+                    ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-800 dark:text-neutral-100"
+                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                }`}
+              >
+                <List className="h-4 w-4" strokeWidth={2} />
+                Lista
+              </button>
+            </div>
+
+            {!isEmpty && (
+              <>
+                <div className="relative min-w-64 flex-1">
+                  <Search
+                    className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500"
+                    strokeWidth={2}
+                  />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Buscar atividade, negócio ou contato"
+                    className="field-input py-2.5 pl-9 text-sm"
+                  />
+                </div>
+                <FilterPopover active={hasFilters} onClear={clearFilters}>
+                  <div className="space-y-2">
+                    <label className="field-label">Status</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          { value: "pending" as const, label: "Pendentes" },
+                          { value: "completed" as const, label: "Finalizadas" },
+                          { value: "all" as const, label: "Todas" },
+                        ]
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter(opt.value);
+                            setFocusFilter("all");
+                          }}
+                          className={`rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                            statusFilter === opt.value
+                              ? "border-neutral-900 bg-neutral-100 text-neutral-900 dark:border-white dark:bg-neutral-800 dark:text-white"
+                              : "border-neutral-200 text-neutral-500 hover:border-neutral-400 dark:border-neutral-800 dark:text-neutral-400"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="field-label">Categoria</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {sortAlpha(Object.entries(TASK_TYPE_LABELS), ([, label]) => label).map(([value, label]) => {
+                        const color = TASK_TYPE_COLOR[value];
+                        const active = typeFilters.has(value);
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => toggleType(value)}
+                            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                              active
+                                ? "border-neutral-900 dark:border-white"
+                                : "border-transparent hover:border-neutral-200 dark:hover:border-neutral-700"
+                            } ${color.bg} ${color.text}`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {members.length > 1 && (
+                    <div className="space-y-2">
+                      <label className="field-label">Responsável</label>
+                      <Select
+                        value={ownerFilter}
+                        onChange={setOwnerFilter}
+                        className="w-full py-2 text-sm"
+                        options={[
+                          { value: "", label: "Todos" },
+                          ...sortAlpha(members, (m) => m.name).map((m) => ({ value: m.id, label: m.name })),
+                        ]}
+                      />
+                    </div>
+                  )}
+                </FilterPopover>
+              </>
+            )}
+
+            <button onClick={() => setOpen(true)} className="btn-primary ml-auto py-2.5">
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              Nova atividade
+            </button>
+          </div>
+
+          {isEmpty ? (
+            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800">
+              <EmptyState
+                icon={CheckSquare}
+                title="Nenhuma atividade por aqui"
+                description="Crie uma atividade para organizar o próximo contato."
+              />
+            </div>
+          ) : view === "calendar" ? (
+            <TaskCalendar
+              tasks={filteredTasks}
+              onToggle={toggleComplete}
+              onDelete={deleteTask}
+              onBulkMove={bulkMoveTasks}
+              canDelete={canDelete}
+              showOwner={showOwner}
+              googleEvents={showGoogleEvents ? googleCalendar.events : []}
+              deals={deals}
+            />
+          ) : noResults ? (
+            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800">
+              <EmptyState
+                icon={SearchX}
+                title="Nenhuma atividade encontrada"
+                description="Ajuste a busca ou limpe os filtros."
+              />
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <TaskGroup title="Atrasadas" tasks={groups.overdue} tone="red" onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+              <TaskGroup title="Hoje" tasks={groups.today} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+              <TaskGroup title="Próximas" tasks={groups.upcoming} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+              <TaskGroup title="Sem prazo" tasks={groups.noDate} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} showOwner={showOwner} deals={deals} />
+              <TaskGroup title="Concluídas (últimos 30 dias)" tasks={groups.completed} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} muted showOwner={showOwner} deals={deals} />
+            </div>
+          )}
+        </div>
+
+        <div className="xl:sticky xl:top-4">
+          <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} googleEvents={googleCalendar.events} />
+        </div>
       </div>
 
-      <div className="xl:sticky xl:top-4">
-        <UpcomingAppointmentsCard tasks={initialTasks} onToggle={toggleComplete} onDelete={deleteTask} canDelete={canDelete} deals={deals} googleEvents={googleCalendar.events} />
-      </div>
-      </div>
-
-      {open && (
+      {taskDialogOpen && (
         <NewTaskDialog
           deals={deals}
           isWhatsAppConnected={isWhatsAppConnected}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            if (openNewTask) router.replace("/agenda");
+          }}
           onCreated={() => {
             setOpen(false);
+            if (openNewTask) router.replace("/agenda");
             router.refresh();
           }}
         />
@@ -434,7 +457,7 @@ function TaskGroup({
   return (
     <div>
       <h2
-        className={`mb-2 text-sm font-medium ${
+        className={`mb-3 text-base font-semibold ${
           tone === "red" ? "text-red-600 dark:text-red-400" : "text-neutral-700 dark:text-neutral-300"
         }`}
       >

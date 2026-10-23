@@ -149,10 +149,10 @@ export default async function AgendaPage({
     ).map((m) => m.user);
 
     return (
-      <div className="space-y-4">
-        <div>
+      <div className="space-y-5">
+        <div className="pb-1">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">Agenda</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Videochamadas, ligações e follow-ups do time</p>
+          <p className="mt-1 text-base text-neutral-500 dark:text-neutral-400">Atividades e compromissos do time</p>
         </div>
         <AgendaClient
           initialTasks={tasks}

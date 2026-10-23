@@ -50,7 +50,7 @@ export type DuplicateContact = {
   // sem aprovação (ver lib/lead-claim.ts, a regra única). Nulo = dono ativo
   // cuidando do lead → só dá pra solicitar.
   claimReason: LeadClaimReason | null;
-  /** Só quando claimReason é LOST_OVER_3_MONTHS: quando o lead foi perdido pela última vez. */
+  /** Só quando claimReason é LOST_OVER_3_MONTHS: desde quando o lead está parado (perdido ou último movimento do responsável). */
   lostAt: Date | null;
   phone: string | null;
   phoneNormalized: string | null;
