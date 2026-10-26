@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolvePreferredInstancesByOwner } from "@/lib/whatsapp/send";
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     // seleção vinda do cliente, mesmo pra uma checagem só de leitura.
     const scope = await getSharedScope(organizationId, userId, role, "shareDeals");
     const deals = await prisma.deal.findMany({
-      where: { id: { in: dealIds }, organizationId, ...scopeWhere(scope) },
+      where: { id: { in: dealIds }, organizationId, ...dealScopeWhere(scope) },
       select: { owner: { select: { id: true } } },
     });
 

@@ -6,6 +6,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { recordUserChange } from "@/lib/user-activity";
 import { recordUndoableAction } from "@/lib/undo/record";
 import type { DeleteSnapshotPayload, FieldUpdatePayload } from "@/lib/undo/types";
+import { isCoOwnerOfDeal } from "@/lib/deals/split";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,9 @@ async function hasPermission(args: {
       select: { ownerId: true },
     });
     if (deal && deal.ownerId === userId) {
+      return { ok: true };
+    }
+    if (await isCoOwnerOfDeal(organizationId, userId, activity.dealId)) {
       return { ok: true };
     }
   }

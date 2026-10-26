@@ -74,6 +74,11 @@ export const PATCH = commissionRoute(async function PATCH(req: Request, { params
 
     // Trocar o vendedor fotografa de novo a equipe DELE (líder/gerente).
     const sellerChanged = data.sellerId !== undefined && data.sellerId !== existing.sellerId;
+    // A divisão do vendedor (co-responsáveis) era do vendedor ANTERIOR: o Financeiro
+    // escolheu outra pessoa, então a venda volta a ser 100% dela.
+    if (sellerChanged) {
+      await tx.commissionSaleShare.deleteMany({ where: { saleId: id } });
+    }
     const updated = await tx.commissionSale.update({
       where: { id },
       data: {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -17,7 +17,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return runWithTenant(access.organizationId, async () => {
     const scope = await getSharedScope(access.organizationId, access.userId, access.role, "shareDeals");
     const deal = await prisma.deal.findFirst({
-      where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId: access.organizationId, ...dealScopeWhere(scope) },
     });
     if (!deal) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
@@ -81,7 +81,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // Colaborativo: quem compartilha o negócio via grupo também pode
     // registrar atividade nele como coautor (ver lib/share-groups.ts).
     const scope = await getSharedScope(organizationId, userId, access.role, "shareDeals");
-    const deal = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
+    const deal = await prisma.deal.findFirst({ where: { id, organizationId, ...dealScopeWhere(scope) } });
     if (!deal) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     const activity = await prisma.activity.create({

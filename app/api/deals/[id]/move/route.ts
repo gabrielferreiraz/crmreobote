@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findMissingRequiredFields, labelForRequiredField } from "@/lib/deal-required-fields";
@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // de etapa como coautor (ver lib/share-groups.ts).
     const scope = await getSharedScope(organizationId, userId, access.role, "shareDeals");
     const existing = await prisma.deal.findFirst({
-      where: { id, organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId, ...dealScopeWhere(scope) },
       include: { contact: { select: { source: true, jobTitle: true } } },
     });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });

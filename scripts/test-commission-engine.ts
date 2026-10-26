@@ -315,3 +315,122 @@ test("busca sem acento: 'joao' acha 'João'", () => {
   assert.equal(plainSearchText("Gonçalves"), "goncalves");
   assert.equal(plainSearchText("ÁÉÍÓÚ àâêô ü ñ"), "aeiou aaeo u n");
 });
+
+// ─── Divisão do vendedor entre co-responsáveis ───────────────────────
+
+test("venda sem divisão: um vendedor com 100%, igual a sempre", () => {
+  const { installments } = buildSaleSchedule(sale(), adm(), [rule({ percent: 1 })]);
+  assert.equal(installments.length, 1);
+  assert.equal(installments[0].beneficiaryId, "seller");
+  assert.equal(installments[0].amountCents, 100_000, "1% de 100.000 = R$ 1.000,00");
+  assert.equal(installments[0].percent, 1);
+});
+
+test("divisão 50/50: o bolo do vendedor é repartido e a soma bate", () => {
+  const split = sale({
+    sellerShares: [
+      { userId: "seller", percent: 50 },
+      { userId: "outro", percent: 50 },
+    ],
+  });
+  const { installments, problems } = buildSaleSchedule(split, adm(), [rule({ percent: 1 })]);
+  assert.deepEqual(problems, []);
+  const byPerson = new Map(installments.map((i) => [i.beneficiaryId, i]));
+  assert.equal(byPerson.get("seller")!.amountCents, 50_000);
+  assert.equal(byPerson.get("outro")!.amountCents, 50_000);
+  assert.equal(sumCents(installments), 100_000, "o total da comissão é o mesmo de uma venda sem divisão");
+  assert.equal(byPerson.get("seller")!.percent, 0.5, "mostra o % efetivo de cada um sobre a venda");
+  assert.equal(byPerson.get("outro")!.ruleId, byPerson.get("seller")!.ruleId, "a regra é uma só (a do vendedor principal)");
+});
+
+test("divisão com 3 pessoas e várias parcelas: nenhum centavo se perde", () => {
+  const split = sale({
+    netValue: 33_333.33,
+    sellerShares: [
+      { userId: "seller", percent: 34 },
+      { userId: "b", percent: 33 },
+      { userId: "c", percent: 33 },
+    ],
+  });
+  const single = buildSaleSchedule(sale({ netValue: 33_333.33 }), adm({ commissionInstallments: 5 }), [rule({ percent: 1.3 })]);
+  const divided = buildSaleSchedule(split, adm({ commissionInstallments: 5 }), [rule({ percent: 1.3 })]);
+  assert.equal(sumCents(divided.installments), sumCents(single.installments));
+  for (let n = 1; n <= 5; n++) {
+    const same = (list: typeof divided.installments) => sumCents(list.filter((i) => i.installmentNumber === n));
+    assert.equal(same(divided.installments), same(single.installments), `parcela ${n}`);
+  }
+  assert.deepEqual(new Set(divided.installments.map((i) => i.beneficiaryId)), new Set(["seller", "b", "c"]));
+});
+
+test("a regra usada é a do vendedor principal, não a do co-responsável", () => {
+  const split = sale({
+    sellerShares: [
+      { userId: "seller", percent: 50 },
+      { userId: "outro", percent: 50 },
+    ],
+  });
+  const rules = [rule({ percent: 1 }), rule({ percent: 5, userId: "outro" })];
+  const { installments } = buildSaleSchedule(split, adm(), rules);
+  assert.equal(sumCents(installments), 100_000, "1% do principal, não 5% do outro");
+});
+
+test("supervisor que também divide a venda não recebe duas vezes", () => {
+  const split = sale({
+    supervisorId: "sup",
+    sellerShares: [
+      { userId: "seller", percent: 50 },
+      { userId: "sup", percent: 50 },
+    ],
+  });
+  const rules = [rule({ percent: 1 }), rule({ beneficiaryRole: "SUPERVISOR", percent: 0.5 })];
+  const { installments } = buildSaleSchedule(split, adm(), rules);
+  assert.equal(installments.filter((i) => i.role === "SUPERVISOR").length, 0);
+  assert.equal(installments.filter((i) => i.beneficiaryId === "sup").length, 1, "só a parte de vendedor");
+});
+
+test("supervisor e gerente continuam recebendo normalmente numa venda dividida", () => {
+  const split = sale({
+    supervisorId: "sup",
+    managerId: "ger",
+    sellerShares: [
+      { userId: "seller", percent: 50 },
+      { userId: "outro", percent: 50 },
+    ],
+  });
+  const rules = [
+    rule({ percent: 1 }),
+    rule({ beneficiaryRole: "SUPERVISOR", percent: 0.5 }),
+    rule({ beneficiaryRole: "MANAGER", percent: 0.2 }),
+  ];
+  const { installments } = buildSaleSchedule(split, adm(), rules);
+  const total = (id: string) => sumCents(installments.filter((i) => i.beneficiaryId === id));
+  assert.equal(total("sup"), 50_000, "0,5% de 100.000, inteiro");
+  assert.equal(total("ger"), 20_000, "0,2% de 100.000, inteiro");
+  assert.equal(total("seller") + total("outro"), 100_000);
+});
+
+test("divisão inválida (não soma 100, ou sem o vendedor principal) volta pro vendedor com 100%", () => {
+  for (const sellerShares of [
+    [{ userId: "seller", percent: 50 }, { userId: "outro", percent: 40 }],
+    [{ userId: "x", percent: 50 }, { userId: "y", percent: 50 }],
+    [{ userId: "seller", percent: 100 }],
+  ]) {
+    const { installments } = buildSaleSchedule(sale({ sellerShares }), adm(), [rule({ percent: 1 })]);
+    assert.equal(installments.length, 1);
+    assert.equal(installments[0].beneficiaryId, "seller");
+    assert.equal(installments[0].amountCents, 100_000);
+  }
+});
+
+test("divisão acompanha o ritmo de parcelas da administradora (cada pessoa recebe nas mesmas parcelas)", () => {
+  const split = sale({
+    sellerShares: [
+      { userId: "seller", percent: 60 },
+      { userId: "outro", percent: 40 },
+    ],
+  });
+  const { installments } = buildSaleSchedule(split, adm({ commissionInstallments: 3 }), [rule({ percent: 1 })]);
+  const months = (id: string) => installments.filter((i) => i.beneficiaryId === id).map((i) => i.paymentMonth);
+  assert.deepEqual(months("seller"), months("outro"));
+  assert.equal(months("seller").length, 3);
+});

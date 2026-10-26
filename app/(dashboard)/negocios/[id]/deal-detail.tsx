@@ -10,6 +10,7 @@ import { isStale } from "@/lib/stale";
 import { normalizePhoneNumber, toDialNumber } from "@/lib/phone-normalize";
 import { ACTIVITY_TABS, ACTIVITY_ICON, ACTIVITY_BODY_TEMPLATES, MEETING_OUTCOME_OPTIONS } from "@/lib/activity-icons";
 import { MeetingOutcomeDialog, type MeetingOutcomeResult } from "@/components/meeting-outcome-dialog";
+import { DealSplitSection, type DealSplitData } from "./deal-split-section";
 import { Avatar } from "@/components/avatar";
 import { Modal } from "@/components/modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -595,6 +596,8 @@ export function DealDetail({
   isWhatsAppConnected,
   sendAsAlternate,
   canEditDetails,
+  split,
+  coOwnerOnly = false,
   currentUserRole,
   currentUserId,
   proposals,
@@ -616,8 +619,12 @@ export function DealDetail({
    * WhatsApp próprio conectado — deixa trocar pra "enviar como você" em vez
    * do padrão (que já é a conversa real do responsável, ver page.tsx). */
   sendAsAlternate?: { threadId: string; label: string; defaultLabel: string } | null;
-  /** Só o dono do negócio ou um OWNER da conta pode editar os campos com lápis. */
+  /** Dono do negócio, co-responsável ou um OWNER da conta podem editar os campos com lápis. */
   canEditDetails: boolean;
+  /** Divisão do negócio entre responsáveis (null = recurso desligado, ver lib/deals/split.ts). */
+  split?: DealSplitData | null;
+  /** Co-responsável sem acesso pelo cargo/equipe: não passa o negócio adiante. */
+  coOwnerOnly?: boolean;
   /** Excluir tarefa (Videochamada/Visita/etc.) é restrito ao Dono da organização — ver DELETE /api/tasks/[id]. */
   currentUserRole?: string;
   currentUserId: string;
@@ -631,6 +638,8 @@ export function DealDetail({
   const searchParams = useSearchParams();
   useMobileEditorCentering();
   const canDeleteTask = currentUserRole === "OWNER";
+  // Muda quando a divisão muda no servidor — faz a seção recomeçar com os dados novos.
+  const splitKey = split?.shares.map((s) => `${s.userId}:${s.percent}`).join("|") ?? "";
   const [activeTab, setActiveTab] = useState("NOTE");
   const [sidebarTab, setSidebarTab] = useState<"general" | "contact">("general");
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -1153,6 +1162,7 @@ export function DealDetail({
     if (activity.type === "SYSTEM") return false;
     if (currentUserRole === "OWNER") return true;
     if (deal.owner.id === currentUserId) return true;
+    if (split?.shares.some((s) => s.userId === currentUserId)) return true;
     if (activity.userId === currentUserId) return true;
     return false;
   }
@@ -1980,14 +1990,19 @@ export function DealDetail({
                     <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
                     <span className="flex items-center gap-1.5">
                       <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
-                      <Select
-                        value={deal.owner.id}
-                        onChange={setPendingOwnerId}
-                        className="py-1 text-xs"
-                        options={members.map((m) => ({ value: m.id, label: m.name }))}
-                      />
+                      {coOwnerOnly ? (
+                        <span className="text-xs text-neutral-800 dark:text-neutral-200">{deal.owner.name}</span>
+                      ) : (
+                        <Select
+                          value={deal.owner.id}
+                          onChange={setPendingOwnerId}
+                          className="py-1 text-xs"
+                          options={members.map((m) => ({ value: m.id, label: m.name }))}
+                        />
+                      )}
                     </span>
                   </div>
+                  {split && <DealSplitSection key={splitKey} dealId={deal.id} members={members} split={split} />}
                   <Row
                     label="Criado em"
                     value={new Date(deal.createdAt).toLocaleString("pt-BR", {
@@ -2444,14 +2459,19 @@ export function DealDetail({
                 <span className="text-neutral-500 dark:text-neutral-400">Responsável</span>
                 <span className="flex items-center gap-1.5">
                   <Avatar name={deal.owner.name} src={deal.owner.photoUrl} size="xs" />
-                  <Select
-                    value={deal.owner.id}
-                    onChange={setPendingOwnerId}
-                    className="py-1 text-xs"
-                    options={members.map((m) => ({ value: m.id, label: m.name }))}
-                  />
+                  {coOwnerOnly ? (
+                    <span className="text-xs text-neutral-800 dark:text-neutral-200">{deal.owner.name}</span>
+                  ) : (
+                    <Select
+                      value={deal.owner.id}
+                      onChange={setPendingOwnerId}
+                      className="py-1 text-xs"
+                      options={members.map((m) => ({ value: m.id, label: m.name }))}
+                    />
+                  )}
                 </span>
               </div>
+              {split && <DealSplitSection key={splitKey} dealId={deal.id} members={members} split={split} />}
               <Row label="Criado em" value={new Date(deal.createdAt).toLocaleDateString("pt-BR")} />
               <Row label="Início" value={new Date(deal.startedAt).toLocaleDateString("pt-BR")} />
               <Row

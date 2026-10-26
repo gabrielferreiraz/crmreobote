@@ -16,6 +16,7 @@
 import { prismaRaw } from "@/lib/prisma";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import type { Prisma } from "@/app/generated/prisma/client";
+import { computeDealShares } from "@/lib/deals/split-shares";
 import {
   addMonths,
   brazilMonthKey,
@@ -162,19 +163,29 @@ const centsToDecimalString = (cents: number) => (cents / 100).toFixed(2);
  * — mesma regra: parcela já marcada como recebida nunca é refeita.
  */
 export async function regenerateSaleEntries(tx: Tx, sale: SaleRow, ctx: EngineContext, now: Date = new Date()) {
+  // Venda dividida entre vendedores (ver DealParticipant): com duas pessoas
+  // recebendo a MESMA parcela, "papel + número" não identifica mais a parcela —
+  // a chave passa a incluir a pessoa. Venda não dividida segue com a chave de
+  // sempre (trocar o vendedor depois NÃO pode gerar a parcela já paga de novo).
+  const sellerShares = await tx.commissionSaleShare.findMany({
+    where: { saleId: sale.id },
+    select: { userId: true, percent: true },
+  });
+  const perPerson = sellerShares.length > 1;
   const existing = await tx.commissionEntry.findMany({
     where: { saleId: sale.id, kind: "INSTALLMENT" },
-    select: { role: true, installmentNumber: true, status: true, holdReason: true, clientPaymentEffect: true },
+    select: { role: true, beneficiaryId: true, installmentNumber: true, status: true, holdReason: true, clientPaymentEffect: true },
   });
-  const keyOf = (role: string, n: number | null) => `${role}#${n ?? 0}`;
-  const paidKeys = new Set(existing.filter((e) => e.status === "PAID").map((e) => keyOf(e.role, e.installmentNumber)));
-  const knownKeys = new Set(existing.map((e) => keyOf(e.role, e.installmentNumber)));
+  const keyOf = (role: string, n: number | null, beneficiaryId: string) =>
+    perPerson && role === "SELLER" ? `${role}:${beneficiaryId}#${n ?? 0}` : `${role}#${n ?? 0}`;
+  const paidKeys = new Set(existing.filter((e) => e.status === "PAID").map((e) => keyOf(e.role, e.installmentNumber, e.beneficiaryId)));
+  const knownKeys = new Set(existing.map((e) => keyOf(e.role, e.installmentNumber, e.beneficiaryId)));
   // Só trava feita À MÃO sobrevive ao recálculo — a do "cliente não pagou"
   // é reaplicada no fim (applyClientPayments), a partir dos ✓ do Financeiro.
   const holds = new Map(
     existing
       .filter((e) => e.status === "ON_HOLD" && e.clientPaymentEffect !== "HOLD")
-      .map((e) => [keyOf(e.role, e.installmentNumber), e.holdReason]),
+      .map((e) => [keyOf(e.role, e.installmentNumber, e.beneficiaryId), e.holdReason]),
   );
 
   await tx.commissionEntry.deleteMany({ where: { saleId: sale.id, kind: "INSTALLMENT", status: { not: "PAID" } } });
@@ -188,7 +199,7 @@ export async function regenerateSaleEntries(tx: Tx, sale: SaleRow, ctx: EngineCo
   const base = sale.administratorId ? (ctx.administrators.get(sale.administratorId) ?? null) : null;
   // A tabela da categoria da venda (ou a padrão da administradora).
   const administrator = base ? resolveAdministrator(base, sale.creditType) : null;
-  const { installments, revenue } = buildSaleSchedule(toSaleLike(sale), administrator, ctx.rules);
+  const { installments, revenue } = buildSaleSchedule({ ...toSaleLike(sale), sellerShares }, administrator, ctx.rules);
   const currentMonth = brazilMonthKey(now);
 
   const receivedNumbers = new Set(receivedRevenue.map((r) => r.installmentNumber));
@@ -206,9 +217,9 @@ export async function regenerateSaleEntries(tx: Tx, sale: SaleRow, ctx: EngineCo
   if (revenueData.length > 0) await tx.commissionRevenue.createMany({ data: revenueData });
 
   const data = installments
-    .filter((i) => !paidKeys.has(keyOf(i.role, i.installmentNumber)))
+    .filter((i) => !paidKeys.has(keyOf(i.role, i.installmentNumber, i.beneficiaryId)))
     .map((i) => {
-      const key = keyOf(i.role, i.installmentNumber);
+      const key = keyOf(i.role, i.installmentNumber, i.beneficiaryId);
       const paidBeforeSystem = sale.status === "REVIEW" && !knownKeys.has(key) && i.paymentMonth < currentMonth;
       const hold = holds.get(key);
       return {
@@ -352,7 +363,20 @@ export async function markClientPayments(
     if (changes) await applyClientPayments(tx, sale.id, sale.administrator?.unpaidPolicy ?? null);
   }
   const newlyUnpaid = state === "UNPAID" ? sales.filter((s) => previous.get(s.id) !== false) : [];
-  return { sales, newlyUnpaid };
+
+  // Quem recebe o aviso "cliente não pagou": o vendedor e, em venda dividida, os co-vendedores.
+  const sellersBySale = new Map<string, string[]>(sales.map((s) => [s.id, [s.sellerId]]));
+  if (newlyUnpaid.length > 0) {
+    const shares = await tx.commissionSaleShare.findMany({
+      where: { saleId: { in: newlyUnpaid.map((s) => s.id) } },
+      select: { saleId: true, userId: true },
+    });
+    for (const share of shares) {
+      const list = sellersBySale.get(share.saleId);
+      if (list && !list.includes(share.userId)) list.push(share.userId);
+    }
+  }
+  return { sales, newlyUnpaid, sellersBySale };
 }
 
 const SALE_SELECT = {
@@ -424,6 +448,20 @@ async function createSalesFromDeals(
   });
   const teamBySeller = new Map(memberships.map((m) => [m.userId, m.team]));
 
+  // Negócios divididos entre co-responsáveis: a venda nasce com a divisão
+  // fotografada (ver CommissionSaleShare).
+  const participantsByDeal = new Map<string, { userId: string; sharePercent: number }[]>();
+  const participantRows = await tx.dealParticipant.findMany({
+    where: { organizationId, dealId: { in: deals.map((d) => d.id) } },
+    orderBy: { createdAt: "asc" },
+    select: { dealId: true, userId: true, sharePercent: true },
+  });
+  for (const row of participantRows) {
+    const list = participantsByDeal.get(row.dealId) ?? [];
+    list.push({ userId: row.userId, sharePercent: row.sharePercent });
+    participantsByDeal.set(row.dealId, list);
+  }
+
   let created = 0;
   for (const deal of deals) {
     const team = teamBySeller.get(deal.ownerId) ?? null;
@@ -447,6 +485,17 @@ async function createSalesFromDeals(
       },
       select: SALE_SELECT,
     });
+    const coOwners = participantsByDeal.get(deal.id);
+    if (coOwners && coOwners.length > 0) {
+      await tx.commissionSaleShare.createMany({
+        data: computeDealShares(deal.ownerId, coOwners).map((share) => ({
+          organizationId,
+          saleId: sale.id,
+          userId: share.userId,
+          percent: share.percent,
+        })),
+      });
+    }
     await regenerateSaleEntries(tx, sale, ctx);
     created++;
   }
@@ -607,6 +656,53 @@ export async function syncCommissionSales(organizationId: string, opts?: { dealI
   };
   if (opts?.ifFree) return (await withCommissionLockIfFree(organizationId, run)) ?? result;
   return withCommissionLock(organizationId, run);
+}
+
+export type ApplySplitResult = { ok: true; changed: boolean } | { ok: false; error: string };
+
+/**
+ * Passa a divisão ATUAL do negócio (co-responsáveis) pra venda de comissão
+ * dele, se já existir, e refaz as parcelas do vendedor. Só vale enquanto
+ * NENHUMA parcela de vendedor foi paga — depois disso a divisão é do
+ * Financeiro (mudar sozinho aqui mexeria em dinheiro já pago). Venda ainda
+ * não criada: nada a fazer (ela já nasce com a divisão do negócio).
+ */
+export async function applyDealSplitToSale(organizationId: string, dealId: string): Promise<ApplySplitResult> {
+  return withCommissionLock(organizationId, (tx) => applyDealSplitToSaleTx(tx, organizationId, dealId));
+}
+
+/** Miolo de applyDealSplitToSale — o chamador já está dentro da trava de comissão (withCommissionLock). */
+export async function applyDealSplitToSaleTx(tx: Tx, organizationId: string, dealId: string): Promise<ApplySplitResult> {
+  const sale = await tx.commissionSale.findFirst({ where: { organizationId, dealId }, select: SALE_SELECT });
+  if (!sale || sale.status === "CANCELLED") return { ok: true, changed: false };
+
+  const paid = await tx.commissionEntry.count({
+    where: { saleId: sale.id, role: "SELLER", kind: "INSTALLMENT", status: "PAID" },
+  });
+  if (paid > 0) {
+    return { ok: false, error: "A comissão deste negócio já começou a ser paga. A divisão só pode ser corrigida pelo Financeiro." };
+  }
+
+  // O principal da venda é o vendedor FOTOGRAFADO nela (sale.sellerId): se o negócio
+  // foi repassado depois do Ganho, a venda continua com o vendedor de antes.
+  const participants = await tx.dealParticipant.findMany({
+    where: { organizationId, dealId, NOT: { userId: sale.sellerId } },
+    orderBy: { createdAt: "asc" },
+    select: { userId: true, sharePercent: true },
+  });
+  await tx.commissionSaleShare.deleteMany({ where: { saleId: sale.id } });
+  if (participants.length > 0) {
+    await tx.commissionSaleShare.createMany({
+      data: computeDealShares(sale.sellerId, participants).map((share) => ({
+        organizationId,
+        saleId: sale.id,
+        userId: share.userId,
+        percent: share.percent,
+      })),
+    });
+  }
+  await regenerateSaleEntries(tx, sale, await loadEngineContext(tx, organizationId));
+  return { ok: true, changed: true };
 }
 
 /** Última sincronização "de abertura de tela" por organização, nesta instância do servidor. */

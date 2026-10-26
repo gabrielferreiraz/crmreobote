@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { requireRole } from "@/lib/require-role";
 import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { getSharedScope } from "@/lib/share-groups";
 import { sanitizeCell } from "@/lib/csv-sanitize";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -31,7 +32,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // handler abaixo, deliberadamente restrito a getDealScope puro).
     const scope = await getSharedScope(access.organizationId, access.userId, access.role, "shareDeals");
     const deal = await prisma.deal.findFirst({
-      where: { id, organizationId: access.organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId: access.organizationId, ...dealScopeWhere(scope) },
       include: {
         contact: true,
         owner: { select: USER_PUBLIC_SELECT },
@@ -94,7 +95,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // Colaborativo: quem compartilha o negócio via grupo pode editar campos/
     // mover etapa/marcar Ganho-Perdido como coautor (ver lib/share-groups.ts).
     const scope = await getSharedScope(organizationId, userId, access.role, "shareDeals");
-    const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
+    const existing = await prisma.deal.findFirst({ where: { id, organizationId, ...dealScopeWhere(scope) } });
     if (!existing) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
     // Administradora (módulo de Comissões): só aceita uma ATIVA desta
@@ -144,6 +145,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           return NextResponse.json({ error: "Escolha a categoria antes de marcar o negócio como ganho" }, { status: 400 });
         }
       }
+    }
+
+    // Passar o negócio pra outra pessoa é do responsável principal (e da
+    // hierarquia). Co-responsável não: senão ele viraria o principal e passaria
+    // a mexer na divisão da comissão.
+    if (
+      ownerId &&
+      ownerId !== existing.ownerId &&
+      !(scope.type === "all" || scope.ownerIds.includes(existing.ownerId))
+    ) {
+      return NextResponse.json(
+        { error: "Só o responsável principal pode passar o negócio pra outra pessoa." },
+        { status: 403 },
+      );
     }
 
     if (ownerId) {
@@ -292,6 +307,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const ownerChanged = !!ownerId && ownerId !== existing.ownerId;
     const previousContactResponsavelId = deal.contact.responsavelId;
     if (ownerChanged) {
+      // Quem vira responsável principal deixa de ser co-responsável (a parte dele passa a ser o "resto").
+      await prisma.dealParticipant.deleteMany({ where: { dealId: id, userId: ownerId } });
       await prisma.contact.update({
         where: { id: deal.contactId },
         data: { responsavelId: ownerId },

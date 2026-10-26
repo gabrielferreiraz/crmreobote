@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { USER_PUBLIC_SELECT } from "@/lib/user-public";
 import { resolveAvatarUrlMap } from "@/lib/r2";
 import { runWithTenant } from "@/lib/tenant-context";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
+import { computeDealShares } from "@/lib/deals/split-shares";
 import { getSharedScope } from "@/lib/share-groups";
 import { listProposalsForDeal } from "@/lib/proposals/queries";
 import { getOrCreateThreadForContact } from "@/lib/whatsapp/threads";
@@ -23,7 +24,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   return runWithTenant(organizationId, async () => {
     const scope = await getSharedScope(organizationId, userId, session!.user.role, "shareDeals");
     const dealRaw = await prisma.deal.findFirst({
-      where: { id, organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId, ...dealScopeWhere(scope) },
       include: {
         contact: {
           include: {
@@ -54,6 +55,17 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
     if (!dealRaw) notFound();
 
+    // Divisão do negócio (co-responsáveis).
+    const participantsRaw = await prisma.dealParticipant.findMany({
+      where: { dealId: dealRaw.id },
+      orderBy: { createdAt: "asc" },
+      select: { userId: true, sharePercent: true, user: { select: { name: true, image: true } } },
+    });
+    const isCoOwner = participantsRaw.some((p) => p.userId === userId);
+    // Co-responsável SEM acesso pelo cargo/equipe: vê e edita o negócio, mas não
+    // passa o negócio adiante nem usa o WhatsApp pessoal do responsável.
+    const coOwnerOnly = isCoOwner && !(scope.type === "all" || scope.ownerIds.includes(dealRaw.ownerId));
+
     const canSendAsSelf =
       ["OWNER", "MANAGER", "SUPERVISOR"].includes(session!.user.role ?? "") &&
       dealRaw.ownerId !== session!.user.id;
@@ -69,6 +81,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       resolveAvatarUrlMap([
         ...dealRaw.activities.map((a) => a.user.image),
         dealRaw.owner.image,
+        ...participantsRaw.map((p) => p.user.image),
       ]),
       Promise.all([
         prisma.organizationUser.findMany({
@@ -151,7 +164,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // mesmo do celular do dono do lead". Sem instância conectada, não tem
     // como abrir chat aqui.
     const dealOwnerThread =
-      ownerInstance?.status === "CONNECTED"
+      !coOwnerOnly && ownerInstance?.status === "CONNECTED"
         ? await getOrCreateThreadForContact({ organizationId, instance: ownerInstance, contact: dealRaw.contact })
         : null;
 
@@ -190,7 +203,27 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     // Edição inline (lápis) dos campos do negócio/contato: só quem é dono do
     // negócio (o vendedor responsável) ou dono da conta (OWNER) pode editar
     // por aqui — os demais só visualizam.
-    const canEditDetails = session!.user.id === dealRaw.ownerId || session!.user.role === "OWNER";
+    const canEditDetails = session!.user.id === dealRaw.ownerId || session!.user.role === "OWNER" || isCoOwner;
+
+    const split = {
+      // Só o responsável principal mexe na divisão.
+      canEdit: userId === dealRaw.ownerId,
+      shares: computeDealShares(
+        dealRaw.ownerId,
+        participantsRaw.map((p) => ({ userId: p.userId, sharePercent: p.sharePercent })),
+      ).map((share) => {
+        const person = share.isPrincipal
+          ? { name: deal.owner.name, image: dealRaw.owner.image }
+          : (participantsRaw.find((p) => p.userId === share.userId)?.user ?? { name: "", image: null });
+        return {
+          userId: share.userId,
+          name: person.name,
+          photoUrl: person.image ? (avatarMap.get(person.image) ?? null) : null,
+          percent: share.percent,
+          isPrincipal: share.isPrincipal,
+        };
+      }),
+    };
 
     return (
       <Suspense fallback={null}>
@@ -207,6 +240,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           isWhatsAppConnected={!!whatsappThread}
           sendAsAlternate={sendAsAlternate}
           canEditDetails={canEditDetails}
+          split={split}
+          coOwnerOnly={coOwnerOnly}
           currentUserRole={session!.user.role}
           currentUserId={userId}
           proposals={proposals}

@@ -15,6 +15,7 @@
 
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
+import { wonSplitAdjustments } from "@/lib/deals/split";
 import { formatCurrency, daysSince, formatDuration } from "@/lib/format";
 import { getDealScope, scopeWhere, whatsappScopeWhere, type DealScope } from "@/lib/team-scope";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
@@ -734,12 +735,21 @@ export async function getCommercialReportData(params: {
   const activeMemberIds = new Set(activeOwnerIds);
 
   const wonByOwnerMap = new Map(wonByOwner.map((w) => [w.ownerId, w]));
+  // Negócio dividido entre responsáveis (ver lib/deals/split.ts): conta pros
+  // dois, cada um com a PARTE dele do valor — SÓ nos números por pessoa
+  // (ranking); os totais da empresa acima continuam contando o negócio uma vez.
+  const wonSplitAdjust = await wonSplitAdjustments({
+    organizationId,
+    scope: effectiveScope,
+    filters: { ...dateWhere("closedAt"), ...dealFilter } as Prisma.DealWhereInput,
+  });
   const lostByOwnerMap = new Map(lostByOwner.map((l) => [l.ownerId, l]));
   const openByOwnerMap = new Map(openByOwner.map((o) => [o.ownerId, o]));
   const ownerStats = peopleIds.map((id) => {
     const wonForOwner = wonByOwnerMap.get(id);
-    const wonCountForOwner = wonForOwner?._count ?? 0;
-    const wonValueForOwner = wonForOwner?._sum.value ? Number(wonForOwner._sum.value) : 0;
+    const splitAdjust = wonSplitAdjust.get(id);
+    const wonCountForOwner = (wonForOwner?._count ?? 0) + (splitAdjust?.count ?? 0);
+    const wonValueForOwner = (wonForOwner?._sum.value ? Number(wonForOwner._sum.value) : 0) + (splitAdjust?.value ?? 0);
     const lostCountForOwner = lostByOwnerMap.get(id)?._count ?? 0;
     const openCountForOwner = openByOwnerMap.get(id)?._count ?? 0;
     // Denominador da conversão = TUDO que a pessoa está/esteve com a mão —

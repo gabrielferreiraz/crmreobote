@@ -3,13 +3,8 @@ import { prisma, prismaRaw } from "@/lib/prisma";
 import { setTenantOnTx } from "@/lib/tenant-context";
 import { parseAudienceFilter, describeAudienceFilter, type AudienceFilter } from "@/lib/campaigns/audience";
 import { estimateCampaignCompletion, nextAllowedSendWindow, type CompletionEstimate } from "@/lib/campaigns/estimate";
-import {
-  campaignVisibilityWhere,
-  campaignRecipientVisibilityWhere,
-  canManageCampaign,
-  scopeWhere,
-  type DealScope,
-} from "@/lib/team-scope";
+import { campaignVisibilityWhere, campaignRecipientVisibilityWhere, canManageCampaign, type DealScope } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { listCampaignScriptEntries, normalizeSteps, ACTIVE_CAMPAIGN_STATUSES } from "@/lib/campaigns/script-sync";
 import { PAUSE_REASON, parsePauseReason, type PauseReason } from "@/lib/campaigns/pause-reasons";
 
@@ -712,7 +707,7 @@ export async function getCampaignRecipientsPage(
     : Promise.resolve([]);
   const dealsPromise: Promise<{ id: string; contactId: string; status: $Enums.DealStatus }[]> = repliedContactIds.length
     ? prisma.deal.findMany({
-        where: { organizationId, contactId: { in: repliedContactIds }, ...scopeWhere(dealScope) },
+        where: { organizationId, contactId: { in: repliedContactIds }, ...dealScopeWhere(dealScope) },
         select: { id: true, contactId: true, status: true },
         orderBy: { createdAt: "desc" },
       })

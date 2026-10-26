@@ -127,6 +127,8 @@ model Organization {
   digitalCards           DigitalCard[]
   digitalCardEvents      DigitalCardEvent[]
   digitalCardPresentations DigitalCardPresentation[]
+  dealParticipants       DealParticipant[]
+  commissionSaleShares   CommissionSaleShare[]
   importBatches          ImportBatch[]
   shareGroups            ShareGroup[]
   processTemplates       ProcessTemplate[]
@@ -185,6 +187,9 @@ model User {
   tvDisplayLinksCreated       TvDisplayLink[]
   digitalCard                 DigitalCard?
   digitalCardPresentations    DigitalCardPresentation[]
+  dealParticipations          DealParticipant[]         @relation("DealParticipantUser")
+  dealParticipantsAdded       DealParticipant[]         @relation("DealParticipantAddedBy")
+  commissionShares            CommissionSaleShare[]
   webhookSubscriptionsCreated WebhookSubscription[]
   contactsResponsible         Contact[]                 @relation("ContactResponsavel")
   contactsLeadQualified       Contact[]                 @relation("ContactLeadQualifiedBy")
@@ -1665,6 +1670,8 @@ model Deal {
   importBatch        ImportBatch?        @relation(fields: [importBatchId], references: [id])
   administrator      ConsortiumAdministrator? @relation(fields: [administratorId], references: [id], onDelete: SetNull)
   commissionSale     CommissionSale?
+  // Co-responsáveis (divisão do negócio e da comissão) — ver DealParticipant.
+  participants       DealParticipant[]
   tasks              Task[]
   activities         Activity[]
   campaignRecipients CampaignRecipient[]
@@ -1709,6 +1716,53 @@ enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+// Co-responsável pelo negócio (ex.: dois consultores visitaram o cliente
+// juntos). Vê e edita o negócio como o responsável (Deal.ownerId), exceto
+// apagar, e divide a comissão do vendedor. A parte do responsável PRINCIPAL
+// não é guardada: é o que sobra (100 − soma dos co-responsáveis), então a
+// divisão nunca sai de 100%. Só vale com DEAL_SPLIT_ENABLED=true (ver
+// lib/deals/split.ts).
+model DealParticipant {
+  id             String   @id @default(cuid())
+  organizationId String
+  dealId         String
+  userId         String
+  // 1–99 (CHECK no banco).
+  sharePercent   Int
+  addedById      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user         User         @relation("DealParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy      User?        @relation("DealParticipantAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([dealId, userId])
+  @@index([organizationId, userId])
+}
+
+// Parte de cada VENDEDOR numa venda de comissão dividida (fotografia do dia do
+// Ganho, ver DealParticipant). Inclui o vendedor principal; as porcentagens
+// somam 100. Venda sem linhas aqui = 100% pro CommissionSale.sellerId (é o caso
+// de toda venda que não foi dividida). Tabela à parte (não coluna em
+// CommissionSale) pra o módulo de Comissões não depender da migração.
+model CommissionSaleShare {
+  id             String   @id @default(cuid())
+  organizationId String
+  saleId         String
+  userId         String
+  // 1–100 (CHECK no banco).
+  percent        Int
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sale         CommissionSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([saleId, userId])
+  @@index([organizationId, userId])
 }
 
 // ─── Comissões ──────────────────────────────────────────────────────
@@ -1950,6 +2004,8 @@ model CommissionSale {
   entries       CommissionEntry[]
   revenues      CommissionRevenue[]
   clientPayments CommissionClientPayment[]
+  // Divisão do vendedor entre co-responsáveis (vazio = 100% pro sellerId).
+  sellerShares   CommissionSaleShare[]
 
   @@index([organizationId, status])
   @@index([organizationId, sellerId])

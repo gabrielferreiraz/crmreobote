@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
+import { taskScopeWhere } from "@/lib/deals/split";
 import { sendWhatsAppMessageToContact, WhatsAppSendError } from "@/lib/whatsapp/send";
 import { renderMeetingInviteMessage, buildMeetingInviteVariables } from "@/lib/meeting-invite";
 
@@ -29,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
     const task = await prisma.task.findFirst({
-      where: { id, organizationId, ...scopeWhere(scope) },
+      where: { id, organizationId, ...taskScopeWhere(scope) },
       include: { contact: true, owner: { select: { id: true, name: true } } },
     });
     if (!task) return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });

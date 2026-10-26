@@ -5,6 +5,7 @@ import { brazilStartOfMonth, brazilStartOfYear, getBrazilParts } from "@/lib/tim
 import { SERVER_INSTANCE_ID } from "@/lib/server-instance";
 import { getGoalExcludedOwnerIds } from "@/lib/goals/suggestion";
 import { parseTvBirthdaySlide } from "@/lib/tv-birthday";
+import { wonValueByPerson } from "@/lib/deals/split";
 
 export async function getTvConfig(organizationId: string) {
   try {
@@ -375,16 +376,17 @@ async function computeMonthRanking(organizationId: string, monthStart: Date, whe
 
   // groupBy em vez de trazer todo negócio do mês e somar em memória — o banco
   // já devolve uma linha por consultor.
-  const grouped = await prisma.deal.groupBy({
-    by: ["ownerId"],
-    where: {
+  //
+  // Negócio DIVIDIDO entre responsáveis (ver lib/deals/split.ts) entra pros
+  // dois, cada um com a PARTE dele do valor.
+  const grouped = Array.from(
+    await wonValueByPerson({
       organizationId,
-      status: "WON",
-      closedAt: { gte: monthStart },
-      ownerId: { in: eligible.map((e) => e.userId) },
-    },
-    _sum: { value: true },
-  });
+      where: { closedAt: { gte: monthStart } },
+      personIds: eligible.map((e) => e.userId),
+    }),
+    ([ownerId, total]) => ({ ownerId, _sum: { value: total } }),
+  );
 
   const users = grouped.length
     ? await prisma.user.findMany({

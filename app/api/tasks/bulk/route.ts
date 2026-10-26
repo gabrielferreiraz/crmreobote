@@ -3,7 +3,7 @@ import type { $Enums, Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/require-role";
 import { getSharedScope } from "@/lib/share-groups";
-import { scopeWhere } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { runWithTenant } from "@/lib/tenant-context";
 import { parseBrazilDateTime } from "@/lib/timezone";
 import { recordUserChange } from "@/lib/user-activity";
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   return runWithTenant(access.organizationId, async () => {
     const scope = await getSharedScope(access.organizationId, access.userId, access.role, "shareDeals");
     const deals = await prisma.deal.findMany({
-      where: { id: { in: dealIds }, organizationId: access.organizationId, ...scopeWhere(scope) },
+      where: { id: { in: dealIds }, organizationId: access.organizationId, ...dealScopeWhere(scope) },
       select: {
         id: true,
         name: true,

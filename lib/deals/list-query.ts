@@ -1,7 +1,8 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveAvatarUrlMap } from "@/lib/r2";
-import { scopeWhere, type DealScope } from "@/lib/team-scope";
+import { type DealScope } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { classifyTaskUrgency, TASK_URGENCY_RANK } from "@/lib/task-urgency";
 
 export type EnrichedDeal = {
@@ -126,7 +127,7 @@ export function buildDealsWhere(params: DealsFilterParams): Prisma.DealWhereInpu
   // sobrescreveria o primeiro em silêncio, exatamente o mesmo bug).
   const andConditions: Prisma.DealWhereInput[] = [];
 
-  const scopeFilter = scopeWhere(scope);
+  const scopeFilter = dealScopeWhere(scope);
   const ownerFilter = ownerIds && ownerIds.length > 0 ? { ownerId: { in: ownerIds } } : null;
   if (Object.keys(scopeFilter).length > 0) andConditions.push(scopeFilter);
   if (ownerFilter) andConditions.push(ownerFilter);

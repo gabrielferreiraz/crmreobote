@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getDealScope, scopeWhere } from "@/lib/team-scope";
+import { getDealScope } from "@/lib/team-scope";
+import { taskScopeWhere } from "@/lib/deals/split";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   return runWithTenant(organizationId, async () => {
     const scope = await getDealScope(organizationId, userId, session!.user.role);
-    const task = await prisma.task.findFirst({ where: { id, organizationId, ...scopeWhere(scope) } });
+    const task = await prisma.task.findFirst({ where: { id, organizationId, ...taskScopeWhere(scope) } });
     if (!task) return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });
     if (task.type !== "WHATSAPP") {
       return NextResponse.json({ error: "Só dá pra programar mensagem em tarefas do tipo WhatsApp" }, { status: 400 });

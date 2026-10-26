@@ -1,7 +1,8 @@
 import { prismaRaw } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { setTenantOnTx } from "@/lib/tenant-context";
-import { scopeWhere, type DealScope } from "@/lib/team-scope";
+import { type DealScope } from "@/lib/team-scope";
+import { dealScopeWhere } from "@/lib/deals/split";
 import { formatCurrency } from "@/lib/format";
 import { PROPOSAL_INCLUDE, serializeProposal, type ProposalWithUsers } from "./serialize";
 import { formatProposalNumber, isProposalEditable, PROPOSAL_STATUS_LABEL, type ProposalDTO, type ProposalStatus } from "./types";
@@ -75,7 +76,7 @@ async function loadInScope(tx: Prisma.TransactionClient, actor: ProposalActor, i
     where: {
       id,
       organizationId: actor.organizationId,
-      deal: { organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+      deal: { organizationId: actor.organizationId, ...dealScopeWhere(actor.scope) },
     },
     include: { ...PROPOSAL_INCLUDE, deal: { select: { id: true, contactId: true } } },
   });
@@ -118,7 +119,7 @@ async function transition(
       id,
       organizationId: actor.organizationId,
       status: { in: from },
-      deal: { organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+      deal: { organizationId: actor.organizationId, ...dealScopeWhere(actor.scope) },
     },
     data,
   });
@@ -153,7 +154,7 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
   for (let attempt = 0; attempt < 3; attempt++) {
     last = await runTx(actor, async (tx) => {
       const deal = await tx.deal.findFirst({
-        where: { id: input.dealId, organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+        where: { id: input.dealId, organizationId: actor.organizationId, ...dealScopeWhere(actor.scope) },
         select: { id: true },
       });
       if (!deal) throw new ProposalServiceError(404, "Negócio não encontrado");
@@ -360,7 +361,7 @@ export async function deleteProposal(actor: ProposalActor, id: string): Promise<
         id,
         organizationId: actor.organizationId,
         status: "DRAFT",
-        deal: { organizationId: actor.organizationId, ...scopeWhere(actor.scope) },
+        deal: { organizationId: actor.organizationId, ...dealScopeWhere(actor.scope) },
       },
     });
     if (result.count !== 1) {
