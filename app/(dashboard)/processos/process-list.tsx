@@ -24,7 +24,11 @@ export type ProcessListItem = {
   contact: { id: string; name: string } | null;
   displayName: string;
   owner: { id: string; name: string };
-  deal: { id: string; name: string; value: number | null };
+  /** null em processo sem negócio neste CRM (ver dealId no model Process).
+   * Para o valor, use `displayValue`, que já cai no valor próprio do
+   * processo quando não há negócio. */
+  deal: { id: string; name: string; value: number | null } | null;
+  displayValue: number | null;
   openRequestCount: number;
   hasUnreadNote: boolean;
 };
@@ -190,9 +194,9 @@ export function ProcessList({ categories }: { categories: CategoryTreeItem[] }) 
                     {p.openRequestCount}
                   </span>
                 )}
-                {p.deal.value != null && (
+                {p.displayValue != null && (
                   <span className="tabular-nums text-neutral-500 dark:text-neutral-400">
-                    {formatCurrency(p.deal.value)}
+                    {formatCurrency(p.displayValue)}
                   </span>
                 )}
                 <span

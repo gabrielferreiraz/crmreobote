@@ -9,6 +9,7 @@ import { ArrowLeft, Loader2, Send, CheckCheck, History, Phone, Mail, MapPin, Bui
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/badge";
 import { Select } from "@/components/select";
+import { CurrencyInput } from "@/components/currency-input";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatCurrency, daysSince } from "@/lib/format";
 import { getStageSlaStatus } from "@/lib/processes/sla";
@@ -98,10 +99,10 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   const [process, setProcess] = useState(initialProcess);
   const [quotaInput, setQuotaInput] = useState(initialProcess.quotaNumber ?? "");
   const [groupInput, setGroupInput] = useState(initialProcess.groupNumber ?? "");
-  // Rascunho do valor em texto: o campo aceita digitação parcial ("1200,"
-  // enquanto escreve) que não é número válido ainda. Só vira número no blur.
+  // Formato que o CurrencyInput usa: decimal com ponto ("120000.50"). Quem
+  // formata pra "120.000,50" na tela é ele.
   const [valueInput, setValueInput] = useState(
-    initialProcess.value != null ? String(initialProcess.value).replace(".", ",") : "",
+    initialProcess.value != null ? initialProcess.value.toFixed(2) : "",
   );
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [requests, setRequests] = useState<RequestEntry[] | null>(null);
@@ -595,30 +596,19 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
               <div className="space-y-1 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                 <label className="field-label">Valor</label>
                 {isAdmin ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-neutral-400 dark:text-neutral-500">R$</span>
-                    <input
-                      value={valueInput}
-                      onChange={(e) => setValueInput(e.target.value)}
-                      onBlur={() => {
-                        // Aceita "120000", "120.000,50" e "120000.50" — tira o
-                        // separador de milhar e normaliza a vírgula decimal,
-                        // senão Number() devolveria NaN e o valor viraria nulo.
-                        const raw = valueInput.trim();
-                        const parsed = raw === "" ? null : Number(raw.replace(/\./g, "").replace(",", "."));
-                        if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
-                          setError("Valor inválido");
-                          setValueInput(process.value != null ? String(process.value).replace(".", ",") : "");
-                          return;
-                        }
-                        if (parsed !== process.value) updateMarkers({ value: parsed });
-                      }}
-                      disabled={saving}
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      className="field-input w-full py-1.5 text-sm"
-                    />
-                  </div>
+                  // CurrencyInput já faz a máscara de Real (só aceita dígito e
+                  // formata como centavos) e desenha o "R$" — o valor que ele
+                  // devolve é sempre decimal com ponto, pronto pra Number().
+                  <CurrencyInput
+                    value={valueInput}
+                    onChange={setValueInput}
+                    onBlur={() => {
+                      const parsed = valueInput === "" ? null : Number(valueInput);
+                      if (parsed !== null && !Number.isFinite(parsed)) return;
+                      if (parsed !== process.value) updateMarkers({ value: parsed });
+                    }}
+                    className="w-full py-1.5 text-sm"
+                  />
                 ) : (
                   <p className="text-sm text-neutral-600 dark:text-neutral-300">
                     {process.value != null ? formatCurrency(process.value) : "—"}
