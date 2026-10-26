@@ -53,9 +53,17 @@ export type ProcessItem = {
   quotaNumber: string | null;
   groupNumber: string | null;
   stageEnteredAt: string | Date;
-  contact: { id: string; name: string; phone: string | null; whatsapp: string | null };
+  /** null em processo avulso — contemplado que não é contato deste CRM (ver
+   * contactId/clientName no model Process). Para o nome, use `displayName`. */
+  contact: { id: string; name: string; phone: string | null; whatsapp: string | null } | null;
+  displayName: string;
   owner: { id: string; name: string; photoUrl: string | null };
-  deal: { id: string; name: string; value: number | null };
+  /** null quando o processo não nasceu de um negócio deste CRM (ver dealId no
+   * model Process) — cliente já contemplado cuja venda nunca foi registrada aqui. */
+  deal: { id: string; name: string; value: number | null } | null;
+  /** Valor já resolvido: do negócio quando existe, senão o do próprio
+   * processo (ver displayValue em lib/processes/list-query.ts). */
+  displayValue: number | null;
   openRequestCount: number;
   hasUnreadWhatsApp: boolean;
   hasUnreadNote: boolean;
@@ -87,7 +95,7 @@ export function useProcessFilters(processes: ProcessItem[]) {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return processes.filter((p) => {
-      if (term && !p.contact.name.toLowerCase().includes(term) && !p.deal.name.toLowerCase().includes(term)) return false;
+      if (term && !p.displayName.toLowerCase().includes(term) && !p.deal?.name.toLowerCase().includes(term)) return false;
       if (documentFilter && p.documentStatus !== documentFilter) return false;
       return true;
     });
@@ -449,7 +457,9 @@ function StageColumn({
 }) {
   const router = useRouter();
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled });
-  const totalValue = processes.reduce((sum, p) => sum + (p.deal.value ?? 0), 0);
+  // Processo sem negócio entra como 0: conta na quantidade da coluna, mas não
+  // tem valor conhecido pra somar (ver dealId no model Process).
+  const totalValue = processes.reduce((sum, p) => sum + (p.displayValue ?? 0), 0);
   const hasMore = processes.length < total;
 
   const [editing, setEditing] = useState(false);
@@ -847,11 +857,15 @@ export function ProcessCardContent({ process, dimmed }: { process: ProcessItem; 
               <StickyNote className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" strokeWidth={2} />
             </span>
           )}
-          <span className="truncate">{process.contact.name}</span>
+          <span className="truncate">{process.displayName}</span>
         </p>
         <Avatar name={process.owner.name} src={process.owner.photoUrl} size="xs" />
       </div>
-      <p className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">{process.deal.name}</p>
+      {/* Sem negócio, a linha nem aparece — o nome do cliente logo acima já
+          identifica o card (ver dealId no model Process). */}
+      {process.deal && (
+        <p className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">{process.deal.name}</p>
+      )}
       {(process.quotaNumber || process.groupNumber) && (
         <p className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
           {process.quotaNumber && `Cota ${process.quotaNumber}`}
@@ -874,7 +888,9 @@ export function ProcessCardContent({ process, dimmed }: { process: ProcessItem; 
         )}
       </div>
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">{formatCurrency(process.deal.value)}</span>
+        <span className="text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+          {process.displayValue != null ? formatCurrency(process.displayValue) : "—"}
+        </span>
       </div>
     </div>
   );

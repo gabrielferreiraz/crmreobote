@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProcessAccess } from "@/lib/processes/access";
 import { runWithTenant } from "@/lib/tenant-context";
 import { countProcesses, fetchProcessList } from "@/lib/processes/list-query";
-import { createProcessForDeal } from "@/lib/processes/create";
+import { createProcessForDeal, createProcessForContact, createProcessWithNewContact } from "@/lib/processes/create";
 import { recordUserChange } from "@/lib/user-activity";
 import { bodyErrorResponse, readJson } from "@/lib/read-body";
 
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  let body: { dealId?: string; pipelineId?: string };
+  let body: { dealId?: string; pipelineId?: string; contactId?: string; clientName?: string; stageId?: string };
   try {
     body = await readJson(req);
   } catch (err) {
@@ -77,20 +77,59 @@ export async function POST(req: Request) {
     if (response) return response;
     throw err;
   }
-  const { dealId, pipelineId } = body;
+  const { dealId, pipelineId, contactId, clientName, stageId } = body;
 
-  if (!dealId || !pipelineId) {
-    return NextResponse.json({ error: "dealId e pipelineId são obrigatórios" }, { status: 400 });
+  if (!pipelineId) return NextResponse.json({ error: "pipelineId é obrigatório" }, { status: 400 });
+  // Três entradas possíveis, exatamente uma por vez:
+  //   dealId     — negócio já Ganho (fluxo de sempre)
+  //   contactId  — cliente do CRM, mas sem negócio aqui
+  //   clientName — nem cliente do CRM: só o nome, processo avulso
+  const entries = [dealId, contactId, clientName].filter(Boolean).length;
+  if (entries === 0) {
+    return NextResponse.json({ error: "Informe dealId, contactId ou clientName" }, { status: 400 });
+  }
+  if (entries > 1) {
+    return NextResponse.json({ error: "Informe apenas um entre dealId, contactId e clientName" }, { status: 400 });
   }
 
   return runWithTenant(access.organizationId, async () => {
-    const deal = await prisma.deal.findFirst({
-      where: { id: dealId, organizationId: access.organizationId, status: "WON" },
-      select: { id: true, contactId: true, ownerId: true },
-    });
-    if (!deal) return NextResponse.json({ error: "Negócio inválido ou não está Ganho" }, { status: 400 });
+    let result: { ok: true; processId: string } | { ok: false; error: string };
 
-    const result = await createProcessForDeal(access.organizationId, deal, pipelineId, access.userId);
+    if (clientName) {
+      // Cria o CLIENTE e o processo na mesma transação (ver
+      // createProcessWithNewContact) — o cliente passa a existir no CRM de
+      // verdade, com responsável, e o processo já nasce ligado a ele.
+      result = await createProcessWithNewContact(
+        access.organizationId,
+        { clientName, pipelineId, stageId, ownerId: access.userId },
+        access.userId,
+      );
+    } else if (contactId) {
+      // Responsável do processo: o do próprio cliente quando existe (é quem
+      // acompanha a pessoa), senão quem está criando. Process.ownerId é
+      // obrigatório e define o que o consultor enxerga (ver
+      // lib/processes/access.ts), então não pode ficar sem dono.
+      const contact = await prisma.contact.findFirst({
+        where: { id: contactId, organizationId: access.organizationId },
+        select: { responsavelId: true },
+      });
+      if (!contact) return NextResponse.json({ error: "Cliente não encontrado" }, { status: 400 });
+
+      result = await createProcessForContact(
+        access.organizationId,
+        { contactId, pipelineId, stageId, ownerId: contact.responsavelId ?? access.userId },
+        access.userId,
+      );
+    } else {
+      const deal = await prisma.deal.findFirst({
+        where: { id: dealId, organizationId: access.organizationId, status: "WON" },
+        select: { id: true, contactId: true, ownerId: true },
+      });
+      if (!deal) return NextResponse.json({ error: "Negócio inválido ou não está Ganho" }, { status: 400 });
+
+      result = await createProcessForDeal(access.organizationId, deal, pipelineId, access.userId);
+    }
+
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
 
     recordUserChange(access.organizationId, access.userId).catch((err) =>

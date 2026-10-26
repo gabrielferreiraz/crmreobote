@@ -97,6 +97,8 @@ export async function AdminReportsView({
           stageEnteredAt: true,
           createdAt: true,
           stage: { select: { name: true, color: true, isFinal: true } },
+          clientName: true,
+          value: true,
           contact: { select: { id: true, name: true } },
           owner: { select: { id: true, name: true } },
           deal: { select: { value: true } },
@@ -153,7 +155,9 @@ export async function AdminReportsView({
 
   const unreadContactIds = await getContactsWithUnreadWhatsApp(
     access.organizationId,
-    processes.map((p) => p.contact.id),
+    // Só processos COM contato: conversa de WhatsApp é indexada por contato,
+    // então processo avulso nunca tem mensagem pra marcar.
+    processes.map((p) => p.contact?.id).filter((id): id is string => !!id),
   );
 
   // ─── Catálogos derivados da árvore — etapa/subcategoria/categoria por id,
@@ -187,7 +191,11 @@ export async function AdminReportsView({
 
   const stageCounts = new Map<string, { name: string; color: string | null; count: number; valueSum: number }>();
   for (const p of processes) {
-    const value = p.deal.value ? Number(p.deal.value) : 0;
+    // Valor do negócio quando existe; sem negócio, o valor próprio do processo
+    // (preenchido à mão no card "Dados do processo"). 0 só quando nenhum dos
+    // dois foi informado — aí o processo conta na QUANTIDADE, mas não tem
+    // valor conhecido pra somar.
+    const value = Number(p.deal?.value ?? p.value ?? 0);
     const existing = stageCounts.get(p.stageId);
     const label = stageCatalog.has(p.stageId) ? `${p.pipeline.name} · ${p.stage.name}` : p.stage.name;
     if (existing) {
@@ -210,13 +218,13 @@ export async function AdminReportsView({
   // lib/processes/create.ts), então essa distinção nunca varia de verdade.
   let totalValue = 0;
   for (const p of processes) {
-    totalValue += p.deal.value ? Number(p.deal.value) : 0;
+    totalValue += Number(p.deal?.value ?? p.value ?? 0);
   }
   const avgProcessValue = processes.length > 0 ? totalValue / processes.length : null;
 
   const valueByCategory = new Map<string, { name: string; count: number; value: number }>();
   for (const p of processes) {
-    const value = p.deal.value ? Number(p.deal.value) : 0;
+    const value = Number(p.deal?.value ?? p.value ?? 0);
     const key = p.pipeline.categoryId;
     const prev = valueByCategory.get(key) ?? { name: p.pipeline.category.name, count: 0, value: 0 };
     prev.count += 1;
@@ -357,11 +365,14 @@ export async function AdminReportsView({
   // ─── Cliente com mais cotas — cada Process é UMA cota de consórcio; quem
   // tem mais de um Process comprou mais de uma cota ao mesmo tempo. Só
   // entra quem tem mais de uma (ter 1 é o padrão, não é destaque nenhum).
+  // Agrupa por contato — processo avulso (sem contactId, ver model Process)
+  // fica de fora deste ranking: ele não tem cliente do CRM pra agregar cota.
   const cotasByContact = new Map<string, { name: string; count: number; quotaNumbers: string[]; value: number }>();
   for (const p of processes) {
+    if (!p.contactId || !p.contact) continue;
     const prev = cotasByContact.get(p.contactId) ?? { name: p.contact.name, count: 0, quotaNumbers: [], value: 0 };
     prev.count += 1;
-    prev.value += p.deal.value ? Number(p.deal.value) : 0;
+    prev.value += Number(p.deal?.value ?? p.value ?? 0);
     if (p.quotaNumber) prev.quotaNumbers.push(p.quotaNumber);
     cotasByContact.set(p.contactId, prev);
   }
@@ -575,8 +586,8 @@ export async function AdminReportsView({
                 className="card flex items-center justify-between p-3 text-sm hover:border-neutral-300 dark:hover:border-neutral-700"
               >
                 <span className="flex items-center gap-2 text-neutral-800 dark:text-neutral-200">
-                  <Avatar name={process.contact.name} size="xs" />
-                  {process.contact.name}
+                  <Avatar name={process.contact?.name ?? process.clientName ?? "?"} size="xs" />
+                  {process.contact?.name ?? process.clientName ?? "Sem nome"}
                 </span>
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
                   <Clock className="h-3 w-3" strokeWidth={2} />

@@ -28,7 +28,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     return NextResponse.json({
       ...process,
-      deal: { ...process.deal, value: process.deal.value != null ? Number(process.deal.value) : null },
+      // null em processo sem negócio neste CRM (ver dealId no model Process).
+      deal: process.deal ? { ...process.deal, value: process.deal.value != null ? Number(process.deal.value) : null } : null,
     });
   });
 }
@@ -39,7 +40,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const access = await requireProcessAccess();
   if (!access.ok || !access.isAdmin) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
 
-  let body: { documentStatus?: string; quotaNumber?: string | null; groupNumber?: string | null };
+  let body: {
+    documentStatus?: string;
+    quotaNumber?: string | null;
+    groupNumber?: string | null;
+    value?: number | string | null;
+  };
   try {
     body = await readJson(req);
   } catch (err) {
@@ -47,11 +53,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (response) return response;
     throw err;
   }
-  const { documentStatus, quotaNumber, groupNumber } = body;
+  const { documentStatus, quotaNumber, groupNumber, value } = body;
 
   const validDocumentStatuses: $Enums.DocumentStatus[] = ["NOT_REQUESTED", "PENDING_DELIVERY", "DELIVERED"];
   if (documentStatus !== undefined && !validDocumentStatuses.includes(documentStatus as $Enums.DocumentStatus)) {
     return NextResponse.json({ error: "documentStatus inválido" }, { status: 400 });
+  }
+
+  // null limpa o valor; qualquer outra coisa precisa ser número finito e não
+  // negativo. Sem esta checagem, um "abc" vindo do corpo viraria NaN e o
+  // Prisma gravaria nulo em silêncio, como se tivesse apagado de propósito.
+  let parsedValue: number | null | undefined;
+  if (value !== undefined) {
+    if (value === null || value === "") {
+      parsedValue = null;
+    } else {
+      const n = typeof value === "number" ? value : Number(value);
+      if (!Number.isFinite(n) || n < 0) {
+        return NextResponse.json({ error: "Valor inválido" }, { status: 400 });
+      }
+      parsedValue = n;
+    }
   }
 
   return runWithTenant(access.organizationId, async () => {
@@ -64,6 +86,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         ...(documentStatus !== undefined ? { documentStatus: documentStatus as $Enums.DocumentStatus } : {}),
         ...(quotaNumber !== undefined ? { quotaNumber: quotaNumber?.trim() || null } : {}),
         ...(groupNumber !== undefined ? { groupNumber: groupNumber?.trim() || null } : {}),
+        ...(parsedValue !== undefined ? { value: parsedValue } : {}),
       },
       include: { contact: true, owner: { select: { id: true, name: true } }, stage: true },
     });

@@ -17,6 +17,18 @@ type DealResult = {
 
 type CategoryOption = { id: string; name: string; pipelines: { id: string; name: string }[] };
 
+/** De onde o processo nasce.
+ *
+ * "deal" é o fluxo de sempre: negócio já Ganho, que traz cliente e valor.
+ *
+ * "avulso" parte de um nome digitado: o cliente é cadastrado junto com o
+ * processo, na mesma transação (ver createProcessWithNewContact). Serve pro
+ * contemplado que o administrativo acompanha e que ainda não está no CRM. O
+ * que ele NÃO cria é negócio — inventar um "ganho" só pra destravar o
+ * processo entraria em Vendas do mês, ranking da TV e relatórios como venda
+ * que não aconteceu. */
+type Source = "deal" | "avulso";
+
 /**
  * "Adicionar ao processo" — busca negócios Ganhos que ainda não têm
  * processo (por nome do cliente OU do responsável, ver withoutProcess em
@@ -35,10 +47,13 @@ export function AddToProcessDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const [source, setSource] = useState<Source>("deal");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DealResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<DealResult | null>(null);
+  /** Nome digitado no modo avulso — vira Process.clientName, e nada mais. */
+  const [avulsoName, setAvulsoName] = useState("");
 
   const defaultCategory = defaultPipelineId
     ? categories.find((c) => c.pipelines.some((p) => p.id === defaultPipelineId))
@@ -90,14 +105,20 @@ export function AddToProcessDialog({
   }
 
   async function handleAdd() {
-    if (!selectedDeal || !pipelineId) return;
+    if (!pipelineId) return;
+    // Uma chamada só, pro próprio endpoint de processos — nenhum cadastro de
+    // cliente acontece antes nem depois (ver POST /api/processes).
+    const payload =
+      source === "avulso" ? { clientName: avulsoName.trim(), pipelineId } : { dealId: selectedDeal?.id, pipelineId };
+    if (source === "avulso" ? !avulsoName.trim() : !selectedDeal) return;
+
     setCreating(true);
     setError(null);
 
     const res = await fetch("/api/processes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dealId: selectedDeal.id, pipelineId }),
+      body: JSON.stringify(payload),
     });
 
     setCreating(false);
@@ -114,11 +135,63 @@ export function AddToProcessDialog({
   return (
     <Modal onClose={onClose} maxWidth="max-w-md">
       <h2 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Adicionar ao processo</h2>
-      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-        Busque um negócio já Ganho pelo nome do cliente ou do responsável.
+      <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">
+        {source === "deal"
+          ? "Busque um negócio já Ganho pelo nome do cliente ou do responsável."
+          : "Digite o nome de quem será acompanhado. O cliente é cadastrado junto, sem precisar de negócio."}
       </p>
 
-      {!selectedDeal ? (
+      {/* Alternador de origem — os dois caminhos levam ao mesmo endpoint, a
+          diferença é só o que vai no corpo (dealId ou clientName). */}
+      <div className="mb-4 inline-flex rounded-lg border border-neutral-200 p-0.5 dark:border-neutral-800">
+        {(
+          [
+            ["deal", "De um negócio ganho"],
+            ["avulso", "Só o nome"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => {
+              setSource(value);
+              setError(null);
+            }}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              source === value
+                ? "bg-brand text-white"
+                : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {source === "avulso" && (
+        <div className="mb-4">
+          <label className="field-label" htmlFor="processo-avulso-nome">
+            Nome do cliente
+          </label>
+          <input
+            id="processo-avulso-nome"
+            autoFocus
+            value={avulsoName}
+            onChange={(e) => setAvulsoName(e.target.value)}
+            placeholder="Ex.: SENEFONTE EMP. IMOBILIARIOS LTDA"
+            className="field-input mt-1 w-full"
+          />
+          <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+            O cliente entra no CRM só com o nome — telefone e origem ficam pra depois. Se já existir alguém com esse
+            nome exato, ele é reaproveitado em vez de duplicado.
+          </p>
+        </div>
+      )}
+
+      {/* A busca de negócios só existe no modo "deal". No avulso o nome já foi
+          digitado acima, então cai direto na escolha de Categoria/Subcategoria
+          do bloco de baixo. */}
+      {source === "deal" && !selectedDeal ? (
         <div className="space-y-2">
           <div className="relative">
             <Search
@@ -170,23 +243,27 @@ export function AddToProcessDialog({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="card flex items-center justify-between p-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                {selectedDeal.contact.name}
-              </p>
-              <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
-                {selectedDeal.owner.name} · {selectedDeal.name}
-              </p>
+          {/* O resumo do negócio escolhido não existe no modo avulso — lá não
+              há negócio nenhum, só o nome digitado logo acima. */}
+          {selectedDeal && (
+            <div className="card flex items-center justify-between p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {selectedDeal.contact.name}
+                </p>
+                <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
+                  {selectedDeal.owner.name} · {selectedDeal.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDeal(null)}
+                className="shrink-0 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+              >
+                Trocar
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedDeal(null)}
-              className="shrink-0 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Trocar
-            </button>
-          </div>
+          )}
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="space-y-1">
@@ -214,7 +291,12 @@ export function AddToProcessDialog({
             <button type="button" onClick={onClose} className="btn-ghost">
               Cancelar
             </button>
-            <button type="button" onClick={handleAdd} disabled={creating || !pipelineId} className="btn-primary">
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={creating || !pipelineId || (source === "avulso" ? !avulsoName.trim() : !selectedDeal)}
+              className="btn-primary"
+            >
               {creating ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />

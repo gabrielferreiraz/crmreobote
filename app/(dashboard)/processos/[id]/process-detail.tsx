@@ -26,6 +26,9 @@ type ProcessFull = {
   documentStatus: DocumentStatus;
   quotaNumber: string | null;
   groupNumber: string | null;
+  /** Valor próprio do processo — usado quando não há negócio de onde herdar
+   * (ver value no model Process). */
+  value: number | null;
   stageEnteredAt: string | Date;
   createdAt: string | Date;
   contact: {
@@ -42,9 +45,14 @@ type ProcessFull = {
     neighborhood: string | null;
     state: string | null;
     zipCode: string | null;
-  };
+  } | null;
+  /** Nome a estampar, venha do contato ou do rótulo avulso (ver
+   * contactId/clientName no model Process). */
+  displayName: string;
   owner: { id: string; name: string; photoUrl: string | null };
-  deal: { id: string; name: string; value: number | null; creditType: string | null; closedAt: string | Date | null };
+  /** null quando o processo não nasceu de um negócio deste CRM (ver dealId no
+   * model Process) — cliente já contemplado cuja venda nunca foi registrada aqui. */
+  deal: { id: string; name: string; value: number | null; creditType: string | null; closedAt: string | Date | null } | null;
 };
 
 type HistoryEntry = {
@@ -74,6 +82,7 @@ type NoteEntry = {
 };
 
 function fullAddress(contact: ProcessFull["contact"]): string | null {
+  if (!contact) return null;
   const parts = [
     contact.address && contact.addressNumber ? `${contact.address}, ${contact.addressNumber}` : contact.address,
     contact.addressComplement,
@@ -89,6 +98,11 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   const [process, setProcess] = useState(initialProcess);
   const [quotaInput, setQuotaInput] = useState(initialProcess.quotaNumber ?? "");
   const [groupInput, setGroupInput] = useState(initialProcess.groupNumber ?? "");
+  // Rascunho do valor em texto: o campo aceita digitação parcial ("1200,"
+  // enquanto escreve) que não é número válido ainda. Só vira número no blur.
+  const [valueInput, setValueInput] = useState(
+    initialProcess.value != null ? String(initialProcess.value).replace(".", ",") : "",
+  );
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [requests, setRequests] = useState<RequestEntry[] | null>(null);
   const [newRequestMessage, setNewRequestMessage] = useState("");
@@ -127,6 +141,7 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
     documentStatus?: DocumentStatus;
     quotaNumber?: string | null;
     groupNumber?: string | null;
+    value?: number | null;
   }) {
     setSaving(true);
     setError(null);
@@ -271,7 +286,13 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
 
       {showSendTemplate && (
         <SendTemplateDialog
-          process={{ id: process.id, contact: process.contact, owner: process.owner, deal: process.deal }}
+          process={{
+            id: process.id,
+            contact: process.contact,
+            displayName: process.displayName,
+            owner: process.owner,
+            deal: process.deal,
+          }}
           onClose={() => setShowSendTemplate(false)}
           onSent={() => {
             reloadRequests();
@@ -293,11 +314,20 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
       <div className="card p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{process.contact.name}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">{process.displayName}</h1>
             <p className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+              {/* Sem negócio no CRM, não há nome nem valor pra mostrar — o
+                  rótulo deixa claro que é isso, e não um dado faltando por
+                  erro (ver dealId no model Process). */}
               <span>
-                {process.deal.name} · {formatCurrency(process.deal.value)}
-                {process.deal.creditType && ` · ${process.deal.creditType}`}
+                {process.deal ? (
+                  <>
+                    {process.deal.name} · {formatCurrency(process.deal.value)}
+                    {process.deal.creditType && ` · ${process.deal.creditType}`}
+                  </>
+                ) : (
+                  "Sem negócio vinculado"
+                )}
               </span>
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
@@ -312,19 +342,19 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
         </div>
 
         <div className="mt-4 flex flex-wrap gap-4 text-sm text-neutral-600 dark:text-neutral-300">
-          {(process.contact.whatsapp || process.contact.phone) && (
+          {(process.contact?.whatsapp || process.contact?.phone) && (
             <span className="inline-flex items-center gap-1.5">
               <Phone className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
               {process.contact.whatsapp || process.contact.phone}
             </span>
           )}
-          {process.contact.email && (
+          {process.contact?.email && (
             <span className="inline-flex items-center gap-1.5">
               <Mail className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
               {process.contact.email}
             </span>
           )}
-          {process.contact.company && (
+          {process.contact?.company && (
             <span className="inline-flex items-center gap-1.5">
               <Building2 className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
               {process.contact.company}
@@ -556,6 +586,46 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
                 )}
               </div>
             </div>
+
+            {/* Valor — só aparece quando o processo NÃO tem negócio. Com
+                negócio, o valor é o dele (mostrado no cabeçalho) e deixar dois
+                campos editáveis para a mesma informação levaria a números
+                divergentes na mesma tela. */}
+            {!process.deal && (
+              <div className="space-y-1 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                <label className="field-label">Valor</label>
+                {isAdmin ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-neutral-400 dark:text-neutral-500">R$</span>
+                    <input
+                      value={valueInput}
+                      onChange={(e) => setValueInput(e.target.value)}
+                      onBlur={() => {
+                        // Aceita "120000", "120.000,50" e "120000.50" — tira o
+                        // separador de milhar e normaliza a vírgula decimal,
+                        // senão Number() devolveria NaN e o valor viraria nulo.
+                        const raw = valueInput.trim();
+                        const parsed = raw === "" ? null : Number(raw.replace(/\./g, "").replace(",", "."));
+                        if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
+                          setError("Valor inválido");
+                          setValueInput(process.value != null ? String(process.value).replace(".", ",") : "");
+                          return;
+                        }
+                        if (parsed !== process.value) updateMarkers({ value: parsed });
+                      }}
+                      disabled={saving}
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      className="field-input w-full py-1.5 text-sm"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-neutral-600 dark:text-neutral-300">
+                    {process.value != null ? formatCurrency(process.value) : "—"}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-1 border-t border-neutral-100 pt-3 dark:border-neutral-800">
               <label className="field-label">Documentação</label>

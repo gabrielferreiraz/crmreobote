@@ -27,13 +27,19 @@ export async function AdminClientsView() {
       },
     });
 
-    const clients = processes.map((p) => ({
-      processId: p.id,
-      contact: p.contact,
-      owner: p.owner,
-      stage: p.stage,
-      deal: p.deal,
-    }));
+    // Processo avulso (sem contato, ver contactId/clientName no model Process)
+    // fica fora desta tela de propósito: ela lista CLIENTES do CRM, e esse tipo
+    // de processo existe justamente para acompanhar quem não é cliente aqui.
+    // Ele continua aparecendo normalmente no Kanban e na Lista de Processos.
+    const clients = processes
+      .filter((p): p is typeof p & { contact: NonNullable<typeof p.contact> } => p.contact !== null)
+      .map((p) => ({
+        processId: p.id,
+        contact: p.contact,
+        owner: p.owner,
+        stage: p.stage,
+        deal: p.deal,
+      }));
 
     return (
       // /clientes virou rota "app shell" em app-main.tsx (o <main> não rola

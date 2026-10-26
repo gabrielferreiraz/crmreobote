@@ -49,7 +49,7 @@ export async function HomeAdministrativo() {
         id: true,
         body: true,
         createdAt: true,
-        process: { select: { id: true, contact: { select: { name: true } } } },
+        process: { select: { id: true, clientName: true, contact: { select: { name: true } } } },
       },
     }),
     prisma.process.count({
@@ -131,7 +131,7 @@ export async function HomeAdministrativo() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">
-                      {note.process?.contact.name ?? "Processo"}
+                      {note.process?.contact?.name ?? note.process?.clientName ?? "Processo"}
                     </p>
                     {note.body && <p className="truncate text-neutral-500 dark:text-neutral-400">{note.body}</p>}
                     <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{note.createdAt.toLocaleString("pt-BR", { timeZone: "America/Campo_Grande" })}</p>

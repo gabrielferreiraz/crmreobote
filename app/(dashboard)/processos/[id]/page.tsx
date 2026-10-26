@@ -47,31 +47,42 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
       documentStatus: processRaw.documentStatus,
       quotaNumber: processRaw.quotaNumber,
       groupNumber: processRaw.groupNumber,
+      // Decimal do Prisma não atravessa a fronteira servidor->cliente como
+      // número: vira objeto e quebra a formatação de moeda.
+      value: processRaw.value != null ? Number(processRaw.value) : null,
       stageEnteredAt: processRaw.stageEnteredAt,
       createdAt: processRaw.createdAt,
-      contact: {
-        id: processRaw.contact.id,
-        name: processRaw.contact.name,
-        email: processRaw.contact.email,
-        phone: processRaw.contact.phone,
-        whatsapp: processRaw.contact.whatsapp,
-        company: processRaw.contact.company,
-        city: processRaw.contact.city,
-        address: processRaw.contact.address,
-        addressNumber: processRaw.contact.addressNumber,
-        addressComplement: processRaw.contact.addressComplement,
-        neighborhood: processRaw.contact.neighborhood,
-        state: processRaw.contact.state,
-        zipCode: processRaw.contact.zipCode,
-      },
+      // null em processo avulso (ver contactId/clientName no model Process) —
+      // nesse caso só existe o nome, em `displayName` logo abaixo.
+      contact: processRaw.contact
+        ? {
+            id: processRaw.contact.id,
+            name: processRaw.contact.name,
+            email: processRaw.contact.email,
+            phone: processRaw.contact.phone,
+            whatsapp: processRaw.contact.whatsapp,
+            company: processRaw.contact.company,
+            city: processRaw.contact.city,
+            address: processRaw.contact.address,
+            addressNumber: processRaw.contact.addressNumber,
+            addressComplement: processRaw.contact.addressComplement,
+            neighborhood: processRaw.contact.neighborhood,
+            state: processRaw.contact.state,
+            zipCode: processRaw.contact.zipCode,
+          }
+        : null,
+      displayName: processRaw.contact?.name ?? processRaw.clientName ?? "Sem nome",
       owner: { id: processRaw.owner.id, name: processRaw.owner.name, photoUrl: ownerPhotoUrl },
-      deal: {
-        id: processRaw.deal.id,
-        name: processRaw.deal.name,
-        value: processRaw.deal.value != null ? Number(processRaw.deal.value) : null,
-        creditType: processRaw.deal.creditType,
-        closedAt: processRaw.deal.closedAt,
-      },
+      // null em processo sem negócio neste CRM (ver dealId no model Process).
+      deal: processRaw.deal
+        ? {
+            id: processRaw.deal.id,
+            name: processRaw.deal.name,
+            value: processRaw.deal.value != null ? Number(processRaw.deal.value) : null,
+            creditType: processRaw.deal.creditType,
+            closedAt: processRaw.deal.closedAt,
+          }
+        : null,
     };
 
     return <ProcessDetail process={process} isAdmin={access.isAdmin} />;

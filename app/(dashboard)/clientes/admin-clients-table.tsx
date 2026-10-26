@@ -18,7 +18,10 @@ type ClientRow = {
   };
   owner: { id: string; name: string };
   stage: { id: string; name: string; color: string | null };
-  deal: { id: string; name: string };
+  /** null quando o processo não nasceu de um negócio deste CRM (ver dealId no
+   * model Process) — cliente já contemplado cuja venda nunca foi registrada
+   * aqui. */
+  deal: { id: string; name: string } | null;
 };
 
 export function AdminClientsTable({ clients }: { clients: ClientRow[] }) {
@@ -31,7 +34,7 @@ export function AdminClientsTable({ clients }: { clients: ClientRow[] }) {
       (c) =>
         c.contact.name.toLowerCase().includes(term) ||
         c.owner.name.toLowerCase().includes(term) ||
-        c.deal.name.toLowerCase().includes(term),
+        (c.deal?.name.toLowerCase().includes(term) ?? false),
     );
   }, [clients, search]);
 
@@ -71,7 +74,11 @@ export function AdminClientsTable({ clients }: { clients: ClientRow[] }) {
             >
               <div className="min-w-0">
                 <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{c.contact.name}</p>
-                <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{c.deal.name}</p>
+                {/* Sem negócio, a linha simplesmente não aparece — um "—" aqui
+                    só acrescentaria ruído embaixo do nome do cliente. */}
+                {c.deal && (
+                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{c.deal.name}</p>
+                )}
               </div>
               <div className="min-w-0 truncate text-neutral-600 dark:text-neutral-300">
                 {c.contact.whatsapp || c.contact.phone || c.contact.email || "—"}

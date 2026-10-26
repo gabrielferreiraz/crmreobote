@@ -2370,8 +2370,24 @@ model Process {
   organizationId String
   pipelineId     String
   stageId        String
-  dealId         String @unique
-  contactId      String
+  // Opcional desde que o acompanhamento passou a aceitar cliente que já é
+  // ganho/contemplado mas cuja venda nunca virou Deal neste CRM (contrato
+  // antigo, migração de planilha do administrativo). Continua @unique: um
+  // negócio nunca gera dois processos. O que o processo exige de verdade é
+  // contactId/ownerId logo abaixo — `deal` só carrega nome e valor pra
+  // exibição no card e pra busca (ver lib/processes/list-query.ts).
+  dealId         String? @unique
+  // Opcional junto com `clientName` abaixo: o administrativo acompanha
+  // contemplado que não é (nem precisa virar) contato deste CRM — pedido
+  // explícito de que esse dado fique só na seção Processos. Vale a regra "um
+  // ou outro": com contactId, o nome vem do contato e o processo tem
+  // telefone/WhatsApp; com clientName, é só um rótulo e as ações que dependem
+  // de telefone não se aplicam.
+  contactId      String?
+  /** Nome digitado à mão quando não há contactId. Nunca ler direto: use
+   * `process.contact?.name ?? process.clientName` (é o que a lista e o Kanban
+   * fazem). */
+  clientName     String?
   // Herdado do Deal.ownerId no momento em que o processo nasce (negócio
   // marcado como Ganho) — nunca reflete mudança de responsável do negócio
   // depois disso; é o "dono" fixo pro escopo de leitura do consultor.
@@ -2386,6 +2402,13 @@ model Process {
   // qualquer um dos dois depois).
   quotaNumber    String?
   groupNumber    String?
+  // Valor do processo quando ele não tem negócio de onde herdar (ver dealId
+  // acima): contemplado que entrou pela lista do administrativo não passou
+  // por Deal nenhum, então sem este campo ficaria sem valor em toda soma.
+  // Mesmo tipo/precisão de Deal.value, pra Kanban e relatório somarem os dois
+  // sem conversão. Quem lê usa `deal?.value ?? value` — o negócio continua
+  // mandando quando existe, este campo é o complemento.
+  value          Decimal? @db.Decimal(12, 2)
 
   stageEnteredAt DateTime @default(now())
   createdAt      DateTime @default(now())
@@ -2394,8 +2417,8 @@ model Process {
   organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   pipeline       ProcessPipeline        @relation(fields: [pipelineId], references: [id])
   stage          ProcessStage           @relation(fields: [stageId], references: [id])
-  deal           Deal                   @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  contact        Contact                @relation(fields: [contactId], references: [id])
+  deal           Deal?                  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact        Contact?               @relation(fields: [contactId], references: [id])
   owner          User                   @relation("ProcessOwner", fields: [ownerId], references: [id])
   stageHistory   ProcessStageHistory[]
   requests       ProcessRequest[]
