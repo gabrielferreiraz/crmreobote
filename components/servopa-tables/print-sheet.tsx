@@ -29,21 +29,40 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
         .servopa-sheet[data-compact="1"] .servopa-reobote-header { margin-bottom: 6mm; padding-bottom: 3mm; }
         .servopa-rules { columns: 2; column-gap: 7mm; }
         .servopa-rules > * { break-inside: avoid; }
+        /*
+         * Ctrl+P direto na página (o botão "Imprimir" imprime o PDF gerado).
+         * Numa impressora de verdade a área útil é MENOR que 210 × 297 mm
+         * (margens físicas, escala lembrada pelo navegador): a folha não pode
+         * ter largura fixa — com 210 mm travados ela era cortada à direita
+         * (coluna Seguro sumia) e sobrava uma 2ª página. Aqui ela ocupa a área
+         * que existir: largura 100% e altura da página, sem cortar nada.
+         */
         @media print {
           html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          .servopa-sheet { zoom: 1 !important; margin: 0 !important; box-shadow: none !important; }
+          .servopa-sheet {
+            box-sizing: border-box !important;
+            width: 100% !important;
+            max-width: 210mm !important;
+            height: auto !important;
+            min-height: 100vh !important;
+            margin: 0 auto !important;
+            padding: 7mm 10mm !important;
+            zoom: 1 !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+          }
         }
       `}</style>
 
       <main
-        className="servopa-sheet mx-auto flex flex-col bg-white px-[12mm] pb-[9mm] pt-[8mm] text-[15px] leading-snug text-neutral-900 shadow-md"
+        className="servopa-sheet mx-auto flex flex-col bg-white px-[12mm] pb-[8mm] pt-[7mm] text-[13.5px] leading-snug text-neutral-900 shadow-md"
         data-compact="0"
       >
-        <div className="servopa-reobote-header mb-[9mm] flex justify-center border-b border-neutral-200 pb-[4mm]">
+        <div className="servopa-reobote-header mb-[6mm] flex justify-center border-b border-neutral-200 pb-[3mm]">
           <ReoboteLogo isLight className="h-[15mm] w-auto" />
         </div>
 
-        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 pb-[5mm]">
+        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 pb-[4.5mm]">
           <div className="inline-flex flex-col items-center justify-self-start">
             <ServopaLogo />
             <p className="mt-[1.2mm] whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Parceira Autorizada</p>
@@ -57,37 +76,37 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
           </div>
         </header>
 
-        <table className="w-full table-fixed border-collapse text-[15px]">
+        <table className="w-full table-fixed border-collapse text-[13px]">
           <colgroup>
-            <col className="w-[10%]" />
-            <col className="w-[21%]" />
-            <col className="w-[25%]" />
-            <col className="w-[23%]" />
-            <col className="w-[21%]" />
+            <col className="w-[8%]" />
+            <col className="w-[22%]" />
+            <col className="w-[26%]" />
+            <col className="w-[24%]" />
+            <col className="w-[20%]" />
           </colgroup>
           <thead>
-            <tr className="bg-[#c8c8c8] text-center text-[15px] font-bold">
-              <th className="px-1 py-[2.8mm]">Cat.</th>
-              <th className="px-1 py-[2.8mm]">Contribuição mensal</th>
-              <th className="px-1 py-[2.8mm]">Valor do bem</th>
-              <th className="px-1 py-[2.8mm]">Parcela</th>
-              <th className="px-1 py-[2.8mm]">Seguro</th>
+            <tr className="bg-[#c8c8c8] text-center text-[13px] font-bold">
+              <th className="px-1 py-[2.2mm]">Cat.</th>
+              <th className="px-1 py-[2.2mm]">Contribuição mensal</th>
+              <th className="px-1 py-[2.2mm]">Valor do bem</th>
+              <th className="px-1 py-[2.2mm]">Parcela</th>
+              <th className="px-1 py-[2.2mm]">Seguro</th>
             </tr>
           </thead>
           <tbody>
             {table.rows.map((r) => (
               <tr key={r.category} className="servopa-row border-b border-neutral-900 text-center">
-                <td className="whitespace-nowrap px-1 py-[2.4mm]">{r.category}</td>
-                <td className="whitespace-nowrap px-1 py-[2.4mm] tabular-nums">{formatPercent(r.monthlyPercent)}</td>
-                <td className="whitespace-nowrap px-1 py-[2.4mm] tabular-nums">{formatBRL(r.creditValue)}</td>
-                <td className="whitespace-nowrap px-1 py-[2.4mm] tabular-nums">{formatBRL(r.installment)}</td>
-                <td className="whitespace-nowrap px-1 py-[2.4mm] tabular-nums">{formatBRL(r.insurance)}</td>
+                <td className="whitespace-nowrap px-1 py-[2mm]">{r.category}</td>
+                <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatPercent(r.monthlyPercent)}</td>
+                <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatBRL(r.creditValue)}</td>
+                <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatBRL(r.installment)}</td>
+                <td className="whitespace-nowrap px-1 py-[2mm] tabular-nums">{formatBRL(r.insurance)}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div className="mt-[6mm] grid grid-cols-[auto_auto_auto] justify-between gap-x-4 whitespace-nowrap border-b border-neutral-900 pb-[1.6mm] text-[14px] font-bold">
+        <div className="mt-[4.5mm] grid grid-cols-[auto_auto_auto] justify-between gap-x-4 whitespace-nowrap border-b border-neutral-900 pb-[1.4mm] text-[13px] font-bold">
           <span>Taxa de Administração: {formatPercent(table.admEffective, { trim: true })}</span>
           <span>Fundo de Reserva: {table.reserveFundPercent ? formatPercent(table.reserveFundPercent, { trim: true }) : "—"}</span>
           <span>Vagas disponíveis: {table.vacancies ?? "—"}</span>
@@ -98,24 +117,59 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
         </div>
 
         {blocks.length > 0 && (
-          <section className="mt-[6mm]">
-            <p className="mb-[2.2mm] text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">Condições do grupo</p>
-            <div className="servopa-rules leading-[1.35] text-neutral-800" style={{ fontSize: "var(--servopa-rules-size, 11px)" }}>
-              {blocks.map((block, index) =>
-                block.kind === "list" ? (
-                  <div key={index} className="mb-[1.8mm]">
-                    <p className="font-semibold text-neutral-900">{block.title}</p>
-                    <ul>
-                      {block.items.map((item, itemIndex) => (
-                        <li key={itemIndex} className="relative pl-[3mm] before:absolute before:left-[0.6mm] before:content-['–']">{item}</li>
+          <section className="mt-[4.5mm]">
+            <p className="mb-[2mm] text-[10.5px] font-bold uppercase tracking-[0.14em] text-neutral-500">Condições do grupo</p>
+            {(() => {
+              const listBlocks = blocks.filter((b): b is Extract<typeof b, { kind: "list" }> => b.kind === "list");
+              const noteBlocks = blocks.filter((b): b is Extract<typeof b, { kind: "note" }> => b.kind === "note");
+
+              if (listBlocks.length > 0 && noteBlocks.length > 0) {
+                return (
+                  <div
+                    className="grid grid-cols-2 gap-x-[7mm] text-neutral-800"
+                    style={{ fontSize: "var(--servopa-rules-size, 10.5px)" }}
+                  >
+                    {/* Coluna 1: Etapas de Contemplação */}
+                    <div className="space-y-[1.8mm]">
+                      <p className="border-b border-neutral-300 pb-[1mm] text-[9.5px] font-bold uppercase tracking-[0.12em] text-neutral-600">
+                        Etapas de Contemplação
+                      </p>
+                      {listBlocks.map((block, index) => (
+                        <div key={index} className="rounded border border-neutral-200/90 bg-neutral-50 px-[2.5mm] py-[1.6mm]">
+                          <p className="font-bold text-neutral-900 leading-tight">{block.title}</p>
+                          <p className="mt-[0.8mm] text-neutral-700 leading-snug">{block.items.join(" · ")}</p>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
+
+                    {/* Coluna 2: Regras e Observações */}
+                    <div className="space-y-[1.8mm]">
+                      <p className="border-b border-neutral-300 pb-[1mm] text-[9.5px] font-bold uppercase tracking-[0.12em] text-neutral-600">
+                        Regras e Observações
+                      </p>
+                      {noteBlocks.map((block, index) => (
+                        <HighlightedNote key={index} text={block.text} />
+                      ))}
+                    </div>
                   </div>
-                ) : (
-                  <p key={index} className="relative mb-[1.8mm] pl-[3mm] before:absolute before:left-0 before:content-['•']">{block.text}</p>
-                ),
-              )}
-            </div>
+                );
+              }
+
+              return (
+                <div className="servopa-rules leading-[1.35] text-neutral-800" style={{ fontSize: "var(--servopa-rules-size, 10.5px)" }}>
+                  {blocks.map((block, index) =>
+                    block.kind === "list" ? (
+                      <div key={index} className="mb-[1.8mm]">
+                        <p className="font-semibold text-neutral-900">{block.title}</p>
+                        <p className="mt-[0.6mm] leading-snug text-neutral-700">{block.items.join(" · ")}</p>
+                      </div>
+                    ) : (
+                      <HighlightedNote key={index} text={block.text} />
+                    ),
+                  )}
+                </div>
+              );
+            })()}
           </section>
         )}
 
@@ -151,6 +205,40 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
       </main>
       <SheetFit />
     </>
+  );
+}
+
+function HighlightedNote({ text }: { text: string }) {
+  const colonIdx = text.indexOf(":");
+  if (colonIdx > 0 && colonIdx < 35) {
+    const prefix = text.slice(0, colonIdx + 1);
+    const rest = text.slice(colonIdx + 1);
+    return (
+      <p className="relative pl-[3mm] leading-snug before:absolute before:left-0 before:content-['•']">
+        <strong className="font-bold text-neutral-900">{prefix}</strong>
+        {rest}
+      </p>
+    );
+  }
+
+  const match = text.match(
+    /^(NA MODALIDADE [^,]+|REAJUSTE DO CREDITO[^–—\n(]+|OPCAO FLEX[^–—\n,]+|O SEGURO PRESTAMISTA[^–—\n,]+|O LANCE PAGO E EMBUTIDO[^–—\n,]+|PARTICIPA DE [^–—\n,]+)/i,
+  );
+  if (match) {
+    const boldPart = match[0];
+    const rest = text.slice(boldPart.length);
+    return (
+      <p className="relative pl-[3mm] leading-snug before:absolute before:left-0 before:content-['•']">
+        <strong className="font-bold text-neutral-900">{boldPart}</strong>
+        {rest}
+      </p>
+    );
+  }
+
+  return (
+    <p className="relative pl-[3mm] leading-snug before:absolute before:left-0 before:content-['•']">
+      {text}
+    </p>
   );
 }
 

@@ -41,7 +41,7 @@ export default async function PrintServopaTablePage({ params }: { params: Promis
   if (!table) notFound();
 
   return (
-    <div className="min-h-dvh bg-neutral-200 py-6 print:bg-white print:py-0">
+    <div className="min-h-dvh bg-neutral-200 py-6 print:min-h-0 print:h-auto print:bg-white print:py-0">
       <div className="mx-auto mb-4 flex w-[210mm] max-w-full justify-end px-2 print:hidden">
         <PrintButton />
       </div>

@@ -109,3 +109,35 @@ test("folha: uma página A4 sem cabeçalho/rodapé do navegador, letra que se aj
   assert.match(exporter, /removeProperty\("--servopa-preview-zoom"\)/, "zoom do celular não vai para o arquivo");
   assert.match(exporter, /format: "a4"/);
 });
+
+// Impressora de verdade (EPSON, 27/10/2026): margens físicas + escala lembrada cortavam a coluna Seguro e davam 2 folhas.
+test("imprimir: o botão imprime o mesmo PDF do download e o Ctrl+P nunca trava a largura em 210 mm", () => {
+  const button = readFileSync("app/tabela-servopa/[id]/print-button.tsx", "utf8");
+  assert.match(button, /printServopaTablePdf\(\)/);
+  assert.doesNotMatch(button, /onClick=\{\(\) => window\.print\(\)\}/, "o botão não imprime mais o HTML direto");
+  const exporter = readFileSync("lib/servopa-tables/export-pdf.ts", "utf8");
+  assert.match(exporter, /export async function printServopaTablePdf/);
+  assert.match(exporter, /const viewer = frame\.contentWindow;[\s\S]*viewer\.print\(\)/);
+  assert.match(exporter, /window\.open\(url, "_blank"\)/, "sem visualizador embutido, abre o PDF numa aba");
+  const sheet = readFileSync("components/servopa-tables/print-sheet.tsx", "utf8");
+  const printCss = sheet.slice(sheet.indexOf("@media print"), sheet.indexOf("</style>"));
+  assert.match(printCss, /(?<![-\w])width: 100% !important/);
+  // max-width (teto) pode; largura ou largura mínima fixa, não.
+  assert.doesNotMatch(printCss, /(?<![-\w])(?:min-)?width: 210mm !important/, "largura fixa corta a folha em impressora com margem");
+  assert.doesNotMatch(printCss, /overflow: hidden !important/, "na impressão nada pode ser escondido");
+});
+
+// A escala do diálogo de impressão é "grudenta" no Chrome/Edge (também para PDF) e nenhuma página consegue mudá-la.
+test("imprimir: guia da escala antes da 1ª impressão, link de ajuda e plano B para cada falha", () => {
+  const button = readFileSync("app/tabela-servopa/[id]/print-button.tsx", "utf8");
+  assert.match(button, /Ajustar à área de impressão/);
+  assert.match(button, /GUIDE_SEEN_KEY = "servopa-print-guide-ok"/);
+  assert.match(button, /try \{\s*return window\.localStorage\.getItem/, "localStorage bloqueado não pode quebrar o botão");
+  assert.match(button, /Saiu cortado ou grande demais/);
+  assert.match(button, /error\.code === "POPUP_BLOCKED"/);
+  assert.match(button, /window\.print\(\);/, "último recurso: imprimir a página");
+  const exporter = readFileSync("lib/servopa-tables/export-pdf.ts", "utf8");
+  assert.match(exporter, /throw new ServopaPdfError\("POPUP_BLOCKED"\)/);
+  assert.match(exporter, /getElementById\(PRINT_FRAME_ID\)\?\.remove\(\)/, "cliques repetidos não acumulam quadros");
+  assert.doesNotMatch(exporter, /window\.location\.href = url/, "nunca troca a página do usuário pelo PDF");
+});

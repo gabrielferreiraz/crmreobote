@@ -64,7 +64,8 @@ export function readWorkerConfig() {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 2) {
     throw new WorkerError("CONFIG_INVALID", "SERVOPA_CONCURRENCY deve ser 1 ou 2.", { retryable: false });
   }
-  const pollSeconds = Number(process.env.SERVOPA_POLL_SECONDS ?? 60);
+  // 20 s: depois do clique em "Rodar robô agora", algum computador começa em no máximo ~20 s.
+  const pollSeconds = Number(process.env.SERVOPA_POLL_SECONDS ?? 20);
   if (!Number.isInteger(pollSeconds) || pollSeconds < 15 || pollSeconds > 900) {
     throw new WorkerError("CONFIG_INVALID", "SERVOPA_POLL_SECONDS deve ficar entre 15 e 900.", { retryable: false });
   }

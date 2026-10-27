@@ -45,14 +45,26 @@ function startHeartbeat(client, job) {
   }
 
   const timer = setInterval(() => void send().catch(() => {}), 20_000);
+  // A tela do CRM mostra a etapa e o grupo atual: avisa logo que a etapa muda
+  // e, dentro da mesma etapa, no máximo a cada 4 s (o intervalo de 20 s acima
+  // continua como garantia do lease).
+  let lastSentPhase = null;
+  let lastSentAt = 0;
   return {
     signal: abortController.signal,
     async start() {
       await send();
+      lastSentPhase = progress.phase;
+      lastSentAt = Date.now();
     },
     update(nextProgress) {
       progress = nextProgress;
       if (abortController.signal.aborted) throw abortController.signal.reason;
+      if (nextProgress.phase !== lastSentPhase || Date.now() - lastSentAt >= 4_000) {
+        lastSentPhase = nextProgress.phase;
+        lastSentAt = Date.now();
+        void send().catch(() => {});
+      }
     },
     async flush(nextProgress) {
       progress = nextProgress;

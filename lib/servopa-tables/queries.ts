@@ -239,6 +239,7 @@ export async function getServopaOperationState(organizationId: string) {
           status: true,
           trigger: true,
           attempts: true,
+          startedAt: true,
           finishedAt: true,
           createdAt: true,
           errorCode: true,

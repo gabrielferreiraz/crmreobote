@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, CheckSquare2, Eye, MinusSquare, Percent, Printer, Square, X } from "lucide-react";
@@ -102,6 +102,8 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
   const router = useRouter();
   const [state, setState] = useState(initialState);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  /** Última tabela marcada: com Shift, o clique seguinte marca/desmarca o intervalo até ela. */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const terms = useMemo(() => [...new Set(tables.map((table) => table.termMonths))].sort((a, b) => a - b), [tables]);
   const rates = useMemo(() => [...new Set(tables.map((table) => table.admEffective))].sort((a, b) => toUnits(a, 4) - toUnits(b, 4)), [tables]);
@@ -121,7 +123,7 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
 
   function update(changes: Partial<TableBrowserInitialState>) {
     const next = { ...state, ...changes };
-    if (["segmento", "grupo", "prazo", "taxa"].some((key) => key in changes)) setSelected(new Set());
+    if (["segmento", "grupo", "prazo", "taxa"].some((key) => key in changes)) clearSelection();
     setState(next);
     writeUrl(next);
   }
@@ -138,12 +140,35 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
   const allVisibleSelected = visible.length > 0 && visible.every((table) => selected.has(table.id));
   const someVisibleSelected = visible.some((table) => selected.has(table.id));
 
-  function toggleOne(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  function clearSelection() {
+    setSelected(new Set());
+    setAnchorId(null);
+  }
+
+  /**
+   * Mesmo comportamento da seleção de Clientes e Negócios: com Shift, marca (ou
+   * desmarca) todas as tabelas entre a última clicada e esta, na ordem em que
+   * aparecem na tela — já com filtros e ordenação aplicados.
+   */
+  function toggleOne(id: string, shiftKey = false) {
+    const selecting = !selected.has(id);
+    const currentIndex = visible.findIndex((table) => table.id === id);
+    const anchorIndex = shiftKey && anchorId && anchorId !== id ? visible.findIndex((table) => table.id === anchorId) : -1;
+    const ids = anchorIndex >= 0 && currentIndex >= 0
+      ? visible.slice(Math.min(anchorIndex, currentIndex), Math.max(anchorIndex, currentIndex) + 1).map((table) => table.id)
+      : [id];
+    const next = new Set(selected);
+    for (const tableId of ids) {
+      if (selecting) next.add(tableId); else next.delete(tableId);
+    }
+    setSelected(next);
+    if (selecting) setAnchorId(id);
+    else if (anchorId === id) setAnchorId(null);
+  }
+
+  /** Shift + clique não pode selecionar o texto das linhas no meio do caminho. */
+  function preventTextSelection(event: MouseEvent) {
+    if (event.shiftKey) event.preventDefault();
   }
 
   function toggleVisible() {
@@ -171,7 +196,7 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
               <span className="sm:hidden">{allVisibleSelected ? "Desmarcar" : "Selecionar"}</span>
             </button>
             {selectedTables.length > 0 && (
-              <button type="button" onClick={() => setSelected(new Set())} title="Limpar seleção" className="btn-ghost btn-sm !px-2" aria-label="Limpar seleção">
+              <button type="button" onClick={clearSelection} title="Limpar seleção" className="btn-ghost btn-sm !px-2" aria-label="Limpar seleção">
                 <X className="h-4 w-4" />
               </button>
             )}
@@ -199,7 +224,7 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
                 {visible.map((table) => (
                   <tr key={table.id} className="transition-colors hover:bg-neutral-50/70 dark:hover:bg-neutral-800/30">
-                    {canAdjust && <td className="px-4 py-3"><input type="checkbox" checked={selected.has(table.id)} onChange={() => toggleOne(table.id)} className="h-4 w-4 accent-indigo-600" aria-label={`Selecionar tabela do grupo ${table.groupNumber}`} /></td>}
+                    {canAdjust && <td className="px-4 py-3"><input type="checkbox" checked={selected.has(table.id)} onClick={(event) => toggleOne(table.id, event.shiftKey)} onMouseDown={preventTextSelection} onChange={() => {}} className="h-4 w-4 accent-indigo-600" aria-label={`Selecionar tabela do grupo ${table.groupNumber}`} title="Shift + clique seleciona um intervalo" /></td>}
                     <td className="px-4 py-3 font-medium"><Link href={`/tabelas/${table.id}`} className="hover:text-brand">Grupo {table.groupNumber}</Link></td>
                     <td className="px-4 py-3"><span className="rounded bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">{SEGMENT_LABEL[table.segment]}</span></td>
                     <td className="px-4 py-3 tabular-nums text-neutral-600 dark:text-neutral-300">{table.termMonths} meses</td>
@@ -223,7 +248,7 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
               <article key={table.id} className="card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    {canAdjust && <input type="checkbox" checked={selected.has(table.id)} onChange={() => toggleOne(table.id)} className="mt-1 h-4 w-4 accent-indigo-600" aria-label={`Selecionar tabela do grupo ${table.groupNumber}`} />}
+                    {canAdjust && <input type="checkbox" checked={selected.has(table.id)} onClick={(event) => toggleOne(table.id, event.shiftKey)} onChange={() => {}} className="mt-1 h-4 w-4 accent-indigo-600" aria-label={`Selecionar tabela do grupo ${table.groupNumber}`} />}
                     <div><Link href={`/tabelas/${table.id}`} className="text-base font-semibold">Grupo {table.groupNumber}</Link><div className="mt-1 flex items-center gap-2 text-sm text-neutral-500"><span>{SEGMENT_LABEL[table.segment]}</span><span>·</span><span>{table.termMonths} meses</span></div></div>
                   </div>
                   <Rate table={table} />
@@ -250,7 +275,7 @@ export function TablesBrowser({ tables, initialState, canAdjust }: { tables: Ser
           onClose={() => setAdjustOpen(false)}
           onApplied={() => {
             setAdjustOpen(false);
-            setSelected(new Set());
+            clearSelection();
             if (state.taxa) update({ taxa: "" });
             router.refresh();
           }}

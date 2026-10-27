@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Download, History, Laptop, Loader2, RefreshCw, Settings2, Square, Trash2, Wifi, WifiOff } from "lucide-react";
+import { Ban, Check, CheckCircle2, Clock, Download, History, Laptop, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, Wifi, WifiOff, XCircle } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Modal } from "@/components/modal";
 import { requestJson } from "@/lib/client-request";
+import { RobotProgress } from "./robot-progress";
 
 type SyncRun = {
   id: string;
@@ -78,34 +79,105 @@ function readChanges(value: unknown): { groups: ChangeCounts; tables: ChangeCoun
 }
 
 function plural(count: number, singular: string, pluralForm: string) {
-  return `${count} ${count === 1 ? singular : pluralForm}`;
+  return `${count.toLocaleString("pt-BR")} ${count === 1 ? singular : pluralForm}`;
 }
 
-/**
- * Resumo legível de uma execução. "Grupo alterado" quase sempre é só vagas ou
- * próxima assembleia (mudam a toda hora com as vendas); o que importa para os
- * preços é se alguma TABELA mudou — por isso ela vem primeiro.
- */
-function describeChanges(changes: { groups: ChangeCounts; tables: ChangeCounts }) {
-  const parts: string[] = [];
-  const tablesChanged = changes.tables.created + changes.tables.updated;
-  parts.push(tablesChanged > 0 ? `${plural(tablesChanged, "tabela nova ou com valores alterados", "tabelas novas ou com valores alterados")}` : "Nenhuma tabela mudou de valores");
-  if (changes.groups.created > 0) parts.push(plural(changes.groups.created, "grupo novo", "grupos novos"));
-  if (changes.groups.updated > 0) parts.push(`vagas ou assembleia atualizadas em ${plural(changes.groups.updated, "grupo", "grupos")}`);
-  if (changes.groups.deleted > 0 || changes.tables.deleted > 0) {
-    parts.push(`${plural(changes.groups.deleted, "grupo sem vagas ou fora da Servopa removido", "grupos sem vagas ou fora da Servopa removidos")} (${plural(changes.tables.deleted, "tabela", "tabelas")})`);
-  }
-  return parts.join(" · ");
-}
-
-function durationLabel(run: HistoryRun) {
+function durationLabel(run: SyncRun) {
   const start = run.startedAt ? new Date(run.startedAt).getTime() : new Date(run.createdAt).getTime();
   const end = run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now();
   const seconds = Math.max(0, Math.round((end - start) / 1_000));
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return `${seconds} s`;
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}min ${seconds % 60}s`;
+  if (minutes < 60) return `${minutes} min ${seconds % 60} s`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
+
+const TRIGGER_LABEL: Record<string, string> = {
+  MANUAL: "Atualização manual",
+  SCHEDULED: "Atualização automática do mês",
+  IMPORT: "Importação inicial dos dados",
+};
+
+/** "Hoje", "Ontem" ou "Sexta, 23/10" (com o ano quando não é o atual). */
+function dayLabel(value: string | Date) {
+  const date = new Date(value);
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  if (days === 0) return "Hoje";
+  if (days === 1) return "Ontem";
+  const label = date.toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" as const } : {}),
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1).replace("-feira", "");
+}
+
+function clockLabel(value: string | Date) {
+  return new Date(value).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+type RunOutcome = {
+  tone: "success" | "brand" | "danger" | "neutral" | "warning";
+  headline: string;
+  /** Mudanças secundárias (vagas, grupos novos/removidos). */
+  chips: string[];
+};
+
+/**
+ * O que a execução significou para quem usa as tabelas. "Grupo alterado"
+ * quase sempre é só vagas ou próxima assembleia (mudam a toda hora com as
+ * vendas); o que importa para os preços é se alguma TABELA mudou — por isso
+ * ela é o título, e o resto vira etiqueta.
+ */
+function runOutcome(run: SyncRun): RunOutcome {
+  if (run.status === "FAILED") return { tone: "danger", headline: "Falhou", chips: [] };
+  if (run.status === "CANCELLED") {
+    return { tone: "neutral", headline: run.startedAt ? `Cancelada depois de ${durationLabel(run)}` : "Cancelada antes de começar", chips: [] };
+  }
+  if (run.status === "RUNNING") return { tone: "warning", headline: "Atualizando agora", chips: [] };
+  if (run.status === "PENDING") return { tone: "warning", headline: "Na fila, aguardando um computador", chips: [] };
+
+  const changes = readChanges(run.summary);
+  if (!changes) return { tone: "success", headline: "Concluída", chips: [] };
+  const tablesChanged = changes.tables.created + changes.tables.updated;
+  const chips: string[] = [];
+  if (changes.groups.created > 0) chips.push(plural(changes.groups.created, "grupo novo", "grupos novos"));
+  if (changes.groups.updated > 0) chips.push(`Vagas ou assembleia atualizadas em ${plural(changes.groups.updated, "grupo", "grupos")}`);
+  if (changes.groups.deleted > 0 || changes.tables.deleted > 0) {
+    chips.push(`${plural(changes.groups.deleted, "grupo sem vagas removido", "grupos sem vagas ou encerrados removidos")} (${plural(changes.tables.deleted, "tabela", "tabelas")})`);
+  }
+  return tablesChanged > 0
+    ? { tone: "brand", headline: plural(tablesChanged, "tabela com valores novos", "tabelas com valores novos"), chips }
+    : { tone: "success", headline: "Nenhuma tabela mudou de valores", chips };
+}
+
+function groupByDay(runs: HistoryRun[]): Array<[string, HistoryRun[]]> {
+  const groups: Array<[string, HistoryRun[]]> = [];
+  for (const run of runs) {
+    const day = dayLabel(run.createdAt);
+    const last = groups.at(-1);
+    if (last && last[0] === day) last[1].push(run);
+    else groups.push([day, [run]]);
+  }
+  return groups;
+}
+
+function historySubtitle(history: HistoryRun[] | null) {
+  const lastSuccess = history?.find((run) => run.status === "SUCCESS");
+  if (!lastSuccess) return "Últimas 30 execuções";
+  const day = dayLabel(lastSuccess.finishedAt ?? lastSuccess.createdAt);
+  return `Dados atualizados pela última vez ${day === "Hoje" || day === "Ontem" ? day.toLowerCase() : `em ${day}`} às ${clockLabel(lastSuccess.finishedAt ?? lastSuccess.createdAt)}`;
+}
+
+const OUTCOME_STYLE: Record<RunOutcome["tone"], { icon: typeof Check; badge: string; text: string }> = {
+  success: { icon: CheckCircle2, badge: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400", text: "text-neutral-900 dark:text-neutral-100" },
+  brand: { icon: Sparkles, badge: "bg-brand/10 text-brand", text: "text-brand" },
+  danger: { icon: XCircle, badge: "bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-400", text: "text-red-700 dark:text-red-400" },
+  neutral: { icon: Ban, badge: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400", text: "text-neutral-600 dark:text-neutral-300" },
+  warning: { icon: Clock, badge: "bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400", text: "text-neutral-900 dark:text-neutral-100" },
+};
 
 /** Sinal mais recente entre todos os computadores. */
 function lastSignal(workers: Worker[]): string | Date | null {
@@ -162,11 +234,15 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [history, setHistory] = useState<HistoryRun[] | null>(null);
+  /** Execução que terminou enquanto esta tela estava aberta — o painel do robô mostra o resultado. */
+  const [finished, setFinished] = useState<{ runId: string; outcome: RunOutcome } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     let stopped = false;
     let timer = 0;
+    // Com o robô rodando, a cada 3 s: o painel acompanha etapa e grupo atual.
+    const interval = state.activeRun ? 3_000 : settingsOpen ? 5_000 : 60_000;
     async function poll() {
       const result = await requestJson<ServopaOperationState>(
         "/api/servopa-tables/operations",
@@ -174,13 +250,16 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
         { silent: true },
       );
       if (result.ok) {
-        const completedNow = Boolean(state.activeRun && !result.data.activeRun && result.data.latestRun?.status === "SUCCESS");
+        const endedRun = state.activeRun && !result.data.activeRun && result.data.latestRun?.id === state.activeRun.id ? result.data.latestRun : null;
         setState(result.data);
-        if (completedNow) router.refresh();
+        if (endedRun) {
+          setFinished({ runId: endedRun.id, outcome: runOutcome(endedRun) });
+          if (endedRun.status === "SUCCESS") router.refresh();
+        }
       }
-      if (!stopped) timer = window.setTimeout(poll, state.activeRun ? 8_000 : settingsOpen ? 5_000 : 60_000);
+      if (!stopped) timer = window.setTimeout(poll, interval);
     }
-    timer = window.setTimeout(poll, state.activeRun ? 8_000 : settingsOpen ? 5_000 : 60_000);
+    timer = window.setTimeout(poll, interval);
     return () => {
       stopped = true;
       controller.abort();
@@ -188,8 +267,16 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
     };
   }, [router, settingsOpen, state.activeRun]);
 
+  // Resultado bom some sozinho; falha fica até a pessoa fechar.
+  useEffect(() => {
+    if (!finished || finished.outcome.tone === "danger") return;
+    const timer = window.setTimeout(() => setFinished(null), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [finished]);
+
   async function runNow() {
     setRunning(true);
+    setFinished(null);
     const result = await requestJson<{ created: boolean; state: ServopaOperationState }>(
       "/api/servopa-tables/operations",
       { method: "POST" },
@@ -422,7 +509,7 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"><History className="h-5 w-5" aria-hidden="true" /></div>
             <div>
               <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Histórico do robô</h2>
-              <p className="text-sm text-neutral-500 dark:text-neutral-400">Últimas 30 execuções</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{historySubtitle(history)}</p>
             </div>
           </div>
           {historyLoading ? (
@@ -430,39 +517,67 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
           ) : dialogError ? (
             <p className="mt-5 text-sm text-red-600 dark:text-red-400">{dialogError}</p>
           ) : !history?.length ? (
-            <p className="mt-8 text-center text-sm text-neutral-500">Nenhuma atualização executada.</p>
+            <p className="mt-8 text-center text-sm text-neutral-500">O robô ainda não rodou nenhuma vez.</p>
           ) : (
-            <div className="scrollbar-thin mt-5 max-h-[60vh] divide-y divide-neutral-200 overflow-y-auto border-y border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
-              {history.map((run) => {
-                const changes = readChanges(run.summary);
-                const changed = changes ? Object.values(changes.groups).reduce((a, b) => a + b, 0) + Object.values(changes.tables).reduce((a, b) => a + b, 0) > 0 : false;
-                const statusTone: BadgeTone = run.status === "SUCCESS" ? "success" : run.status === "FAILED" ? "danger" : run.status === "CANCELLED" ? "neutral" : "warning";
-                const statusLabel = run.status === "SUCCESS" ? "Concluída" : run.status === "FAILED" ? "Falhou" : run.status === "CANCELLED" ? "Cancelada" : run.status === "RUNNING" ? "Executando" : "Na fila";
-                return (
-                  <div key={run.id} className="py-3 pr-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className={`h-2 w-2 rounded-full ${changed ? "bg-brand" : "bg-neutral-300 dark:bg-neutral-700"}`} />
-                          <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{timeLabel(run.createdAt)}</p>
-                          <Badge tone={statusTone} size="sm">{statusLabel}</Badge>
-                        </div>
-                        <p className="mt-1 pl-4 text-xs text-neutral-500">{run.requestedByName} · {run.trigger === "SCHEDULED" ? "Automática" : run.trigger === "MANUAL" ? "Manual" : "Importação"}{run.workerName ? ` · ${run.workerName}` : ""} · {durationLabel(run)} · tentativa {run.attempts}/{state.maxAttempts}</p>
-                      </div>
-                    </div>
-                    {changes && run.status === "SUCCESS" && (
-                      <p className="mt-2 pl-4 text-xs text-neutral-600 dark:text-neutral-300">
-                        {changed ? describeChanges(changes) : "Nenhuma mudança nos dados publicados"}
-                      </p>
-                    )}
-                    {run.error && <p className="mt-2 pl-4 text-xs text-red-600 dark:text-red-400">{run.error}</p>}
-                  </div>
-                );
-              })}
+            <div className="scrollbar-thin -mx-1 mt-5 max-h-[62vh] space-y-5 overflow-y-auto px-1">
+              {groupByDay(history).map(([day, runs]) => (
+                <section key={day}>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">{day}</h3>
+                  <ol className="divide-y divide-neutral-100 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+                    {runs.map((run) => {
+                      const outcome = runOutcome(run);
+                      const style = OUTCOME_STYLE[outcome.tone];
+                      const Icon = style.icon;
+                      const details = [
+                        run.trigger === "MANUAL" && run.requestedByName ? `Pedida por ${run.requestedByName}` : null,
+                        run.workerName ? `no computador ${run.workerName}` : null,
+                        run.status === "SUCCESS" || run.status === "FAILED" ? `levou ${durationLabel(run)}` : null,
+                        run.attempts > 1 ? `${run.attempts}ª tentativa de ${state.maxAttempts}` : null,
+                      ].filter(Boolean);
+                      return (
+                        <li key={run.id} className="flex gap-3 px-3 py-3">
+                          <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${style.badge}`}>
+                            <Icon className="h-4 w-4" aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline justify-between gap-3">
+                              <p className={`text-sm font-semibold ${style.text}`}>{outcome.headline}</p>
+                              <time className="shrink-0 text-xs tabular-nums text-neutral-500" dateTime={new Date(run.createdAt).toISOString()}>{clockLabel(run.createdAt)}</time>
+                            </div>
+                            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{TRIGGER_LABEL[run.trigger] ?? "Atualização"}</p>
+                            {outcome.chips.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {outcome.chips.map((chip) => (
+                                  <span key={chip} className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">{chip}</span>
+                                ))}
+                              </div>
+                            )}
+                            {run.status === "FAILED" && run.error && (
+                              <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">{run.error}</p>
+                            )}
+                            {details.length > 0 && <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">{details.join(" · ")}</p>}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              ))}
             </div>
           )}
           <div className="mt-4 flex justify-end"><button type="button" onClick={() => setHistoryOpen(false)} className="btn-secondary">Fechar</button></div>
         </Modal>
+      )}
+
+      {(state.activeRun || finished) && (
+        <RobotProgress
+          key={state.activeRun?.id ?? finished?.runId}
+          run={state.activeRun}
+          workerOnline={state.workerOnline}
+          result={state.activeRun ? null : finished?.outcome ?? null}
+          onDismiss={() => setFinished(null)}
+          onCancel={() => setConfirmAction("CANCEL_RUN")}
+        />
       )}
 
       {confirmAction === "CANCEL_RUN" && (
