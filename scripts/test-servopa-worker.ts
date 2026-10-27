@@ -174,8 +174,11 @@ test("troca do código: uso único, validade, limite de computadores e reinstala
   assert.match(redeem, /data: \{ usedAt: now, workerId: worker\.id \}/);
   assert.match(redeem, /MAX_SERVOPA_WORKERS/);
   // Só a linha com o MESMO nome (mesmo usuário + mesmo computador) é substituída.
-  assert.match(redeem, /updateMany\(\{\s*where: \{ organizationId: parsed\.organizationId, active: true, name: \{ equals: name, mode: "insensitive" \} \}/);
-  assert.equal((redeem.match(/updateMany/g) ?? []).length, 1);
+  assert.match(redeem, /const sameComputer = \{ organizationId: parsed\.organizationId, active: true, name: \{ equals: name, mode: "insensitive" as const \} \}/);
+  assert.match(redeem, /servopaWorker\.updateMany\(\{\s*where: sameComputer,/);
+  assert.equal((redeem.match(/servopaWorker\.updateMany/g) ?? []).length, 1);
+  // Pedido feito para o computador reinstalado continua sendo dele.
+  assert.match(redeem, /targetWorkerId: \{ in: previousIds \} \},\s*data: \{ targetWorkerId: worker\.id \}/);
   const contract = readFileSync("lib/servopa-tables/queue-contract.ts", "utf8");
   assert.match(contract, /SERVOPA_PAIRING_TTL_MS = 60 \* 60 \* 1_000/);
 });

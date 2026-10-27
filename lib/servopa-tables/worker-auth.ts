@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Prisma } from "@/app/generated/prisma/client";
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { runWithServopaWorkerLookup, setTenantOnTx } from "@/lib/tenant-context";
 import { MAX_SERVOPA_WORKERS, SERVOPA_PAIRING_TTL_MS } from "@/lib/servopa-tables/queue-contract";
@@ -70,8 +71,10 @@ export async function redeemServopaWorkerPairing(params: { code: unknown; window
     }
 
     const now = new Date();
+    const sameComputer = { organizationId: parsed.organizationId, active: true, name: { equals: name, mode: "insensitive" as const } };
+    const previousIds = (await tx.servopaWorker.findMany({ where: sameComputer, select: { id: true } })).map((worker) => worker.id);
     const replaced = await tx.servopaWorker.updateMany({
-      where: { organizationId: parsed.organizationId, active: true, name: { equals: name, mode: "insensitive" } },
+      where: sameComputer,
       data: { active: false, revokedAt: now },
     });
     const activeCount = await tx.servopaWorker.count({ where: { organizationId: parsed.organizationId, active: true } });
@@ -90,6 +93,13 @@ export async function redeemServopaWorkerPairing(params: { code: unknown; window
       select: { id: true, name: true, keyPrefix: true },
     });
     await tx.servopaWorkerPairing.update({ where: { id: pairing.id }, data: { usedAt: now, workerId: worker.id }, select: { id: true } });
+    if (previousIds.length) {
+      // Reinstalação no mesmo computador: o pedido que esperava por ele continua sendo dele.
+      await tx.servopaSyncRun.updateMany({
+        where: { organizationId: parsed.organizationId, status: { in: ["PENDING", "RUNNING"] }, targetWorkerId: { in: previousIds } },
+        data: { targetWorkerId: worker.id },
+      });
+    }
     return {
       organizationId: parsed.organizationId,
       createdById: pairing.createdById,
@@ -103,10 +113,29 @@ export async function redeemServopaWorkerPairing(params: { code: unknown; window
 export async function revokeServopaWorkerCredential(organizationId: string, workerId: string): Promise<boolean> {
   const result = await prismaRaw.$transaction(async (tx) => {
     await setTenantOnTx(tx, organizationId);
-    return tx.servopaWorker.updateMany({
+    const now = new Date();
+    const revoked = await tx.servopaWorker.updateMany({
       where: { id: workerId, organizationId, active: true },
-      data: { active: false, revokedAt: new Date() },
+      data: { active: false, revokedAt: now },
     });
+    if (revoked.count === 1) {
+      // Pedido feito para este computador não pode ficar esperando um robô que não existe mais.
+      await tx.servopaSyncRun.updateMany({
+        where: { organizationId, status: { in: ["PENDING", "RUNNING"] }, targetWorkerId: workerId },
+        data: {
+          status: "CANCELLED",
+          finishedAt: now,
+          claimedAt: null,
+          lastHeartbeatAt: null,
+          leaseExpiresAt: null,
+          leaseTokenHash: null,
+          progress: Prisma.DbNull,
+          errorCode: "TARGET_WORKER_REMOVED",
+          error: "O computador escolhido para esta atualização foi removido do CRM.",
+        },
+      });
+    }
+    return revoked;
   });
   return result.count === 1;
 }

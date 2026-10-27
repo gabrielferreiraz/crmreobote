@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { logAudit } from "@/lib/audit-log";
 import { getClientIp, rateLimitOrResponse } from "@/lib/rate-limit";
 import { getServopaTablesAccess } from "@/lib/servopa-tables/access";
@@ -22,16 +23,40 @@ export async function GET() {
   return NextResponse.json(state, { headers: NO_STORE });
 }
 
+// "Rodar robô agora" sempre roda no robô do computador de quem clicou (a tela
+// sabe qual é: fica gravado no navegador ao instalar ou na primeira vez).
+const runSchema = z.object({ workerId: z.string().min(1).max(64) }).strict();
+
 export async function POST(request: Request) {
   const auth = await requireOperator();
   if (!auth.ok) return auth.response;
   const limited = rateLimitOrResponse(`servopa-run:${auth.access.organizationId}:${auth.access.userId}`, 6, 60_000);
   if (limited) return limited;
 
+  const body = runSchema.safeParse(await request.json().catch(() => null));
+  if (!body.success) {
+    return NextResponse.json({ error: "Escolha o computador que vai rodar o robô." }, { status: 400, headers: NO_STORE });
+  }
+  const current = await getServopaOperationState(auth.access.organizationId);
+  const target = current.workers.find((worker) => worker.id === body.data.workerId);
+  if (!target) {
+    return NextResponse.json(
+      { error: "Este computador não está mais conectado ao CRM. Instale o robô de novo nele.", code: "WORKER_NOT_FOUND", state: current },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+  if (!target.online && !current.activeRun) {
+    return NextResponse.json(
+      { error: `O robô de ${target.name} está fechado. Abra "Robô Servopa" no menu Iniciar desse computador e tente de novo.`, code: "WORKER_OFFLINE", state: current },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+
   const result = await enqueueServopaSync({
     organizationId: auth.access.organizationId,
     trigger: "MANUAL",
     requestedById: auth.access.userId,
+    targetWorkerId: target.id,
   });
   if (result.created) {
     await logAudit({
@@ -41,7 +66,7 @@ export async function POST(request: Request) {
       action: "SERVOPA_SYNC_REQUESTED",
       targetType: "ServopaSyncRun",
       targetId: result.run.id,
-      detail: "Solicitou a atualização manual das tabelas Servopa.",
+      detail: `Solicitou a atualização manual das tabelas Servopa no computador ${target.name}.`,
       ip: getClientIp(request),
     });
   }

@@ -4,7 +4,9 @@ import { prismaRaw } from "@/lib/prisma";
 import {
   hashServopaLeaseToken,
   planServopaFailure,
+  SERVOPA_MACHINE_ERROR_CODES,
   SERVOPA_MAX_ATTEMPTS,
+  servopaCancelledError,
   ServopaQueueError,
   validateServopaSyncProgress,
   type ServopaSyncProgress,
@@ -60,6 +62,8 @@ export async function enqueueServopaSync(params: {
   trigger: "SCHEDULED" | "MANUAL";
   requestedById?: string | null;
   nextAttemptAt?: Date;
+  /** Só este computador pode rodar (o de quem clicou em "Rodar robô agora"). */
+  targetWorkerId?: string | null;
 }): Promise<{ created: boolean; run: NonNullable<Awaited<ReturnType<typeof findActiveRun>>> }> {
   const { organizationId } = params;
   try {
@@ -78,6 +82,7 @@ export async function enqueueServopaSync(params: {
           trigger: params.trigger,
           status: "PENDING",
           requestedById: params.requestedById ?? null,
+          targetWorkerId: params.targetWorkerId ?? null,
           nextAttemptAt: params.nextAttemptAt ?? new Date(),
         },
         select: { id: true, status: true, trigger: true, nextAttemptAt: true, leaseExpiresAt: true },
@@ -102,7 +107,7 @@ export async function cancelActiveServopaSync(organizationId: string) {
     const active = await tx.servopaSyncRun.findFirst({
       where: { organizationId, status: { in: ["PENDING", "RUNNING"] } },
       orderBy: { createdAt: "desc" },
-      select: { id: true, status: true },
+      select: { id: true, status: true, errorCode: true, error: true },
     });
     if (!active) return null;
 
@@ -117,10 +122,11 @@ export async function cancelActiveServopaSync(organizationId: string) {
         leaseTokenHash: null,
         progress: Prisma.DbNull,
         errorCode: "CANCELLED_BY_USER",
-        error: null,
+        // Quem cancela depois de uma falha precisa ver no histórico o que deu errado.
+        error: servopaCancelledError(active),
       },
     });
-    return updated.count === 1 ? active : null;
+    return updated.count === 1 ? { id: active.id, status: active.status } : null;
   });
 }
 
@@ -128,6 +134,10 @@ export async function cancelActiveServopaSync(organizationId: string) {
  * Reivindica atomicamente o próximo trabalho pronto da organização. Vários
  * computadores podem consultar a fila ao mesmo tempo: só um recebe o job
  * (FOR UPDATE SKIP LOCKED) e o `workerId` fica registrado no histórico.
+ * Execução com destino (`targetWorkerId`, "Rodar robô agora") só vai para
+ * aquele computador. Sem destino (agendamento): se a última tentativa falhou
+ * por um problema do próprio computador (`SERVOPA_MACHINE_ERROR_CODES`),
+ * qualquer OUTRO computador pega na hora.
  */
 export async function claimNextServopaSync(organizationId: string, workerId?: string): Promise<ClaimedServopaSync | null> {
   const leaseToken = randomBytes(32).toString("base64url");
@@ -170,7 +180,16 @@ export async function claimNextServopaSync(organizationId: string, workerId?: st
         FROM "ServopaSyncRun"
         WHERE "organizationId" = ${organizationId}
           AND "status" = 'PENDING'
-          AND "nextAttemptAt" <= ${now}
+          AND ("targetWorkerId" IS NULL OR "targetWorkerId" = ${workerId ?? ""})
+          AND (
+            "nextAttemptAt" <= ${now}
+            OR (
+              "targetWorkerId" IS NULL
+              AND "errorCode" IN (${Prisma.join([...SERVOPA_MACHINE_ERROR_CODES])})
+              AND "claimedByWorkerId" IS NOT NULL
+              AND "claimedByWorkerId" <> ${workerId ?? ""}
+            )
+          )
         ORDER BY "nextAttemptAt" ASC, "createdAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1

@@ -23,6 +23,7 @@ $state = [hashtable]::Synchronized(@{
   Done = $false
   Error = $null
   WorkerName = $null
+  SiteWarning = $false
 })
 
 # Roda numa thread separada para a janela continuar respondendo.
@@ -67,14 +68,20 @@ $installWork = {
     Stop-RoboLauncher $paths
 
     # 3. Node.js portátil, código do robô, componentes, Firefox e Windows.
-    Update-RoboInstallation $paths $config {
+    $app = Update-RoboInstallation $paths $config {
       param($text, $percent, $detail)
       $state.Step = $text
       $state.Percent = $percent
       $state.Detail = $detail
-    } | Out-Null
+    } | Select-Object -Last 1
 
-    # 4. Abre o robô e espera ele se apresentar ao CRM.
+    # 4. Prova que o navegador abre AQUI antes de dizer "Pronto" (conserta sozinho se precisar).
+    $state.Step = 'Testando o navegador do robô'
+    $state.Percent = 88
+    $state.Detail = 'Uma janela do Firefox vai abrir e fechar sozinha. Não precisa mexer nela.'
+    $state.SiteWarning = (Test-RoboBrowser $paths $app) -eq 'site'
+
+    # 5. Abre o robô e espera ele se apresentar ao CRM.
     $state.Step = 'Abrindo o robô'
     $state.Percent = 92
     $state.Detail = ''
@@ -196,6 +203,7 @@ $runner = @{ Shell = $null; Handle = $null }
 function Start-InstallWork {
   $state.Done = $false
   $state.Error = $null
+  $state.SiteWarning = $false
   $state.Step = 'Conectando este computador ao CRM'
   $state.Percent = 2
   $state.Detail = ''
@@ -235,6 +243,7 @@ $timer.add_Tick({
     $title.ForeColor = [Drawing.Color]::FromArgb(4, 120, 87)
     $stepLabel.Text = 'Este computador já atualiza as tabelas sozinho.'
     $detailLabel.Text = "O robô abre junto com o Windows e fica no ícone ao lado do relógio. Conectado ao CRM como `"$($state.WorkerName)`"."
+    if ($state.SiteWarning) { $detailLabel.Text += ' O navegador abriu; o site da Servopa demorou agora, mas o robô tenta de novo ao rodar.' }
     $closeButton.Text = 'Concluir'
   }
   $closeButton.Enabled = $true

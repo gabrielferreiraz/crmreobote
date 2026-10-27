@@ -124,7 +124,7 @@ function assertResponse(result, label) {
 }
 
 export async function collectServopaSnapshot(config, { onProgress = async () => {}, signal, log = () => {} } = {}) {
-  const { context, page } = await openLoggedIn(config);
+  const { context, page } = await openLoggedIn(config, { log });
   try {
     await openGroupsPage(page);
     const lists = [];

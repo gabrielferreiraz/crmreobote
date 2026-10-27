@@ -363,6 +363,24 @@ function Install-RoboBrowser($Paths, [string]$AppDir, [string]$NodeExe) {
   if ($code -ne 0) { throw 'Não foi possível baixar o navegador do robô. Confira a internet e tente de novo.' }
 }
 
+<#
+  Abre o Firefox do robô de verdade (mesmo caminho da coleta, com os consertos
+  automáticos) e carrega a página de login da Servopa, sem entrar. Devolve
+  'ok', 'site' (Firefox abriu, Servopa não carregou agora) ou lança erro.
+  O robô precisa estar fechado (o perfil do Firefox é um só).
+#>
+function Test-RoboBrowser($Paths, $App) {
+  $nodeExe = Get-RoboNodeExe $Paths
+  $environment = @{ SERVOPA_DATA_DIR = $Paths.Home; PLAYWRIGHT_BROWSERS_PATH = $Paths.Browsers }
+  $code = Invoke-RoboProcess $nodeExe @((Join-Path $App.Dir 'check-browser.mjs')) $App.Dir $environment $Paths 1500
+  # Códigos de check-browser.mjs: 0 = tudo certo; 2 = Firefox abriu, Servopa não carregou; outro = Firefox não abriu.
+  if ($code -eq 2) { return 'site' }
+  if ($code -ne 0) {
+    throw "O navegador do robô não abriu neste computador, mesmo depois de reinstalado. Se houver antivírus, libere a pasta $($Paths.Home) e clique em Tentar de novo."
+  }
+  return 'ok'
+}
+
 function Set-RoboCurrentApp($Paths, $App) {
   $temporary = "$($Paths.CurrentFile).tmp"
   [IO.File]::WriteAllText($temporary, $App.Folder, (New-Object Text.UTF8Encoding($false)))

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import { Bot, CheckCircle2, ChevronDown, ChevronUp, Circle, Loader2, X, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, ChevronUp, Circle, Laptop, Loader2, X, XCircle } from "lucide-react";
 
 /**
  * Painel flutuante que acompanha o robô enquanto ele atualiza as tabelas.
@@ -22,7 +22,30 @@ export type RobotRun = {
   progress?: unknown;
   startedAt?: string | Date | null;
   createdAt: string | Date;
+  errorCode?: string | null;
+  error?: string | null;
 };
+
+/**
+ * Motivo da última falha em linguagem de quem usa o CRM. "BROWSER_START_FAILED"
+ * é do computador, não da Servopa: dizer "a Servopa não respondeu" nesse caso
+ * levou a procurar o problema no lugar errado (27/10/2026).
+ */
+export function failureReason(errorCode: string | null | undefined, error: string | null | undefined): string | null {
+  switch (errorCode) {
+    case "BROWSER_START_FAILED":
+      return "o navegador do robô não abriu nesse computador";
+    case "CLOUDFLARE_BLOCKED":
+      return "a verificação de segurança do site da Servopa não liberou o acesso";
+    case "LEASE_EXPIRED":
+      return "o robô parou de responder (computador desligado, em espera ou sem internet)";
+    case null:
+    case undefined:
+      return null;
+    default:
+      return error ? error.replace(/\.$/, "").replace(/^./, (letter) => letter.toLowerCase()) : null;
+  }
+}
 
 export type RobotResult = { tone: "success" | "brand" | "danger" | "neutral" | "warning"; headline: string; chips: string[] };
 
@@ -63,20 +86,30 @@ function groupNumber(message: string | undefined) {
   return message?.match(/(\d{3,5})/)?.[1];
 }
 
-function activityMessages(run: RobotRun, workerOnline: boolean): string[] {
+function activityMessages(run: RobotRun, workerOnline: boolean, computer: Computer): string[] {
   const progress = readProgress(run);
   switch (progress.phase) {
     case "PENDING":
+      if (computer.targeted && computer.name && !computer.online) {
+        return [`O robô de ${computer.name} está fechado`, `Abra "Robô Servopa" no menu Iniciar desse computador`, "A atualização começa assim que ele abrir"];
+      }
       if (!workerOnline) return ["Nenhum computador com o robô ligado agora", "A atualização começa assim que um computador ligar"];
       if (run.attempts > 0 && run.nextAttemptAt) {
+        const reason = failureReason(run.errorCode, run.error);
+        const where = computer.name ? ` (${computer.name})` : "";
+        if (computer.handover) {
+          return [`Na última tentativa ${reason ?? "o computador falhou"}${where}`, "Passando a atualização para outro computador…"];
+        }
         const at = new Date(run.nextAttemptAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        return [`Nova tentativa às ${at}`, "A Servopa não respondeu como esperado na última vez", "O robô tenta de novo sozinho"];
+        return [`Nova tentativa às ${at}`, reason ? `Na última tentativa ${reason}${where}` : "A última tentativa não terminou", "O robô tenta de novo sozinho"];
+      }
+      if (computer.targeted && computer.name) {
+        return [`Chamando o robô de ${computer.name}…`, "Aguardando o robô responder…", "O Firefox do robô vai abrir nesse computador…"];
       }
       return ["Chamando um computador disponível…", "Aguardando o robô responder…", "Reservando a atualização para um computador…"];
     case "STARTING":
-      return ["Computador conectado, abrindo o robô…", "Preparando o navegador…", "Carregando a sessão da Servopa…"];
-    case "AUTHENTICATING":
-      return ["Abrindo o painel de vendas da Servopa…", "Passando pela verificação de segurança…", "Entrando com o acesso da Reobote…", "Carregando o menu de grupos…"];
+      return ["Computador conectado, abrindo o robô…", "Preparando o navegador…", "Carregando a sessão da Servopa…"];    case "AUTHENTICATING":
+      return ["Abrindo o Firefox do robô…", "Abrindo o painel de vendas da Servopa…", "Passando pela verificação de segurança…", "Entrando com o acesso da Reobote…", "Carregando o menu de grupos…"];
     case "LISTING_GROUPS":
       return progress.completed === 0
         ? ["Pesquisando grupos de imóveis…", "Lendo a lista de grupos…"]
@@ -143,9 +176,17 @@ function ActivityLine({ messages }: { messages: string[] }) {
   );
 }
 
+/**
+ * `name`: computador escolhido (pedido manual = o de quem clicou) ou, no
+ * agendamento, o que rodou/falhou por último. `targeted`: só ele pode rodar.
+ * `handover`: sem destino fixo, outro computador online vai assumir agora.
+ */
+export type Computer = { name: string | null; online: boolean; targeted: boolean; handover: boolean };
+
 export function RobotProgress({
   run,
   workerOnline,
+  computer,
   result,
   onDismiss,
   onCancel,
@@ -153,6 +194,7 @@ export function RobotProgress({
   /** Execução em andamento (PENDING/RUNNING) — ou null quando só mostra o resultado. */
   run: RobotRun | null;
   workerOnline: boolean;
+  computer: Computer;
   /** Resultado da execução que acabou de terminar nesta tela. */
   result: RobotResult | null;
   onDismiss: () => void;
@@ -180,7 +222,7 @@ export function RobotProgress({
   }, [run]);
 
   const percent = run ? Math.round(shown) : 100;
-  const messages = run ? activityMessages(run, workerOnline) : [];
+  const messages = run ? activityMessages(run, workerOnline, computer) : [];
   const currentStep = phase ? STEPS.findIndex((step) => step.phases.includes(phase)) : STEPS.length;
   const failed = result?.tone === "danger";
 
@@ -255,6 +297,12 @@ export function RobotProgress({
                 );
               })}
             </ol>
+            {run?.status === "RUNNING" && computer.name && (
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                <Laptop className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">Rodando no computador {computer.name}</span>
+              </p>
+            )}
             <div className="mt-4 flex items-center justify-between border-t border-neutral-100 pt-3 text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
               <span>Pode continuar usando o CRM normalmente.</span>
               <button type="button" onClick={onCancel} className="font-medium text-red-600 hover:underline dark:text-red-400">Cancelar</button>

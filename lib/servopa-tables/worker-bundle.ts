@@ -22,6 +22,7 @@ export const WORKER_BUNDLE_FILES = [
   "package.json",
   "package-lock.json",
   "run.mjs",
+  "check-browser.mjs",
   "lib/browser.mjs",
   "lib/collector.mjs",
   "lib/crm-client.mjs",
@@ -69,7 +70,9 @@ export function readServopaWorkerBundle(root = defaultWorkerRoot()): ServopaWork
 
   const files = WORKER_BUNDLE_FILES.map((relativePath) => ({
     path: relativePath,
-    content: normalizeForWindows(relativePath, readFileSync(path.join(root, relativePath))),
+    // `turbopackIgnore`: o Dockerfile já copia `worker/` para a imagem; sem isto o
+    // Turbopack inclui o projeto inteiro no build standalone (aviso no deploy).
+    content: normalizeForWindows(relativePath, readFileSync(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ root, relativePath))),
   }));
   const hash = createHash("sha256");
   for (const file of files) hash.update(file.path).update("\0").update(file.content).update("\0");
@@ -115,7 +118,7 @@ export function buildServopaInstallerScript(params: { crmBaseUrl: string; pairin
   if (!PAIRING_CODE_PATTERN.test(params.pairingCode)) throw new Error("Código do instalador inválido.");
 
   const root = params.root ?? defaultWorkerRoot();
-  const read = (relativePath: string) => readFileSync(path.join(root, relativePath), "utf8").replace(/^﻿/, "");
+  const read = (relativePath: string) => readFileSync(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ root, relativePath), "utf8").replace(/^﻿/, "");
   const core = read(INSTALLER_CORE);
   const template = read(INSTALLER_TEMPLATE);
   if (!template.includes("__ROBO_CRM_BASE_URL__") || !template.includes("__ROBO_PAIRING_CODE__")) {

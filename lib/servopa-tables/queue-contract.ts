@@ -76,6 +76,21 @@ export function planServopaFailure(params: {
   };
 }
 
+/**
+ * Falhas do PRÓPRIO computador (não da Servopa): outro computador online pode
+ * assumir o mesmo trabalho na hora, sem esperar a nova tentativa. O que
+ * falhou só volta a tentar no horário normal. Caso real (27/10/2026): o
+ * Firefox de um PC travou ao abrir e a coleta ficou parada 15 min, embora
+ * outro PC estivesse online.
+ */
+export const SERVOPA_MACHINE_ERROR_CODES = ["BROWSER_START_FAILED"] as const;
+
+/** Mensagem que fica no histórico quando alguém cancela uma execução que já tinha falhado. */
+export function servopaCancelledError(previous: { errorCode: string | null; error: string | null }): string | null {
+  if (!previous.error || !previous.errorCode || previous.errorCode === "CANCELLED_BY_USER") return null;
+  return `Última falha antes do cancelamento: ${previous.error}`.slice(0, 2_000);
+}
+
 /** Quantos computadores ativos (com credencial) uma organização pode ter ao mesmo tempo. */
 export const MAX_SERVOPA_WORKERS = 10;
 

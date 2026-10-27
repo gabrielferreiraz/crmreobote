@@ -1698,6 +1698,8 @@ model ServopaSyncRun {
   claimedAt        DateTime?
   // Qual computador reivindicou esta execução (null = ainda na fila ou computador removido).
   claimedByWorkerId String?
+  // "Rodar robô agora": computador de quem clicou; só ele reivindica. null = qualquer um (agendamento).
+  targetWorkerId    String?
   lastHeartbeatAt  DateTime?
   leaseExpiresAt   DateTime?
   // O token puro é devolvido uma única vez ao worker; no banco fica só SHA-256.
@@ -1715,6 +1717,7 @@ model ServopaSyncRun {
 
   organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   claimedByWorker ServopaWorker? @relation("ServopaRunClaimedBy", fields: [claimedByWorkerId], references: [id], onDelete: SetNull)
+  targetWorker    ServopaWorker? @relation("ServopaRunTarget", fields: [targetWorkerId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
   @@index([status, nextAttemptAt])
@@ -1740,6 +1743,7 @@ model ServopaWorker {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
   claimedRuns  ServopaSyncRun[] @relation("ServopaRunClaimedBy")
+  targetedRuns ServopaSyncRun[] @relation("ServopaRunTarget")
 
   @@index([organizationId, active])
 }

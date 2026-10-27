@@ -10,7 +10,9 @@ import { test } from "node:test";
 import {
   hashServopaLeaseToken,
   planServopaFailure,
+  SERVOPA_MACHINE_ERROR_CODES,
   SERVOPA_MAX_ATTEMPTS,
+  servopaCancelledError,
   ServopaQueueError,
   validateServopaSyncProgress,
 } from "../lib/servopa-tables/queue-contract.ts";
@@ -96,6 +98,59 @@ test("falha temporaria repete ate oito tentativas e depois para", () => {
   assert.equal(stopped.retryAt, null);
   assert.equal(stopped.errorCode, "RETRY_LIMIT_REACHED");
   assert.equal(stopped.exhausted, true);
+});
+
+// Caso real (27/10/2026): o Firefox de um PC travou e a coleta esperou 15 min com outro PC online.
+test("falha do proprio computador: outro computador assume na hora, o que falhou espera", () => {
+  assert.deepEqual([...SERVOPA_MACHINE_ERROR_CODES], ["BROWSER_START_FAILED"]);
+  const source = readFileSync("lib/servopa-tables/queue.ts", "utf8");
+  const claim = source.slice(source.indexOf("export async function claimNextServopaSync"), source.indexOf("export async function heartbeatServopaSync"));
+  assert.match(claim, /"nextAttemptAt" <= \$\{now\}\s*OR \(\s*"targetWorkerId" IS NULL\s*AND "errorCode" IN \(\$\{Prisma\.join\(\[\.\.\.SERVOPA_MACHINE_ERROR_CODES\]\)\}\)/);
+  assert.match(claim, /"claimedByWorkerId" <> \$\{workerId \?\? ""\}/);
+  // A falha precisa manter quem falhou; senão o próprio computador quebrado pegaria de novo na hora.
+  const fail = source.slice(source.indexOf("export async function failServopaSync"));
+  assert.doesNotMatch(fail, /claimedByWorkerId/);
+});
+
+// Pedido do usuário (27/10/2026): "Rodar robô agora" roda no robô do PC de quem clicou.
+test("pedido manual vai so para o computador de quem clicou", () => {
+  const queue = readFileSync("lib/servopa-tables/queue.ts", "utf8");
+  const claim = queue.slice(queue.indexOf("export async function claimNextServopaSync"), queue.indexOf("export async function heartbeatServopaSync"));
+  assert.match(claim, /AND \("targetWorkerId" IS NULL OR "targetWorkerId" = \$\{workerId \?\? ""\}\)/);
+  assert.match(queue, /targetWorkerId: params\.targetWorkerId \?\? null/);
+
+  const route = readFileSync("app/api/servopa-tables/operations/route.ts", "utf8");
+  assert.match(route, /z\.object\(\{ workerId: z\.string\(\)\.min\(1\)\.max\(64\) \}\)\.strict\(\)/);
+  assert.match(route, /targetWorkerId: target\.id/);
+  assert.match(route, /code: "WORKER_OFFLINE"/);
+  assert.match(route, /code: "WORKER_NOT_FOUND"/);
+
+  const migration = readFileSync("prisma/migrations/20261027120000_servopa_run_target_worker/migration.sql", "utf8");
+  assert.match(migration, /ADD COLUMN "targetWorkerId" TEXT;/);
+  assert.match(migration, /ON DELETE SET NULL/);
+  assert.doesNotMatch(migration, /DROP|NOT NULL|UPDATE "/, "migração só adiciona");
+
+  // Computador removido: o pedido feito para ele é cancelado, não fica esperando para sempre.
+  const auth = readFileSync("lib/servopa-tables/worker-auth.ts", "utf8");
+  assert.match(auth, /targetWorkerId: workerId \},\s*data: \{\s*status: "CANCELLED"/);
+  assert.match(auth, /errorCode: "TARGET_WORKER_REMOVED"/);
+
+  // A tela lembra o robô deste computador (instalação ou primeira escolha) e nunca roda sem destino.
+  const screen = readFileSync("app/(dashboard)/tabelas/servopa-operations.tsx", "utf8");
+  assert.match(screen, /THIS_COMPUTER_KEY = "servopa-this-computer"/);
+  assert.match(screen, /json: \{ workerId: target\.id \}/);
+  assert.match(screen, /if \(!target\) \{\s*setPickerOpen\(true\);/);
+  assert.match(screen, /if \(newWorkerId && newWorkerName\) writeSavedComputer/);
+});
+
+test("cancelar depois de uma falha mantem o motivo no historico", () => {
+  assert.equal(
+    servopaCancelledError({ errorCode: "BROWSER_START_FAILED", error: "O navegador do robo (Firefox) nao abriu neste computador." }),
+    "Última falha antes do cancelamento: O navegador do robo (Firefox) nao abriu neste computador.",
+  );
+  assert.equal(servopaCancelledError({ errorCode: null, error: null }), null);
+  assert.equal(servopaCancelledError({ errorCode: "CANCELLED_BY_USER", error: "x" }), null);
+  assert.match(readFileSync("lib/servopa-tables/queue.ts", "utf8"), /error: servopaCancelledError\(active\)/);
 });
 
 test("falha definitiva nao e reagendada nem na primeira tentativa", () => {

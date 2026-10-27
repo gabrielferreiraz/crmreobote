@@ -78,12 +78,17 @@ function startHeartbeat(client, job) {
   };
 }
 
-/** Causa técnica para o registro local (o logger mascara segredos); nunca vai para o CRM. */
+/**
+ * Causa técnica para o registro local (o logger mascara segredos); nunca vai
+ * para o CRM. Inclui o "Call log" do Playwright (o que o Firefox fez antes de
+ * travar): sem ele, a falha de 27/10/2026 ficou só com "Timeout 90000ms".
+ */
 function describeCause(error) {
   const cause = error.cause;
   if (!cause) return "";
   const text = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
-  return ` | causa: ${text.split("\n")[0].slice(0, 400)}`;
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  return ` | causa: ${lines[0].slice(0, 400)}${lines.length > 1 ? ` | ${lines.slice(1, 16).join(" / ").slice(0, 1_200)}` : ""}`;
 }
 
 /** Acesso da Servopa: o entregue pelo CRM; o `.env` local só vale como recurso de diagnóstico. */

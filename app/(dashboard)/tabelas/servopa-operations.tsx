@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Ban, Check, CheckCircle2, Clock, Download, History, Laptop, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, Wifi, WifiOff, XCircle } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Modal } from "@/components/modal";
 import { requestJson } from "@/lib/client-request";
-import { RobotProgress } from "./robot-progress";
+import { failureReason, RobotProgress, type Computer } from "./robot-progress";
 
 type SyncRun = {
   id: string;
@@ -22,6 +22,7 @@ type SyncRun = {
   errorCode: string | null;
   error: string | null;
   summary?: unknown;
+  claimedByWorkerId?: string | null;
 };
 
 type Worker = {
@@ -45,6 +46,7 @@ export type ServopaOperationState = {
   /** Computadores com acesso ativo. Qualquer um deles online faz a fila andar. */
   workers: Worker[];
   workerOnline: boolean;
+  activeComputer: Computer;
   /** O acesso da Servopa está configurado no servidor do CRM (só sim/não — o valor nunca chega aqui). */
   panelCredentialsConfigured: boolean;
   maxAttempts: number;
@@ -54,6 +56,61 @@ export type ServopaOperationState = {
 function timeLabel(value: string | Date | null | undefined) {
   if (!value) return "Nunca conectado";
   return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+/**
+ * Qual robô é o DESTE computador: "Rodar robô agora" roda sempre nele. Fica
+ * gravado neste navegador ao instalar pelo CRM (ou na primeira vez que a
+ * pessoa roda e escolhe na lista). O nome serve para reencontrá-lo depois de
+ * uma reinstalação no mesmo computador (mesmo nome, id novo).
+ */
+const THIS_COMPUTER_KEY = "servopa-this-computer";
+type SavedComputer = { id: string; name: string };
+
+// Navegador que bloqueia o armazenamento: vale ao menos enquanto a página estiver aberta.
+let savedComputerFallback: string | null = null;
+const savedComputerListeners = new Set<() => void>();
+
+function subscribeSavedComputer(listener: () => void) {
+  savedComputerListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    savedComputerListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function savedComputerSnapshot(): string | null {
+  try {
+    return window.localStorage.getItem(THIS_COMPUTER_KEY) ?? savedComputerFallback;
+  } catch {
+    return savedComputerFallback;
+  }
+}
+
+function parseSavedComputer(raw: string | null): SavedComputer | null {
+  try {
+    const value = JSON.parse(raw ?? "null");
+    return value && typeof value.id === "string" && typeof value.name === "string" ? { id: value.id, name: value.name } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedComputer(value: SavedComputer | null) {
+  savedComputerFallback = value ? JSON.stringify({ id: value.id, name: value.name }) : null;
+  try {
+    if (savedComputerFallback) window.localStorage.setItem(THIS_COMPUTER_KEY, savedComputerFallback);
+    else window.localStorage.removeItem(THIS_COMPUTER_KEY);
+  } catch {}
+  for (const listener of savedComputerListeners) listener();
+}
+
+function findSavedComputer(saved: SavedComputer | null, workers: Worker[]): Worker | null {
+  if (!saved) return null;
+  return workers.find((worker) => worker.id === saved.id)
+    ?? workers.find((worker) => worker.name.toLocaleLowerCase("pt-BR") === saved.name.toLocaleLowerCase("pt-BR"))
+    ?? null;
 }
 
 function readProgress(value: unknown): { completed: number; total: number; phase: string } | null {
@@ -188,19 +245,22 @@ function lastSignal(workers: Worker[]): string | Date | null {
   return latest;
 }
 
-function operationStatus(state: ServopaOperationState): { label: string; detail: string; tone: BadgeTone } {
+function operationStatus(state: ServopaOperationState, thisComputer: Worker | null): { label: string; detail: string; tone: BadgeTone } {
   const active = state.activeRun;
   if (!state.panelCredentialsConfigured) {
     return { label: "Acesso da Servopa pendente", detail: "Configure SERVOPA_USER e SERVOPA_PASS no servidor do CRM", tone: "warning" };
   }
   if (active?.status === "PENDING") {
+    const reason = failureReason(active.errorCode, active.error);
     return {
       label: "Na fila",
       detail: !state.workerOnline
         ? "Aguardando um computador ficar online"
-        : active.attempts > 0
-          ? `Nova tentativa: ${timeLabel(active.nextAttemptAt)}`
-          : "O robô vai iniciar em instantes",
+        : state.activeComputer.handover
+          ? "Passando para outro computador"
+          : active.attempts > 0
+            ? `Nova tentativa: ${timeLabel(active.nextAttemptAt)}${reason ? ` · ${reason}` : ""}`
+            : "O robô vai iniciar em instantes",
       tone: "warning",
     };
   }
@@ -216,6 +276,11 @@ function operationStatus(state: ServopaOperationState): { label: string; detail:
     return { label: "Falhou", detail: state.latestRun.error ?? "A atualização precisa de atenção", tone: "danger" };
   }
   if (!state.workers.length) return { label: "Não configurado", detail: "Conecte pelo menos um computador", tone: "warning" };
+  if (thisComputer) {
+    return thisComputer.online
+      ? { label: "Robô online", detail: `Roda neste computador (${thisComputer.name})`, tone: "success" }
+      : { label: "Robô fechado", detail: `Abra "Robô Servopa" no menu Iniciar (${thisComputer.name})`, tone: "neutral" };
+  }
   if (!state.workerOnline) return { label: "Robô offline", detail: `Último sinal: ${timeLabel(lastSignal(state.workers))}`, tone: "neutral" };
   const online = state.workers.filter((worker) => worker.online).length;
   return { label: "Robô online", detail: online > 1 ? `${online} computadores prontos para atualizar` : "Pronto para atualizar", tone: "success" };
@@ -236,6 +301,21 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
   const [history, setHistory] = useState<HistoryRun[] | null>(null);
   /** Execução que terminou enquanto esta tela estava aberta — o painel do robô mostra o resultado. */
   const [finished, setFinished] = useState<{ runId: string; outcome: RunOutcome } | null>(null);
+  /** Robô deste computador, lido do navegador (o servidor não sabe qual é; na renderização do servidor, nenhum). */
+  const savedComputerRaw = useSyncExternalStore(subscribeSavedComputer, savedComputerSnapshot, () => null);
+  const savedComputer = parseSavedComputer(savedComputerRaw);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const thisComputer = findSavedComputer(savedComputer, state.workers);
+
+  function rememberThisComputer(worker: Worker | null) {
+    writeSavedComputer(worker ? { id: worker.id, name: worker.name } : null);
+  }
+
+  // Reinstalado no mesmo computador: mesmo nome, id novo — atualiza o que ficou gravado.
+  const staleSavedId = thisComputer && savedComputer && thisComputer.id !== savedComputer.id ? thisComputer : null;
+  useEffect(() => {
+    if (staleSavedId) writeSavedComputer({ id: staleSavedId.id, name: staleSavedId.name });
+  }, [staleSavedId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -274,15 +354,30 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
     return () => window.clearTimeout(timer);
   }, [finished]);
 
-  async function runNow() {
+  /** Roda no robô deste computador; sem saber qual é, pergunta uma vez e lembra. */
+  async function runNow(target: Worker | null = thisComputer) {
+    if (!target) {
+      setPickerOpen(true);
+      return;
+    }
+    setPickerOpen(false);
     setRunning(true);
     setFinished(null);
     const result = await requestJson<{ created: boolean; state: ServopaOperationState }>(
       "/api/servopa-tables/operations",
-      { method: "POST" },
+      { method: "POST", json: { workerId: target.id } },
     );
     setRunning(false);
-    if (result.ok) setState(result.data.state);
+    if (result.ok) {
+      setState(result.data.state);
+      return;
+    }
+    if (result.data?.state) setState(result.data.state);
+    // Computador removido do CRM: esquece e pergunta de novo.
+    if (result.data?.code === "WORKER_NOT_FOUND") {
+      rememberThisComputer(null);
+      setPickerOpen(true);
+    }
   }
 
   async function cancelRun() {
@@ -337,10 +432,16 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
     setDialogError(null);
   }
 
-  const status = operationStatus(state);
+  const status = operationStatus(state, thisComputer);
   const newWorker = installBaseline ? state.workers.find((worker) => !installBaseline.includes(worker.id)) : undefined;
   // O instalador se apresenta como "instalando"; só quando o robô em si abre (com a versão real) está pronto.
   const newWorkerReady = Boolean(newWorker?.online && newWorker.version && newWorker.version !== "instalando");
+  // Instalou por este navegador = o robô é deste computador.
+  const newWorkerId = newWorker?.id ?? null;
+  const newWorkerName = newWorker?.name ?? null;
+  useEffect(() => {
+    if (newWorkerId && newWorkerName) writeSavedComputer({ id: newWorkerId, name: newWorkerName });
+  }, [newWorkerId, newWorkerName]);
   const limitReached = state.workers.length >= state.maxWorkers;
   return (
     <>
@@ -349,7 +450,7 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
           <Badge tone={status.tone} dot>{status.label}</Badge>
           <p className="mt-1 max-w-72 truncate text-xs text-neutral-500 dark:text-neutral-400" title={status.detail}>{status.detail}</p>
         </div>
-        <button type="button" onClick={runNow} disabled={running || Boolean(state.activeRun) || !state.panelCredentialsConfigured} className="btn-primary">
+        <button type="button" onClick={() => void runNow()} disabled={running || Boolean(state.activeRun) || !state.panelCredentialsConfigured} className="btn-primary">
           <RefreshCw className={`h-4 w-4 ${running || state.activeRun?.status === "RUNNING" ? "animate-spin" : ""}`} aria-hidden="true" />
           {state.activeRun ? "Atualizando" : "Rodar robô agora"}
         </button>
@@ -432,10 +533,19 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
                       <div className="flex min-w-0 items-center gap-3">
                         {worker.online ? <Wifi className="h-4 w-4 shrink-0 text-emerald-500" /> : <WifiOff className="h-4 w-4 shrink-0 text-neutral-400" />}
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{worker.name}</p>
+                          <p className="flex items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                            <span className="truncate">{worker.name}</span>
+                            {thisComputer?.id === worker.id && <Badge tone="brand">Este computador</Badge>}
+                          </p>
                           <p className="text-xs text-neutral-500">
                             {worker.version === "instalando" ? "Instalando…" : worker.online ? "Online" : `Último sinal: ${timeLabel(worker.lastSeenAt)}`}
                             {worker.version && worker.version !== "instalando" ? ` · v${worker.version}` : ""}
+                            {thisComputer?.id !== worker.id && (
+                              <>
+                                {" · "}
+                                <button type="button" onClick={() => rememberThisComputer(worker)} className="font-medium text-brand hover:underline">É este computador</button>
+                              </>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -463,7 +573,14 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
                   {state.activeRun?.status === "PENDING" && state.activeRun.attempts > 0 && (
                     <div className="col-span-2">
                       <p className="text-xs text-neutral-500">Próxima tentativa</p>
-                      <p className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">{timeLabel(state.activeRun.nextAttemptAt)}</p>
+                      <p className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">
+                        {state.activeComputer.handover ? "Agora, em outro computador" : timeLabel(state.activeRun.nextAttemptAt)}
+                      </p>
+                      {state.activeRun.error && (
+                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                          Última falha{state.activeComputer.name ? ` (${state.activeComputer.name})` : ""}: {state.activeRun.error}
+                        </p>
+                      )}
                     </div>
                   )}
                   {!state.activeRun && state.latestRun?.error && (
@@ -500,6 +617,49 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {pickerOpen && (
+        <Modal onClose={() => setPickerOpen(false)} maxWidth="max-w-md">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-brand/10 text-brand"><Laptop className="h-5 w-5" aria-hidden="true" /></div>
+            <div>
+              <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Qual é este computador?</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">O robô roda no computador de quem clica. Escolha uma vez; o CRM lembra neste navegador.</p>
+            </div>
+          </div>
+          {state.workers.length === 0 ? (
+            <p className="mt-5 text-sm text-neutral-500 dark:text-neutral-400">Nenhum computador tem o robô ainda.</p>
+          ) : (
+            <div className="mt-5 divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+              {state.workers.map((worker) => (
+                <button
+                  key={worker.id}
+                  type="button"
+                  onClick={() => {
+                    rememberThisComputer(worker);
+                    void runNow(worker);
+                  }}
+                  className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                >
+                  {worker.online ? <Wifi className="h-4 w-4 shrink-0 text-emerald-500" /> : <WifiOff className="h-4 w-4 shrink-0 text-neutral-400" />}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{worker.name}</span>
+                    <span className="block text-xs text-neutral-500">{worker.online ? "Robô aberto" : "Robô fechado agora"}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">O nome é o usuário do Windows e o nome do computador.</p>
+          <div className="mt-4 flex justify-between gap-2">
+            <button type="button" onClick={() => { setPickerOpen(false); setSettingsOpen(true); }} className="btn-secondary">
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Este não tem o robô
+            </button>
+            <button type="button" onClick={() => setPickerOpen(false)} className="btn-secondary">Cancelar</button>
+          </div>
         </Modal>
       )}
 
@@ -555,6 +715,9 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
                             {run.status === "FAILED" && run.error && (
                               <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">{run.error}</p>
                             )}
+                            {run.status === "CANCELLED" && run.error && (
+                              <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">{run.error}</p>
+                            )}
                             {details.length > 0 && <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">{details.join(" · ")}</p>}
                           </div>
                         </li>
@@ -574,6 +737,7 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
           key={state.activeRun?.id ?? finished?.runId}
           run={state.activeRun}
           workerOnline={state.workerOnline}
+          computer={state.activeComputer}
           result={state.activeRun ? null : finished?.outcome ?? null}
           onDismiss={() => setFinished(null)}
           onCancel={() => setConfirmAction("CANCEL_RUN")}

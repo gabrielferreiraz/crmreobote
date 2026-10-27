@@ -1,9 +1,13 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { existsSync, renameSync, rmSync } from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
 import { firefox } from "playwright-core";
 import { WORKER_DIR } from "./env.mjs";
 import { WorkerError } from "./errors.mjs";
 
 const CLOUDFLARE_TITLE = "Just a moment...";
+const execFileAsync = promisify(execFile);
 
 /**
  * Título da página, ou `null` enquanto ela navega. No primeiro acesso de um
@@ -52,17 +56,87 @@ function stopOrphanRobotFirefox() {
   );
 }
 
-async function launchFirefox(profileDir) {
-  try {
-    return await firefox.launchPersistentContext(profileDir, { headless: false, timeout: 90_000 });
-  } catch {
-    stopOrphanRobotFirefox();
+/** Travas que um Firefox derrubado deixa no perfil. Só chamar depois de `stopOrphanRobotFirefox`. */
+function removeStaleProfileLocks(profileDir) {
+  for (const name of ["parent.lock", "lock", ".parentlock"]) {
     try {
-      return await firefox.launchPersistentContext(profileDir, { headless: false, timeout: 90_000 });
+      rmSync(path.join(profileDir, name), { force: true });
+    } catch {}
+  }
+}
+
+/**
+ * Perfil novo: o antigo vira `<perfil>-com-problema` (só o último é guardado,
+ * para diagnóstico). Perde-se só a liberação do Cloudflare, que o Firefox com
+ * janela refaz sozinho em segundos.
+ */
+function replaceProfile(profileDir) {
+  const broken = `${profileDir}-com-problema`;
+  rmSync(broken, { recursive: true, force: true });
+  if (existsSync(profileDir)) renameSync(profileDir, broken);
+}
+
+/** Baixa o Firefox do robô de novo por cima do atual (arquivo corrompido ou apagado pelo antivírus). */
+async function reinstallRobotFirefox() {
+  const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  const cli = path.join(WORKER_DIR, "node_modules", "playwright-core", "cli.js");
+  if (!browsers || !existsSync(cli)) return false;
+  await execFileAsync(process.execPath, [cli, "install", "--force", "firefox"], { cwd: WORKER_DIR, windowsHide: true, timeout: 15 * 60_000 });
+  return true;
+}
+
+const LAUNCH_TIMEOUT_MS = 60_000;
+
+/**
+ * Abre o Firefox do robô consertando o que costuma impedir a abertura, do mais
+ * leve ao mais pesado, e registra cada passo. Caso real (27/10/2026): o Firefox
+ * travou ao abrir duas vezes seguidas e a coleta parou. Mesmo caminho usado no
+ * teste do instalador (`check-browser.mjs`), então "instalou" = "o navegador abre".
+ */
+export async function launchFirefox(profileDir, { log = () => {} } = {}) {
+  const steps = [
+    { label: "abrindo o Firefox", repair: async () => {} },
+    {
+      label: "fechando Firefox travado e liberando o perfil",
+      repair: async () => {
+        stopOrphanRobotFirefox();
+        removeStaleProfileLocks(profileDir);
+      },
+    },
+    {
+      label: "usando um perfil novo",
+      repair: async () => {
+        stopOrphanRobotFirefox();
+        replaceProfile(profileDir);
+      },
+    },
+    {
+      label: "baixando o Firefox do robo de novo",
+      repair: async () => {
+        stopOrphanRobotFirefox();
+        if (!(await reinstallRobotFirefox())) throw new Error("reinstalacao indisponivel fora do computador instalado");
+        replaceProfile(profileDir);
+      },
+    },
+  ];
+  let lastError;
+  for (const [index, step] of steps.entries()) {
+    try {
+      await step.repair();
+      if (index > 0) log(`Firefox: tentativa ${index + 1} de ${steps.length} (${step.label}).`);
+      const context = await firefox.launchPersistentContext(profileDir, { headless: false, timeout: LAUNCH_TIMEOUT_MS });
+      if (index > 0) log(`Firefox abriu na tentativa ${index + 1} (${step.label}).`);
+      return context;
     } catch (cause) {
-      throw new WorkerError("BROWSER_START_FAILED", "Nao foi possivel abrir o Firefox do robo.", { cause });
+      lastError = cause;
+      const first = (cause instanceof Error ? cause.message : String(cause)).split("\n")[0].slice(0, 300);
+      log(`Firefox nao abriu (${step.label}): ${first}`);
     }
   }
+  // Um Firefox travado não pode segurar o perfil até a próxima tentativa.
+  stopOrphanRobotFirefox();
+  // O CRM mostra esta frase; "este computador" deixa claro que não é a Servopa.
+  throw new WorkerError("BROWSER_START_FAILED", "O navegador do robo (Firefox) nao abriu neste computador.", { cause: lastError });
 }
 
 /**
@@ -90,14 +164,14 @@ export async function showRobotBanner(page) {
  * As credenciais vêm de `config` — em produção, entregues pelo CRM junto com a
  * coleta; nunca lidas de arquivo neste módulo.
  */
-export async function openLoggedIn(config = {}) {
+export async function openLoggedIn(config = {}, { log } = {}) {
   const { servopaBaseUrl, servopaUser, servopaPassword } = config;
   const profileDir = config.profileDir ?? `${WORKER_DIR}/.profile`;
   if (!servopaBaseUrl || !servopaUser || !servopaPassword) {
     throw new WorkerError("CONFIG_INVALID", "O acesso da Servopa nao foi informado ao robo.", { retryable: false });
   }
 
-  const context = await launchFirefox(profileDir);
+  const context = await launchFirefox(profileDir, { log });
   const page = context.pages()[0] ?? (await context.newPage());
   try {
     await page.goto(`${servopaBaseUrl}/vendas/dashboard`, { waitUntil: "domcontentloaded", timeout: 60_000 });

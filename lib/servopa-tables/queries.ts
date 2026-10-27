@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant-context";
 import { applyAdjustment, toUnits, type PricedRow } from "@/lib/servopa-tables/adjust";
 import { hasServopaPanelCredentials } from "@/lib/servopa-tables/panel-credentials";
-import { MAX_SERVOPA_WORKERS, SERVOPA_MAX_ATTEMPTS } from "@/lib/servopa-tables/queue-contract";
+import { MAX_SERVOPA_WORKERS, SERVOPA_MACHINE_ERROR_CODES, SERVOPA_MAX_ATTEMPTS } from "@/lib/servopa-tables/queue-contract";
 
 export type ServopaTableRowView = PricedRow & { position: number };
 
@@ -229,6 +229,9 @@ export async function getServopaOperationState(organizationId: string) {
           createdAt: true,
           errorCode: true,
           error: true,
+          // RUNNING: quem está rodando; PENDING após falha: quem falhou.
+          claimedByWorkerId: true,
+          targetWorkerId: true,
         },
       }),
       prisma.servopaSyncRun.findFirst({
@@ -245,6 +248,7 @@ export async function getServopaOperationState(organizationId: string) {
           errorCode: true,
           error: true,
           summary: true,
+          claimedByWorkerId: true,
         },
       }),
       prisma.servopaWorker.findMany({
@@ -259,11 +263,26 @@ export async function getServopaOperationState(organizationId: string) {
       ...worker,
       online: Boolean(worker.lastSeenAt && now - worker.lastSeenAt.getTime() <= WORKER_ONLINE_WINDOW_MS),
     }));
+    // Pedido manual: o computador de quem clicou; agendado: quem rodou/falhou por último.
+    const lastComputer = activeRun?.targetWorkerId ?? activeRun?.claimedByWorkerId ?? null;
+    const computer = workers.find((worker) => worker.id === lastComputer);
+    const machineFailure = (SERVOPA_MACHINE_ERROR_CODES as readonly string[]).includes(activeRun?.errorCode ?? "");
     return {
       activeRun,
       latestRun,
       workers,
       workerOnline: workers.some((worker) => worker.online),
+      // Computador da execução atual e, sem destino fixo, se outro já vai assumir após falha do computador.
+      activeComputer: {
+        name: computer?.name ?? null,
+        online: computer?.online ?? false,
+        targeted: Boolean(activeRun?.targetWorkerId),
+        handover:
+          activeRun?.status === "PENDING" &&
+          !activeRun.targetWorkerId &&
+          machineFailure &&
+          workers.some((worker) => worker.online && worker.id !== lastComputer),
+      },
       // Só um sim/não: o valor do acesso da Servopa nunca sai do servidor para a tela.
       panelCredentialsConfigured: hasServopaPanelCredentials(),
       maxAttempts: SERVOPA_MAX_ATTEMPTS,
