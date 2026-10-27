@@ -9,7 +9,7 @@ export function ServopaLogo() {
       height={43}
       priority
       unoptimized
-      className="h-[48px] w-auto object-contain"
+      className="h-[38px] w-auto object-contain"
     />
   );
 }
@@ -23,7 +23,7 @@ export function ServopaSeal() {
       height={1122}
       priority
       unoptimized
-      className="h-[66px] w-auto object-contain"
+      className="h-[54px] w-auto object-contain"
     />
   );
 }

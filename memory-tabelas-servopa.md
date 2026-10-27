@@ -62,7 +62,7 @@ Gerar automaticamente as **tabelas de consórcio da Servopa em PDF** que os cons
   - **Botão "Baixar PDF"** (principal; `lib/servopa-tables/export-pdf.ts`, mesmo método das propostas: html2canvas-pro + jsPDF, escala 3): arquivo A4 de 1 página igual em qualquer computador/celular, nome "GRUPO 1511 - 12 MESES - ADM 9,9%.pdf". "Imprimir" continua para o papel.
   - Verificado gerando PDFs reais (Edge) dos piores casos e **medindo as 344 tabelas reais: todas em 1 folha, nenhum valor cortado, letra das regras 11 px em todas**. Testes em `scripts/test-servopa-pdf.ts`.
   - Se mesmo assim o "Imprimir" de algum computador sair grande: conferir em "Mais definições" a **Escala** (deve ser "Padrão"/100).
-- **Identidade visual concluída localmente:** o PDF usa `public/partner-logos/servopa.svg`, `public/partner-logos/servopa-60-anos.png` e rodapé institucional fixo com os dados centralizados do cartão digital. Os dois assets ficam na pasta pública já liberada pelo CRM.
+- **Identidade visual concluída localmente:** o PDF usa `public/partner-logos/servopa.svg`, `public/partner-logos/servopa-60-anos.png` e rodapé institucional fixo com os dados centralizados do cartão digital (com ícones oficiais de Website e Instagram, sem o caractere '@'). Os dois assets ficam na pasta pública já liberada pelo CRM.
 
 ## Vários computadores rodam o robô (decidido e implementado em 26/10/2026)
 **Requisito do usuário:** não existe só um Administrativo; se essa pessoa faltar, qualquer outro computador precisa poder rodar o robô. Isso **substitui** a decisão anterior "um notebook, uma credencial ativa por organização".
