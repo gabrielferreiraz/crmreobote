@@ -39,18 +39,18 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
         className="servopa-sheet mx-auto flex flex-col bg-white px-[12mm] pb-[9mm] pt-[8mm] text-[15px] leading-snug text-neutral-900 shadow-md"
         data-compact="0"
       >
-        <div className="servopa-reobote-header mb-[12mm] flex justify-center border-b border-neutral-200 pb-[5mm]">
-          <ReoboteLogo isLight className="h-[26mm] w-auto" />
+        <div className="servopa-reobote-header mb-[9mm] flex justify-center border-b border-neutral-200 pb-[4mm]">
+          <ReoboteLogo isLight className="h-[15mm] w-auto" />
         </div>
 
-        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 pb-[6mm]">
+        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 pb-[5mm]">
           <div className="inline-flex flex-col items-center justify-self-start">
             <ServopaLogo />
-            <p className="mt-[1.8mm] whitespace-nowrap text-[11.5px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Parceira Autorizada</p>
+            <p className="mt-[1.2mm] whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Parceira Autorizada</p>
           </div>
           <div className="text-center">
-            <p className="whitespace-nowrap text-[32px] font-bold leading-tight tracking-tight">GRUPO {table.groupNumber}</p>
-            <p className="mt-0.5 whitespace-nowrap text-[19px] font-bold">{table.termMonths} MESES</p>
+            <p className="whitespace-nowrap text-[22px] font-bold leading-tight tracking-tight">GRUPO {table.groupNumber}</p>
+            <p className="mt-0.5 whitespace-nowrap text-[14px] font-bold text-neutral-800">{table.termMonths} MESES</p>
           </div>
           <div className="flex justify-end">
             <ServopaSeal />
@@ -121,7 +121,7 @@ export function ServopaPrintSheet({ table }: { table: ServopaTableView }) {
 
         <footer className="relative mt-auto pt-[4mm] text-center text-[11px] leading-relaxed text-neutral-600">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden">
-            <ReoboteLogo isLight className="h-[65mm] w-auto opacity-[0.09] select-none" />
+            <ReoboteLogo isLight className="h-[45mm] w-auto opacity-[0.07] select-none" />
           </div>
           <div className="relative mb-[2mm] h-px bg-[#b60b29]" />
           <p className="relative text-[12px] font-bold text-neutral-900">Reobote Consórcios</p>
