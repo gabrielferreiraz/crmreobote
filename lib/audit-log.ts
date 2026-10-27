@@ -30,6 +30,12 @@ export type AuditAction =
   | "GOOGLE_CALENDAR_DISCONNECTED"
   | "DEALS_IMPORTED"
   | "CONTACTS_IMPORTED"
+  | "SERVOPA_TABLE_ADJUSTMENT"
+  | "SERVOPA_SYNC_REQUESTED"
+  | "SERVOPA_SYNC_CANCELLED"
+  | "SERVOPA_WORKER_CREDENTIAL_CREATED"
+  | "SERVOPA_WORKER_CREDENTIAL_REVOKED"
+  | "SERVOPA_WORKER_INSTALLER_DOWNLOADED"
   // Fila de disparo de uma campanha reordenada à mão (arrastar / mover pro topo
   // ou fim) — muda QUEM é contatado primeiro, então fica registrado quem mexeu.
   | "CAMPAIGN_QUEUE_REORDERED"

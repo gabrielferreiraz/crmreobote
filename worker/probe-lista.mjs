@@ -1,0 +1,16 @@
+import { openLoggedIn, base } from "./lib-probe.mjs";
+import { writeFileSync } from "node:fs";
+const { browser, page } = await openLoggedIn();
+await page.goto(`${base}/vendas/grupos`, { waitUntil: "domcontentloaded" });
+console.log("url:", page.url());
+await page.check('input[name=segmento][value=I]');
+await page.check('input[name=tp_lance][value=S]');
+await page.click("#btn_representante_grupo", { noWaitAfter: true });
+await page.waitForTimeout(6000);
+console.log("url após buscar:", page.url());
+await page.screenshot({ path: ".probe/04-lista.png", fullPage: true });
+writeFileSync(".probe/04-lista.html", await page.content());
+const rows = await page.$$eval("table tr", trs => trs.slice(0, 4).map(tr => tr.innerHTML.replace(/\s+/g, " ").slice(0, 600)));
+console.log(rows.join("\n---\n"));
+console.log("total linhas:", await page.$$eval("table tbody tr", t => t.length));
+await browser.close();

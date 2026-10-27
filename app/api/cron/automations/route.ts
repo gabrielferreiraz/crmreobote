@@ -8,6 +8,7 @@ import { cleanupExpiredAcademyCredentials } from "@/lib/academy-oauth-cleanup";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
 import { recordCronRun, runLockedCron } from "@/lib/cron-run";
+import { scheduleServopaMonthlySync } from "@/lib/servopa-tables/scheduler";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ const CRON_NAME = "automations";
 // tick de automations (por isso o .catch em cada um, não deixado estourar
 // pro Promise.all inteiro).
 async function runCronTick() {
-  const [automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, campaignsBackstop, webhooksBackstop] =
+  const [automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, campaignsBackstop, webhooksBackstop] =
     await Promise.all([
       runAutomations(),
       sendDueScheduledTaskMessages(),
@@ -50,6 +51,12 @@ async function runCronTick() {
       cleanupExpiredAcademyCredentials().catch((err) => {
         console.error("[cron:automations] limpeza de credenciais da Academy falhou", err);
         return { skipped: false, deleted: 0, cleanupFailed: true };
+      }),
+      scheduleServopaMonthlySync().catch((err) => {
+        // A indisponibilidade das tabelas não pode derrubar mensagens,
+        // lembretes e demais automações que compartilham este cron.
+        console.error("[cron:automations] agendamento das tabelas Servopa falhou", err);
+        return { due: false, scheduleFailed: true };
       }),
       runLockedCron("campaigns", runCampaigns).catch((err) => {
         console.error("[cron:automations] backstop de campaigns falhou", err);
@@ -60,7 +67,7 @@ async function runCronTick() {
         return { backstopFailed: true };
       }),
     ]);
-  return { automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, campaignsBackstop, webhooksBackstop };
+  return { automations, scheduledMessages, meetingReminders, selfReminders, academyCleanup, servopaTables, campaignsBackstop, webhooksBackstop };
 }
 
 async function handleCron() {

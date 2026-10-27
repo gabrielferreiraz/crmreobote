@@ -19,4 +19,6 @@
  */
 export const GLOBAL_OMIT = {
   user: { password: true },
+  servopaWorker: { keyHash: true },
+  servopaWorkerPairing: { codeHash: true },
 } as const;

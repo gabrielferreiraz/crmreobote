@@ -108,6 +108,11 @@ model Organization {
   webhookDeliveries      WebhookDelivery[]
   leadSources            LeadSource[]
   creditTypes            CreditType[]
+  servopaGroups          ServopaGroup[]
+  servopaTableRows       ServopaTableRow[]
+  servopaSyncRuns        ServopaSyncRun[]
+  servopaWorkers         ServopaWorker[]
+  servopaWorkerPairings  ServopaWorkerPairing[]
   jobTitles              JobTitle[]
   customFieldDefinitions CustomFieldDefinition[]
   userDailyActivities    UserDailyActivity[]
@@ -184,6 +189,8 @@ model User {
   messageScripts              MessageScript[]
   googleCalendarConnection    GoogleCalendarConnection?
   apiKeysCreated              ApiKey[]
+  servopaWorkersCreated       ServopaWorker[]
+  servopaWorkerPairings       ServopaWorkerPairing[]
   tvDisplayLinksCreated       TvDisplayLink[]
   digitalCard                 DigitalCard?
   digitalCardPresentations    DigitalCardPresentation[]
@@ -1543,6 +1550,219 @@ model CreditType {
 
   @@index([organizationId])
 }
+
+// ─── Tabelas Servopa (tabelas de crédito por grupo, coletadas do painel) ──
+// ──────────────────────────────────────────────────────────────────────────
+//
+// O robô (worker/) lê o painel de vendas da Servopa e manda para cá; o CRM
+// só guarda e mostra — NUNCA corrige o que a Servopa publica (os valores do
+// site são a verdade). A única coisa editável é `ServopaTable.adjustmentPoints`
+// (desconto/acréscimo na taxa de ADM, em pontos percentuais), numa camada à
+// parte: o robô atualiza os dados do site e jamais toca no ajuste.
+// Regras de cálculo do ajuste: lib/servopa-tables/adjust.ts.
+
+enum ServopaSegment {
+  REAL_ESTATE // "I" no painel — imóveis
+  MOVABLE // "M" no painel — móveis (automóvel, moto, pesados…)
+}
+
+enum ServopaSyncTrigger {
+  SCHEDULED // agendado (dia 1 de cada mês, com retentativas)
+  MANUAL // botão "Rodar robô agora"
+  IMPORT // carga a partir de arquivos já coletados (scripts/import-servopa-tables.ts)
+}
+
+enum ServopaSyncStatus {
+  PENDING // pedido criado, o robô ainda não pegou
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED // interrompido manualmente pelo CRM; nunca entra em retentativa
+}
+
+// Um grupo de consórcio (ex.: 1568). Os dados vêm da página do grupo
+// (/vendas/grupos/{número}/S) — a média de lances (sem/com embutido) não muda
+// nada, então só a versão "S" é guardada.
+model ServopaGroup {
+  id                    String         @id @default(cuid())
+  organizationId        String
+  // Número como a Servopa mostra ("1568") — String pra preservar zeros.
+  number                String
+  segment               ServopaSegment
+  // Coluna "Meses" da lista = prazo TOTAL do grupo. O PDF usa o prazo
+  // RESTANTE (ServopaTable.termMonths), não este.
+  totalMonths           Int?
+  vacancies             Int?
+  // "Vencimento dia" da página do grupo.
+  dueDay                Int?
+  // "Próxima assembleia": "012 - 23/11/2026 - 16:00 HORAS" → número + instante.
+  nextAssemblyNumber    String?
+  nextAssemblyAt        DateTime?
+  reserveFundPercent    Decimal?       @db.Decimal(7, 4)
+  insuranceRatePercent  Decimal?       @db.Decimal(7, 4)
+  insuranceType         String?
+  groupType             String?
+  drawType              String?
+  embeddedBidMaxPercent Decimal?       @db.Decimal(7, 4)
+  membersCount          Int?
+  // Texto da "ordem de contemplação"/regras do grupo, como a Servopa publica.
+  contemplationText     String         @default("") @db.Text
+  // Tabela de informações inteira, como veio (rótulo → valor) — campos novos
+  // do site não se perdem mesmo sem coluna própria.
+  rawInfo               Json
+  // Hash do conteúdo normalizado (sem ajuste) — mudou = a Servopa mudou algo.
+  contentHash           String
+  // false = o grupo sumiu da lista na última coleta (encerrado/fechado).
+  active                Boolean        @default(true)
+  firstSeenAt           DateTime       @default(now())
+  lastSeenAt            DateTime       @default(now())
+  lastChangedAt         DateTime       @default(now())
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tables       ServopaTable[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, active])
+}
+
+// Uma aba "Taxa de Adm - x,xx%" de um grupo = uma tabela = um PDF.
+model ServopaTable {
+  id               String    @id @default(cuid())
+  organizationId   String
+  groupId          String
+  // Taxa de ADM ORIGINAL publicada pela Servopa (ex.: 13.0000 = 13%).
+  admRatePercent   Decimal   @db.Decimal(7, 4)
+  // Desconto (negativo) / acréscimo (positivo) em PONTOS PERCENTUAIS sobre a
+  // taxa de ADM, definido por donos, gerentes e Administrativo. Vale até
+  // alguém mudar; o robô nunca altera. 0 = valores do site exatamente.
+  adjustmentPoints Decimal   @default(0) @db.Decimal(7, 4)
+  adjustedById     String?
+  adjustedAt       DateTime?
+  // Prazo RESTANTE em meses (é o que o PDF mostra), igual em todas as linhas.
+  termMonths       Int
+  contentHash      String
+  active           Boolean   @default(true)
+  firstSeenAt      DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  lastChangedAt    DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  group ServopaGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  rows  ServopaTableRow[]
+
+  @@unique([groupId, admRatePercent])
+  @@index([organizationId, active])
+  @@index([organizationId, termMonths])
+}
+
+// Uma categoria (A1, B1…) da tabela — valores exatamente como a Servopa publica.
+model ServopaTableRow {
+  id             String  @id @default(cuid())
+  organizationId String
+  tableId        String
+  // Ordem em que a Servopa lista (A1, B1, C1…).
+  position       Int
+  category       String
+  description    String
+  creditValue    Decimal @db.Decimal(14, 2)
+  termMonths     Int
+  // "% Mensal" (contribuição mensal) com as 4 casas que o site mostra.
+  monthlyPercent Decimal @db.Decimal(8, 4)
+  // Parcela SEM seguro.
+  installment    Decimal @db.Decimal(14, 2)
+  insurance      Decimal @db.Decimal(14, 2)
+  observation    String?
+  // Parcela + seguro.
+  total          Decimal @db.Decimal(14, 2)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  table        ServopaTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, category])
+  @@index([organizationId])
+}
+
+// Cada execução do robô (ou importação): pedido → andamento → resultado.
+model ServopaSyncRun {
+  id              String             @id @default(cuid())
+  organizationId  String
+  trigger         ServopaSyncTrigger
+  status          ServopaSyncStatus  @default(PENDING)
+  requestedById   String?
+  // Fila do worker: tentativa só aumenta quando um notebook reivindica o job.
+  attempts         Int                @default(0)
+  nextAttemptAt    DateTime           @default(now())
+  claimedAt        DateTime?
+  // Qual computador reivindicou esta execução (null = ainda na fila ou computador removido).
+  claimedByWorkerId String?
+  lastHeartbeatAt  DateTime?
+  leaseExpiresAt   DateTime?
+  // O token puro é devolvido uma única vez ao worker; no banco fica só SHA-256.
+  leaseTokenHash   String?
+  // Progresso pequeno e estruturado, ex.: { phase, completed, total }.
+  progress         Json?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  // { groups: {created, updated, unchanged, deleted}, tables: {...}, … }
+  summary          Json?
+  // Código estável para a interface/retentativa; `error` é a mensagem legível.
+  errorCode        String?
+  error            String?            @db.Text
+  createdAt        DateTime           @default(now())
+
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  claimedByWorker ServopaWorker? @relation("ServopaRunClaimedBy", fields: [claimedByWorkerId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@index([organizationId, status, createdAt])
+}
+
+// Identidade machine-to-machine exclusiva do notebook que executa o robô.
+// A chave em texto puro é exibida uma única vez; somente SHA-256 fica salvo.
+model ServopaWorker {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  keyPrefix      String
+  keyHash        String    @unique
+  createdById    String
+  active         Boolean   @default(true)
+  lastSeenAt     DateTime?
+  version        String?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  claimedRuns  ServopaSyncRun[] @relation("ServopaRunClaimedBy")
+
+  @@index([organizationId, active])
+}
+
+/// Instalador de uso único: o CRM embute um código curto no arquivo baixado e
+/// o computador troca esse código pela chave própria (`ServopaWorker`). Só o
+/// SHA-256 do código é salvo; expira em 1 hora e vale para um computador.
+model ServopaWorkerPairing {
+  id             String    @id @default(cuid())
+  organizationId String
+  codeHash       String    @unique
+  createdById    String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  workerId       String?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+}
+
 
 // ─── Cargos (lista editável, alimenta o Select de "Cargo" do contato)
 // ──────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { FileText, Plus, Pencil, Trash2, Copy, Search, MessagesSquare, Globe2, Lock, Image as ImageIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { SAMPLE_CONTACT_VARS } from "@/lib/campaigns/spintax";
 
 type ScriptStep = { text: string; delayAfterSec: number; type?: "TEXT" | "IMAGE"; mediaUrl?: string };
 type ScriptUsage = { campaignId: string; campaignName: string; status: "DRAFT" | "RUNNING" | "PAUSED" | "DONE" };
@@ -37,12 +38,15 @@ const STATUS_LABELS: Record<ScriptUsage["status"], string> = {
 // desconhecida cai no fallback genérico. O `(?!\[)` deixa o spintax
 // ({[opção 1|opção 2]}) intacto — só entra em jogo quando o `{` não é
 // seguido de `[`.
+// Mesmos valores da prévia do editor (SAMPLE_CONTACT_VARS) — o card dizia
+// "Gerente"/"Maria" onde o editor mostra "Advogada"/"Ana".
 const FAKE_VARIABLE_VALUES: Record<string, string> = {
-  nome: "Maria Silva",
-  primeiro_nome: "Maria",
-  cargo: "Gerente",
-  empresa: "Empresa Exemplo",
-  cidade: "Campo Grande",
+  nome: SAMPLE_CONTACT_VARS.nome,
+  primeiro_nome: SAMPLE_CONTACT_VARS.nome.split(" ")[0],
+  cargo: SAMPLE_CONTACT_VARS.cargo,
+  empresa: SAMPLE_CONTACT_VARS.empresa,
+  cidade: SAMPLE_CONTACT_VARS.cidade,
+  consultor: SAMPLE_CONTACT_VARS.consultor,
   saudacao: "Boa tarde",
 };
 

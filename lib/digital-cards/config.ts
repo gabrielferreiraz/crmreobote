@@ -52,3 +52,4 @@ export const DEFAULT_AVATAR_URL: string | null = null;
 /** Dados institucionais fixos em todos os cartoes digitais. */
 export const REOBOTE_CARD_ADDRESS = "Rua Marco Túlio Murano Garcia, 81 - Chácara Cachoeira, Campo Grande - MS, 79040-045";
 export const REOBOTE_WEBSITE_URL = "https://reoboteconsorcios.com.br";
+export const REOBOTE_INSTAGRAM_HANDLE = "reoboteconsorcios";

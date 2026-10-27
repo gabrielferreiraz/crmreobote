@@ -1,0 +1,18 @@
+{
+  "name": "servopa-worker",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Robo de coleta das tabelas da Servopa (roda nos computadores do escritorio, separado do CRM)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node run.mjs",
+    "once": "node run.mjs --once",
+    "probe": "node fast.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

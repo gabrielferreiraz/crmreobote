@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet } from "lucide-react";
+import { Home, Kanban, MessageCircle, CalendarDays, Menu, X, Plus, Users, BarChart3, Settings, LogOut, ChevronRight, Moon, Calculator, ClipboardList, MessageSquare, GraduationCap, Wallet, Table2 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePushSubscription } from "@/lib/use-push-subscription";
 import { LoadingDots } from "@/components/loading-dots";
@@ -38,12 +38,14 @@ const OVERFLOW_ITEMS_VENDAS: NavItem[] = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/processos", label: "Processos", icon: ClipboardList },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/tabelas", label: "Tabelas", icon: Table2 },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 const OVERFLOW_ITEMS_ADMINISTRATIVO: NavItem[] = [
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/tabelas", label: "Tabelas", icon: Table2 },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

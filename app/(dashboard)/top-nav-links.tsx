@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet } from "lucide-react";
+import { Home, Users, Kanban, MessageCircle, CalendarDays, ClipboardList, BarChart3, Wallet, Table2 } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
 
 // Configurações saiu daqui — mora no menu do usuário agora (ver
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/processos", label: "Processos", icon: ClipboardList },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/tabelas", label: "Tabelas", icon: Table2 },
   // Só aparece pra quem tem o que ver (ver showCommissions em layout.tsx).
   { href: "/comissoes", label: "Comissões", icon: Wallet, commissionsOnly: true },
 ];

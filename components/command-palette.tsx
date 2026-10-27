@@ -14,6 +14,7 @@ const QUICK_LINKS = [
   { href: "/whatsapp", label: "WhatsApp" },
   { href: "/agenda", label: "Agenda" },
   { href: "/relatorios", label: "Relatórios" },
+  { href: "/tabelas", label: "Tabelas" },
   { href: "/configuracoes", label: "Configurações" },
 ];
 

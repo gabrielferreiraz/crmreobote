@@ -1,0 +1,18 @@
+import { openLoggedIn, base, passCloudflare } from "./lib-probe.mjs";
+import { writeFileSync } from "node:fs";
+const { browser, page } = await openLoggedIn();
+await page.evaluate(() => document.querySelector(`a[href$="/vendas/grupos"]`).click());
+await page.waitForURL(/vendas\/grupos/, { timeout: 30000 }); await page.waitForLoadState("load"); await passCloudflare(page);
+await page.waitForTimeout(2000);
+console.log("url:", page.url());
+page.on("request", r => { if (["document", "xhr", "fetch"].includes(r.resourceType())) console.log("REQ", r.method(), r.url(), (r.postData() || "").slice(0, 200)); });
+page.on("response", r => { if (["document", "xhr", "fetch"].includes(r.request().resourceType())) console.log("RES", r.status(), r.url()); });
+await page.check("input[name=segmento][value=I]", { force: true });
+await page.check("input[name=tp_lance][value=S]", { force: true });
+await page.click("#btn_representante_grupo");
+await page.waitForTimeout(8000);
+console.log("url pós:", page.url());
+await page.screenshot({ path: ".probe/06-pos-buscar.png", fullPage: true });
+writeFileSync(".probe/06-pos-buscar.html", await page.content());
+console.log("linhas:", await page.$$eval("table tbody tr", t => t.length));
+await browser.close();

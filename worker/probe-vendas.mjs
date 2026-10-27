@@ -1,0 +1,13 @@
+import { openLoggedIn, base, passCloudflare } from "./lib-probe.mjs";
+import { writeFileSync } from "node:fs";
+const { browser, page } = await openLoggedIn();
+await page.goto(`${base}/vendas/vendas`, { waitUntil: "domcontentloaded" });
+await passCloudflare(page);
+await page.waitForTimeout(3000);
+console.log("url:", page.url());
+await page.screenshot({ path: ".probe/05-vendas.png", fullPage: true });
+writeFileSync(".probe/05-vendas.html", await page.content());
+console.log("forms:", JSON.stringify(await page.$$eval("form input, form select, form button", els => els.map(e => [e.tagName, e.type, e.name, e.id, e.value?.slice(0, 20)]))));
+console.log("linhas:", await page.$$eval("table tbody tr", t => t.length));
+console.log((await page.$$eval("table tbody tr", trs => trs.slice(0, 2).map(tr => tr.innerHTML.replace(/\s+/g, " ").slice(0, 700)))).join("\n--\n"));
+await browser.close();

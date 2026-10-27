@@ -48,20 +48,27 @@ const TOKEN_LABEL = new Map<string, string>([
 const VARIATION_GROUP_RE = "\\{\\[[^\\[\\]]+\\]\\}";
 const TOKEN_RE = new RegExp(`(\\{(?:${Array.from(TOKEN_LABEL.keys()).join("|")})\\}|${VARIATION_GROUP_RE})`, "g");
 
+// Apoio invisível pro cursor ficar depois de uma pílula; nunca vai pro texto salvo (ver serializeEditor).
+const CARET_ANCHOR = String.fromCharCode(0x200b);
+
+function stripCaretAnchor(s: string): string {
+  return s.split(CARET_ANCHOR).join("");
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function buildChipHtml(token: string): string {
   const label = TOKEN_LABEL.get(token) ?? token;
-  return `<span contenteditable="false" data-token="${token}" class="variable-pill variable-pill--clickable" title="Clique para remover">${label}</span> `;
+  return `<span contenteditable="false" data-token="${token}" class="variable-pill variable-pill--clickable" title="Clique para remover">${label}</span>`;
 }
 
 /** Pílula de variação — guarda as opções em data-variation-options (JSON) pra reabrir o editor visual depois. */
 function buildVariationChipHtml(options: string[]): string {
   const encoded = encodeURIComponent(JSON.stringify(options));
   const label = escapeHtml(options.join(" / "));
-  return `<span contenteditable="false" data-variation-options="${encoded}" class="variation-pill" title="Clique para editar as opções">🔀 ${label}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span></span> `;
+  return `<span contenteditable="false" data-variation-options="${encoded}" class="variation-pill" title="Clique para editar as opções">🔀 ${label}<span data-variation-remove="true" class="variation-pill__remove" title="Remover variação">×</span></span>`;
 }
 
 /** Pílula AZUL de sugestão de sinônimo (ver lib/message-synonyms.ts) — nunca
@@ -90,7 +97,7 @@ function serializeEditor(root: HTMLElement): string {
   let out = "";
   for (const node of Array.from(root.childNodes)) {
     if (node.nodeType === Node.TEXT_NODE) {
-      out += node.textContent ?? "";
+      out += stripCaretAnchor(node.textContent ?? "");
     } else if (node instanceof HTMLElement) {
       if (node.dataset.variationOptions) {
         const options: string[] = JSON.parse(decodeURIComponent(node.dataset.variationOptions));
@@ -105,7 +112,7 @@ function serializeEditor(root: HTMLElement): string {
       } else if (node.tagName === "BR") {
         out += "\n";
       } else {
-        out += node.textContent ?? "";
+        out += stripCaretAnchor(node.textContent ?? "");
       }
     }
   }
@@ -134,6 +141,9 @@ function deserializeIntoEditor(root: HTMLElement, value: string) {
       });
     }
   }
+  // Pílula no fim do texto: sem nada depois, o cursor não consegue ficar depois dela.
+  const last = root.lastChild;
+  if (last instanceof HTMLElement && last.tagName !== "BR") root.appendChild(document.createTextNode(CARET_ANCHOR));
 }
 
 function ensureFocusInsideEditor(el: HTMLElement) {
@@ -521,11 +531,19 @@ export function ScriptEditor({
     document.execCommand("insertLineBreak");
   }
 
+  function handleEditorCopy(e: React.ClipboardEvent<HTMLDivElement>) {
+    // Sem isso, copiar um trecho que inclui o apoio invisível levaria caracteres escondidos pra fora do editor.
+    const selected = window.getSelection()?.toString() ?? "";
+    if (!selected.includes(CARET_ANCHOR)) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", stripCaretAnchor(selected));
+  }
+
   function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>, idx: number) {
     // Sempre como texto puro — colar de um site/Word traria formatação/HTML
     // estranho pro corpo da mensagem.
     e.preventDefault();
-    const text = e.clipboardData.getData("text/plain");
+    const text = stripCaretAnchor(e.clipboardData.getData("text/plain"));
     // NUNCA insertText com o texto de várias linhas cru: pra cada "\n" o
     // navegador aplica o MESMO parágrafo padrão do Enter (defaultParagraphSeparator)
     // e embrulha cada linha num <div> novo — a armadilha que handleEditorKeyDown
@@ -608,7 +626,7 @@ export function ScriptEditor({
     if (!el) return;
     const token = bracedToken.replace(/[{}]/g, "");
     ensureFocusInsideEditor(el);
-    document.execCommand("insertHTML", false, buildChipHtml(token));
+    document.execCommand("insertHTML", false, buildChipHtml(token) + CARET_ANCHOR);
     handleEditorInput(idx);
   }
 
@@ -631,7 +649,7 @@ export function ScriptEditor({
     const range = sel.getRangeAt(0);
     if (!el.contains(range.commonAncestorContainer)) return;
     if (range.cloneContents().querySelector("[data-token], [data-variation-options]")) return;
-    if (!range.toString().trim()) return;
+    if (!stripCaretAnchor(range.toString()).trim()) return;
     setPendingSelection({ stepIdx: idx, range: range.cloneRange(), rect: range.getBoundingClientRect() });
   }
 
@@ -639,7 +657,7 @@ export function ScriptEditor({
   function openVariationFromSelection() {
     if (!pendingSelection) return;
     const { stepIdx, range, rect } = pendingSelection;
-    setVariationDialog({ stepIdx, options: [range.toString().trim(), ""], anchorRect: rect, target: { type: "range", range } });
+    setVariationDialog({ stepIdx, options: [stripCaretAnchor(range.toString()).trim(), ""], anchorRect: rect, target: { type: "range", range } });
     setPendingSelection(null);
   }
 
@@ -669,7 +687,7 @@ export function ScriptEditor({
       const sel = window.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(target.range);
-      document.execCommand("insertHTML", false, buildVariationChipHtml(options));
+      document.execCommand("insertHTML", false, buildVariationChipHtml(options) + CARET_ANCHOR);
     }
     handleEditorInput(stepIdx);
     setVariationDialog(null);
@@ -1019,6 +1037,7 @@ export function ScriptEditor({
                           onFocus={() => setFocusedStepIndex(idx)}
                           onInput={() => handleEditorInput(idx)}
                           onKeyDown={handleEditorKeyDown}
+                          onCopy={handleEditorCopy}
                           onPaste={(e) => handleEditorPaste(e, idx)}
                           onClick={(e) => handleEditorClick(e, idx)}
                           onMouseUp={() => handleEditorSelect(idx)}

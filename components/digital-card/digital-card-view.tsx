@@ -7,6 +7,7 @@ import { DigitalCardLogos } from "./digital-card-logos";
 import { DigitalCardActions } from "./digital-card-actions";
 import { DigitalCardContactActions } from "./digital-card-contact-actions";
 import { DigitalCardLinks } from "./digital-card-links";
+import { REOBOTE_INSTAGRAM_HANDLE } from "@/lib/digital-cards/config";
 import { useCardTracking } from "@/lib/digital-cards/use-card-tracking";
 import type { CardTheme } from "@/lib/digital-cards/themes";
 
@@ -308,7 +309,7 @@ export function DigitalCardView({
           <div className="mt-4">
             <DigitalCardContactActions
               address={data.address}
-              instagram="reoboteconsorcios"
+              instagram={REOBOTE_INSTAGRAM_HANDLE}
               onTrack={onTrack}
               light={isLight}
             />
