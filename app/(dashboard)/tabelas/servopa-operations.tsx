@@ -77,6 +77,27 @@ function readChanges(value: unknown): { groups: ChangeCounts; tables: ChangeCoun
   return groups && tables ? { groups, tables } : null;
 }
 
+function plural(count: number, singular: string, pluralForm: string) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/**
+ * Resumo legível de uma execução. "Grupo alterado" quase sempre é só vagas ou
+ * próxima assembleia (mudam a toda hora com as vendas); o que importa para os
+ * preços é se alguma TABELA mudou — por isso ela vem primeiro.
+ */
+function describeChanges(changes: { groups: ChangeCounts; tables: ChangeCounts }) {
+  const parts: string[] = [];
+  const tablesChanged = changes.tables.created + changes.tables.updated;
+  parts.push(tablesChanged > 0 ? `${plural(tablesChanged, "tabela nova ou com valores alterados", "tabelas novas ou com valores alterados")}` : "Nenhuma tabela mudou de valores");
+  if (changes.groups.created > 0) parts.push(plural(changes.groups.created, "grupo novo", "grupos novos"));
+  if (changes.groups.updated > 0) parts.push(`vagas ou assembleia atualizadas em ${plural(changes.groups.updated, "grupo", "grupos")}`);
+  if (changes.groups.deleted > 0 || changes.tables.deleted > 0) {
+    parts.push(`${plural(changes.groups.deleted, "grupo sem vagas ou fora da Servopa removido", "grupos sem vagas ou fora da Servopa removidos")} (${plural(changes.tables.deleted, "tabela", "tabelas")})`);
+  }
+  return parts.join(" · ");
+}
+
 function durationLabel(run: HistoryRun) {
   const start = run.startedAt ? new Date(run.startedAt).getTime() : new Date(run.createdAt).getTime();
   const end = run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now();
@@ -431,9 +452,7 @@ export function ServopaOperations({ initialState }: { initialState: ServopaOpera
                     </div>
                     {changes && run.status === "SUCCESS" && (
                       <p className="mt-2 pl-4 text-xs text-neutral-600 dark:text-neutral-300">
-                        {changed
-                          ? `Grupos: +${changes.groups.created} alterados ${changes.groups.updated} removidos ${changes.groups.deleted} · Tabelas: +${changes.tables.created} alteradas ${changes.tables.updated} removidas ${changes.tables.deleted}`
-                          : "Nenhuma mudança nos dados publicados"}
+                        {changed ? describeChanges(changes) : "Nenhuma mudança nos dados publicados"}
                       </p>
                     )}
                     {run.error && <p className="mt-2 pl-4 text-xs text-red-600 dark:text-red-400">{run.error}</p>}
