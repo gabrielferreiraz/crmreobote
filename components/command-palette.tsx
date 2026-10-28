@@ -109,11 +109,31 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     const controller = new AbortController();
     let requestTimeout: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
+    // Cancelar só quando existe requisição no ar, e sempre com motivo.
+    //
+    // Abortar um controller que ainda não foi usado em fetch nenhum gera um
+    // AbortError que ninguém está esperando — nenhuma promessa foi criada
+    // ainda pra recebê-lo —, e o overlay do Next o mostra como erro de
+    // runtime ("signal is aborted without reason"). Acontece o tempo todo em
+    // desenvolvimento por causa do StrictMode: ele monta o efeito, roda a
+    // limpeza na hora e monta de novo, sempre dentro dos 200ms do debounce,
+    // ou seja, antes de o fetch começar.
+    //
+    // O motivo explícito não é enfeite: sem ele a mensagem é literalmente
+    // "aborted without reason", que não diz se a busca foi cancelada por
+    // troca de termo ou por estouro de tempo.
+    let inFlight = false;
+    function abortSearch(reason: string) {
+      if (!inFlight) return;
+      inFlight = false;
+      controller.abort(new DOMException(reason, "AbortError"));
+    }
     const timeout = setTimeout(async () => {
+      inFlight = true;
       try {
         requestTimeout = setTimeout(() => {
           timedOut = true;
-          controller.abort();
+          abortSearch("A busca demorou demais para responder.");
         }, 10_000);
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
         if (!res.ok) throw new Error("search_failed");
@@ -125,12 +145,13 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         // Abort (trocou o termo/fechou a busca) ou falha de rede — mantém o
         // último resultado bom; o spinner é desligado no finally abaixo.
       } finally {
+        inFlight = false;
         if (requestTimeout) clearTimeout(requestTimeout);
         if (timedOut || !controller.signal.aborted) setSearching(false);
       }
     }, 200);
     return () => {
-      controller.abort();
+      abortSearch("Busca cancelada: o termo mudou ou a janela fechou.");
       clearTimeout(timeout);
       if (requestTimeout) clearTimeout(requestTimeout);
     };

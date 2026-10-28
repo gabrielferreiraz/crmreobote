@@ -33,7 +33,9 @@ export function serializeProposal(p: ProposalWithUsers): ProposalDTO {
     displayName: p.displayName,
     coverIntro: p.coverIntro,
     coverDetails: p.coverDetails,
-    coverImagePosition: p.coverImagePosition === "before-copy" ? "before-copy" : "after-title",
+    // "after-title" só quando foi gravado assim de propósito; qualquer outra
+    // coisa (inclusive valor antigo inesperado) cai no padrão atual.
+    coverImagePosition: p.coverImagePosition === "after-title" ? "after-title" : "before-copy",
     createdById: p.createdById,
     createdByName: p.createdBy.name,
     sentById: p.sentById,

@@ -11,17 +11,30 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
   if (!access.ok) notFound();
 
   return runWithTenant(access.organizationId, async () => {
-    const processRaw = await prisma.process.findFirst({
-      where: { id, organizationId: access.organizationId, ...processScopeWhere(access) },
-      include: {
-        contact: true,
-        owner: { select: { id: true, name: true, image: true } },
-        stage: true,
-        pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
-        deal: { select: { id: true, name: true, value: true, creditType: true, closedAt: true } },
-      },
-    });
+    // Membros carregados junto com o processo (não por fetch no cliente): o
+    // campo "Responsável" precisa deles já na primeira pintura pra resolver o
+    // nome digitado em um usuário existente. São poucas linhas e a mesma
+    // consulta que Clientes faz pra montar o seletor de responsável.
+    const [processRaw, membersRaw] = await Promise.all([
+      prisma.process.findFirst({
+        where: { id, organizationId: access.organizationId, ...processScopeWhere(access) },
+        include: {
+          contact: true,
+          owner: { select: { id: true, name: true, image: true } },
+          stage: true,
+          pipeline: { include: { stages: { orderBy: { order: "asc" } } } },
+          deal: { select: { id: true, name: true, value: true, creditType: true, closedAt: true } },
+        },
+      }),
+      prisma.organizationUser.findMany({
+        where: { organizationId: access.organizationId, active: true },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true } } },
+      }),
+    ]);
     if (!processRaw) notFound();
+
+    const members = membersRaw.map((m) => m.user);
 
     const ownerPhotoUrl = await resolveAvatarUrl(processRaw.owner.image);
 
@@ -69,6 +82,10 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
             neighborhood: processRaw.contact.neighborhood,
             state: processRaw.contact.state,
             zipCode: processRaw.contact.zipCode,
+            // Os dois campos que o bloco "Responsável" escreve — vêm daqui
+            // pra tela já abrir mostrando o que está gravado hoje.
+            responsavelId: processRaw.contact.responsavelId,
+            tags: processRaw.contact.tags,
           }
         : null,
       displayName: processRaw.contact?.name ?? processRaw.clientName ?? "Sem nome",
@@ -85,6 +102,6 @@ export default async function ProcessDetailPage({ params }: { params: Promise<{ 
         : null,
     };
 
-    return <ProcessDetail process={process} isAdmin={access.isAdmin} />;
+    return <ProcessDetail process={process} isAdmin={access.isAdmin} members={members} />;
   });
 }

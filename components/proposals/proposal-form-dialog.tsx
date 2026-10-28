@@ -85,7 +85,7 @@ export function ProposalFormDialog({
       displayName: proposal?.displayName ?? "",
       coverIntro: proposal?.coverIntro ?? "",
       coverDetails: proposal?.coverDetails ?? "",
-      coverImagePosition: proposal?.coverImagePosition ?? "after-title",
+      coverImagePosition: proposal?.coverImagePosition ?? "before-copy",
     });
     if (!parsed.ok) {
       setError(parsed.error);

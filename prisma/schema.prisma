@@ -2163,7 +2163,11 @@ model Proposal {
   displayName  String?
   coverIntro   String?
   coverDetails String?
-  coverImagePosition String @default("after-title")
+  // Onde a foto entra na capa: "before-copy" (logo abaixo do logotipo, antes
+  // do texto — o padrão) ou "after-title" (depois do título). Continua
+  // editável proposta a proposta pelo botão "Mover foto" na própria capa; o
+  // default só decide com qual das duas ela nasce.
+  coverImagePosition String @default("before-copy")
 
   status ProposalStatus @default(DRAFT)
   // GENERATED = documento (PDF) existe — NUNCA implica que foi enviado de

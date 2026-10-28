@@ -46,6 +46,10 @@ type ProcessFull = {
     neighborhood: string | null;
     state: string | null;
     zipCode: string | null;
+    /** Responsável do CLIENTE (Contact.responsavelId) — não confundir com
+     * `owner` abaixo, que é o dono do processo e nunca muda. */
+    responsavelId: string | null;
+    tags: string[];
   } | null;
   /** Nome a estampar, venha do contato ou do rótulo avulso (ver
    * contactId/clientName no model Process). */
@@ -94,7 +98,22 @@ function fullAddress(contact: ProcessFull["contact"]): string | null {
   return parts.length > 0 ? parts.join(" — ") : null;
 }
 
-export function ProcessDetail({ process: initialProcess, isAdmin }: { process: ProcessFull; isAdmin: boolean }) {
+type MemberOption = { id: string; name: string };
+
+/** Tag gravada em Clientes quando o processo é concluído — precisa bater com
+ * a constante da rota (app/api/contacts/contemplado/route.ts). Aqui é só pra
+ * exibir "já marcado"; quem grava é o servidor. */
+const CONTEMPLADO_TAG = "contemplados";
+
+export function ProcessDetail({
+  process: initialProcess,
+  isAdmin,
+  members,
+}: {
+  process: ProcessFull;
+  isAdmin: boolean;
+  members: MemberOption[];
+}) {
   const router = useRouter();
   const [process, setProcess] = useState(initialProcess);
   const [quotaInput, setQuotaInput] = useState(initialProcess.quotaNumber ?? "");
@@ -104,6 +123,15 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
   const [valueInput, setValueInput] = useState(
     initialProcess.value != null ? initialProcess.value.toFixed(2) : "",
   );
+  // O campo é texto (nome), mas o que vale é o id — resolvido na submissão.
+  // Começa com o nome de quem já é responsável pelo cliente, pra ninguém
+  // apagar sem querer um vínculo que já existia.
+  const [responsavelInput, setResponsavelInput] = useState(
+    () => members.find((m) => m.id === initialProcess.contact?.responsavelId)?.name ?? "",
+  );
+  const [savingResponsavel, setSavingResponsavel] = useState(false);
+  const [responsavelError, setResponsavelError] = useState<string | null>(null);
+  const [responsavelSaved, setResponsavelSaved] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [requests, setRequests] = useState<RequestEntry[] | null>(null);
   const [newRequestMessage, setNewRequestMessage] = useState("");
@@ -158,6 +186,77 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
       setError(body.error ?? "Erro ao salvar");
       return;
     }
+    router.refresh();
+  }
+
+  /**
+   * Processos -> Clientes. Resolve o nome digitado em um membro existente e
+   * manda o POST pra rota de Clientes, que grava `responsavelId` e a tag de
+   * contemplado (criando o cliente, se o processo só tinha o nome avulso).
+   *
+   * A resolução é por nome exato, ignorando caixa e espaços das pontas. Nada
+   * de "parecido": dois consultores de nome próximo ("Ana Paula" e "Ana
+   * Paula Souza") fariam o palpite errado gravar o cliente com o responsável
+   * errado, e ninguém repara num campo que "salvou com sucesso".
+   */
+  async function saveResponsavel(e: React.FormEvent) {
+    e.preventDefault();
+    if (savingResponsavel) return;
+    setResponsavelError(null);
+    setResponsavelSaved(false);
+
+    const typed = responsavelInput.trim();
+    if (!typed) {
+      setResponsavelError("Informe o responsável.");
+      return;
+    }
+    const match = members.find((m) => m.name.trim().toLowerCase() === typed.toLowerCase());
+    if (!match) {
+      setResponsavelError("Esse nome não é de um membro ativo. Escolha um da lista.");
+      return;
+    }
+
+    setSavingResponsavel(true);
+    const res = await fetch("/api/contacts/contemplado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processId: process.id, responsavelId: match.id }),
+    });
+    setSavingResponsavel(false);
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setResponsavelError(body.error ?? "Não foi possível salvar o responsável.");
+      return;
+    }
+
+    const { contact } = (await res.json()) as { contact: { id: string; name: string; tags: string[]; responsavelId: string | null } };
+    // O processo pode ter ganhado um contato agora (era só `clientName`) —
+    // por isso o estado local recebe o contato inteiro, não só o responsável.
+    setProcess((prev) => ({
+      ...prev,
+      displayName: contact.name,
+      contact: prev.contact
+        ? { ...prev.contact, responsavelId: contact.responsavelId, tags: contact.tags }
+        : {
+            id: contact.id,
+            name: contact.name,
+            email: null,
+            phone: null,
+            whatsapp: null,
+            company: null,
+            city: null,
+            address: null,
+            addressNumber: null,
+            addressComplement: null,
+            neighborhood: null,
+            state: null,
+            zipCode: null,
+            responsavelId: contact.responsavelId,
+            tags: contact.tags,
+          },
+    }));
+    setResponsavelSaved(true);
     router.refresh();
   }
 
@@ -630,6 +729,63 @@ export function ProcessDetail({ process: initialProcess, isAdmin }: { process: P
                 <p className="text-sm text-neutral-600 dark:text-neutral-300">{DOCUMENT_STATUS_LABELS[process.documentStatus]}</p>
               )}
             </div>
+
+            {/* RESPONSÁVEL — o único campo deste card que escreve FORA de
+                Processos: grava em Clientes (Contact.responsavelId) e marca a
+                tag "contemplados". Por isso tem botão de salvar próprio, e
+                não o onBlur dos campos acima: é uma saída de dados pra outra
+                seção, e salvar sem querer ao sair do campo criaria cliente
+                e tag sem ninguém ter pedido. */}
+            {isAdmin && (
+              <form onSubmit={saveResponsavel} className="space-y-1 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                <label className="field-label" htmlFor="process-responsavel">Responsável</label>
+                <div className="flex gap-2">
+                  {/* datalist e não Select: o campo é <input> (dá pra digitar
+                      e filtrar numa lista grande de consultores), mas só
+                      aceita nome que exista — a validação está em
+                      saveResponsavel. */}
+                  <input
+                    id="process-responsavel"
+                    list="process-responsavel-options"
+                    value={responsavelInput}
+                    onChange={(e) => {
+                      setResponsavelInput(e.target.value);
+                      setResponsavelError(null);
+                      setResponsavelSaved(false);
+                    }}
+                    disabled={savingResponsavel}
+                    placeholder="Nome do responsável"
+                    autoComplete="off"
+                    className="field-input w-full py-1.5 text-sm"
+                  />
+                  <datalist id="process-responsavel-options">
+                    {members.map((m) => (
+                      <option key={m.id} value={m.name} />
+                    ))}
+                  </datalist>
+                  <button type="submit" disabled={savingResponsavel} className="btn-secondary shrink-0">
+                    {savingResponsavel ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Send className="h-4 w-4" strokeWidth={2} />}
+                    Salvar
+                  </button>
+                </div>
+                {responsavelError ? (
+                  <p className="text-xs text-red-600 dark:text-red-400">{responsavelError}</p>
+                ) : responsavelSaved ? (
+                  <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                    <CheckCheck className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    Salvo em Clientes com a tag &quot;{CONTEMPLADO_TAG}&quot;.
+                  </p>
+                ) : process.contact?.tags.includes(CONTEMPLADO_TAG) ? (
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                    Cliente já marcado como &quot;{CONTEMPLADO_TAG}&quot;.
+                  </p>
+                ) : (
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                    Ao salvar, o cliente recebe a tag &quot;{CONTEMPLADO_TAG}&quot; em Clientes.
+                  </p>
+                )}
+              </form>
+            )}
           </div>
 
           <div className="card space-y-3 p-4">

@@ -93,7 +93,10 @@ export function parseProposalFields(raw: unknown): Result<ProposalFields> {
   if (coverIntro.length > MAX_COVER_TEXT_LENGTH || coverDetails.length > MAX_COVER_TEXT_LENGTH) {
     return { ok: false, error: `Texto da apresentação acima de ${MAX_COVER_TEXT_LENGTH} caracteres` };
   }
-  const coverImagePosition = body.coverImagePosition === "before-copy" ? "before-copy" : "after-title";
+  // Corpo sem o campo (ou com valor inválido) usa o padrão atual da capa:
+  // foto antes do texto. Só quem pedir "after-title" explicitamente recebe o
+  // layout antigo.
+  const coverImagePosition = body.coverImagePosition === "after-title" ? "after-title" : "before-copy";
 
   return {
     ok: true,

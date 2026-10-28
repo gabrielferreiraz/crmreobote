@@ -201,7 +201,7 @@ export async function createProposal(actor: ProposalActor, input: CreateProposal
           displayName: "displayName" in base ? base.displayName : null,
           coverIntro: "coverIntro" in base ? base.coverIntro : null,
           coverDetails: "coverDetails" in base ? base.coverDetails : null,
-          coverImagePosition: base.coverImagePosition === "before-copy" ? "before-copy" : "after-title",
+          coverImagePosition: base.coverImagePosition === "after-title" ? "after-title" : "before-copy",
         },
         select: { id: true },
       });

@@ -60,8 +60,20 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: `Proposta - ${clientName}` };
 }
 
-export default async function ProposalPrintPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProposalPrintPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ guia?: string }>;
+}) {
   const { id } = await params;
+  // ?guia=1 vem do botão "Abrir documento" na lista de propostas e abre o
+  // passo a passo. Lido aqui, no servidor, em vez de com useSearchParams no
+  // painel: assim o estado inicial do modal é o mesmo no HTML do servidor e na
+  // primeira renderização do cliente, sem descompasso de hidratação nem
+  // setState dentro de efeito.
+  const { guia } = await searchParams;
   const loaded = await load(id);
 
   if (loaded.kind === "unauthenticated") redirect("/login");
@@ -73,7 +85,7 @@ export default async function ProposalPrintPage({ params }: { params: Promise<{ 
     // branca está apoiada na tela; no papel (print:) some tudo isso.
     <div className="min-h-screen bg-neutral-200 dark:bg-neutral-900 px-2.5 py-3 sm:px-4 sm:py-6 print:min-h-0 print:overflow-visible print:bg-white print:p-0 print:m-0">
       <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-3 sm:gap-4 lg:flex-row lg:items-start lg:gap-6 print:block print:w-auto print:max-w-none print:m-0 print:p-0 print:gap-0">
-        <ProposalToolbar proposal={loaded.data.proposal} />
+        <ProposalToolbar proposal={loaded.data.proposal} showGuide={guia === "1"} />
         <ProposalDocument data={loaded.data} />
       </div>
     </div>
