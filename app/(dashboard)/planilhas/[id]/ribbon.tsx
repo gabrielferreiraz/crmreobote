@@ -124,6 +124,7 @@ export type RibbonActions = {
   openSheet: (id: string) => void;
   rename: () => void;
   archiveSheet: () => void;
+  deleteSheet: () => void;
   back: () => void;
   shortcuts: () => void;
   autoSum: (fn: AutoSumFn) => void;
@@ -374,8 +375,8 @@ export function Ribbon(props: Props) {
                   trigger={(open) => <Big icon={Trash2} label="Excluir" menu disabled={ro} onClick={open} />}
                   render={(close) => (
                     <Menu close={close}>
-                      <MenuItem icon={Rows3} label="Excluir Linhas Selecionadas" onClick={a.deleteRows} disabled={!props.hasDataSelection} />
-                      <MenuItem icon={Columns3} label="Excluir Coluna (arquivar)" onClick={a.archiveColumn} disabled={!props.activeColumn} />
+                      <MenuItem icon={Rows3} label="Excluir Linhas da Planilha" hint="Ctrl+-" onClick={a.deleteRows} disabled={!props.hasDataSelection} />
+                      <MenuItem icon={Columns3} label="Excluir Colunas da Planilha" onClick={a.archiveColumn} disabled={!props.activeColumn} />
                     </Menu>
                   )}
                 />
@@ -590,6 +591,7 @@ export function Ribbon(props: Props) {
               <BackItem icon={History} label="Histórico de Versões" onClick={() => (setFileOpen(false), a.history())} />
               <div className="mt-auto" />
               <BackItem icon={Archive} label="Arquivar Planilha" onClick={() => (setFileOpen(false), a.archiveSheet())} />
+              <BackItem icon={Trash2} label="Apagar Permanentemente" danger onClick={() => (setFileOpen(false), a.deleteSheet())} />
             </nav>
             <div className="flex-1 overflow-auto bg-white p-6 dark:bg-neutral-900">
               <h2 className="mb-3 flex items-center gap-2 text-xl font-light text-neutral-800 dark:text-neutral-100">
@@ -880,9 +882,13 @@ function MenuSep() {
   return <div className="my-1 border-t border-neutral-200 dark:border-neutral-700" />;
 }
 
-function BackItem({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
+function BackItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className="xl-menu-item flex items-center gap-3 px-4 py-2 text-left hover:bg-white/15">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`xl-menu-item flex items-center gap-3 px-4 py-2 text-left ${danger ? "text-red-200 hover:bg-red-500/25 hover:text-white" : "hover:bg-white/15"}`}
+    >
       <Icon className="h-4 w-4 shrink-0" />
       {label}
     </button>

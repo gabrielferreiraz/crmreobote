@@ -18,7 +18,7 @@ import { SHEET_LIMITS } from "@/lib/sheets/limits";
 import { SheetError } from "@/lib/sheets/errors";
 import { createSheet, getSheet, type SheetActor, type SheetColumnRow } from "@/lib/sheets/sheets";
 import { insertRows, queryRows } from "@/lib/sheets/rows";
-import { isCheckboxLikeColumn, parseLooseDate, parseLooseNumber, type CellValue, type SheetColumnType } from "@/lib/sheets/column-types";
+import { isCheckboxLikeColumn, isMonthYearDate, isMultiUserColumn, parseLooseDate, parseLooseNumber, refIds, splitMemberNames, type CellValue, type SheetColumnType } from "@/lib/sheets/column-types";
 import { readSheetSettings, resolveTableRange, TABLE_STYLE_BY_ID, type CellBorder, type RowFormats, type TotalFn } from "@/lib/sheets/formats";
 import { displayFormula, indexToLetter } from "@/lib/sheets/formula";
 
@@ -29,7 +29,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * só "promove" de Texto quando TODOS batem — melhor um Texto que a pessoa
  * troca depois do que perder linha na importação por tipo errado.
  */
-export function inferColumnType(header: string, values: string[]): { type: SheetColumnType; options?: string[] } {
+export function inferColumnType(header: string, values: string[]): { type: SheetColumnType; options?: string[]; config?: Record<string, unknown> } {
   const filled = values.map((v) => v.trim()).filter(Boolean);
   if (!filled.length) return { type: "TEXT" };
   const all = (fn: (v: string) => boolean) => filled.every(fn);
@@ -39,7 +39,9 @@ export function inferColumnType(header: string, values: string[]): { type: Sheet
   if (all((v) => isValidCpf(normalizeCpf(v)))) return { type: "CPF" };
   if (all((v) => isValidCnpj(normalizeCnpj(v)))) return { type: "CNPJ" };
   if (isCheckboxLikeColumn(filled)) return { type: "CHECKBOX" };
-  if (all((v) => parseLooseDate(v) !== null)) return { type: "DATE" };
+  if (all((v) => parseLooseDate(v) !== null)) {
+    return { type: "DATE", ...(filled.every(isMonthYearDate) ? { config: { dateFormat: "monthYear" } } : {}) };
+  }
   if (/(telefone|celular|whats|fone)/.test(h) && all((v) => normalizePhoneNumber(v) !== null)) return { type: "PHONE" };
   if (all((v) => /^R\$/.test(v.trim())) || (/(valor|preco|credito|parcela|salario)/.test(h) && all((v) => parseLooseNumber(v) !== null))) return { type: "CURRENCY" };
   if (all((v) => /%$/.test(v.trim()) && parseLooseNumber(v) !== null)) return { type: "PERCENT" };
@@ -163,6 +165,14 @@ async function importInto(actor: SheetActor, sheetId: string, columns: SheetColu
         if (!idFound) unmatched++;
         v = idFound ?? undefined;
       } else if (col.type === "USER" && matchUser) {
+        if (isMultiUserColumn(col)) {
+          // "EDU/FELIPE" numa coluna com vários membros: cada nome vira um membro.
+          const found = splitMemberNames(v).map((n) => matchUser(n));
+          if (found.some((x) => !x)) unmatched++;
+          const ids = [...new Set(found.filter((x): x is string => !!x))];
+          if (ids.length) values[col.id] = ids;
+          return;
+        }
         const idFound = matchUser(v);
         if (!idFound) unmatched++;
         v = idFound ?? undefined;
@@ -200,7 +210,11 @@ export async function importAsNewSheet(actor: SheetActor, file: { buffer: Buffer
   const { header, data } = await readSheetFile(file.buffer, file.filename);
   const columnsInput = header.map((name, i) => {
     const inferred = inferColumnType(name, data.map((r) => r[i] ?? ""));
-    return { name: name.slice(0, SHEET_LIMITS.nameChars), type: inferred.type, config: inferred.options ? { options: inferred.options } : undefined };
+    return {
+      name: name.slice(0, SHEET_LIMITS.nameChars),
+      type: inferred.type,
+      config: inferred.config ?? (inferred.options ? { options: inferred.options } : undefined),
+    };
   });
   const baseName = (file.name?.trim() || file.filename.replace(/\.(xlsx|csv)$/i, "")).slice(0, SHEET_LIMITS.nameChars);
   const { id } = await createSheet(actor, { name: baseName || "Planilha importada", columns: columnsInput });
@@ -252,7 +266,7 @@ export async function referenceNames(organizationId: string, columns: SheetColum
   const ids = { USER: new Set<string>(), CONTACT: new Set<string>(), DEAL: new Set<string>() };
   for (const c of columns) {
     if (c.type !== "USER" && c.type !== "CONTACT" && c.type !== "DEAL") continue;
-    for (const r of rows) if (typeof r.values[c.id] === "string") ids[c.type].add(r.values[c.id] as string);
+    for (const r of rows) for (const v of refIds(r.values[c.id])) ids[c.type].add(v);
   }
   const names = new Map<string, string>();
   await runWithTenant(organizationId, async () => {
@@ -288,7 +302,7 @@ function exportCell(col: SheetColumnRow, v: CellValue | undefined, names: Map<st
     case "USER":
     case "CONTACT":
     case "DEAL":
-      return sanitizeCell(names.get(String(v)) ?? "");
+      return sanitizeCell(refIds(v).map((id) => names.get(id) ?? "").join(", "));
     default:
       // Texto livre é onde mora a fórmula maliciosa (=HYPERLINK…) — neutraliza.
       return sanitizeCell(String(v));
@@ -404,7 +418,10 @@ export async function exportSheetXlsx(organizationId: string, sheetId: string, q
     if (c.type === "CURRENCY") column.numFmt = `"R$" #,##0${frac(decimals ?? 2)}`;
     else if (c.type === "PERCENT") column.numFmt = `0${frac(decimals ?? 2)}%`;
     else if (c.type === "NUMBER" && decimals !== undefined) column.numFmt = `#,##0${frac(decimals)}`;
-    else if (c.type === "DATE") column.numFmt = "dd/mm/yyyy";
+    else if (c.type === "DATE") {
+      const dateFormat = (c.config as { dateFormat?: string } | null)?.dateFormat;
+      column.numFmt = dateFormat === "monthYear" ? "mmmm yyyy" : dateFormat === "long" ? 'd "de" mmmm "de" yyyy' : "dd/mm/yyyy";
+    }
   });
 
   // Fórmulas continuam fórmulas no .xlsx (nomes em inglês e vírgula, como o arquivo guarda),

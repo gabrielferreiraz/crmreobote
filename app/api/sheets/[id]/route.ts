@@ -3,7 +3,7 @@ import { rateLimitOrResponse } from "@/lib/rate-limit";
 import { readJsonObjectOrError } from "@/lib/read-body";
 import { logAudit } from "@/lib/audit-log";
 import { requireSheetsAccess } from "@/lib/sheets/access";
-import { getSheet, listArchivedColumns, setSheetArchived, updateSheet } from "@/lib/sheets/sheets";
+import { deleteSheet, getSheet, listArchivedColumns, setSheetArchived, updateSheet } from "@/lib/sheets/sheets";
 import { firstIssue, sheetRouteError, updateSheetSchema } from "@/lib/sheets/http";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +55,33 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     if (fields.name !== undefined || fields.description !== undefined || fields.settings !== undefined) await updateSheet(actor, id, fields);
     return NextResponse.json({ ok: true });
+  } catch (err) {
+    return sheetRouteError(err);
+  }
+}
+
+/** Apagar a planilha permanentemente. */
+export async function DELETE(req: Request, { params }: Ctx) {
+  const auth = await requireSheetsAccess();
+  if ("response" in auth) return auth.response;
+  const { access } = auth;
+  const { id } = await params;
+  const limited = rateLimitOrResponse(`sheets:write:${access.organizationId}:${access.userId}`, 60, 60_000);
+  if (limited) return limited;
+
+  const actor = { ...access, source: "app" };
+
+  try {
+    const deleted = await deleteSheet(actor, id);
+    await logAudit({
+      organizationId: access.organizationId,
+      actorUserId: access.userId,
+      actorName: access.actorName,
+      action: "SHEET_DELETED",
+      targetType: "Sheet",
+      targetId: id,
+    });
+    return NextResponse.json({ ok: true, name: deleted.name });
   } catch (err) {
     return sheetRouteError(err);
   }

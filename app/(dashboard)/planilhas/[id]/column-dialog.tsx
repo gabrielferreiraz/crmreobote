@@ -6,14 +6,19 @@ import { Modal } from "@/components/modal";
 import { LoadingDots } from "@/components/loading-dots";
 import {
   SHEET_COLUMN_TYPE_LABELS,
+  isMonthYearDate,
+  isMultiUserColumn,
   parseLooseBoolean,
   parseLooseDate,
   parseLooseNumber,
   type CellValue,
   type SheetColumnType,
 } from "@/lib/sheets/column-types";
-import { columnDecimals, columnOptions, isNumericType, type ClientColumn } from "@/lib/sheets/format";
+import { columnDateFormat, columnDecimals, columnOptions, isNumericType, type ClientColumn, type ColumnDateFormat } from "@/lib/sheets/format";
 import { ColumnTypeIcon } from "./column-type-icon";
+import { MemberMapping, type InvalidValue } from "./member-mapping";
+import { CrmFieldCatalog } from "./crm-field-catalog";
+import { crmColumnBinding, type CrmEntity, type CrmField } from "@/lib/sheets/crm-integration";
 
 const TYPE_GROUPS: { label: string; types: SheetColumnType[] }[] = [
   { label: "Mais usados", types: ["TEXT", "CURRENCY", "NUMBER", "PERCENT", "DATE", "SELECT", "CHECKBOX", "LONG_TEXT"] },
@@ -27,7 +32,7 @@ const TYPE_HINTS: Record<SheetColumnType, string> = {
   CURRENCY: "R$ 1.250,00",
   NUMBER: "1.250,5",
   PERCENT: "12,5%",
-  DATE: "29/10/2026",
+  DATE: "29/10/2026 ou outubro 2026",
   CHECKBOX: "Sim / Não",
   SELECT: "1 opção por célula",
   MULTI_SELECT: "Várias etiquetas",
@@ -44,6 +49,8 @@ const TYPE_HINTS: Record<SheetColumnType, string> = {
 type ConflictState = {
   count: number;
   samples: { rowNumber: number; value: string }[];
+  /** Valores distintos que não cabem, com contagem (o "De → Para" de Membro da equipe usa). */
+  values?: InvalidValue[];
 };
 
 function suggestFromSamples(values: CellValue[]): { type: SheetColumnType; options?: string[] } | null {
@@ -105,11 +112,33 @@ export function ColumnDialog({
   const [options, setOptions] = useState<string[]>(column ? columnOptions(column) : []);
   const [newOption, setNewOption] = useState("");
   const [decimals, setDecimals] = useState<number | "">(column ? (columnDecimals(column) ?? "") : initialType === "CURRENCY" ? 2 : "");
+  const [dateFormat, setDateFormat] = useState<ColumnDateFormat>(() => {
+    if (column) return columnDateFormat(column);
+    const filled = sampleValues.filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
+    return filled.length > 0 && filled.every(isMonthYearDate) ? "monthYear" : "short";
+  });
   const [required, setRequired] = useState(column?.required ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictState | null>(initialConflict ?? null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Membro da equipe: vários membros por célula (venda dividida "EDU/FELIPE").
+  const [multiUser, setMultiUser] = useState(column ? isMultiUserColumn(column) : false);
+  // Campo do CRM ligado a esta coluna (catálogo): puxar/enviar casam sozinhos.
+  const [crmBinding, setCrmBinding] = useState<{ entity: CrmEntity; field: string; type: SheetColumnType } | null>(() => {
+    const b = column ? crmColumnBinding(column.config) : null;
+    return b && column ? { ...b, type: column.type } : null;
+  });
+
+  /** Escolheu um campo do catálogo: nome, tipo e formato vêm do CRM. */
+  function pickCrmField(entity: CrmEntity, field: CrmField) {
+    if (!column || !name.trim() || name === SHEET_COLUMN_TYPE_LABELS[type].replace(/ \(.*\)$/, "").replace(/ do CRM$/, "")) setName(field.label);
+    selectType(field.type);
+    const cfg = (field.config ?? {}) as { options?: string[]; decimals?: number };
+    if (cfg.options) setOptions(cfg.options);
+    if (cfg.decimals !== undefined) setDecimals(cfg.decimals);
+    setCrmBinding({ entity, field: field.key, type: field.type });
+  }
 
   const hasOptions = type === "SELECT" || type === "MULTI_SELECT";
 
@@ -139,6 +168,8 @@ export function ColumnDialog({
 
   function selectType(nextType: SheetColumnType) {
     setType(nextType);
+    // Trocou o tipo à mão para um que não é o do campo do CRM: a coluna deixa de ser ligada a ele.
+    setCrmBinding((b) => (b && b.type !== nextType ? null : b));
     setConflict(null);
     setError(null);
     if ((nextType === "SELECT" || nextType === "MULTI_SELECT") && options.length === 0 && discoveredOptions.length > 0) {
@@ -146,6 +177,10 @@ export function ColumnDialog({
     }
     if (nextType === "CURRENCY" && decimals === "") {
       setDecimals(2);
+    }
+    if (nextType === "DATE") {
+      const filled = sampleValues.filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
+      if (filled.length > 0 && filled.every(isMonthYearDate)) setDateFormat("monthYear");
     }
   }
 
@@ -169,11 +204,21 @@ export function ColumnDialog({
     setNewOption("");
   }
 
-  async function save(onInvalid?: "clear" | "zero" | "addOptions") {
+  async function save(onInvalid?: "clear" | "zero" | "addOptions", valueMap?: Record<string, string[]>, multipleOverride?: boolean) {
     if (!name.trim()) return setError("Dê um nome para a coluna");
     setSaving(true);
     setError(null);
-    const config = hasOptions ? { options } : isNumericType(type) && decimals !== "" ? { decimals } : {};
+    const multiple = multipleOverride ?? multiUser;
+    const crm = crmBinding && crmBinding.type === type ? { crm: { entity: crmBinding.entity, field: crmBinding.field } } : {};
+    const config = { ...crm, ...(hasOptions
+      ? { options }
+      : isNumericType(type) && decimals !== ""
+        ? { decimals }
+        : type === "DATE"
+          ? { dateFormat }
+        : type === "USER" && multiple
+          ? { multiple: true }
+          : {}) };
     const body = column
       ? {
           name,
@@ -181,6 +226,7 @@ export function ColumnDialog({
           config,
           required,
           ...(onInvalid === "clear" ? { force: true, onInvalid: "clear" } : onInvalid ? { onInvalid } : {}),
+          ...(valueMap && Object.keys(valueMap).length ? { valueMap } : {}),
         }
       : { name, type, config, required, ...(insertAt !== undefined ? { position: insertAt } : {}) };
     const res = await fetch(column ? `/api/sheets/${sheetId}/columns/${column.id}` : `/api/sheets/${sheetId}/columns`, {
@@ -194,6 +240,7 @@ export function ColumnDialog({
       return setConflict({
         count: data.invalidCount,
         samples: Array.isArray(data.invalidSamples) ? data.invalidSamples : [],
+        values: Array.isArray(data.invalidValues) ? data.invalidValues : undefined,
       });
     }
     if (!res.ok) return setError(data?.error ?? "Não foi possível salvar a coluna");
@@ -208,6 +255,27 @@ export function ColumnDialog({
     if (type === "PERCENT") return `${formatted}%`;
     return formatted;
   }, [type, decimals]);
+
+  // Texto → Membro da equipe com nomes que não casaram: etapa própria "Quem é quem?", em tela cheia do diálogo.
+  const mapping = conflict !== null && type === "USER" && !!conflict.values?.length;
+  if (mapping) {
+    return (
+      <Modal onClose={onClose} maxWidth="max-w-3xl" mobileSheet panelClassName="!p-0 overflow-hidden">
+        <MemberMapping
+          columnName={name.trim() || "sem título"}
+          values={conflict.values!}
+          totalInvalid={conflict.count}
+          multiple={multiUser}
+          saving={saving}
+          error={error}
+          onToggleMultiple={setMultiUser}
+          onApply={(valueMap, clearRest) => save(clearRest ? "clear" : undefined, valueMap)}
+          onClearAll={() => save("clear")}
+          onBack={() => setConflict(null)}
+        />
+      </Modal>
+    );
+  }
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-xl" mobileSheet>
@@ -289,6 +357,8 @@ export function ColumnDialog({
             ))}
           </div>
         </div>
+
+        <CrmFieldCatalog selected={crmBinding} onPick={pickCrmField} onUnlink={() => setCrmBinding(null)} />
 
         {hasOptions && (
           <div className="space-y-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
@@ -397,6 +467,47 @@ export function ColumnDialog({
           </div>
         )}
 
+        {type === "DATE" && (
+          <div className="space-y-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
+            <div>
+              <div className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Como mostrar a data</div>
+              <div className="mt-0.5 text-xs text-neutral-400">A entrada aceita números e português por extenso.</div>
+              <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400">Ex.: “junho- 2025” será reconhecido e melhorado para “junho 2025”.</div>
+            </div>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+              {([
+                { value: "short", label: "Dia, mês e ano", example: "29/10/2026" },
+                { value: "monthYear", label: "Mês e ano", example: "outubro 2026" },
+                { value: "long", label: "Por extenso", example: "29 de outubro de 2026" },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setDateFormat(option.value)}
+                  className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                    dateFormat === option.value
+                      ? "border-brand bg-brand/10 text-brand"
+                      : "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                  }`}
+                >
+                  <span className="block text-xs font-medium">{option.label}</span>
+                  <span className="mt-0.5 block text-[11px] opacity-75">{option.example}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {type === "USER" && (
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+            <div>
+              <div className="font-medium">Vários membros por célula</div>
+              <div className="text-xs text-neutral-400">Para vendas divididas entre consultores (ex.: EDU/FELIPE) — cada um conta no filtro e no resumo</div>
+            </div>
+            <input type="checkbox" checked={multiUser} onChange={(e) => setMultiUser(e.target.checked)} className="h-4 w-4 accent-[var(--brand)]" />
+          </label>
+        )}
+
         <label className="flex cursor-pointer items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
           <div>
             <div className="font-medium">Preenchimento obrigatório</div>
@@ -410,7 +521,7 @@ export function ColumnDialog({
           />
         </label>
 
-        {conflict !== null && (
+        {conflict !== null && !mapping && (
           <div className="space-y-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />

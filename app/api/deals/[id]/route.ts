@@ -65,6 +65,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     closedAt: closedAtInput,
     ownerId,
     customFieldValues,
+    customFieldValuesPatch,
     administratorId,
   } = body as {
     name?: string;
@@ -79,6 +80,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     closedAt?: string;
     ownerId?: string;
     customFieldValues?: Record<string, unknown>;
+    /** Só os campos enviados mudam (Planilhas → Enviar ao CRM); `customFieldValues` substitui o conjunto inteiro, como a ficha faz. */
+    customFieldValuesPatch?: Record<string, unknown>;
     /** Administradora do consórcio (ver Deal.administratorId) — pedida no "Marcar como ganho". */
     administratorId?: string | null;
   };
@@ -247,12 +250,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // chamadas a esse PUT (mudar status, valor, etc.) não mandam esse campo,
     // e undefined no data do Prisma significa "não mexe", nunca "limpa".
     let cleanCustomFieldValues;
-    if (customFieldValues !== undefined) {
+    if (customFieldValues !== undefined || customFieldValuesPatch !== undefined) {
       const fieldDefs = await prisma.customFieldDefinition.findMany({
         where: { organizationId, entityType: "DEAL" },
       });
+      const incoming =
+        customFieldValuesPatch !== undefined
+          ? { ...((existing.customFieldValues ?? {}) as Record<string, unknown>), ...customFieldValuesPatch }
+          : customFieldValues;
       try {
-        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues, existing.customFieldValues as Record<string, unknown> | null);
+        cleanCustomFieldValues = validateCustomFieldValues(
+          fieldDefs,
+          incoming,
+          existing.customFieldValues as Record<string, unknown> | null,
+        );
       } catch (err) {
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }

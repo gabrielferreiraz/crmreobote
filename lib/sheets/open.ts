@@ -8,7 +8,7 @@
 
 import { prisma, prismaRaw } from "@/lib/prisma";
 import { runWithTenant, setTenantOnTx } from "@/lib/tenant-context";
-import type { CellValue } from "@/lib/sheets/column-types";
+import { refIds, type CellValue } from "@/lib/sheets/column-types";
 import { loadSheetColumnsTx, queryRowsTx, type RowQuery } from "@/lib/sheets/rows";
 
 type Tx = Parameters<Parameters<typeof prismaRaw.$transaction>[0]>[0];
@@ -24,8 +24,7 @@ async function referenceNamesTx(
   for (const c of columns) {
     if (c.type !== "USER" && c.type !== "CONTACT" && c.type !== "DEAL") continue;
     for (const r of rows) {
-      const v = r.values[c.id];
-      if (typeof v === "string") ids[c.type as keyof typeof ids].add(v);
+      for (const v of refIds(r.values[c.id])) ids[c.type as keyof typeof ids].add(v);
     }
   }
   const out: Record<string, string> = {};

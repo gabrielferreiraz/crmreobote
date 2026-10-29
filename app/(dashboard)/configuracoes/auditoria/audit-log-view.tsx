@@ -54,6 +54,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   SHEET_CREATED: "Planilha criada",
   SHEET_ARCHIVED: "Planilha arquivada",
   SHEET_RESTORED: "Planilha restaurada",
+  SHEET_DELETED: "Planilha apagada permanentemente",
   SHEET_IMPORTED: "Dados importados para planilha",
   SHEET_EXPORTED: "Planilha exportada",
   CAMPAIGN_QUEUE_REORDERED: "Fila de disparo reordenada",
@@ -111,6 +112,7 @@ const ACTION_TONE: Record<AuditAction, "neutral" | "success" | "danger" | "warni
   SHEET_CREATED: "success",
   SHEET_ARCHIVED: "warning",
   SHEET_RESTORED: "neutral",
+  SHEET_DELETED: "danger",
   SHEET_IMPORTED: "neutral",
   SHEET_EXPORTED: "warning", // dados saindo do CRM em massa
   CAMPAIGN_QUEUE_REORDERED: "warning", // muda QUEM é contatado primeiro — vale destacar

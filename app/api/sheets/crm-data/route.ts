@@ -42,6 +42,18 @@ export async function GET(req: Request) {
     .map((s) => s.trim())
     .filter((s) => /^[a-z0-9]{10,40}$/i.test(s))
     .slice(0, 200);
+  // Importar "Todos": a tela pede de 1.000 em 1.000 passando o id do último recebido (?cursor=).
+  // Cursor + ordem estável (data, id) não pula nem repete registro — com skip, registros criados no
+  // mesmo instante (importação em massa) mudavam de página entre uma chamada e outra.
+  const cursorRaw = params.get("cursor") ?? "";
+  const cursor = /^[a-z0-9]{10,40}$/i.test(cursorRaw) ? cursorRaw : null;
+  const page = ids.length
+    ? { skip: 0, take: ids.length }
+    : cursor
+      ? { cursor: { id: cursor }, skip: 1, take: limit }
+      : { skip, take: limit };
+  // Páginas seguintes não precisam recontar (count numa tabela grande é a parte cara).
+  const withCount = params.get("count") !== "0";
   const membership = await getCurrentMembership();
   const role = membership?.role ?? "MEMBER";
 
@@ -65,9 +77,8 @@ export async function GET(req: Request) {
       const [items, total] = await Promise.all([
         prisma.contact.findMany({
           where,
-          orderBy: { createdAt: "desc" },
-          skip: ids.length ? 0 : skip,
-          take: ids.length ? ids.length : limit,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          ...page,
           select: {
             id: true,
             name: true,
@@ -88,11 +99,24 @@ export async function GET(req: Request) {
             tags: true,
             responsavelId: true,
             responsavel: { select: { name: true } },
+            needsEnrichment: true,
+            leadQualification: true,
+            leadQualificationAt: true,
+            leadQualificationBy: true,
+            qualifiedBy: { select: { name: true } },
+            whatsappOptOutAt: true,
+            metaCampaignName: true,
+            metaCampaignId: true,
+            metaAdSetId: true,
+            metaAdId: true,
+            metaFormId: true,
+            agendorContactId: true,
+            customFieldValues: true,
             createdAt: true,
             updatedAt: true,
           },
         }),
-        prisma.contact.count({ where }),
+        withCount ? prisma.contact.count({ where }) : Promise.resolve(-1),
       ]);
       return NextResponse.json({
         entity,
@@ -119,10 +143,30 @@ export async function GET(req: Request) {
             zipCode: contact.zipCode ?? undefined,
             tags: contact.tags.join(", "),
             responsavelId: contact.responsavelId ?? undefined,
+            needsEnrichment: contact.needsEnrichment,
+            leadQualification:
+              contact.leadQualification === "QUALIFIED"
+                ? "Qualificado"
+                : contact.leadQualification === "UNQUALIFIED"
+                  ? "Não qualificado"
+                  : "Não avaliado",
+            leadQualificationAt: dateCell(contact.leadQualificationAt),
+            leadQualificationBy: contact.leadQualificationBy ?? undefined,
+            whatsappOptOut: !!contact.whatsappOptOutAt,
+            metaCampaignName: contact.metaCampaignName ?? undefined,
+            metaCampaignId: contact.metaCampaignId ?? undefined,
+            metaAdSetId: contact.metaAdSetId ?? undefined,
+            metaAdId: contact.metaAdId ?? undefined,
+            metaFormId: contact.metaFormId ?? undefined,
+            agendorContactId: contact.agendorContactId ?? undefined,
+            ...Object.fromEntries(Object.entries((contact.customFieldValues ?? {}) as Record<string, unknown>).map(([key, value]) => [`custom:${key}`, value])),
             createdAt: dateCell(contact.createdAt),
             updatedAt: dateCell(contact.updatedAt),
           },
-          display: { responsavelId: contact.responsavel?.name ?? "Sem responsável" },
+          display: {
+            responsavelId: contact.responsavel?.name ?? "Sem responsável",
+            leadQualificationBy: contact.qualifiedBy?.name ?? "—",
+          },
           writeCheck: contactWriteCheck(role, contact.responsavelId),
         })),
       });
@@ -144,9 +188,8 @@ export async function GET(req: Request) {
     const [items, total] = await Promise.all([
       prisma.deal.findMany({
         where,
-        orderBy: { createdAt: "desc" },
-        skip: ids.length ? 0 : skip,
-        take: ids.length ? ids.length : limit,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        ...page,
         select: {
           id: true,
           name: true,
@@ -159,16 +202,23 @@ export async function GET(req: Request) {
           description: true,
           expectedCloseAt: true,
           startedAt: true,
+          stageEnteredAt: true,
           closedAt: true,
+          lostReason: true,
+          agendorDealId: true,
+          customFieldValues: true,
           createdAt: true,
           updatedAt: true,
           contact: { select: { name: true } },
           owner: { select: { name: true } },
           pipeline: { select: { name: true } },
           stage: { select: { name: true } },
+          administrator: { select: { name: true } },
+          lossReason: { select: { label: true } },
+          participants: { select: { user: { select: { name: true } }, sharePercent: true } },
         },
       }),
-      prisma.deal.count({ where }),
+      withCount ? prisma.deal.count({ where }) : Promise.resolve(-1),
     ]);
     return NextResponse.json({
       entity,
@@ -190,7 +240,14 @@ export async function GET(req: Request) {
           pipelineName: deal.pipeline.name,
           stageName: deal.stage.name,
           startedAt: dateCell(deal.startedAt),
+          stageEnteredAt: dateCell(deal.stageEnteredAt),
           closedAt: dateCell(deal.closedAt),
+          administratorName: deal.administrator?.name ?? undefined,
+          lossReasonName: deal.lossReason?.label ?? undefined,
+          lostReason: deal.lostReason ?? undefined,
+          participants: deal.participants.map((participant) => `${participant.user.name ?? "Sem nome"} (${participant.sharePercent}%)`).join(", ") || undefined,
+          agendorDealId: deal.agendorDealId ?? undefined,
+          ...Object.fromEntries(Object.entries((deal.customFieldValues ?? {}) as Record<string, unknown>).map(([key, value]) => [`custom:${key}`, value])),
           createdAt: dateCell(deal.createdAt),
           updatedAt: dateCell(deal.updatedAt),
         },

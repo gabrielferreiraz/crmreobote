@@ -71,6 +71,7 @@ export type AuditAction =
   | "SHEET_CREATED"
   | "SHEET_ARCHIVED"
   | "SHEET_RESTORED"
+  | "SHEET_DELETED"
   | "SHEET_IMPORTED"
   | "SHEET_EXPORTED";
 

@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArchiveRestore, ArrowLeft, Check, ChevronLeft, ChevronRight, Cloud, Keyboard, Loader2, Minus, Plus, Search, Sheet, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArchiveRestore, ArrowLeft, Check, ChevronLeft, ChevronRight, Cloud, ExternalLink, Keyboard, Loader2, Minus, Plus, Search, Sheet, X, XCircle } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Modal } from "@/components/modal";
-import { CellValueError, coerceCellValue, SHEET_COLUMN_TYPE_LABELS, type CellValue, type SheetColumnType } from "@/lib/sheets/column-types";
+import { CellValueError, coerceCellValue, isMultiUserColumn, SHEET_COLUMN_TYPE_LABELS, splitMemberNames, type CellValue, type SheetColumnType } from "@/lib/sheets/column-types";
 import { columnDecimals, displayCell, editText, isNumericType, isReferenceType, parseNameBoxInput, type ClientColumn, type ClientRow, type NameBoxTarget, columnLabel } from "@/lib/sheets/format";
 import { cleanFormat, DEFAULT_TABLE_STYLE, readSheetSettings, TOTAL_FN_LABELS, type CellFormat, type TableSettings, type TotalFn } from "@/lib/sheets/formats";
 import type { FilterOp, RowFilter } from "@/lib/sheets/rows";
@@ -19,6 +19,7 @@ import { ColumnTypeIcon } from "./column-type-icon";
 import { HistoryPanel } from "./history-panel";
 import { FindReplaceDialog, type FindMatch } from "./find-replace-dialog";
 import { PasteSpecialDialog } from "./paste-special-dialog";
+import { DeleteDialog, type DeleteTarget } from "./delete-dialog";
 import { CrmIntegrationDialog } from "./crm-integration-dialog";
 import { ImportDialog } from "../import-dialog";
 
@@ -124,7 +125,7 @@ export function SheetEditor({
     column?: ClientColumn;
     insertAt?: number;
     initialType?: SheetColumnType;
-    initialConflict?: { count: number; samples: { rowNumber: number; value: string }[] } | null;
+    initialConflict?: { count: number; samples: { rowNumber: number; value: string }[]; values?: { value: string; count: number }[] } | null;
   } | null>(null);
   const [columnMenu, setColumnMenu] = useState<{ column: ClientColumn; x: number; y: number } | null>(null);
   const [autoFilter, setAutoFilter] = useState<{ column: ClientColumn; x: number; y: number } | null>(null);
@@ -147,6 +148,7 @@ export function SheetEditor({
   const [findRows, setFindRows] = useState<ClientRow[] | null>(null);
   const [findLoading, setFindLoading] = useState(false);
   const [pasteSpecialOpen, setPasteSpecialOpen] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteTarget | null>(null);
   const [crmIntegration, setCrmIntegration] = useState<"pull" | "push" | null>(null);
   const [formatPainter, setFormatPainter] = useState<{ format: CellFormat | undefined; persistent: boolean } | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -389,6 +391,14 @@ export function SheetEditor({
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
+  const totalRef = useRef(total);
+  useEffect(() => {
+    totalRef.current = total;
+  }, [total]);
+  const allTotalRef = useRef(allTotal);
+  useEffect(() => {
+    allTotalRef.current = allTotal;
+  }, [allTotal]);
   const columnsRef = useRef(columns);
   useEffect(() => {
     columnsRef.current = columns;
@@ -486,8 +496,11 @@ export function SheetEditor({
         );
         inserted.push(...data.rows);
       }
-      let next = allTotal;
+      let next = allTotalRef.current;
       const withRank = inserted.map((r) => ({ ...r, rank: ++next }));
+      rowsRef.current = [...rowsRef.current, ...withRank];
+      totalRef.current += inserted.length;
+      allTotalRef.current = next;
       setRows((list) => [...list, ...withRank]);
       setTotal((t) => t + inserted.length);
       setAllTotal(next);
@@ -495,7 +508,7 @@ export function SheetEditor({
       scheduleCanonReload();
       return withRank;
     },
-    [enqueue, sheetId, allTotal, scheduleCanonReload],
+    [enqueue, sheetId, scheduleCanonReload],
   );
 
   /**
@@ -530,7 +543,29 @@ export function SheetEditor({
         setRows(apply);
         setCanon((list) => (list ? apply(list) : list));
       }
-      setRows((list) => list.filter((r) => !ids.includes(r.id)));
+      const gone = new Set(ids);
+      // Como no Excel, as linhas de baixo sobem: cada linha perde 1 no número para cada linha
+      // excluída acima dela (vale também com filtro e para as fórmulas digitadas depois).
+      const removedRanks = rowsRef.current
+        .filter((r) => gone.has(r.id) && r.rank != null)
+        .map((r) => r.rank!)
+        .sort((a, b) => a - b);
+      const above = (rank: number) => {
+        let lo = 0;
+        let hi = removedRanks.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (removedRanks[mid] < rank) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      };
+      const renumber = (list: ClientRow[]) =>
+        list.filter((r) => !gone.has(r.id)).map((r) => (r.rank == null || !removedRanks.length ? r : { ...r, rank: r.rank - above(r.rank) }));
+      rowsRef.current = renumber(rowsRef.current);
+      totalRef.current = Math.max(0, totalRef.current - ids.length);
+      allTotalRef.current = Math.max(0, allTotalRef.current + (deleted ? -ids.length : ids.length));
+      setRows(renumber);
       setTotal((t) => Math.max(0, t - ids.length));
       setAllTotal((t) => Math.max(0, t + (deleted ? -ids.length : ids.length)));
       scheduleCanonReload();
@@ -553,11 +588,54 @@ export function SheetEditor({
    * recálculo logo depois. Valor comum digitado numa célula com fórmula
    * apaga a fórmula (como no Excel).
    */
-  const applyChanges = useCallback(
+  /**
+   * Garante na tela as primeiras `count` linhas (da visão atual) antes de gravar: colar/digitar
+   * numa linha que o servidor tem mas a tela ainda não carregou tem de cair NELA, não virar
+   * linha nova lá no fim.
+   */
+  const ensureLoaded = useCallback(
+    async (count: number) => {
+      let list = rowsRef.current;
+      while (list.length < count && list.length < totalRef.current) {
+        const body = { ...queryBody(list.length), limit: Math.min(1_000, Math.max(PAGE, count - list.length)) };
+        const data = await api<QueryResult>(`/api/sheets/${sheetId}/rows/query`, { method: "POST", body: JSON.stringify(body) });
+        const seen = new Set(list.map((x) => x.id));
+        const fresh = data.rows.filter((x) => !seen.has(x.id));
+        if (!fresh.length) break;
+        list = [...list, ...fresh];
+        rowsRef.current = list;
+        // Mescla (não substitui): a rolagem (loadMore) pode ter trazido linhas ao mesmo tempo.
+        setRows((prev) => {
+          const have = new Set(prev.map((x) => x.id));
+          const add = fresh.filter((x) => !have.has(x.id));
+          return add.length ? [...prev, ...add] : prev;
+        });
+        setRefs((r) => ({ ...r, ...data.refs }));
+      }
+      return list;
+    },
+    [queryBody, sheetId],
+  );
+
+  const applyChangesNow = useCallback(
     async (changes: CellChange[], colsOverride?: ClientColumn[]) => {
       const colList = colsOverride ?? columnsRef.current;
       const cols = new Map(colList.map((c) => [c.id, c]));
-      const current = rowsRef.current;
+      // reduce, não Math.max(...): colar grande (centenas de milhares de células) estoura a pilha.
+      const maxIndex = changes.reduce((m, c) => Math.max(m, c.rowIndex), -1);
+      let current = rowsRef.current;
+      if (maxIndex >= current.length && current.length < totalRef.current) {
+        try {
+          current = await ensureLoaded(maxIndex + 1);
+        } catch (err) {
+          // Sem as linhas carregadas não dá para saber onde gravar: melhor não gravar do que gravar no lugar errado.
+          showToast("error", (err as Error).message);
+          return;
+        }
+      }
+      // Como no Excel, o que se digita/cola na linha 15 fica na linha 15: as linhas vazias do
+      // meio são criadas junto (vazias). Coluna obrigatória impede linha vazia → empilha no fim.
+      const fillGaps = !trash && !colList.some((c) => c.required);
       const edits: CellEdit[] = [];
       const fmtEdits: FmtEdit[] = [];
       const fmlEdits: FmlEdit[] = [];
@@ -567,7 +645,9 @@ export function SheetEditor({
       // Linha real (número do Excel) de cada linha nova: continua do fim da planilha, na ordem em que aparecem.
       const newIndexes = [...new Set(changes.filter((c) => c.rowIndex >= current.length).map((c) => c.rowIndex))].sort((a, b) => a - b);
       const ownRowOf = (rowIndex: number) =>
-        rowIndex < current.length ? (current[rowIndex].rank ?? rowIndex + 1) + 1 : allTotal + 2 + newIndexes.indexOf(rowIndex);
+        rowIndex < current.length
+          ? (current[rowIndex].rank ?? rowIndex + 1) + 1
+          : allTotalRef.current + 2 + (fillGaps ? rowIndex - current.length : newIndexes.indexOf(rowIndex));
       const formulaCols = colList.map((c) => ({ id: c.id, name: c.name, type: c.type }));
 
       for (const ch of changes) {
@@ -610,7 +690,17 @@ export function SheetEditor({
         }
         if (ch.raw === undefined) continue;
         let raw = ch.raw;
-        if (isReferenceType(col.type) && typeof raw === "string" && !/^[a-z0-9]{20,40}$/i.test(raw)) {
+        if (isMultiUserColumn(col) && typeof raw === "string") {
+          // Colar "EDU/FELIPE" numa coluna com vários membros: cada nome vira um membro.
+          const names = splitMemberNames(raw);
+          const ids = names.map((n) => (/^[a-z0-9]{20,40}$/i.test(n) ? n : refByName.get(n.toLowerCase())));
+          const missing = names.filter((_, i) => !ids[i]);
+          if (missing.length) {
+            firstError ??= `"${labelOf(col)}": "${missing.join(", ")}" não encontrado — escolha pelo seletor da célula (F2)`;
+            continue;
+          }
+          raw = ids as string[];
+        } else if (isReferenceType(col.type) && typeof raw === "string" && !/^[a-z0-9]{20,40}$/i.test(raw)) {
           const id = refByName.get(raw.trim().toLowerCase());
           if (!id) {
             firstError ??= `"${labelOf(col)}": "${raw}" não encontrado — escolha pelo seletor da célula (F2)`;
@@ -628,7 +718,8 @@ export function SheetEditor({
           }
           throw err;
         }
-        if (ch.refLabel && typeof value === "string") newRefs[value] = ch.refLabel;
+        if (ch.refLabel && typeof ch.refLabel === "object") Object.assign(newRefs, ch.refLabel);
+        else if (ch.refLabel && typeof value === "string") newRefs[value] = ch.refLabel;
         if (existing) {
           const before = existing.values[col.id];
           if (JSON.stringify(before) !== JSON.stringify(value)) edits.push({ rowId: existing.id, colId: col.id, before, after: value });
@@ -643,7 +734,10 @@ export function SheetEditor({
       try {
         if (edits.length || fmtEdits.length || fmlEdits.length) await patchRows(edits, fmtEdits, true, fmlEdits);
         if (fresh.size) {
-          const ordered = [...fresh.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+          const empty = () => ({ values: {}, formats: {}, formulas: {} });
+          const ordered = fillGaps
+            ? Array.from({ length: [...fresh.keys()].reduce((m, k) => Math.max(m, k), 0) - current.length + 1 }, (_, k) => fresh.get(current.length + k) ?? empty())
+            : [...fresh.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
           const created = await insertRows(
             ordered.map((o) => o.values),
             ordered.map((o) => (Object.keys(o.formats).length || Object.keys(o.formulas).length ? { formats: o.formats, formulas: o.formulas } : undefined)),
@@ -655,7 +749,21 @@ export function SheetEditor({
         if (fresh.size && !edits.length) showToast("error", err.message);
       }
     },
-    [refByName, patchRows, insertRows, showToast, pushUndo, allTotal, labelOf],
+    [refByName, patchRows, insertRows, showToast, pushUndo, labelOf, ensureLoaded, trash],
+  );
+  /**
+   * Toda mudança de célula entra numa fila: a próxima só calcula "qual linha é nova" depois
+   * que a anterior terminou. Sem isso, dois colar/digitar seguidos criavam as mesmas linhas
+   * novas duas vezes e o segundo pedaço caía mais abaixo.
+   */
+  const applyQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const applyChanges = useCallback(
+    (changes: CellChange[], colsOverride?: ClientColumn[]) => {
+      const run = applyQueue.current.then(() => applyChangesNow(changes, colsOverride));
+      applyQueue.current = run.catch(() => {});
+      return run;
+    },
+    [applyChangesNow],
   );
   const onChanges = useCallback((changes: CellChange[]) => applyChanges(changes), [applyChanges]);
 
@@ -721,8 +829,11 @@ export function SheetEditor({
   /** Digitar/colar à direita da tabela: cria as colunas (Texto) e grava as células — como a tabela do Excel se expande. */
   const createColumns = useCallback(
     async (req: NewColumnsRequest) => {
-      const maxOffset = Math.max(-1, ...Object.keys(req.names).map(Number), ...req.cells.map((c) => c.offset));
-      if (maxOffset < 0) return;
+      const maxOffset = req.cells.reduce((m, c) => Math.max(m, c.offset), Math.max(-1, ...Object.keys(req.names).map(Number)));
+      if (maxOffset < 0) {
+        if (req.changes?.length) await applyChanges(req.changes);
+        return;
+      }
       const created: ClientColumn[] = [];
       try {
         for (let k = 0; k <= maxOffset; k++) {
@@ -739,14 +850,18 @@ export function SheetEditor({
       } catch (err) {
         showToast("error", (err as Error).message);
       }
-      if (!created.length) return;
+      if (!created.length) {
+        if (req.changes?.length) await applyChanges(req.changes);
+        return;
+      }
       const allCols = [...columnsRef.current, ...created];
       setColumns(allCols);
       columnsRef.current = allCols;
       const changes: CellChange[] = req.cells
         .filter((c) => created[c.offset])
         .map((c) => ({ rowIndex: c.rowIndex, colId: created[c.offset].id, raw: c.raw, format: c.format, ...(c.formula ? { formula: c.formula } : {}) }));
-      if (changes.length) await applyChanges(changes, allCols);
+      const all = [...(req.changes ?? []), ...changes];
+      if (all.length) await applyChanges(all, allCols);
     },
     [enqueue, sheetId, showToast, applyChanges],
   );
@@ -1043,13 +1158,20 @@ export function SheetEditor({
         await enqueue(() => api(`/api/sheets/${sheetId}/columns/${col.id}`, { method: "PATCH", body: JSON.stringify(body) }));
         await reloadColumns();
       } catch (err) {
-        const e = err as Error & { status?: number; data?: { invalidCount?: number; invalidSamples?: { rowNumber: number; value: string }[] } };
+        const e = err as Error & {
+          status?: number;
+          data?: { invalidCount?: number; invalidSamples?: { rowNumber: number; value: string }[]; invalidValues?: { value: string; count: number }[] };
+        };
         if (e.status === 409 && typeof e.data?.invalidCount === "number") {
           if (typeof body.type === "string") {
             setColumnDialog({
               column: col,
               initialType: body.type as SheetColumnType,
-              initialConflict: { count: e.data.invalidCount, samples: Array.isArray(e.data.invalidSamples) ? e.data.invalidSamples : [] },
+              initialConflict: {
+                count: e.data.invalidCount,
+                samples: Array.isArray(e.data.invalidSamples) ? e.data.invalidSamples : [],
+                values: Array.isArray(e.data.invalidValues) ? e.data.invalidValues : undefined,
+              },
             });
             return;
           }
@@ -1278,20 +1400,8 @@ export function SheetEditor({
       const base = active.pos.c < columns.length ? active.pos.c : columns.length - 1;
       setColumnDialog({ insertAt: where === "left" ? Math.max(base, 0) : base + 1, initialType: type });
     },
-    deleteRows: () => deleteRows(grid.current?.selectedRowIds() ?? []),
-    archiveColumn: () => {
-      if (!selectedColumns.length) return;
-      const many = selectedColumns.length > 1;
-      setConfirm({
-        title: many ? `Excluir ${selectedColumns.length} colunas selecionadas?` : `Excluir a coluna "${selectedColumns[0].name}"?`,
-        description: many
-          ? `As colunas (${selectedColumns.map((c) => `"${labelOf(c)}"`).join(", ")}) saem da planilha, mas os valores ficam guardados: dá para restaurar em Dados → Colunas Arquivadas.`
-          : "A coluna sai da planilha, mas os valores ficam guardados: dá para restaurar em Dados → Colunas Arquivadas.",
-        label: many ? `Excluir ${selectedColumns.length} colunas` : "Excluir coluna",
-        danger: true,
-        action: () => setColumnsArchived(selectedColumns, true),
-      });
-    },
+    deleteRows: () => grid.current?.deleteRows(),
+    archiveColumn: () => confirmDeleteColumns(selectedColumns),
     editColumn: () => activeColumn && setColumnDialog({ column: activeColumn }),
     autoFit: () => grid.current?.autoFit(),
     sort: (dir) => activeColumn && setSort({ columnId: activeColumn.id, dir }),
@@ -1321,11 +1431,22 @@ export function SheetEditor({
     archiveSheet: () =>
       setConfirm({
         title: "Arquivar planilha?",
-        description: "Ela sai da lista, mas nada é apagado: dá para restaurar em Planilhas → Arquivadas.",
+        description: "Ela sai da lista ativa, mas nada é apagado: dá para restaurar ou apagá-la permanentemente em Planilhas → Arquivadas.",
         label: "Arquivar",
         danger: true,
         action: async () => {
           await api(`/api/sheets/${sheetId}`, { method: "PATCH", body: JSON.stringify({ archived: true }) });
+          router.push("/planilhas");
+        },
+      }),
+    deleteSheet: () =>
+      setConfirm({
+        title: `Apagar permanentemente a planilha "${name}"?`,
+        description: "Esta ação não pode ser desfeita. Todas as colunas, linhas, fórmulas, vínculos com o CRM e o histórico desta planilha serão apagados definitivamente.",
+        label: "Apagar permanentemente",
+        danger: true,
+        action: async () => {
+          await api(`/api/sheets/${sheetId}`, { method: "DELETE" });
           router.push("/planilhas");
         },
       }),
@@ -1394,18 +1515,20 @@ export function SheetEditor({
     else if (action === "filter") setAutoFilter({ column: col, x: at.x, y: at.y });
     else if (action === "insertLeft") setColumnDialog({ insertAt: idx });
     else if (action === "insertRight") setColumnDialog({ insertAt: idx + 1 });
-    else if (action === "delete") {
-      const many = targets.length > 1;
-      setConfirm({
-        title: many ? `Excluir ${targets.length} colunas selecionadas?` : `Excluir a coluna "${labelOf(col)}"?`,
-        description: many
-          ? `As colunas (${targets.map((c) => `"${labelOf(c)}"`).join(", ")}) saem da planilha, mas os valores ficam guardados: dá para restaurar em Dados → Colunas Arquivadas.`
-          : "A coluna sai da planilha, mas os valores ficam guardados: dá para restaurar em Dados → Colunas Arquivadas.",
-        label: many ? `Excluir ${targets.length} colunas` : "Excluir coluna",
-        danger: true,
-        action: () => setColumnsArchived(targets, true),
-      });
-    }
+    else if (action === "delete") confirmDeleteColumns(targets);
+  }
+
+  /** Excluir colunas (menu da letra, menu da célula, Faixa, Ctrl+-): sempre a mesma confirmação. */
+  function confirmDeleteColumns(targets: ClientColumn[]) {
+    if (!targets.length) return;
+    const many = targets.length > 1;
+    setConfirm({
+      title: many ? `Excluir ${targets.length} colunas?` : `Excluir a coluna "${labelOf(targets[0])}"?`,
+      description: `${many ? `As colunas (${targets.map((c) => `"${labelOf(c)}"`).join(", ")}) saem` : "A coluna sai"} da planilha e as da direita andam para a esquerda, como no Excel. Os valores ficam guardados: dá para restaurar em Dados → Colunas Arquivadas.`,
+      label: many ? `Excluir ${targets.length} colunas` : "Excluir coluna",
+      danger: true,
+      action: () => setColumnsArchived(targets, true),
+    });
   }
 
   const activeRow = active.kind === "cell" ? rows[active.rowIndex] : undefined;
@@ -1553,6 +1676,7 @@ export function SheetEditor({
         table={table}
         totals={totals}
         allTotal={allTotal}
+        pendingRows={Math.max(0, total - rows.length)}
         filteredView={filtersActive}
         formulaText={formulaText}
         formulaShown={formulaShown}
@@ -1579,6 +1703,8 @@ export function SheetEditor({
         }}
         onCreateColumns={createColumns}
         onDeleteRows={deleteRows}
+        onDeleteColumns={(ids) => confirmDeleteColumns(columns.filter((c) => ids.includes(c.id)))}
+        onDeleteDialog={setDeleteDialog}
         onRestoreRows={restoreRows}
         onUndo={() => travel("undo")}
         onRedo={() => travel("redo")}
@@ -1716,6 +1842,17 @@ export function SheetEditor({
       </div>
 
       {/* ── Menus e diálogos ── */}
+      {deleteDialog && (
+        <DeleteDialog
+          target={deleteDialog}
+          onRows={() => deleteRows(deleteDialog.rowIds)}
+          onColumns={() => confirmDeleteColumns(columns.filter((c) => deleteDialog.columnIds.includes(c.id)))}
+          onClose={() => {
+            setDeleteDialog(null);
+            grid.current?.focus();
+          }}
+        />
+      )}
       {pasteSpecialOpen && (
         <PasteSpecialDialog
           onPaste={(mode) => {
@@ -2219,15 +2356,27 @@ function FormulaBar({
           className={`min-w-0 flex-1 border-l border-[#e1e1e1] bg-transparent px-2 text-[var(--xl-cell-text)] outline-none placeholder:text-neutral-400 [font-family:var(--xl-font)] dark:border-neutral-800 ${isHeader ? "font-bold" : ""}`}
         />
       ) : (
-        <button
-          type="button"
-          disabled={readOnly || !column}
-          onClick={onOpenEditor}
-          className="min-w-0 flex-1 truncate border-l border-[#e1e1e1] px-2 text-left text-[var(--xl-cell-text)] [font-family:var(--xl-font)] disabled:cursor-default dark:border-neutral-800"
-          title={readOnly ? undefined : "Clique para escolher"}
-        >
-          {shown || <span className="text-neutral-400">{readOnly || !column ? "" : "Clique para escolher…"}</span>}
-        </button>
+        <div className="flex min-w-0 flex-1 items-center border-l border-[#e1e1e1] dark:border-neutral-800">
+          <button
+            type="button"
+            disabled={readOnly || !column}
+            onClick={onOpenEditor}
+            className="min-w-0 flex-1 truncate px-2 text-left text-[var(--xl-cell-text)] [font-family:var(--xl-font)] disabled:cursor-default"
+            title={readOnly ? undefined : "Clique para escolher"}
+          >
+            {shown || <span className="text-neutral-400">{readOnly || !column ? "" : "Clique para escolher…"}</span>}
+          </button>
+          {column && typeof value === "string" && (column.type === "CONTACT" || column.type === "DEAL") && (
+            <Link
+              href={column.type === "CONTACT" ? `/clientes/${value}` : `/negocios/${value}`}
+              className="mr-1.5 inline-flex shrink-0 items-center gap-1 rounded bg-[#0563c1]/10 px-2 py-0.5 text-xs font-medium text-[#0563c1] transition-colors hover:bg-[#0563c1]/20 dark:bg-sky-400/15 dark:text-sky-400 dark:hover:bg-sky-400/25"
+              title={column.type === "CONTACT" ? "Abrir ficha do cliente" : "Abrir negócio"}
+            >
+              <span>{column.type === "CONTACT" ? "Abrir cliente" : "Abrir negócio"}</span>
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          )}
+        </div>
       )}
       {column && onConfigureColumn && (
         <button

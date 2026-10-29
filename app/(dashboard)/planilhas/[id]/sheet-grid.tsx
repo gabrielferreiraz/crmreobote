@@ -47,7 +47,15 @@ export type Pos = { r: number; c: number };
  * `raw` texto começando com "=" é fórmula digitada (A1). `formula` = fórmula já no
  * formato interno (copiar/arrastar). `format` = marcação colada (null = tirar).
  */
-export type CellChange = { rowIndex: number; colId: string; raw: unknown; refLabel?: string; formula?: string; format?: CellFormat | null };
+export type CellChange = {
+  rowIndex: number;
+  colId: string;
+  raw: unknown;
+  /** Nome do cliente/negócio/membro escolhido (vários membros: { id: nome }). */
+  refLabel?: string | Record<string, string>;
+  formula?: string;
+  format?: CellFormat | null;
+};
 
 /** Área de transferência interna: o que foi copiado DAQUI (fórmulas e marcações vão junto ao colar aqui). */
 type InternalClip = { text: string; cells: { formula?: string; format?: CellFormat }[][] };
@@ -85,6 +93,8 @@ export type NewColumnsRequest = {
   names: Record<number, string>;
   types?: Record<number, SheetColumnType>;
   cells: { rowIndex: number; offset: number; raw: unknown; format?: CellFormat | null; formula?: string }[];
+  /** Células das colunas que já existem, do MESMO colar: gravadas junto, numa escrita só (senão as linhas novas saíam em dobro). */
+  changes?: CellChange[];
 };
 
 export type GridController = {
@@ -98,6 +108,8 @@ export type GridController = {
   selectByNameBox: (targets: NameBoxTarget[]) => boolean;
   selectedRowIds: () => string[];
   selectedColumnIds: () => string[];
+  /** Página Inicial → Excluir → Excluir Linhas da Planilha (com o aviso da linha 1). */
+  deleteRows: () => void;
   copy: () => void;
   cut: () => void;
   paste: (text: string) => void;
@@ -138,6 +150,8 @@ type Props = {
   table: TableSettings | null;
   /** Linhas da planilha sem filtro (as linhas novas continuam a numeração daqui). */
   allTotal: number;
+  /** Linhas que existem no servidor mas a tela ainda não carregou (vêm logo abaixo das carregadas). */
+  pendingRows: number;
   /** Visão filtrada/ordenada: números de linha em azul, como no Excel. */
   filteredView: boolean;
   /** Fórmula da célula em A1 (para editar) — undefined = célula sem fórmula. */
@@ -162,6 +176,10 @@ type Props = {
   onClearColumns: (columnIds: string[]) => void;
   onCreateColumns: (req: NewColumnsRequest) => void;
   onDeleteRows: (rowIds: string[]) => void;
+  /** Excluir colunas inteiras (o editor confirma e arquiva). */
+  onDeleteColumns: (columnIds: string[]) => void;
+  /** Ctrl+- com células comuns selecionadas: o editor pergunta "linha inteira ou coluna inteira?", como o Excel. */
+  onDeleteDialog: (target: { rowIds: string[]; columnIds: string[]; headerOnly: boolean }) => void;
   onRestoreRows: (rowIds: string[]) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -234,8 +252,12 @@ export function SheetGrid(props: Props) {
   const setPointInsert = useCallback((fn: ((ref: string, extend: boolean) => void) | null) => {
     pointInsert.current = fn;
   }, []);
-  const dragging = useRef<"select" | "col" | "row" | "fill" | null>(null);
+  const dragging = useRef<"select" | "col" | "row" | "fill" | "move" | null>(null);
   const dragPointer = useRef<{ x: number; y: number } | null>(null);
+  const moveOrigin = useRef<Pos | null>(null);
+  const moveRange = useRef<Range | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ src: Range; dst: Range } | null>(null);
+  const moveTargetRef = useRef<{ src: Range; dst: Range } | null>(null);
   // Enter + perda de foco do editor podem disparar juntos: só a primeira saída vale.
   const editSession = useRef(0);
   const closedSession = useRef(-1);
@@ -303,7 +325,13 @@ export function SheetGrid(props: Props) {
     if (r === 0) return 1;
     const row = rows[r - 1];
     if (row) return (row.rank ?? r) + 1;
-    return props.allTotal + 1 + (r - rows.length - (totalsRow > 0 && r > totalsRow ? 1 : 0));
+    const k = r - rows.length - (totalsRow > 0 && r > totalsRow ? 1 : 0);
+    if (k <= props.pendingRows) {
+      // Ainda carregando: sem filtro a numeração é contínua; com filtro, aproximada até carregar.
+      const last = rows.length ? (rows[rows.length - 1].rank ?? rows.length) : 0;
+      return props.filteredView ? last + k + 1 : rows.length + k + 1;
+    }
+    return props.allTotal + 1 + (k - props.pendingRows);
   };
 
   const range = useMemo(() => rangeOf(sel.anchor, sel.focus), [sel.anchor, sel.focus]);
@@ -524,6 +552,13 @@ export function SheetGrid(props: Props) {
     }
     if (r === totalsRow) return;
     const row = rows[r - 1];
+    // Linha que existe no servidor mas a tela ainda não trouxe (rolagem rápida): carrega antes —
+    // digitar ali gravaria por cima de um dado que a pessoa nem viu.
+    if (!row && r - 1 < rows.length + props.pendingRows) {
+      props.onLoadMore();
+      props.onNotice("Carregando esta parte da planilha — tente de novo em instantes");
+      return;
+    }
     const hasFormula = !!(row && c < colCount && row.formulas?.[columns[c].id]);
     if (c < colCount && columns[c].type === "CHECKBOX" && !hasFormula && !initialText?.startsWith("=")) {
       props.onChanges([{ rowIndex: r - 1, colId: columns[c].id, raw: !valueAt(r, c) }]);
@@ -535,7 +570,7 @@ export function SheetGrid(props: Props) {
 
   const moveDelta = (move: CommitMove): [number, number] => ({ down: [1, 0], up: [-1, 0], right: [0, 1], left: [0, -1], none: [0, 0], selection: [0, 0] })[move] as [number, number];
 
-  function commitEdit(raw: unknown, move: CommitMove, refLabel?: string) {
+  function commitEdit(raw: unknown, move: CommitMove, refLabel?: string | Record<string, string>) {
     if (!editing || closedSession.current === editSession.current) return;
     closedSession.current = editSession.current;
     const { r, c } = editing;
@@ -708,7 +743,7 @@ export function SheetGrid(props: Props) {
   function pasteGrid(grid: string[][], rich?: { format?: CellFormat; formula?: string }[][], mode: PasteSpecialMode = "all") {
     if (readOnly || !grid.length) return;
     if (mode === "transpose") {
-      const width = Math.max(...grid.map((line) => line.length));
+      const width = grid.reduce((m, line) => Math.max(m, line.length), 0);
       const transposed = Array.from({ length: width }, (_, c) => grid.map((line) => line[c] ?? ""));
       const richTransposed = rich ? Array.from({ length: width }, (_, c) => rich.map((line) => line[c] ?? {})) : undefined;
       pasteGrid(transposed, richTransposed, "all");
@@ -765,10 +800,21 @@ export function SheetGrid(props: Props) {
         }
       }
     } else {
-      grid.forEach((line, i) => line.forEach((text, j) => put(range.r1 + i, range.c1 + j, text, rich?.[i]?.[j])));
-      const width = Math.max(...grid.map((l) => l.length));
+      // Como no Excel: cola a partir do canto superior esquerdo da seleção. Se a seleção for
+      // múltipla exata do que foi copiado (ex.: 2 linhas copiadas, 6 selecionadas), repete
+      // até preencher; senão cola só o tamanho copiado.
+      const h = grid.length;
+      const width = grid.reduce((m, l) => Math.max(m, l.length), 0);
+      const selH = range.r2 - range.r1 + 1;
+      const selW = range.c2 - range.c1 + 1;
+      const tile = extraRanges.length === 0 && multiCell && selH % h === 0 && selW % width === 0;
+      const repR = tile ? selH / h : 1;
+      const repC = tile ? selW / width : 1;
+      for (let tr = 0; tr < repR; tr++)
+        for (let tc = 0; tc < repC; tc++)
+          grid.forEach((line, i) => line.forEach((text, j) => put(range.r1 + tr * h + i, range.c1 + tc * width + j, text, rich?.[i]?.[j])));
       setExtraRanges([]);
-      setSel({ anchor: { r: range.r1, c: range.c1 }, focus: { r: range.r1 + grid.length - 1, c: Math.min(range.c1 + width - 1, maxCol) } });
+      setSel({ anchor: { r: range.r1, c: range.c1 }, focus: { r: Math.min(range.r1 + h * repR - 1, maxRow), c: Math.min(range.c1 + width * repC - 1, maxCol) } });
     }
     const newOffsets = new Set(newCols.cells.map((cell) => cell.offset));
     for (const offset of newOffsets) {
@@ -777,8 +823,65 @@ export function SheetGrid(props: Props) {
         newCols.types![offset] = "CHECKBOX";
       }
     }
-    if (changes.length) props.onChanges(changes);
-    if (Object.keys(newCols.names).length || newCols.cells.length) props.onCreateColumns(newCols);
+    // Uma escrita só: colunas novas primeiro e, junto, as células das colunas existentes.
+    if (Object.keys(newCols.names).length || newCols.cells.length) props.onCreateColumns({ ...newCols, changes });
+    else if (changes.length) props.onChanges(changes);
+  }
+
+  /** Lê texto + HTML da área de transferência (menu "Colar"); sem permissão, só texto. */
+  async function pasteFromSystemClipboard() {
+    try {
+      let text = "";
+      let html = "";
+      for (const item of await navigator.clipboard.read()) {
+        if (item.types.includes("text/plain")) text = await (await item.getType("text/plain")).text();
+        if (item.types.includes("text/html")) html = await (await item.getType("text/html")).text();
+      }
+      if (text || html) return pasteFromClipboard(text, html);
+    } catch {
+      /* navegador sem clipboard.read: cai no texto puro */
+    }
+    const text = await navigator.clipboard?.readText().catch(() => "");
+    if (text) pasteFromClipboard(text, "");
+  }
+
+  /** Linhas inteiras (clique no número) da seleção. */
+  function fullRowsInSelection() {
+    return allRanges.some((rg) => rg.c1 === 0 && rg.c2 >= lastDataCol && rg.r2 >= 1);
+  }
+
+  /** Excluir linhas: só linhas com dados; a linha 1 são os títulos e não sai (Delete limpa). */
+  function deleteSelectedRows() {
+    if (readOnly) return;
+    const ids = selectedRowIds();
+    if (!ids.length) {
+      props.onNotice(
+        allRanges.some((rg) => rg.r1 === 0)
+          ? "A linha 1 guarda os títulos das colunas e não é excluída — use Delete para limpar os títulos"
+          : "Não há linhas com dados na seleção",
+      );
+      return;
+    }
+    props.onDeleteRows(ids);
+  }
+
+  function deleteSelectedColumns() {
+    if (readOnly) return;
+    if (!selectedColIds.length) {
+      props.onNotice("Não há colunas com dados na seleção");
+      return;
+    }
+    props.onDeleteColumns(selectedColIds);
+  }
+
+  /** Ctrl+- (Excluir): linhas inteiras → exclui linhas; colunas inteiras → exclui colunas; senão pergunta. */
+  function deleteShortcut() {
+    if (readOnly) return;
+    const rowsFull = fullRowsInSelection();
+    const colsFull = fullColsSelected.length > 0;
+    if (rowsFull && !colsFull) return deleteSelectedRows();
+    if (colsFull && !rowsFull) return deleteSelectedColumns();
+    props.onDeleteDialog({ rowIds: selectedRowIds(), columnIds: selectedColIds, headerOnly: allRanges.every((rg) => rg.r2 === 0) });
   }
 
   /** Decide a origem do que foi colado: cópia daqui (fórmulas + marcações), HTML do Excel/Sheets (marcações) ou texto puro. */
@@ -889,6 +992,79 @@ export function SheetGrid(props: Props) {
     }
   }
 
+  /** Mover células arrastando a borda da seleção (igual ao Excel). */
+  function applyMove(src: Range, dst: Range) {
+    if (readOnly) return;
+    if (src.r1 === dst.r1 && src.c1 === dst.c1) return;
+    const dr = dst.r1 - src.r1;
+    const dc = dst.c1 - src.c1;
+
+    type MovedCell = {
+      dstR: number;
+      dstC: number;
+      value: CellValue | undefined;
+      format: CellFormat | null;
+      formula?: string;
+    };
+    const movedCells: MovedCell[] = [];
+
+    // 1. Coleta todas as células do intervalo de origem
+    for (let r = src.r1; r <= src.r2; r++) {
+      for (let c = src.c1; c <= Math.min(src.c2, colCount - 1); c++) {
+        const col = columns[c];
+        if (!col) continue;
+        const val = valueAt(r, c);
+        const fmt = rows[r - 1]?.formats?.[col.id] ?? null;
+        const fml = rows[r - 1]?.formulas?.[col.id];
+        movedCells.push({
+          dstR: r + dr,
+          dstC: c + dc,
+          value: val,
+          format: fmt,
+          formula: fml,
+        });
+      }
+    }
+
+    const changes: CellChange[] = [];
+
+    // 2. Limpa as células de origem que não serão sobrescritas pelo destino
+    for (let r = src.r1; r <= src.r2; r++) {
+      for (let c = src.c1; c <= Math.min(src.c2, colCount - 1); c++) {
+        const col = columns[c];
+        if (!col) continue;
+        const inDst = r >= dst.r1 && r <= dst.r2 && c >= dst.c1 && c <= dst.c2;
+        if (!inDst) {
+          changes.push({
+            rowIndex: r - 1,
+            colId: col.id,
+            raw: null,
+            format: null,
+            formula: undefined,
+          });
+        }
+      }
+    }
+
+    // 3. Aplica os valores, formatos e fórmulas nas células de destino
+    for (const m of movedCells) {
+      if (m.dstC >= colCount || m.dstR < 1) continue;
+      const dstCol = columns[m.dstC];
+      if (!dstCol) continue;
+      changes.push({
+        rowIndex: m.dstR - 1,
+        colId: dstCol.id,
+        raw: m.value === undefined ? null : m.value,
+        format: m.format,
+        formula: m.formula,
+      });
+    }
+
+    if (changes.length) props.onChanges(changes);
+    setSel({ anchor: { r: dst.r1, c: dst.c1 }, focus: { r: dst.r2, c: dst.c2 } });
+    props.onSelectionCommit(dst);
+  }
+
   /** Duplo clique na borda: ajusta a largura ao conteúdo (AutoAjuste do Excel). */
   function autoFitOne(col: ClientColumn) {
     const px = BASE_FONT;
@@ -948,7 +1124,8 @@ export function SheetGrid(props: Props) {
     if (n === 1) return 0;
     const idx = rows.findIndex((row) => (row.rank ?? -1) + 1 === n);
     if (idx >= 0) return idx + 1;
-    if (n > props.allTotal + 1) return rows.length + (n - props.allTotal - 1);
+    if (!props.filteredView && n - 1 <= rows.length + props.pendingRows) return n - 1;
+    if (n > props.allTotal + 1) return rows.length + props.pendingRows + (n - props.allTotal - 1);
     return null;
   }
 
@@ -1016,6 +1193,7 @@ export function SheetGrid(props: Props) {
       return true;
     },
     clear: clearRange,
+    deleteRows: deleteSelectedRows,
     fillDown: () => allRanges.some((rg) => rg.r2 > rg.r1) && applyFill(range.r2, true),
     autoFit: (colId) => {
       if (colId) {
@@ -1059,6 +1237,10 @@ export function SheetGrid(props: Props) {
       e.preventDefault();
       if (!readOnly && allRanges.some((rg) => rg.r2 > rg.r1)) applyFill(range.r2, true);
       return;
+    }
+    if (mod && !e.altKey && (key === "-" || e.code === "NumpadSubtract")) {
+      e.preventDefault();
+      return deleteShortcut();
     }
     if (mod && e.altKey && lower === "v") {
       e.preventDefault();
@@ -1256,6 +1438,27 @@ export function SheetGrid(props: Props) {
       setSel((s) => (s.focus.r === p.r && s.focus.c === lastCol ? s : { anchor: { r: s.anchor.r, c: 0 }, focus: { r: p.r, c: lastCol } }));
     } else if (action === "fill") {
       setFill({ toRow: Math.max(p.r, range.r2) });
+    } else if (action === "move" && moveOrigin.current && moveRange.current) {
+      const src = moveRange.current;
+      const orig = moveOrigin.current;
+      const dr = p.r - orig.r;
+      const dc = p.c - orig.c;
+      const h = src.r2 - src.r1;
+      const w = src.c2 - src.c1;
+      const dstR1 = Math.max(1, src.r1 + dr);
+      let dstC1 = Math.max(0, src.c1 + dc);
+      if (dstC1 + w >= colCount) {
+        dstC1 = Math.max(0, colCount - 1 - w);
+      }
+      const dst: Range = {
+        r1: dstR1,
+        r2: dstR1 + h,
+        c1: dstC1,
+        c2: dstC1 + w,
+      };
+      const nextTarget = { src, dst };
+      moveTargetRef.current = nextTarget;
+      setMoveTarget((prev) => (prev && prev.dst.r1 === dst.r1 && prev.dst.c1 === dst.c1 ? prev : nextTarget));
     }
   }
 
@@ -1275,23 +1478,29 @@ export function SheetGrid(props: Props) {
       if (action && ptr && el) {
         const box = el.getBoundingClientRect();
         const zone = 46;
-        const easeSpeed = (dist: number, maxSpeed: number) => {
-          const t = clamp(dist / zone, 0, 1);
-          return (2.2 + maxSpeed * t * t) * (dt / 16.67);
+        // Dentro da grade, acelera suavemente ao se aproximar da borda. Depois
+        // que o ponteiro passa da borda, a distância continua aumentando a
+        // velocidade (antes ela travava no mesmo máximo, mesmo longe da tela).
+        const easeSpeed = (dist: number, edgeSpeed: number, farSpeed: number) => {
+          const inEdge = clamp(dist / zone, 0, 1);
+          const outside = Math.max(0, dist - zone);
+          const far = clamp(outside / 240, 0, 1);
+          const pixelsPerFrame = 2.2 + edgeSpeed * inEdge * inEdge + (farSpeed - edgeSpeed) * Math.pow(far, 1.35);
+          return pixelsPerFrame * (dt / 16.67);
         };
         let vx = 0;
         let vy = 0;
         if (action !== "row") {
           const leftEdge = box.left + RN_W + zone;
           const rightEdge = box.right - zone;
-          if (ptr.x < leftEdge) vx = -easeSpeed(leftEdge - ptr.x, 26);
-          else if (ptr.x > rightEdge) vx = easeSpeed(ptr.x - rightEdge, 26);
+          if (ptr.x < leftEdge) vx = -easeSpeed(leftEdge - ptr.x, 26, 72);
+          else if (ptr.x > rightEdge) vx = easeSpeed(ptr.x - rightEdge, 26, 72);
         }
         if (action !== "col") {
           const topEdge = box.top + HEADER_H + zone;
           const bottomEdge = box.bottom - zone;
-          if (ptr.y < topEdge) vy = -easeSpeed(topEdge - ptr.y, 22);
-          else if (ptr.y > bottomEdge) vy = easeSpeed(ptr.y - bottomEdge, 22);
+          if (ptr.y < topEdge) vy = -easeSpeed(topEdge - ptr.y, 22, 104);
+          else if (ptr.y > bottomEdge) vy = easeSpeed(ptr.y - bottomEdge, 22, 104);
         }
         if (vx !== 0 || vy !== 0) {
           carryX += vx;
@@ -1331,8 +1540,18 @@ export function SheetGrid(props: Props) {
       const action = dragging.current;
       if (action === "fill" && fill) applyFill(fill.toRow);
       if (action === "select" || action === "col" || action === "row") props.onSelectionCommit(range);
+      if (action === "move" && moveTargetRef.current) {
+        const { src, dst } = moveTargetRef.current;
+        if (src.r1 !== dst.r1 || src.c1 !== dst.c1) {
+          applyMove(src, dst);
+        }
+      }
       dragging.current = null;
       dragPointer.current = null;
+      moveOrigin.current = null;
+      moveRange.current = null;
+      moveTargetRef.current = null;
+      setMoveTarget(null);
       if (rafId) {
         window.cancelAnimationFrame(rafId);
         rafId = 0;
@@ -1361,6 +1580,21 @@ export function SheetGrid(props: Props) {
     const box = el.getBoundingClientRect();
     // Coordenadas no espaço do conteúdo rolável (o menu rola junto com a grade).
     setMenu({ x: e.clientX - box.left + el.scrollLeft, y: e.clientY - box.top + el.scrollTop });
+  }
+
+  function startMove(e: React.MouseEvent) {
+    if (e.button !== 0 || readOnly) return;
+    e.preventDefault();
+    e.stopPropagation();
+    focusGrid();
+    const p = posAtClient(e.clientX, e.clientY) ?? { r: range.r1, c: range.c1 };
+    moveOrigin.current = p;
+    moveRange.current = range;
+    const initialTarget = { src: range, dst: range };
+    moveTargetRef.current = initialTarget;
+    setMoveTarget(initialTarget);
+    dragging.current = "move";
+    dragPointer.current = { x: e.clientX, y: e.clientY };
   }
 
   function onMouseDown(e: React.MouseEvent) {
@@ -1949,7 +2183,13 @@ export function SheetGrid(props: Props) {
                       selected={selected}
                       gridLine={gridLine}
                       readOnly={readOnly || isNew}
+                      editingActive={!!editing}
                       onToggle={() => props.onChanges([{ rowIndex: r - 1, colId: col.id, raw: !row?.values[col.id] }])}
+                      onEdit={() => {
+                        setExtraRanges([]);
+                        setSel({ anchor: { r, c }, focus: { r, c } });
+                        startEdit(r, c, null);
+                      }}
                     />
                   ) : (
                     <div
@@ -1988,22 +2228,55 @@ export function SheetGrid(props: Props) {
           )}
           {showDataSel && rowCount > 1 && !editing && (
             <div
-              className="xl-sel-box pointer-events-none absolute z-[6] rounded-[1px] border-2 border-[var(--xl)] shadow-[0_1px_3px_rgba(16,124,65,0.16)]"
+              className={`xl-sel-box pointer-events-none absolute z-[6] rounded-[1px] border-2 border-[var(--xl)] shadow-[0_1px_3px_rgba(16,124,65,0.16)] ${
+                moveTarget ? "opacity-40" : ""
+              }`}
               style={{ ...selRect, top: selRect.top - 1, left: selRect.left - 1, width: selRect.width + 1, height: selRect.height + 1 }}
             >
               {!readOnly && extraRanges.length === 0 && (
-                <div
-                  className="pointer-events-auto absolute -right-[4px] -bottom-[4px] h-[7px] w-[7px] cursor-crosshair border border-white bg-[var(--xl)] transition-transform duration-200 ease-smooth hover:scale-125 dark:border-[var(--xl-sheet)]"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    dragging.current = "fill";
-                    setFill({ toRow: range.r2 });
-                  }}
-                  title="Arraste para preencher"
-                />
+                <>
+                  {/* Bordas para mover células arrastando (como no Excel) */}
+                  <div
+                    className="pointer-events-auto absolute -top-[4px] left-0 right-0 h-[8px] cursor-move"
+                    onMouseDown={startMove}
+                    title="Arraste a borda para mover para outro local"
+                  />
+                  <div
+                    className="pointer-events-auto absolute top-0 -left-[4px] bottom-0 w-[8px] cursor-move"
+                    onMouseDown={startMove}
+                    title="Arraste a borda para mover para outro local"
+                  />
+                  <div
+                    className="pointer-events-auto absolute top-0 -right-[4px] bottom-[8px] w-[8px] cursor-move"
+                    onMouseDown={startMove}
+                    title="Arraste a borda para mover para outro local"
+                  />
+                  <div
+                    className="pointer-events-auto absolute -bottom-[4px] left-0 right-[8px] h-[8px] cursor-move"
+                    onMouseDown={startMove}
+                    title="Arraste a borda para mover para outro local"
+                  />
+
+                  {/* Alça de preenchimento (canto inferior direito) */}
+                  <div
+                    className="pointer-events-auto absolute -right-[4px] -bottom-[4px] h-[7px] w-[7px] cursor-crosshair border border-white bg-[var(--xl)] transition-transform duration-200 ease-smooth hover:scale-125 dark:border-[var(--xl-sheet)]"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dragging.current = "fill";
+                      setFill({ toRow: range.r2 });
+                    }}
+                    title="Arraste para preencher"
+                  />
+                </>
               )}
             </div>
+          )}
+          {moveTarget && (
+            <div
+              className="xl-move-box pointer-events-none absolute z-[8] rounded-[1px] border-2 border-dashed border-[var(--xl)] bg-[var(--xl-soft)]/25 shadow-[0_2px_12px_rgba(16,124,65,0.25)] transition-[top,left,width,height] duration-75 ease-out"
+              style={{ ...rectOf(moveTarget.dst), top: rectOf(moveTarget.dst).top - 1, left: rectOf(moveTarget.dst).left - 1, width: rectOf(moveTarget.dst).width + 1, height: rectOf(moveTarget.dst).height + 1 }}
+            />
           )}
           {fillRect && (
             <div className="xl-sel-box pointer-events-none absolute z-[5] border border-dashed border-[#555]" style={{ left: selRect.left, width: selRect.width, ...fillRect }} />
@@ -2036,6 +2309,9 @@ export function SheetGrid(props: Props) {
               y={menu.y}
               readOnly={readOnly}
               rowCount={selectedRowIds().length}
+              colCountSel={selectedColIds.length}
+              fullRows={fullRowsInSelection()}
+              fullCols={fullColsSelected.length > 0}
               column={sel.focus.c < colCount ? columns[sel.focus.c] : null}
               cellValue={valueAt(sel.focus.r, sel.focus.c)}
               onClose={() => {
@@ -2044,10 +2320,7 @@ export function SheetGrid(props: Props) {
               }}
               onCopy={() => copyRange(false)}
               onCut={() => copyRange(true)}
-              onPaste={async () => {
-                const text = await navigator.clipboard?.readText().catch(() => "");
-                if (text) pasteFromClipboard(text, "");
-              }}
+              onPaste={pasteFromSystemClipboard}
               onClear={clearRange}
               onFillDown={range.r2 > range.r1 ? () => applyFill(range.r2, true) : null}
               onSort={(dir) => sel.focus.c < colCount && props.onSortColumn(columns[sel.focus.c], dir)}
@@ -2056,7 +2329,8 @@ export function SheetGrid(props: Props) {
                 const v = valueAt(sel.focus.r, sel.focus.c);
                 if (col && v !== undefined) props.onFilterByValue(col, v);
               }}
-              onDelete={() => props.onDeleteRows(selectedRowIds())}
+              onDelete={deleteSelectedRows}
+              onDeleteColumns={deleteSelectedColumns}
               onRestore={() => props.onRestoreRows(selectedRowIds())}
               onHistory={rows[sel.focus.r - 1] ? () => props.onRowHistory(rows[sel.focus.r - 1].id) : null}
             />
@@ -2085,7 +2359,9 @@ function Cell({
   selected,
   gridLine,
   readOnly,
+  editingActive,
   onToggle,
+  onEdit,
 }: {
   r: number;
   c: number;
@@ -2106,12 +2382,14 @@ function Cell({
   selected: boolean;
   gridLine: string;
   readOnly: boolean;
+  editingActive: boolean;
   onToggle: () => void;
+  onEdit: () => void;
 }) {
   // Igual ao Excel: número e data à direita, texto à esquerda, caixa de seleção no centro.
   const rightAligned = isNumericType(col.type) || col.type === "DATE";
   const textClass = expanded ? "whitespace-normal break-words leading-[1.2]" : "truncate";
-  const base = `xl-cell flex shrink-0 items-center overflow-hidden border-r border-b px-[5px] text-[length:var(--xl-fs)] ${expanded ? "py-[3px]" : "leading-none"} text-[var(--xl-cell-text)] ${gridLine} ${
+  const base = `group/cell xl-cell flex shrink-0 items-center overflow-hidden border-r border-b px-[5px] text-[length:var(--xl-fs)] ${expanded ? "py-[3px]" : "leading-none"} text-[var(--xl-cell-text)] ${gridLine} ${
     rightAligned ? "justify-end" : ""
   }`;
   // Se a célula tem cor de preenchimento (fill) sem cor de fonte explícita, garante contraste no tema escuro/claro.
@@ -2170,23 +2448,44 @@ function Cell({
       );
     } else if (col.type === "CONTACT" || col.type === "DEAL") {
       const href = col.type === "CONTACT" ? `/clientes/${value}` : `/negocios/${value}`;
+      const noun = col.type === "CONTACT" ? "cliente" : "negócio";
       content = (
-        <span className={`group/ref flex min-w-0 items-center gap-1 ${expanded ? "flex-wrap" : ""}`}>
+        <span className={`flex w-full min-w-0 items-center justify-between gap-1 ${expanded ? "flex-wrap" : ""}`}>
           <Link
             href={href}
             onMouseDown={(e) => {
-              // Como um hiperlink do Excel: clique seleciona; Ctrl+clique abre.
-              if (e.ctrlKey || e.metaKey) e.stopPropagation();
+              if (!e.shiftKey && !editingActive) e.stopPropagation();
+            }}
+            onDoubleClick={(e) => {
+              if (!editingActive) e.stopPropagation();
             }}
             onClick={(e) => {
-              if (!(e.ctrlKey || e.metaKey)) e.preventDefault();
+              if (e.shiftKey || editingActive) e.preventDefault();
             }}
-            title="Ctrl+clique para abrir no CRM"
-            className={`${textClass} text-[#0563c1] underline decoration-[#0563c1]/40 underline-offset-2 dark:text-sky-400`}
+            title={`Clique para abrir a ficha do ${noun}`}
+            className={`group/ref -mx-1 inline-flex max-w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[#0563c1] underline decoration-[#0563c1]/40 underline-offset-2 transition-colors hover:bg-[#0563c1]/10 hover:decoration-[#0563c1] dark:text-sky-400 dark:decoration-sky-400/40 dark:hover:bg-sky-400/15 dark:hover:decoration-sky-400`}
           >
-            {displayCell(col, value, refs)}
+            <span className={textClass}>{displayCell(col, value, refs)}</span>
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover/ref:opacity-100" />
           </Link>
-          <ExternalLink className="h-3 w-3 shrink-0 text-neutral-400 opacity-0 group-hover/ref:opacity-100" />
+          {!readOnly && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              title={`Trocar ${noun} vinculado`}
+              aria-label={`Trocar ${noun} vinculado`}
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-neutral-400 opacity-0 transition-opacity group-hover/cell:opacity-100 hover:bg-black/10 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          )}
         </span>
       );
     } else if (col.type === "URL" || col.type === "EMAIL") {
@@ -2197,13 +2496,16 @@ function Cell({
           target={col.type === "URL" ? "_blank" : undefined}
           rel="noopener noreferrer"
           onMouseDown={(e) => {
-            if (e.ctrlKey || e.metaKey) e.stopPropagation();
+            if (!e.shiftKey && !editingActive) e.stopPropagation();
+          }}
+          onDoubleClick={(e) => {
+            if (!editingActive) e.stopPropagation();
           }}
           onClick={(e) => {
-            if (!(e.ctrlKey || e.metaKey)) e.preventDefault();
+            if (e.shiftKey || editingActive) e.preventDefault();
           }}
-          title="Ctrl+clique para abrir"
-          className={`${textClass} text-[#0563c1] underline decoration-[#0563c1]/40 underline-offset-2 dark:text-sky-400`}
+          title="Clique para abrir"
+          className={`${textClass} text-[#0563c1] underline decoration-[#0563c1]/40 underline-offset-2 hover:decoration-[#0563c1] dark:text-sky-400 dark:hover:decoration-sky-400`}
         >
           {col.type === "URL" ? String(value).replace(/^https?:\/\//, "").replace(/\/$/, "") : String(value)}
         </a>
@@ -2225,6 +2527,9 @@ function ContextMenu(props: {
   y: number;
   readOnly: boolean;
   rowCount: number;
+  colCountSel: number;
+  fullRows: boolean;
+  fullCols: boolean;
   column: ClientColumn | null;
   cellValue: CellValue | undefined;
   onClose: () => void;
@@ -2236,6 +2541,7 @@ function ContextMenu(props: {
   onSort: (dir: "asc" | "desc") => void;
   onFilterByValue: () => void;
   onDelete: () => void;
+  onDeleteColumns: () => void;
   onRestore: () => void;
   onHistory: (() => void) | null;
 }) {
@@ -2256,7 +2562,13 @@ function ContextMenu(props: {
     </button>
   );
   const sep = <div className="my-1 border-t border-neutral-200 dark:border-neutral-700" />;
-  const plural = props.rowCount > 1 ? `${props.rowCount} linhas` : "linha";
+  const rowsLabel = props.rowCount > 1 ? `${props.rowCount} Linhas` : "Linha";
+  const colsLabel = props.colCountSel > 1 ? `${props.colCountSel} Colunas` : "Coluna";
+  // Linha(s) inteira(s) → só "Excluir linhas"; coluna(s) inteira(s) → só "Excluir colunas";
+  // células comuns → as duas opções, explícitas (o Excel pergunta numa caixa).
+  const showRows = props.rowCount > 0 && (props.fullRows || !props.fullCols);
+  const showCols = !props.readOnly && props.colCountSel > 0 && (props.fullCols || !props.fullRows);
+  const plainCells = !props.fullRows && !props.fullCols;
   const col = props.column;
   const refLink =
     col && typeof props.cellValue === "string"
@@ -2290,8 +2602,12 @@ function ContextMenu(props: {
         </Link>
       )}
       {props.onHistory && item("Histórico da Linha", props.onHistory)}
-      {props.rowCount > 0 && sep}
-      {props.rowCount > 0 && (props.readOnly ? item(`Restaurar ${plural}`, props.onRestore) : item(`Excluir ${plural}`, props.onDelete, { danger: true }))}
+      {(showRows || showCols) && sep}
+      {showRows &&
+        (props.readOnly
+          ? item(`Restaurar ${rowsLabel}`, props.onRestore)
+          : item(plainCells ? `Excluir ${rowsLabel} da Planilha` : `Excluir ${rowsLabel}`, props.onDelete, { danger: true, hint: props.fullRows ? "Ctrl+-" : undefined }))}
+      {showCols && item(plainCells ? `Excluir ${colsLabel} da Planilha` : `Excluir ${colsLabel}`, props.onDeleteColumns, { danger: true, hint: props.fullCols ? "Ctrl+-" : undefined })}
     </div>
   );
 }

@@ -75,6 +75,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     tags,
     responsavelId,
     customFieldValues,
+    customFieldValuesPatch,
   } = body as {
     name?: string;
     email?: string;
@@ -95,6 +96,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     tags?: string[];
     responsavelId?: string | null;
     customFieldValues?: Record<string, unknown>;
+    /** Só os campos enviados mudam (Planilhas → Enviar ao CRM); `customFieldValues` substitui o conjunto inteiro, como a ficha faz. */
+    customFieldValuesPatch?: Record<string, unknown>;
   };
 
   const { organizationId, userId } = await requireSession();
@@ -234,13 +237,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     let cleanCustomFieldValues;
-    if ("customFieldValues" in body) {
+    if ("customFieldValues" in body || customFieldValuesPatch !== undefined) {
       const fieldDefs = await prisma.customFieldDefinition.findMany({
         where: { organizationId, entityType: "CONTACT" },
       });
+      const incoming =
+        customFieldValuesPatch !== undefined
+          ? { ...((existing.customFieldValues ?? {}) as Record<string, unknown>), ...customFieldValuesPatch }
+          : customFieldValues;
       try {
         // existing.customFieldValues: CPF legado inválido que NÃO mudou não pode travar a edição (ver validateCustomFieldValues).
-        cleanCustomFieldValues = validateCustomFieldValues(fieldDefs, customFieldValues, existing.customFieldValues as Record<string, unknown> | null);
+        cleanCustomFieldValues = validateCustomFieldValues(
+          fieldDefs,
+          incoming,
+          existing.customFieldValues as Record<string, unknown> | null,
+        );
       } catch (err) {
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }

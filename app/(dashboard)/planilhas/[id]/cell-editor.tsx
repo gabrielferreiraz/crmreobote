@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Plus, Search } from "lucide-react";
+import Link from "next/link";
+import { Check, ExternalLink, Plus, Search, X } from "lucide-react";
 import { LoadingDots } from "@/components/loading-dots";
 import { columnOptions, editText, type ClientColumn } from "@/lib/sheets/format";
 import { FUNCTIONS, lookupFunction } from "@/lib/sheets/formula";
-import type { CellValue } from "@/lib/sheets/column-types";
+import { isMultiUserColumn, refIds, type CellValue } from "@/lib/sheets/column-types";
 
 /** Como a edição terminou — decide para onde o cursor vai (igual ao Excel). */
 export type CommitMove = "down" | "up" | "right" | "left" | "none" | "selection";
@@ -19,7 +20,8 @@ type EditorProps = {
   formula?: string;
   rect: { top: number; left: number; width: number; height: number };
   refs: Record<string, string>;
-  onCommit: (raw: unknown, move: CommitMove, refLabel?: string) => void;
+  /** refLabel: nome do escolhido (vários membros: { id: nome }) — a tela mostra sem esperar o servidor. */
+  onCommit: (raw: unknown, move: CommitMove, refLabel?: string | Record<string, string>) => void;
   onCancel: () => void;
   onAddOption: (option: string) => Promise<boolean>;
   /** Modo "apontar" do Excel: enquanto a fórmula espera uma referência, clicar numa célula a insere. */
@@ -53,7 +55,7 @@ export function CellEditor(props: EditorProps) {
     case "USER":
     case "CONTACT":
     case "DEAL":
-      return <ReferenceEditor {...props} />;
+      return isMultiUserColumn(props.column) ? <MultiMemberEditor {...props} /> : <ReferenceEditor {...props} />;
     case "LONG_TEXT":
       return <TextEditor {...props} multiline />;
     default:
@@ -479,6 +481,142 @@ function OptionsEditor({ column, value, initialText, rect, onCommit, onCancel, o
 
 type LookupItem = { id: string; label: string; hint: string | null };
 
+/**
+ * Membro da equipe com vários por célula (venda dividida): clicar/Enter marca e desmarca,
+ * "Concluir" (ou sair da caixa) grava a lista; Esc cancela.
+ */
+function MultiMemberEditor({ value, initialText, rect, refs, onCommit, onCancel }: EditorProps) {
+  const [query, setQuery] = useState(initialText ?? "");
+  const [items, setItems] = useState<LookupItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  const [selected, setSelected] = useState<string[]>(() => refIds(value));
+  const [labels, setLabels] = useState<Record<string, string>>(() => Object.fromEntries(refIds(value).map((id) => [id, refs[id] ?? "…"])));
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => inputRef.current?.focus(), []);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/sheets/lookup?type=USER&q=${encodeURIComponent(query)}`, { signal: ctrl.signal });
+        const data = await res.json();
+        setItems(data.items ?? []);
+        setCursor(0);
+      } catch {
+        /* busca cancelada pela próxima tecla */
+      } finally {
+        setLoading(false);
+      }
+    }, 200);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [query]);
+
+  const toggle = (it: LookupItem) => {
+    setLabels((l) => ({ ...l, [it.id]: it.label }));
+    setSelected((s) => (s.includes(it.id) ? s.filter((x) => x !== it.id) : [...s, it.id]));
+  };
+  const done = (move: CommitMove) => onCommit(selected.length ? selected : null, move, labels);
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setCursor((c) => Math.min(c + 1, items.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setCursor((c) => Math.max(c - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      // Enter com busca vazia confirma; com busca, marca/desmarca o membro destacado.
+      if (!query.trim() || e.ctrlKey || e.metaKey) return done(e.ctrlKey || e.metaKey ? "selection" : "down");
+      const it = items[cursor];
+      if (it) {
+        toggle(it);
+        setQuery("");
+      }
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      done(e.shiftKey ? "left" : "right");
+    }
+  }
+
+  return (
+    <Popover rect={rect}>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1 border-b border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
+          {selected.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">
+              {labels[id] ?? refs[id] ?? "…"}
+              <button
+                type="button"
+                aria-label="Remover membro"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setSelected((s) => s.filter((x) => x !== id))}
+                className="hover:text-red-600"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 border-b border-neutral-100 px-2 dark:border-neutral-800">
+        <Search className="h-3.5 w-3.5 text-neutral-400" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={() => done("none")}
+          placeholder="Buscar membro — marque um ou mais"
+          className="w-full bg-transparent py-2 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+        />
+        {loading && <LoadingDots />}
+      </div>
+      <ul className="max-h-64 overflow-auto py-1">
+        {items.map((it, i) => {
+          const on = selected.includes(it.id);
+          return (
+            <li key={it.id}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setCursor(i)}
+                onClick={() => toggle(it)}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${i === cursor ? "bg-neutral-100 dark:bg-neutral-800" : ""}`}
+              >
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? "border-brand bg-brand text-white" : "border-neutral-300 dark:border-neutral-600"}`}>
+                  {on && <Check className="h-3 w-3" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate text-sm ${on ? "font-semibold text-brand" : "text-neutral-900 dark:text-neutral-100"}`}>{it.label}</span>
+                  {it.hint && <span className="block truncate text-xs text-neutral-500">{it.hint}</span>}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        {!loading && !items.length && <li className="px-3 py-2 text-xs text-neutral-400">Nenhum membro encontrado</li>}
+      </ul>
+      <div className="flex items-center justify-between gap-2 border-t border-neutral-100 px-3 py-1.5 text-xs dark:border-neutral-800">
+        <button type="button" onMouseDown={(e) => e.preventDefault()} className="text-neutral-500 hover:text-red-600 dark:text-neutral-400" onClick={() => onCommit(null, "none")}>
+          Limpar
+        </button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} className="font-medium text-brand" onClick={() => done("down")}>
+          Concluir ({selected.length})
+        </button>
+      </div>
+    </Popover>
+  );
+}
+
 function ReferenceEditor({ column, value, initialText, rect, refs, onCommit, onCancel }: EditorProps) {
   const [query, setQuery] = useState(initialText ?? "");
   const [items, setItems] = useState<LookupItem[]>([]);
@@ -562,9 +700,20 @@ function ReferenceEditor({ column, value, initialText, rect, refs, onCommit, onC
         {!loading && !items.length && <li className="px-3 py-2 text-xs text-neutral-400">Nenhum {noun} encontrado</li>}
       </ul>
       {value !== undefined && (
-        <div className="flex items-center justify-between border-t border-neutral-100 px-3 py-1.5 text-xs dark:border-neutral-800">
-          <span className="truncate text-neutral-500">Atual: {refs[String(value)] ?? "—"}</span>
-          <button type="button" className="text-neutral-500 hover:text-red-600 dark:text-neutral-400 dark:hover:text-red-400" onClick={() => onCommit(null, "none")}>Remover</button>
+        <div className="flex items-center justify-between gap-2 border-t border-neutral-100 px-3 py-1.5 text-xs dark:border-neutral-800">
+          {column.type === "CONTACT" || column.type === "DEAL" ? (
+            <Link
+              href={column.type === "CONTACT" ? `/clientes/${value}` : `/negocios/${value}`}
+              className="inline-flex min-w-0 items-center gap-1 truncate font-medium text-[#0563c1] hover:underline dark:text-sky-400"
+              title={`Abrir ficha do ${noun}`}
+            >
+              <span className="truncate">{refs[String(value)] ?? `Abrir ${noun}`}</span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </Link>
+          ) : (
+            <span className="truncate text-neutral-500">Atual: {refs[String(value)] ?? "—"}</span>
+          )}
+          <button type="button" className="shrink-0 text-neutral-500 hover:text-red-600 dark:text-neutral-400 dark:hover:text-red-400" onClick={() => onCommit(null, "none")}>Remover</button>
         </div>
       )}
     </Popover>

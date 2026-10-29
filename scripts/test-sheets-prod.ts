@@ -46,6 +46,8 @@ async function main() {
     await tx.sheet.delete({ where: { id: blankSheet.id } });
   });
   let ok = 0;
+  let gapSheetId: string | null = null;
+  let muSheetId: string | null = null;
   const step = (name: string) => console.log(`✔ ${++ok}. ${name}`);
   try {
     const sheet = await getSheet(ORG, id);
@@ -236,7 +238,78 @@ async function main() {
 
     assert.ok((await listSheets(ORG)).some((s) => s.id === id && s.rowCount === 3));
     step("listagem com contagem de linhas");
+
+    // Colar/digitar na linha 4 de uma planilha vazia: a tela manda as linhas 2 e 3 vazias junto,
+    // e o valor tem de ficar na linha 4 (rank 3), não subir para a 2.
+    gapSheetId = (await createSheet(actor, { name: `[TESTE] lacunas ${Date.now()}`, columns: [{ name: "A", type: "TEXT" }] })).id;
+    const gapCol = (await getSheet(ORG, gapSheetId)).columns[0].id;
+    await insertRows(actor, gapSheetId, [{}, {}, { [gapCol]: "linha 4" }]);
+    const gapRows = await queryRows(ORG, gapSheetId, { limit: 10 });
+    assert.equal(gapRows.total, 3);
+    assert.equal(gapRows.rows.find((r) => r.values[gapCol] === "linha 4")?.rank, 3);
+    step("linhas vazias no meio de um colar: o valor fica na linha certa (linha 4)");
+
+    // Texto → Membro da equipe com "De → Para": FRED → 1 membro, "EDU/FELIPE" → 2 (venda dividida).
+    const team = await runWithTenant(ORG, () =>
+      prisma.organizationUser.findMany({ where: { organizationId: ORG, active: true }, select: { userId: true }, take: 2, orderBy: { createdAt: "asc" } }),
+    );
+    assert.equal(team.length, 2, "precisa de 2 membros ativos");
+    const [m1, m2] = team.map((t) => t.userId);
+    muSheetId = (await createSheet(actor, { name: `[TESTE] membros ${Date.now()}`, columns: [{ name: "Consultor", type: "TEXT" }, { name: "Valor", type: "CURRENCY" }] })).id;
+    const [cCons, cVal] = (await getSheet(ORG, muSheetId)).columns.map((c) => c.id);
+    await insertRows(actor, muSheetId, [
+      { [cCons]: "FRED", [cVal]: 100 },
+      { [cCons]: "EDU/FELIPE", [cVal]: 300 },
+      { [cCons]: "FRED", [cVal]: 50 },
+      { [cCons]: "NINGUEM", [cVal]: 7 },
+    ]);
+    const conflict = await updateColumn(actor, muSheetId, cCons, { type: "USER" }).then(
+      () => null,
+      (e: SheetError) => e,
+    );
+    assert.equal(conflict?.status, 409);
+    const listed = (conflict?.details as { invalidValues: { value: string; count: number }[] }).invalidValues;
+    assert.deepEqual(listed.find((v) => v.value === "FRED"), { value: "FRED", count: 2 });
+    assert.ok(listed.some((v) => v.value === "EDU/FELIPE"));
+    // Dois membros numa coluna de um só: recusado com orientação.
+    await assert.rejects(updateColumn(actor, muSheetId, cCons, { type: "USER", valueMap: { "EDU/FELIPE": [m1, m2] }, onInvalid: "clear" }), SheetError);
+    // Membro de fora da equipe: recusado.
+    await assert.rejects(updateColumn(actor, muSheetId, cCons, { type: "USER", config: { multiple: true }, valueMap: { FRED: ["cxxxxxxxxxxxxxxxxxxxxxxxx"] }, onInvalid: "clear" }), SheetError);
+    await updateColumn(actor, muSheetId, cCons, { type: "USER", config: { multiple: true }, valueMap: { FRED: [m1], "EDU/FELIPE": [m1, m2] }, onInvalid: "clear" });
+    const mu = await queryRows(ORG, muSheetId, { limit: 10 });
+    const byVal = new Map(mu.rows.map((r) => [r.values[cVal], r.values[cCons]]));
+    assert.deepEqual(byVal.get(100), [m1]);
+    assert.deepEqual(byVal.get(300), [m1, m2]);
+    assert.equal(byVal.get(7), undefined, "sem membro: limpo");
+    // Resumo por membro: a venda dividida conta para os dois.
+    const groups = await summarizeRows(ORG, muSheetId, { groupBy: cCons, metrics: [{ fn: "count" }, { columnId: cVal, fn: "sum" }] });
+    const g2 = groups.find((g) => g.group === m2) as unknown as { values: number[] } | undefined;
+    const g1 = groups.find((g) => g.group === m1) as unknown as { values: number[] } | undefined;
+    assert.ok(g1 && g2, "grupos por membro");
+    assert.deepEqual(g1.values.map(Number), [3, 450]); // FRED ×2 + metade "EDU/FELIPE"
+    assert.deepEqual(g2.values.map(Number), [1, 300]);
+    // Filtro do AutoFiltro: só as linhas do membro 2.
+    const only2 = await queryRows(ORG, muSheetId, { filters: [{ columnId: cCons, op: "in", value: [m2] }], limit: 10 });
+    assert.equal(only2.total, 1);
+    // Gravar direto: lista de ids, e um id inexistente é recusado.
+    await insertRows(actor, muSheetId, [{ [cCons]: [m2, m1] }]);
+    await assert.rejects(insertRows(actor, muSheetId, [{ [cCons]: ["cxxxxxxxxxxxxxxxxxxxxxxxx"] }]), SheetError);
+    step("Texto → Membro com De → Para (FRED → 1, EDU/FELIPE → 2), resumo e filtro por membro");
   } finally {
+    if (muSheetId) {
+      const mid = muSheetId;
+      await prismaRaw.$transaction(async (tx) => {
+        await setTenantOnTx(tx, ORG);
+        await tx.sheet.delete({ where: { id: mid } });
+      });
+    }
+    if (gapSheetId) {
+      const gid = gapSheetId;
+      await prismaRaw.$transaction(async (tx) => {
+        await setTenantOnTx(tx, ORG);
+        await tx.sheet.delete({ where: { id: gid } });
+      });
+    }
     await prismaRaw.$transaction(async (tx) => {
       await setTenantOnTx(tx, ORG);
       await tx.sheet.delete({ where: { id } });

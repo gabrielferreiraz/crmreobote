@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, FileSpreadsheet, Plus, Search, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, FileSpreadsheet, Plus, Search, Trash2, Upload } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
@@ -31,6 +31,9 @@ export function SheetsHome({ initialSheets, initialArchived }: { initialSheets: 
   const [importing, setImporting] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<SheetCard | null>(null);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SheetCard | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const list = showArchived ? archived : sheets;
   const filtered = useMemo(() => {
@@ -60,6 +63,26 @@ export function SheetsHome({ initialSheets, initialArchived }: { initialSheets: 
     setSheets((current) => current.filter((item) => item.id !== sheet.id));
     setArchived((current) => [{ ...sheet, updatedAt: new Date().toISOString() }, ...current]);
     setArchiveTarget(null);
+  }
+
+  async function deletePermanently(sheet: SheetCard) {
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/sheets/${sheet.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setDeleteError(data?.error ?? "Não foi possível apagar a planilha");
+        return;
+      }
+      setArchived((current) => current.filter((item) => item.id !== sheet.id));
+      setSheets((current) => current.filter((item) => item.id !== sheet.id));
+      setDeleteTarget(null);
+    } catch {
+      setDeleteError("Erro ao conectar com o servidor");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -132,11 +155,20 @@ export function SheetsHome({ initialSheets, initialArchived }: { initialSheets: 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((s) =>
             showArchived ? (
-              <div key={s.id} className="flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-4 opacity-80 dark:border-neutral-800 dark:bg-neutral-900">
+              <div key={s.id} className="flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-4 opacity-90 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
                 <SheetCardBody sheet={s} />
-                <button type="button" className="btn-secondary btn-sm mt-1 inline-flex items-center justify-center gap-1.5 self-start" onClick={() => restore(s)}>
-                  <ArchiveRestore className="h-3.5 w-3.5" /> Restaurar
-                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button type="button" className="btn-secondary btn-sm inline-flex items-center justify-center gap-1.5" onClick={() => restore(s)}>
+                    <ArchiveRestore className="h-3.5 w-3.5" /> Restaurar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-sm inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-medium text-red-600 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-900/60"
+                    onClick={() => { setDeleteError(null); setDeleteTarget(s); }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Apagar permanentemente
+                  </button>
+                </div>
               </div>
             ) : (
               <div key={s.id} className="group relative rounded-xl border border-neutral-200 bg-white transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-brand/50">
@@ -182,11 +214,22 @@ export function SheetsHome({ initialSheets, initialArchived }: { initialSheets: 
       {archiveTarget && (
         <ConfirmDialog
           title={`Arquivar ${archiveTarget.name}?`}
-          description="Ela sai da lista ativa, mas os dados e o histórico ficam guardados. Você pode restaurar depois."
+          description="Ela sai da lista ativa, mas os dados e o histórico ficam guardados. Você pode restaurar depois ou apagá-la permanentemente na aba Arquivadas."
           error={archiveError}
           confirmLabel="Arquivar"
           onConfirm={() => archive(archiveTarget)}
           onClose={() => { setArchiveTarget(null); setArchiveError(null); }}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title={`Apagar permanentemente a planilha "${deleteTarget.name}"?`}
+          description="Esta ação não pode ser desfeita. Todas as colunas, linhas, vínculos com o CRM e o histórico de alterações desta planilha serão apagados definitivamente."
+          error={deleteError}
+          confirmLabel={deleting ? "Apagando..." : "Apagar permanentemente"}
+          danger
+          onConfirm={() => deletePermanently(deleteTarget)}
+          onClose={() => { if (!deleting) { setDeleteTarget(null); setDeleteError(null); } }}
         />
       )}
     </div>

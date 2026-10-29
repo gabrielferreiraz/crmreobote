@@ -14,6 +14,8 @@ import { NO_FORMULA_TYPES } from "@/lib/sheets/formula";
 import {
   CellValueError,
   coerceCellValue,
+  isMonthYearDate,
+  isMultiUserColumn,
   normalizeColumnConfig,
   REFERENCE_TYPES,
   type SheetColumnType,
@@ -172,7 +174,7 @@ export async function updateSheet(actor: SheetActor, sheetId: string, input: { n
   }
 }
 
-/** Arquivar esconde (reversível). Não existe "apagar de vez" pela tela de propósito. */
+/** Arquivar esconde (reversível). */
 export async function setSheetArchived(actor: SheetActor, sheetId: string, archived: boolean) {
   return prismaRaw.$transaction(async (tx) => {
     await setTenantOnTx(tx, actor.organizationId);
@@ -188,6 +190,22 @@ export async function setSheetArchived(actor: SheetActor, sheetId: string, archi
     await tx.sheetActivity.create({
       data: { organizationId: actor.organizationId, sheetId, userId: actor.userId, source: actor.source, action: archived ? "SHEET_ARCHIVED" : "SHEET_RESTORED" },
     });
+  });
+}
+
+/** Apaga a planilha permanentemente do banco de dados (colunas, linhas, vínculos e atividades em cascata). */
+export async function deleteSheet(actor: SheetActor, sheetId: string) {
+  return prismaRaw.$transaction(async (tx) => {
+    await setTenantOnTx(tx, actor.organizationId);
+    const sheet = await tx.sheet.findFirst({
+      where: { id: sheetId, organizationId: actor.organizationId },
+      select: { id: true, name: true },
+    });
+    if (!sheet) throw sheetNotFound();
+    await tx.sheet.delete({
+      where: { id: sheetId },
+    });
+    return sheet;
   });
 }
 
@@ -250,7 +268,13 @@ export async function updateColumn(
   actor: SheetActor,
   sheetId: string,
   columnId: string,
-  input: Partial<ColumnInput> & { position?: number; force?: boolean; onInvalid?: "clear" | "zero" | "addOptions" },
+  input: Partial<ColumnInput> & {
+    position?: number;
+    force?: boolean;
+    onInvalid?: "clear" | "zero" | "addOptions";
+    /** Texto da célula → membro(s), ao converter para Membro da equipe (ver updateColumnSchema). */
+    valueMap?: Record<string, string[]>;
+  },
 ) {
   return prismaRaw.$transaction(
     async (tx) => {
@@ -274,13 +298,42 @@ export async function updateColumn(
         next.config = cfg.config;
       }
 
-      const valuesMayBreak = next.type !== current.type || next.type === "SELECT" || next.type === "MULTI_SELECT";
+      // "De → Para" só vale para Membro da equipe; os ids precisam ser membros desta organização.
+      const valueMap = new Map<string, string[]>();
+      if (input.valueMap && next.type === "USER") {
+        const entries = Object.entries(input.valueMap);
+        if (entries.length > 5_000) throw new SheetError(400, "Valores demais para trocar de uma vez");
+        const wanted = [...new Set(entries.flatMap(([, ids]) => ids))];
+        const found = await tx.organizationUser.findMany({ where: { organizationId: actor.organizationId, userId: { in: wanted } }, select: { userId: true } });
+        if (found.length !== wanted.length) throw new SheetError(400, "Algum membro escolhido não faz parte da equipe");
+        const multi = isMultiUserColumn({ type: next.type, config: next.config });
+        for (const [text, ids] of entries) {
+          const unique = [...new Set(ids)];
+          if (!multi && unique.length > 1) throw new SheetError(400, `"${text}" tem mais de um membro — marque "Vários membros por célula"`);
+          valueMap.set(text.trim(), unique);
+        }
+      }
+
+      const valuesMayBreak =
+        next.type !== current.type ||
+        next.type === "SELECT" ||
+        next.type === "MULTI_SELECT" ||
+        valueMap.size > 0 ||
+        (next.type === "USER" && JSON.stringify(next.config) !== JSON.stringify(current.config));
       if (valuesMayBreak || (next.required && !current.required)) {
         const rows = await tx.sheetRow.findMany({
           where: { sheetId, organizationId: actor.organizationId, deletedAt: null },
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
           select: { id: true, values: true, formulas: true },
         });
+        // Ao trocar Texto → Data, uma coluna composta só
+        // por mês/ano mantém essa apresentação ("outubro de 2026").
+        if (next.type === "DATE" && current.type !== "DATE") {
+          const filled = rows
+            .map((row) => (row.values as Record<string, unknown>)[columnId])
+            .filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
+          if (filled.length > 0 && filled.every(isMonthYearDate)) next.config = { dateFormat: "monthYear" };
+        }
         // Se mudou para Lista de opções (SELECT/MULTI_SELECT) sem opções definidas (ou pediu "addOptions"),
         // coleta automaticamente os valores existentes da coluna como opções para não perder dados.
         if (next.type === "SELECT" || next.type === "MULTI_SELECT") {
@@ -318,6 +371,10 @@ export async function updateColumn(
         const invalid: string[] = [];
         const invalidSamples: { rowNumber: number; value: string }[] = [];
         const converted: { id: string; value: unknown }[] = [];
+        // Valores distintos que não cabem, com quantas células cada um (para a tela montar o "De → Para").
+        const invalidValues = new Map<string, number>();
+        const keyOf = (raw: unknown) => (Array.isArray(raw) ? raw.join(", ") : String(raw)).trim();
+        const multiUser = isMultiUserColumn({ type: next.type, config: next.config });
         let empty = 0;
         for (let idx = 0; idx < rows.length; idx++) {
           const r = rows[idx];
@@ -332,6 +389,11 @@ export async function updateColumn(
             empty++;
             continue;
           }
+          const mapped = valueMap.size ? valueMap.get(keyOf(raw)) : undefined;
+          if (mapped) {
+            converted.push({ id: r.id, value: multiUser ? mapped : mapped[0] });
+            continue;
+          }
           try {
             // Ao converter, o valor antigo vira texto primeiro (ex.: número → texto "12.5").
             const v = coerceCellValue(probe, Array.isArray(raw) && next.type !== "MULTI_SELECT" ? raw.join(", ") : raw);
@@ -339,10 +401,9 @@ export async function updateColumn(
           } catch (err) {
             if (!(err instanceof CellValueError)) throw err;
             invalid.push(r.id);
-            if (invalidSamples.length < 8) {
-              const display = Array.isArray(raw) ? raw.join(", ") : String(raw);
-              invalidSamples.push({ rowNumber, value: display.slice(0, 60) });
-            }
+            const key = keyOf(raw);
+            invalidValues.set(key, (invalidValues.get(key) ?? 0) + 1);
+            if (invalidSamples.length < 8) invalidSamples.push({ rowNumber, value: key.slice(0, 60) });
           }
         }
         const canZero = input.onInvalid === "zero" && (next.type === "NUMBER" || next.type === "CURRENCY" || next.type === "PERCENT");
@@ -352,6 +413,10 @@ export async function updateColumn(
             invalidCount: invalid.length,
             sampleRowIds: invalid.slice(0, 20),
             invalidSamples,
+            invalidValues: [...invalidValues.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 2_000)
+              .map(([value, count]) => ({ value: value.slice(0, 1_000), count })),
             emptyCount: empty,
           });
         }

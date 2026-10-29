@@ -21,6 +21,8 @@ import {
   coerceRowPatch,
   missingRequired,
   NUMERIC_TYPES,
+  isMultiUserColumn,
+  refIds,
   type CellValue,
 } from "@/lib/sheets/column-types";
 
@@ -100,8 +102,7 @@ async function assertReferences(tx: Tx, organizationId: string, columns: SheetCo
     if (col.type !== "USER" && col.type !== "CONTACT" && col.type !== "DEAL") continue;
     const bucket = wanted[col.type];
     rows.forEach((r, rowIndex) => {
-      const v = r[col.id];
-      if (typeof v === "string" && !bucket.has(v)) bucket.set(v, { columnId: col.id, rowIndex });
+      for (const v of refIds(r[col.id])) if (!bucket.has(v)) bucket.set(v, { columnId: col.id, rowIndex });
     });
   }
   const check = async (ids: Map<string, Ref>, found: string[], label: string) => {
@@ -756,9 +757,9 @@ export async function summarizeRows(
     if (input.groupBy) {
       const g = byId.get(input.groupBy);
       if (!g) throw new SheetError(400, "Agrupamento com coluna inexistente");
-      // MULTI_SELECT: cada opção conta no seu grupo.
+      // MULTI_SELECT e Membro com vários: cada opção/membro conta no seu grupo (venda dividida conta para os dois).
       groupExpr =
-        g.type === "MULTI_SELECT"
+        g.type === "MULTI_SELECT" || isMultiUserColumn(g)
           ? Prisma.sql`jsonb_array_elements_text(COALESCE(r."values" -> ${g.id}, '[]'::jsonb))`
           : Prisma.sql`(r."values" ->> ${g.id})`;
     }

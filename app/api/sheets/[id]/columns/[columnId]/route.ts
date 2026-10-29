@@ -29,7 +29,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try {
     const { archived, ...fields } = parsed.data;
     if (archived !== undefined) await setColumnArchived(actor, id, columnId, archived);
-    const hasFields = [fields.name, fields.type, fields.config, fields.required, fields.position].some((v) => v !== undefined);
+    const hasFields = [fields.name, fields.type, fields.config, fields.required, fields.position, fields.valueMap].some((v) => v !== undefined);
     const column = hasFields ? await updateColumn(actor, id, columnId, fields) : null;
     return NextResponse.json({ ok: true, column });
   } catch (err) {

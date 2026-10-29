@@ -289,6 +289,30 @@ Pedido: visualizar claramente o que mudou na planilha e conseguir voltar a um po
 - Limite inicial: restauração de até 500 eventos posteriores por operação, com rate limit próprio. Sem migration e sem escrita em produção durante o desenvolvimento.
 - Verificação: 55 testes gerais/fórmulas passando; `tsc --noEmit` e ESLint sem erros.
 
+## Aceleração do arraste de seleção (Codex, 2026-10-29)
+Pedido: ao selecionar células e continuar descendo com o mouse, a planilha deve acompanhar mais rápido quanto mais baixo estiver o ponteiro.
+
+- A zona próxima à borda continua com aceleração quadrática curta para permitir seleção precisa.
+- Depois que o ponteiro ultrapassa a borda, a velocidade deixa de ficar limitada ao mesmo valor e cresce continuamente conforme a distância externa, com curva suave e teto de segurança.
+- O eixo vertical usa teto maior que o horizontal, priorizando seleção rápida de muitas linhas; o cálculo continua normalizado pelo tempo entre frames para funcionar igual em telas de 60/120 Hz.
+- Verificação: 55 testes gerais/fórmulas e ESLint da grade passando. O `tsc --noEmit` global ficou bloqueado por duas ocorrências não relacionadas de `SHEET_DELETED` sem rótulo em `audit-log-view.tsx`.
+
+## Datas naturais em português e precisão mês/ano (Codex, 2026-10-29)
+Pedido: ao mudar uma coluna como a da imagem para Data, valores como “outubro 2026” devem ser entendidos e exibidos naturalmente.
+
+- `parseLooseDateInfo` agora entende `outubro 2026`, `outubro de 2026`, `out/2026`, `10/2026`, `2026-10`, `5 de outubro de 2026` e as formas completas já existentes. A validação de dias impossíveis continua ativa.
+- Mês/ano é armazenado de forma ordenável como o primeiro dia do mês (`2026-10-01`), acompanhado pela configuração visual `dateFormat: "monthYear"`; isso preserva filtro, ordenação, fórmulas e exportação como data real.
+- Ao trocar rapidamente Texto → Data, se todos os valores preenchidos tiverem precisão de mês/ano, o servidor escolhe automaticamente “Mês e ano”. A importação `.xlsx/.csv` faz a mesma inferência.
+- A configuração de coluna Data ganhou três aparências: `29/10/2026`, `outubro de 2026` e `29 de outubro de 2026`. A grade, edição, cópia e exportação `.xlsx` respeitam a escolha (`mmmm yyyy` no arquivo).
+- Verificação: 59 testes gerais/fórmulas passando; `tsc --noEmit` e ESLint sem erros. Sem migration, build ou escrita em produção.
+
+### Normalização tolerante de mês/ano
+- Separadores imperfeitos de dados importados agora são aceitos por regex: `junho- 2025`, `junho - 2025`, `junho/2025`, `junho / 2025`, além de hífen curto/longo, convertem para a mesma data real (`2025-06-01`).
+- A apresentação canônica de mês/ano foi simplificada para `junho 2025`, acompanhando as planilhas recebidas pelo usuário; o formato completo por extenso continua `29 de junho de 2025`.
+- Na primeira conversão Texto → Data, se todos os valores válidos tiverem precisão de mês/ano, o servidor aplica `monthYear` mesmo quando a tela abriu inicialmente em “Dia, mês e ano”. Depois da conversão a pessoa ainda pode escolher outro formato explicitamente.
+- O diálogo mostra a melhoria esperada: `“junho- 2025” → “junho 2025”`, evitando sugerir que a única saída é limpar as células.
+- Verificação mantida: 59 testes, TypeScript e ESLint limpos.
+
 ## Modal de Colunas Arquivadas e melhorias de UX (2026-10-29)
 - **Colunas arquivadas (`ArchivedColumnsDialog` em `sheet-editor.tsx`):** redesenhado com largura `max-w-lg`, `panelClassName="!p-0 !pb-0 overflow-hidden"` para eliminar barra de rolagem externa na borda do card, cabeçalho fixo com contador e botão de fechar, barra de busca instantânea (`Buscar coluna arquivada…`), seleção múltipla com `Selecionar todas`, lista rolável interna (`max-h-[340px] overflow-y-auto scrollbar-thin`) exibindo ícone + nome + rótulo do tipo (`SHEET_COLUMN_TYPE_LABELS`), e rodapé fixo com restauração em lote (**Restaurar N selecionadas** / **Restaurar todas**) integrada a `setColumnsArchived`.
 - **Card "Planilha em branco":** removido de `sheet-grid.tsx` para deixar a grade limpa ao abrir planilhas novas.
@@ -306,3 +330,58 @@ Pedido: visualizar claramente o que mudou na planilha e conseguir voltar a um po
   - E-mail vem do banco (`getCurrentMembership().email`, campo novo), não do JWT.
 - Menu (`app/(dashboard)/layout.tsx` `showSheets`), páginas e todas as rotas `/api/sheets/*` usam a mesma regra. A API v1 (chave de API) não muda.
 - **Permissões por planilha (proprietário/editor/leitor/acesso geral): ADIADAS** a pedido do usuário. O rascunho fica no scratchpad da sessão (migration `20261029110000_sheets_permissions`: enums `SheetShareRole`/`SheetGeneralAccess`, `Sheet.ownerId`, `Sheet.generalAccess`, tabela `SheetPermission` com RLS; as planilhas que já existem viram `ORG_EDITOR` com o criador como dono). Nada disso está no schema nem no banco.
+
+## 2026-10-29 — Copiar/colar e exclusão bem definidos
+**Bugs de colar corrigidos (causa raiz):**
+- Corrida: o editor só "conhecia" linha nova depois da resposta do servidor. Duas gravações seguidas (ex.: colar bloco que passa da última coluna = colunas existentes + colunas novas) criavam as linhas novas 2× e o 2º pedaço caía mais abaixo. Agora: `applyChanges` é uma FILA (`applyQueue`); `rowsRef/totalRef/allTotalRef` atualizados na hora em `insertRows`/`setDeleted`; colar com colunas novas vai numa escrita só (`NewColumnsRequest.changes`).
+- Linha não carregada: colar/digitar abaixo das linhas carregadas virava linha nova no FIM da planilha. Agora `ensureLoaded(n)` carrega as linhas que faltam antes de gravar; a grade numera essas linhas pela posição real (`pendingRows`).
+- Lacunas: digitar/colar na linha 15 com dados até a 10 caía na 11 (e uma linha em branco no meio de um bloco colado fazia o resto subir). Agora cria as linhas vazias do meio, como no Excel. Exceção: coluna obrigatória (linha vazia seria recusada) → empilha no fim, como antes.
+- Colar lado a lado: se a seleção é múltipla exata do que foi copiado, repete (Excel). Menu "Colar" lê HTML também (`clipboard.read`).
+**Exclusão (modelo Excel):**
+- Delete/Backspace = só limpa conteúdo.
+- Ctrl+- : linhas inteiras → exclui linhas; colunas inteiras → exclui colunas; células comuns → caixa "Excluir" (Linha inteira / Coluna inteira) em `delete-dialog.tsx`. Sem "deslocar células" (cada linha é um registro).
+- Menu da célula: linha/coluna inteira mostra só a opção certa; células comuns mostram "Excluir Linha(s) da Planilha" e "Excluir Coluna(s) da Planilha".
+- Linha 1 (títulos) nunca é excluída — aviso para usar Delete. Colunas: sempre a mesma confirmação (`confirmDeleteColumns`), restaurável em Colunas Arquivadas. Linhas: sem confirmação, Ctrl+Z desfaz.
+- Faixa: "Excluir Linhas da Planilha" / "Excluir Colunas da Planilha".
+- e2e produção: passo 25 (linhas vazias no meio de um colar).
+
+## 2026-10-29 — Integração CRM: importar "Todos" (de 1.000 em 1.000)
+- `crm-data`: `?cursor=<id do último>` (keyset, ordem `createdAt desc, id desc`) e `?count=0` nas páginas seguintes. Antes era `skip` + ordem só por data: registros criados no mesmo instante (importação em massa) podiam pular/repetir entre páginas.
+- Diálogo: Máximo = 100 / 500 / 1.000 / **Todos**. Prévia traz a 1ª página; ao confirmar, produtor busca de 1.000 em 1.000 enquanto o consumidor grava o que já chegou (até 5.000 linhas por POST). Barra de progresso, botão Parar, erro no meio informa quantas linhas já entraram. Bloqueia acima de `rowsPerSheet` (50.000).
+- Medido em produção: 120.024 negócios / 155.197 clientes paginados por cursor sem repetir nem pular; inserir 1.000 linhas = 0,7 s, 5.000 = 2,4 s.
+
+## 2026-10-29 — Revisão (ajustes)
+- Digitar numa linha que existe no servidor mas não carregou (rolagem rápida) agora carrega antes e avisa — antes gravaria por cima de dado não visto. (Colar continua sobrescrevendo, como o Excel, depois de carregar.)
+- `ensureLoaded` mescla com o que a rolagem (`loadMore`) trouxe ao mesmo tempo, em vez de substituir.
+- `Math.max(...lista)` trocado por `reduce` em colar/criar colunas (colagem de centenas de milhares de células estourava a pilha).
+- Importar "Todos" do CRM: se registros somem do CRM no meio, o resultado avisa "Incompleto" com quantos faltaram.
+
+## 2026-10-29 — Clique direto no cliente/negócio abre a ficha na hora
+- **Célula de vínculo (`CONTACT` / `DEAL` em `sheet-grid.tsx`):** removido o bloqueio que exigia `Ctrl+clique`; agora um clique simples no nome do cliente/negócio (ou no ícone `ExternalLink` integrado ao link) abre `/clientes/[id]` ou `/negocios/[id]` imediatamente. Ao passar o mouse na célula, um botão discreto (`ChevronDown`, "Trocar cliente/negócio vinculado") permite abrir o seletor (`ReferenceEditor`) sem sair da planilha. Links `URL` e `EMAIL` também abrem com clique simples.
+- **Barra de Fórmulas (`sheet-editor.tsx`) e Seletor (`cell-editor.tsx`):** adicionado atalho direto **Abrir cliente / Abrir negócio** na barra de fórmulas quando uma célula vinculada está selecionada e no rodapé do `ReferenceEditor`.
+- Excluir linhas agora renumera na hora (rank de cada linha restante − nº de excluídas acima dela; busca binária). Antes a tela mantinha os números antigos (ex.: apagar 2..245 e a 246 continuar "246") até recarregar — e fórmulas digitadas depois usavam o número errado.
+
+## 2026-10-29 — Exclusão permanente de planilha
+- **API (`app/api/sheets/[id]/route.ts`, `lib/sheets/sheets.ts`):** adicionado método `DELETE` e função `deleteSheet(actor, id)`. A exclusão apaga a planilha do banco de dados em cascata (`SheetColumn`, `SheetRow`, `SheetRowLink`, `SheetActivity`) e registra o evento `SHEET_DELETED` no log de auditoria (`lib/audit-log.ts`).
+- **Listagem de Planilhas (`sheets-home.tsx`):** na aba **Arquivadas**, adicionado o botão vermelho **Apagar permanentemente** com diálogo de confirmação seguro (`ConfirmDialog` perigoso).
+- **Editor de Planilhas (`sheet-editor.tsx`, `ribbon.tsx`):** no menu **Arquivo** (Backstage), adicionada a opção **Apagar Permanentemente** com confirmação antes de redirecionar para `/planilhas`.
+
+## 2026-10-29 — Membro da equipe: vários por célula + "De → Para" na conversão
+- Config da coluna USER: `{ multiple: true }` → valor = lista de ids (máx. 20, sem repetir). Sem a opção, continua 1 id (lista de 1 vira o id). Helpers em column-types: `isMultiUserColumn`, `refIds`, `splitMemberNames` ("EDU/FELIPE", "Ana, Bia", "Ana e Bia").
+- Tudo que lia referência como string passou a usar `refIds` (existência no insert, nomes na tela/export, fórmulas, Localizar). Resumo agrupa POR MEMBRO (venda dividida conta para os dois, como MULTI_SELECT). Filtro "in"/"eq" já funciona (containment jsonb).
+- CRM: coluna com vários membros não aparece para enviar ao Responsável (que é 1); payload ignora célula com 2+.
+- Conversão Texto → Membro: 409 agora traz `invalidValues` (valores distintos + contagem, até 2.000). `updateColumn({ valueMap: { "FRED": [id], "EDU/FELIPE": [id1, id2] } })` grava o(s) membro(s) em todas as células com aquele texto; ids conferidos contra a equipe; 2+ membros exige `multiple`.
+- Tela: `member-mapping.tsx` (De → Para com sugestão automática de `lib/sheets/member-match.ts`: nome completo → primeiro nome → começo do nome → sobrenome → apelido 3+ letras; ambíguo não chuta). Botão "Permitir vários membros por célula" quando acha venda dividida; "Só limpar" mantém o jeito antigo. Editor de célula `MultiMemberEditor` (marca/desmarca, Concluir). Colar "EDU/FELIPE" numa coluna de vários resolve os dois nomes.
+- Teste com a equipe real (39 ativos): FRED, JOSE, KAREN, WANDER, RAPHAEL, FELIPE ICHIY, JEFERSON POM, EDU/FELIPE, EDU/FELIPE/RAPHA casaram sozinhos; FLAVIO/EDIR/KAM/KLEB/GUI sem membro ativo correspondente.
+- Testes: unitários 3 novos; e2e produção passo 26.
+- Redesenho do "Quem é quem?": agora é uma ETAPA própria do diálogo (modal max-w-3xl, sem o formulário de tipo em cima). Cabeçalho com explicação + barra de progresso (células com membro), opção "Uma venda pode ter mais de um consultor", abas "Faltam escolher / Já definidos / Todos" (abre em "Faltam"), tabela "Na planilha está → Membro da equipe" com seletor tipo combobox (busca, rádio ou caixas se vários), selo "sugerido". Rodapé fixo: aviso de quantas ficam em branco, "Converter N células", e "Prefiro apagar esses nomes" com confirmação. Sem o texto "não achei: …".
+- Inativos: lookup USER traz ativos + inativos (ativos primeiro, hint "Inativo"); De → Para prefere ativos e só usa inativo quando nenhum ativo bate; etiqueta "(inativo)".
+
+## 2026-10-29 — Catálogo de campos do CRM (continuação do GPT)
+- GPT: catálogo completo de campos (cliente/negócio, só leitura marcados), campos personalizados (`custom:<id>`), vínculo coluna→campo em `config.crm` (`crmBoundConfig`/`crmColumnBinding`), crm-data devolve os campos novos, diálogo de integração usa vínculo para casar colunas.
+- Ajuste: APIs de cliente/negócio — `customFieldValues` volta a SUBSTITUIR (a ficha manda tudo); novo `customFieldValuesPatch` mescla (só a planilha usa). Antes a mescla do GPT podia impedir apagar campo pela ficha.
+- Novo `crm-field-catalog.tsx` no diálogo de coluna: abas Negócio/Cliente, busca, escolher campo preenche nome/tipo/opções/casas e liga a coluna; trocar o tipo à mão desliga.
+## 2026-10-29 — Mover células e intervalos arrastando a borda (como no Excel)
+- **Arraste e solte de seleção (`sheet-grid.tsx`):** as 4 bordas da caixa de seleção (`xl-sel-box`) ganharam áreas interativas com `cursor: move`. Clicar e arrastar qualquer borda inicia o deslocamento de uma célula ou de um bloco inteiro de células.
+- **Contorno de destino e auto-rolagem:** durante o arraste, um retângulo pontilhado verde translúcido (`xl-move-box`) acompanha o ponteiro mostrando a posição exata de destino, integrado ao loop de auto-rolagem suave nas margens da grade.
+- **Aplicação e histórico (`applyMove`):** ao soltar o mouse, os valores, formatos e fórmulas são aplicados no destino e a origem não sobreposta é limpa. A seleção se ajusta ao novo local e a operação é gravada em um único passo no histórico do Ctrl+Z.

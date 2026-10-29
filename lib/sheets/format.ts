@@ -53,6 +53,13 @@ export function columnDecimals(col: ClientColumn): number | undefined {
   return typeof d === "number" ? d : undefined;
 }
 
+export type ColumnDateFormat = "short" | "monthYear" | "long";
+
+export function columnDateFormat(col: ClientColumn): ColumnDateFormat {
+  const format = (col.config as { dateFormat?: unknown } | null)?.dateFormat;
+  return format === "monthYear" || format === "long" || format === "short" ? format : "short";
+}
+
 export function columnOptions(col: ClientColumn): string[] {
   const o = (col.config as { options?: string[] } | null)?.options;
   return Array.isArray(o) ? o : [];
@@ -70,6 +77,15 @@ export function displayCell(col: ClientColumn, v: CellValue | undefined, refs: R
       return `${brNumber(v as number, columnDecimals(col))}%`;
     case "DATE": {
       const [y, m, d] = String(v).split("-");
+      const format = columnDateFormat(col);
+      if (format !== "short") {
+        const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+        const formatted = new Intl.DateTimeFormat("pt-BR", {
+          timeZone: "UTC",
+          ...(format === "monthYear" ? { month: "long", year: "numeric" } : { day: "numeric", month: "long", year: "numeric" }),
+        }).format(date);
+        return format === "monthYear" ? formatted.replace(/\s+de\s+/i, " ") : formatted;
+      }
       return `${d}/${m}/${y}`;
     }
     case "CHECKBOX":
@@ -85,7 +101,7 @@ export function displayCell(col: ClientColumn, v: CellValue | undefined, refs: R
     case "USER":
     case "CONTACT":
     case "DEAL":
-      return refs[String(v)] ?? "…";
+      return Array.isArray(v) ? v.map((id) => refs[id] ?? "…").join(", ") : (refs[String(v)] ?? "…");
     default:
       return String(v);
   }

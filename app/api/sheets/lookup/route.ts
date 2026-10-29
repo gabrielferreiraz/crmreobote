@@ -26,13 +26,21 @@ export async function GET(req: Request) {
 
   const items = await runWithTenant(organizationId, async () => {
     if (type === "USER") {
+      // ?all=1: a equipe inteira (o "De → Para" da conversão casa nomes com todo mundo de uma vez).
+      // Inativos entram também (planilha de vendas antigas tem consultor que já saiu), depois dos ativos.
+      const all = sp.get("all") === "1";
       const members = await prisma.organizationUser.findMany({
-        where: { organizationId, active: true, ...(q ? { user: { name: { contains: q, mode: "insensitive" } } } : {}) },
-        select: { userId: true, user: { select: { name: true, email: true } } },
-        take: 20,
-        orderBy: { user: { name: "asc" } },
+        where: { organizationId, ...(q ? { user: { name: { contains: q, mode: "insensitive" } } } : {}) },
+        select: { userId: true, active: true, user: { select: { name: true, email: true } } },
+        take: all ? 1_000 : 20,
+        orderBy: [{ active: "desc" }, { user: { name: "asc" } }],
       });
-      return members.map((m) => ({ id: m.userId, label: m.user.name ?? m.user.email ?? "Membro", hint: m.user.email ?? null }));
+      return members.map((m) => ({
+        id: m.userId,
+        label: m.user.name ?? m.user.email ?? "Membro",
+        hint: m.active ? (m.user.email ?? null) : `Inativo${m.user.email ? ` · ${m.user.email}` : ""}`,
+        inactive: !m.active,
+      }));
     }
     if (type === "CONTACT") {
       const contacts = await prisma.contact.findMany({

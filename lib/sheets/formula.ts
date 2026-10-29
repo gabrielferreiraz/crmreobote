@@ -2190,7 +2190,7 @@ export function storedToScalar(type: SheetColumnType, v: CellValue | undefined, 
     case "USER":
     case "CONTACT":
     case "DEAL":
-      return refs[String(v)] ?? "";
+      return Array.isArray(v) ? v.map((id) => refs[id] ?? "").join(", ") : (refs[String(v)] ?? "");
     default:
       return String(v);
   }

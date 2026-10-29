@@ -13,6 +13,7 @@ import {
   coerceCellValue,
   coerceRowPatch,
   isCheckboxLikeColumn,
+  isMonthYearDate,
   missingRequired,
   normalizeColumnConfig,
   parseLooseDate,
@@ -39,6 +40,20 @@ test("datas: DD/MM/AAAA, ISO e data impossível", () => {
   assert.equal(parseLooseDate("2026-03-05T10:00:00Z"), "2026-03-05");
   assert.equal(parseLooseDate("31/02/2026"), null);
   assert.equal(parseLooseDate("ontem"), null);
+});
+
+test("datas entendem mês/ano e português por extenso", () => {
+  assert.equal(parseLooseDate("outubro 2026"), "2026-10-01");
+  assert.equal(parseLooseDate("Outubro de 2026"), "2026-10-01");
+  assert.equal(parseLooseDate("junho- 2025"), "2025-06-01");
+  assert.equal(parseLooseDate("junho - 2025"), "2025-06-01");
+  assert.equal(parseLooseDate("junho / 2025"), "2025-06-01");
+  assert.equal(parseLooseDate("10/2026"), "2026-10-01");
+  assert.equal(parseLooseDate("2026-10"), "2026-10-01");
+  assert.equal(parseLooseDate("5 de março de 2026"), "2026-03-05");
+  assert.equal(parseLooseDate("31 de fevereiro de 2026"), null);
+  assert.equal(isMonthYearDate("outubro de 2026"), true);
+  assert.equal(isMonthYearDate("5 de outubro de 2026"), false);
 });
 
 test("vazio vira undefined (chave removida), exceto checkbox", () => {
@@ -104,6 +119,7 @@ test("obrigatória", () => {
 test("config por tipo: opções sem duplicata, lixo descartado", () => {
   assert.deepEqual(normalizeColumnConfig("SELECT", { options: ["A", "A", "B"], decimals: 2 }), { ok: true, config: { options: ["A", "B"] } });
   assert.deepEqual(normalizeColumnConfig("TEXT", { options: ["A"] }), { ok: true, config: {} });
+  assert.deepEqual(normalizeColumnConfig("DATE", { dateFormat: "monthYear", decimals: 2 }), { ok: true, config: { dateFormat: "monthYear" } });
   assert.equal(normalizeColumnConfig("NUMBER", { decimals: 99 }).ok, false);
 });
 
@@ -142,6 +158,8 @@ test("exibição por tipo (pt-BR)", () => {
   assert.equal(displayCell(ccol("CURRENCY"), 1500, {}), "R$ 1.500,00");
   assert.equal(displayCell(ccol("PERCENT"), 12.5, {}), "12,5%");
   assert.equal(displayCell(ccol("DATE"), "2026-11-10", {}), "10/11/2026");
+  assert.equal(displayCell(ccol("DATE", { dateFormat: "monthYear" }), "2026-10-01", {}), "outubro 2026");
+  assert.equal(displayCell(ccol("DATE", { dateFormat: "long" }), "2026-10-29", {}), "29 de outubro de 2026");
   assert.equal(displayCell(ccol("CPF"), "52998224725", {}), "529.982.247-25");
   assert.equal(displayCell(ccol("CONTACT"), "abc", { abc: "Maria" }), "Maria");
   assert.equal(displayCell(ccol("CHECKBOX"), true, {}), "Sim");
@@ -365,4 +383,63 @@ test("coluna sem título aparece como 'Coluna C' só na exibição", () => {
   assert.equal(columnLabelT({ name: "" }, 2), "Coluna C");
   assert.equal(columnLabelT({ name: "  " }, 27), "Coluna AB");
   assert.equal(columnLabelT({ name: "Valor" }, 2), "Valor");
+});
+
+// ─── Membro da equipe: vários por célula + "De → Para" ─────────────────
+import { coerceCellValue as coerceMU, normalizeColumnConfig as normCfg, splitMemberNames } from "@/lib/sheets/column-types";
+import { memberMatcher } from "@/lib/sheets/member-match";
+
+test("membro: vários por célula (lista de ids, sem repetir, limite) e um só", () => {
+  const multi = { id: "c", name: "Consultor", type: "USER" as const, config: { multiple: true }, required: false };
+  const single = { ...multi, config: {} };
+  const a = "cmaaaaaaaaaaaaaaaaaaaaaaa";
+  const b = "cmbbbbbbbbbbbbbbbbbbbbbbb";
+  assert.deepEqual(coerceMU(multi, [a, b, a]), [a, b]);
+  assert.deepEqual(coerceMU(multi, a), [a]);
+  assert.equal(coerceMU(multi, []), undefined);
+  assert.throws(() => coerceMU(multi, ["x"]));
+  assert.equal(coerceMU(single, [a]), a);
+  assert.throws(() => coerceMU(single, [a, b]));
+  assert.deepEqual(normCfg("USER", { multiple: true }), { ok: true, config: { multiple: true } });
+  assert.deepEqual(normCfg("USER", { multiple: false }), { ok: true, config: {} });
+});
+
+test("membro: separar nomes de venda dividida", () => {
+  assert.deepEqual(splitMemberNames("EDU/FELIPE/RAPHA"), ["EDU", "FELIPE", "RAPHA"]);
+  assert.deepEqual(splitMemberNames("Ana, Bia; Caio"), ["Ana", "Bia", "Caio"]);
+  assert.deepEqual(splitMemberNames("Ana e Bia"), ["Ana", "Bia"]);
+  assert.deepEqual(splitMemberNames("FELIPE ICHIY"), ["FELIPE ICHIY"]);
+});
+
+test("membro: sugestão do De → Para (único casa, ambíguo não chuta)", () => {
+  const match = memberMatcher([
+    { id: "fred", label: "Fred Lima" },
+    { id: "edu", label: "Eduardo Souza" },
+    { id: "felipe1", label: "Felipe Ichiyama" },
+    { id: "jose1", label: "José Silva" },
+    { id: "jose2", label: "José Pereira" },
+    { id: "rapha", label: "Raphael Costa" },
+    { id: "edu2", label: "Edu Martins" },
+  ]);
+  assert.deepEqual(match("FRED"), { ids: ["fred"], unresolved: [] });
+  assert.deepEqual(match("fred lima"), { ids: ["fred"], unresolved: [] });
+  assert.deepEqual(match("FELIPE ICHIY"), { ids: ["felipe1"], unresolved: [] });
+  assert.deepEqual(match("JOSE"), { ids: [], unresolved: ["JOSE"] });
+  assert.deepEqual(match("EDU/FELIPE"), { ids: ["edu2", "felipe1"], unresolved: [] });
+  assert.deepEqual(match("EDU/FELIPE/RAPHA"), { ids: ["edu2", "felipe1", "rapha"], unresolved: [] });
+  assert.deepEqual(match("JO"), { ids: [], unresolved: ["JO"] });
+  assert.deepEqual(match("RAPHAEL"), { ids: ["rapha"], unresolved: [] });
+});
+
+// ─── Catálogo de campos do CRM ─────────────────────────────────────────
+import { crmBoundConfig, crmColumnBinding } from "@/lib/sheets/crm-integration";
+
+test("crm: coluna ligada a um campo guarda o vínculo; envio de personalizado é patch", () => {
+  const field = CRM_CONNECTORS.deals.fields.find((f) => f.key === "value")!;
+  const cfg = normCfg("CURRENCY", crmBoundConfig("deals", field));
+  assert.ok(cfg.ok);
+  assert.deepEqual(crmColumnBinding(cfg.ok ? cfg.config : null), { entity: "deals", field: "value" });
+  assert.equal(crmColumnBinding({ crm: { entity: "x", field: "y" } }), null);
+  const payload = buildCrmUpdatePayload("deals", [{ fieldKey: "value", columnId: "c1" }, { fieldKey: "custom:abc", columnId: "c2" }, { fieldKey: "status", columnId: "c3" }], { c1: 1500, c2: "sim", c3: "Ganho" });
+  assert.deepEqual(payload, { value: 1500, customFieldValuesPatch: { abc: "sim" } });
 });

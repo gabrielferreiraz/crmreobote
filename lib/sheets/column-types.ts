@@ -73,8 +73,22 @@ export const columnConfigSchema = z
   .object({
     options: z.array(optionSchema).max(SHEET_LIMITS.optionsPerColumn).optional(),
     decimals: z.number().int().min(0).max(6).optional(),
+    /** Aparência de Data: completa, só mês/ano ou data por extenso. */
+    dateFormat: z.enum(["short", "monthYear", "long"]).optional(),
+    /** Membro da equipe: mais de um membro por célula (ex.: venda dividida "EDU/FELIPE"). */
+    multiple: z.boolean().optional(),
+    /** Campo do CRM ao qual esta coluna corresponde (mapeamento automático de puxar/enviar). */
+    crm: z
+      .object({
+        entity: z.enum(["contacts", "deals"]),
+        field: z.string().trim().min(1).max(160),
+      })
+      .optional(),
   })
   .default({});
+
+/** Máximo de membros numa célula de "Membro da equipe" com vários membros. */
+export const MAX_MEMBERS_PER_CELL = 20;
 
 export type SheetColumnConfig = z.infer<typeof columnConfigSchema>;
 
@@ -83,15 +97,38 @@ export function normalizeColumnConfig(type: SheetColumnType, raw: unknown): { ok
   const parsed = columnConfigSchema.safeParse(raw ?? {});
   if (!parsed.success) return { ok: false, error: "Configuração da coluna inválida" };
   const cfg = parsed.data;
+  const binding = cfg.crm ? { crm: cfg.crm } : {};
 
   if (type === "SELECT" || type === "MULTI_SELECT") {
     const options = [...new Set(cfg.options ?? [])];
-    return { ok: true, config: { options } };
+    return { ok: true, config: { ...binding, options } };
   }
   if (type === "NUMBER" || type === "CURRENCY" || type === "PERCENT") {
-    return { ok: true, config: cfg.decimals === undefined ? {} : { decimals: cfg.decimals } };
+    return { ok: true, config: cfg.decimals === undefined ? binding : { ...binding, decimals: cfg.decimals } };
   }
-  return { ok: true, config: {} };
+  if (type === "DATE") return { ok: true, config: cfg.dateFormat ? { ...binding, dateFormat: cfg.dateFormat } : binding };
+  if (type === "USER") return { ok: true, config: cfg.multiple ? { ...binding, multiple: true } : binding };
+  return { ok: true, config: binding };
+}
+
+/** Coluna "Membro da equipe" que aceita vários membros por célula (valor = lista de ids). */
+export function isMultiUserColumn(col: { type: SheetColumnType; config: unknown }): boolean {
+  return col.type === "USER" && !!(col.config as { multiple?: boolean } | null)?.multiple;
+}
+
+/** Ids de uma célula de referência (um id ou, em Membro com vários, a lista). */
+export function refIds(v: unknown): string[] {
+  if (typeof v === "string") return [v];
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
+  return [];
+}
+
+/** Separa "EDU/FELIPE", "Ana, Bia", "Fred; Zé", "Ana e Bia" nos nomes de cada membro. */
+export function splitMemberNames(text: string): string[] {
+  return text
+    .split(/\s*(?:[\/,;+&|]|\s+e\s+)\s*/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export type CellValue = string | number | boolean | string[];
@@ -144,19 +181,73 @@ export function parseLooseNumber(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Aceita "AAAA-MM-DD", "DD/MM/AAAA" e ISO completo; devolve "AAAA-MM-DD" ou null. */
-export function parseLooseDate(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const s = raw.trim();
-  let y: number, m: number, d: number;
-  const iso = DATE_ISO_RE.exec(s.slice(0, 10));
-  const br = DATE_BR_RE.exec(s);
-  if (iso) [y, m, d] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
-  else if (br) [y, m, d] = [Number(br[3]), Number(br[2]), Number(br[1])];
-  else return null;
+const MONTH_BY_WORD: Record<string, number> = {
+  janeiro: 1, jan: 1,
+  fevereiro: 2, fev: 2,
+  marco: 3, mar: 3,
+  abril: 4, abr: 4,
+  maio: 5, mai: 5,
+  junho: 6, jun: 6,
+  julho: 7, jul: 7,
+  agosto: 8, ago: 8,
+  setembro: 9, set: 9,
+  outubro: 10, out: 10,
+  novembro: 11, nov: 11,
+  dezembro: 12, dez: 12,
+};
+
+export type LooseDatePrecision = "day" | "month";
+
+function validDate(y: number, m: number, d: number, precision: LooseDatePrecision): { value: string; precision: LooseDatePrecision } | null {
   const dt = new Date(Date.UTC(y, m - 1, d));
   if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
-  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return { value: `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, precision };
+}
+
+/**
+ * Datas em português e formatos usuais de planilha. Mês/ano usa o primeiro
+ * dia internamente, mas preserva a precisão para a coluna poder exibir o mês.
+ */
+export function parseLooseDateInfo(raw: unknown): { value: string; precision: LooseDatePrecision } | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  const iso = DATE_ISO_RE.exec(s.slice(0, 10));
+  const br = DATE_BR_RE.exec(s);
+  if (iso) return validDate(Number(iso[1]), Number(iso[2]), Number(iso[3]), "day");
+  if (br) return validDate(Number(br[3]), Number(br[2]), Number(br[1]), "day");
+
+  const normalized = s
+    .toLocaleLowerCase("pt-BR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[–—]/g, "-")
+    .replace(/[,]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const numericMonth = /^(\d{1,2})[\/.-](\d{4})$/.exec(normalized);
+  if (numericMonth) return validDate(Number(numericMonth[2]), Number(numericMonth[1]), 1, "month");
+  const isoMonth = /^(\d{4})[\/.-](\d{1,2})$/.exec(normalized);
+  if (isoMonth) return validDate(Number(isoMonth[1]), Number(isoMonth[2]), 1, "month");
+  const writtenDay = /^(\d{1,2})\s*(?:(?:de|[\/.-])\s*)?([a-z]+)\s*(?:(?:de|[\/.-])\s*)?(\d{4})$/.exec(normalized);
+  if (writtenDay) {
+    const month = MONTH_BY_WORD[writtenDay[2]];
+    return month ? validDate(Number(writtenDay[3]), month, Number(writtenDay[1]), "day") : null;
+  }
+  const writtenMonth = /^([a-z]+)\s*(?:(?:de|[\/.-])\s*)?(\d{4})$/.exec(normalized);
+  if (writtenMonth) {
+    const month = MONTH_BY_WORD[writtenMonth[1]];
+    return month ? validDate(Number(writtenMonth[2]), month, 1, "month") : null;
+  }
+  return null;
+}
+
+/** Aceita também "outubro 2026", "10/2026" e "5 de outubro de 2026". */
+export function parseLooseDate(raw: unknown): string | null {
+  return parseLooseDateInfo(raw)?.value ?? null;
+}
+
+export function isMonthYearDate(raw: unknown): boolean {
+  return parseLooseDateInfo(raw)?.precision === "month";
 }
 
 export function parseLooseBoolean(raw: unknown): boolean | null {
@@ -223,7 +314,7 @@ export function coerceCellValue(col: ColumnLike, raw: unknown): CellValue | unde
     }
     case "DATE": {
       const d = parseLooseDate(raw);
-      if (!d) fail("precisa ser uma data válida (DD/MM/AAAA)");
+      if (!d) fail("precisa ser uma data válida (ex.: 29/10/2026 ou outubro de 2026)");
       return d!;
     }
     case "CHECKBOX": {
@@ -278,8 +369,19 @@ export function coerceCellValue(col: ColumnLike, raw: unknown): CellValue | unde
     case "USER":
     case "CONTACT":
     case "DEAL": {
-      if (typeof raw !== "string" || !CUID_LIKE_RE.test(raw)) fail("referência inválida");
-      return raw as string;
+      if (isMultiUserColumn(col)) {
+        // Vários membros: lista de ids (um id solto também vale), sem repetir.
+        const list = Array.isArray(raw) ? raw : [raw];
+        const ids = [...new Set(list.map((v) => (typeof v === "string" ? v.trim() : "")))];
+        if (ids.some((id) => !CUID_LIKE_RE.test(id))) fail("referência inválida");
+        if (ids.length > MAX_MEMBERS_PER_CELL) fail(`no máximo ${MAX_MEMBERS_PER_CELL} membros por célula`);
+        return ids.length ? ids : undefined;
+      }
+      // Um só: lista com um item vira o item (ex.: coluna que deixou de aceitar vários).
+      const one = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
+      if (Array.isArray(one)) fail("esta coluna aceita só um membro por célula");
+      if (typeof one !== "string" || !CUID_LIKE_RE.test(one)) fail("referência inválida");
+      return one as string;
     }
   }
 }

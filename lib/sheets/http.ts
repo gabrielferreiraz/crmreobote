@@ -48,6 +48,11 @@ export const updateColumnSchema = columnInputSchema.partial().extend({
   force: z.boolean().optional(),
   /** Resolução rápida para valores incompatíveis: limpar, converter para 0 ou adicionar às opções. */
   onInvalid: z.enum(["clear", "zero", "addOptions"]).optional(),
+  /**
+   * "De → Para" ao converter para Membro da equipe: texto da célula → membro(s).
+   * Ex.: { "FRED": ["<id do Fred Lima>"], "EDU/FELIPE": ["<id Edu>", "<id Felipe>"] }.
+   */
+  valueMap: z.record(z.string().max(1_000), z.array(z.string().regex(/^[a-z0-9]{10,40}$/i)).min(1).max(20)).optional(),
 });
 
 const rowExtras = z.object({ formats: z.record(z.string().max(64), z.unknown()).optional(), formulas: z.record(z.string().max(64), z.unknown()).optional() });

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Modal } from "@/components/modal";
-import { columnLetter, editText, isReferenceType, type ClientColumn, type ClientRow } from "@/lib/sheets/format";
+import { columnLetter, displayCell, editText, isReferenceType, type ClientColumn, type ClientRow } from "@/lib/sheets/format";
 
 export type FindOptions = { caseSensitive: boolean; wholeCell: boolean };
 export type FindMatch = { rowId: string; colId: string; rowNumber: number; colIndex: number; text: string };
@@ -53,7 +53,7 @@ export function FindReplaceDialog({
     rows.forEach((row, rowIndex) => {
       columns.forEach((col, colIndex) => {
         const formula = formulaText(row, col);
-        const text = formula ?? (isReferenceType(col.type) ? refs[String(row.values[col.id] ?? "")] ?? "" : editText(col, row.values[col.id]));
+        const text = formula ?? (isReferenceType(col.type) ? (row.values[col.id] === undefined ? "" : displayCell(col, row.values[col.id], refs)) : editText(col, row.values[col.id]));
         const candidate = caseSensitive ? text : text.toLocaleLowerCase("pt-BR");
         const hit = wholeCell ? candidate === needle : candidate.includes(needle);
         if (hit) out.push({ rowId: row.id, colId: col.id, rowNumber: (row.rank ?? rowIndex + 1) + 1, colIndex, text });
